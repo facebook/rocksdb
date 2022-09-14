@@ -336,7 +336,7 @@ Status StressTest::GetInitialTrackedContents(
           static_cast<uint64_t>(TxnDBWritePolicy::WRITE_COMMITTED)) {
     // For stress testing on write-committeed transactions,
     // the trace of a recovered prepared-not-committeed transaction
-    // will be splitted into two parts:
+    // will be split into two parts:
     //
     // (1) the trace of prepared content, located in .trace file of
     // previous stress-test run
@@ -346,7 +346,7 @@ Status StressTest::GetInitialTrackedContents(
     // in ProcessRecoveredPreparedTxns().
     //
     // In order for such transaction to survive a crash and recover
-    // correctly in the next stress-test run, we need to explictly
+    // correctly in the next stress-test run, we need to explicitly
     // add the deleted part (1) into initial tracked contents of
     // the .trace file where part(2) will be located.
     assert(txn_db_);

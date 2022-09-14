@@ -556,7 +556,7 @@ class DBImpl : public DB {
     std::list<WriteBatch*> initial_traced_contents;
     return StartTrace(options, std::move(trace_writer),
                       initial_traced_contents);
-  };
+  }
 
   Status StartTrace(const TraceOptions& options,
                     std::unique_ptr<TraceWriter>&& trace_writer,
