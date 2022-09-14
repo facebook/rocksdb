@@ -127,6 +127,22 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                          6 /* hard coded 6 probes */,
                          moptions_.memtable_huge_page_size, ioptions.logger));
   }
+  // Initialize cached_range_tombstone_ here since it could
+  // be read before it is constructed in MemTable::Add(), which could also lead
+  // to a data race on the global mutex table backing atomic shared_ptr.
+  auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
+  size_t size = cached_range_tombstone_.Size();
+  for (size_t i = 0; i < size; ++i) {
+    std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
+        cached_range_tombstone_.AccessAtCore(i);
+    auto new_local_cache_ref = std::make_shared<
+        const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+    std::atomic_store_explicit(
+        local_cache_ref_ptr,
+        std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
+                                                           new_cache.get()),
+        std::memory_order_relaxed);
+  }
 }
 
 MemTable::~MemTable() {
@@ -541,7 +557,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options, SequenceNumber read_seq,
     bool immutable_memtable) {
   if (read_options.ignore_range_deletions ||
-      is_range_del_table_empty_.load(std::memory_order_acquire)) {
+      is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     return nullptr;
   }
   return NewRangeTombstoneIteratorInternal(read_options, read_seq,
@@ -855,7 +871,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     if (allow_concurrent) {
       range_del_mutex_.unlock();
     }
-    is_range_del_table_empty_.store(false, std::memory_order_release);
+    is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();
 
@@ -1210,7 +1226,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   // range tombstones. This is the simplest way to ensure range tombstones are
   // handled. TODO: allow Bloom checks where max_covering_tombstone_seq==0
   bool no_range_del = read_options.ignore_range_deletions ||
-                      is_range_del_table_empty_.load(std::memory_order_acquire);
+                      is_range_del_table_empty_.load(std::memory_order_relaxed);
   MultiGetRange temp_range(*range, range->begin(), range->end());
   if (bloom_filter_ && no_range_del) {
     bool whole_key =
