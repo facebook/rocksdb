@@ -2655,7 +2655,7 @@ Status Version::ProcessBatch(
     autovector<FilePickerMultiGet, 4>& batches, std::deque<size_t>& waiting,
     std::deque<size_t>& to_process, unsigned int& num_tasks_queued,
     std::unordered_map<int, std::tuple<uint64_t, uint64_t, uint64_t>>&
-      mget_stats) {
+        mget_stats) {
   FilePickerMultiGet& fp = *batch;
   MultiGetRange range = fp.GetRange();
   // Initialize a new empty range. Any keys that are not in this level will
@@ -2844,8 +2844,8 @@ Status Version::MultiGetAsync(
       num_levels++;
     }
 
-    uint64_t num_meta_reads = std::get<0>(stat.second) +
-      std::get<1>(stat.second);
+    uint64_t num_meta_reads =
+        std::get<0>(stat.second) + std::get<1>(stat.second);
     uint64_t num_sst_reads = std::get<2>(stat.second);
     if (num_meta_reads > 0) {
       RecordInHistogram(db_statistics_,
@@ -2857,8 +2857,7 @@ Status Version::MultiGetAsync(
     }
   }
   if (num_levels > 0) {
-    RecordInHistogram(db_statistics_, NUM_LEVEL_READ_PER_MULTIGET,
-                      num_levels);
+    RecordInHistogram(db_statistics_, NUM_LEVEL_READ_PER_MULTIGET, num_levels);
   }
 
   return s;
