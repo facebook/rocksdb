@@ -541,7 +541,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options, SequenceNumber read_seq,
     bool immutable_memtable) {
   if (read_options.ignore_range_deletions ||
-      is_range_del_table_empty_.load(std::memory_order_relaxed)) {
+      is_range_del_table_empty_.load(std::memory_order_acquire)) {
     return nullptr;
   }
   return NewRangeTombstoneIteratorInternal(read_options, read_seq,
@@ -855,7 +855,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     if (allow_concurrent) {
       range_del_mutex_.unlock();
     }
-    is_range_del_table_empty_.store(false, std::memory_order_relaxed);
+    is_range_del_table_empty_.store(false, std::memory_order_release);
   }
   UpdateOldestKeyTime();
 
@@ -1210,7 +1210,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   // range tombstones. This is the simplest way to ensure range tombstones are
   // handled. TODO: allow Bloom checks where max_covering_tombstone_seq==0
   bool no_range_del = read_options.ignore_range_deletions ||
-                      is_range_del_table_empty_.load(std::memory_order_relaxed);
+                      is_range_del_table_empty_.load(std::memory_order_acquire);
   MultiGetRange temp_range(*range, range->begin(), range->end());
   if (bloom_filter_ && no_range_del) {
     bool whole_key =
