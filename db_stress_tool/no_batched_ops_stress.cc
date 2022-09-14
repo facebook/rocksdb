@@ -336,6 +336,9 @@ class NonBatchedOpsStressTest : public StressTest {
       SharedState::ignore_read_error = false;
     }
 
+    std::unique_ptr<MutexLock> lock(new MutexLock(
+        thread->shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
+
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
     Slice read_ts_slice;
@@ -656,14 +659,16 @@ class NonBatchedOpsStressTest : public StressTest {
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                  const ReadOptions& read_opts,
                  const std::vector<int>& rand_column_families,
-                 const std::vector<int64_t>& rand_keys, char (&value)[100],
-                 std::unique_ptr<MutexLock>& lock) override {
+                 const std::vector<int64_t>& rand_keys,
+                 char (&value)[100]) override {
     auto shared = thread->shared;
     int64_t max_key = shared->GetMaxKey();
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
     std::string write_ts_str;
     Slice write_ts;
+    std::unique_ptr<MutexLock> lock(
+        new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
     while (!shared->AllowsOverwrite(rand_key) &&
            (FLAGS_use_merge || shared->Exists(rand_column_family, rand_key))) {
       lock.reset();
@@ -758,11 +763,13 @@ class NonBatchedOpsStressTest : public StressTest {
 
   Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
                     const std::vector<int>& rand_column_families,
-                    const std::vector<int64_t>& rand_keys,
-                    std::unique_ptr<MutexLock>& /* lock */) override {
+                    const std::vector<int64_t>& rand_keys) override {
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
     auto shared = thread->shared;
+
+    std::unique_ptr<MutexLock> lock(
+        new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
 
     // OPERATION delete
     std::string write_ts_str = GetNowNanos();
@@ -855,8 +862,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
   Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
                          const std::vector<int>& rand_column_families,
-                         const std::vector<int64_t>& rand_keys,
-                         std::unique_ptr<MutexLock>& lock) override {
+                         const std::vector<int64_t>& rand_keys) override {
     // OPERATION delete range
     std::vector<std::unique_ptr<MutexLock>> range_locks;
     // delete range does not respect disallowed overwrites. the keys for
@@ -868,16 +874,12 @@ class NonBatchedOpsStressTest : public StressTest {
     auto shared = thread->shared;
     int64_t max_key = shared->GetMaxKey();
     if (rand_key > max_key - FLAGS_range_deletion_width) {
-      lock.reset();
       rand_key =
           thread->rand.Next() % (max_key - FLAGS_range_deletion_width + 1);
-      range_locks.emplace_back(
-          new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
-    } else {
-      range_locks.emplace_back(std::move(lock));
     }
-    for (int j = 1; j < FLAGS_range_deletion_width; ++j) {
-      if (((rand_key + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
+    for (int j = 0; j < FLAGS_range_deletion_width; ++j) {
+      if (j == 0 ||
+          ((rand_key + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
         range_locks.emplace_back(new MutexLock(
             shared->GetMutexForKey(rand_column_family, rand_key + j)));
       }
@@ -918,8 +920,7 @@ class NonBatchedOpsStressTest : public StressTest {
   void TestIngestExternalFile(
       ThreadState* /* thread */,
       const std::vector<int>& /* rand_column_families */,
-      const std::vector<int64_t>& /* rand_keys */,
-      std::unique_ptr<MutexLock>& /* lock */) override {
+      const std::vector<int64_t>& /* rand_keys */) override {
     assert(false);
     fprintf(stderr,
             "RocksDB lite does not support "
@@ -929,8 +930,7 @@ class NonBatchedOpsStressTest : public StressTest {
 #else
   void TestIngestExternalFile(ThreadState* thread,
                               const std::vector<int>& rand_column_families,
-                              const std::vector<int64_t>& rand_keys,
-                              std::unique_ptr<MutexLock>& lock) override {
+                              const std::vector<int64_t>& rand_keys) override {
     const std::string sst_filename =
         FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
     Status s;
@@ -960,9 +960,8 @@ class NonBatchedOpsStressTest : public StressTest {
          s.ok() && key < shared->GetMaxKey() &&
          static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
          ++key) {
-      if (key == key_base) {
-        range_locks.emplace_back(std::move(lock));
-      } else if ((key & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
+      if (key == key_base ||
+          (key & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
         range_locks.emplace_back(
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
@@ -1006,8 +1005,7 @@ class NonBatchedOpsStressTest : public StressTest {
   Status TestIterateAgainstExpected(
       ThreadState* thread, const ReadOptions& read_opts,
       const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys,
-      std::unique_ptr<MutexLock>& lock) override {
+      const std::vector<int64_t>& rand_keys) override {
     // Lock the whole range over which we might iterate to ensure it doesn't
     // change under us.
     std::vector<std::unique_ptr<MutexLock>> range_locks;
@@ -1016,15 +1014,10 @@ class NonBatchedOpsStressTest : public StressTest {
     auto shared = thread->shared;
     int64_t max_key = shared->GetMaxKey();
     if (static_cast<uint64_t>(lb) > max_key - FLAGS_num_iterations) {
-      lock.reset();
       lb = thread->rand.Next() % (max_key - FLAGS_num_iterations + 1);
-      range_locks.emplace_back(
-          new MutexLock(shared->GetMutexForKey(rand_column_family, lb)));
-    } else {
-      range_locks.emplace_back(std::move(lock));
     }
-    for (int j = 1; j < static_cast<int>(FLAGS_num_iterations); ++j) {
-      if (((lb + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
+    for (int j = 0; j < static_cast<int>(FLAGS_num_iterations); ++j) {
+      if (j == 0 || ((lb + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
         range_locks.emplace_back(
             new MutexLock(shared->GetMutexForKey(rand_column_family, lb + j)));
       }
