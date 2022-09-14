@@ -132,6 +132,27 @@ class SkipEvenFilter : public CompactionFilter {
   const char* Name() const override { return "DeleteFilter"; }
 };
 
+// Skip x if x is Odd, use single skip.
+class SkipEvenFilterV2 : public CompactionFilter {
+ public:
+  Decision FilterV2(int /*level*/, const Slice& key, ValueType /*value_type*/,
+                    const Slice& /*existing_value*/, std::string* /*new_value*/,
+                    std::string* skip_until) const override {
+    skip_until->clear();
+    cfilter_count++;
+    int i = std::stoi(key.ToString());
+    if (i % 2 == 1) {
+      ++cfilter_skips;
+      return Decision::kRemoveAndSkip;
+    }
+    return Decision::kKeep;
+  }
+
+  bool IgnoreSnapshots() const override { return true; }
+
+  const char* Name() const override { return "DeleteFilterV2"; }
+};
+
 class ConditionalFilter : public CompactionFilter {
  public:
   explicit ConditionalFilter(const std::string* filtered_value)
@@ -254,6 +275,20 @@ class SkipEvenFilterFactory : public CompactionFilterFactory {
   }
 
   const char* Name() const override { return "SkipEvenFilterFactory"; }
+};
+
+class SkipEvenFilterFactoryV2 : public CompactionFilterFactory {
+ public:
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& context) override {
+    if (context.is_manual_compaction) {
+      return std::unique_ptr<CompactionFilter>(new SkipEvenFilterV2());
+    } else {
+      return std::unique_ptr<CompactionFilter>(nullptr);
+    }
+  }
+
+  const char* Name() const override { return "SkipEvenFilterFactoryV2"; }
 };
 
 class ConditionalFilterFactory : public CompactionFilterFactory {
@@ -841,6 +876,47 @@ TEST_F(DBTestCompactionFilter, SkipUntil) {
       std::string val;
       Status s = db_->Get(ReadOptions(), key, &val);
       if (k / 10 % 2 == 0) {
+        ASSERT_TRUE(s.IsNotFound());
+      } else {
+        ASSERT_OK(s);
+        ASSERT_EQ(expected, val);
+      }
+    }
+  }
+}
+
+TEST_F(DBTestCompactionFilter, Skip) {
+  Options options = CurrentOptions();
+  options.compaction_filter_factory = std::make_shared<SkipEvenFilterFactoryV2>();
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  // Write 100K keys, these are written to a few files in L0.
+  for (int table = 0; table < 4; ++table) {
+    // Key ranges in tables are [0, 38], [106, 149], [212, 260], [318, 371].
+    for (int i = table * 6; i < 39 + table * 11; ++i) {
+      char key[100];
+      snprintf(key, sizeof(key), "%010d", table * 100 + i);
+      ASSERT_OK(Put(key, std::to_string(table * 1000 + i)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  cfilter_skips = 0;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // Number of skips in tables: 19, 22, 24, 27.
+  ASSERT_EQ(92, cfilter_skips);
+
+  for (int table = 0; table < 4; ++table) {
+    for (int i = table * 6; i < 39 + table * 11; ++i) {
+      int k = table * 100 + i;
+      char key[100];
+      snprintf(key, sizeof(key), "%010d", table * 100 + i);
+      auto expected = std::to_string(table * 1000 + i);
+      std::string val;
+      Status s = db_->Get(ReadOptions(), key, &val);
+      if (k % 2 == 1) {
         ASSERT_TRUE(s.IsNotFound());
       } else {
         ASSERT_OK(s);

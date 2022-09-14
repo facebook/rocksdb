@@ -280,7 +280,7 @@ class CompactionIterator {
 
   // Invoke compaction filter if needed.
   // Return true on success, false on failures (e.g.: kIOError).
-  bool InvokeFilterIfNeeded(bool* need_skip, Slice* skip_until);
+  bool InvokeFilterIfNeeded(bool* need_skip, bool* just_skip_current_user_key, Slice* skip_until);
 
   // Given a sequence number, return the sequence number of the
   // earliest snapshot that this sequence number is visible in.
