@@ -1867,31 +1867,34 @@ TEST_F(CompactionJobTimestampTestWithBbTable, SubcompactionAnchor) {
   const std::vector<std::string> keys = {
       KeyStr("a", 20, ValueType::kTypeValue, 200),
       KeyStr("b", 21, ValueType::kTypeValue, 210),
+      KeyStr("b", 20, ValueType::kTypeValue, 200),
       KeyStr("b", 18, ValueType::kTypeValue, 180),
       KeyStr("c", 17, ValueType::kTypeValue, 170),
       KeyStr("c", 16, ValueType::kTypeValue, 160),
       KeyStr("c", 15, ValueType::kTypeValue, 150)};
-  const std::vector<std::string> values = {"a20", "b21", "b18",
+  const std::vector<std::string> values = {"a20", "b21", "b20", "b18",
                                            "c17", "c16", "c15"};
 
   constexpr int input_level = 1;
 
-  auto file1 = mock::MakeMockFile({{keys[0], values[0]}, {keys[1], values[1]}});
+  auto file1 = mock::MakeMockFile(
+      {{keys[0], values[0]}, {keys[1], values[1]}, {keys[2], values[2]}});
   AddMockFile(file1, input_level);
 
-  auto file2 = mock::MakeMockFile({{keys[2], values[2]}, {keys[3], values[3]}});
+  auto file2 = mock::MakeMockFile(
+      {{keys[3], values[3]}, {keys[4], values[4]}, {keys[5], values[5]}});
   AddMockFile(file2, input_level);
 
-  auto file3 = mock::MakeMockFile({{keys[4], values[4]}, {keys[5], values[5]}});
+  auto file3 = mock::MakeMockFile({{keys[6], values[6]}});
   AddMockFile(file3, input_level);
 
   SetLastSequence(20);
 
   auto output1 = mock::MakeMockFile({{keys[0], values[0]}});
-  auto output2 =
-      mock::MakeMockFile({{keys[1], values[1]}, {keys[2], values[2]}});
+  auto output2 = mock::MakeMockFile(
+      {{keys[1], values[1]}, {keys[2], values[2]}, {keys[3], values[3]}});
   auto output3 = mock::MakeMockFile(
-      {{keys[3], values[3]}, {keys[4], values[4]}, {keys[5], values[5]}});
+      {{keys[4], values[4]}, {keys[5], values[5]}, {keys[6], values[6]}});
 
   auto expected_results =
       std::vector<mock::KVVector>{output1, output2, output3};
