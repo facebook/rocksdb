@@ -115,6 +115,27 @@ TEST_P(TransactionTest, WithoutCommitTs) {
   ASSERT_TRUE(s.IsInvalidArgument());
 }
 
+TEST_P(TransactionTest, ReuseExistingTxn) {
+  Transaction* txn = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  assert(txn);
+  ASSERT_OK(txn->SetName("txn0"));
+  ASSERT_OK(txn->Put("a", "v"));
+  ASSERT_OK(txn->Prepare());
+  Status s =
+      txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, /*commit_ts=*/100);
+  ASSERT_OK(s);
+
+  Transaction* txn1 =
+      db->BeginTransaction(WriteOptions(), TransactionOptions(), txn);
+  assert(txn1 == txn);
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn->Put("a", "v"));
+  ASSERT_OK(txn->Prepare());
+  s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, /*commit_ts=*/110);
+  ASSERT_OK(s);
+  delete txn;
+}
+
 TEST_P(TransactionTest, CreateSnapshotWhenCommit) {
   std::unique_ptr<Transaction> txn(
       db->BeginTransaction(WriteOptions(), TransactionOptions()));
