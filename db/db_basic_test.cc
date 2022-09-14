@@ -2036,7 +2036,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSize) {
 
 TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
   if (std::get<1>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test needs to be fixed for async IO");
+    ROCKSDB_GTEST_BYPASS("This test needs to be fixed for async IO");
     return;
   }
   // Skip for unbatched MultiGet
