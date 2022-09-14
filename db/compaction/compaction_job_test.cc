@@ -390,60 +390,81 @@ class CompactionJobTestBase : public testing::Test {
     mutex_.Unlock();
   }
 
-  void VerifyTable(int output_level, const mock::KVVector& expected_results,
-                   uint64_t expected_oldest_blob_file_number) {
+  void VerifyTables(int output_level,
+                    const std::vector<mock::KVVector>& expected_results,
+                    std::vector<uint64_t> expected_oldest_blob_file_numbers) {
     if (expected_results.empty()) {
       ASSERT_EQ(compaction_job_stats_.num_output_files, 0U);
       return;
     }
+    int expected_output_file_num = 0;
+    for (const auto& e : expected_results) {
+      if (!e.empty()) {
+        ++expected_output_file_num;
+      }
+    }
+    ASSERT_EQ(expected_output_file_num, compaction_job_stats_.num_output_files);
+    if (expected_output_file_num == 0) {
+      return;
+    }
+
+    if (expected_oldest_blob_file_numbers.empty()) {
+      expected_oldest_blob_file_numbers.resize(expected_output_file_num,
+                                               kInvalidBlobFileNumber);
+    }
 
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
-    ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
     if (table_type_ == TableTypeForTest::kMockTable) {
-      mock_table_factory_->AssertLatestFile(expected_results);
+      assert(expected_results.size() == 1);
+      mock_table_factory_->AssertLatestFile(expected_results[0]);
     } else {
       assert(table_type_ == TableTypeForTest::kBlockBasedTable);
     }
 
     auto output_files =
         cfd->current()->storage_info()->LevelFiles(output_level);
-    ASSERT_EQ(output_files.size(), 1);
-    const FileMetaData* const output_file = output_files[0];
-    ASSERT_EQ(output_file->oldest_blob_file_number,
-              expected_oldest_blob_file_number);
+    ASSERT_EQ(expected_output_file_num, output_files.size());
 
     if (table_type_ == TableTypeForTest::kMockTable) {
+      assert(output_files.size() == 1);
+      const FileMetaData* const output_file = output_files[0];
+      ASSERT_EQ(output_file->oldest_blob_file_number,
+                expected_oldest_blob_file_numbers[0]);
       return;
     }
 
-    std::string file_name = GenerateFileName(output_file->fd.GetNumber());
-    const auto& fs = env_->GetFileSystem();
-    std::unique_ptr<RandomAccessFileReader> freader;
-    IOStatus ios = RandomAccessFileReader::Create(fs, file_name, FileOptions(),
-                                                  &freader, nullptr);
-    ASSERT_OK(ios);
-    std::unique_ptr<TableReader> table_reader;
-    uint64_t file_size = output_file->fd.GetFileSize();
-    ReadOptions read_opts;
-    Status s = cf_options_.table_factory->NewTableReader(
-        read_opts,
-        TableReaderOptions(*cfd->ioptions(), nullptr, FileOptions(),
-                           cfd_->internal_comparator()),
-        std::move(freader), file_size, &table_reader, false);
-    ASSERT_OK(s);
-    assert(table_reader);
-    std::unique_ptr<InternalIterator> iiter(table_reader->NewIterator(
-        read_opts, nullptr, nullptr, true, TableReaderCaller::kUncategorized));
-    assert(iiter);
+    for (size_t i = 0; i < expected_results.size(); ++i) {
+      const FileMetaData* const output_file = output_files[i];
+      std::string file_name = GenerateFileName(output_file->fd.GetNumber());
+      const auto& fs = env_->GetFileSystem();
+      std::unique_ptr<RandomAccessFileReader> freader;
+      IOStatus ios = RandomAccessFileReader::Create(
+          fs, file_name, FileOptions(), &freader, nullptr);
+      ASSERT_OK(ios);
+      std::unique_ptr<TableReader> table_reader;
+      uint64_t file_size = output_file->fd.GetFileSize();
+      ReadOptions read_opts;
+      Status s = cf_options_.table_factory->NewTableReader(
+          read_opts,
+          TableReaderOptions(*cfd->ioptions(), nullptr, FileOptions(),
+                             cfd_->internal_comparator()),
+          std::move(freader), file_size, &table_reader, false);
+      ASSERT_OK(s);
+      assert(table_reader);
+      std::unique_ptr<InternalIterator> iiter(
+          table_reader->NewIterator(read_opts, nullptr, nullptr, true,
+                                    TableReaderCaller::kUncategorized));
+      assert(iiter);
 
-    mock::KVVector from_db;
-    for (iiter->SeekToFirst(); iiter->Valid(); iiter->Next()) {
-      const Slice key = iiter->key();
-      const Slice value = iiter->value();
-      from_db.emplace_back(
-          make_pair(key.ToString(false), value.ToString(false)));
+      mock::KVVector from_db;
+      for (iiter->SeekToFirst(); iiter->Valid(); iiter->Next()) {
+        const Slice key = iiter->key();
+        const Slice value = iiter->value();
+        from_db.emplace_back(
+            make_pair(key.ToString(false), value.ToString(false)));
+      }
+      ASSERT_EQ(expected_results[i], from_db);
     }
-    ASSERT_EQ(expected_results, from_db);
   }
 
   void SetLastSequence(const SequenceNumber sequence_number) {
@@ -562,7 +583,7 @@ class CompactionJobTestBase : public testing::Test {
     const int kLastLevel = cf_options_.num_levels - 1;
     verify_per_key_placement_ = std::move(verify_func);
     mock::KVVector empty_map;
-    RunCompaction(input_files, input_levels, empty_map, snapshots,
+    RunCompaction(input_files, input_levels, {empty_map}, snapshots,
                   kMaxSequenceNumber, kLastLevel, false);
   }
 
@@ -570,11 +591,11 @@ class CompactionJobTestBase : public testing::Test {
   void RunCompaction(
       const std::vector<std::vector<FileMetaData*>>& input_files,
       const std::vector<int>& input_levels,
-      const mock::KVVector& expected_results,
+      const std::vector<mock::KVVector>& expected_results,
       const std::vector<SequenceNumber>& snapshots = {},
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
       int output_level = 1, bool verify = true,
-      uint64_t expected_oldest_blob_file_number = kInvalidBlobFileNumber,
+      std::vector<uint64_t> expected_oldest_blob_file_numbers = {},
       bool check_get_priority = false,
       Env::IOPriority read_io_priority = Env::IO_TOTAL,
       Env::IOPriority write_io_priority = Env::IO_TOTAL,
@@ -643,8 +664,8 @@ class CompactionJobTestBase : public testing::Test {
       ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
       ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
 
-      VerifyTable(output_level, expected_results,
-                  expected_oldest_blob_file_number);
+      VerifyTables(output_level, expected_results,
+                   expected_oldest_blob_file_numbers);
     }
 
     if (check_get_priority) {
@@ -727,7 +748,7 @@ TEST_F(CompactionJobTest, Simple) {
   constexpr int input_level = 0;
   auto files = cfd->current()->storage_info()->LevelFiles(input_level);
   ASSERT_EQ(2U, files.size());
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTest, DISABLED_SimpleCorrupted) {
@@ -737,7 +758,7 @@ TEST_F(CompactionJobTest, DISABLED_SimpleCorrupted) {
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   constexpr int input_level = 0;
   auto files = cfd->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
   ASSERT_EQ(compaction_job_stats_.num_corrupt_keys, 400U);
 }
 
@@ -758,7 +779,7 @@ TEST_F(CompactionJobTest, SimpleDeletion) {
   SetLastSequence(4U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTest, OutputNothing) {
@@ -778,7 +799,7 @@ TEST_F(CompactionJobTest, OutputNothing) {
 
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTest, SimpleOverwrite) {
@@ -801,7 +822,7 @@ TEST_F(CompactionJobTest, SimpleOverwrite) {
   SetLastSequence(4U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTest, SimpleNonLastLevel) {
@@ -833,7 +854,7 @@ TEST_F(CompactionJobTest, SimpleNonLastLevel) {
       cfd_->current()->storage_info()->LevelFiles(input_levels[0]);
   auto lvl1_files =
       cfd_->current()->storage_info()->LevelFiles(input_levels[1]);
-  RunCompaction({lvl0_files, lvl1_files}, input_levels, expected_results);
+  RunCompaction({lvl0_files, lvl1_files}, input_levels, {expected_results});
 }
 
 TEST_F(CompactionJobTest, SimpleMerge) {
@@ -858,7 +879,7 @@ TEST_F(CompactionJobTest, SimpleMerge) {
   SetLastSequence(5U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTest, NonAssocMerge) {
@@ -883,7 +904,7 @@ TEST_F(CompactionJobTest, NonAssocMerge) {
   SetLastSequence(5U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 // Filters merge operands with value 10.
@@ -911,7 +932,7 @@ TEST_F(CompactionJobTest, MergeOperandFilter) {
   SetLastSequence(5U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTest, FilterSomeMergeOperands) {
@@ -948,7 +969,7 @@ TEST_F(CompactionJobTest, FilterSomeMergeOperands) {
   SetLastSequence(5U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 // Test where all operands/merge results are filtered out.
@@ -985,7 +1006,7 @@ TEST_F(CompactionJobTest, FilterAllMergeOperands) {
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
 
   mock::KVVector empty_map;
-  RunCompaction({files}, {input_level}, empty_map);
+  RunCompaction({files}, {input_level}, {empty_map});
 }
 
 TEST_F(CompactionJobTest, SimpleSingleDelete) {
@@ -1012,7 +1033,7 @@ TEST_F(CompactionJobTest, SimpleSingleDelete) {
   SetLastSequence(6U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTest, SingleDeleteSnapshots) {
@@ -1078,7 +1099,7 @@ TEST_F(CompactionJobTest, SingleDeleteSnapshots) {
   SetLastSequence(22U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results, {10U, 20U}, 10U);
+  RunCompaction({files}, {input_level}, {expected_results}, {10U, 20U}, 10U);
 }
 
 TEST_F(CompactionJobTest, EarliestWriteConflictSnapshot) {
@@ -1157,7 +1178,8 @@ TEST_F(CompactionJobTest, EarliestWriteConflictSnapshot) {
   SetLastSequence(24U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results, {10U, 20U, 30U}, 20U);
+  RunCompaction({files}, {input_level}, {expected_results}, {10U, 20U, 30U},
+                20U);
 }
 
 TEST_F(CompactionJobTest, SingleDeleteZeroSeq) {
@@ -1181,7 +1203,7 @@ TEST_F(CompactionJobTest, SingleDeleteZeroSeq) {
   SetLastSequence(22U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results, {});
+  RunCompaction({files}, {input_level}, {expected_results}, {});
 }
 
 TEST_F(CompactionJobTest, MultiSingleDelete) {
@@ -1337,7 +1359,7 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
   SetLastSequence(22U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results, {10U}, 10U);
+  RunCompaction({files}, {input_level}, {expected_results}, {10U}, 10U);
 }
 
 // This test documents the behavior where a corrupt key follows a deletion or a
@@ -1368,7 +1390,7 @@ TEST_F(CompactionJobTest, DISABLED_CorruptionAfterDeletion) {
   SetLastSequence(6U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTest, OldestBlobFileNumber) {
@@ -1415,10 +1437,10 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
   SetLastSequence(6U);
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results,
+  RunCompaction({files}, {input_level}, {expected_results},
                 std::vector<SequenceNumber>(), kMaxSequenceNumber,
                 /* output_level */ 1, /* verify */ true,
-                /* expected_oldest_blob_file_number */ 19);
+                /* expected_oldest_blob_file_numbers */ {19});
 }
 
 TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
@@ -1505,7 +1527,7 @@ TEST_F(CompactionJobTest, NoEnforceSingleDeleteContract) {
   auto expected_results = mock::MakeMockFile();
   constexpr int input_level = 0;
   auto files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTest, InputSerialization) {
@@ -1740,7 +1762,7 @@ TEST_F(CompactionJobTimestampTest, GCDisabled) {
        {KeyStr("d", 3, ValueType::kTypeSingleDeletion, 93), ""}});
   constexpr int input_level = 0;
   const auto& files = cfd_->current()->storage_info()->LevelFiles(input_level);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTimestampTest, NoKeyExpired) {
@@ -1769,7 +1791,7 @@ TEST_F(CompactionJobTimestampTest, NoKeyExpired) {
   const auto& files = cfd_->current()->storage_info()->LevelFiles(input_level);
 
   full_history_ts_low_ = encode_u64_ts_(0);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTimestampTest, AllKeysExpired) {
@@ -1796,7 +1818,7 @@ TEST_F(CompactionJobTimestampTest, AllKeysExpired) {
   const auto& files = cfd_->current()->storage_info()->LevelFiles(input_level);
 
   full_history_ts_low_ = encode_u64_ts_(std::numeric_limits<uint64_t>::max());
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
@@ -1823,7 +1845,7 @@ TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
   const auto& files = cfd_->current()->storage_info()->LevelFiles(input_level);
 
   full_history_ts_low_ = encode_u64_ts_(49);
-  RunCompaction({files}, {input_level}, expected_results);
+  RunCompaction({files}, {input_level}, {expected_results});
 }
 
 class CompactionJobTimestampTestWithBbTable : public CompactionJobTestBase {
@@ -1865,19 +1887,21 @@ TEST_F(CompactionJobTimestampTestWithBbTable, SubcompactionAnchor) {
 
   SetLastSequence(20);
 
-  auto expected_results = mock::MakeMockFile({{keys[0], values[0]},
-                                              {keys[1], values[1]},
-                                              {keys[2], values[2]},
-                                              {keys[3], values[3]},
-                                              {keys[4], values[4]},
-                                              {keys[5], values[5]}});
+  auto output1 = mock::MakeMockFile({{keys[0], values[0]}});
+  auto output2 =
+      mock::MakeMockFile({{keys[1], values[1]}, {keys[2], values[2]}});
+  auto output3 = mock::MakeMockFile(
+      {{keys[3], values[3]}, {keys[4], values[4]}, {keys[5], values[5]}});
+
+  auto expected_results =
+      std::vector<mock::KVVector>{output1, output2, output3};
   const auto& files = cfd_->current()->storage_info()->LevelFiles(input_level);
 
   constexpr int output_level = 2;
   constexpr int max_subcompactions = 4;
   RunCompaction({files}, {input_level}, expected_results, /*snapshots=*/{},
                 /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
-                output_level, /*verify=*/true, kInvalidBlobFileNumber,
+                output_level, /*verify=*/true, {kInvalidBlobFileNumber},
                 /*check_get_priority=*/false, Env::IO_TOTAL, Env::IO_TOTAL,
                 max_subcompactions);
 }
@@ -1903,8 +1927,8 @@ TEST_F(CompactionJobIOPriorityTest, WriteControllerStateNormal) {
   constexpr int input_level = 0;
   auto files = cfd->current()->storage_info()->LevelFiles(input_level);
   ASSERT_EQ(2U, files.size());
-  RunCompaction({files}, {input_level}, expected_results, {},
-                kMaxSequenceNumber, 1, false, kInvalidBlobFileNumber, false,
+  RunCompaction({files}, {input_level}, {expected_results}, {},
+                kMaxSequenceNumber, 1, false, {kInvalidBlobFileNumber}, false,
                 Env::IO_LOW, Env::IO_LOW);
 }
 
@@ -1919,8 +1943,8 @@ TEST_F(CompactionJobIOPriorityTest, WriteControllerStateDelayed) {
   {
     std::unique_ptr<WriteControllerToken> delay_token =
         write_controller_.GetDelayToken(1000000);
-    RunCompaction({files}, {input_level}, expected_results, {},
-                  kMaxSequenceNumber, 1, false, kInvalidBlobFileNumber, false,
+    RunCompaction({files}, {input_level}, {expected_results}, {},
+                  kMaxSequenceNumber, 1, false, {kInvalidBlobFileNumber}, false,
                   Env::IO_USER, Env::IO_USER);
   }
 }
@@ -1936,8 +1960,8 @@ TEST_F(CompactionJobIOPriorityTest, WriteControllerStateStalled) {
   {
     std::unique_ptr<WriteControllerToken> stop_token =
         write_controller_.GetStopToken();
-    RunCompaction({files}, {input_level}, expected_results, {},
-                  kMaxSequenceNumber, 1, false, kInvalidBlobFileNumber, false,
+    RunCompaction({files}, {input_level}, {expected_results}, {},
+                  kMaxSequenceNumber, 1, false, {kInvalidBlobFileNumber}, false,
                   Env::IO_USER, Env::IO_USER);
   }
 }
@@ -1949,8 +1973,8 @@ TEST_F(CompactionJobIOPriorityTest, GetRateLimiterPriority) {
   constexpr int input_level = 0;
   auto files = cfd->current()->storage_info()->LevelFiles(input_level);
   ASSERT_EQ(2U, files.size());
-  RunCompaction({files}, {input_level}, expected_results, {},
-                kMaxSequenceNumber, 1, false, kInvalidBlobFileNumber, true,
+  RunCompaction({files}, {input_level}, {expected_results}, {},
+                kMaxSequenceNumber, 1, false, {kInvalidBlobFileNumber}, true,
                 Env::IO_LOW, Env::IO_LOW);
 }
 
