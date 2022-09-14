@@ -400,6 +400,8 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
+      state_->Put(column_family_id, static_cast<int64_t>(key_id),
+                  SharedState::UNKNOWN_SENTINEL, false /* pending */);
       return WriteBatchInternal::Put(buffered_writes_.get(), column_family_id,
                                      key, value);
     }
@@ -421,6 +423,8 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
+      state_->Put(column_family_id, static_cast<int64_t>(key_id),
+                  SharedState::UNKNOWN_SENTINEL, false /* pending */);
       return WriteBatchInternal::Delete(buffered_writes_.get(),
                                         column_family_id, key);
     }
@@ -435,10 +439,16 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                         const Slice& key_with_ts) override {
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
-      Slice ts =
-          ExtractTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
       Slice key =
           StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+      uint64_t key_id;
+      if (!GetIntVal(key.ToString(), &key_id)) {
+        return Status::Corruption("unable to parse key", key.ToString());
+      }
+      state_->Put(column_family_id, static_cast<int64_t>(key_id),
+                  SharedState::UNKNOWN_SENTINEL, false /* pending */);
+      Slice ts =
+          ExtractTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
       std::array<Slice, 2> key_with_ts_arr{{key, ts}};
       return WriteBatchInternal::SingleDelete(
           buffered_writes_.get(), column_family_id,
@@ -466,6 +476,11 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
+      for (int64_t key_id = static_cast<int64_t>(begin_key_id);
+           key_id < static_cast<int64_t>(end_key_id); ++key_id) {
+        state_->Put(column_family_id, key_id, SharedState::UNKNOWN_SENTINEL,
+                    false /* pending */);
+      }
       return WriteBatchInternal::DeleteRange(
           buffered_writes_.get(), column_family_id, begin_key, end_key);
     }
@@ -483,6 +498,12 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
+      uint64_t key_id;
+      if (!GetIntVal(key.ToString(), &key_id)) {
+        return Status::Corruption("unable to parse key", key.ToString());
+      }
+      state_->Put(column_family_id, static_cast<int64_t>(key_id),
+                  SharedState::UNKNOWN_SENTINEL, false /* pending */);
       return WriteBatchInternal::Merge(buffered_writes_.get(), column_family_id,
                                        key, value);
     }
