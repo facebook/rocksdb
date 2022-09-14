@@ -251,6 +251,22 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
   Invalidate();
 }
 
+FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
+    const std::shared_ptr<FragmentedRangeTombstoneListCache>& tombstones_cache,
+    const InternalKeyComparator& icmp, SequenceNumber _upper_bound,
+    SequenceNumber _lower_bound)
+    : tombstone_start_cmp_(icmp.user_comparator()),
+      tombstone_end_cmp_(icmp.user_comparator()),
+      icmp_(&icmp),
+      ucmp_(icmp.user_comparator()),
+      tombstones_cache_ref_(tombstones_cache),
+      tombstones_(tombstones_cache_ref_->tombstones.get()),
+      upper_bound_(_upper_bound),
+      lower_bound_(_lower_bound) {
+  assert(tombstones_ != nullptr);
+  Invalidate();
+}
+
 void FragmentedRangeTombstoneIterator::SeekToFirst() {
   pos_ = tombstones_->begin();
   seq_pos_ = tombstones_->seq_begin();

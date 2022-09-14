@@ -536,6 +536,11 @@ class MemTable {
                                     size_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
 
+  // makes sure there is a single range tombstone writer to invalidate cache
+  std::mutex range_del_mutex_;
+  CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
+      cached_range_tombstone_;
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 

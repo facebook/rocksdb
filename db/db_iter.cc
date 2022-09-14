@@ -76,7 +76,6 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       verify_checksums_(read_options.verify_checksums),
       expose_blob_index_(expose_blob_index),
       is_blob_(false),
-      is_wide_(false),
       arena_mode_(arena_mode),
       db_impl_(db_impl),
       cfd_(cfd),
@@ -134,7 +133,7 @@ void DBIter::Next() {
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
   ResetBlobValue();
-  ResetWideColumnValue();
+  ResetValueAndColumns();
   local_stats_.skip_count_ += num_internal_keys_skipped_;
   local_stats_.skip_count_--;
   num_internal_keys_skipped_ = 0;
@@ -178,8 +177,6 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
                                   const Slice& blob_index) {
   assert(!is_blob_);
   assert(blob_value_.empty());
-  assert(!is_wide_);
-  assert(value_of_default_column_.empty());
 
   if (expose_blob_index_) {  // Stacked BlobDB implementation
     is_blob_ = true;
@@ -215,16 +212,11 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   return true;
 }
 
-bool DBIter::SetWideColumnValueIfNeeded(const Slice& wide_columns_slice) {
-  assert(!is_blob_);
-  assert(blob_value_.empty());
-  assert(!is_wide_);
-  assert(value_of_default_column_.empty());
+bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
+  assert(value_.empty());
+  assert(wide_columns_.empty());
 
-  Slice wide_columns_copy = wide_columns_slice;
-
-  const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
-      wide_columns_copy, value_of_default_column_);
+  const Status s = WideColumnSerialization::Deserialize(slice, wide_columns_);
 
   if (!s.ok()) {
     status_ = s;
@@ -232,7 +224,11 @@ bool DBIter::SetWideColumnValueIfNeeded(const Slice& wide_columns_slice) {
     return false;
   }
 
-  is_wide_ = true;
+  if (!wide_columns_.empty() &&
+      wide_columns_[0].name() == kDefaultWideColumnName) {
+    value_ = wide_columns_[0].value();
+  }
+
   return true;
 }
 
@@ -281,11 +277,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // an infinite loop of reseeks. To avoid that, we limit the number of reseeks
   // to one.
   bool reseek_done = false;
-
-  assert(!is_blob_);
-  assert(blob_value_.empty());
-  assert(!is_wide_);
-  assert(value_of_default_column_.empty());
 
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
@@ -376,35 +367,30 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeWideColumnEntity:
             if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
-
-              if (ikey_.type == kTypeBlobIndex) {
-                if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
-                  return false;
-                }
-              } else if (ikey_.type == kTypeWideColumnEntity) {
-                if (!SetWideColumnValueIfNeeded(iter_.value())) {
-                  return false;
-                }
-              }
-
-              valid_ = true;
-              return true;
             } else {
               saved_key_.SetUserKey(
                   ikey_.user_key, !pin_thru_lifetime_ ||
                                       !iter_.iter()->IsKeyPinned() /* copy */);
-              if (ikey_.type == kTypeBlobIndex) {
-                if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
-                  return false;
-                }
-              } else if (ikey_.type == kTypeWideColumnEntity) {
-                if (!SetWideColumnValueIfNeeded(iter_.value())) {
-                  return false;
-                }
-              }
-              valid_ = true;
-              return true;
             }
+
+            if (ikey_.type == kTypeBlobIndex) {
+              if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                return false;
+              }
+
+              SetValueAndColumnsFromPlain(expose_blob_index_ ? iter_.value()
+                                                             : blob_value_);
+            } else if (ikey_.type == kTypeWideColumnEntity) {
+              if (!SetValueAndColumnsFromEntity(iter_.value())) {
+                return false;
+              }
+            } else {
+              assert(ikey_.type == kTypeValue);
+              SetValueAndColumnsFromPlain(iter_.value());
+            }
+
+            valid_ = true;
+            return true;
             break;
           case kTypeMerge:
             saved_key_.SetUserKey(
@@ -584,15 +570,12 @@ bool DBIter::MergeValuesNewToOld() {
         return false;
       }
       valid_ = true;
-      const Slice blob_value = value();
-      Status s = Merge(&blob_value, ikey.user_key);
+      Status s = Merge(&blob_value_, ikey.user_key);
       if (!s.ok()) {
         return false;
       }
 
       ResetBlobValue();
-      assert(!is_wide_);
-      assert(value_of_default_column_.empty());
 
       // iter_ is positioned after put
       iter_.Next();
@@ -640,7 +623,7 @@ void DBIter::Prev() {
   PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, clock_);
   ReleaseTempPinnedData();
   ResetBlobValue();
-  ResetWideColumnValue();
+  ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   bool ok = true;
   if (direction_ == kForward) {
@@ -957,11 +940,6 @@ bool DBIter::FindValueForCurrentKey() {
   Status s;
   s.PermitUncheckedError();
 
-  assert(!is_blob_);
-  assert(blob_value_.empty());
-  assert(!is_wide_);
-  assert(value_of_default_column_.empty());
-
   switch (last_key_entry_type) {
     case kTypeDeletion:
     case kTypeDeletionWithTimestamp:
@@ -993,15 +971,12 @@ bool DBIter::FindValueForCurrentKey() {
           return false;
         }
         valid_ = true;
-        const Slice blob_value = value();
-        s = Merge(&blob_value, saved_key_.GetUserKey());
+        s = Merge(&blob_value_, saved_key_.GetUserKey());
         if (!s.ok()) {
           return false;
         }
 
         ResetBlobValue();
-        assert(!is_wide_);
-        assert(value_of_default_column_.empty());
 
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
@@ -1020,18 +995,24 @@ bool DBIter::FindValueForCurrentKey() {
       }
       break;
     case kTypeValue:
-      // do nothing - we've already has value in pinned_value_
       if (timestamp_lb_ != nullptr) {
         saved_key_.SetInternalKey(saved_ikey_);
       }
+
+      SetValueAndColumnsFromPlain(pinned_value_);
+
       break;
     case kTypeBlobIndex:
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
         return false;
       }
+
+      SetValueAndColumnsFromPlain(expose_blob_index_ ? pinned_value_
+                                                     : blob_value_);
+
       break;
     case kTypeWideColumnEntity:
-      if (!SetWideColumnValueIfNeeded(pinned_value_)) {
+      if (!SetValueAndColumnsFromEntity(pinned_value_)) {
         return false;
       }
       break;
@@ -1077,11 +1058,6 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // In case read_callback presents, the value we seek to may not be visible.
   // Find the next value that's visible.
   ParsedInternalKey ikey;
-
-  assert(!is_blob_);
-  assert(blob_value_.empty());
-  assert(!is_wide_);
-  assert(value_of_default_column_.empty());
 
   while (true) {
     if (!iter_.Valid()) {
@@ -1141,10 +1117,16 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
         return false;
       }
-    } else if (ikey_.type == kTypeWideColumnEntity) {
-      if (!SetWideColumnValueIfNeeded(pinned_value_)) {
+
+      SetValueAndColumnsFromPlain(expose_blob_index_ ? pinned_value_
+                                                     : blob_value_);
+    } else if (ikey.type == kTypeWideColumnEntity) {
+      if (!SetValueAndColumnsFromEntity(pinned_value_)) {
         return false;
       }
+    } else {
+      assert(ikey.type == kTypeValue);
+      SetValueAndColumnsFromPlain(pinned_value_);
     }
 
     if (timestamp_lb_ != nullptr) {
@@ -1208,15 +1190,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         return false;
       }
       valid_ = true;
-      const Slice blob_value = value();
-      Status s = Merge(&blob_value, saved_key_.GetUserKey());
+      Status s = Merge(&blob_value_, saved_key_.GetUserKey());
       if (!s.ok()) {
         return false;
       }
 
       ResetBlobValue();
-      assert(!is_wide_);
-      assert(value_of_default_column_.empty());
 
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
@@ -1267,6 +1246,10 @@ Status DBIter::Merge(const Slice* val, const Slice& user_key) {
     status_ = s;
     return s;
   }
+
+  SetValueAndColumnsFromPlain(pinned_value_.data() ? pinned_value_
+                                                   : saved_value_);
+
   valid_ = true;
   return s;
 }
@@ -1443,7 +1426,7 @@ void DBIter::Seek(const Slice& target) {
   status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetBlobValue();
-  ResetWideColumnValue();
+  ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
 
   // Seek the inner iterator based on the target key.
@@ -1520,7 +1503,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetBlobValue();
-  ResetWideColumnValue();
+  ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
 
   // Seek the inner iterator based on the target key.
@@ -1580,7 +1563,7 @@ void DBIter::SeekToFirst() {
   direction_ = kForward;
   ReleaseTempPinnedData();
   ResetBlobValue();
-  ResetWideColumnValue();
+  ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
@@ -1628,7 +1611,7 @@ void DBIter::SeekToLast() {
                                /*b_has_ts=*/false)) {
       ReleaseTempPinnedData();
       ResetBlobValue();
-      ResetWideColumnValue();
+      ResetValueAndColumns();
       PrevInternal(nullptr);
 
       k = key();
@@ -1651,7 +1634,7 @@ void DBIter::SeekToLast() {
   direction_ = kReverse;
   ReleaseTempPinnedData();
   ResetBlobValue();
-  ResetWideColumnValue();
+  ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
