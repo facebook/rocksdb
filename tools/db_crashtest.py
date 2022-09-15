@@ -378,10 +378,13 @@ ts_params = {
 
 tiered_params = {
     "enable_tiered_storage": 1,
-    "preclude_last_level_data_seconds": lambda: random.choice([3600]),
+    # Set tiered compaction hot data time as: 1 minute, 1 hour, 10 hour
+    "preclude_last_level_data_seconds": lambda: random.choice([60, 3600, 36000]),
     # only test universal compaction for now, level has known issue of
     # endless compaction
     "compaction_style": 1,
+    # tiered storage doesn't support blob db yet
+    "use_blob_db": 0,
 }
 
 multiops_txn_default_params = {
