@@ -1221,13 +1221,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // it only output to single level
   sub_compact->AssignRangeDelAggregator(std::move(range_del_agg));
 
-  if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
-    sub_compact->FillFilesToCutForTtl();
-    // ShouldStopBefore() maintains state based on keys processed so far. The
-    // compaction loop always calls it on the "next" key, thus won't tell it the
-    // first key. So we do that here.
-    sub_compact->ShouldStopBefore(c_iter->key());
-  }
   const auto& c_iter_stats = c_iter->iter_stats();
 
   // define the open and close functions for the compaction files, which will be
@@ -1275,16 +1268,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     c_iter->Next();
     if (c_iter->status().IsManualCompactionPaused()) {
       break;
-    }
-
-    // TODO: Support earlier file cut for the penultimate level files. Maybe by
-    //  moving `ShouldStopBefore()` to `CompactionOutputs` class. Currently
-    //  the penultimate level output is only cut when it reaches the size limit.
-    if (!sub_compact->Current().IsPendingClose() &&
-        sub_compact->compaction->output_level() != 0 &&
-        !sub_compact->compaction->SupportsPerKeyPlacement() &&
-        sub_compact->ShouldStopBefore(c_iter->key())) {
-      sub_compact->Current().SetPendingClose();
     }
   }
 
