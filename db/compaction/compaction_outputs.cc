@@ -448,7 +448,9 @@ CompactionOutputs::CompactionOutputs(const Compaction* compaction,
                      ? nullptr
                      : compaction->CreateSstPartitioner();
 
-  FillFilesToCutForTtl();
+  if (compaction->output_level() != 0) {
+    FillFilesToCutForTtl();
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
