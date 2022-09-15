@@ -656,7 +656,7 @@ Status GetStringFromStruct(
     std::string* opt_string) {
   assert(opt_string);
   opt_string->clear();
-  for (const auto iter : type_info) {
+  for (const auto& iter : type_info) {
     const auto& opt_info = iter.second;
     // If the option is no longer used in rocksdb and marked as deprecated,
     // we skip it in the serialization.

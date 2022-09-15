@@ -29,6 +29,16 @@ class InstrumentedMutex {
       : mutex_(adaptive), stats_(stats), env_(env),
         stats_code_(stats_code) {}
 
+  #ifdef COERCE_CONTEXT_SWITCH
+  InstrumentedMutex(Statistics* stats, Env* env, int stats_code,
+                    InstrumentedCondVar* bg_cv, bool adaptive = false)
+      : mutex_(adaptive),
+        stats_(stats),
+        env_(env),
+        stats_code_(stats_code),
+        bg_cv_(bg_cv) {}
+#endif
+
   void Lock();
 
   void Unlock() {
@@ -46,6 +56,9 @@ class InstrumentedMutex {
   Statistics* stats_;
   Env* env_;
   int stats_code_;
+  #ifdef COERCE_CONTEXT_SWITCH
+  InstrumentedCondVar* bg_cv_ = nullptr;
+#endif
 };
 
 // A wrapper class for port::Mutex that provides additional layer
