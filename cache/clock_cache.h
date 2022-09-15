@@ -54,9 +54,12 @@ class ClockCacheTest;
 // * Only supports keys of exactly 16 bytes, which is what RocksDB uses for
 // block cache (not row cache or table cache).
 // * SecondaryCache is not supported.
+// * Cache priorities are less aggressively enforced. Unlike LRUCache, enough
+// transient LOW or BOTTOM priority items can evict HIGH priority entries that
+// are not referenced recently (or often) enough.
 // * If pinned entries leave little or nothing eligible for eviction,
-// performance can degrade dramatically, because of clock eviction thrashing
-// the CPU looking for evictable entries and because Release does not
+// performance can degrade substantially, because of clock eviction eating
+// CPU looking for evictable entries and because Release does not
 // pro-actively delete unreferenced entries when the cache is over-full.
 // Specifically, this makes this implementation more susceptible to the
 // following combination:
@@ -483,7 +486,7 @@ class ClockHandleTable {
   // Number of elements in the table.
   std::atomic<uint32_t> occupancy_{};
 
-  // Memory usage by entries trtacked by the cache (including detached)
+  // Memory usage by entries tracked by the cache (including detached)
   std::atomic<size_t> usage_{};
 
   // Part of usage by detached entries (not in table)

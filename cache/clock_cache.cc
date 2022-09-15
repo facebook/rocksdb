@@ -853,7 +853,7 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
   // Cap the eviction effort at this thread (along with those operating in
   // parallel) circling through the whole structure kMaxCountdown times.
   // In other words, this eviction run must find something/anything that is
-  // unreferenced at start of and during the eviction run that isn't reclimed
+  // unreferenced at start of and during the eviction run that isn't reclaimed
   // by a concurrent eviction run.
   uint64_t max_clock_pointer =
       old_clock_pointer + (ClockHandle::kMaxCountdown << length_bits_);
