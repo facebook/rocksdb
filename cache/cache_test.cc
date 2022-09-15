@@ -15,7 +15,6 @@
 #include <string>
 #include <vector>
 
-#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "port/stack_trace.h"
@@ -23,7 +22,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
-// FastLRUCache and ClockCache only support 16-byte keys, so some of
+// FastLRUCache and HyperClockCache only support 16-byte keys, so some of
 // the tests originally wrote for LRUCache do not work on the other caches.
 // Those tests were adapted to use 16-byte keys. We kept the original ones.
 // TODO: Remove the original tests if they ever become unused.
@@ -76,7 +75,7 @@ void EraseDeleter2(const Slice& /*key*/, void* value) {
 }
 
 const std::string kLRU = "lru";
-const std::string kClock = "clock";
+const std::string kHyperClock = "hyper_clock";
 const std::string kFast = "fast";
 
 }  // anonymous namespace
@@ -87,7 +86,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
   static std::string type_;
 
   static void Deleter(const Slice& key, void* v) {
-    if (type_ == kFast || type_ == kClock) {
+    if (type_ == kFast || type_ == kHyperClock) {
       current_->deleted_keys_.push_back(DecodeKey16Bytes(key));
     } else {
       current_->deleted_keys_.push_back(DecodeKey32Bits(key));
@@ -120,10 +119,9 @@ class CacheTest : public testing::TestWithParam<std::string> {
     if (type == kLRU) {
       return NewLRUCache(capacity);
     }
-    if (type == kClock) {
-      return ExperimentalNewClockCache(
-          capacity, 1 /*estimated_value_size*/, -1 /*num_shard_bits*/,
-          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
+    if (type == kHyperClock) {
+      return HyperClockCacheOptions(capacity, 1 /*estimated_value_size*/)
+          .MakeSharedCache();
     }
     if (type == kFast) {
       return NewFastLRUCache(
@@ -146,10 +144,11 @@ class CacheTest : public testing::TestWithParam<std::string> {
       co.metadata_charge_policy = charge_policy;
       return NewLRUCache(co);
     }
-    if (type == kClock) {
-      return ExperimentalNewClockCache(capacity, 1 /*estimated_value_size*/,
-                                       num_shard_bits, strict_capacity_limit,
-                                       charge_policy);
+    if (type == kHyperClock) {
+      return HyperClockCacheOptions(capacity, 1 /*estimated_value_size*/,
+                                    num_shard_bits, strict_capacity_limit,
+                                    nullptr /*allocator*/, charge_policy)
+          .MakeSharedCache();
     }
     if (type == kFast) {
       return NewFastLRUCache(capacity, 1 /*estimated_value_size*/,
@@ -161,12 +160,11 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   // These functions encode/decode keys in tests cases that use
   // int keys.
-  // Currently, FastLRUCache requires keys to be 16B long, whereas
-  // LRUCache and ClockCache don't, so the encoding depends on
-  // the cache type.
+  // Currently, HyperClockCache requires keys to be 16B long, whereas
+  // LRUCache doesn't, so the encoding depends on the cache type.
   std::string EncodeKey(int k) {
     auto type = GetParam();
-    if (type == kFast || type == kClock) {
+    if (type == kFast || type == kHyperClock) {
       return EncodeKey16Bytes(k);
     } else {
       return EncodeKey32Bits(k);
@@ -175,7 +173,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   int DecodeKey(const Slice& k) {
     auto type = GetParam();
-    if (type == kFast || type == kClock) {
+    if (type == kFast || type == kHyperClock) {
       return DecodeKey16Bytes(k);
     } else {
       return DecodeKey32Bits(k);
@@ -697,9 +695,9 @@ TEST_P(CacheTest, ReleaseWithoutErase) {
 
 TEST_P(CacheTest, SetCapacity) {
   auto type = GetParam();
-  if (type == kFast || type == kClock) {
+  if (type == kFast || type == kHyperClock) {
     ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache and ClockCache don't support arbitrary capacity "
+        "FastLRUCache and HyperClockCache don't support arbitrary capacity "
         "adjustments.");
     return;
   }
@@ -811,7 +809,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
 
 TEST_P(CacheTest, OverCapacity) {
   auto type = GetParam();
-  if (type == kClock) {
+  if (type == kHyperClock) {
     ROCKSDB_GTEST_BYPASS("Requires LRU eviction policy.");
     return;
   }
@@ -990,11 +988,8 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
   cache_->Release(h1);
 }
 
-std::shared_ptr<Cache> (*new_clock_cache_func)(size_t, size_t, int, bool,
-                                               CacheMetadataChargePolicy) =
-    ExperimentalNewClockCache;
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(kLRU, kClock, kFast));
+                        testing::Values(kLRU, kHyperClock, kFast));
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,
                         testing::Values(kLRU, kFast));
 

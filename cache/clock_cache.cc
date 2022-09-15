@@ -694,6 +694,7 @@ void ClockCache::DisownData() {
 
 }  // namespace clock_cache
 
+// DEPRECATED (see public API)
 std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
@@ -703,19 +704,17 @@ std::shared_ptr<Cache> NewClockCache(
                      /* low_pri_pool_ratio */ 0.0);
 }
 
-std::shared_ptr<Cache> ExperimentalNewClockCache(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits,
-    bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy) {
-  if (num_shard_bits >= 20) {
+std::shared_ptr<Cache> HyperClockCacheOptions::MakeSharedCache() const {
+  auto my_num_shard_bits = num_shard_bits;
+  if (my_num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
-  if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
+  if (my_num_shard_bits < 0) {
+    my_num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<clock_cache::ClockCache>(
-      capacity, estimated_value_size, num_shard_bits, strict_capacity_limit,
-      metadata_charge_policy);
+      capacity, estimated_entry_charge, my_num_shard_bits,
+      strict_capacity_limit, metadata_charge_policy);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
