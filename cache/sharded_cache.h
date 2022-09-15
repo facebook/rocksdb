@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 // Single cache shard interface.
 class CacheShard {
  public:
-  CacheShard(CacheMetadataChargePolicy metadata_charge_policy)
+  explicit CacheShard(CacheMetadataChargePolicy metadata_charge_policy)
       : metadata_charge_policy_(metadata_charge_policy) {}
   virtual ~CacheShard() = default;
 
