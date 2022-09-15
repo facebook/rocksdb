@@ -617,8 +617,11 @@ DEFINE_int64(simcache_size, -1,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "Cache index/filter blocks in block cache.");
 
+DEFINE_bool(use_cache_jemalloc_no_dump_allocator, false,
+            "Use JemallocNodumpAllocator for block/blob cache.");
+
 DEFINE_bool(use_cache_memkind_kmem_allocator, false,
-            "Use memkind kmem allocator for block cache.");
+            "Use memkind kmem allocator for block/blob cache.");
 
 DEFINE_bool(partition_index_and_filters, false,
             "Partition index and filter blocks.");
@@ -3028,7 +3031,28 @@ class Benchmark {
     const char* Name() const override { return "KeepFilter"; }
   };
 
-  std::shared_ptr<Cache> NewCache(int64_t capacity) {
+  static std::shared_ptr<MemoryAllocator> GetCacheAllocator() {
+    std::shared_ptr<MemoryAllocator> allocator;
+
+    if (FLAGS_use_cache_jemalloc_no_dump_allocator) {
+      JemallocAllocatorOptions jemalloc_options;
+      if (!NewJemallocNodumpAllocator(jemalloc_options, &allocator).ok()) {
+        fprintf(stderr, "JemallocNodumpAllocator not supported.\n");
+        exit(1);
+      }
+    } else if (FLAGS_use_cache_memkind_kmem_allocator) {
+#ifdef MEMKIND
+      allocator = std::make_shared<MemkindKmemAllocator>();
+#else
+      fprintf(stderr, "Memkind library is not linked with the binary.\n");
+      exit(1);
+#endif
+    }
+
+    return allocator;
+  }
+
+  static std::shared_ptr<Cache> NewCache(int64_t capacity) {
     if (capacity <= 0) {
       return nullptr;
     }
@@ -3051,21 +3075,9 @@ class Benchmark {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
           false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
-#ifdef MEMKIND
-          FLAGS_use_cache_memkind_kmem_allocator
-              ? std::make_shared<MemkindKmemAllocator>()
-              : nullptr,
-#else
-          nullptr,
-#endif
-          kDefaultToAdaptiveMutex, kDefaultCacheMetadataChargePolicy,
-          FLAGS_cache_low_pri_pool_ratio);
-      if (FLAGS_use_cache_memkind_kmem_allocator) {
-#ifndef MEMKIND
-        fprintf(stderr, "Memkind library is not linked with the binary.");
-        exit(1);
-#endif
-      }
+          GetCacheAllocator(), kDefaultToAdaptiveMutex,
+          kDefaultCacheMetadataChargePolicy, FLAGS_cache_low_pri_pool_ratio);
+
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
@@ -4454,6 +4466,8 @@ class Benchmark {
             LRUCacheOptions co;
             co.capacity = FLAGS_blob_cache_size;
             co.num_shard_bits = FLAGS_blob_cache_numshardbits;
+            co.memory_allocator = GetCacheAllocator();
+
             options.blob_cache = NewLRUCache(co);
           } else {
             fprintf(

@@ -81,17 +81,21 @@ class Iterator : public Cleanable {
   // REQUIRES: Valid()
   virtual Slice key() const = 0;
 
-  // Return the value for the current entry.  The underlying storage for
-  // the returned slice is valid only until the next modification of the
-  // iterator (i.e. the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev
-  // operation).
+  // Return the value for the current entry.  If the entry is a plain key-value,
+  // return the value as-is; if it is a wide-column entity, return the value of
+  // the default anonymous column (see kDefaultWideColumnName) if any, or an
+  // empty value otherwise.  The underlying storage for the returned slice is
+  // valid only until the next modification of the iterator (i.e. the next
+  // SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operation).
   // REQUIRES: Valid()
   virtual Slice value() const = 0;
 
-  // Return the wide columns for the current entry.  The underlying storage for
-  // the returned structure is valid only until the next modification of the
-  // iterator (i.e. the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev
-  // operation).
+  // Return the wide columns for the current entry.  If the entry is a
+  // wide-column entity, return it as-is; if it is a plain key-value, return it
+  // as an entity with a single anonymous column (see kDefaultWideColumnName)
+  // which contains the value.  The underlying storage for the returned
+  // structure is valid only until the next modification of the iterator (i.e.
+  // the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operation).
   // REQUIRES: Valid()
   virtual const WideColumns& columns() const {
     assert(false);
