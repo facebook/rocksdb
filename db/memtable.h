@@ -536,11 +536,6 @@ class MemTable {
                                     size_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
 
-  // makes sure there is a single range tombstone writer to invalidate cache
-  std::mutex range_del_mutex_;
-  CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
-      cached_range_tombstone_;
-
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -653,6 +648,11 @@ class MemTable {
   // if !is_range_del_table_empty_.
   std::unique_ptr<FragmentedRangeTombstoneList>
       fragmented_range_tombstone_list_;
+
+  // makes sure there is a single range tombstone writer to invalidate cache
+  std::mutex range_del_mutex_;
+  CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
+      cached_range_tombstone_;
 
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,
