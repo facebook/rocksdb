@@ -23,8 +23,8 @@ class CfConsistencyStressTest : public StressTest {
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                  const ReadOptions& /* read_opts */,
                  const std::vector<int>& rand_column_families,
-                 const std::vector<int64_t>& rand_keys, char (&value)[100],
-                 std::unique_ptr<MutexLock>& /* lock */) override {
+                 const std::vector<int64_t>& rand_keys,
+                 char (&value)[100]) override {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     uint64_t value_base = batch_id_.fetch_add(1);
@@ -54,8 +54,7 @@ class CfConsistencyStressTest : public StressTest {
 
   Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
                     const std::vector<int>& rand_column_families,
-                    const std::vector<int64_t>& rand_keys,
-                    std::unique_ptr<MutexLock>& /* lock */) override {
+                    const std::vector<int64_t>& rand_keys) override {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     WriteBatch batch;
@@ -75,8 +74,7 @@ class CfConsistencyStressTest : public StressTest {
 
   Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
                          const std::vector<int>& rand_column_families,
-                         const std::vector<int64_t>& rand_keys,
-                         std::unique_ptr<MutexLock>& /* lock */) override {
+                         const std::vector<int64_t>& rand_keys) override {
     int64_t rand_key = rand_keys[0];
     auto shared = thread->shared;
     int64_t max_key = shared->GetMaxKey();
@@ -107,8 +105,7 @@ class CfConsistencyStressTest : public StressTest {
   void TestIngestExternalFile(
       ThreadState* /* thread */,
       const std::vector<int>& /* rand_column_families */,
-      const std::vector<int64_t>& /* rand_keys */,
-      std::unique_ptr<MutexLock>& /* lock */) override {
+      const std::vector<int64_t>& /* rand_keys */) override {
     assert(false);
     fprintf(stderr,
             "CfConsistencyStressTest does not support TestIngestExternalFile "

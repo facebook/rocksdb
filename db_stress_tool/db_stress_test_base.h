@@ -94,23 +94,20 @@ class StressTest {
   virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                          const ReadOptions& read_opts,
                          const std::vector<int>& cf_ids,
-                         const std::vector<int64_t>& keys, char (&value)[100],
-                         std::unique_ptr<MutexLock>& lock) = 0;
+                         const std::vector<int64_t>& keys,
+                         char (&value)[100]) = 0;
 
   virtual Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
                             const std::vector<int>& rand_column_families,
-                            const std::vector<int64_t>& rand_keys,
-                            std::unique_ptr<MutexLock>& lock) = 0;
+                            const std::vector<int64_t>& rand_keys) = 0;
 
   virtual Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
                                  const std::vector<int>& rand_column_families,
-                                 const std::vector<int64_t>& rand_keys,
-                                 std::unique_ptr<MutexLock>& lock) = 0;
+                                 const std::vector<int64_t>& rand_keys) = 0;
 
   virtual void TestIngestExternalFile(
       ThreadState* thread, const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys,
-      std::unique_ptr<MutexLock>& lock) = 0;
+      const std::vector<int64_t>& rand_keys) = 0;
 
   // Issue compact range, starting with start_key, whose integer value
   // is rand_key.
@@ -155,8 +152,7 @@ class StressTest {
   virtual Status TestIterateAgainstExpected(
       ThreadState* /* thread */, const ReadOptions& /* read_opts */,
       const std::vector<int>& /* rand_column_families */,
-      const std::vector<int64_t>& /* rand_keys */,
-      std::unique_ptr<MutexLock>& /* lock */) {
+      const std::vector<int64_t>& /* rand_keys */) {
     return Status::NotSupported();
   }
 
