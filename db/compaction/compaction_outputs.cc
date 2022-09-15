@@ -184,19 +184,19 @@ Status CompactionOutputs::AddToOutput(
   Status s;
   const Slice& key = c_iter.key();
 
-  if (ShouldStopBefore(c_iter)) {
+  if (ShouldStopBefore(c_iter) && HasBuilder()) {
     s = close_file_func(*this, c_iter.InputStatus(), key);
-  }
-  if (!s.ok()) {
-    return s;
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   // Open output file if necessary
   if (!HasBuilder()) {
     s = open_file_func(*this);
-  }
-  if (!s.ok()) {
-    return s;
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   Output& curr = current_output();
