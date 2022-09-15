@@ -2939,7 +2939,7 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
 }
 
-TEST_P(ColumnFamilyTest, CreateAndDestoryOptions) {
+TEST_P(ColumnFamilyTest, CreateAndDestroyOptions) {
   std::unique_ptr<ColumnFamilyOptions> cfo(new ColumnFamilyOptions());
   ColumnFamilyHandle* cfh;
   Open();
@@ -3431,6 +3431,27 @@ TEST(ColumnFamilyTest, ValidateBlobGCForceThreshold) {
   cf_options.blob_garbage_collection_force_threshold = 1.5;
   ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
                   .IsInvalidArgument());
+}
+
+TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
+  DBOptions db_options;
+
+  ColumnFamilyOptions cf_options;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.memtable_protection_bytes_per_key = 5;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsNotSupported());
+
+  cf_options.memtable_protection_bytes_per_key = 1;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.memtable_protection_bytes_per_key = 16;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsNotSupported());
+
+  cf_options.memtable_protection_bytes_per_key = 0;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

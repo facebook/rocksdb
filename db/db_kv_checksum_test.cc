@@ -13,9 +13,9 @@ enum class WriteBatchOpType {
   kPut = 0,
   kDelete,
   kSingleDelete,
-  kDeleteRange,
   kMerge,
   kPutEntity,
+  kDeleteRange,
   kNum,
 };
 
@@ -26,11 +26,14 @@ WriteBatchOpType operator+(WriteBatchOpType lhs, const int rhs) {
 }
 
 enum class WriteMode {
+  // `Write()` a `WriteBatch` constructed with `protection_bytes_per_key = 0`
+  // and `WriteOptions::protection_bytes_per_key = 0`
+  kWriteUnprotectedBatch = 0,
   // `Write()` a `WriteBatch` constructed with `protection_bytes_per_key > 0`.
-  kWriteProtectedBatch = 0,
+  kWriteProtectedBatch,
   // `Write()` a `WriteBatch` constructed with `protection_bytes_per_key == 0`.
   // Protection is enabled via `WriteOptions::protection_bytes_per_key > 0`.
-  kWriteUnprotectedBatch,
+  kWriteOptionProtectedBatch,
   // TODO(ajkr): add a mode that uses `Write()` wrappers, e.g., `Put()`.
   kNum,
 };
@@ -89,19 +92,30 @@ class DbKvChecksumTestBase : public DBTestBase {
   }
 };
 
-class DbKvChecksumTest : public DbKvChecksumTestBase,
-                         public ::testing::WithParamInterface<
-                             std::tuple<WriteBatchOpType, char, WriteMode>> {
+class DbKvChecksumTest
+    : public DbKvChecksumTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<WriteBatchOpType, char, WriteMode,
+                     uint32_t /* memtable_protection_bytes_per_key */>> {
  public:
   DbKvChecksumTest()
       : DbKvChecksumTestBase("db_kv_checksum_test", /*env_do_fsync=*/false) {
     op_type_ = std::get<0>(GetParam());
     corrupt_byte_addend_ = std::get<1>(GetParam());
     write_mode_ = std::get<2>(GetParam());
+    memtable_protection_bytes_per_key_ = std::get<3>(GetParam());
   }
 
   Status ExecuteWrite(ColumnFamilyHandle* cf_handle) {
     switch (write_mode_) {
+      case WriteMode::kWriteUnprotectedBatch: {
+        auto batch_and_status =
+            GetWriteBatch(GetCFHandleToUse(cf_handle, op_type_),
+                          0 /* protection_bytes_per_key */, op_type_);
+        assert(batch_and_status.second.ok());
+        // Default write option has protection_bytes_per_key = 0
+        return db_->Write(WriteOptions(), &batch_and_status.first);
+      }
       case WriteMode::kWriteProtectedBatch: {
         auto batch_and_status =
             GetWriteBatch(GetCFHandleToUse(cf_handle, op_type_),
@@ -109,7 +123,7 @@ class DbKvChecksumTest : public DbKvChecksumTestBase,
         assert(batch_and_status.second.ok());
         return db_->Write(WriteOptions(), &batch_and_status.first);
       }
-      case WriteMode::kWriteUnprotectedBatch: {
+      case WriteMode::kWriteOptionProtectedBatch: {
         auto batch_and_status =
             GetWriteBatch(GetCFHandleToUse(cf_handle, op_type_),
                           0 /* protection_bytes_per_key */, op_type_);
@@ -131,8 +145,6 @@ class DbKvChecksumTest : public DbKvChecksumTestBase,
       // We learn the entry size on the first attempt
       entry_len_ = encoded.size();
     }
-    // All entries should be the same size
-    assert(entry_len_ == encoded.size());
     char* buf = const_cast<char*>(encoded.data());
     buf[corrupt_byte_offset_] += corrupt_byte_addend_;
     ++corrupt_byte_offset_;
@@ -144,6 +156,7 @@ class DbKvChecksumTest : public DbKvChecksumTestBase,
   WriteBatchOpType op_type_;
   char corrupt_byte_addend_;
   WriteMode write_mode_;
+  uint32_t memtable_protection_bytes_per_key_;
   size_t corrupt_byte_offset_ = 0;
   size_t entry_len_ = std::numeric_limits<size_t>::max();
 };
@@ -169,29 +182,36 @@ std::string GetOpTypeString(const WriteBatchOpType& op_type) {
   return "";
 }
 
+std::string GetWriteModeString(const WriteMode& mode) {
+  switch (mode) {
+    case WriteMode::kWriteUnprotectedBatch:
+      return "WriteUnprotectedBatch";
+    case WriteMode::kWriteProtectedBatch:
+      return "WriteProtectedBatch";
+    case WriteMode::kWriteOptionProtectedBatch:
+      return "kWriteOptionProtectedBatch";
+    case WriteMode::kNum:
+      assert(false);
+  }
+  return "";
+}
+
 INSTANTIATE_TEST_CASE_P(
     DbKvChecksumTest, DbKvChecksumTest,
     ::testing::Combine(::testing::Range(static_cast<WriteBatchOpType>(0),
                                         WriteBatchOpType::kNum),
                        ::testing::Values(2, 103, 251),
-                       ::testing::Range(static_cast<WriteMode>(0),
-                                        WriteMode::kNum)),
+                       ::testing::Range(WriteMode::kWriteProtectedBatch,
+                                        WriteMode::kNum),
+                       ::testing::Values(0)),
     [](const testing::TestParamInfo<
-        std::tuple<WriteBatchOpType, char, WriteMode>>& args) {
+        std::tuple<WriteBatchOpType, char, WriteMode, uint32_t>>& args) {
       std::ostringstream oss;
       oss << GetOpTypeString(std::get<0>(args.param)) << "Add"
           << static_cast<int>(
-                 static_cast<unsigned char>(std::get<1>(args.param)));
-      switch (std::get<2>(args.param)) {
-        case WriteMode::kWriteProtectedBatch:
-          oss << "WriteProtectedBatch";
-          break;
-        case WriteMode::kWriteUnprotectedBatch:
-          oss << "WriteUnprotectedBatch";
-          break;
-        case WriteMode::kNum:
-          assert(false);
-      }
+                 static_cast<unsigned char>(std::get<1>(args.param)))
+          << GetWriteModeString(std::get<2>(args.param))
+          << static_cast<uint32_t>(std::get<3>(args.param));
       return oss.str();
     });
 
@@ -659,6 +679,202 @@ TEST_F(DbKVChecksumWALToWriteBatchTest, WriteBatchChecksumHandoff) {
   ASSERT_TRUE(TryReopen(options).IsCorruption());
   SyncPoint::GetInstance()->DisableProcessing();
 };
+
+// TODO (cbi): add DeleteRange coverage once it is implemented
+class DbMemtableKVChecksumTest : public DbKvChecksumTest {
+ public:
+  DbMemtableKVChecksumTest() : DbKvChecksumTest() {}
+
+ protected:
+  // Indices in the memtable entry that we will not corrupt.
+  // For memtable entry format, see comments in MemTable::Add().
+  // We do not corrupt key length and value length fields in this test
+  // case since it causes segfault and ASAN will complain.
+  // For this test case, key and value are all of length 3, so
+  // key length field is at index 0 and value length field is at index 12.
+  const std::set<size_t> index_not_to_corrupt{0, 12};
+
+  void SkipNotToCorruptEntry() {
+    if (index_not_to_corrupt.find(corrupt_byte_offset_) !=
+        index_not_to_corrupt.end()) {
+      corrupt_byte_offset_++;
+    }
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DbMemtableKVChecksumTest, DbMemtableKVChecksumTest,
+    ::testing::Combine(::testing::Range(static_cast<WriteBatchOpType>(0),
+                                        WriteBatchOpType::kDeleteRange),
+                       ::testing::Values(2, 103, 251),
+                       ::testing::Range(static_cast<WriteMode>(0),
+                                        WriteMode::kWriteOptionProtectedBatch),
+                       // skip 1 byte checksum as it makes test flaky
+                       ::testing::Values(2, 4, 8)),
+    [](const testing::TestParamInfo<
+        std::tuple<WriteBatchOpType, char, WriteMode, uint32_t>>& args) {
+      std::ostringstream oss;
+      oss << GetOpTypeString(std::get<0>(args.param)) << "Add"
+          << static_cast<int>(
+                 static_cast<unsigned char>(std::get<1>(args.param)))
+          << GetWriteModeString(std::get<2>(args.param))
+          << static_cast<uint32_t>(std::get<3>(args.param));
+      return oss.str();
+    });
+
+TEST_P(DbMemtableKVChecksumTest, GetWithCorruptAfterMemtableInsert) {
+  // Record memtable entry size.
+  // Not corrupting memtable entry here since it will segfault
+  // or fail some asserts inside memtablerep implementation
+  // e.g., when key_len is corrupted.
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTable::Add:BeforeReturn:Encoded", [&](void* arg) {
+        Slice encoded = *static_cast<Slice*>(arg);
+        entry_len_ = encoded.size();
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "Memtable::SaveValue:Begin:entry", [&](void* entry) {
+        char* buf = *static_cast<char**>(entry);
+        buf[corrupt_byte_offset_] += corrupt_byte_addend_;
+        ++corrupt_byte_offset_;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.memtable_protection_bytes_per_key =
+      memtable_protection_bytes_per_key_;
+  if (op_type_ == WriteBatchOpType::kMerge) {
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  }
+
+  SkipNotToCorruptEntry();
+  while (MoreBytesToCorrupt()) {
+    Reopen(options);
+    ASSERT_OK(ExecuteWrite(nullptr));
+    std::string val;
+    ASSERT_TRUE(db_->Get(ReadOptions(), "key", &val).IsCorruption());
+    Destroy(options);
+    SkipNotToCorruptEntry();
+  }
+}
+
+TEST_P(DbMemtableKVChecksumTest,
+       GetWithColumnFamilyCorruptAfterMemtableInsert) {
+  // Record memtable entry size.
+  // Not corrupting memtable entry here since it will segfault
+  // or fail some asserts inside memtablerep implementation
+  // e.g., when key_len is corrupted.
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTable::Add:BeforeReturn:Encoded", [&](void* arg) {
+        Slice encoded = *static_cast<Slice*>(arg);
+        entry_len_ = encoded.size();
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "Memtable::SaveValue:Begin:entry", [&](void* entry) {
+        char* buf = *static_cast<char**>(entry);
+        buf[corrupt_byte_offset_] += corrupt_byte_addend_;
+        ++corrupt_byte_offset_;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.memtable_protection_bytes_per_key =
+      memtable_protection_bytes_per_key_;
+  if (op_type_ == WriteBatchOpType::kMerge) {
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  }
+
+  SkipNotToCorruptEntry();
+  while (MoreBytesToCorrupt()) {
+    Reopen(options);
+    CreateAndReopenWithCF({"pikachu"}, options);
+    ASSERT_OK(ExecuteWrite(handles_[1]));
+    std::string val;
+    ASSERT_TRUE(
+        db_->Get(ReadOptions(), handles_[1], "key", &val).IsCorruption());
+    Destroy(options);
+    SkipNotToCorruptEntry();
+  }
+}
+
+TEST_P(DbMemtableKVChecksumTest, IteratorWithCorruptAfterMemtableInsert) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTable::Add:BeforeReturn:Encoded",
+      std::bind(&DbKvChecksumTest::CorruptNextByteCallBack, this,
+                std::placeholders::_1));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.memtable_protection_bytes_per_key =
+      memtable_protection_bytes_per_key_;
+  if (op_type_ == WriteBatchOpType::kMerge) {
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  }
+
+  SkipNotToCorruptEntry();
+  while (MoreBytesToCorrupt()) {
+    Reopen(options);
+    ASSERT_OK(ExecuteWrite(nullptr));
+    Iterator* it = db_->NewIterator(ReadOptions());
+    it->SeekToFirst();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsCorruption());
+    delete it;
+    Destroy(options);
+    SkipNotToCorruptEntry();
+  }
+}
+
+TEST_P(DbMemtableKVChecksumTest,
+       IteratorWithColumnFamilyCorruptAfterMemtableInsert) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTable::Add:BeforeReturn:Encoded",
+      std::bind(&DbKvChecksumTest::CorruptNextByteCallBack, this,
+                std::placeholders::_1));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.memtable_protection_bytes_per_key =
+      memtable_protection_bytes_per_key_;
+  if (op_type_ == WriteBatchOpType::kMerge) {
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  }
+
+  SkipNotToCorruptEntry();
+  while (MoreBytesToCorrupt()) {
+    Reopen(options);
+    CreateAndReopenWithCF({"pikachu"}, options);
+    ASSERT_OK(ExecuteWrite(handles_[1]));
+    Iterator* it = db_->NewIterator(ReadOptions(), handles_[1]);
+    it->SeekToFirst();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsCorruption());
+    delete it;
+    Destroy(options);
+    SkipNotToCorruptEntry();
+  }
+}
+
+TEST_P(DbMemtableKVChecksumTest, FlushWithCorruptAfterMemtableInsert) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTable::Add:BeforeReturn:Encoded",
+      std::bind(&DbKvChecksumTest::CorruptNextByteCallBack, this,
+                std::placeholders::_1));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.memtable_protection_bytes_per_key =
+      memtable_protection_bytes_per_key_;
+  if (op_type_ == WriteBatchOpType::kMerge) {
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  }
+
+  SkipNotToCorruptEntry();
+  // Not corruping each byte like other tests since Flush() is relatively slow.
+  Reopen(options);
+  ASSERT_OK(ExecuteWrite(nullptr));
+  ASSERT_TRUE(Flush().IsCorruption());
+  // DB enters read-only state when flush reads corrupted data
+  ASSERT_TRUE(dbfull()->TEST_GetBGError().IsCorruption());
+  Destroy(options);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

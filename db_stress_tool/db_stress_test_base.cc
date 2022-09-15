@@ -421,6 +421,19 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
   shared->SetVerificationFailure();
 }
 
+void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
+                                   int64_t key, Slice value_from_db,
+                                   Slice value_from_expected) const {
+  auto key_str = Key(key);
+  fprintf(stderr,
+          "Verification failed for column family %d key %s (%" PRIi64
+          "): value_from_db: %s, value_from_expected: %s, msg: %s\n",
+          cf, Slice(key_str).ToString(true).c_str(), key,
+          value_from_db.ToString(true).c_str(),
+          value_from_expected.ToString(true).c_str(), msg.c_str());
+  shared->SetVerificationFailure();
+}
+
 void StressTest::PrintStatistics() {
   if (dbstats) {
     fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
@@ -632,6 +645,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   read_opts.async_io = FLAGS_async_io;
   read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
+  read_opts.readahead_size = FLAGS_readahead_size;
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
@@ -932,12 +946,19 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
-        int num_seeks = static_cast<int>(
-            std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
-                     FLAGS_ops_per_thread - i - 1));
-        rand_keys = GenerateNKeys(thread, num_seeks, i);
-        i += num_seeks - 1;
-        TestIterate(thread, read_opts, rand_column_families, rand_keys);
+        if (!FLAGS_skip_verifydb &&
+            thread->rand.OneInOpt(
+                FLAGS_verify_iterator_with_expected_state_one_in)) {
+          TestIterateAgainstExpected(thread, read_opts, rand_column_families,
+                                     rand_keys, lock);
+        } else {
+          int num_seeks = static_cast<int>(
+              std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
+                       FLAGS_ops_per_thread - i - 1));
+          rand_keys = GenerateNKeys(thread, num_seeks, i);
+          i += num_seeks - 1;
+          TestIterate(thread, read_opts, rand_column_families, rand_keys);
+        }
       } else {
         assert(iterate_bound <= prob_op);
         TestCustomOperations(thread, rand_column_families);
@@ -2405,14 +2426,16 @@ void StressTest::Open(SharedState* shared) {
 
   if (FLAGS_use_blob_cache) {
     fprintf(stdout,
-            "Integrated BlobDB: blob cache enabled, block and blob caches "
-            "shared: %d, blob cache size %" PRIu64
-            ", blob cache num shard bits: %d, blob cache prepopulated: %s\n",
-            FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
-            FLAGS_blob_cache_numshardbits,
-            options_.prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
-                ? "flush only"
-                : "disable");
+            "Integrated BlobDB: blob cache enabled"
+            ", block and blob caches shared: %d",
+            FLAGS_use_shared_block_and_blob_cache);
+    if (!FLAGS_use_shared_block_and_blob_cache) {
+      fprintf(stdout,
+              ", blob cache size %" PRIu64 ", blob cache num shard bits: %d",
+              FLAGS_blob_cache_size, FLAGS_blob_cache_numshardbits);
+    }
+    fprintf(stdout, ", blob cache prepopulated: %d\n",
+            FLAGS_prepopulate_blob_cache);
   } else {
     fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
   }
@@ -2645,6 +2668,10 @@ void StressTest::Open(SharedState* shared) {
       assert(trans.size() == 0);
 #endif
     }
+    if (!s.ok()) {
+      fprintf(stderr, "Error in opening the DB [%s]\n", s.ToString().c_str());
+      fflush(stderr);
+    }
     assert(s.ok());
     assert(column_families_.size() ==
            static_cast<size_t>(FLAGS_column_families));
@@ -2678,6 +2705,21 @@ void StressTest::Open(SharedState* shared) {
     exit(1);
 #endif
   }
+
+  if (FLAGS_preserve_unverified_changes) {
+    // Up until now, no live file should have become obsolete due to these
+    // options. After `DisableFileDeletions()` we can reenable auto compactions
+    // since, even if live files become obsolete, they won't be deleted.
+    assert(options_.avoid_flush_during_recovery);
+    assert(options_.disable_auto_compactions);
+    if (s.ok()) {
+      s = db_->DisableFileDeletions();
+    }
+    if (s.ok()) {
+      s = db_->EnableAutoCompaction(column_families_);
+    }
+  }
+
   if (!s.ok()) {
     fprintf(stderr, "open error: %s\n", s.ToString().c_str());
     exit(1);
@@ -2934,6 +2976,11 @@ void InitializeOptionsFromFlags(
   block_based_options.prepopulate_block_cache =
       static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
           FLAGS_prepopulate_block_cache);
+  block_based_options.initial_auto_readahead_size =
+      FLAGS_initial_auto_readahead_size;
+  block_based_options.max_auto_readahead_size = FLAGS_max_auto_readahead_size;
+  block_based_options.num_file_reads_for_auto_readahead =
+      FLAGS_num_file_reads_for_auto_readahead;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
   options.db_write_buffer_size = FLAGS_db_write_buffer_size;
   options.write_buffer_size = FLAGS_write_buffer_size;
@@ -3026,6 +3073,8 @@ void InitializeOptionsFromFlags(
   options.track_and_verify_wals_in_manifest = true;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
+  options.memtable_protection_bytes_per_key =
+      FLAGS_memtable_protection_bytes_per_key;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;
@@ -3072,6 +3121,12 @@ void InitializeOptionsFromFlags(
 
   options.wal_compression =
       StringToCompressionType(FLAGS_wal_compression.c_str());
+
+  if (FLAGS_enable_tiered_storage) {
+    options.bottommost_temperature = Temperature::kCold;
+  }
+  options.preclude_last_level_data_seconds =
+      FLAGS_preclude_last_level_data_seconds;
 
   switch (FLAGS_rep_factory) {
     case kSkipList:
@@ -3177,6 +3232,20 @@ void InitializeOptionsGeneral(
               status.ToString().c_str());
       exit(1);
     }
+  }
+
+  if (FLAGS_preserve_unverified_changes) {
+    if (!options.avoid_flush_during_recovery) {
+      fprintf(stderr,
+              "WARNING: flipping `avoid_flush_during_recovery` to true for "
+              "`preserve_unverified_changes` to keep all files\n");
+      options.avoid_flush_during_recovery = true;
+    }
+    // Together with `avoid_flush_during_recovery == true`, this will prevent
+    // live files from becoming obsolete and deleted between `DB::Open()` and
+    // `DisableFileDeletions()` due to flush or compaction. We do not need to
+    // warn the user since we will reenable compaction soon.
+    options.disable_auto_compactions = true;
   }
 
   options.table_properties_collector_factories.emplace_back(

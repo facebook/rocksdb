@@ -115,6 +115,45 @@ TEST_P(TransactionTest, WithoutCommitTs) {
   ASSERT_TRUE(s.IsInvalidArgument());
 }
 
+TEST_P(TransactionTest, ReuseExistingTxn) {
+  Transaction* txn = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  assert(txn);
+  ASSERT_OK(txn->SetName("txn0"));
+  ASSERT_OK(txn->Put("a", "v1"));
+  ASSERT_OK(txn->Prepare());
+
+  auto notifier = std::make_shared<TsCheckingTxnNotifier>();
+  std::shared_ptr<const Snapshot> snapshot1;
+  Status s =
+      txn->CommitAndTryCreateSnapshot(notifier, /*commit_ts=*/100, &snapshot1);
+  ASSERT_OK(s);
+  ASSERT_EQ(100, snapshot1->GetTimestamp());
+
+  Transaction* txn1 =
+      db->BeginTransaction(WriteOptions(), TransactionOptions(), txn);
+  assert(txn1 == txn);
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn->Put("a", "v2"));
+  ASSERT_OK(txn->Prepare());
+  std::shared_ptr<const Snapshot> snapshot2;
+  s = txn->CommitAndTryCreateSnapshot(notifier, /*commit_ts=*/110, &snapshot2);
+  ASSERT_OK(s);
+  ASSERT_EQ(110, snapshot2->GetTimestamp());
+  delete txn;
+
+  {
+    std::string value;
+    ReadOptions read_opts;
+    read_opts.snapshot = snapshot1.get();
+    ASSERT_OK(db->Get(read_opts, "a", &value));
+    ASSERT_EQ("v1", value);
+
+    read_opts.snapshot = snapshot2.get();
+    ASSERT_OK(db->Get(read_opts, "a", &value));
+    ASSERT_EQ("v2", value);
+  }
+}
+
 TEST_P(TransactionTest, CreateSnapshotWhenCommit) {
   std::unique_ptr<Transaction> txn(
       db->BeginTransaction(WriteOptions(), TransactionOptions()));

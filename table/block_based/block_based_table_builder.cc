@@ -895,12 +895,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
       "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
       const_cast<TableProperties*>(&rep_->props));
 
-  // Extremely large files use atypical cache key encoding, and we don't
-  // know ahead of time how big the file will be. But assuming it's less
-  // than 4TB, we will correctly predict the cache keys.
-  BlockBasedTable::SetupBaseCacheKey(
-      &rep_->props, tbo.db_session_id, tbo.cur_file_num,
-      BlockBasedTable::kMaxFileSizeStandardEncoding, &rep_->base_cache_key);
+  BlockBasedTable::SetupBaseCacheKey(&rep_->props, tbo.db_session_id,
+                                     tbo.cur_file_num, &rep_->base_cache_key);
 
   if (rep_->IsParallelCompressionEnabled()) {
     StartParallelCompression();

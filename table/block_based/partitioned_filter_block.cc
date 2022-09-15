@@ -288,6 +288,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& fltr_blk_handle,
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority,
     CachableEntry<ParsedFullFilterBlock>* filter_block) const {
   assert(table());
   assert(filter_block);
@@ -304,6 +305,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
   }
 
   ReadOptions read_options;
+  read_options.rate_limiter_priority = rate_limiter_priority;
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }
@@ -344,7 +346,7 @@ bool PartitionedFilterBlockReader::MayMatch(
   CachableEntry<ParsedFullFilterBlock> filter_partition_block;
   s = GetFilterPartitionBlock(nullptr /* prefetch_buffer */, filter_handle,
                               no_io, get_context, lookup_context,
-                              &filter_partition_block);
+                              rate_limiter_priority, &filter_partition_block);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -419,7 +421,8 @@ void PartitionedFilterBlockReader::MayMatchPartition(
   CachableEntry<ParsedFullFilterBlock> filter_partition_block;
   Status s = GetFilterPartitionBlock(
       nullptr /* prefetch_buffer */, filter_handle, no_io,
-      range->begin()->get_context, lookup_context, &filter_partition_block);
+      range->begin()->get_context, lookup_context, rate_limiter_priority,
+      &filter_partition_block);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return;  // Any/all may match
@@ -490,9 +493,9 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
       handle.offset() + handle.size() + BlockBasedTable::kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
-                                false /* Implicit autoreadahead */,
-                                0 /*num_reads_*/);
+  rep->CreateFilePrefetchBuffer(
+      0, 0, &prefetch_buffer, false /* Implicit autoreadahead */,
+      0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
 
   IOOptions opts;
   s = rep->file->PrepareIOOptions(ro, opts);

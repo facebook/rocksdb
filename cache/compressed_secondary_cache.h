@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <memory>
 
 #include "cache/lru_cache.h"
@@ -43,7 +45,21 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 // The CompressedSecondaryCache is a concrete implementation of
 // rocksdb::SecondaryCache.
 //
-// Users can also cast a pointer to it and call methods on
+// When a block is found from CompressedSecondaryCache::Lookup, we check whether
+// there is a dummy block with the same key in the primary cache.
+// 1. If the dummy block exits, we erase the block from
+//    CompressedSecondaryCache and insert it into the primary cache.
+// 2. If not, we just insert a dummy block into the primary cache
+//    (charging the actual size of the block) and don not erase the block from
+//    CompressedSecondaryCache. A standalone handle is returned to the caller.
+//
+// When a block is evicted from the primary cache, we check whether
+// there is a dummy block with the same key in CompressedSecondaryCache.
+// 1. If the dummy block exits, the block is inserted into
+//    CompressedSecondaryCache.
+// 2. If not, we just insert a dummy block (size 0) in CompressedSecondaryCache.
+//
+// Users can also cast a pointer to CompressedSecondaryCache and call methods on
 // it directly, especially custom methods that may be added
 // in the future.  For example -
 // std::unique_ptr<rocksdb::SecondaryCache> cache =
@@ -58,7 +74,7 @@ class CompressedSecondaryCache : public SecondaryCache {
       std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
       bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
       CacheMetadataChargePolicy metadata_charge_policy =
-          kDontChargeCacheMetadata,
+          kDefaultCacheMetadataChargePolicy,
       CompressionType compression_type = CompressionType::kLZ4Compression,
       uint32_t compress_format_version = 2);
   virtual ~CompressedSecondaryCache() override;
@@ -70,7 +86,9 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-      bool& is_in_sec_cache) override;
+      bool advise_erase, bool& is_in_sec_cache) override;
+
+  bool SupportForceErase() const override { return true; }
 
   void Erase(const Slice& key) override;
 
@@ -79,6 +97,36 @@ class CompressedSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override;
 
  private:
+  friend class CompressedSecondaryCacheTest;
+  static constexpr std::array<uint16_t, 33> malloc_bin_sizes_{
+      32,   64,   96,   128,  160,  192,  224,   256,   320,   384,   448,
+      512,  640,  768,  896,  1024, 1280, 1536,  1792,  2048,  2560,  3072,
+      3584, 4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336, 16384, 32768};
+
+  struct CacheValueChunk {
+    // TODO try "CacheAllocationPtr next;".
+    CacheValueChunk* next;
+    size_t size;
+    // Beginning of the chunk data (MUST BE THE LAST FIELD IN THIS STRUCT!)
+    char data[1];
+
+    void Free() { delete[] reinterpret_cast<char*>(this); }
+  };
+
+  // Split value into chunks to better fit into jemalloc bins. The chunks
+  // are stored in CacheValueChunk and extra charge is needed for each chunk,
+  // so the cache charge is recalculated here.
+  CacheValueChunk* SplitValueIntoChunks(const Slice& value,
+                                        const CompressionType compression_type,
+                                        size_t& charge);
+
+  // After merging chunks, the extra charge for each chunk is removed, so
+  // the charge is recalculated.
+  CacheAllocationPtr MergeChunksIntoValue(const void* chunks_head,
+                                          size_t& charge);
+
+  // An implementation of Cache::DeleterFn.
+  static void DeletionCallback(const Slice& /*key*/, void* obj);
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
 };

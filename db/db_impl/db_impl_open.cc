@@ -11,7 +11,7 @@
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
-#include "db/periodic_work_scheduler.h"
+#include "db/periodic_task_scheduler.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -525,12 +525,6 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
-  if (immutable_db_options_.verify_sst_unique_id_in_manifest) {
-    s = VerifySstUniqueIdInManifest();
-    if (!s.ok()) {
-      return s;
-    }
-  }
   s = SetupDBId(read_only, recovery_ctx);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
   if (s.ok() && !read_only) {
@@ -541,6 +535,7 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
+    // TODO: share file descriptors (FSDirectory) with SetDirectories above
     std::map<std::string, std::shared_ptr<FSDirectory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       s = cfd->AddDirectories(&created_dirs);
@@ -705,31 +700,6 @@ Status DBImpl::Recover(
     }
   }
   return s;
-}
-
-Status DBImpl::VerifySstUniqueIdInManifest() {
-  mutex_.AssertHeld();
-  ROCKS_LOG_INFO(
-      immutable_db_options_.info_log,
-      "Verifying SST unique id between MANIFEST and SST file table properties");
-  Status status;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->IsDropped()) {
-      auto version = cfd->current();
-      version->Ref();
-      mutex_.Unlock();
-      status = version->VerifySstUniqueIds();
-      mutex_.Lock();
-      version->Unref();
-      if (!status.ok()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "SST unique id mismatch in column family \"%s\": %s",
-                       cfd->GetName().c_str(), status.ToString().c_str());
-        return status;
-      }
-    }
-  }
-  return status;
 }
 
 Status DBImpl::PersistentStatsProcessFormatVersion() {
@@ -1545,7 +1515,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
       auto range_del_iter =
-          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+          // This is called during recovery, where a live memtable is flushed
+          // directly. In this case, no fragmented tombstone list is cached in
+          // this memtable yet.
+          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
+                                         false /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
@@ -1600,8 +1574,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.marked_for_compaction, meta.temperature,
                   meta.oldest_blob_file_number, meta.oldest_ancester_time,
                   meta.file_creation_time, meta.file_checksum,
-                  meta.file_checksum_func_name, meta.min_timestamp,
-                  meta.max_timestamp, meta.unique_id);
+                  meta.file_checksum_func_name, meta.unique_id);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);
@@ -2101,7 +2074,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                    "DB::Open() failed: %s", s.ToString().c_str());
   }
   if (s.ok()) {
-    s = impl->StartPeriodicWorkScheduler();
+    s = impl->StartPeriodicTaskScheduler();
   }
 
   if (s.ok()) {

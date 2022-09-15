@@ -128,6 +128,15 @@ class TableReader {
                      const SliceTransform* prefix_extractor,
                      bool skip_filters = false) = 0;
 
+  // Use bloom filters in the table file, if present, to filter out keys. The
+  // mget_range will be updated to skip keys that get a negative result from
+  // the filter lookup.
+  virtual Status MultiGetFilter(const ReadOptions& /*readOptions*/,
+                                const SliceTransform* /*prefix_extractor*/,
+                                MultiGetContext::Range* /*mget_range*/) {
+    return Status::NotSupported();
+  }
+
   virtual void MultiGet(const ReadOptions& readOptions,
                         const MultiGetContext::Range* mget_range,
                         const SliceTransform* prefix_extractor,

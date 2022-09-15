@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -392,11 +393,16 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
     cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
   }
 
-  if (cache_handle != nullptr) {
-    UpdateCacheHitMetrics(block_type, get_context,
-                          block_cache->GetUsage(cache_handle));
-  } else {
-    UpdateCacheMissMetrics(block_type, get_context);
+  // Avoid updating metrics here if the handle is not complete yet. This
+  // happens with MultiGet and secondary cache. So update the metrics only
+  // if its a miss, or a hit and value is ready
+  if (!cache_handle || block_cache->Value(cache_handle)) {
+    if (cache_handle != nullptr) {
+      UpdateCacheHitMetrics(block_type, get_context,
+                            block_cache->GetUsage(cache_handle));
+    } else {
+      UpdateCacheMissMetrics(block_type, get_context);
+    }
   }
 
   return cache_handle;
@@ -516,7 +522,6 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
 void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
                                         const std::string& cur_db_session_id,
                                         uint64_t cur_file_number,
-                                        uint64_t file_size,
                                         OffsetableCacheKey* out_base_cache_key,
                                         bool* out_is_stable) {
   // Use a stable cache key if sufficient data is in table properties
@@ -560,8 +565,7 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
 
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
   // from offsets. See GetCacheKey.
-  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num,
-                                           /*max_offset*/ file_size >> 2);
+  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num);
 }
 
 CacheKey BlockBasedTable::GetCacheKey(const OffsetableCacheKey& base_cache_key,
@@ -585,7 +589,7 @@ Status BlockBasedTable::Open(
     TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer,
     size_t max_file_size_for_l0_meta_pin, const std::string& cur_db_session_id,
-    uint64_t cur_file_num) {
+    uint64_t cur_file_num, UniqueId64x2 expected_unique_id) {
   table_reader->reset();
 
   Status s;
@@ -594,7 +598,7 @@ Status BlockBasedTable::Open(
 
   // From read_options, retain deadline, io_timeout, and rate_limiter_priority.
   // In future, we may retain more
-  // options. Specifically, w ignore verify_checksums and default to
+  // options. Specifically, we ignore verify_checksums and default to
   // checksum verification anyway when creating the index and filter
   // readers.
   ReadOptions ro;
@@ -679,6 +683,53 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
+
+  // Check expected unique id if provided
+  if (expected_unique_id != kNullUniqueId64x2) {
+    auto props = rep->table_properties;
+    if (!props) {
+      return Status::Corruption("Missing table properties on file " +
+                                std::to_string(cur_file_num) +
+                                " with known unique ID");
+    }
+    UniqueId64x2 actual_unique_id{};
+    s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                               props->orig_file_number, &actual_unique_id,
+                               /*force*/ true);
+    assert(s.ok());  // because force=true
+    if (expected_unique_id != actual_unique_id) {
+      return Status::Corruption(
+          "Mismatch in unique ID on table file " +
+          std::to_string(cur_file_num) +
+          ". Expected: " + InternalUniqueIdToHumanString(&expected_unique_id) +
+          " Actual: " + InternalUniqueIdToHumanString(&actual_unique_id));
+    }
+    TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::PassedVerifyUniqueId",
+                             &actual_unique_id);
+  } else {
+    TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::SkippedVerifyUniqueId",
+                             nullptr);
+    if (ioptions.verify_sst_unique_id_in_manifest && ioptions.logger) {
+      // A crude but isolated way of reporting unverified files. This should not
+      // be an ongoing concern so doesn't deserve a place in Statistics IMHO.
+      static std::atomic<uint64_t> unverified_count{0};
+      auto prev_count =
+          unverified_count.fetch_add(1, std::memory_order_relaxed);
+      if (prev_count == 0) {
+        ROCKS_LOG_WARN(
+            ioptions.logger,
+            "At least one SST file opened without unique ID to verify: %" PRIu64
+            ".sst",
+            cur_file_num);
+      } else if (prev_count % 1000 == 0) {
+        ROCKS_LOG_WARN(
+            ioptions.logger,
+            "Another ~1000 SST files opened without unique ID to verify");
+      }
+    }
+  }
+
+  // Set up prefix extracto as needed
   bool force_null_table_prefix_extractor = false;
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
@@ -712,7 +763,7 @@ Status BlockBasedTable::Open(
 
   // With properties loaded, we can set up portable/stable cache keys
   SetupBaseCacheKey(rep->table_properties.get(), cur_db_session_id,
-                    cur_file_num, file_size, &rep->base_cache_key);
+                    cur_file_num, &rep->base_cache_key);
 
   rep->persistent_cache_options =
       PersistentCacheOptions(rep->table_options.persistent_cache,
@@ -2266,6 +2317,36 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   }
 
   return s;
+}
+
+Status BlockBasedTable::MultiGetFilter(const ReadOptions& read_options,
+                                       const SliceTransform* prefix_extractor,
+                                       MultiGetRange* mget_range) {
+  if (mget_range->empty()) {
+    // Caller should ensure non-empty (performance bug)
+    assert(false);
+    return Status::OK();  // Nothing to do
+  }
+
+  FilterBlockReader* const filter = rep_->filter.get();
+  if (!filter) {
+    return Status::OK();
+  }
+
+  // First check the full filter
+  // If full filter not useful, Then go into each block
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
+  if (mget_range->begin()->get_context) {
+    tracing_mget_id = mget_range->begin()->get_context->get_tracing_get_id();
+  }
+  BlockCacheLookupContext lookup_context{
+      TableReaderCaller::kUserMultiGet, tracing_mget_id,
+      /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
+  FullFilterKeysMayMatch(filter, mget_range, no_io, prefix_extractor,
+                         &lookup_context, read_options.rate_limiter_priority);
+
+  return Status::OK();
 }
 
 Status BlockBasedTable::Prefetch(const Slice* const begin,

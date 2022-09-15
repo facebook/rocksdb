@@ -1,3 +1,9 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 #ifndef ROCKSDB_LITE
 
 #include "db/import_column_family_job.h"
@@ -160,7 +166,7 @@ Status ImportColumnFamilyJob::Run() {
                   file_metadata.largest_seqno, false, file_metadata.temperature,
                   kInvalidBlobFileNumber, oldest_ancester_time, current_time,
                   kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                  kDisableUserTimestamp, kDisableUserTimestamp, f.unique_id);
+                  f.unique_id);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {

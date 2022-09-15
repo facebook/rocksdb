@@ -27,7 +27,7 @@ class CountingLogger : public Logger {
   size_t log_count;
 };
 
-class CompactionPickerTest : public testing::Test {
+class CompactionPickerTestBase : public testing::Test {
  public:
   const Comparator* ucmp_;
   InternalKeyComparator icmp_;
@@ -49,9 +49,10 @@ class CompactionPickerTest : public testing::Test {
   std::vector<CompactionInputFiles> input_files_;
   int compaction_level_start_;
 
-  CompactionPickerTest()
-      : ucmp_(BytewiseComparator()),
+  explicit CompactionPickerTestBase(const Comparator* _ucmp)
+      : ucmp_(_ucmp),
         icmp_(ucmp_),
+        options_(CreateOptions(ucmp_)),
         ioptions_(options_),
         mutable_cf_options_(options_),
         mutable_db_options_(),
@@ -71,7 +72,7 @@ class CompactionPickerTest : public testing::Test {
                                     std::numeric_limits<uint64_t>::max());
   }
 
-  ~CompactionPickerTest() override {}
+  ~CompactionPickerTestBase() override {}
 
   void NewVersionStorage(int num_levels, CompactionStyle style) {
     DeleteVersionStorage();
@@ -97,12 +98,17 @@ class CompactionPickerTest : public testing::Test {
     input_files_.clear();
   }
 
+  // REQUIRES: smallest and largest are c-style strings ending with '\0'
   void Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 1, uint32_t path_id = 0,
            SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
            size_t compensated_file_size = 0, bool marked_for_compact = false,
            Temperature temperature = Temperature::kUnknown,
-           uint64_t oldest_ancestor_time = kUnknownOldestAncesterTime) {
+           uint64_t oldest_ancestor_time = kUnknownOldestAncesterTime,
+           Slice ts_of_smallest = Slice(), Slice ts_of_largest = Slice()) {
+    assert(ts_of_smallest.size() == ucmp_->timestamp_size());
+    assert(ts_of_largest.size() == ucmp_->timestamp_size());
+
     VersionStorageInfo* vstorage;
     if (temp_vstorage_) {
       vstorage = temp_vstorage_.get();
@@ -110,20 +116,46 @@ class CompactionPickerTest : public testing::Test {
       vstorage = vstorage_.get();
     }
     assert(level < vstorage->num_levels());
+    char* smallest_key_buf = nullptr;
+    char* largest_key_buf = nullptr;
+
+    if (!ts_of_smallest.empty()) {
+      smallest_key_buf = new char[strlen(smallest) + ucmp_->timestamp_size()];
+      memcpy(smallest_key_buf, smallest, strlen(smallest));
+      memcpy(smallest_key_buf + strlen(smallest), ts_of_smallest.data(),
+             ucmp_->timestamp_size());
+      largest_key_buf = new char[strlen(largest) + ucmp_->timestamp_size()];
+      memcpy(largest_key_buf, largest, strlen(largest));
+      memcpy(largest_key_buf + strlen(largest), ts_of_largest.data(),
+             ucmp_->timestamp_size());
+    }
+
+    InternalKey smallest_ikey = InternalKey(
+        smallest_key_buf ? Slice(smallest_key_buf,
+                                 ucmp_->timestamp_size() + strlen(smallest))
+                         : smallest,
+        smallest_seq, kTypeValue);
+    InternalKey largest_ikey = InternalKey(
+        largest_key_buf
+            ? Slice(largest_key_buf, ucmp_->timestamp_size() + strlen(largest))
+            : largest,
+        largest_seq, kTypeValue);
+
     FileMetaData* f = new FileMetaData(
-        file_number, path_id, file_size,
-        InternalKey(smallest, smallest_seq, kTypeValue),
-        InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
-        largest_seq, marked_for_compact, temperature, kInvalidBlobFileNumber,
-        kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
+        file_number, path_id, file_size, smallest_ikey, largest_ikey,
+        smallest_seq, largest_seq, marked_for_compact, temperature,
+        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+        kUnknownFileCreationTime, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     f->oldest_ancester_time = oldest_ancestor_time;
     vstorage->AddFile(level, f);
     files_.emplace_back(f);
     file_map_.insert({file_number, {f, level}});
+
+    delete[] smallest_key_buf;
+    delete[] largest_key_buf;
   }
 
   void SetCompactionInputFilesLevels(int level_count, int start_level) {
@@ -156,7 +188,29 @@ class CompactionPickerTest : public testing::Test {
   }
 
  private:
+  Options CreateOptions(const Comparator* ucmp) const {
+    Options opts;
+    opts.comparator = ucmp;
+    return opts;
+  }
+
   std::unique_ptr<VersionStorageInfo> temp_vstorage_;
+};
+
+class CompactionPickerTest : public CompactionPickerTestBase {
+ public:
+  explicit CompactionPickerTest()
+      : CompactionPickerTestBase(BytewiseComparator()) {}
+
+  ~CompactionPickerTest() override {}
+};
+
+class CompactionPickerU64TsTest : public CompactionPickerTestBase {
+ public:
+  explicit CompactionPickerU64TsTest()
+      : CompactionPickerTestBase(test::BytewiseComparatorWithU64TsWrapper()) {}
+
+  ~CompactionPickerU64TsTest() override {}
 };
 
 TEST_F(CompactionPickerTest, Empty) {
@@ -3174,6 +3228,249 @@ TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
   // After creating the manual compaction, all files should be cleared from
   // `FilesMarkedForCompaction`. So they won't be picked by others.
   ASSERT_EQ(0U, vstorage_->FilesMarkedForCompaction().size());
+}
+
+TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNonLastLevel) {
+  // This test make sure size amplification compaction could still be triggered
+  // if the last sorted run is not the last level.
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 7;
+  const int kLastLevel = kNumLevels - 1;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 1 * kFileSize);
+  Add(0, 101U, "200", "400", 1 * kFileSize);
+  Add(4, 90U, "100", "600", 4 * kFileSize);
+  Add(5, 80U, "200", "300", 2 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  // Make sure it's a size amp compaction and includes all files
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeAmplification);
+  ASSERT_EQ(compaction->output_level(), kLastLevel);
+  ASSERT_EQ(compaction->input_levels(0)->num_files, 2);
+  ASSERT_EQ(compaction->input_levels(4)->num_files, 1);
+  ASSERT_EQ(compaction->input_levels(5)->num_files, 1);
+}
+
+TEST_F(CompactionPickerTest, UniversalSizeRatioTierCompactionLastLevel) {
+  // This test makes sure the size amp calculation skips the last level (L6), so
+  // size amp compaction is not triggered, instead a size ratio compaction is
+  // triggered.
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 7;
+  const int kLastLevel = kNumLevels - 1;
+  const int kPenultimateLevel = kLastLevel - 1;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 1 * kFileSize);
+  Add(0, 101U, "200", "400", 1 * kFileSize);
+  Add(5, 90U, "100", "600", 4 * kFileSize);
+  Add(6, 80U, "200", "300", 2 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  // Internally, size amp compaction is evaluated before size ratio compaction.
+  // Here to make sure it's size ratio compaction instead of size amp
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeRatio);
+  ASSERT_EQ(compaction->output_level(), kPenultimateLevel - 1);
+  ASSERT_EQ(compaction->input_levels(0)->num_files, 2);
+  ASSERT_EQ(compaction->input_levels(5)->num_files, 0);
+  ASSERT_EQ(compaction->input_levels(6)->num_files, 0);
+}
+
+TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNotSuport) {
+  // Tiered compaction only support level_num > 2 (otherwise the penultimate
+  // level is going to be level 0, which may make thing more complicated), so
+  // when there's only 2 level, still treating level 1 as the last level for
+  // size amp compaction
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 2;
+  const int kLastLevel = kNumLevels - 1;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 1 * kFileSize);
+  Add(0, 101U, "200", "400", 1 * kFileSize);
+  Add(0, 90U, "100", "600", 4 * kFileSize);
+  Add(1, 80U, "200", "300", 2 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  // size amp compaction is still triggered even preclude_last_level is set
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeAmplification);
+  ASSERT_EQ(compaction->output_level(), kLastLevel);
+  ASSERT_EQ(compaction->input_levels(0)->num_files, 3);
+  ASSERT_EQ(compaction->input_levels(1)->num_files, 1);
+}
+
+TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionLastLevel) {
+  // This test makes sure the size amp compaction for tiered storage could still
+  // be triggered, but only for non-last-level files
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 7;
+  const int kLastLevel = kNumLevels - 1;
+  const int kPenultimateLevel = kLastLevel - 1;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 3 * kFileSize);
+  Add(0, 101U, "200", "400", 2 * kFileSize);
+  Add(5, 90U, "100", "600", 2 * kFileSize);
+  Add(6, 80U, "200", "300", 2 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  // It's a Size Amp compaction, but doesn't include the last level file and
+  // output to the penultimate level.
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeAmplification);
+  ASSERT_EQ(compaction->output_level(), kPenultimateLevel);
+  ASSERT_EQ(compaction->input_levels(0)->num_files, 2);
+  ASSERT_EQ(compaction->input_levels(5)->num_files, 1);
+  ASSERT_EQ(compaction->input_levels(6)->num_files, 0);
+}
+
+TEST_F(CompactionPickerU64TsTest, Overlap) {
+  int num_levels = ioptions_.num_levels;
+  NewVersionStorage(num_levels, kCompactionStyleLevel);
+
+  constexpr int level = 0;
+  constexpr uint64_t file_number = 20ULL;
+  constexpr char smallest[4] = "500";
+  constexpr char largest[4] = "600";
+  constexpr uint64_t ts_of_smallest = 12345ULL;
+  constexpr uint64_t ts_of_largest = 56789ULL;
+
+  {
+    std::string ts1;
+    PutFixed64(&ts1, ts_of_smallest);
+    std::string ts2;
+    PutFixed64(&ts2, ts_of_largest);
+    Add(level, file_number, smallest, largest,
+        /*file_size=*/1U, /*path_id=*/0,
+        /*smallest_seq=*/100, /*largest_seq=*/100, /*compensated_file_size=*/0,
+        /*marked_for_compact=*/false, /*temperature=*/Temperature::kUnknown,
+        /*oldest_ancestor_time=*/kUnknownOldestAncesterTime, ts1, ts2);
+    UpdateVersionStorageInfo();
+  }
+
+  std::unordered_set<uint64_t> input{file_number};
+
+  std::vector<CompactionInputFiles> input_files;
+  ASSERT_OK(level_compaction_picker.GetCompactionInputsFromFileNumbers(
+      &input_files, &input, vstorage_.get(), CompactionOptions()));
+  std::unique_ptr<Compaction> comp1(level_compaction_picker.CompactFiles(
+      CompactionOptions(), input_files, level, vstorage_.get(),
+      mutable_cf_options_, mutable_db_options_, /*output_path_id=*/0));
+
+  {
+    // [600, ts=50000] to [600, ts=50000] is the range to check.
+    // ucmp->Compare(smallest_user_key, c->GetLargestUserKey()) > 0, but
+    // ucmp->CompareWithoutTimestamp(smallest_user_key,
+    //                               c->GetLargestUserKey()) == 0.
+    // Should still be considered overlapping.
+    std::string user_key_with_ts1(largest);
+    PutFixed64(&user_key_with_ts1, ts_of_largest - 1);
+    std::string user_key_with_ts2(largest);
+    PutFixed64(&user_key_with_ts2, ts_of_largest - 1);
+    ASSERT_TRUE(level_compaction_picker.RangeOverlapWithCompaction(
+        user_key_with_ts1, user_key_with_ts2, level));
+  }
+  {
+    // [500, ts=60000] to [500, ts=60000] is the range to check.
+    // ucmp->Compare(largest_user_key, c->GetSmallestUserKey()) < 0, but
+    // ucmp->CompareWithoutTimestamp(largest_user_key,
+    //                               c->GetSmallestUserKey()) == 0.
+    // Should still be considered overlapping.
+    std::string user_key_with_ts1(smallest);
+    PutFixed64(&user_key_with_ts1, ts_of_smallest + 1);
+    std::string user_key_with_ts2(smallest);
+    PutFixed64(&user_key_with_ts2, ts_of_smallest + 1);
+    ASSERT_TRUE(level_compaction_picker.RangeOverlapWithCompaction(
+        user_key_with_ts1, user_key_with_ts2, level));
+  }
+}
+
+TEST_F(CompactionPickerU64TsTest, CannotTrivialMoveUniversal) {
+  constexpr uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.compaction_options_universal.allow_trivial_move = true;
+  NewVersionStorage(1, kCompactionStyleUniversal);
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  UpdateVersionStorageInfo();
+  // must return false when there's no files.
+  ASSERT_FALSE(universal_compaction_picker.NeedsCompaction(vstorage_.get()));
+
+  std::string ts1;
+  PutFixed64(&ts1, 9000);
+  std::string ts2;
+  PutFixed64(&ts2, 8000);
+  std::string ts3;
+  PutFixed64(&ts3, 7000);
+  std::string ts4;
+  PutFixed64(&ts4, 6000);
+
+  NewVersionStorage(3, kCompactionStyleUniversal);
+  // A compaction should be triggered and pick file 2
+  Add(1, 1U, "150", "150", kFileSize, /*path_id=*/0, /*smallest_seq=*/100,
+      /*largest_seq=*/100, /*compensated_file_size=*/kFileSize,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, ts1, ts2);
+  Add(2, 2U, "150", "150", kFileSize, /*path_id=*/0, /*smallest_seq=*/100,
+      /*largest_seq=*/100, /*compensated_file_size=*/kFileSize,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, ts3, ts4);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+  assert(compaction);
+  ASSERT_TRUE(!compaction->is_trivial_move());
 }
 
 class PerKeyPlacementCompactionPickerTest

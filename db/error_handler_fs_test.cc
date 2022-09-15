@@ -1308,6 +1308,10 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     ASSERT_EQ(s, s.NoSpace());
   }
   SyncPoint::GetInstance()->DisableProcessing();
+  // `ClearAllCallBacks()` is needed in addition to `DisableProcessing()` to
+  // drain all callbacks. Otherwise, a pending callback in the background
+  // could re-disable `fault_fs_` after we enable it below.
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   fault_fs_->SetFilesystemActive(true);
   ASSERT_EQ(listener->WaitForRecovery(5000000), true);
   for (auto i = 0; i < 199; ++i) {
@@ -1474,6 +1478,10 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
     ASSERT_TRUE(s.IsNoSpace());
   }
   SyncPoint::GetInstance()->DisableProcessing();
+  // `ClearAllCallBacks()` is needed in addition to `DisableProcessing()` to
+  // drain all callbacks. Otherwise, a pending callback in the background
+  // could re-disable `fault_fs_` after we enable it below.
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   fault_fs_->SetFilesystemActive(true);
   ASSERT_EQ(listener->WaitForRecovery(5000000), true);
 

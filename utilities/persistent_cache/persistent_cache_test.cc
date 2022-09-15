@@ -140,7 +140,7 @@ TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithFileCreateError) {
 // Travis is unable to handle the normal version of the tests running out of
 // fds, out of space and timeouts. This is an easier version of the test
 // specifically written for Travis
-TEST_F(PersistentCacheTierTest, BasicTest) {
+TEST_F(PersistentCacheTierTest, DISABLED_BasicTest) {
   cache_ = std::make_shared<VolatileCacheTier>();
   RunInsertTest(/*nthreads=*/1, /*max_keys=*/1024);
 

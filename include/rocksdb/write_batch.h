@@ -100,7 +100,8 @@ class WriteBatch : public WriteBatchBase {
     return Put(nullptr, key, value);
   }
 
-  // UNDER CONSTRUCTION -- DO NOT USE
+  // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
+  // column family specified by "column_family".
   using WriteBatchBase::PutEntity;
   Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                    const WideColumns& columns) override;

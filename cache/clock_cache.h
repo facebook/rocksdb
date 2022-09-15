@@ -576,8 +576,8 @@ class ClockHandleTable {
   // metadata.
   void Free(autovector<ClockHandle>* deleted);
 
-  template <typename T>
-  void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end,
+  void ApplyToEntriesRange(std::function<void(ClockHandle*)> func,
+                           uint32_t index_begin, uint32_t index_end,
                            bool apply_if_will_be_deleted) {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
@@ -591,9 +591,8 @@ class ClockHandleTable {
     }
   }
 
-  template <typename T>
-  void ConstApplyToEntriesRange(T func, uint32_t index_begin,
-                                uint32_t index_end,
+  void ConstApplyToEntriesRange(std::function<void(const ClockHandle*)> func,
+                                uint32_t index_begin, uint32_t index_end,
                                 bool apply_if_will_be_deleted) const {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];

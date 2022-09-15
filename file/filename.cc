@@ -388,7 +388,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
 
 IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
                         uint64_t descriptor_number,
-                        FSDirectory* directory_to_fsync) {
+                        FSDirectory* dir_contains_current_file) {
   // Remove leading "dbname/" and add newline to manifest file name
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
   Slice contents = manifest;
@@ -404,8 +404,8 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
     TEST_SYNC_POINT_CALLBACK("SetCurrentFile:AfterRename", &s);
   }
   if (s.ok()) {
-    if (directory_to_fsync != nullptr) {
-      s = directory_to_fsync->FsyncWithDirOptions(
+    if (dir_contains_current_file != nullptr) {
+      s = dir_contains_current_file->FsyncWithDirOptions(
           IOOptions(), nullptr, DirFsyncOptions(CurrentFileName(dbname)));
     }
   } else {
