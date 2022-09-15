@@ -400,7 +400,7 @@ void CompactionIterator::NextFromInput() {
     iter_stats_.total_input_raw_key_bytes += key_.size();
     iter_stats_.total_input_raw_value_bytes += value_.size();
 
-    // If need_skip is true, we should only skip current user key or seek the input iterator
+    // If need_skip is true, we should skip current user key or seek the input iterator
     // to internal key skip_until and continue from there.
     bool need_skip = false;
     // If just_skip_current_user_key is true, we should only skip current user key and let the input iterator
