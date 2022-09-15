@@ -184,34 +184,36 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
     }
     // How much do we need to evict then?
     size_t need_evict_charge = old_usage + total_charge - new_usage;
-    if (UNLIKELY(need_evict_for_occupancy) && need_evict_charge == 0) {
+    size_t request_evict_charge = need_evict_charge;
+    if (UNLIKELY(need_evict_for_occupancy) && request_evict_charge == 0) {
       // Require at least 1 eviction.
-      need_evict_charge = 1;
+      request_evict_charge = 1;
     }
-    if (need_evict_charge > 0) {
+    if (request_evict_charge > 0) {
       size_t evicted_charge = 0;
       uint32_t evicted_count = 0;
-      Evict(need_evict_charge, &evicted_charge, &evicted_count);
+      Evict(request_evict_charge, &evicted_charge, &evicted_count);
       occupancy_.fetch_sub(evicted_count, std::memory_order_relaxed);
       if (LIKELY(evicted_charge > need_evict_charge)) {
         assert(evicted_count > 0);
         // Evicted more than enough
         usage_.fetch_sub(evicted_charge - need_evict_charge,
                          std::memory_order_relaxed);
-      } else if (evicted_charge < need_evict_charge) {
+      } else if (evicted_charge < need_evict_charge ||
+                 (UNLIKELY(need_evict_for_occupancy) && evicted_count == 0)) {
         // Roll back to old usage minus evicted
         usage_.fetch_sub(evicted_charge + (new_usage - old_usage),
                          std::memory_order_relaxed);
         assert(!use_detached_insert);
         revert_occupancy_fn();
-        if (UNLIKELY(need_evict_for_occupancy) && evicted_count == 0) {
-          return Status::MemoryLimit(
-              "Insert failed because unable to evict entries to stay within "
-              "table occupancy limit.");
-        } else {
+        if (evicted_charge < need_evict_charge) {
           return Status::MemoryLimit(
               "Insert failed because unable to evict entries to stay within "
               "capacity limit.");
+        } else {
+          return Status::MemoryLimit(
+              "Insert failed because unable to evict entries to stay within "
+              "table occupancy limit.");
         }
       }
       // If we needed to evict something and we are proceeding, we must have
@@ -232,6 +234,10 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
     // involving fewer threads in eviction.
     size_t old_usage = usage_.load(std::memory_order_relaxed);
     size_t need_evict_charge;
+    // NOTE: if total_charge > old_usage, there isn't yet enough to evict
+    // `total_charge` amount. Even if we only try to evict `old_usage` amount,
+    // there's likely something referenced and we would eat CPU looking for
+    // enough to evict.
     if (old_usage + total_charge <= capacity || total_charge > old_usage) {
       // Good enough for me (might run over with a race)
       need_evict_charge = 0;
@@ -997,8 +1003,9 @@ int ClockCacheShard::CalcHashBits(
   return hash_bits;
 }
 
-void ClockCacheShard::SetCapacity(size_t /*capacity*/) {
-  // TODO: implement
+void ClockCacheShard::SetCapacity(size_t capacity) {
+  capacity_.store(capacity, std::memory_order_relaxed);
+  // next Insert will take care of any necessary evictions
 }
 
 void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {

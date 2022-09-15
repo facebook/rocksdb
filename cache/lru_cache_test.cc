@@ -595,6 +595,8 @@ class ClockCacheTest : public testing::Test {
 
 TEST_F(ClockCacheTest, Misc) {
   NewShard(3);
+
+  // Key size stuff
   EXPECT_OK(InsertWithLen('a', 16));
   EXPECT_NOK(InsertWithLen('b', 15));
   EXPECT_OK(InsertWithLen('b', 16));
@@ -611,8 +613,91 @@ TEST_F(ClockCacheTest, Misc) {
   shard_->Erase(wrong_size_key, /*hash*/ 42);  // no-op
 }
 
+TEST_F(ClockCacheTest, Limits) {
+  NewShard(3, false /*strict_capacity_limit*/);
+  for (bool strict_capacity_limit : {false, true, false}) {
+    SCOPED_TRACE("strict_capacity_limit = " +
+                 std::to_string(strict_capacity_limit));
+
+    // Also tests switching between strict limit and not
+    shard_->SetStrictCapacityLimit(strict_capacity_limit);
+
+    std::string key(16, 'x');
+
+    // Single entry charge beyond capacity
+    {
+      Status s = shard_->Insert(key, 0 /*hash*/, nullptr /*value*/,
+                                5 /*charge*/, nullptr /*deleter*/,
+                                nullptr /*handle*/, Cache::Priority::LOW);
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+    }
+
+    // Single entry fills capacity
+    {
+      Cache::Handle* h;
+      ASSERT_OK(shard_->Insert(key, 0 /*hash*/, nullptr /*value*/, 3 /*charge*/,
+                               nullptr /*deleter*/, &h, Cache::Priority::LOW));
+      // Try to insert more
+      Status s = Insert('a');
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+      // Release entry filling capacity.
+      // Cover useful = false case.
+      shard_->Release(h, false /*useful*/, false /*erase_if_last_ref*/);
+    }
+
+    // Insert more than table size can handle (cleverly using zero-charge
+    // entries) to exceed occupancy limit.
+    {
+      size_t n = shard_->GetTableAddressCount() + 1;
+      std::unique_ptr<Cache::Handle* []> ha { new Cache::Handle* [n] {} };
+      Status s;
+      for (size_t i = 0; i < n && s.ok(); ++i) {
+        EncodeFixed64(&key[0], i);
+        s = shard_->Insert(key, 0 /*hash*/, nullptr /*value*/, 0 /*charge*/,
+                           nullptr /*deleter*/, &ha[i], Cache::Priority::LOW);
+        if (i == 0) {
+          EXPECT_OK(s);
+        }
+      }
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+      // Same result if not keeping a reference
+      s = Insert('a');
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+
+      // Regardless, we didn't allow table to actually get full
+      EXPECT_LT(shard_->GetOccupancyCount(), shard_->GetTableAddressCount());
+
+      // Release handles
+      for (size_t i = 0; i < n; ++i) {
+        if (ha[i]) {
+          shard_->Release(ha[i]);
+        }
+      }
+    }
+  }
+}
+
 TEST_F(ClockCacheTest, ClockEvictionTest) {
-  for (bool strict_capacity_limit : {false, true}) {  // TODO: parameterize test
+  for (bool strict_capacity_limit : {false, true}) {
+    SCOPED_TRACE("strict_capacity_limit = " +
+                 std::to_string(strict_capacity_limit));
+
     NewShard(6, strict_capacity_limit);
     EXPECT_OK(Insert('a', Cache::Priority::BOTTOM));
     EXPECT_OK(Insert('b', Cache::Priority::LOW));
@@ -670,8 +755,8 @@ TEST_F(ClockCacheTest, ClockEvictionTest) {
     EXPECT_TRUE(Lookup('l', /*use*/ false));
 
     // Then the (roughly) least recently useful
-    EXPECT_OK(Insert('m', Cache::Priority::LOW));
-    EXPECT_OK(Insert('n', Cache::Priority::LOW));
+    EXPECT_OK(Insert('m', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('n', Cache::Priority::HIGH));
 
     EXPECT_TRUE(Lookup('g', /*use*/ false));
     EXPECT_TRUE(Lookup('h', /*use*/ false));
@@ -679,6 +764,39 @@ TEST_F(ClockCacheTest, ClockEvictionTest) {
     EXPECT_FALSE(Lookup('j', /*use*/ false));
     EXPECT_TRUE(Lookup('k', /*use*/ false));
     EXPECT_TRUE(Lookup('l', /*use*/ false));
+
+    // Now try changing capacity down
+    shard_->SetCapacity(4);
+    // Insert to ensure evictions happen
+    EXPECT_OK(Insert('o', Cache::Priority::LOW));
+    EXPECT_OK(Insert('p', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('g', /*use*/ false));
+    EXPECT_FALSE(Lookup('h', /*use*/ false));
+    EXPECT_FALSE(Lookup('k', /*use*/ false));
+    EXPECT_FALSE(Lookup('l', /*use*/ false));
+    EXPECT_TRUE(Lookup('m', /*use*/ false));
+    EXPECT_TRUE(Lookup('n', /*use*/ false));
+    EXPECT_TRUE(Lookup('o', /*use*/ false));
+    EXPECT_TRUE(Lookup('p', /*use*/ false));
+
+    // Now try changing capacity up
+    EXPECT_TRUE(Lookup('m', /*use*/ true));
+    EXPECT_TRUE(Lookup('n', /*use*/ true));
+    shard_->SetCapacity(6);
+    EXPECT_OK(Insert('q', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('r', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('s', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('t', Cache::Priority::HIGH));
+
+    EXPECT_FALSE(Lookup('o', /*use*/ false));
+    EXPECT_FALSE(Lookup('p', /*use*/ false));
+    EXPECT_TRUE(Lookup('m', /*use*/ false));
+    EXPECT_TRUE(Lookup('n', /*use*/ false));
+    EXPECT_TRUE(Lookup('q', /*use*/ false));
+    EXPECT_TRUE(Lookup('r', /*use*/ false));
+    EXPECT_TRUE(Lookup('s', /*use*/ false));
+    EXPECT_TRUE(Lookup('t', /*use*/ false));
   }
 }
 
@@ -758,6 +876,8 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
 
   // Make h1 invisible
   shard_->Erase(key1, my_hash);
+  // Redundant erase
+  shard_->Erase(key1, my_hash);
 
   // All still alive
   ASSERT_EQ(deleted, 0);
@@ -777,11 +897,23 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
     ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
   }
 
-  // Release last ref on h1
+  // Also Insert with invisible entry there
+  ASSERT_OK(shard_->Insert(key1, my_hash, &deleted, 1, IncrementIntDeleter,
+                           nullptr, Cache::Priority::HIGH));
+  tmp_h = shard_->Lookup(key1, my_hash);
+  // Found but distinct handle
+  ASSERT_NE(nullptr, tmp_h);
+  ASSERT_NE(h1, tmp_h);
+  ASSERT_TRUE(shard_->Release(tmp_h, /*erase_if_last_ref*/ true));
+
+  // tmp_h deleted
+  ASSERT_EQ(deleted--, 1);
+
+  // Release last ref on h1 (already invisible)
   ASSERT_TRUE(shard_->Release(h1, /*erase_if_last_ref*/ false));
 
   // h1 deleted
-  ASSERT_EQ(deleted, 1);
+  ASSERT_EQ(deleted--, 1);
   h1 = nullptr;
 
   // Can still find h2, h3
@@ -799,7 +931,7 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
   ASSERT_FALSE(shard_->Release(h2, /*erase_if_last_ref*/ false));
 
   // h2 still not deleted (unreferenced in cache)
-  ASSERT_EQ(deleted, 1);
+  ASSERT_EQ(deleted, 0);
 
   // Can still find it
   tmp_h = shard_->Lookup(key2, my_hash);
@@ -809,7 +941,7 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
   ASSERT_TRUE(shard_->Release(h2, /*erase_if_last_ref*/ true));
 
   // h2 deleted
-  ASSERT_EQ(deleted, 2);
+  ASSERT_EQ(deleted--, 1);
   tmp_h = shard_->Lookup(key2, my_hash);
   ASSERT_EQ(nullptr, tmp_h);
 
@@ -824,13 +956,13 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
   ASSERT_FALSE(shard_->Release(h3, /*erase_if_last_ref*/ false));
 
   // h3 still not deleted (unreferenced in cache)
-  ASSERT_EQ(deleted, 2);
+  ASSERT_EQ(deleted, 0);
 
   // Explicit erase
   shard_->Erase(key3, my_hash);
 
   // h3 deleted
-  ASSERT_EQ(deleted, 3);
+  ASSERT_EQ(deleted--, 1);
   tmp_h = shard_->Lookup(key3, my_hash);
   ASSERT_EQ(nullptr, tmp_h);
 }

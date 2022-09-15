@@ -48,10 +48,11 @@ class ClockCacheTest;
 // -----
 // * Hash table is not resizable (for lock-free efficiency) so capacity is not
 // dynamically changeable. Rely on an estimated average value (block) size for
-// space+time efficiency.
+// space+time efficiency. (See estimated_entry_charge option details.)
 // * Insert usually does not (but might) overwrite a previous entry associated
 // with a cache key. This is OK for RocksDB uses of Cache.
-// * Only supports keys of exactly 16 bytes, which is what RocksDB uses.
+// * Only supports keys of exactly 16 bytes, which is what RocksDB uses for
+// block cache (not row cache or table cache).
 // * SecondaryCache is not supported.
 // * If pinned entries leave little or nothing eligible for eviction,
 // performance can degrade dramatically, because of clock eviction thrashing
