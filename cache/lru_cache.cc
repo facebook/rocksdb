@@ -853,13 +853,12 @@ Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
     return Status::InvalidArgument(
         "LRUCache: High priority pool ratio out of bounds");
   } else if (options_.low_pri_pool_ratio < 0.0 ||
-	     options_.low_pri_pool_ratio > 1.0) {
+             options_.low_pri_pool_ratio > 1.0) {
     return Status::InvalidArgument(
         "LRUCache: Low priority pool ratio out of bounds");
   } else if (options_.low_pri_pool_ratio + options_.high_pri_pool_ratio > 1.0) {
     return Status::InvalidArgument(
-         "LRUCache: Invalid low/high priority pool ratio combination");
-  }
+        "LRUCache: Invalid low/high priority pool ratio combination");
   }
   Status s = ShardedCache::PrepareOptions(config_options);
   if (s.ok()) {
