@@ -216,7 +216,8 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
 
-// EXPERIMENTAL
+// HyperClockCache - EXPERIMENTAL
+// See internal cache/clock_cache.h for full description.
 struct HyperClockCacheOptions : public ShardedCacheOptions {
   // The estimated average `charge` associated with cache entries. This is a
   // critical configuration parameter for good performance from the hyper
@@ -233,9 +234,21 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   // cache will evict entries to prevent load factors that could dramatically
   // affect lookup times, instead letting the hit rate suffer by not utilizing
   // the full capacity.
+  //
   // A reasonable choice is the larger of block_size and metadata_block_size.
+  // When WriteBufferManager (and similar) charge memory usage to the block
+  // cache, this can lead to the same effect as estimate being too low, which
+  // is better than the opposite. Therefore, the general recommendation is to
+  // assume that other memory charged to block cache could be negligible, and
+  // ignore it in making the estimate.
+  //
   // The best parameter choice based on a cache in use is given by
-  // GetUsage() / GetOccupancyCount().
+  // GetUsage() / GetOccupancyCount(), ignoring metadata overheads such as
+  // with kDontChargeCacheMetadata. More precisely with
+  // kFullChargeCacheMetadata is (GetUsage() - 64 * GetTableAddressCount()) /
+  // GetOccupancyCount(). However, when the average value size might vary
+  // (e.g. balance between metadata and data blocks in cache), it is better
+  // to estimate toward the lower side than the higher side.
   size_t estimated_entry_charge;
 
   HyperClockCacheOptions(

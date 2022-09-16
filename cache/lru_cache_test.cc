@@ -506,7 +506,7 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
 
 }  // namespace fast_lru_cache
 
-namespace clock_cache {
+namespace hyper_clock_cache {
 
 class ClockCacheTest : public testing::Test {
  public:
@@ -1007,7 +1007,7 @@ TEST_F(ClockCacheTest, TableSizesTest) {
   }
 }
 
-}  // namespace clock_cache
+}  // namespace hyper_clock_cache
 
 class TestSecondaryCache : public SecondaryCache {
  public:
