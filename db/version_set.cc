@@ -511,7 +511,7 @@ class FilePickerMultiGet {
   MultiGetRange& GetRange() { return range_; }
 
   void ReplaceRange(const MultiGetRange& other) {
-    assert(curr_level_ == 0 || !RemainingOverlapInLevel());
+    assert(hit_file_ == nullptr);
     range_ = other;
     current_level_range_ = other;
   }
