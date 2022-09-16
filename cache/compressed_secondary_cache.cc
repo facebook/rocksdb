@@ -52,14 +52,14 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     return nullptr;
   }
 
-  CacheAllocationPtr* ptr;
+  CacheAllocationPtr* ptr{nullptr};
+  CacheAllocationPtr merged_value;
   size_t handle_value_charge{0};
   if (cache_options_.enable_custom_split_merge) {
     CacheValueChunk* value_chunk_ptr =
         reinterpret_cast<CacheValueChunk*>(handle_value);
-    CacheAllocationPtr merged_value =
-        MergeChunksIntoValue(value_chunk_ptr, handle_value_charge);
-    ptr = new CacheAllocationPtr(std::move(merged_value));
+    merged_value = MergeChunksIntoValue(value_chunk_ptr, handle_value_charge);
+    ptr = &merged_value;
   } else {
     ptr = reinterpret_cast<CacheAllocationPtr*>(handle_value);
     handle_value_charge = cache_->GetCharge(lru_handle);
