@@ -283,7 +283,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
     sec_cache.reset();
   }
 
-  void BasicIntegrationTest(bool sec_cache_is_compressed) {
+  void BasicIntegrationTest(bool sec_cache_is_compressed,
+                            bool enable_custom_split_merge) {
     CompressedSecondaryCacheOptions secondary_cache_opts;
 
     if (sec_cache_is_compressed) {
@@ -298,6 +299,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     secondary_cache_opts.capacity = 6000;
     secondary_cache_opts.num_shard_bits = 0;
+    secondary_cache_opts.enable_custom_split_merge = enable_custom_split_merge;
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
     LRUCacheOptions lru_cache_opts(
@@ -795,21 +797,21 @@ Cache::CacheItemHelper CompressedSecondaryCacheTest::helper_fail_(
     CompressedSecondaryCacheTest::DeletionCallback);
 
 TEST_F(CompressedSecondaryCacheTest, BasicTestWithNoCompression) {
-  BasicTest(false, false);
+  BasicTest(/*sec_cache_is_compressed=*/false, /*use_jemalloc=*/false);
 }
 
 TEST_F(CompressedSecondaryCacheTest,
        BasicTestWithMemoryAllocatorAndNoCompression) {
-  BasicTest(false, true);
+  BasicTest(/*sec_cache_is_compressed=*/false, /*use_jemalloc=*/true);
 }
 
 TEST_F(CompressedSecondaryCacheTest, BasicTestWithCompression) {
-  BasicTest(true, false);
+  BasicTest(/*sec_cache_is_compressed=*/true, /*use_jemalloc=*/false);
 }
 
 TEST_F(CompressedSecondaryCacheTest,
        BasicTestWithMemoryAllocatorAndCompression) {
-  BasicTest(true, true);
+  BasicTest(/*sec_cache_is_compressed=*/true, /*use_jemalloc=*/true);
 }
 
 #ifndef ROCKSDB_LITE
@@ -829,8 +831,8 @@ TEST_F(CompressedSecondaryCacheTest,
        BasicTestFromStringWithSplitAndNoCompression) {
   std::string sec_cache_uri =
       "compressed_secondary_cache://"
-      "capacity=2048;num_shard_bits=0;compression_type=kNoCompression"
-      "compress_format_version=2;enable_custom_split_merge=true";
+      "capacity=2048;num_shard_bits=0;compression_type=kNoCompression;"
+      "enable_custom_split_merge=true";
   std::shared_ptr<SecondaryCache> sec_cache;
   Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
                                               &sec_cache);
@@ -897,11 +899,25 @@ TEST_F(CompressedSecondaryCacheTest, FailsTestWithCompression) {
 }
 
 TEST_F(CompressedSecondaryCacheTest, BasicIntegrationTestWithNoCompression) {
-  BasicIntegrationTest(false);
+  BasicIntegrationTest(/*sec_cache_is_compressed=*/false,
+                       /*enable_custom_split_merge=*/false);
+}
+
+TEST_F(CompressedSecondaryCacheTest,
+       BasicIntegrationTestWithSplitAndNoCompression) {
+  BasicIntegrationTest(/*sec_cache_is_compressed=*/false,
+                       /*enable_custom_split_merge=*/true);
 }
 
 TEST_F(CompressedSecondaryCacheTest, BasicIntegrationTestWithCompression) {
-  BasicIntegrationTest(true);
+  BasicIntegrationTest(/*sec_cache_is_compressed=*/true,
+                       /*enable_custom_split_merge=*/false);
+}
+
+TEST_F(CompressedSecondaryCacheTest,
+       BasicIntegrationTestWithSplitAndCompression) {
+  BasicIntegrationTest(/*sec_cache_is_compressed=*/true,
+                       /*enable_custom_split_merge=*/true);
 }
 
 TEST_F(CompressedSecondaryCacheTest,
