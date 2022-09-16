@@ -217,6 +217,11 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
 
 // HyperClockCache - EXPERIMENTAL
+//
+// A lock-free Cache alternative for RocksDB block cache that offers much
+// improved CPU efficiency under high parallel load or high contention, with
+// some caveats.
+//
 // See internal cache/clock_cache.h for full description.
 struct HyperClockCacheOptions : public ShardedCacheOptions {
   // The estimated average `charge` associated with cache entries. This is a
