@@ -44,9 +44,6 @@ struct FragmentedRangeTombstoneList {
           end_key(end),
           seq_start_idx(start_idx),
           seq_end_idx(end_idx) {}
-    // start_key and end_key contain timestamp if enabled, this is only
-    // to make comparisons cleaner. The effective timestamps for this range
-    // tombstone is in tombstone_timestamps_.
     Slice start_key;
     Slice end_key;
     size_t seq_start_idx;
@@ -99,16 +96,15 @@ struct FragmentedRangeTombstoneList {
 
  private:
   // Given an ordered range tombstone iterator unfragmented_tombstones,
-  // "fragment" the tombstones into non-overlapping pieces, and store them in
-  // tombstones_ and tombstone_seqs_.
-  // Each "non-overlapping piece" is a RangeTombstoneStack, which contains
-  // start_key, end_key, and indices that points to a sequence numbers and
-  // timestamps. If for_compaction is true, then snapshots should be provided
-  // for the compaction. Range tombstone fragments are dropped if they are not
-  // visible in any snapshot and user-defined timestamp is not enabled. That is,
-  // for each snapshot stripe [lower, upper], the range tombstone fragment with
-  // largest seqno in [lower, upper] is preserved, and all the other range
-  // tombstones are dropped.
+  // "fragment" the tombstones into non-overlapping pieces. Each
+  // "non-overlapping piece" is a RangeTombstoneStack in tombstones_, which
+  // contains start_key, end_key, and indices that points to sequence numbers
+  // (in tombstone_seqs_) and timestamps (in tombstone_timestamps_). If
+  // for_compaction is true, then `snapshots` should be provided. Range
+  // tombstone fragments are dropped if they are not visible in any snapshot and
+  // user-defined timestamp is not enabled. That is, for each snapshot stripe
+  // [lower, upper], the range tombstone fragment with largest seqno in [lower,
+  // upper] is preserved, and all the other range tombstones are dropped.
   void FragmentTombstones(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
       const InternalKeyComparator& icmp, bool for_compaction,

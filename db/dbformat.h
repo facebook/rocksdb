@@ -707,7 +707,7 @@ struct RangeTombstone {
   RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
       : start_key_(sk), end_key_(ek), seq_(sn) {}
 
-  // User-defined timestamp is enabled, sk and ek should be user key
+  // User-defined timestamp is enabled, `sk` and `ek` should be user key
   // with timestamp, `ts` will replace the timestamps in `sk` and
   // `ek`.
   RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts)

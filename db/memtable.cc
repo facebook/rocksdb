@@ -597,8 +597,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
   }
 
   auto* fragmented_iter = new FragmentedRangeTombstoneIterator(
-      cache, comparator_.comparator, read_seq,
-      read_options.timestamp);
+      cache, comparator_.comparator, read_seq, read_options.timestamp);
   return fragmented_iter;
 }
 
