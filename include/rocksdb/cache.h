@@ -182,6 +182,10 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // header in varint32 format.
   uint32_t compress_format_version = 2;
 
+  // Enable the custom split and merge feature, which split the compressed value
+  // into chunks so that they may better fit jemalloc bins.
+  bool enable_custom_split_merge = false;
+
   CompressedSecondaryCacheOptions() {}
   CompressedSecondaryCacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
@@ -191,13 +195,15 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy,
       CompressionType _compression_type = CompressionType::kLZ4Compression,
-      uint32_t _compress_format_version = 2)
+      uint32_t _compress_format_version = 2,
+      bool _enable_custom_split_merge = false)
       : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
                         _high_pri_pool_ratio, std::move(_memory_allocator),
                         _use_adaptive_mutex, _metadata_charge_policy,
                         _low_pri_pool_ratio),
         compression_type(_compression_type),
-        compress_format_version(_compress_format_version) {}
+        compress_format_version(_compress_format_version),
+        enable_custom_split_merge(_enable_custom_split_merge) {}
 };
 
 // EXPERIMENTAL
@@ -211,7 +217,8 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy,
     CompressionType compression_type = CompressionType::kLZ4Compression,
-    uint32_t compress_format_version = 2);
+    uint32_t compress_format_version = 2,
+    bool enable_custom_split_merge = false);
 
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);

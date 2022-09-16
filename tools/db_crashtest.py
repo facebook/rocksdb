@@ -178,7 +178,8 @@ default_params = {
     "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri":  lambda: random.choice(
-        ["", "compressed_secondary_cache://capacity=8388608"]),
+        ["", "compressed_secondary_cache://capacity=8388608",
+         "compressed_secondary_cache://capacity=8388608;enable_custom_split_merge=true"]),
     "allow_data_in_errors": True,
     "readahead_size": lambda: random.choice([0, 16384, 524288]),
     "initial_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
