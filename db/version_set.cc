@@ -511,6 +511,7 @@ class FilePickerMultiGet {
   MultiGetRange& GetRange() { return range_; }
 
   void ReplaceRange(const MultiGetRange& other) {
+    assert(curr_level_ == 0 || !RemainingOverlapInLevel());
     range_ = other;
     current_level_range_ = other;
   }
@@ -2727,8 +2728,9 @@ Status Version::ProcessBatch(
     f = fp.GetNextFileInLevel();
   }
   // Split the current batch only if some keys are likely in this level and
-  // some are not.
-  if (s.ok() && !leftover.empty() && !range.empty()) {
+  // some are not. Only split if we're done with this level, i.e f is null.
+  // Otherwise, it means there are more files in this level to look at.
+  if (s.ok() && !f && !leftover.empty() && !range.empty()) {
     fp.ReplaceRange(range);
     batches.emplace_back(&leftover, fp);
     to_process.emplace_back(batches.size() - 1);
