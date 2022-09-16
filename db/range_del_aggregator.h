@@ -59,15 +59,14 @@ class TruncatedRangeDelIterator {
 
   ParsedInternalKey start_key() const {
     return (smallest_ == nullptr ||
-            icmp_->CompareWithoutTimestamp(*smallest_,
-                                           iter_->parsed_start_key()) <= 0)
+            icmp_->Compare(*smallest_, iter_->parsed_start_key()) <= 0)
                ? iter_->parsed_start_key()
                : *smallest_;
   }
 
   ParsedInternalKey end_key() const {
-    return (largest_ == nullptr || icmp_->CompareWithoutTimestamp(
-                                       iter_->parsed_end_key(), *largest_) <= 0)
+    return (largest_ == nullptr ||
+            icmp_->Compare(iter_->parsed_end_key(), *largest_) <= 0)
                ? iter_->parsed_end_key()
                : *largest_;
   }
@@ -111,7 +110,7 @@ struct StartKeyMinComparator {
 
   bool operator()(const TruncatedRangeDelIterator* a,
                   const TruncatedRangeDelIterator* b) const {
-    return icmp->CompareWithoutTimestamp(a->start_key(), b->start_key()) > 0;
+    return icmp->Compare(a->start_key(), b->start_key()) > 0;
   }
 
   const InternalKeyComparator* icmp;
@@ -143,8 +142,7 @@ class ForwardRangeDelIterator {
 
     bool operator()(const ActiveSeqSet::const_iterator& a,
                     const ActiveSeqSet::const_iterator& b) const {
-      return icmp->CompareWithoutTimestamp((*a)->end_key(), (*b)->end_key()) >
-             0;
+      return icmp->Compare((*a)->end_key(), (*b)->end_key()) > 0;
     }
 
     const InternalKeyComparator* icmp;
@@ -157,7 +155,7 @@ class ForwardRangeDelIterator {
       // either of the heaps.
       return;
     }
-    int cmp = icmp_->CompareWithoutTimestamp(parsed, iter->start_key());
+    int cmp = icmp_->Compare(parsed, iter->start_key());
     if (cmp < 0) {
       PushInactiveIter(iter);
     } else {
@@ -221,7 +219,7 @@ class ReverseRangeDelIterator {
 
     bool operator()(const TruncatedRangeDelIterator* a,
                     const TruncatedRangeDelIterator* b) const {
-      return icmp->CompareWithoutTimestamp(a->end_key(), b->end_key()) < 0;
+      return icmp->Compare(a->end_key(), b->end_key()) < 0;
     }
 
     const InternalKeyComparator* icmp;
@@ -231,8 +229,7 @@ class ReverseRangeDelIterator {
 
     bool operator()(const ActiveSeqSet::const_iterator& a,
                     const ActiveSeqSet::const_iterator& b) const {
-      return icmp->CompareWithoutTimestamp((*a)->start_key(),
-                                           (*b)->start_key()) < 0;
+      return icmp->Compare((*a)->start_key(), (*b)->start_key()) < 0;
     }
 
     const InternalKeyComparator* icmp;
@@ -243,7 +240,7 @@ class ReverseRangeDelIterator {
     if (!iter->Valid()) {
       // The iterator has been fully consumed, so we don't need to add it to
       // either of the heaps.
-    } else if (icmp_->CompareWithoutTimestamp(iter->end_key(), parsed) <= 0) {
+    } else if (icmp_->Compare(iter->end_key(), parsed) <= 0) {
       PushInactiveIter(iter);
     } else {
       PushActiveIter(iter);
@@ -343,8 +340,7 @@ class RangeDelAggregator {
     }
 
     // If user-defined timestamp is enabled, `start` and `end` are user keys
-    // with timestamp. IsRangeOverlappped returns whether there is an
-    // overlapping range tombstone based on user key without timestamp.
+    // with timestamp.
     bool IsRangeOverlapped(const Slice& start, const Slice& end);
 
    private:

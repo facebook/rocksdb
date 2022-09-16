@@ -80,23 +80,21 @@ bool TruncatedRangeDelIterator::Valid() const {
   assert(iter_ != nullptr);
   return iter_->Valid() &&
          (smallest_ == nullptr ||
-          icmp_->CompareWithoutTimestamp(*smallest_, iter_->parsed_end_key()) <
-              0) &&
-         (largest_ == nullptr || icmp_->CompareWithoutTimestamp(
-                                     iter_->parsed_start_key(), *largest_) < 0);
+          icmp_->Compare(*smallest_, iter_->parsed_end_key()) < 0) &&
+         (largest_ == nullptr ||
+          icmp_->Compare(iter_->parsed_start_key(), *largest_) < 0);
 }
 
 // NOTE: target is a user key, with timestamp if enabled.
 void TruncatedRangeDelIterator::Seek(const Slice& target) {
   if (largest_ != nullptr &&
-      icmp_->CompareWithoutTimestamp(
-          *largest_, ParsedInternalKey(target, kMaxSequenceNumber,
-                                       kTypeRangeDeletion)) <= 0) {
+      icmp_->Compare(*largest_, ParsedInternalKey(target, kMaxSequenceNumber,
+                                                  kTypeRangeDeletion)) <= 0) {
     iter_->Invalidate();
     return;
   }
-  if (smallest_ != nullptr && icmp_->user_comparator()->CompareWithoutTimestamp(
-                                  target, smallest_->user_key) < 0) {
+  if (smallest_ != nullptr &&
+      icmp_->user_comparator()->Compare(target, smallest_->user_key) < 0) {
     iter_->Seek(smallest_->user_key);
     return;
   }
@@ -106,13 +104,13 @@ void TruncatedRangeDelIterator::Seek(const Slice& target) {
 // NOTE: target is a user key, with timestamp if enabled.
 void TruncatedRangeDelIterator::SeekForPrev(const Slice& target) {
   if (smallest_ != nullptr &&
-      icmp_->CompareWithoutTimestamp(
-          ParsedInternalKey(target, 0, kTypeRangeDeletion), *smallest_) < 0) {
+      icmp_->Compare(ParsedInternalKey(target, 0, kTypeRangeDeletion),
+                     *smallest_) < 0) {
     iter_->Invalidate();
     return;
   }
-  if (largest_ != nullptr && icmp_->user_comparator()->CompareWithoutTimestamp(
-                                 largest_->user_key, target) < 0) {
+  if (largest_ != nullptr &&
+      icmp_->user_comparator()->Compare(largest_->user_key, target) < 0) {
     iter_->SeekForPrev(largest_->user_key);
     return;
   }
@@ -167,24 +165,20 @@ ForwardRangeDelIterator::ForwardRangeDelIterator(
 bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
   // Move active iterators that end before parsed.
   while (!active_iters_.empty() &&
-         icmp_->CompareWithoutTimestamp((*active_iters_.top())->end_key(),
-                                        parsed) <= 0) {
+         icmp_->Compare((*active_iters_.top())->end_key(), parsed) <= 0) {
     TruncatedRangeDelIterator* iter = PopActiveIter();
     do {
       iter->Next();
-    } while (iter->Valid() &&
-             icmp_->CompareWithoutTimestamp(iter->end_key(), parsed) <= 0);
+    } while (iter->Valid() && icmp_->Compare(iter->end_key(), parsed) <= 0);
     PushIter(iter, parsed);
     assert(active_iters_.size() == active_seqnums_.size());
   }
 
   // Move inactive iterators that start before parsed.
   while (!inactive_iters_.empty() &&
-         icmp_->CompareWithoutTimestamp(inactive_iters_.top()->start_key(),
-                                        parsed) <= 0) {
+         icmp_->Compare(inactive_iters_.top()->start_key(), parsed) <= 0) {
     TruncatedRangeDelIterator* iter = PopInactiveIter();
-    while (iter->Valid() &&
-           icmp_->CompareWithoutTimestamp(iter->end_key(), parsed) <= 0) {
+    while (iter->Valid() && icmp_->Compare(iter->end_key(), parsed) <= 0) {
       iter->Next();
     }
     PushIter(iter, parsed);
@@ -214,24 +208,20 @@ ReverseRangeDelIterator::ReverseRangeDelIterator(
 bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
   // Move active iterators that start after parsed.
   while (!active_iters_.empty() &&
-         icmp_->CompareWithoutTimestamp(
-             parsed, (*active_iters_.top())->start_key()) < 0) {
+         icmp_->Compare(parsed, (*active_iters_.top())->start_key()) < 0) {
     TruncatedRangeDelIterator* iter = PopActiveIter();
     do {
       iter->Prev();
-    } while (iter->Valid() &&
-             icmp_->CompareWithoutTimestamp(parsed, iter->start_key()) < 0);
+    } while (iter->Valid() && icmp_->Compare(parsed, iter->start_key()) < 0);
     PushIter(iter, parsed);
     assert(active_iters_.size() == active_seqnums_.size());
   }
 
   // Move inactive iterators that end after parsed.
   while (!inactive_iters_.empty() &&
-         icmp_->CompareWithoutTimestamp(parsed,
-                                        inactive_iters_.top()->end_key()) < 0) {
+         icmp_->Compare(parsed, inactive_iters_.top()->end_key()) < 0) {
     TruncatedRangeDelIterator* iter = PopInactiveIter();
-    while (iter->Valid() &&
-           icmp_->CompareWithoutTimestamp(parsed, iter->start_key()) < 0) {
+    while (iter->Valid() && icmp_->Compare(parsed, iter->start_key()) < 0) {
       iter->Prev();
     }
     PushIter(iter, parsed);
@@ -290,7 +280,7 @@ bool RangeDelAggregator::StripeRep::IsRangeOverlapped(const Slice& start,
 
   // Set the internal start/end keys so that:
   // - if start_ikey has the same user key and sequence number as the
-  // current end key, start_ikey will be considered smaller; and
+  // current end key, start_ikey will be considered greater; and
   // - if end_ikey has the same user key and sequence number as the current
   // start key, end_ikey will be considered greater.
   ParsedInternalKey start_ikey(start, kMaxSequenceNumber,
@@ -299,12 +289,11 @@ bool RangeDelAggregator::StripeRep::IsRangeOverlapped(const Slice& start,
   for (auto& iter : iters_) {
     bool checked_candidate_tombstones = false;
     for (iter->SeekForPrev(start);
-         iter->Valid() &&
-         icmp_->CompareWithoutTimestamp(iter->start_key(), end_ikey) <= 0;
+         iter->Valid() && icmp_->Compare(iter->start_key(), end_ikey) <= 0;
          iter->Next()) {
       checked_candidate_tombstones = true;
-      if (icmp_->CompareWithoutTimestamp(start_ikey, iter->end_key()) < 0 &&
-          icmp_->CompareWithoutTimestamp(iter->start_key(), end_ikey) <= 0) {
+      if (icmp_->Compare(start_ikey, iter->end_key()) < 0 &&
+          icmp_->Compare(iter->start_key(), end_ikey) <= 0) {
         return true;
       }
     }
@@ -314,9 +303,8 @@ bool RangeDelAggregator::StripeRep::IsRangeOverlapped(const Slice& start,
       // key of a tombstone, which we missed earlier since SeekForPrev'ing
       // to the start was invalid.
       iter->SeekForPrev(end);
-      if (iter->Valid() &&
-          icmp_->CompareWithoutTimestamp(start_ikey, iter->end_key()) < 0 &&
-          icmp_->CompareWithoutTimestamp(iter->start_key(), end_ikey) <= 0) {
+      if (iter->Valid() && icmp_->Compare(start_ikey, iter->end_key()) < 0 &&
+          icmp_->Compare(iter->start_key(), end_ikey) <= 0) {
         return true;
       }
     }

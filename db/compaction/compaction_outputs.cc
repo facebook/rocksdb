@@ -436,6 +436,7 @@ Status CompactionOutputs::AddRangeDels(
       }
     }
 
+    const size_t ts_sz = ucmp->timestamp_size();
     // Garbage collection for range tombstones.
     // If user-defined timestamp is enabled, range tombstones are dropped if
     // they are at bottommost_level, below full_history_ts_low and not visible
@@ -443,7 +444,7 @@ Status CompactionOutputs::AddRangeDels(
     // range_del_agg_, and range_del_agg_ internally drops tombstones above
     // trim_ts_.
     if (bottommost_level && tombstone.seq_ <= earliest_snapshot &&
-        (ucmp->timestamp_size() == 0 ||
+        (ts_sz == 0 ||
          (!full_history_ts_low.empty() &&
           ucmp->CompareTimestamp(tombstone.ts_, full_history_ts_low) < 0))) {
       // TODO(andrewkr): tombstones that span multiple output files are
@@ -482,9 +483,18 @@ Status CompactionOutputs::AddRangeDels(
       // choose lowest seqnum so this file's smallest internal key comes
       // after the previous file's largest. The fake seqnum is OK because
       // the read path's file-picking code only considers user key.
-      smallest_candidate = InternalKey(
-          *lower_bound, lower_bound_from_sub_compact ? tombstone.seq_ : 0,
-          kTypeRangeDeletion);
+      if (lower_bound_from_sub_compact) {
+        if (ts_sz) {
+          assert(tombstone.ts_.size() == ts_sz);
+          smallest_candidate = InternalKey(*lower_bound, tombstone.seq_,
+                                           kTypeRangeDeletion, tombstone.ts_);
+        } else {
+          smallest_candidate =
+              InternalKey(*lower_bound, tombstone.seq_, kTypeRangeDeletion);
+        }
+      } else {
+        smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
+      }
     }
     InternalKey largest_candidate = tombstone.SerializeEndKey();
     if (upper_bound != nullptr &&
@@ -503,9 +513,15 @@ Status CompactionOutputs::AddRangeDels(
       // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
       // kTypeRangeDeletion (0xF), so the range tombstone comes before the
       // Seek() key in InternalKey's ordering. So Seek() will look in the
-      // next file for the user key.
-      largest_candidate =
-          InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion);
+      // next file for the user key
+      if (ts_sz) {
+        const std::string kTsMax(ts_sz, '\xff');
+        largest_candidate = InternalKey(*upper_bound, kMaxSequenceNumber,
+                                        kTypeRangeDeletion, kTsMax);
+      } else {
+        largest_candidate =
+            InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion);
+      }
     }
 #ifndef NDEBUG
     SequenceNumber smallest_ikey_seqnum = kMaxSequenceNumber;

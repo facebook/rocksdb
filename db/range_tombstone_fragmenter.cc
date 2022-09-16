@@ -34,8 +34,7 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
     total_tombstone_payload_bytes_ += unfragmented_tombstones->key().size() +
                                       unfragmented_tombstones->value().size();
     if (num_unfragmented_tombstones_ > 0 &&
-        icmp.CompareWithoutTimestamp(last_start_key,
-                                     unfragmented_tombstones->key()) > 0) {
+        icmp.Compare(last_start_key, unfragmented_tombstones->key()) > 0) {
       is_sorted = false;
       break;
     }
@@ -78,13 +77,12 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
     const InternalKeyComparator& icmp, bool for_compaction,
     const std::vector<SequenceNumber>& snapshots) {
   Slice cur_start_key(nullptr, 0);
-  auto cmp = ParsedInternalKeyComparatorWithoutTimestamp(&icmp);
+  auto cmp = ParsedInternalKeyComparator(&icmp);
 
   // Stores the end keys and sequence numbers of range tombstones with a start
   // key less than or equal to cur_start_key. Provides an ordering by end key
   // for use in flush_current_tombstones.
-  std::set<ParsedInternalKey, ParsedInternalKeyComparatorWithoutTimestamp>
-      cur_end_keys(cmp);
+  std::set<ParsedInternalKey, ParsedInternalKeyComparator> cur_end_keys(cmp);
 
   size_t ts_sz = icmp.user_comparator()->timestamp_size();
   // Given the next start key in unfragmented_tombstones,

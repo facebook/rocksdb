@@ -261,7 +261,6 @@ class InternalKeyComparator
   virtual ~InternalKeyComparator() {}
 
   int Compare(const Slice& a, const Slice& b) const override;
-  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const;
 
   bool Equal(const Slice& a, const Slice& b) const {
     // TODO Use user_comparator_.Equal(). Perhaps compare seqno before
@@ -277,11 +276,7 @@ class InternalKeyComparator
   }
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
-  // assumes a.user_key and b.user_key both contain timestamp
-  int CompareWithoutTimestamp(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
-  int CompareWithoutTimestamp(const ParsedInternalKey& a,
-                              const ParsedInternalKey& b) const;
   // In this `Compare()` overload, the sequence numbers provided in
   // `a_global_seqno` and `b_global_seqno` override the sequence numbers in `a`
   // and `b`, respectively. To disable sequence number override(s), provide the
@@ -374,16 +369,6 @@ class InternalKey {
 inline int InternalKeyComparator::Compare(const InternalKey& a,
                                           const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
-}
-
-inline int InternalKeyComparator::CompareWithoutTimestamp(
-    const InternalKey& a, const InternalKey& b) const {
-  ParsedInternalKey a_pik, b_pik;
-  ParseInternalKey(a.Encode(), &a_pik, false /* log_err */)
-      .PermitUncheckedError();
-  ParseInternalKey(b.Encode(), &b_pik, false /* log_err */)
-      .PermitUncheckedError();
-  return CompareWithoutTimestamp(a_pik, b_pik);
 }
 
 inline Status ParseInternalKey(const Slice& internal_key,
@@ -763,6 +748,11 @@ struct RangeTombstone {
   //
   // be careful to use SerializeEndKey(), allocates new memory
   InternalKey SerializeEndKey() const {
+    if (!ts_.empty()) {
+      const std::string kTsMax(ts_.size(), '\xff');
+      return InternalKey(end_key_, kMaxSequenceNumber, kTypeRangeDeletion,
+                         kTsMax);
+    }
     return InternalKey(end_key_, kMaxSequenceNumber, kTypeRangeDeletion);
   }
 };
@@ -774,28 +764,6 @@ inline int InternalKeyComparator::Compare(const Slice& akey,
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  if (r == 0) {
-    const uint64_t anum =
-        DecodeFixed64(akey.data() + akey.size() - kNumInternalBytes);
-    const uint64_t bnum =
-        DecodeFixed64(bkey.data() + bkey.size() - kNumInternalBytes);
-    if (anum > bnum) {
-      r = -1;
-    } else if (anum < bnum) {
-      r = +1;
-    }
-  }
-  return r;
-}
-
-inline int InternalKeyComparator::CompareWithoutTimestamp(
-    const Slice& akey, const Slice& bkey) const {
-  // Order by:
-  //    increasing user key (according to user-supplied comparator)
-  //    decreasing sequence number
-  //    decreasing type (though sequence# should be enough to disambiguate)
-  int r = user_comparator_.CompareWithoutTimestamp(ExtractUserKey(akey),
-                                                   ExtractUserKey(bkey));
   if (r == 0) {
     const uint64_t anum =
         DecodeFixed64(akey.data() + akey.size() - kNumInternalBytes);
@@ -865,20 +833,6 @@ struct ParsedInternalKeyComparator {
   bool operator()(const ParsedInternalKey& a,
                   const ParsedInternalKey& b) const {
     return cmp->Compare(a, b) < 0;
-  }
-
-  const InternalKeyComparator* cmp;
-};
-
-// Wrap InternalKeyComparator as a comparator class for ParsedInternalKey.
-struct ParsedInternalKeyComparatorWithoutTimestamp {
-  explicit ParsedInternalKeyComparatorWithoutTimestamp(
-      const InternalKeyComparator* c)
-      : cmp(c) {}
-
-  bool operator()(const ParsedInternalKey& a,
-                  const ParsedInternalKey& b) const {
-    return cmp->CompareWithoutTimestamp(a, b) < 0;
   }
 
   const InternalKeyComparator* cmp;

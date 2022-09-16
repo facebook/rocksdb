@@ -52,8 +52,8 @@ struct FragmentedRangeTombstoneList {
     size_t seq_start_idx;
     size_t seq_end_idx;
   };
-  // Assumes key() and value() from the input iterator both contain timestamp if
-  // enabled.
+  // Assumes unfragmented_tombstones->key() and unfragmented_tombstones->value()
+  // both contain timestamp if enabled.
   FragmentedRangeTombstoneList(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
       const InternalKeyComparator& icmp, bool for_compaction = false,
