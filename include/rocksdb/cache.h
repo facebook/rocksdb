@@ -182,7 +182,8 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // header in varint32 format.
   uint32_t compress_format_version = 2;
 
-  //
+  // Enable the custom split and merge feature, which split the compressed value
+  // into chunks so that they may better fit jemalloc bins.
   bool enable_custom_split_merge = false;
 
   CompressedSecondaryCacheOptions() {}

@@ -46,21 +46,21 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     return nullptr;
   }
 
+  void* handle_value = cache_->Value(lru_handle);
+  if (handle_value == nullptr) {
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+    return nullptr;
+  }
+
   CacheAllocationPtr* ptr;
   size_t handle_value_charge{0};
   if (cache_options_.enable_custom_split_merge) {
-    CacheValueChunk* handle_value =
-        reinterpret_cast<CacheValueChunk*>(cache_->Value(lru_handle));
+    CacheValueChunk* value_chunk_ptr =
+        reinterpret_cast<CacheValueChunk*>(handle_value);
     CacheAllocationPtr merged_value =
-        MergeChunksIntoValue(handle_value, handle_value_charge);
-    ptr = &merged_value;
+        MergeChunksIntoValue(value_chunk_ptr, handle_value_charge);
+    ptr = new CacheAllocationPtr(std::move(merged_value));
   } else {
-    void* handle_value = cache_->Value(lru_handle);
-    if (handle_value == nullptr) {
-      cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
-      return nullptr;
-    }
-
     ptr = reinterpret_cast<CacheAllocationPtr*>(handle_value);
     handle_value_charge = cache_->GetCharge(lru_handle);
   }
@@ -78,7 +78,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 
     size_t uncompressed_size{0};
     CacheAllocationPtr uncompressed = UncompressData(
-        uncompression_info, (char*)ptr->get(), cache_->GetCharge(lru_handle),
+        uncompression_info, (char*)ptr->get(), handle_value_charge,
         &uncompressed_size, cache_options_.compress_format_version,
         cache_options_.memory_allocator.get());
 
@@ -122,7 +122,6 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
     PERF_COUNTER_ADD(compressed_sec_cache_insert_dummy_count, 1);
     // Insert a dummy handle if the handle is evicted for the first time.
     return cache_->Insert(key, /*value=*/nullptr, /*charge=*/0, del_cb);
-
   } else {
     cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
   }

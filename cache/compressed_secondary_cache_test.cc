@@ -111,11 +111,12 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // Insert and Lookup the item k1 for the second time and advise erasing it.
     ASSERT_OK(sec_cache->Insert("k1", &item1,
                                 &CompressedSecondaryCacheTest::helper_));
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1);
+
     std::unique_ptr<SecondaryCacheResultHandle> handle1_2 = sec_cache->Lookup(
         "k1", test_item_creator, true, /*advise_erase=*/true, is_in_sec_cache);
     ASSERT_NE(handle1_2, nullptr);
     ASSERT_FALSE(is_in_sec_cache);
-    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1);
     if (sec_cache_is_compressed) {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
                 1000);
@@ -680,24 +681,22 @@ class CompressedSecondaryCacheTest : public testing::Test {
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5, 0.0,
                                                    allocator);
     Random rnd(301);
-    // 8500 = 8169 + 354, so there should be 2 chunks after split.
+    // 8500 = 8169 + 233 + 98, so there should be 3 chunks after split.
     size_t str_size{8500};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{0};
     CacheValueChunk* chunks_head =
         sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
-    ASSERT_EQ(charge, str_size + 2 * (sizeof(CacheValueChunk) - 1));
+    ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
 
     CacheValueChunk* current_chunk = chunks_head;
     ASSERT_EQ(current_chunk->size, 8192 - sizeof(CacheValueChunk) + 1);
     current_chunk = current_chunk->next;
-    ASSERT_EQ(current_chunk->size, 354 - sizeof(CacheValueChunk) + 1);
+    ASSERT_EQ(current_chunk->size, 256 - sizeof(CacheValueChunk) + 1);
+    current_chunk = current_chunk->next;
+    ASSERT_EQ(current_chunk->size, 98);
 
-    while (chunks_head != nullptr) {
-      CacheValueChunk* tmp_chunk = chunks_head;
-      chunks_head = chunks_head->next;
-      tmp_chunk->Free();
-    }
+    sec_cache->GetDeletionCallback(true)("dummy", chunks_head);
   }
 
   void MergeChunksIntoValueTest() {
@@ -764,13 +763,13 @@ class CompressedSecondaryCacheTest : public testing::Test {
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5, 0.0,
                                                    allocator);
     Random rnd(301);
-    // 8500 = 8169 + 354, so there should be 2 chunks after split.
+    // 8500 = 8169 + 233 + 98, so there should be 3 chunks after split.
     size_t str_size{8500};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{0};
     CacheValueChunk* chunks_head =
         sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
-    ASSERT_EQ(charge, str_size + 2 * (sizeof(CacheValueChunk) - 1));
+    ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
 
     CacheAllocationPtr value =
         sec_cache->MergeChunksIntoValue(chunks_head, charge);
@@ -778,11 +777,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::string value_str{value.get(), charge};
     ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
 
-    while (chunks_head != nullptr) {
-      CacheValueChunk* tmp_chunk = chunks_head;
-      chunks_head = chunks_head->next;
-      tmp_chunk->Free();
-    }
+    sec_cache->GetDeletionCallback(true)("dummy", chunks_head);
   }
 
  private:
@@ -830,6 +825,19 @@ TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithNoCompression) {
   BasicTestHelper(sec_cache, /*sec_cache_is_compressed=*/false);
 }
 
+TEST_F(CompressedSecondaryCacheTest,
+       BasicTestFromStringWithSplitAndNoCompression) {
+  std::string sec_cache_uri =
+      "compressed_secondary_cache://"
+      "capacity=2048;num_shard_bits=0;compression_type=kNoCompression"
+      "compress_format_version=2;enable_custom_split_merge=true";
+  std::shared_ptr<SecondaryCache> sec_cache;
+  Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
+                                              &sec_cache);
+  EXPECT_OK(s);
+  BasicTestHelper(sec_cache, /*sec_cache_is_compressed=*/false);
+}
+
 TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
   std::string sec_cache_uri;
   bool sec_cache_is_compressed{true};
@@ -843,6 +851,31 @@ TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
     sec_cache_uri =
         "compressed_secondary_cache://"
         "capacity=2048;num_shard_bits=0;compression_type=kNoCompression";
+    sec_cache_is_compressed = false;
+  }
+
+  std::shared_ptr<SecondaryCache> sec_cache;
+  Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
+                                              &sec_cache);
+  EXPECT_OK(s);
+  BasicTestHelper(sec_cache, sec_cache_is_compressed);
+}
+
+TEST_F(CompressedSecondaryCacheTest,
+       BasicTestFromStringWithSplitAndCompression) {
+  std::string sec_cache_uri;
+  bool sec_cache_is_compressed{true};
+  if (LZ4_Supported()) {
+    sec_cache_uri =
+        "compressed_secondary_cache://"
+        "capacity=2048;num_shard_bits=0;compression_type=kLZ4Compression;"
+        "compress_format_version=2;enable_custom_split_merge=true";
+  } else {
+    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+    sec_cache_uri =
+        "compressed_secondary_cache://"
+        "capacity=2048;num_shard_bits=0;compression_type=kNoCompression;"
+        "enable_custom_split_merge=true";
     sec_cache_is_compressed = false;
   }
 
