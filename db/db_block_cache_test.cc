@@ -937,8 +937,10 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        HyperClockCacheOptions(capacity, 1 /*estimated_value_size*/,
-                               num_shard_bits)
+        HyperClockCacheOptions(
+            capacity,
+            BlockBasedTableOptions().block_size /*estimated_value_size*/,
+            num_shard_bits)
             .MakeSharedCache(),
         NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
                         false /*strict_capacity_limit*/,
@@ -1297,7 +1299,9 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   for (bool partition : {false, true}) {
     for (std::shared_ptr<Cache> cache :
          {NewLRUCache(capacity),
-          HyperClockCacheOptions(capacity, 1 /*estimated_value_size*/)
+          HyperClockCacheOptions(
+              capacity,
+              BlockBasedTableOptions().block_size /*estimated_value_size*/)
               .MakeSharedCache()}) {
       if (!cache) {
         // Skip clock cache when not supported

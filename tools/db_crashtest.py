@@ -368,12 +368,6 @@ ts_params = {
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "ingest_external_file_one_in": 0,
-    # TODO akanksha: Currently subcompactions is failing with user_defined_timestamp if
-    # subcompactions > 1, or
-    # compact_pri == 4 even if subcompactions is 1, there can still be multiple subcompactions.
-    # Remove this check once its fixed.
-    "subcompactions": 1,
-    "compaction_pri": random.randint(0, 3),
 }
 
 tiered_params = {
