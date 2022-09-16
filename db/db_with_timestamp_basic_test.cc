@@ -3585,9 +3585,9 @@ TEST_F(DBBasicTestWithTimestamp, DeleteRangeGetIteratorWithSnapshot) {
   read_opts.snapshot = before_tombstone;
   std::vector<Status> expected_status = {
       Status::OK(), Status::NotFound(), Status::NotFound(), Status::NotFound()};
-  std::vector<std::string> expected_values{static_cast<uint64_t>(kNum)};
+  std::vector<std::string> expected_values(kNum);
   expected_values[0] = "val" + std::to_string(0);
-  std::vector<std::string> expected_timestamps{static_cast<uint64_t>(kNum)};
+  std::vector<std::string> expected_timestamps(kNum);
   expected_timestamps[0] = Timestamp(0, 0);
 
   size_t batch_size = kNum;
