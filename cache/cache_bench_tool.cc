@@ -441,6 +441,8 @@ class CacheBench {
     uint64_t total_key_size = 0;
     uint64_t total_charge = 0;
     uint64_t total_entry_count = 0;
+    uint64_t table_occupancy = 0;
+    uint64_t table_size = 0;
     std::set<Cache::DeleterFn> deleters;
     StopWatchNano timer(clock);
 
@@ -456,6 +458,9 @@ class CacheBench {
             std::ostringstream ostr;
             ostr << "Most recent cache entry stats:\n"
                  << "Number of entries: " << total_entry_count << "\n"
+                 << "Table occupancy: " << table_occupancy << " / "
+                 << table_size << " = "
+                 << (100.0 * table_occupancy / table_size) << "%\n"
                  << "Total charge: " << BytesToHumanString(total_charge) << "\n"
                  << "Average key size: "
                  << (1.0 * total_key_size / total_entry_count) << "\n"
@@ -492,6 +497,8 @@ class CacheBench {
       Cache::ApplyToAllEntriesOptions opts;
       opts.average_entries_per_lock = FLAGS_gather_stats_entries_per_lock;
       shared->GetCacheBench()->cache_->ApplyToAllEntries(fn, opts);
+      table_occupancy = shared->GetCacheBench()->cache_->GetOccupancyCount();
+      table_size = shared->GetCacheBench()->cache_->GetTableAddressCount();
       stats_hist->Add(timer.ElapsedNanos() / 1000);
     }
   }

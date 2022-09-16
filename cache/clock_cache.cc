@@ -152,7 +152,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
                                 size_t capacity, bool strict_capacity_limit) {
   // Do we have the available occupancy? Optimistically assume we do
   // and deal with it if we don't.
-  uint32_t old_occupancy = occupancy_.fetch_add(1, std::memory_order_relaxed);
+  uint32_t old_occupancy = occupancy_.fetch_add(1, std::memory_order_acquire);
   auto revert_occupancy_fn = [&]() {
     occupancy_.fetch_sub(1, std::memory_order_relaxed);
   };
@@ -193,7 +193,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
       size_t evicted_charge = 0;
       uint32_t evicted_count = 0;
       Evict(request_evict_charge, &evicted_charge, &evicted_count);
-      occupancy_.fetch_sub(evicted_count, std::memory_order_relaxed);
+      occupancy_.fetch_sub(evicted_count, std::memory_order_release);
       if (LIKELY(evicted_charge > need_evict_charge)) {
         assert(evicted_count > 0);
         // Evicted more than enough
@@ -273,7 +273,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
         }
       } else {
         // Update occupancy for evictions
-        occupancy_.fetch_sub(evicted_count, std::memory_order_relaxed);
+        occupancy_.fetch_sub(evicted_count, std::memory_order_release);
       }
     }
     // Track new usage even if we weren't able to evict enough
@@ -406,8 +406,14 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
         },
         probe);
     if (e == nullptr) {
-      // Occupancy check and never abort FindSlot above should prevent this.
-      assert(false);
+      // Occupancy check and never abort FindSlot above should generally
+      // prevent this, except it's theoretically possible for other threads
+      // to evict and replace entries in the right order to hit every slot
+      // when it is populated. Assuming random hashing, the chance of that
+      // should be no higher than pow(kStrictLoadFactor, n) for n slots.
+      // That should be infeasible for roughly n >= 256, so if this assertion
+      // fails, that suggests something is going wrong.
+      assert(GetTableSize() < 256);
       use_detached_insert = true;
     }
     if (!use_detached_insert) {
