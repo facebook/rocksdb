@@ -21,7 +21,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace clock_cache {
+namespace hyper_clock_cache {
 
 static_assert(sizeof(ClockHandle) == 64U,
               "Expecting size / alignment with common cache line size");
@@ -1126,9 +1126,10 @@ size_t ClockCacheShard::GetTableAddressCount() const {
   return table_.GetTableSize();
 }
 
-ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,
-                       int num_shard_bits, bool strict_capacity_limit,
-                       CacheMetadataChargePolicy metadata_charge_policy)
+HyperClockCache::HyperClockCache(
+    size_t capacity, size_t estimated_value_size, int num_shard_bits,
+    bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit),
       num_shards_(1 << num_shard_bits) {
   assert(estimated_value_size > 0 ||
@@ -1145,7 +1146,7 @@ ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,
   }
 }
 
-ClockCache::~ClockCache() {
+HyperClockCache::~HyperClockCache() {
   if (shards_ != nullptr) {
     assert(num_shards_ > 0);
     for (int i = 0; i < num_shards_; i++) {
@@ -1155,32 +1156,32 @@ ClockCache::~ClockCache() {
   }
 }
 
-CacheShard* ClockCache::GetShard(uint32_t shard) {
+CacheShard* HyperClockCache::GetShard(uint32_t shard) {
   return reinterpret_cast<CacheShard*>(&shards_[shard]);
 }
 
-const CacheShard* ClockCache::GetShard(uint32_t shard) const {
+const CacheShard* HyperClockCache::GetShard(uint32_t shard) const {
   return reinterpret_cast<CacheShard*>(&shards_[shard]);
 }
 
-void* ClockCache::Value(Handle* handle) {
+void* HyperClockCache::Value(Handle* handle) {
   return reinterpret_cast<const ClockHandle*>(handle)->value;
 }
 
-size_t ClockCache::GetCharge(Handle* handle) const {
+size_t HyperClockCache::GetCharge(Handle* handle) const {
   return reinterpret_cast<const ClockHandle*>(handle)->total_charge;
 }
 
-Cache::DeleterFn ClockCache::GetDeleter(Handle* handle) const {
+Cache::DeleterFn HyperClockCache::GetDeleter(Handle* handle) const {
   auto h = reinterpret_cast<const ClockHandle*>(handle);
   return h->deleter;
 }
 
-uint32_t ClockCache::GetHash(Handle* handle) const {
+uint32_t HyperClockCache::GetHash(Handle* handle) const {
   return reinterpret_cast<const ClockHandle*>(handle)->hash;
 }
 
-void ClockCache::DisownData() {
+void HyperClockCache::DisownData() {
   // Leak data only if that won't generate an ASAN/valgrind warning.
   if (!kMustFreeHeapAllocations) {
     shards_ = nullptr;
@@ -1188,8 +1189,9 @@ void ClockCache::DisownData() {
   }
 }
 
-}  // namespace clock_cache
+}  // namespace hyper_clock_cache
 
+// DEPRECATED (see public API)
 std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
@@ -1199,22 +1201,20 @@ std::shared_ptr<Cache> NewClockCache(
                      /* low_pri_pool_ratio */ 0.0);
 }
 
-std::shared_ptr<Cache> ExperimentalNewClockCache(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits,
-    bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy) {
-  if (num_shard_bits >= 20) {
+std::shared_ptr<Cache> HyperClockCacheOptions::MakeSharedCache() const {
+  auto my_num_shard_bits = num_shard_bits;
+  if (my_num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
-  if (num_shard_bits < 0) {
+  if (my_num_shard_bits < 0) {
     // Use larger shard size to reduce risk of large entries clustering
     // or skewing individual shards.
     constexpr size_t min_shard_size = 32U * 1024U * 1024U;
-    num_shard_bits = GetDefaultCacheShardBits(capacity, min_shard_size);
+    my_num_shard_bits = GetDefaultCacheShardBits(capacity, min_shard_size);
   }
-  return std::make_shared<clock_cache::ClockCache>(
-      capacity, estimated_value_size, num_shard_bits, strict_capacity_limit,
-      metadata_charge_policy);
+  return std::make_shared<hyper_clock_cache::HyperClockCache>(
+      capacity, estimated_entry_charge, my_num_shard_bits,
+      strict_capacity_limit, metadata_charge_policy);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

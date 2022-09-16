@@ -13,7 +13,6 @@
 #include <set>
 #include <sstream>
 
-#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
@@ -292,13 +291,12 @@ class CacheBench {
     }
 
     if (FLAGS_cache_type == "clock_cache") {
-      cache_ = ExperimentalNewClockCache(
-          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
-          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
-      if (!cache_) {
-        fprintf(stderr, "Clock cache not supported.\n");
-        exit(1);
-      }
+      fprintf(stderr, "Old clock cache implementation has been removed.\n");
+      exit(1);
+    } else if (FLAGS_cache_type == "hyper_clock_cache") {
+      cache_ = HyperClockCacheOptions(FLAGS_cache_size, FLAGS_value_bytes,
+                                      FLAGS_num_shard_bits)
+                   .MakeSharedCache();
     } else if (FLAGS_cache_type == "fast_lru_cache") {
       cache_ = NewFastLRUCache(
           FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,

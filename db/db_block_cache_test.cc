@@ -13,7 +13,6 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
-#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "db/column_family.h"
@@ -938,16 +937,14 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        ExperimentalNewClockCache(
+        HyperClockCacheOptions(
             capacity,
             BlockBasedTableOptions().block_size /*estimated_value_size*/,
-            num_shard_bits, false /*strict_capacity_limit*/,
-            kDefaultCacheMetadataChargePolicy),
-        NewFastLRUCache(
-            capacity,
-            BlockBasedTableOptions().block_size /*estimated_value_size*/,
-            num_shard_bits, false /*strict_capacity_limit*/,
-            kDefaultCacheMetadataChargePolicy)}) {
+            num_shard_bits)
+            .MakeSharedCache(),
+        NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
+                        false /*strict_capacity_limit*/,
+                        kDefaultCacheMetadataChargePolicy)}) {
     if (!base_cache) {
       // Skip clock cache when not supported
       continue;
@@ -1302,11 +1299,10 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   for (bool partition : {false, true}) {
     for (std::shared_ptr<Cache> cache :
          {NewLRUCache(capacity),
-          ExperimentalNewClockCache(
+          HyperClockCacheOptions(
               capacity,
-              BlockBasedTableOptions().block_size /*estimated_value_size*/,
-              -1 /*num_shard_bits*/, false /*strict_capacity_limit*/,
-              kDefaultCacheMetadataChargePolicy)}) {
+              BlockBasedTableOptions().block_size /*estimated_value_size*/)
+              .MakeSharedCache()}) {
       if (!cache) {
         // Skip clock cache when not supported
         continue;

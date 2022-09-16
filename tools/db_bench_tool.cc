@@ -37,7 +37,6 @@
 #include <thread>
 #include <unordered_map>
 
-#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
@@ -3057,15 +3056,13 @@ class Benchmark {
       return nullptr;
     }
     if (FLAGS_cache_type == "clock_cache") {
-      auto cache = ExperimentalNewClockCache(
-          static_cast<size_t>(capacity), FLAGS_block_size,
-          FLAGS_cache_numshardbits, false /*strict_capacity_limit*/,
-          kDefaultCacheMetadataChargePolicy);
-      if (!cache) {
-        fprintf(stderr, "Clock cache not supported.");
-        exit(1);
-      }
-      return cache;
+      fprintf(stderr, "Old clock cache implementation has been removed.\n");
+      exit(1);
+    } else if (FLAGS_cache_type == "hyper_clock_cache") {
+      return HyperClockCacheOptions(static_cast<size_t>(capacity),
+                                    FLAGS_block_size /*estimated_entry_charge*/,
+                                    FLAGS_cache_numshardbits)
+          .MakeSharedCache();
     } else if (FLAGS_cache_type == "fast_lru_cache") {
       return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
                              FLAGS_cache_numshardbits,

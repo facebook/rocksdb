@@ -42,24 +42,64 @@ class SecondaryCache;
 extern const bool kDefaultToAdaptiveMutex;
 
 enum CacheMetadataChargePolicy {
+  // Only the `charge` of each entry inserted into a Cache counts against
+  // the `capacity`
   kDontChargeCacheMetadata,
+  // In addition to the `charge`, the approximate space overheads in the
+  // Cache (in bytes) also count against `capacity`. These space overheads
+  // are for supporting fast Lookup and managing the lifetime of entries.
   kFullChargeCacheMetadata
 };
 const CacheMetadataChargePolicy kDefaultCacheMetadataChargePolicy =
     kFullChargeCacheMetadata;
 
-struct LRUCacheOptions {
-  // Capacity of the cache.
+// Options shared betweeen various cache implementations that
+// divide the key space into shards using hashing.
+struct ShardedCacheOptions {
+  // Capacity of the cache, in the same units as the `charge` of each entry.
+  // This is typically measured in bytes, but can be a different unit if using
+  // kDontChargeCacheMetadata.
   size_t capacity = 0;
 
   // Cache is sharded into 2^num_shard_bits shards, by hash of key.
-  // Refer to NewLRUCache for further information.
+  // If < 0, a good default is chosen based on the capacity and the
+  // implementation. (Mutex-based implementations are much more reliant
+  // on many shards for parallel scalability.)
   int num_shard_bits = -1;
 
-  // If strict_capacity_limit is set,
-  // insert to the cache will fail when cache is full.
+  // If strict_capacity_limit is set, Insert() will fail if there is not
+  // enough capacity for the new entry along with all the existing referenced
+  // (pinned) cache entries. (Unreferenced cache entries are evicted as
+  // needed, sometimes immediately.) If strict_capacity_limit == false
+  // (default), Insert() never fails.
   bool strict_capacity_limit = false;
 
+  // If non-nullptr, RocksDB will use this allocator instead of system
+  // allocator when allocating memory for cache blocks.
+  //
+  // Caveat: when the cache is used as block cache, the memory allocator is
+  // ignored when dealing with compression libraries that allocate memory
+  // internally (currently only XPRESS).
+  std::shared_ptr<MemoryAllocator> memory_allocator;
+
+  // See CacheMetadataChargePolicy
+  CacheMetadataChargePolicy metadata_charge_policy =
+      kDefaultCacheMetadataChargePolicy;
+
+  ShardedCacheOptions() {}
+  ShardedCacheOptions(
+      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
+      std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
+      CacheMetadataChargePolicy _metadata_charge_policy =
+          kDefaultCacheMetadataChargePolicy)
+      : capacity(_capacity),
+        num_shard_bits(_num_shard_bits),
+        strict_capacity_limit(_strict_capacity_limit),
+        memory_allocator(std::move(_memory_allocator)),
+        metadata_charge_policy(_metadata_charge_policy) {}
+};
+
+struct LRUCacheOptions : public ShardedCacheOptions {
   // Percentage of cache reserved for high priority entries.
   // If greater than zero, the LRU list will be split into a high-pri
   // list and a low-pri list. High-pri entries will be inserted to the
@@ -83,23 +123,11 @@ struct LRUCacheOptions {
   // See also high_pri_pool_ratio.
   double low_pri_pool_ratio = 0.0;
 
-  // If non-nullptr will use this allocator instead of system allocator when
-  // allocating memory for cache blocks. Call this method before you start using
-  // the cache!
-  //
-  // Caveat: when the cache is used as block cache, the memory allocator is
-  // ignored when dealing with compression libraries that allocate memory
-  // internally (currently only XPRESS).
-  std::shared_ptr<MemoryAllocator> memory_allocator;
-
   // Whether to use adaptive mutexes for cache shards. Note that adaptive
   // mutexes need to be supported by the platform in order for this to have any
   // effect. The default value is true if RocksDB is compiled with
   // -DROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX, false otherwise.
   bool use_adaptive_mutex = kDefaultToAdaptiveMutex;
-
-  CacheMetadataChargePolicy metadata_charge_policy =
-      kDefaultCacheMetadataChargePolicy;
 
   // A SecondaryCache instance to use a the non-volatile tier.
   std::shared_ptr<SecondaryCache> secondary_cache;
@@ -112,14 +140,12 @@ struct LRUCacheOptions {
                   CacheMetadataChargePolicy _metadata_charge_policy =
                       kDefaultCacheMetadataChargePolicy,
                   double _low_pri_pool_ratio = 0.0)
-      : capacity(_capacity),
-        num_shard_bits(_num_shard_bits),
-        strict_capacity_limit(_strict_capacity_limit),
+      : ShardedCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
+                            std::move(_memory_allocator),
+                            _metadata_charge_policy),
         high_pri_pool_ratio(_high_pri_pool_ratio),
         low_pri_pool_ratio(_low_pri_pool_ratio),
-        memory_allocator(std::move(_memory_allocator)),
-        use_adaptive_mutex(_use_adaptive_mutex),
-        metadata_charge_policy(_metadata_charge_policy) {}
+        use_adaptive_mutex(_use_adaptive_mutex) {}
 };
 
 // Create a new cache with a fixed size capacity. The cache is sharded
@@ -190,18 +216,65 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
 
-// EXPERIMENTAL Currently ClockCache is under development, although it's
-// already exposed in the public API. To avoid unreliable performance and
-// correctness issues, NewClockCache will temporarily return an LRUCache
-// constructed with the corresponding arguments.
+// HyperClockCache - EXPERIMENTAL
 //
-// TODO(Guido) When ClockCache is complete, roll back to the old text:
-// ``
-// Similar to NewLRUCache, but create a cache based on clock algorithm with
-// better concurrent performance in some cases. See util/clock_cache.cc for
-// more detail.
-// Return nullptr if it is not supported.
-// ``
+// A lock-free Cache alternative for RocksDB block cache that offers much
+// improved CPU efficiency under high parallel load or high contention, with
+// some caveats.
+//
+// See internal cache/clock_cache.h for full description.
+struct HyperClockCacheOptions : public ShardedCacheOptions {
+  // The estimated average `charge` associated with cache entries. This is a
+  // critical configuration parameter for good performance from the hyper
+  // cache, because having a table size that is fixed at creation time greatly
+  // reduces the required synchronization between threads.
+  // * If the estimate is substantially too low (e.g. less than half the true
+  // average) then metadata space overhead with be substantially higher (e.g.
+  // 200 bytes per entry rather than 100). With kFullChargeCacheMetadata, this
+  // can slightly reduce cache hit rates, and slightly reduce access times due
+  // to the larger working memory size.
+  // * If the estimate is substantially too high (e.g. 25% higher than the true
+  // average) then there might not be sufficient slots in the hash table for
+  // both efficient operation and capacity utilization (hit rate). The hyper
+  // cache will evict entries to prevent load factors that could dramatically
+  // affect lookup times, instead letting the hit rate suffer by not utilizing
+  // the full capacity.
+  //
+  // A reasonable choice is the larger of block_size and metadata_block_size.
+  // When WriteBufferManager (and similar) charge memory usage to the block
+  // cache, this can lead to the same effect as estimate being too low, which
+  // is better than the opposite. Therefore, the general recommendation is to
+  // assume that other memory charged to block cache could be negligible, and
+  // ignore it in making the estimate.
+  //
+  // The best parameter choice based on a cache in use is given by
+  // GetUsage() / GetOccupancyCount(), ignoring metadata overheads such as
+  // with kDontChargeCacheMetadata. More precisely with
+  // kFullChargeCacheMetadata is (GetUsage() - 64 * GetTableAddressCount()) /
+  // GetOccupancyCount(). However, when the average value size might vary
+  // (e.g. balance between metadata and data blocks in cache), it is better
+  // to estimate toward the lower side than the higher side.
+  size_t estimated_entry_charge;
+
+  HyperClockCacheOptions(
+      size_t _capacity, size_t _estimated_entry_charge,
+      int _num_shard_bits = -1, bool _strict_capacity_limit = false,
+      std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
+      CacheMetadataChargePolicy _metadata_charge_policy =
+          kDefaultCacheMetadataChargePolicy)
+      : ShardedCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
+                            std::move(_memory_allocator),
+                            _metadata_charge_policy),
+        estimated_entry_charge(_estimated_entry_charge) {}
+
+  // Construct an instance of HyperClockCache using these options
+  std::shared_ptr<Cache> MakeSharedCache() const;
+};
+
+// DEPRECATED - The old Clock Cache implementation had an unresolved bug and
+// has been removed. The new HyperClockCache requires an additional
+// configuration parameter that is not provided by this API. This function
+// simply returns a new LRUCache for functional compatibility.
 extern std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false,

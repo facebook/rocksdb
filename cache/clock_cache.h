@@ -27,22 +27,22 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace clock_cache {
+namespace hyper_clock_cache {
 
 // Forward declaration of friend class.
 class ClockCacheTest;
 
-// ClockCache is an experimental alternative to LRUCache.
+// HyperClockCache is an experimental alternative to LRUCache.
 //
 // Benefits
 // --------
 // * Fully lock free (no waits or spins) for efficiency under high concurrency
 // * Optimized for hot path reads. For concurrency control, most Lookup() and
 // essentially all Release() are a single atomic add operation.
+// * Eviction on insertion is fully parallel and lock-free.
 // * Uses a generalized + aging variant of CLOCK eviction that might outperform
 // LRU in some cases. (For background, see
 // https://en.wikipedia.org/wiki/Page_replacement_algorithm)
-// * Eviction on insertion is fully parallel and lock-free.
 //
 // Costs
 // -----
@@ -582,20 +582,20 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   std::atomic<bool> strict_capacity_limit_;
 };  // class ClockCacheShard
 
-class ClockCache
+class HyperClockCache
 #ifdef NDEBUG
     final
 #endif
     : public ShardedCache {
  public:
-  ClockCache(size_t capacity, size_t estimated_value_size, int num_shard_bits,
-             bool strict_capacity_limit,
-             CacheMetadataChargePolicy metadata_charge_policy =
-                 kDontChargeCacheMetadata);
+  HyperClockCache(size_t capacity, size_t estimated_value_size,
+                  int num_shard_bits, bool strict_capacity_limit,
+                  CacheMetadataChargePolicy metadata_charge_policy =
+                      kDontChargeCacheMetadata);
 
-  ~ClockCache() override;
+  ~HyperClockCache() override;
 
-  const char* Name() const override { return "ClockCache"; }
+  const char* Name() const override { return "HyperClockCache"; }
 
   CacheShard* GetShard(uint32_t shard) override;
 
@@ -615,15 +615,8 @@ class ClockCache
   ClockCacheShard* shards_ = nullptr;
 
   int num_shards_;
-};  // class ClockCache
+};  // class HyperClockCache
 
-}  // namespace clock_cache
-
-// Only for internal testing, temporarily replacing NewClockCache.
-// TODO(Guido) Remove once NewClockCache constructs a ClockCache again.
-extern std::shared_ptr<Cache> ExperimentalNewClockCache(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits,
-    bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy);
+}  // namespace hyper_clock_cache
 
 }  // namespace ROCKSDB_NAMESPACE
