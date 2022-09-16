@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <tuple>
 
 #include "cache/lru_cache.h"
 #include "memory/jemalloc_nodump_allocator.h"
@@ -796,165 +797,148 @@ Cache::CacheItemHelper CompressedSecondaryCacheTest::helper_fail_(
     CompressedSecondaryCacheTest::SaveToCallbackFail,
     CompressedSecondaryCacheTest::DeletionCallback);
 
-TEST_F(CompressedSecondaryCacheTest, BasicTestWithNoCompression) {
-  BasicTest(/*sec_cache_is_compressed=*/false, /*use_jemalloc=*/false);
+class CompressedSecCacheTestWithCompressAndAllocatorParam
+    : public CompressedSecondaryCacheTest,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  CompressedSecCacheTestWithCompressAndAllocatorParam() {
+    sec_cache_is_compressed_ = std::get<0>(GetParam());
+    use_jemalloc_ = std::get<1>(GetParam());
+  }
+  bool sec_cache_is_compressed_;
+  bool use_jemalloc_;
+};
+
+TEST_P(CompressedSecCacheTestWithCompressAndAllocatorParam, BasicTes) {
+  BasicTest(sec_cache_is_compressed_, use_jemalloc_);
 }
 
-TEST_F(CompressedSecondaryCacheTest,
-       BasicTestWithMemoryAllocatorAndNoCompression) {
-  BasicTest(/*sec_cache_is_compressed=*/false, /*use_jemalloc=*/true);
-}
+INSTANTIATE_TEST_CASE_P(Tests,
+                        CompressedSecCacheTestWithCompressAndAllocatorParam,
+                        ::testing::Combine(testing::Bool(), testing::Bool()));
 
-TEST_F(CompressedSecondaryCacheTest, BasicTestWithCompression) {
-  BasicTest(/*sec_cache_is_compressed=*/true, /*use_jemalloc=*/false);
-}
-
-TEST_F(CompressedSecondaryCacheTest,
-       BasicTestWithMemoryAllocatorAndCompression) {
-  BasicTest(/*sec_cache_is_compressed=*/true, /*use_jemalloc=*/true);
-}
+class CompressedSecondaryCacheTestWithCompressionParam
+    : public CompressedSecondaryCacheTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  CompressedSecondaryCacheTestWithCompressionParam() {
+    sec_cache_is_compressed_ = GetParam();
+  }
+  bool sec_cache_is_compressed_;
+};
 
 #ifndef ROCKSDB_LITE
 
-TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithNoCompression) {
-  std::string sec_cache_uri =
-      "compressed_secondary_cache://"
-      "capacity=2048;num_shard_bits=0;compression_type=kNoCompression";
-  std::shared_ptr<SecondaryCache> sec_cache;
-  Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
-                                              &sec_cache);
-  EXPECT_OK(s);
-  BasicTestHelper(sec_cache, /*sec_cache_is_compressed=*/false);
-}
-
-TEST_F(CompressedSecondaryCacheTest,
-       BasicTestFromStringWithSplitAndNoCompression) {
-  std::string sec_cache_uri =
-      "compressed_secondary_cache://"
-      "capacity=2048;num_shard_bits=0;compression_type=kNoCompression;"
-      "enable_custom_split_merge=true";
-  std::shared_ptr<SecondaryCache> sec_cache;
-  Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
-                                              &sec_cache);
-  EXPECT_OK(s);
-  BasicTestHelper(sec_cache, /*sec_cache_is_compressed=*/false);
-}
-
-TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
+TEST_P(CompressedSecondaryCacheTestWithCompressionParam, BasicTestFromString) {
+  std::shared_ptr<SecondaryCache> sec_cache{nullptr};
   std::string sec_cache_uri;
-  bool sec_cache_is_compressed{true};
-  if (LZ4_Supported()) {
-    sec_cache_uri =
-        "compressed_secondary_cache://"
-        "capacity=2048;num_shard_bits=0;compression_type=kLZ4Compression;"
-        "compress_format_version=2";
+  if (sec_cache_is_compressed_) {
+    if (LZ4_Supported()) {
+      sec_cache_uri =
+          "compressed_secondary_cache://"
+          "capacity=2048;num_shard_bits=0;compression_type=kLZ4Compression;"
+          "compress_format_version=2";
+    } else {
+      ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+      sec_cache_uri =
+          "compressed_secondary_cache://"
+          "capacity=2048;num_shard_bits=0;compression_type=kNoCompression";
+      sec_cache_is_compressed_ = false;
+    }
+    Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
+                                                &sec_cache);
+    EXPECT_OK(s);
   } else {
-    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
     sec_cache_uri =
         "compressed_secondary_cache://"
         "capacity=2048;num_shard_bits=0;compression_type=kNoCompression";
-    sec_cache_is_compressed = false;
+    Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
+                                                &sec_cache);
+    EXPECT_OK(s);
   }
-
-  std::shared_ptr<SecondaryCache> sec_cache;
-  Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
-                                              &sec_cache);
-  EXPECT_OK(s);
-  BasicTestHelper(sec_cache, sec_cache_is_compressed);
+  BasicTestHelper(sec_cache, sec_cache_is_compressed_);
 }
 
-TEST_F(CompressedSecondaryCacheTest,
-       BasicTestFromStringWithSplitAndCompression) {
+TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
+       BasicTestFromStringWithSplit) {
+  std::shared_ptr<SecondaryCache> sec_cache{nullptr};
   std::string sec_cache_uri;
-  bool sec_cache_is_compressed{true};
-  if (LZ4_Supported()) {
-    sec_cache_uri =
-        "compressed_secondary_cache://"
-        "capacity=2048;num_shard_bits=0;compression_type=kLZ4Compression;"
-        "compress_format_version=2;enable_custom_split_merge=true";
+  if (sec_cache_is_compressed_) {
+    if (LZ4_Supported()) {
+      sec_cache_uri =
+          "compressed_secondary_cache://"
+          "capacity=2048;num_shard_bits=0;compression_type=kLZ4Compression;"
+          "compress_format_version=2;enable_custom_split_merge=true";
+    } else {
+      ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+      sec_cache_uri =
+          "compressed_secondary_cache://"
+          "capacity=2048;num_shard_bits=0;compression_type=kNoCompression;"
+          "enable_custom_split_merge=true";
+      sec_cache_is_compressed_ = false;
+    }
+    Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
+                                                &sec_cache);
+    EXPECT_OK(s);
   } else {
-    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
     sec_cache_uri =
         "compressed_secondary_cache://"
         "capacity=2048;num_shard_bits=0;compression_type=kNoCompression;"
         "enable_custom_split_merge=true";
-    sec_cache_is_compressed = false;
+    Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
+                                                &sec_cache);
+    EXPECT_OK(s);
   }
-
-  std::shared_ptr<SecondaryCache> sec_cache;
-  Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
-                                              &sec_cache);
-  EXPECT_OK(s);
-  BasicTestHelper(sec_cache, sec_cache_is_compressed);
+  BasicTestHelper(sec_cache, sec_cache_is_compressed_);
 }
 
 #endif  // ROCKSDB_LITE
 
-TEST_F(CompressedSecondaryCacheTest, FailsTestWithNoCompression) {
-  FailsTest(false);
+TEST_P(CompressedSecondaryCacheTestWithCompressionParam, FailsTest) {
+  FailsTest(sec_cache_is_compressed_);
 }
 
-TEST_F(CompressedSecondaryCacheTest, FailsTestWithCompression) {
-  FailsTest(true);
+TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
+       BasicIntegrationFailTest) {
+  BasicIntegrationFailTest(sec_cache_is_compressed_);
 }
 
-TEST_F(CompressedSecondaryCacheTest, BasicIntegrationTestWithNoCompression) {
-  BasicIntegrationTest(/*sec_cache_is_compressed=*/false,
-                       /*enable_custom_split_merge=*/false);
+TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
+       IntegrationSaveFailTest) {
+  IntegrationSaveFailTest(sec_cache_is_compressed_);
 }
 
-TEST_F(CompressedSecondaryCacheTest,
-       BasicIntegrationTestWithSplitAndNoCompression) {
-  BasicIntegrationTest(/*sec_cache_is_compressed=*/false,
-                       /*enable_custom_split_merge=*/true);
+TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
+       IntegrationCreateFailTest) {
+  IntegrationCreateFailTest(sec_cache_is_compressed_);
 }
 
-TEST_F(CompressedSecondaryCacheTest, BasicIntegrationTestWithCompression) {
-  BasicIntegrationTest(/*sec_cache_is_compressed=*/true,
-                       /*enable_custom_split_merge=*/false);
+TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
+       IntegrationFullCapacityTest) {
+  IntegrationFullCapacityTest(sec_cache_is_compressed_);
 }
 
-TEST_F(CompressedSecondaryCacheTest,
-       BasicIntegrationTestWithSplitAndCompression) {
-  BasicIntegrationTest(/*sec_cache_is_compressed=*/true,
-                       /*enable_custom_split_merge=*/true);
+INSTANTIATE_TEST_CASE_P(Tests, CompressedSecondaryCacheTestWithCompressionParam,
+                        testing::Bool());
+
+class CompressedSecCacheTestWithCompressAndSplitParam
+    : public CompressedSecondaryCacheTest,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  CompressedSecCacheTestWithCompressAndSplitParam() {
+    sec_cache_is_compressed_ = std::get<0>(GetParam());
+    enable_custom_split_merge_ = std::get<1>(GetParam());
+  }
+  bool sec_cache_is_compressed_;
+  bool enable_custom_split_merge_;
+};
+
+TEST_P(CompressedSecCacheTestWithCompressAndSplitParam, BasicIntegrationTest) {
+  BasicIntegrationTest(sec_cache_is_compressed_, enable_custom_split_merge_);
 }
 
-TEST_F(CompressedSecondaryCacheTest,
-       BasicIntegrationFailTestWithNoCompression) {
-  BasicIntegrationFailTest(false);
-}
-
-TEST_F(CompressedSecondaryCacheTest, BasicIntegrationFailTestWithCompression) {
-  BasicIntegrationFailTest(true);
-}
-
-TEST_F(CompressedSecondaryCacheTest, IntegrationSaveFailTestWithNoCompression) {
-  IntegrationSaveFailTest(false);
-}
-
-TEST_F(CompressedSecondaryCacheTest, IntegrationSaveFailTestWithCompression) {
-  IntegrationSaveFailTest(true);
-}
-
-TEST_F(CompressedSecondaryCacheTest,
-       IntegrationCreateFailTestWithNoCompression) {
-  IntegrationCreateFailTest(false);
-}
-
-TEST_F(CompressedSecondaryCacheTest, IntegrationCreateFailTestWithCompression) {
-  IntegrationCreateFailTest(true);
-}
-
-TEST_F(CompressedSecondaryCacheTest,
-       IntegrationFullCapacityTestWithNoCompression) {
-  IntegrationFullCapacityTest(false);
-}
-
-TEST_F(CompressedSecondaryCacheTest,
-       IntegrationFullCapacityTestWithCompression) {
-  IntegrationFullCapacityTest(true);
-}
+INSTANTIATE_TEST_CASE_P(Tests, CompressedSecCacheTestWithCompressAndSplitParam,
+                        ::testing::Combine(testing::Bool(), testing::Bool()));
 
 TEST_F(CompressedSecondaryCacheTest, SplitValueIntoChunksTest) {
   SplitValueIntoChunksTest();
