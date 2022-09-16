@@ -813,7 +813,7 @@ TEST_P(CompressedSecCacheTestWithCompressAndAllocatorParam, BasicTes) {
   BasicTest(sec_cache_is_compressed_, use_jemalloc_);
 }
 
-INSTANTIATE_TEST_CASE_P(Tests,
+INSTANTIATE_TEST_CASE_P(CompressedSecCacheTests,
                         CompressedSecCacheTestWithCompressAndAllocatorParam,
                         ::testing::Combine(testing::Bool(), testing::Bool()));
 
@@ -918,7 +918,8 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
   IntegrationFullCapacityTest(sec_cache_is_compressed_);
 }
 
-INSTANTIATE_TEST_CASE_P(Tests, CompressedSecondaryCacheTestWithCompressionParam,
+INSTANTIATE_TEST_CASE_P(CompressedSecCacheTests,
+                        CompressedSecondaryCacheTestWithCompressionParam,
                         testing::Bool());
 
 class CompressedSecCacheTestWithCompressAndSplitParam
@@ -937,7 +938,8 @@ TEST_P(CompressedSecCacheTestWithCompressAndSplitParam, BasicIntegrationTest) {
   BasicIntegrationTest(sec_cache_is_compressed_, enable_custom_split_merge_);
 }
 
-INSTANTIATE_TEST_CASE_P(Tests, CompressedSecCacheTestWithCompressAndSplitParam,
+INSTANTIATE_TEST_CASE_P(CompressedSecCacheTests,
+                        CompressedSecCacheTestWithCompressAndSplitParam,
                         ::testing::Combine(testing::Bool(), testing::Bool()));
 
 TEST_F(CompressedSecondaryCacheTest, SplitValueIntoChunksTest) {
