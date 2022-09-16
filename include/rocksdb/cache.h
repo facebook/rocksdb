@@ -404,6 +404,16 @@ class Cache {
   // Returns the memory size for the entries residing in the cache.
   virtual size_t GetUsage() const = 0;
 
+  // Returns the number of entries currently tracked in the table. SIZE_MAX
+  // means "not supported." This is used for inspecting the load factor, along
+  // with GetTableAddressCount().
+  virtual size_t GetOccupancyCount() const { return SIZE_MAX; }
+
+  // Returns the number of ways the hash function is divided for addressing
+  // entries. Zero means "not supported." This is used for inspecting the load
+  // factor, along with GetOccupancyCount().
+  virtual size_t GetTableAddressCount() const { return 0; }
+
   // Returns the memory size for a specific entry in the cache.
   virtual size_t GetUsage(Handle* handle) const = 0;
 

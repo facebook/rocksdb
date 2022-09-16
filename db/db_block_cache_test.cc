@@ -939,11 +939,15 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
         ExperimentalNewClockCache(
-            capacity, 1 /*estimated_value_size*/, num_shard_bits,
-            false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy),
-        NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
-                        false /*strict_capacity_limit*/,
-                        kDefaultCacheMetadataChargePolicy)}) {
+            capacity,
+            BlockBasedTableOptions().block_size /*estimated_value_size*/,
+            num_shard_bits, false /*strict_capacity_limit*/,
+            kDefaultCacheMetadataChargePolicy),
+        NewFastLRUCache(
+            capacity,
+            BlockBasedTableOptions().block_size /*estimated_value_size*/,
+            num_shard_bits, false /*strict_capacity_limit*/,
+            kDefaultCacheMetadataChargePolicy)}) {
     if (!base_cache) {
       // Skip clock cache when not supported
       continue;
@@ -1298,10 +1302,11 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   for (bool partition : {false, true}) {
     for (std::shared_ptr<Cache> cache :
          {NewLRUCache(capacity),
-          ExperimentalNewClockCache(capacity, 1 /*estimated_value_size*/,
-                                    -1 /*num_shard_bits*/,
-                                    false /*strict_capacity_limit*/,
-                                    kDefaultCacheMetadataChargePolicy)}) {
+          ExperimentalNewClockCache(
+              capacity,
+              BlockBasedTableOptions().block_size /*estimated_value_size*/,
+              -1 /*num_shard_bits*/, false /*strict_capacity_limit*/,
+              kDefaultCacheMetadataChargePolicy)}) {
       if (!cache) {
         // Skip clock cache when not supported
         continue;
