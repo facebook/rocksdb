@@ -379,6 +379,7 @@ tiered_params = {
     # endless compaction
     "compaction_style": 1,
     # tiered storage doesn't support blob db yet
+    "enable_blob_files": 0,
     "use_blob_db": 0,
 }
 
