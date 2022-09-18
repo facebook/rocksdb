@@ -2778,7 +2778,7 @@ Status Version::MultiGetAsync(
   while (!to_process.empty()) {
     // As we process a batch, it may get split into two. So reserve space for
     // an additional batch in the autovector in order to prevent later moves
-    // of elements.
+    // of elements in ProcessBatch().
     batches.reserve(batches.size() + 1);
 
     size_t idx = to_process.front();
