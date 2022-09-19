@@ -156,5 +156,6 @@ TEST_F(EvictableHashTableTest, TestEvict) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  rocksdb::PhotonEnv::Singleton();
   return RUN_ALL_TESTS();
 }

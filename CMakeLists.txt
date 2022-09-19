@@ -44,6 +44,22 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 
+include(FetchContent)
+set(FETCHCONTENT_QUIET false)
+FetchContent_Declare(
+        photon
+        GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
+        GIT_TAG v0.5.3
+)
+set(ENABLE_URING ON CACHE INTERNAL "Enable iouring")
+FetchContent_MakeAvailable(photon)
+set(PHOTON_INCLUDE_DIR ${photon_SOURCE_DIR}/include/)
+
+option(INIT_PHOTON_IN_ROCKSDB "INIT PHOTON IN ROCKSDB" OFF)
+if(INIT_PHOTON_IN_ROCKSDB)
+    add_definitions(-DINIT_PHOTON_IN_ROCKSDB)
+endif()
+
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
@@ -178,7 +194,7 @@ else()
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
   endif()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
     include(CheckCXXCompilerFlag)
@@ -459,6 +475,7 @@ endif()
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
+include_directories(${PHOTON_INCLUDE_DIR})
 find_package(Threads REQUIRED)
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
@@ -742,18 +759,18 @@ else()
 
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
   target_link_libraries(${ROCKSDB_SHARED_LIB}
-    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} -Wl,--whole-archive $<BUILD_INTERFACE:photon_static> -Wl,--no-whole-archive)
   set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
                         LINKER_LANGUAGE CXX
                         VERSION ${ROCKSDB_VERSION}
                         SOVERSION ${ROCKSDB_VERSION_MAJOR}
-                        CXX_STANDARD 11
+                        CXX_STANDARD 14
                         OUTPUT_NAME "rocksdb")
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
 target_link_libraries(${ROCKSDB_STATIC_LIB}
-  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} $<BUILD_INTERFACE:photon_static>)
 
 if(WIN32)
   add_library(${ROCKSDB_IMPORT_LIB} SHARED ${SOURCES})
@@ -1067,3 +1084,5 @@ option(WITH_TOOLS "build with tools" ON)
 if(WITH_TOOLS)
   add_subdirectory(tools)
 endif()
+
+add_subdirectory(examples)

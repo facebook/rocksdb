@@ -10,7 +10,7 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-__thread PerfLevel perf_level = kEnableCount;
+photon::thread_local_ptr<PerfLevel, PerfLevel> perf_level(kEnableCount);
 #else
 PerfLevel perf_level = kEnableCount;
 #endif
@@ -18,11 +18,11 @@ PerfLevel perf_level = kEnableCount;
 void SetPerfLevel(PerfLevel level) {
   assert(level > kUninitialized);
   assert(level < kOutOfBounds);
-  perf_level = level;
+  *perf_level = level;
 }
 
 PerfLevel GetPerfLevel() {
-  return perf_level;
+  return *perf_level;
 }
 
 }  // namespace rocksdb

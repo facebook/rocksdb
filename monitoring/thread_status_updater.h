@@ -196,7 +196,7 @@ class ThreadStatusUpdater {
  protected:
 #ifdef ROCKSDB_USING_THREAD_STATUS
   // The thread-local variable for storing thread status.
-  static __thread ThreadStatusData* thread_status_data_;
+  static photon::thread_local_ptr<ThreadStatusData*, ThreadStatusData*> thread_status_data_ptr_;
 
   // Returns the pointer to the thread status data only when the
   // thread status data is non-null and has enable_tracking == true.
@@ -205,7 +205,7 @@ class ThreadStatusUpdater {
   // Directly returns the pointer to thread_status_data_ without
   // checking whether enabling_tracking is true of not.
   ThreadStatusData* Get() {
-    return thread_status_data_;
+    return *thread_status_data_ptr_;
   }
 
   // The mutex that protects cf_info_map and db_key_map.

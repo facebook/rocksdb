@@ -185,6 +185,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                     // This allows us to confidently detect the first writer
                     // who increases threads_linked as the leader.
                     while (threads_linked.load() < cur_threads_joining) {
+                      std::this_thread::yield();
                     }
                   });
 
@@ -258,11 +259,13 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
 
                 // leaders gotta lead
                 while (i > 0 && threads_verified.load() < 1) {
+                  std::this_thread::yield();
                 }
 
                 // loser has to lose
                 while (i == write_group.size() - 1 &&
                        threads_verified.load() < write_group.size() - 1) {
+                  std::this_thread::yield();
                 }
 
                 auto& write_op = write_group.at(i);

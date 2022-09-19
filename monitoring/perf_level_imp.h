@@ -10,7 +10,7 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-extern __thread PerfLevel perf_level;
+extern photon::thread_local_ptr<PerfLevel, PerfLevel> perf_level;
 #else
 extern PerfLevel perf_level;
 #endif

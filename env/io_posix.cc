@@ -201,11 +201,8 @@ Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
   size_t left = n;
   char* ptr = scratch;
   while (left > 0) {
-    r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+    r = photon::iouring_pread(fd_, ptr, left, offset, -1);
     if (r <= 0) {
-      if (r == -1 && errno == EINTR) {
-        continue;
-      }
       break;
     }
     ptr += r;
@@ -335,11 +332,8 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   size_t left = n;
   char* ptr = scratch;
   while (left > 0) {
-    r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+    r = photon::iouring_pread(fd_, ptr, left, offset, -1);
     if (r <= 0) {
-      if (r == -1 && errno == EINTR) {
-        continue;
-      }
       break;
     }
     ptr += r;
@@ -761,6 +755,7 @@ Status PosixWritableFile::Append(const Slice& data) {
   size_t left = data.size();
   while (left != 0) {
     ssize_t done = write(fd_, src, left);
+    std::this_thread::yield();
     if (done < 0) {
       if (errno == EINTR) {
         continue;
@@ -784,11 +779,8 @@ Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
-    ssize_t done = pwrite(fd_, src, left, static_cast<off_t>(offset));
+    ssize_t done = photon::iouring_pwrite(fd_, src, left, offset, -1);;
     if (done < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
       return IOError("While pwrite to file at offset " + ToString(offset),
                      filename_, errno);
     }
@@ -870,14 +862,14 @@ Status PosixWritableFile::Close() {
 Status PosixWritableFile::Flush() { return Status::OK(); }
 
 Status PosixWritableFile::Sync() {
-  if (fdatasync(fd_) < 0) {
+  if (photon::iouring_fdatasync(fd_) < 0) {
     return IOError("While fdatasync", filename_, errno);
   }
   return Status::OK();
 }
 
 Status PosixWritableFile::Fsync() {
-  if (fsync(fd_) < 0) {
+  if (photon::iouring_fsync(fd_) < 0) {
     return IOError("While fsync", filename_, errno);
   }
   return Status::OK();
@@ -984,13 +976,9 @@ Status PosixRandomRWFile::Write(uint64_t offset, const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
-    ssize_t done = pwrite(fd_, src, left, offset);
+    ssize_t done = photon::iouring_pwrite(fd_, src, left, offset, -1);
     if (done < 0) {
       // error while writing to file
-      if (errno == EINTR) {
-        // write was interrupted, try again.
-        continue;
-      }
       return IOError(
           "While write random read/write file at offset " + ToString(offset),
           filename_, errno);
@@ -1010,13 +998,9 @@ Status PosixRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
   size_t left = n;
   char* ptr = scratch;
   while (left > 0) {
-    ssize_t done = pread(fd_, ptr, left, offset);
+    ssize_t done = photon::iouring_pread(fd_, ptr, left, offset, -1);
     if (done < 0) {
       // error while reading from file
-      if (errno == EINTR) {
-        // read was interrupted, try again.
-        continue;
-      }
       return IOError("While reading random read/write file offset " +
                          ToString(offset) + " len " + ToString(n),
                      filename_, errno);
@@ -1038,14 +1022,14 @@ Status PosixRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
 Status PosixRandomRWFile::Flush() { return Status::OK(); }
 
 Status PosixRandomRWFile::Sync() {
-  if (fdatasync(fd_) < 0) {
+  if (photon::iouring_fdatasync(fd_) < 0) {
     return IOError("While fdatasync random read/write file", filename_, errno);
   }
   return Status::OK();
 }
 
 Status PosixRandomRWFile::Fsync() {
-  if (fsync(fd_) < 0) {
+  if (photon::iouring_fsync(fd_) < 0) {
     return IOError("While fsync random read/write file", filename_, errno);
   }
   return Status::OK();

@@ -11,7 +11,11 @@
 
 #pragma once
 
-#include <thread>
+#include <photon/photon.h>
+#include <photon/thread/std-compat.h>
+#include <photon/thread/thread-local.h>
+#include <photon/io/iouring-wrapper.h>
+#include <photon/common/alog.h>
 // size_t printf formatting named in the manner of C99 standard formatting
 // strings such as PRIu64
 // in fact, we could use that one
@@ -49,7 +53,6 @@
 #else
   #include <endian.h>
 #endif
-#include <pthread.h>
 
 #include <stdint.h>
 #include <string.h>
@@ -114,7 +117,7 @@ class Mutex {
 
  private:
   friend class CondVar;
-  pthread_mutex_t mu_;
+  photon::mutex mu_;
 #ifndef NDEBUG
   bool locked_;
 #endif
@@ -136,7 +139,7 @@ class RWMutex {
   void AssertHeld() { }
 
  private:
-  pthread_rwlock_t mu_; // the underlying platform mutex
+  photon::rwlock mu_; // the underlying platform mutex
 
   // No copying allowed
   RWMutex(const RWMutex&);
@@ -153,7 +156,7 @@ class CondVar {
   void Signal();
   void SignalAll();
  private:
-  pthread_cond_t cv_;
+  photon::condition_variable cv_;
   Mutex* mu_;
 };
 
@@ -172,10 +175,6 @@ static inline void AsmVolatilePause() {
 
 // Returns -1 if not available on this platform
 extern int PhysicalCoreID();
-
-typedef pthread_once_t OnceType;
-#define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
-extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifndef CACHE_LINE_SIZE
   #if defined(__s390__)

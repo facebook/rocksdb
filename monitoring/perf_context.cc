@@ -15,7 +15,7 @@ PerfContext perf_context;
 #if defined(OS_SOLARIS)
 __thread PerfContext perf_context_;
 #else
-thread_local PerfContext perf_context;
+photon::thread_local_ptr<PerfContext> perf_context;
 #endif
 #endif
 
@@ -26,7 +26,7 @@ PerfContext* get_perf_context() {
 #if defined(OS_SOLARIS)
   return &perf_context_;
 #else
-  return &perf_context;
+  return perf_context.operator->();
 #endif
 #endif
 }

@@ -12,7 +12,6 @@
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #endif
-#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,8 +119,9 @@ class PosixEnv : public Env {
   PosixEnv();
 
   ~PosixEnv() override {
-    for (const auto tid : threads_to_join_) {
-      pthread_join(tid, nullptr);
+    LOG_INFO("global PosixEnv destruct: Join thread pools");
+    for (auto& tid : threads_to_join_) {
+      tid.join();
     }
     for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
       thread_pools_[pool_id].JoinAllThreads();
@@ -760,18 +760,11 @@ class PosixEnv : public Env {
     return thread_status_updater_->GetThreadList(thread_list);
   }
 
-  static uint64_t gettid(pthread_t tid) {
-    uint64_t thread_id = 0;
-    memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
-    return thread_id;
-  }
-
   static uint64_t gettid() {
-    pthread_t tid = pthread_self();
-    return gettid(tid);
+    return (uint64_t) photon::CURRENT;
   }
 
-  uint64_t GetThreadID() const override { return gettid(pthread_self()); }
+  uint64_t GetThreadID() const override { return gettid(); }
 
   Status GetFreeSpace(const std::string& fname, uint64_t* free_space) override {
     struct statvfs sbuf;
@@ -847,7 +840,7 @@ class PosixEnv : public Env {
     return 0;
   }
 
-  void SleepForMicroseconds(int micros) override { usleep(micros); }
+  void SleepForMicroseconds(int micros) override { std::this_thread::sleep_for(std::chrono::microseconds(micros)); }
 
   Status GetHostName(char* name, uint64_t len) override {
     int ret = gethostname(name, static_cast<size_t>(len));
@@ -1008,8 +1001,8 @@ class PosixEnv : public Env {
   size_t page_size_;
 
   std::vector<ThreadPoolImpl> thread_pools_;
-  pthread_mutex_t mu_;
-  std::vector<pthread_t> threads_to_join_;
+  std::mutex mu_;
+  std::vector<std::thread> threads_to_join_;
   // If true, allow non owner read access for db files. Otherwise, non-owner
   //  has no access to db files.
   bool allow_non_owner_access_;
@@ -1021,7 +1014,6 @@ PosixEnv::PosixEnv()
       page_size_(getpagesize()),
       thread_pools_(Priority::TOTAL),
       allow_non_owner_access_(true) {
-  ThreadPoolImpl::PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
   for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
     thread_pools_[pool_id].SetThreadPriority(
         static_cast<Env::Priority>(pool_id));
@@ -1059,20 +1051,16 @@ static void* StartThreadWrapper(void* arg) {
 }
 
 void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
-  pthread_t t;
   StartThreadState* state = new StartThreadState;
   state->user_function = function;
   state->arg = arg;
-  ThreadPoolImpl::PthreadCall(
-      "start thread", pthread_create(&t, nullptr, &StartThreadWrapper, state));
-  ThreadPoolImpl::PthreadCall("lock", pthread_mutex_lock(&mu_));
-  threads_to_join_.push_back(t);
-  ThreadPoolImpl::PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+  std::lock_guard<std::mutex> lock(mu_);
+  threads_to_join_.emplace_back(std::thread(&StartThreadWrapper, state));
 }
 
 void PosixEnv::WaitForJoin() {
-  for (const auto tid : threads_to_join_) {
-    pthread_join(tid, nullptr);
+  for (auto& tid : threads_to_join_) {
+    tid.join();
   }
   threads_to_join_.clear();
 }
@@ -1104,6 +1092,26 @@ std::string Env::GenerateUniqueId() {
   return uuid2;
 }
 
+PhotonEnv::PhotonEnv() {
+  int ret = photon::init(photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE);
+  if (ret != 0) {
+    LOG_FATAL("photon init failed");
+    abort();
+  }
+  // Max 8 vcpu. Hardcoded for now.
+  ret = photon_std::work_pool_init(8, photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE);
+  if (ret != 0) {
+    LOG_FATAL("work pool init failed");
+    abort();
+  }
+}
+
+PhotonEnv::~PhotonEnv() {
+  photon_std::work_pool_fini();
+  photon::fini();
+  LOG_INFO("PhotonEnv finished");
+}
+
 //
 // Default Posix Env
 //
@@ -1118,6 +1126,9 @@ Env* Env::Default() {
   // of their construction, having this call here guarantees that
   // the destructor of static PosixEnv will go first, then the
   // the singletons of ThreadLocalPtr.
+#ifdef INIT_PHOTON_IN_ROCKSDB
+  PhotonEnv::Singleton();
+#endif
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();

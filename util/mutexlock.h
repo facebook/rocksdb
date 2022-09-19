@@ -97,9 +97,9 @@ class WriteLock {
 // SpinMutex has very low overhead for low-contention cases.  Method names
 // are chosen so you can use std::unique_lock or std::lock_guard with it.
 //
-class SpinMutex {
+class SpinMutexObsolete {
  public:
-  SpinMutex() : locked_(false) {}
+  SpinMutexObsolete() : locked_(false) {}
 
   bool try_lock() {
     auto currently_locked = locked_.load(std::memory_order_relaxed);
@@ -127,5 +127,7 @@ class SpinMutex {
  private:
   std::atomic<bool> locked_;
 };
+
+using SpinMutex = std::mutex;
 
 }  // namespace rocksdb

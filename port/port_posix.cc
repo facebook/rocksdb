@@ -51,29 +51,12 @@ static int PthreadCall(const char* label, int result) {
 }
 
 Mutex::Mutex(bool adaptive) {
-  (void) adaptive;
-#ifdef ROCKSDB_PTHREAD_ADAPTIVE_MUTEX
-  if (!adaptive) {
-    PthreadCall("init mutex", pthread_mutex_init(&mu_, nullptr));
-  } else {
-    pthread_mutexattr_t mutex_attr;
-    PthreadCall("init mutex attr", pthread_mutexattr_init(&mutex_attr));
-    PthreadCall("set mutex attr",
-                pthread_mutexattr_settype(&mutex_attr,
-                                          PTHREAD_MUTEX_ADAPTIVE_NP));
-    PthreadCall("init mutex", pthread_mutex_init(&mu_, &mutex_attr));
-    PthreadCall("destroy mutex attr",
-                pthread_mutexattr_destroy(&mutex_attr));
-  }
-#else
-  PthreadCall("init mutex", pthread_mutex_init(&mu_, nullptr));
-#endif // ROCKSDB_PTHREAD_ADAPTIVE_MUTEX
 }
 
-Mutex::~Mutex() { PthreadCall("destroy mutex", pthread_mutex_destroy(&mu_)); }
+Mutex::~Mutex() { }
 
 void Mutex::Lock() {
-  PthreadCall("lock", pthread_mutex_lock(&mu_));
+  mu_.lock();
 #ifndef NDEBUG
   locked_ = true;
 #endif
@@ -83,7 +66,7 @@ void Mutex::Unlock() {
 #ifndef NDEBUG
   locked_ = false;
 #endif
-  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+  mu_.unlock();
 }
 
 void Mutex::AssertHeld() {
@@ -94,63 +77,57 @@ void Mutex::AssertHeld() {
 
 CondVar::CondVar(Mutex* mu)
     : mu_(mu) {
-    PthreadCall("init cv", pthread_cond_init(&cv_, nullptr));
 }
 
-CondVar::~CondVar() { PthreadCall("destroy cv", pthread_cond_destroy(&cv_)); }
+CondVar::~CondVar() {}
 
 void CondVar::Wait() {
 #ifndef NDEBUG
   mu_->locked_ = false;
 #endif
-  PthreadCall("wait", pthread_cond_wait(&cv_, &mu_->mu_));
+  cv_.wait(mu_->mu_);
 #ifndef NDEBUG
   mu_->locked_ = true;
 #endif
 }
 
 bool CondVar::TimedWait(uint64_t abs_time_us) {
-  struct timespec ts;
-  ts.tv_sec = static_cast<time_t>(abs_time_us / 1000000);
-  ts.tv_nsec = static_cast<suseconds_t>((abs_time_us % 1000000) * 1000);
-
 #ifndef NDEBUG
   mu_->locked_ = false;
 #endif
-  int err = pthread_cond_timedwait(&cv_, &mu_->mu_, &ts);
+  auto abs_now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+  uint64_t timeout = abs_time_us > abs_now_us ? abs_time_us - abs_now_us : 0;
+  int ret = cv_.wait(mu_->mu_, timeout);
 #ifndef NDEBUG
   mu_->locked_ = true;
 #endif
-  if (err == ETIMEDOUT) {
+  if (ret != 0 || timeout == 0) {
     return true;
-  }
-  if (err != 0) {
-    PthreadCall("timedwait", err);
   }
   return false;
 }
 
 void CondVar::Signal() {
-  PthreadCall("signal", pthread_cond_signal(&cv_));
+  cv_.notify_one();
 }
 
 void CondVar::SignalAll() {
-  PthreadCall("broadcast", pthread_cond_broadcast(&cv_));
+  cv_.notify_all();
 }
 
 RWMutex::RWMutex() {
-  PthreadCall("init mutex", pthread_rwlock_init(&mu_, nullptr));
 }
 
-RWMutex::~RWMutex() { PthreadCall("destroy mutex", pthread_rwlock_destroy(&mu_)); }
+RWMutex::~RWMutex() { }
 
-void RWMutex::ReadLock() { PthreadCall("read lock", pthread_rwlock_rdlock(&mu_)); }
+void RWMutex::ReadLock() {  mu_.lock(photon::RLOCK); }
 
-void RWMutex::WriteLock() { PthreadCall("write lock", pthread_rwlock_wrlock(&mu_)); }
+void RWMutex::WriteLock() { mu_.lock(photon::WLOCK); }
 
-void RWMutex::ReadUnlock() { PthreadCall("read unlock", pthread_rwlock_unlock(&mu_)); }
+void RWMutex::ReadUnlock() { mu_.unlock(); }
 
-void RWMutex::WriteUnlock() { PthreadCall("write unlock", pthread_rwlock_unlock(&mu_)); }
+void RWMutex::WriteUnlock() { mu_.unlock(); }
 
 int PhysicalCoreID() {
 #if defined(ROCKSDB_SCHED_GETCPU_PRESENT) && defined(__x86_64__) && \
@@ -173,10 +150,6 @@ int PhysicalCoreID() {
   // give up, the caller can generate a random number or something.
   return -1;
 #endif
-}
-
-void InitOnce(OnceType* once, void (*initializer)()) {
-  PthreadCall("once", pthread_once(once, initializer));
 }
 
 void Crash(const std::string& srcfile, int srcline) {
