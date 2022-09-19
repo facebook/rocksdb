@@ -7,6 +7,7 @@
 
 #include "db_stress_tool/expected_state.h"
 
+#include "db/wide/wide_column_serialization.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "rocksdb/trace_reader_writer.h"
@@ -389,6 +390,31 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     if (!GetIntVal(key.ToString(), &key_id)) {
       return Status::Corruption("unable to parse key", key.ToString());
     }
+    uint32_t value_id = GetValueBase(value);
+
+    state_->Put(column_family_id, static_cast<int64_t>(key_id), value_id,
+                false /* pending */);
+    ++num_write_ops_;
+    return Status::OK();
+  }
+
+  Status PutEntityCF(uint32_t column_family_id, const Slice& key_with_ts,
+                     const Slice& entity) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+    uint64_t key_id = 0;
+    if (!GetIntVal(key.ToString(), &key_id)) {
+      return Status::Corruption("unable to parse key", key.ToString());
+    }
+
+    Slice entity_copy = entity;
+    Slice value;
+    if (!WideColumnSerialization::GetValueOfDefaultColumn(entity_copy, value)
+             .ok()) {
+      return Status::Corruption("unable to parse entity",
+                                entity.ToString(/* hex */ true));
+    }
+
     uint32_t value_id = GetValueBase(value);
 
     state_->Put(column_family_id, static_cast<int64_t>(key_id), value_id,
