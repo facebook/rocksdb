@@ -2776,6 +2776,11 @@ Status Version::MultiGetAsync(
   to_process.emplace_back(0);
 
   while (!to_process.empty()) {
+    // As we process a batch, it may get split into two. So reserve space for
+    // an additional batch in the autovector in order to prevent later moves
+    // of elements in ProcessBatch().
+    batches.reserve(batches.size() + 1);
+
     size_t idx = to_process.front();
     FilePickerMultiGet* batch = &batches.at(idx);
     unsigned int num_tasks_queued = 0;
