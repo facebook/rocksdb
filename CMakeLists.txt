@@ -44,6 +44,16 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 
+include(FetchContent)
+set(FETCHCONTENT_QUIET false)
+FetchContent_Declare(
+        photon
+        GIT_REPOSITORY https://gitee.com/mirrors/photonlibos.git
+        GIT_TAG main
+)
+FetchContent_MakeAvailable(photon)
+set(PHOTON_INCLUDE_DIR ${photon_SOURCE_DIR}/include/)
+
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
@@ -173,12 +183,16 @@ if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
 else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
+#  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
+#  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
+  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD_REQUIRED on)
+  set(CMAKE_CXX_EXTENSIONS off)
+  set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
+  set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
   endif()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
     include(CheckCXXCompilerFlag)
@@ -459,6 +473,7 @@ endif()
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
+include_directories(${PHOTON_INCLUDE_DIR})
 find_package(Threads REQUIRED)
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
@@ -735,10 +750,10 @@ endif()
 
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} Shlwapi.lib Rpcrt4.lib)
-  set(LIBS ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+  set(LIBS ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} photon_static)
 else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
-  set(LIBS ${ROCKSDB_SHARED_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+  set(LIBS ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} photon_static)
 
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
   target_link_libraries(${ROCKSDB_SHARED_LIB}
@@ -747,13 +762,12 @@ else()
                         LINKER_LANGUAGE CXX
                         VERSION ${ROCKSDB_VERSION}
                         SOVERSION ${ROCKSDB_VERSION_MAJOR}
-                        CXX_STANDARD 11
                         OUTPUT_NAME "rocksdb")
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
 target_link_libraries(${ROCKSDB_STATIC_LIB}
-  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS} photon_static)
 
 if(WIN32)
   add_library(${ROCKSDB_IMPORT_LIB} SHARED ${SOURCES})
@@ -808,7 +822,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
   install(
-    TARGETS ${ROCKSDB_STATIC_LIB}
+    TARGETS ${ROCKSDB_STATIC_LIB} photon_static uring easy_weak external_lib
     EXPORT RocksDBTargets
     COMPONENT devel
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
@@ -998,7 +1012,7 @@ if(WITH_TESTS)
     get_filename_component(exename ${sourcefile} NAME_WE)
     add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
       $<TARGET_OBJECTS:testharness>)
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${LIBS})
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} photon_static gtest ${LIBS})
   endforeach(sourcefile ${BENCHMARKS})
 
   # For test util library that is build only in DEBUG mode
@@ -1037,7 +1051,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
         )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${LIBS})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} photon_static testutillib${ARTIFACT_SUFFIX} gtest ${LIBS})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
@@ -1057,7 +1071,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         )
-      target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_IMPORT_LIB} testutillib${ARTIFACT_SUFFIX})
+      target_link_libraries(${exename}${ARTIFACT_SUFFIX} photon ${ROCKSDB_IMPORT_LIB} testutillib${ARTIFACT_SUFFIX})
       add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
       add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
   endforeach(sourcefile ${C_TEST_EXES})

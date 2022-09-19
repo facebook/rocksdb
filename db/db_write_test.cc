@@ -61,6 +61,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
           leader_count++;
           while (ready_count < kNumThreads) {
             // busy waiting
+            photon::thread_yield();
           }
         }
       });

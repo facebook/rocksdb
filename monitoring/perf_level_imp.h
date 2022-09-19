@@ -9,8 +9,12 @@
 
 namespace rocksdb {
 
+inline PerfLevel* get_perf_level() {
+  static ThreadLocal<PerfLevel> pl(kEnableCount);
+  return &pl;
+}
+
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-extern __thread PerfLevel perf_level;
 #else
 extern PerfLevel perf_level;
 #endif

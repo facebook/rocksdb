@@ -245,6 +245,7 @@ class ConcurrentTest {
     SkipList<Key, TestComparator>::Iterator iter(&list_);
     iter.Seek(pos);
     while (true) {
+      std::this_thread::yield();
       Key current;
       if (!iter.Valid()) {
         current = MakeKey(K, 0);
@@ -257,6 +258,7 @@ class ConcurrentTest {
       // Verify that everything in [pos,current) was not present in
       // initial_state.
       while (pos < current) {
+        std::this_thread::yield();
         ASSERT_LT(key(pos), K) << pos;
 
         // Note that generation 0 is never inserted, so it is ok if
@@ -383,6 +385,7 @@ TEST_F(SkipTest, Concurrent5) { RunConcurrent(5); }
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  rocksdb::port::PhotonEnv::Singleton();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

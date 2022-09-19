@@ -1374,11 +1374,13 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
           if (linked == 1) {
             // Wait until the others are linked too.
             while (linked < first_group_size) {
+              std::this_thread::yield();
             }
           } else if (linked == 1 + first_group_size) {
             // Make the 2nd batch of the rest of writes plus any followup
             // commits from the first batch
             while (linked < txn_cnt + commit_writes) {
+              std::this_thread::yield();
             }
           }
           // Then we will have one or more batches consisting of follow-up
@@ -1411,13 +1413,16 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
       }
       // wait to be linked
       while (linked.load() <= bi) {
+        std::this_thread::yield();
       }
       // after a queue of size first_group_size
       if (bi + 1 == first_group_size) {
         while (!batch_formed) {
+          std::this_thread::yield();
         }
         // to make it more deterministic, wait until the commits are linked
         while (linked.load() <= bi + expected_commits) {
+          std::this_thread::yield();
         }
       }
     }
@@ -1786,6 +1791,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
           new WritePreparedTxnDBMock(mock_db, txn_db_options));
       // We continue until max advances a bit beyond the snapshot.
       while (!snapshot || wp_db->max_evicted_seq_ < snapshot + 100) {
+        std::this_thread::yield();
         // do prepare for a transaction
         seq++;
         wp_db->AddPrepared(seq);
@@ -2751,6 +2757,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
           auto seq = db_impl->TEST_GetLastVisibleSequence();
           size_t tries = 0;
           while (wp_db->max_evicted_seq_ < seq && tries < 50) {
+            std::this_thread::yield();
             db->Put(WriteOptions(), Slice("key3"), Slice("value3"));
             tries++;
           };
@@ -2824,6 +2831,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfDelayedPrepared) {
     // prepared a delayed prepared
     size_t tries = 0;
     while (wp_db->max_evicted_seq_ < txn->GetId() && tries < 50) {
+      std::this_thread::yield();
       db->Put(WriteOptions(), Slice("key3"), Slice("value3"));
       tries++;
     };
@@ -2901,6 +2909,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfMaxEvictedSeq) {
     // Commit a bunch of entries to advance max evicted seq beyond txn->GetId()
     size_t tries = 0;
     while (wp_db->max_evicted_seq_ < txn->GetId() && tries < 50) {
+      std::this_thread::yield();
       db->Put(WriteOptions(), Slice("key3"), Slice("value3"));
       tries++;
     };
@@ -3163,6 +3172,7 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  rocksdb::port::PhotonEnv::Singleton();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

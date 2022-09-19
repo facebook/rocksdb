@@ -10,11 +10,11 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-__thread IOStatsContext iostats_context;
 #endif
 
 IOStatsContext* get_iostats_context() {
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+  static ThreadLocal<IOStatsContext> iostats_context;
   return &iostats_context;
 #else
   return nullptr;

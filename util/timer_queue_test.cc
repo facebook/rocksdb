@@ -39,6 +39,7 @@ double now() {
 }  // namespace Timing
 
 int main() {
+  rocksdb::port::PhotonEnv::Singleton();
   TimerQueue q;
 
   double tnow = Timing::now();

@@ -140,20 +140,11 @@ private:
   // The private mutex.  Developers should always use Mutex() instead of
   // using this variable directly.
   port::Mutex mutex_;
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-  // Thread local storage
-  static __thread ThreadData* tls_;
-#endif
 
   // Used to make thread exit trigger possible if !defined(OS_MACOSX).
   // Otherwise, used to retrieve thread data.
-  pthread_key_t pthread_key_;
+  photon::thread_key_t thread_key_;
 };
-
-
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-__thread ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
-#endif
 
 // Windows doesn't support a per-thread destructor with its
 // TLS primitives.  So, we build it manually by inserting a
@@ -285,7 +276,7 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   // scope here in case this OnThreadExit is called after the main thread
   // dies.
   auto* inst = tls->inst;
-  pthread_setspecific(inst->pthread_key_, nullptr);
+  photon::thread_setspecific(inst->thread_key_, nullptr);
 
   MutexLock l(inst->MemberMutex());
   inst->RemoveThreadData(tls);
@@ -308,8 +299,8 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
 ThreadLocalPtr::StaticMeta::StaticMeta()
   : next_instance_id_(0),
     head_(this),
-    pthread_key_(0) {
-  if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
+    thread_key_(-1U) {
+  if (photon::thread_key_create(&thread_key_, &OnThreadExit) != 0) {
     abort();
   }
 
@@ -324,20 +315,7 @@ ThreadLocalPtr::StaticMeta::StaticMeta()
   // of memory backing destructed statically-scoped objects. Perhaps
   // registering with atexit(3) would be more robust.
   //
-// This is not required on Windows.
-#if !defined(OS_WIN)
-  static struct A {
-    ~A() {
-#ifndef ROCKSDB_SUPPORT_THREAD_LOCAL
-      ThreadData* tls_ =
-        static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
-#endif
-      if (tls_) {
-        OnThreadExit(tls_);
-      }
-    }
-  } a;
-#endif  // !defined(OS_WIN)
+  // photon's thread_key supports destruction in main thread
 
   head_.next = &head_;
   head_.prev = &head_;
@@ -366,11 +344,11 @@ void ThreadLocalPtr::StaticMeta::RemoveThreadData(
 }
 
 ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
-#ifndef ROCKSDB_SUPPORT_THREAD_LOCAL
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
   // Make this local variable name look like a member variable so that we
   // can share all the code below
   ThreadData* tls_ =
-      static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
+      static_cast<ThreadData*>(photon::thread_getspecific(Instance()->thread_key_));
 #endif
 
   if (UNLIKELY(tls_ == nullptr)) {
@@ -384,7 +362,7 @@ ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
     }
     // Even it is not OS_MACOSX, need to register value for pthread_key_ so that
     // its exit handler will be triggered.
-    if (pthread_setspecific(inst->pthread_key_, tls_) != 0) {
+    if (photon::thread_setspecific(inst->thread_key_, tls_) != 0) {
       {
         MutexLock l(Mutex());
         inst->RemoveThreadData(tls_);

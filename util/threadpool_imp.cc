@@ -231,31 +231,10 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
 
 #ifdef OS_LINUX
     if (decrease_cpu_priority) {
-      setpriority(
-          PRIO_PROCESS,
-          // Current thread.
-          0,
-          // Lowest priority possible.
-          19);
       low_cpu_priority = true;
     }
 
     if (decrease_io_priority) {
-#define IOPRIO_CLASS_SHIFT (13)
-#define IOPRIO_PRIO_VALUE(class, data) (((class) << IOPRIO_CLASS_SHIFT) | data)
-      // Put schedule into IOPRIO_CLASS_IDLE class (lowest)
-      // These system calls only have an effect when used in conjunction
-      // with an I/O scheduler that supports I/O priorities. As at
-      // kernel 2.6.17 the only such scheduler is the Completely
-      // Fair Queuing (CFQ) I/O scheduler.
-      // To change scheduler:
-      //  echo cfq > /sys/block/<device_name>/queue/schedule
-      // Tunables to consider:
-      //  /sys/block/<device_name>/queue/slice_idle
-      //  /sys/block/<device_name>/queue/slice_sync
-      syscall(SYS_ioprio_set, 1,  // IOPRIO_WHO_PROCESS
-              0,                  // current thread
-              IOPRIO_PRIO_VALUE(3, 0));
       low_io_priority = true;
     }
 #else
@@ -337,20 +316,6 @@ void ThreadPoolImpl::Impl::StartBGThreads() {
     port::Thread p_t(&BGThreadWrapper,
       new BGThreadMetadata(this, bgthreads_.size()));
 
-// Set the thread name to aid debugging
-#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
-#if __GLIBC_PREREQ(2, 12)
-    auto th_handle = p_t.native_handle();
-    std::string thread_priority = Env::PriorityToString(GetThreadPriority());
-    std::ostringstream thread_name_stream;
-    thread_name_stream << "rocksdb:";
-    for (char c : thread_priority) {
-      thread_name_stream << static_cast<char>(tolower(c));
-    }
-    thread_name_stream << bgthreads_.size();
-    pthread_setname_np(th_handle, thread_name_stream.str().c_str());
-#endif
-#endif
     bgthreads_.push_back(std::move(p_t));
   }
 }

@@ -17,6 +17,7 @@
 #include "utilities/merge_operators/string_append/stringappend2.h"
 #include "util/testharness.h"
 #include "util/random.h"
+#include "port/port.h"
 
 using namespace rocksdb;
 
@@ -579,6 +580,7 @@ TEST_F(StringAppendOperatorTest, SimpleTestNullDelimiter) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  rocksdb::port::PhotonEnv::Singleton();
   // Run with regular database
   int result;
   {

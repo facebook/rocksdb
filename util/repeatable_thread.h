@@ -97,16 +97,6 @@ class RepeatableThread {
   }
 
   void thread() {
-#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
-#if __GLIBC_PREREQ(2, 12)
-    // Set thread name.
-    auto thread_handle = thread_.native_handle();
-    int ret __attribute__((__unused__)) =
-        pthread_setname_np(thread_handle, thread_name_.c_str());
-    assert(ret == 0);
-#endif
-#endif
-
     assert(delay_us_ > 0);
     if (!wait(initial_delay_us_)) {
       return;

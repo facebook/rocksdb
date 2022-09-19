@@ -175,6 +175,7 @@ TEST_F(MergerTest, SeekToLastTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  rocksdb::port::PhotonEnv::Singleton();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

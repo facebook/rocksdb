@@ -2164,6 +2164,7 @@ static void MTThreadBody(void* arg) {
   Random rnd(1000 + id);
   char valbuf[1500];
   while (t->state->stop.load(std::memory_order_acquire) == false) {
+    std::this_thread::yield();
     t->state->counter[id].store(counter, std::memory_order_release);
 
     int key = rnd.Uniform(kNumKeys);
