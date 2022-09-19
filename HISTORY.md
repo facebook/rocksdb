@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 7.7.0 (09/18/2022)
 ### Bug Fixes
 * Fixed a hang when an operation such as `GetLiveFiles` or `CreateNewBackup` is asked to trigger and wait for memtable flush on a read-only DB. Such indirect requests for memtable flush are now ignored on a read-only DB.
 * Fixed bug where `FlushWAL(true /* sync */)` (used by `GetLiveFilesStorageInfo()`, which is used by checkpoint and backup) could cause parallel writes at the tail of a WAL file to never be synced.
