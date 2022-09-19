@@ -149,9 +149,7 @@ bool RunStressTest(StressTest* stress) {
     // and `MultiGet()`s contend on the DB-wide trace mutex.
     stress->TrackExpectedState(&shared, initial_tracked_contents);
 #ifndef ROCKSDB_LITE
-    if (FLAGS_use_txn &&
-        FLAGS_txn_write_policy ==
-            static_cast<uint64_t>(TxnDBWritePolicy::WRITE_COMMITTED)) {
+    if (FLAGS_use_txn) {
       stress->ProcessRecoveredPreparedTxns();
     }
 #endif
