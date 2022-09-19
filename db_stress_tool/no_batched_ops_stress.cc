@@ -720,6 +720,9 @@ class NonBatchedOpsStressTest : public StressTest {
         }
 #endif
       }
+    } else if (thread->rand.OneInOpt(FLAGS_use_put_entity_one_in)) {
+      s = db_->PutEntity(write_opts, cfh, key,
+                         WideColumns{{kDefaultWideColumnName, v}});
     } else {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {

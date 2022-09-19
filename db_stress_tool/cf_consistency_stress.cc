@@ -32,11 +32,17 @@ class CfConsistencyStressTest : public StressTest {
         GenerateValue(static_cast<uint32_t>(value_base), value, sizeof(value));
     Slice v(value, sz);
     WriteBatch batch;
+
+    const bool use_put_entity =
+        thread->rand.OneInOpt(FLAGS_use_put_entity_one_in);
+
     for (auto cf : rand_column_families) {
       ColumnFamilyHandle* cfh = column_families_[cf];
       if (FLAGS_use_merge) {
         batch.Merge(cfh, key, v);
-      } else { /* !FLAGS_use_merge */
+      } else if (use_put_entity) {
+        batch.PutEntity(cfh, key, WideColumns{{kDefaultWideColumnName, v}});
+      } else {
         batch.Put(cfh, key, v);
       }
     }

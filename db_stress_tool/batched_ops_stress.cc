@@ -45,6 +45,9 @@ class BatchedOpsStressTest : public StressTest {
       value_slices[i] = values[i];
       if (FLAGS_use_merge) {
         batch.Merge(cfh, keys[i], value_slices[i]);
+      } else if (thread->rand.OneInOpt(FLAGS_use_put_entity_one_in)) {
+        batch.PutEntity(cfh, keys[i],
+                        WideColumns{{kDefaultWideColumnName, value_slices[i]}});
       } else {
         batch.Put(cfh, keys[i], value_slices[i]);
       }
