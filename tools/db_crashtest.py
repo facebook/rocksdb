@@ -379,6 +379,7 @@ tiered_params = {
     # endless compaction
     "compaction_style": 1,
     # tiered storage doesn't support blob db yet
+    "enable_blob_files": 0,
     "use_blob_db": 0,
 }
 
@@ -596,11 +597,11 @@ def gen_cmd_params(args):
     if args.test_tiered_storage:
         params.update(tiered_params)
 
-    # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
-    # if specified on the command line; otherwise, apply BlobDB related overrides
-    # with a 10% chance.
+    # Best-effort recovery, user defined timestamp, tiered storage are currently
+    # incompatible with BlobDB. Test BE recovery if specified on the command
+    # line; otherwise, apply BlobDB related overrides with a 10% chance.
     if (not args.test_best_efforts_recovery and
-        not args.enable_ts and
+        not args.enable_ts and not args.test_tiered_storage and
         random.choice([0] * 9 + [1]) == 1):
         params.update(blob_params)
 
