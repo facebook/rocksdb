@@ -848,9 +848,7 @@ class LDBTestCase(unittest.TestCase):
         )
 
         # Pattern to expect from blob file dump.
-        regex = (
-            ".*Blob log header[\s\S]*Blob log footer[\s\S]*Read record[\s\S]*Summary"
-        )
+        regex = ".*Blob log header[\s\S]*Blob log footer[\s\S]*Read record[\s\S]*Summary"  # noqa
         expected_pattern = re.compile(regex)
         blob_files = self.getBlobFiles(dbPath)
         self.assertTrue(len(blob_files) >= 1)
@@ -889,9 +887,7 @@ class LDBTestCase(unittest.TestCase):
 
     def testColumnFamilies(self):
         print("Running testColumnFamilies...")
-        dbPath = os.path.join(
-            self.TMP_DIR, self.DB_NAME
-        )  # noqa: F841 T25377293 Grandfathered in
+        _ = os.path.join(self.TMP_DIR, self.DB_NAME)
         self.assertRunOK("put cf1_1 1 --create_if_missing", "OK")
         self.assertRunOK("put cf1_2 2 --create_if_missing", "OK")
         self.assertRunOK("put cf1_3 3 --try_load_options", "OK")

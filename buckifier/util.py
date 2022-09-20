@@ -74,13 +74,13 @@ def run_shell_command(shell_cmd, cmd_dir=None):
 
     start = time.time()
     print("\t>>> Running: " + shell_cmd)
-    p = subprocess.Popen(
+    p = subprocess.Popen(  # noqa
         shell_cmd,
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=cmd_dir,
-    )  # noqa
+    )
     stdout, stderr = p.communicate()
     end = time.time()
 
