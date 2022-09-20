@@ -239,10 +239,17 @@ uint32_t GetValueBase(Slice s) {
   return res;
 }
 
-WideColumns GenerateWideColumns(Slice slice, size_t num_columns) {
-  assert(slice.size() >= num_columns);
-
+WideColumns GenerateWideColumns(uint32_t value_base, Slice slice) {
   WideColumns columns{{kDefaultWideColumnName, slice}};
+
+  if (value_base % FLAGS_use_put_entity_one_in != 0) {
+    return columns;
+  }
+
+  constexpr size_t max_columns = 4;
+  const size_t num_columns = (value_base % max_columns) + 1;
+
+  assert(slice.size() >= num_columns);
 
   for (size_t i = 1; i < num_columns; ++i) {
     slice.remove_suffix(1);

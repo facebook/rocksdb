@@ -41,9 +41,7 @@ class CfConsistencyStressTest : public StressTest {
       if (FLAGS_use_merge) {
         batch.Merge(cfh, key, v);
       } else if (use_put_entity) {
-        constexpr size_t max_columns = 4;
-        const size_t num_columns = (value_base % max_columns) + 1;
-        batch.PutEntity(cfh, key, GenerateWideColumns(v, num_columns));
+        batch.PutEntity(cfh, key, GenerateWideColumns(value_base, v));
       } else {
         batch.Put(cfh, key, v);
       }
