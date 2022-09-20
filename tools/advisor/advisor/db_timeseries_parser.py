@@ -6,6 +6,7 @@
 import math
 from abc import abstractmethod
 from enum import Enum
+from typing import Dict
 
 from advisor.db_log_parser import DataSource
 
@@ -43,8 +44,8 @@ class TimeSeriesData(DataSource):
         # for each of them and populates the 'keys_ts' dictionary
         pass
 
-    def fetch_burst_epochs(self, entities, statistic, window_sec, threshold, percent):
-        # type: (str, int, float, bool) -> Dict[str, Dict[int, float]]
+    def fetch_burst_epochs(self, entities: str, statistic: int,
+        window_sec: float, threshold: bool, percent: bool) -> Dict[str, Dict[int, float]]:
         # this method calculates the (percent) rate change in the 'statistic'
         # for each entity (over 'window_sec' seconds) and returns the epochs
         # where this rate change is greater than or equal to the 'threshold'
@@ -89,7 +90,6 @@ class TimeSeriesData(DataSource):
         return burst_epochs
 
     def fetch_aggregated_values(self, entity, statistics, aggregation_op):
-        # type: (str, AggregationOperator) -> Dict[str, float]
         # this method performs the aggregation specified by 'aggregation_op'
         # on the timeseries of 'statistics' for 'entity' and returns:
         # Dict[statistic, aggregated_value]

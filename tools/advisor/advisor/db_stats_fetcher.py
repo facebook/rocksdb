@@ -8,6 +8,7 @@ import glob
 import re
 import subprocess
 import time
+from typing import List
 
 from advisor.db_log_parser import Log
 from advisor.db_timeseries_parser import NO_ENTITY, TimeSeriesData
@@ -298,8 +299,8 @@ class OdsStatsFetcher(TimeSeriesData):
                 reqd_stats.append(key)
         return reqd_stats
 
-    def fetch_rate_url(self, entities, keys, window_len, percent, display):
-        # type: (List[str], List[str], str, str, bool) -> str
+    def fetch_rate_url(self, entities: List[str], keys: List[str],
+        window_len: str, percent: str, display: bool) -> str:
         transform_desc = (
             "rate(" + str(window_len) + ",duration=" + str(self.duration_sec)
         )
