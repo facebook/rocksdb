@@ -46,7 +46,7 @@ class Log:
         # "2018/07/25-17:29:05.176080 7f969de68700 [db/compaction_job.cc:1634]
         # [default] [JOB 3] Compacting 24@0 + 16@1 files to L1, score 6.00\n"
         for col_fam in column_families:
-            search_for_str = "\[" + col_fam + "\]"
+            search_for_str = "\[" + col_fam + "\]" # noqa
             if re.search(search_for_str, self.message):
                 self.column_family = col_fam
                 break

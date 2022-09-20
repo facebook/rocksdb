@@ -471,9 +471,7 @@ multiops_wp_txn_params = {
 
 
 def finalize_and_sanitize(src_params):
-    dest_params = dict(
-        [(k, v() if callable(v) else v) for (k, v) in src_params.items()]
-    )
+    dest_params = {k : v() if callable(v) else v for (k, v) in src_params.items()}
     if is_release_mode():
         dest_params["read_fault_one_in"] = 0
     if dest_params.get("compression_max_dict_bytes") == 0:
@@ -656,8 +654,7 @@ def gen_cmd(params, unknown_params):
             "--{0}={1}".format(k, v)
             for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
             if k
-            not in set(
-                [
+            not in {
                     "test_type",
                     "simple",
                     "duration",
@@ -671,8 +668,7 @@ def gen_cmd(params, unknown_params):
                     "write_policy",
                     "stress_cmd",
                     "test_tiered_storage",
-                ]
-            )
+                }
             and v is not None
         ]
         + unknown_params

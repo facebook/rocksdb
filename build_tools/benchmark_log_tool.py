@@ -137,7 +137,7 @@ class ResultParser:
                     sep_count = len(tabbed) - 1
                     if sep_count == 0:
                         sep_count = 1
-                    for i in range(sep_count - 1):
+                    for _ in range(sep_count - 1):
                         row.append("")
                     line = line[len(intra) :]
                 else:
