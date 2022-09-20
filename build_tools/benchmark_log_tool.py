@@ -65,20 +65,20 @@ class BenchmarkUtils:
     ]
 
     def sanity_check(row):
-        if not "test" in row:
+        if "test" not in row:
             logging.debug(f"not 'test' in row: {row}")
             return False
         if row["test"] == "":
             logging.debug(f"row['test'] == '': {row}")
             return False
-        if not "date" in row:
+        if "date" not in row:
             logging.debug(f"not 'date' in row: {row}")
             return False
-        if not "ops_sec" in row:
+        if "ops_sec" not in row:
             logging.debug(f"not 'ops_sec' in row: {row}")
             return False
         try:
-            v = int(row["ops_sec"])
+            _ = int(row["ops_sec"])
         except (ValueError, TypeError):
             logging.debug(f"int(row['ops_sec']): {row}")
             return False
@@ -98,7 +98,7 @@ class BenchmarkUtils:
         # e.g. 2022-07-1T00:14:55 should be 2022-07-01T00:14:55
         row["test_date"] = dt.isoformat()
         row["date"] = dt.isoformat()
-        return dict((key.replace(".", "_"), value) for (key, value) in row.items())
+        return {key.replace(".", "_") : value for key, value in row.items()}
 
 
 class ResultParser:
@@ -114,20 +114,20 @@ class ResultParser:
             return True
         return False
 
-    def line(self, l_in: str):
+    def line(self, line_in: str):
         """Parse a line into items
         Being clever about separators
         """
-        l = l_in
+        line = line_in
         row = []
-        while l != "":
-            match_item = self.field.match(l)
+        while line != "":
+            match_item = self.field.match(line)
             if match_item:
                 item = match_item.group(0)
                 row.append(item)
-                l = l[len(item) :]
+                line = line[len(item) :]
             else:
-                match_intra = self.intra.match(l)
+                match_intra = self.intra.match(line)
                 if match_intra:
                     intra = match_intra.group(0)
                     # Count the separators
@@ -139,9 +139,9 @@ class ResultParser:
                         sep_count = 1
                     for i in range(sep_count - 1):
                         row.append("")
-                    l = l[len(intra) :]
+                    line = line[len(intra) :]
                 else:
-                    raise BenchmarkResultException("Invalid TSV line", f"{l_in} at {l}")
+                    raise BenchmarkResultException("Invalid TSV line", f"{line_in} at {line}")
         return row
 
     def parse(self, lines):

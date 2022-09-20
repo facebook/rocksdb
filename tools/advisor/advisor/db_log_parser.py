@@ -33,7 +33,7 @@ class Log:
     def is_new_log(log_line):
         # The assumption is that a new log will start with a date printed in
         # the below regex format.
-        date_regex = "\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d{6}"
+        date_regex = "\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d{6}" # noqa
         return re.match(date_regex, log_line)
 
     def __init__(self, log_line, column_families):
