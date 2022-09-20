@@ -27,16 +27,24 @@ class CfConsistencyStressTest : public StressTest {
                  char (&value)[100]) override {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
-    uint64_t value_base = batch_id_.fetch_add(1);
-    size_t sz =
-        GenerateValue(static_cast<uint32_t>(value_base), value, sizeof(value));
+    uint32_t value_base = batch_id_.fetch_add(1);
+    size_t sz = GenerateValue(value_base, value, sizeof(value));
     Slice v(value, sz);
     WriteBatch batch;
+
+    const bool use_put_entity = !FLAGS_use_merge &&
+                                FLAGS_use_put_entity_one_in > 0 &&
+                                (value_base % FLAGS_use_put_entity_one_in) == 0;
+
     for (auto cf : rand_column_families) {
       ColumnFamilyHandle* cfh = column_families_[cf];
       if (FLAGS_use_merge) {
         batch.Merge(cfh, key, v);
-      } else { /* !FLAGS_use_merge */
+      } else if (use_put_entity) {
+        constexpr size_t max_columns = 4;
+        const size_t num_columns = (value_base % max_columns) + 1;
+        batch.PutEntity(cfh, key, GenerateWideColumns(v, num_columns));
+      } else {
         batch.Put(cfh, key, v);
       }
     }
@@ -538,7 +546,7 @@ class CfConsistencyStressTest : public StressTest {
   }
 
  private:
-  std::atomic<int64_t> batch_id_;
+  std::atomic<uint32_t> batch_id_;
 };
 
 StressTest* CreateCfConsistencyStressTest() {

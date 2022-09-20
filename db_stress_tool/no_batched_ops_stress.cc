@@ -766,6 +766,12 @@ class NonBatchedOpsStressTest : public StressTest {
         }
 #endif
       }
+    } else if (FLAGS_use_put_entity_one_in > 0 &&
+               (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      constexpr size_t max_columns = 4;
+      const size_t num_columns = (value_base % max_columns) + 1;
+      s = db_->PutEntity(write_opts, cfh, key,
+                         GenerateWideColumns(v, num_columns));
     } else {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {

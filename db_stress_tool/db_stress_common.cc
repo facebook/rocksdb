@@ -239,6 +239,19 @@ uint32_t GetValueBase(Slice s) {
   return res;
 }
 
+WideColumns GenerateWideColumns(Slice slice, size_t num_columns) {
+  assert(slice.size() >= num_columns);
+
+  WideColumns columns{{kDefaultWideColumnName, slice}};
+
+  for (size_t i = 1; i < num_columns; ++i) {
+    slice.remove_suffix(1);
+    columns.emplace_back(slice, slice);
+  }
+
+  return columns;
+}
+
 std::string GetNowNanos() {
   uint64_t t = db_stress_env->NowNanos();
   std::string ret;
