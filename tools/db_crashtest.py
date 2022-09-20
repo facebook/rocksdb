@@ -124,7 +124,7 @@ default_params = {
     # fast_lru_cache is incompatible with stress tests, because it doesn't support strict_capacity_limit == false.
     "use_full_merge_v1": 0,
     "use_merge": 0,
-    "use_put_entity_one_in": lambda: random.randint(0, 10),
+    "use_put_entity_one_in": 5,
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
     "value_size_mult": 32,
