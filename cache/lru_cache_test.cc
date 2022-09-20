@@ -506,7 +506,7 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
 
 }  // namespace fast_lru_cache
 
-namespace clock_cache {
+namespace hyper_clock_cache {
 
 class ClockCacheTest : public testing::Test {
  public:
@@ -975,9 +975,11 @@ TEST_F(ClockCacheTest, TableSizesTest) {
       SCOPED_TRACE("est_count = " + std::to_string(est_count));
       size_t capacity = static_cast<size_t>(est_val_size * est_count);
       // kDontChargeCacheMetadata
-      auto cache = ExperimentalNewClockCache(
-          capacity, est_val_size, /*num shard_bits*/ -1,
-          /*strict_capacity_limit*/ false, kDontChargeCacheMetadata);
+      auto cache = HyperClockCacheOptions(
+                       capacity, est_val_size, /*num shard_bits*/ -1,
+                       /*strict_capacity_limit*/ false,
+                       /*memory_allocator*/ nullptr, kDontChargeCacheMetadata)
+                       .MakeSharedCache();
       // Table sizes are currently only powers of two
       EXPECT_GE(cache->GetTableAddressCount(), est_count / kLoadFactor);
       EXPECT_LE(cache->GetTableAddressCount(), est_count / kLoadFactor * 2.0);
@@ -989,9 +991,11 @@ TEST_F(ClockCacheTest, TableSizesTest) {
       // doubling the table size could cut by 90% the space available to
       // values. Therefore, we omit those weird cases for now.
       if (est_val_size >= 512) {
-        cache = ExperimentalNewClockCache(
-            capacity, est_val_size, /*num shard_bits*/ -1,
-            /*strict_capacity_limit*/ false, kFullChargeCacheMetadata);
+        cache = HyperClockCacheOptions(
+                    capacity, est_val_size, /*num shard_bits*/ -1,
+                    /*strict_capacity_limit*/ false,
+                    /*memory_allocator*/ nullptr, kFullChargeCacheMetadata)
+                    .MakeSharedCache();
         double est_count_after_meta =
             (capacity - cache->GetUsage()) * 1.0 / est_val_size;
         EXPECT_GE(cache->GetTableAddressCount(),
@@ -1003,7 +1007,7 @@ TEST_F(ClockCacheTest, TableSizesTest) {
   }
 }
 
-}  // namespace clock_cache
+}  // namespace hyper_clock_cache
 
 class TestSecondaryCache : public SecondaryCache {
  public:

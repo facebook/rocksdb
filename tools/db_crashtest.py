@@ -116,7 +116,7 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "cache_type": lambda: random.choice(["lru_cache", "clock_cache"]),
+    "cache_type": lambda: random.choice(["lru_cache", "hyper_clock_cache"]),
         # fast_lru_cache is incompatible with stress tests, because it doesn't support strict_capacity_limit == false.
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
@@ -178,7 +178,8 @@ default_params = {
     "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri":  lambda: random.choice(
-        ["", "compressed_secondary_cache://capacity=8388608"]),
+        ["", "compressed_secondary_cache://capacity=8388608",
+         "compressed_secondary_cache://capacity=8388608;enable_custom_split_merge=true"]),
     "allow_data_in_errors": True,
     "readahead_size": lambda: random.choice([0, 16384, 524288]),
     "initial_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
@@ -378,6 +379,7 @@ tiered_params = {
     # endless compaction
     "compaction_style": 1,
     # tiered storage doesn't support blob db yet
+    "enable_blob_files": 0,
     "use_blob_db": 0,
 }
 
@@ -595,11 +597,11 @@ def gen_cmd_params(args):
     if args.test_tiered_storage:
         params.update(tiered_params)
 
-    # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
-    # if specified on the command line; otherwise, apply BlobDB related overrides
-    # with a 10% chance.
+    # Best-effort recovery, user defined timestamp, tiered storage are currently
+    # incompatible with BlobDB. Test BE recovery if specified on the command
+    # line; otherwise, apply BlobDB related overrides with a 10% chance.
     if (not args.test_best_efforts_recovery and
-        not args.enable_ts and
+        not args.enable_ts and not args.test_tiered_storage and
         random.choice([0] * 9 + [1]) == 1):
         params.update(blob_params)
 

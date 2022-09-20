@@ -58,6 +58,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    compress_format_version),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"enable_custom_split_merge",
+         {offsetof(struct CompressedSecondaryCacheOptions,
+                   enable_custom_split_merge),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 #endif  // ROCKSDB_LITE
 
