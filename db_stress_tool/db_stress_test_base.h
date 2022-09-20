@@ -40,7 +40,9 @@ class StressTest {
   void OperateDb(ThreadState* thread);
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
-
+#ifndef ROCKSDB_LITE
+  void ProcessRecoveredPreparedTxns();
+#endif
   void PrintStatistics();
 
  protected:

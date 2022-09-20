@@ -75,6 +75,11 @@ bool RunStressTest(StressTest* stress) {
 
   stress->InitDb(&shared);
   stress->FinishInitDb(&shared);
+#ifndef ROCKSDB_LITE
+  if (FLAGS_use_txn) {
+    stress->ProcessRecoveredPreparedTxns();
+  }
+#endif
 
   if (FLAGS_sync_fault_injection) {
     fault_fs_guard->SetFilesystemDirectWritable(false);

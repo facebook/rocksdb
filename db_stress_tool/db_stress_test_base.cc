@@ -335,6 +335,28 @@ void StressTest::TrackExpectedState(SharedState* shared) {
   }
 }
 
+#ifndef ROCKSDB_LITE
+void StressTest::ProcessRecoveredPreparedTxns() {
+  assert(txn_db_);
+  std::vector<Transaction*> recovered_prepared_trans;
+  txn_db_->GetAllPreparedTransactions(&recovered_prepared_trans);
+  Random rand(static_cast<uint32_t>(FLAGS_seed));
+  for (auto txn : recovered_prepared_trans) {
+    if (rand.OneIn(2)) {
+      Status s = txn->Commit();
+      assert(s.ok());
+    } else {
+      Status s = txn->Rollback();
+      assert(s.ok());
+    }
+    delete txn;
+  }
+  recovered_prepared_trans.clear();
+  txn_db_->GetAllPreparedTransactions(&recovered_prepared_trans);
+  assert(recovered_prepared_trans.size() == 0);
+}
+#endif
+
 Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
                               ThreadState::SnapshotState& snap_state) {
   Status s;
@@ -2648,24 +2670,6 @@ void StressTest::Open(SharedState* shared) {
         db_ = txn_db_;
         db_aptr_.store(txn_db_, std::memory_order_release);
       }
-
-      // after a crash, rollback to commit recovered transactions
-      std::vector<Transaction*> trans;
-      txn_db_->GetAllPreparedTransactions(&trans);
-      Random rand(static_cast<uint32_t>(FLAGS_seed));
-      for (auto txn : trans) {
-        if (rand.OneIn(2)) {
-          s = txn->Commit();
-          assert(s.ok());
-        } else {
-          s = txn->Rollback();
-          assert(s.ok());
-        }
-        delete txn;
-      }
-      trans.clear();
-      txn_db_->GetAllPreparedTransactions(&trans);
-      assert(trans.size() == 0);
 #endif
     }
     if (!s.ok()) {
