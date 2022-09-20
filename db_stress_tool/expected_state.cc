@@ -547,7 +547,6 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     assert(xid_to_buffered_writes_.find(xid_str) !=
            xid_to_buffered_writes_.end());
     assert(xid_to_buffered_writes_.at(xid_str));
-
     xid_to_buffered_writes_.erase(xid_str);
 
     return Status::OK();

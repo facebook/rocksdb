@@ -151,6 +151,13 @@ bool RunStressTest(StressTest* stress) {
 #ifndef ROCKSDB_LITE
     if (FLAGS_use_txn) {
       stress->ProcessRecoveredPreparedTxns();
+      // A hack s.t stress->VerifyOrSyncValue() is called and update the
+      // ExpectedState for the committed transaction above
+      shared.SetStartVerify();
+      shared.GetCondVar()->SignalAll();
+      while (!shared.AllDone()) {
+        shared.GetCondVar()->Wait();
+      }
     }
 #endif
 
