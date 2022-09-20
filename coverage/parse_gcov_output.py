@@ -102,7 +102,7 @@ def report_coverage():
 
     interested_files = set()
     if options.filenames is not None:
-        interested_files = set(f.strip() for f in options.filenames.split(","))
+        interested_files = {f.strip() for f in options.filenames.split(",")}
 
     # To make things simple, right now we only read gcov report from the input
     per_file_coverage, total_coverage = parse_gcov_report(sys.stdin)
