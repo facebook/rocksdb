@@ -47,10 +47,8 @@ class BatchedOpsStressTest : public StressTest {
         batch.Merge(cfh, keys[i], value_slices[i]);
       } else if (FLAGS_use_put_entity_one_in > 0 &&
                  (value_base % FLAGS_use_put_entity_one_in) == 0) {
-        constexpr size_t max_columns = 4;
-        const size_t num_columns = (value_base % max_columns) + 1;
         batch.PutEntity(cfh, keys[i],
-                        GenerateWideColumns(value_slices[i], num_columns));
+                        GenerateWideColumns(value_base, value_slices[i]));
       } else {
         batch.Put(cfh, keys[i], value_slices[i]);
       }

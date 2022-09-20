@@ -683,10 +683,8 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     } else if (FLAGS_use_put_entity_one_in > 0 &&
                (value_base % FLAGS_use_put_entity_one_in) == 0) {
-      constexpr size_t max_columns = 4;
-      const size_t num_columns = (value_base % max_columns) + 1;
       s = db_->PutEntity(write_opts, cfh, key,
-                         GenerateWideColumns(v, num_columns));
+                         GenerateWideColumns(value_base, v));
     } else {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
@@ -1206,12 +1204,9 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (s.ok() && columns) {
-      constexpr size_t max_columns = 4;
-      const size_t num_columns =
-          (GetValueBase(value_from_db) % max_columns) + 1;
-
-      if (*columns != GenerateWideColumns(value_from_db, num_columns)) {
-        // TODO: VerificationAbort
+      if (*columns !=
+          GenerateWideColumns(GetValueBase(value_from_db), value_from_db)) {
+        VerificationAbort(shared, "Value and columns inconsistent", cf, key);
         return false;
       }
     }

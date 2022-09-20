@@ -621,7 +621,7 @@ extern std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
 extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
 extern uint32_t GetValueBase(Slice s);
 
-extern WideColumns GenerateWideColumns(Slice slice, size_t num_columns);
+extern WideColumns GenerateWideColumns(uint32_t value_base, Slice slice);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
