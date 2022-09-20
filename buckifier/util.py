@@ -80,7 +80,7 @@ def run_shell_command(shell_cmd, cmd_dir=None):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=cmd_dir,
-    )
+    )  # noqa
     stdout, stderr = p.communicate()
     end = time.time()
 
