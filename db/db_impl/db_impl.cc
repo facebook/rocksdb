@@ -1803,7 +1803,7 @@ InternalIterator* DBImpl::NewInternalIterator(
       &cfd->internal_comparator(), arena,
       !read_options.total_order_seek &&
           super_version->mutable_cf_options.prefix_extractor != nullptr);
-  // Collect iterator for mutable mem
+  // Collect iterator for mutable memtable
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_options, arena));
   Status s;
@@ -1812,9 +1812,9 @@ InternalIterator* DBImpl::NewInternalIterator(
         read_options, sequence, false /* immutable_memtable */);
     if (range_del_iter == nullptr || range_del_iter->empty()) {
       delete range_del_iter;
-      merge_iter_builder.AddRangeTombstoneIterator(nullptr);
+      merge_iter_builder.AddMemtableRangeTombstoneIterator(nullptr);
     } else {
-      merge_iter_builder.AddRangeTombstoneIterator(
+      merge_iter_builder.AddMemtableRangeTombstoneIterator(
           new TruncatedRangeDelIterator(
               std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
               &cfd->ioptions()->internal_comparator, nullptr /* smallest */,

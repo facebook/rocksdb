@@ -60,6 +60,8 @@ class MergeIteratorBuilder {
       TruncatedRangeDelIterator* iter,
       TruncatedRangeDelIterator*** iter_ptr = nullptr);
 
+  void AddMemtableRangeTombstoneIterator(TruncatedRangeDelIterator* iter);
+
   // Get arena used to build the merging iterator. It is called one a child
   // iterator needs to be allocated.
   Arena* GetArena() { return arena; }
@@ -80,6 +82,9 @@ class MergeIteratorBuilder {
   // See AddRangeTombstoneIterator() implementation for more detail.
   std::vector<std::pair<size_t, TruncatedRangeDelIterator***>>
       range_del_iter_ptrs_;
+  // If true, then mutable memtable has no range tombstone, and its range
+  // tombstone iter is not added to `merge_iter` yet.
+  bool to_add_memtable_range_tombstone_iter_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

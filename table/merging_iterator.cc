@@ -1304,6 +1304,10 @@ void MergeIteratorBuilder::AddRangeTombstoneIterator(
       first_iter = nullptr;
     }
   }
+  if (to_add_memtable_range_tombstone_iter_) {
+    merge_iter->AddRangeTombstoneIterator(nullptr);
+    to_add_memtable_range_tombstone_iter_ = false;
+  }
   merge_iter->AddRangeTombstoneIterator(iter);
   if (iter_ptr) {
     // This is needed instead of setting to &range_tombstone_iters_[i] directly
@@ -1311,6 +1315,20 @@ void MergeIteratorBuilder::AddRangeTombstoneIterator(
     // during vector resizing.
     range_del_iter_ptrs_.emplace_back(
         merge_iter->range_tombstone_iters_.size() - 1, iter_ptr);
+  }
+}
+
+void MergeIteratorBuilder::AddMemtableRangeTombstoneIterator(
+    TruncatedRangeDelIterator* iter) {
+  if (iter || use_merging_iter) {
+    AddRangeTombstoneIterator(iter, nullptr);
+  } else {
+    // Defer adding the memtable tombstone iterator until the next iterator is
+    // added. This is useful for the case when only a single memtable iterator
+    // is added to this MergeIteratorBuilder. This builder will return the
+    // memtable iterator directly, instead of constructing a merging iterator on
+    // top of it.
+    to_add_memtable_range_tombstone_iter_ = true;
   }
 }
 
