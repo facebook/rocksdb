@@ -45,9 +45,12 @@ class BatchedOpsStressTest : public StressTest {
       value_slices[i] = values[i];
       if (FLAGS_use_merge) {
         batch.Merge(cfh, keys[i], value_slices[i]);
-      } else if (thread->rand.OneInOpt(FLAGS_use_put_entity_one_in)) {
+      } else if (FLAGS_use_put_entity_one_in > 0 &&
+                 (value_base % FLAGS_use_put_entity_one_in) == 0) {
+        constexpr size_t max_columns = 4;
+        const size_t num_columns = (value_base % max_columns) + 1;
         batch.PutEntity(cfh, keys[i],
-                        WideColumns{{kDefaultWideColumnName, value_slices[i]}});
+                        GenerateWideColumns(value_slices[i], num_columns));
       } else {
         batch.Put(cfh, keys[i], value_slices[i]);
       }
