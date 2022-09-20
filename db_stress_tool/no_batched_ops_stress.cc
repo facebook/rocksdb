@@ -57,6 +57,7 @@ class NonBatchedOpsStressTest : public StressTest {
             break;
           }
           std::string from_db;
+          WideColumns columns_from_db;
           std::string keystr = Key(i);
           Slice k = keystr;
           Slice pfx = Slice(keystr.data(), prefix_to_use);
@@ -73,6 +74,7 @@ class NonBatchedOpsStressTest : public StressTest {
               s = Status::NotFound(Slice());
             } else if (iter->key().compare(k) == 0) {
               from_db = iter->value().ToString();
+              columns_from_db = iter->columns();
               iter->Next();
             } else if (iter_key.compare(k) < 0) {
               VerificationAbort(shared, "An out of range key was found",
@@ -84,7 +86,7 @@ class NonBatchedOpsStressTest : public StressTest {
             s = Status::NotFound();
           }
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            s, true);
+                            &columns_from_db, s, true);
           if (from_db.length()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
                           from_db.data(), from_db.length());
@@ -101,7 +103,7 @@ class NonBatchedOpsStressTest : public StressTest {
           Slice k = keystr;
           Status s = db_->Get(options, column_families_[cf], k, &from_db);
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            s, true);
+                            nullptr, s, true);
           if (from_db.length()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
                           from_db.data(), from_db.length());
@@ -130,7 +132,7 @@ class NonBatchedOpsStressTest : public StressTest {
             Status s = statuses[j];
             std::string from_db = values[j].ToString();
             VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
-                              from_db, s, true);
+                              from_db, nullptr, s, true);
             if (from_db.length()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
                             from_db.data(), from_db.length());
@@ -655,7 +657,7 @@ class NonBatchedOpsStressTest : public StressTest {
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
       if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
-                             from_db, s, true)) {
+                             from_db, nullptr, s, true)) {
         return s;
       }
     }
@@ -1197,10 +1199,23 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                          SharedState* shared, const std::string& value_from_db,
-                         const Status& s, bool strict = false) const {
+                         const WideColumns* columns, const Status& s,
+                         bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
+
+    if (s.ok() && columns) {
+      constexpr size_t max_columns = 4;
+      const size_t num_columns =
+          (GetValueBase(value_from_db) % max_columns) + 1;
+
+      if (*columns != GenerateWideColumns(value_from_db, num_columns)) {
+        // TODO: VerificationAbort
+        return false;
+      }
+    }
+
     // compare value_from_db with the value in the shared state
     uint32_t value_base = shared->Get(cf, key);
     if (value_base == SharedState::UNKNOWN_SENTINEL) {
