@@ -739,12 +739,28 @@ class DBImpl : public DB {
   // the value and so will require PrepareValue() to be called before value();
   // allow_unprepared_value = false is convenient when this optimization is not
   // useful, e.g. when reading the whole column family.
+  //
+  // read_options.ignore_range_deletions determines whether range tombstones are
+  // processed in the returned interator internally, i.e., whether range
+  // tombstone covered keys are in this iterator's output.
   // @param read_options Must outlive the returned iterator.
   InternalIterator* NewInternalIterator(
-      const ReadOptions& read_options, Arena* arena,
-      RangeDelAggregator* range_del_agg, SequenceNumber sequence,
+      const ReadOptions& read_options, Arena* arena, SequenceNumber sequence,
       ColumnFamilyHandle* column_family = nullptr,
       bool allow_unprepared_value = false);
+
+  // Note: to support DB iterator refresh, memtable range tombstones in the
+  // underlying merging iterator needs to be refreshed. If db_iter is not
+  // nullptr, db_iter->SetMemtableRangetombstoneIter() is called with the
+  // memtable range tombstone iterator used by the underlying merging iterator.
+  // This range tombstone iterator can be refreshed later by db_iter.
+  // @param read_options Must outlive the returned iterator.
+  InternalIterator* NewInternalIterator(const ReadOptions& read_options,
+                                        ColumnFamilyData* cfd,
+                                        SuperVersion* super_version,
+                                        Arena* arena, SequenceNumber sequence,
+                                        bool allow_unprepared_value,
+                                        ArenaWrappedDBIter* db_iter = nullptr);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -867,15 +883,6 @@ class DBImpl : public DB {
   }
 
   const WriteController& write_controller() { return write_controller_; }
-
-  // @param read_options Must outlive the returned iterator.
-  InternalIterator* NewInternalIterator(const ReadOptions& read_options,
-                                        ColumnFamilyData* cfd,
-                                        SuperVersion* super_version,
-                                        Arena* arena,
-                                        RangeDelAggregator* range_del_agg,
-                                        SequenceNumber sequence,
-                                        bool allow_unprepared_value);
 
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that
@@ -2171,11 +2178,6 @@ class DBImpl : public DB {
 
   IOStatus CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                      size_t preallocate_block_size, log::Writer** new_log);
-
-  // Verify SST file unique id between Manifest and table properties to make
-  // sure they're the same. Currently only used during DB open when
-  // `verify_sst_unique_id_in_manifest = true`.
-  Status VerifySstUniqueIdInManifest();
 
   // Validate self-consistency of DB options
   static Status ValidateOptions(const DBOptions& db_options);

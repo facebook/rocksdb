@@ -139,7 +139,8 @@ inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
 // Pack a sequence number and a ValueType into a uint64_t
 inline uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(t));
+  // kTypeMaxValid is used in TruncatedRangeDelIterator, see its constructor.
+  assert(IsExtendedValueType(t) || t == kTypeMaxValid);
   return (seq << 8) | t;
 }
 

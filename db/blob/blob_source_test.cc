@@ -219,6 +219,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
+      ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -256,6 +257,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
+      ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -299,6 +301,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
+      ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -337,6 +340,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
+      ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -383,6 +387,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                &bytes_read)
                       .IsIncomplete());
       ASSERT_TRUE(values[i].empty());
+      ASSERT_FALSE(values[i].IsPinned());
       ASSERT_EQ(bytes_read, 0);
 
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
@@ -424,6 +429,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                &bytes_read)
                       .IsIOError());
       ASSERT_TRUE(values[i].empty());
+      ASSERT_FALSE(values[i].IsPinned());
       ASSERT_EQ(bytes_read, 0);
 
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
@@ -856,6 +862,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
       if (i % 2 == 0) {
         ASSERT_OK(statuses_buf[i]);
         ASSERT_EQ(value_buf[i], blobs[i]);
+        ASSERT_TRUE(value_buf[i].IsPinned());
         fs_read_bytes +=
             blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize;
         ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
@@ -864,6 +871,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
       } else {
         statuses_buf[i].PermitUncheckedError();
         ASSERT_TRUE(value_buf[i].empty());
+        ASSERT_FALSE(value_buf[i].IsPinned());
         ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                   blob_offsets[i]));
       }
@@ -896,6 +904,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer,
                                     &value_buf[i], &bytes_read));
       ASSERT_EQ(value_buf[i], blobs[i]);
+      ASSERT_TRUE(value_buf[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -921,6 +930,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_OK(statuses_buf[i]);
       ASSERT_EQ(value_buf[i], blobs[i]);
+      ASSERT_TRUE(value_buf[i].IsPinned());
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
       blob_bytes += blob_sizes[i];
@@ -969,6 +979,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(statuses_buf[i].IsIncomplete());
       ASSERT_TRUE(value_buf[i].empty());
+      ASSERT_FALSE(value_buf[i].IsPinned());
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
     }
@@ -1012,6 +1023,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(statuses_buf[i].IsIOError());
       ASSERT_TRUE(value_buf[i].empty());
+      ASSERT_FALSE(value_buf[i].IsPinned());
       ASSERT_FALSE(blob_source.TEST_BlobInCache(non_existing_file_number,
                                                 file_size, blob_offsets[i]));
     }
@@ -1050,7 +1062,8 @@ class BlobSecondaryCacheTest : public DBTestBase {
 
     secondary_cache_opts_.capacity = 8 << 20;  // 8 MB
     secondary_cache_opts_.num_shard_bits = 0;
-    secondary_cache_opts_.metadata_charge_policy = kDontChargeCacheMetadata;
+    secondary_cache_opts_.metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy;
 
     // Read blobs from the secondary cache if they are not in the primary cache
     options_.lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
@@ -1137,6 +1150,15 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   auto blob_cache = options_.blob_cache;
   auto secondary_cache = lru_cache_opts_.secondary_cache;
 
+  Cache::CreateCallback create_cb = [](const void* buf, size_t size,
+                                       void** out_obj,
+                                       size_t* charge) -> Status {
+    CacheAllocationPtr allocation(new char[size]);
+
+    return BlobContents::CreateCallback(std::move(allocation), buf, size,
+                                        out_obj, charge);
+  };
+
   {
     // GetBlob
     std::vector<PinnableSlice> values(keys.size());
@@ -1149,12 +1171,34 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                                   blob_offsets[0], file_size, blob_sizes[0],
                                   kNoCompression, nullptr /* prefetch_buffer */,
                                   &values[0], nullptr /* bytes_read */));
+    // Release cache handle
+    values[0].Reset();
+
+    // key0 should be evicted and key0's dummy item is inserted into secondary
+    // cache. key1 should be filled to the primary cache from the blob file.
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
+                                  blob_offsets[1], file_size, blob_sizes[1],
+                                  kNoCompression, nullptr /* prefetch_buffer */,
+                                  &values[1], nullptr /* bytes_read */));
+
+    // Release cache handle
+    values[1].Reset();
+
+    // key0 should be filled to the primary cache from the blob file. key1
+    // should be evicted and key1's dummy item is inserted into secondary cache.
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[0], file_number,
+                                  blob_offsets[0], file_size, blob_sizes[0],
+                                  kNoCompression, nullptr /* prefetch_buffer */,
+                                  &values[0], nullptr /* bytes_read */));
     ASSERT_EQ(values[0], blobs[0]);
     ASSERT_TRUE(
         blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[0]));
 
-    // key0 should be demoted to the secondary cache, and key1 should be filled
-    // to the primary cache from the blob file.
+    // Release cache handle
+    values[0].Reset();
+
+    // key0 should be evicted and is inserted into secondary cache.
+    // key1 should be filled to the primary cache from the blob file.
     ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
                                   blob_offsets[1], file_size, blob_sizes[1],
                                   kNoCompression, nullptr /* prefetch_buffer */,
@@ -1162,6 +1206,9 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     ASSERT_EQ(values[1], blobs[1]);
     ASSERT_TRUE(
         blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[1]));
+
+    // Release cache handle
+    values[1].Reset();
 
     OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
 
@@ -1175,11 +1222,11 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
 
-      // key0 should be in the secondary cache. After looking up key0 in the
-      // secondary cache, it will be erased from the secondary cache.
+      // key0's item should be in the secondary cache.
       bool is_in_sec_cache = false;
-      auto sec_handle0 = secondary_cache->Lookup(
-          key0, &BlobContents::CreateCallback, true, is_in_sec_cache);
+      auto sec_handle0 =
+          secondary_cache->Lookup(key0, create_cb, true,
+                                  /*advise_erase=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
@@ -1188,12 +1235,14 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_EQ(value->data(), blobs[0]);
       delete value;
 
-      // key0 doesn't exist in the blob cache
+      // key0 doesn't exist in the blob cache although key0's dummy
+      // item exist in the secondary cache.
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                 blob_offsets[0]));
     }
 
-    // key1 should exist in the primary cache.
+    // key1 should exists in the primary cache. key1's dummy item exists
+    // in the secondary cache.
     {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
       const Slice key1 = cache_key.AsSlice();
@@ -1202,8 +1251,9 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       blob_cache->Release(handle1);
 
       bool is_in_sec_cache = false;
-      auto sec_handle1 = secondary_cache->Lookup(
-          key1, &BlobContents::CreateCallback, true, is_in_sec_cache);
+      auto sec_handle1 =
+          secondary_cache->Lookup(key1, create_cb, true,
+                                  /*advise_erase=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
@@ -1213,11 +1263,15 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
     {
       // fetch key0 from the blob file to the primary cache.
+      // key1 is evicted and inserted into the secondary cache.
       ASSERT_OK(blob_source.GetBlob(
           read_options, keys[0], file_number, blob_offsets[0], file_size,
           blob_sizes[0], kNoCompression, nullptr /* prefetch_buffer */,
           &values[0], nullptr /* bytes_read */));
       ASSERT_EQ(values[0], blobs[0]);
+
+      // Release cache handle
+      values[0].Reset();
 
       // key0 should be in the primary cache.
       CacheKey cache_key0 = base_cache_key.WithOffset(blob_offsets[0]);
@@ -1229,8 +1283,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_EQ(value->data(), blobs[0]);
       blob_cache->Release(handle0);
 
-      // key1 is not in the primary cache, and it should be demoted to the
-      // secondary cache.
+      // key1 is not in the primary cache and is in the secondary cache.
       CacheKey cache_key1 = base_cache_key.WithOffset(blob_offsets[1]);
       const Slice key1 = cache_key1.AsSlice();
       auto handle1 = blob_cache->Lookup(key1, statistics);
@@ -1244,17 +1297,19 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key1 promotion should succeed due to the primary cache being empty. we
       // did't call secondary cache's Lookup() here, because it will remove the
       // key but it won't be able to promote the key to the primary cache.
-      // Instead we use the end-to-end blob source API to promote the key to
-      // the primary cache.
+      // Instead we use the end-to-end blob source API to read key1.
+      // In function TEST_BlobInCache, key1's dummy item is inserted into the
+      // primary cache and a standalone handle is checked by GetValue().
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[1]));
 
-      // key1 should be in the primary cache.
+      // key1's dummy handle is in the primary cache and key1's item is still
+      // in the secondary cache. So, the primary cache's Lookup() can only
+      // get a dummy handle.
       handle1 = blob_cache->Lookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
-      value = static_cast<BlobContents*>(blob_cache->Value(handle1));
-      ASSERT_NE(value, nullptr);
-      ASSERT_EQ(value->data(), blobs[1]);
+      // handl1 is a dummy handle.
+      ASSERT_EQ(blob_cache->Value(handle1), nullptr);
       blob_cache->Release(handle1);
     }
   }
@@ -1379,10 +1434,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   ReadOptions read_options;
   read_options.verify_checksums = true;
 
-  std::vector<PinnableSlice> values(keys_.size());
-
   {
     read_options.fill_cache = false;
+
+    std::vector<PinnableSlice> values(keys_.size());
 
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
@@ -1396,6 +1451,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
 
   {
     read_options.fill_cache = true;
+
+    std::vector<PinnableSlice> values(keys_.size());
 
     // num_blobs is 16, so the total blob cache usage is less than a single
     // dummy entry. Therefore, cache reservation manager only reserves one dummy
@@ -1434,8 +1491,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
       // cache usage after erasing the cache entry.
       blob_source.GetBlobCache()->Erase(cache_key.AsSlice());
       if (i == kNumBlobs - 1) {
-        // The last blob is not in the cache. cache_res_mgr should not reserve
-        // any space for it.
+        // All the blobs got removed from the cache. cache_res_mgr should not
+        // reserve any space for them.
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0);
       } else {
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
@@ -1498,10 +1555,10 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   ReadOptions read_options;
   read_options.verify_checksums = true;
 
-  std::vector<PinnableSlice> values(keys_.size());
-
   {
     read_options.fill_cache = false;
+
+    std::vector<PinnableSlice> values(keys_.size());
 
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
@@ -1516,6 +1573,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   {
     read_options.fill_cache = true;
 
+    std::vector<PinnableSlice> values(keys_.size());
+
     // Since we resized each blob to be kSizeDummyEntry / (num_blobs / 2), we
     // can't fit all the blobs in the cache at the same time, which means we
     // should observe cache evictions once we reach the cache's capacity.
@@ -1527,6 +1586,9 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
+
+      // Release cache handle
+      values[i].Reset();
 
       if (i < kNumBlobs / 2 - 1) {
         size_t charge = 0;

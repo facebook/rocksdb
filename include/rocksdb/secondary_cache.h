@@ -68,20 +68,31 @@ class SecondaryCache : public Customizable {
   // Lookup the data for the given key in this cache. The create_cb
   // will be used to create the object. The handle returned may not be
   // ready yet, unless wait=true, in which case Lookup() will block until
-  // the handle is ready. is_in_sec_cache is to indicate whether the
-  // handle is possibly erased from the secondary cache after the Lookup.
+  // the handle is ready.
+  //
+  // advise_erase is a hint from the primary cache indicating that the handle
+  // will be cached there, so the secondary cache is advised to drop it from
+  // the cache as an optimization. To use this feature, SupportForceErase()
+  // needs to return true.
+  // This hint can also be safely ignored.
+  //
+  // is_in_sec_cache is to indicate whether the handle is possibly erased
+  // from the secondary cache after the Lookup.
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool wait,
-      bool& is_in_sec_cache) = 0;
+      bool advise_erase, bool& is_in_sec_cache) = 0;
+
+  // Indicate whether a handle can be erased in this secondary cache.
+  virtual bool SupportForceErase() const = 0;
 
   // At the discretion of the implementation, erase the data associated
-  // with key
+  // with key.
   virtual void Erase(const Slice& key) = 0;
 
-  // Wait for a collection of handles to become ready
+  // Wait for a collection of handles to become ready.
   virtual void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) = 0;
 
-  virtual std::string GetPrintableOptions() const override = 0;
+  virtual std::string GetPrintableOptions() const = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

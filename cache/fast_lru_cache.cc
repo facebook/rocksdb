@@ -173,13 +173,13 @@ inline int LRUHandleTable::FindSlot(const Slice& key,
 LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
                              bool strict_capacity_limit,
                              CacheMetadataChargePolicy metadata_charge_policy)
-    : capacity_(capacity),
+    : CacheShard(metadata_charge_policy),
+      capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       table_(
           CalcHashBits(capacity, estimated_value_size, metadata_charge_policy)),
       usage_(0),
       lru_usage_(0) {
-  set_metadata_charge_policy(metadata_charge_policy);
   // Make empty circular linked list.
   lru_.next = &lru_;
   lru_.prev = &lru_;
@@ -523,6 +523,16 @@ size_t LRUCacheShard::GetPinnedUsage() const {
   DMutexLock l(mutex_);
   assert(usage_ >= lru_usage_);
   return usage_ - lru_usage_;
+}
+
+size_t LRUCacheShard::GetOccupancyCount() const {
+  DMutexLock l(mutex_);
+  return table_.GetOccupancy();
+}
+
+size_t LRUCacheShard::GetTableAddressCount() const {
+  DMutexLock l(mutex_);
+  return table_.GetTableSize();
 }
 
 std::string LRUCacheShard::GetPrintableOptions() const { return std::string{}; }

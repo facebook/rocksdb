@@ -1035,4 +1035,21 @@ DEFINE_int32(verify_iterator_with_expected_state_one_in, 0,
              "chance that the iterator is verified against the expected state "
              "file, instead of comparing keys between two iterators.");
 
+DEFINE_uint64(readahead_size, 0, "Iterator readahead size");
+DEFINE_uint64(initial_auto_readahead_size, 0,
+              "Initial auto readahead size for prefetching during Iteration");
+DEFINE_uint64(max_auto_readahead_size, 0,
+              "Max auto readahead size for prefetching during Iteration");
+DEFINE_uint64(
+    num_file_reads_for_auto_readahead, 0,
+    "Num of sequential reads to enable auto prefetching during Iteration");
+
+DEFINE_bool(
+    preserve_unverified_changes, false,
+    "DB files of the current run will all be preserved in `FLAGS_db`. DB files "
+    "from the last run will be preserved in `FLAGS_db/unverified` until the "
+    "first verification succeeds. Expected state files from the last run will "
+    "be preserved similarly under `FLAGS_expected_values_dir/unverified` when "
+    "`--expected_values_dir` is nonempty.");
+
 #endif  // GFLAGS

@@ -116,7 +116,7 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "cache_type": lambda: random.choice(["lru_cache", "clock_cache"]),
+    "cache_type": lambda: random.choice(["lru_cache", "hyper_clock_cache"]),
         # fast_lru_cache is incompatible with stress tests, because it doesn't support strict_capacity_limit == false.
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
@@ -162,9 +162,7 @@ default_params = {
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
-    "sync_fault_injection": 0,
-    # TODO: reenable after investigating failure
-    # "sync_fault_injection": lambda: random.randint(0, 1),
+    "sync_fault_injection": lambda: random.randint(0, 1),
     "get_property_one_in": 1000000,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
@@ -180,8 +178,13 @@ default_params = {
     "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri":  lambda: random.choice(
-        ["", "compressed_secondary_cache://capacity=8388608"]),
+        ["", "compressed_secondary_cache://capacity=8388608",
+         "compressed_secondary_cache://capacity=8388608;enable_custom_split_merge=true"]),
     "allow_data_in_errors": True,
+    "readahead_size": lambda: random.choice([0, 16384, 524288]),
+    "initial_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
+    "max_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
+    "num_file_reads_for_auto_readahead": lambda: random.choice([0, 1, 2]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -366,20 +369,18 @@ ts_params = {
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "ingest_external_file_one_in": 0,
-    # TODO akanksha: Currently subcompactions is failing with user_defined_timestamp if
-    # subcompactions > 1, or
-    # compact_pri == 4 even if subcompactions is 1, there can still be multiple subcompactions.
-    # Remove this check once its fixed.
-    "subcompactions": 1,
-    "compaction_pri": random.randint(0, 3),
 }
 
 tiered_params = {
     "enable_tiered_storage": 1,
-    "preclude_last_level_data_seconds": lambda: random.choice([3600]),
+    # Set tiered compaction hot data time as: 1 minute, 1 hour, 10 hour
+    "preclude_last_level_data_seconds": lambda: random.choice([60, 3600, 36000]),
     # only test universal compaction for now, level has known issue of
     # endless compaction
     "compaction_style": 1,
+    # tiered storage doesn't support blob db yet
+    "enable_blob_files": 0,
+    "use_blob_db": 0,
 }
 
 multiops_txn_default_params = {
@@ -485,6 +486,10 @@ def finalize_and_sanitize(src_params):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
         dest_params["ingest_external_file_one_in"] = 0
+    # Correctness testing with unsync data loss is not currently compatible
+    # with transactions
+    if (dest_params.get("use_txn") == 1):
+        dest_params["sync_fault_injection"] = 0
     if (dest_params.get("disable_wal") == 1 or
         dest_params.get("sync_fault_injection") == 1):
         # File ingestion does not guarantee prefix-recoverability when unsynced
@@ -589,14 +594,14 @@ def gen_cmd_params(args):
             params.update(multiops_wc_txn_params)
         elif args.write_policy == 'write_prepared':
             params.update(multiops_wp_txn_params)
-    if args.enable_tiered_storage:
+    if args.test_tiered_storage:
         params.update(tiered_params)
 
-    # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
-    # if specified on the command line; otherwise, apply BlobDB related overrides
-    # with a 10% chance.
+    # Best-effort recovery, user defined timestamp, tiered storage are currently
+    # incompatible with BlobDB. Test BE recovery if specified on the command
+    # line; otherwise, apply BlobDB related overrides with a 10% chance.
     if (not args.test_best_efforts_recovery and
-        not args.enable_ts and
+        not args.enable_ts and not args.test_tiered_storage and
         random.choice([0] * 9 + [1]) == 1):
         params.update(blob_params)
 
@@ -614,7 +619,8 @@ def gen_cmd(params, unknown_params):
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn',
                          'test_best_efforts_recovery', 'enable_ts',
-                         'test_multiops_txn', 'write_policy', 'stress_cmd'])
+                         'test_multiops_txn', 'write_policy', 'stress_cmd',
+                         'test_tiered_storage'])
         and v is not None] + unknown_params
     return cmd
 
@@ -838,7 +844,7 @@ def main():
     parser.add_argument("--test_multiops_txn", action='store_true')
     parser.add_argument("--write_policy", choices=["write_committed", "write_prepared"])
     parser.add_argument("--stress_cmd")
-    parser.add_argument("--enable_tiered_storage", action='store_true')
+    parser.add_argument("--test_tiered_storage", action='store_true')
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())
@@ -850,7 +856,11 @@ def main():
                       + list(ts_params.items())
                       + list(multiops_txn_default_params.items())
                       + list(multiops_wc_txn_params.items())
-                      + list(multiops_wp_txn_params.items()))
+                      + list(multiops_wp_txn_params.items())
+                      + list(best_efforts_recovery_params.items())
+                      + list(cf_consistency_params.items())
+                      + list(tiered_params.items())
+                      + list(txn_params.items()))
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))

@@ -407,7 +407,7 @@ class TableConstructor : public Constructor {
     EXPECT_EQ(TEST_GetSink()->contents().size(), builder->FileSize());
 
     // Open the table
-    uniq_id_ = cur_uniq_id_++;
+    file_num_ = cur_file_num_++;
 
     return Reopen(ioptions, moptions);
   }
@@ -438,15 +438,15 @@ class TableConstructor : public Constructor {
   virtual Status Reopen(const ImmutableOptions& ioptions,
                         const MutableCFOptions& moptions) {
     std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
-        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads));
+        TEST_GetSink()->contents(), file_num_, ioptions.allow_mmap_reads));
 
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
                            *last_internal_comparator_, /*skip_filters*/ false,
-                           /*immortal*/ false, false, level_, largest_seqno_,
+                           /*immortal*/ false, false, level_,
                            &block_cache_tracer_, moptions.write_buffer_size, "",
-                           uniq_id_),
+                           file_num_, kNullUniqueId64x2, largest_seqno_),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -469,14 +469,14 @@ class TableConstructor : public Constructor {
 
  private:
   void Reset() {
-    uniq_id_ = 0;
+    file_num_ = 0;
     table_reader_.reset();
     file_writer_.reset();
     file_reader_.reset();
   }
 
   const ReadOptions read_options_;
-  uint64_t uniq_id_;
+  uint64_t file_num_;
   std::unique_ptr<WritableFileWriter> file_writer_;
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   std::unique_ptr<TableReader> table_reader_;
@@ -486,11 +486,11 @@ class TableConstructor : public Constructor {
 
   TableConstructor();
 
-  static uint64_t cur_uniq_id_;
+  static uint64_t cur_file_num_;
   EnvOptions soptions;
   Env* env_;
 };
-uint64_t TableConstructor::cur_uniq_id_ = 1;
+uint64_t TableConstructor::cur_file_num_ = 1;
 
 class MemTableConstructor: public Constructor {
  public:
@@ -1310,7 +1310,7 @@ class FileChecksumTestHelper {
   Status CalculateFileChecksum(FileChecksumGenerator* file_checksum_generator,
                                std::string* checksum) {
     assert(file_checksum_generator != nullptr);
-    cur_uniq_id_ = checksum_uniq_id_++;
+    cur_file_num_ = checksum_file_num_++;
     test::StringSink* ss_rw =
         static_cast<test::StringSink*>(file_writer_->writable_file());
     std::unique_ptr<FSRandomAccessFile> source(
@@ -1344,17 +1344,17 @@ class FileChecksumTestHelper {
 
  private:
   bool convert_to_internal_key_;
-  uint64_t cur_uniq_id_;
+  uint64_t cur_file_num_;
   std::unique_ptr<WritableFileWriter> file_writer_;
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   std::unique_ptr<TableBuilder> table_builder_;
   stl_wrappers::KVMap kv_map_;
   test::StringSink* sink_ = nullptr;
 
-  static uint64_t checksum_uniq_id_;
+  static uint64_t checksum_file_num_;
 };
 
-uint64_t FileChecksumTestHelper::checksum_uniq_id_ = 1;
+uint64_t FileChecksumTestHelper::checksum_file_num_ = 1;
 
 INSTANTIATE_TEST_CASE_P(FormatVersions, BlockBasedTableTest,
                         testing::ValuesIn(test::kFooterFormatVersionsToTest));

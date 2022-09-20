@@ -453,6 +453,9 @@ class InternalStats {
   // For use with CacheEntryStatsCollector
   struct CacheEntryRoleStats {
     uint64_t cache_capacity = 0;
+    uint64_t cache_usage = 0;
+    size_t table_size = 0;
+    size_t occupancy = 0;
     std::string cache_id;
     std::array<uint64_t, kNumCacheEntryRoles> total_charges;
     std::array<size_t, kNumCacheEntryRoles> entry_counts;

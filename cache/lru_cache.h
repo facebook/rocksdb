@@ -40,8 +40,11 @@ namespace lru_cache {
 //    In that case the entry is not in the LRU list and not in hash table.
 //    The entry can be freed when refs becomes 0.
 //    (refs >= 1 && in_cache == false)
-//
-// All newly created LRUHandles are in state 1. If you call
+// 4. The handle is never inserted into the LRUCache (both hash table and LRU
+//    list) and it doesn't experience the above three states.
+//    The entry can be freed when refs becomes 0.
+//    (refs >= 1 && in_cache == false && IS_STANDALONE == true)
+// All newly created LRUHandles are in state 1 or 4. If you call
 // LRUCacheShard::Release on entry in state 1, it will go into state 2.
 // To move from state 1 to state 3, either call LRUCacheShard::Erase or
 // LRUCacheShard::Insert with the same key (but possibly different value).
@@ -93,6 +96,9 @@ struct LRUHandle {
     IS_LOW_PRI = (1 << 7),
     // Whether this entry is in low-pri pool.
     IN_LOW_PRI_POOL = (1 << 8),
+    // Whether this entry is not inserted into the cache (both hash table and
+    // LRU list).
+    IS_STANDALONE = (1 << 9),
   };
 
   uint16_t flags;
@@ -138,6 +144,7 @@ struct LRUHandle {
   }
   bool IsPending() const { return flags & IS_PENDING; }
   bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
+  bool IsStandalone() const { return flags & IS_STANDALONE; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -202,6 +209,14 @@ struct LRUHandle {
       flags |= IS_IN_SECONDARY_CACHE;
     } else {
       flags &= ~IS_IN_SECONDARY_CACHE;
+    }
+  }
+
+  void SetIsStandalone(bool is_standalone) {
+    if (is_standalone) {
+      flags |= IS_STANDALONE;
+    } else {
+      flags &= ~IS_STANDALONE;
     }
   }
 
@@ -289,6 +304,8 @@ class LRUHandleTable {
   }
 
   int GetLengthBits() const { return length_bits_; }
+
+  size_t GetOccupancyCount() const { return elems_; }
 
  private:
   // Return a pointer to slot that points to a cache entry that
@@ -379,6 +396,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   virtual size_t GetUsage() const override;
   virtual size_t GetPinnedUsage() const override;
+  virtual size_t GetOccupancyCount() const override;
+  virtual size_t GetTableAddressCount() const override;
 
   virtual void ApplyToSomeEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
@@ -434,6 +453,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
+
+  // Try to insert the evicted handles into the secondary cache.
+  void TryInsertIntoSecondaryCache(autovector<LRUHandle*> evicted_handles);
 
   // Initialized before use.
   size_t capacity_;

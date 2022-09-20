@@ -313,6 +313,12 @@ DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
 DECLARE_int64(preclude_last_level_data_seconds);
 
 DECLARE_int32(verify_iterator_with_expected_state_one_in);
+DECLARE_bool(preserve_unverified_changes);
+
+DECLARE_uint64(readahead_size);
+DECLARE_uint64(initial_auto_readahead_size);
+DECLARE_uint64(max_auto_readahead_size);
+DECLARE_uint64(num_file_reads_for_auto_readahead);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -626,5 +632,11 @@ extern std::string GetNowNanos();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);
+
+Status DeleteFilesInDirectory(const std::string& dirname);
+Status SaveFilesInDirectory(const std::string& src_dirname,
+                            const std::string& dst_dirname);
+Status DestroyUnverifiedSubdir(const std::string& dirname);
+Status InitUnverifiedSubdir(const std::string& dirname);
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

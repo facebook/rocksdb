@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "memory/memory_allocator.h"
+#include "monitoring/perf_context_imp.h"
 #include "util/compression.h"
 #include "util/string_util.h"
 
@@ -20,11 +21,13 @@ CompressedSecondaryCache::CompressedSecondaryCache(
     double high_pri_pool_ratio, double low_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
-    CompressionType compression_type, uint32_t compress_format_version)
+    CompressionType compression_type, uint32_t compress_format_version,
+    bool enable_custom_split_merge)
     : cache_options_(capacity, num_shard_bits, strict_capacity_limit,
-                     high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-                     metadata_charge_policy, compression_type,
-                     compress_format_version, low_pri_pool_ratio) {
+                     high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
+                     use_adaptive_mutex, metadata_charge_policy,
+                     compression_type, compress_format_version,
+                     enable_custom_split_merge) {
   cache_ =
       NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                   high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
@@ -35,25 +38,38 @@ CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }
 
 std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-    bool& is_in_sec_cache) {
+    bool advise_erase, bool& is_in_sec_cache) {
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
   if (lru_handle == nullptr) {
-    return handle;
+    return nullptr;
   }
 
-  CacheValueChunk* handle_value =
-      reinterpret_cast<CacheValueChunk*>(cache_->Value(lru_handle));
+  void* handle_value = cache_->Value(lru_handle);
+  if (handle_value == nullptr) {
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+    return nullptr;
+  }
+
+  CacheAllocationPtr* ptr{nullptr};
+  CacheAllocationPtr merged_value;
   size_t handle_value_charge{0};
-  CacheAllocationPtr merged_value =
-      MergeChunksIntoValue(handle_value, handle_value_charge);
+  if (cache_options_.enable_custom_split_merge) {
+    CacheValueChunk* value_chunk_ptr =
+        reinterpret_cast<CacheValueChunk*>(handle_value);
+    merged_value = MergeChunksIntoValue(value_chunk_ptr, handle_value_charge);
+    ptr = &merged_value;
+  } else {
+    ptr = reinterpret_cast<CacheAllocationPtr*>(handle_value);
+    handle_value_charge = cache_->GetCharge(lru_handle);
+  }
 
   Status s;
   void* value{nullptr};
   size_t charge{0};
   if (cache_options_.compression_type == kNoCompression) {
-    s = create_cb(merged_value.get(), handle_value_charge, &value, &charge);
+    s = create_cb(ptr->get(), handle_value_charge, &value, &charge);
   } else {
     UncompressionContext uncompression_context(cache_options_.compression_type);
     UncompressionInfo uncompression_info(uncompression_context,
@@ -61,32 +77,55 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
                                          cache_options_.compression_type);
 
     size_t uncompressed_size{0};
-    CacheAllocationPtr uncompressed;
-    uncompressed = UncompressData(uncompression_info, (char*)merged_value.get(),
-                                  handle_value_charge, &uncompressed_size,
-                                  cache_options_.compress_format_version,
-                                  cache_options_.memory_allocator.get());
+    CacheAllocationPtr uncompressed = UncompressData(
+        uncompression_info, (char*)ptr->get(), handle_value_charge,
+        &uncompressed_size, cache_options_.compress_format_version,
+        cache_options_.memory_allocator.get());
 
     if (!uncompressed) {
-      cache_->Release(lru_handle, /* erase_if_last_ref */ true);
-      return handle;
+      cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
+      return nullptr;
     }
     s = create_cb(uncompressed.get(), uncompressed_size, &value, &charge);
   }
 
   if (!s.ok()) {
-    cache_->Release(lru_handle, /* erase_if_last_ref */ true);
-    return handle;
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
+    return nullptr;
   }
 
-  cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+  if (advise_erase) {
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
+    // Insert a dummy handle.
+    cache_
+        ->Insert(key, /*value=*/nullptr, /*charge=*/0,
+                 GetDeletionCallback(cache_options_.enable_custom_split_merge))
+        .PermitUncheckedError();
+  } else {
+    is_in_sec_cache = true;
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+  }
   handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
-
   return handle;
 }
 
 Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
                                         const Cache::CacheItemHelper* helper) {
+  if (value == nullptr) {
+    return Status::InvalidArgument();
+  }
+
+  Cache::Handle* lru_handle = cache_->Lookup(key);
+  Cache::DeleterFn del_cb =
+      GetDeletionCallback(cache_options_.enable_custom_split_merge);
+  if (lru_handle == nullptr) {
+    PERF_COUNTER_ADD(compressed_sec_cache_insert_dummy_count, 1);
+    // Insert a dummy handle if the handle is evicted for the first time.
+    return cache_->Insert(key, /*value=*/nullptr, /*charge=*/0, del_cb);
+  } else {
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+  }
+
   size_t size = (*helper->size_cb)(value);
   CacheAllocationPtr ptr =
       AllocateBlock(size, cache_options_.memory_allocator.get());
@@ -99,6 +138,7 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
 
   std::string compressed_val;
   if (cache_options_.compression_type != kNoCompression) {
+    PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes, size);
     CompressionOptions compression_opts;
     CompressionContext compression_context(cache_options_.compression_type);
     uint64_t sample_for_compression{0};
@@ -115,12 +155,25 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
     }
 
     val = Slice(compressed_val);
+    size = compressed_val.size();
+    PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes, size);
+
+    if (!cache_options_.enable_custom_split_merge) {
+      ptr = AllocateBlock(size, cache_options_.memory_allocator.get());
+      memcpy(ptr.get(), compressed_val.data(), size);
+    }
   }
 
-  size_t charge{0};
-  CacheValueChunk* value_chunks_head =
-      SplitValueIntoChunks(val, cache_options_.compression_type, charge);
-  return cache_->Insert(key, value_chunks_head, charge, DeletionCallback);
+  PERF_COUNTER_ADD(compressed_sec_cache_insert_real_count, 1);
+  if (cache_options_.enable_custom_split_merge) {
+    size_t charge{0};
+    CacheValueChunk* value_chunks_head =
+        SplitValueIntoChunks(val, cache_options_.compression_type, charge);
+    return cache_->Insert(key, value_chunks_head, charge, del_cb);
+  } else {
+    CacheAllocationPtr* buf = new CacheAllocationPtr(std::move(ptr));
+    return cache_->Insert(key, buf, size, del_cb);
+  }
 }
 
 void CompressedSecondaryCache::Erase(const Slice& key) { cache_->Erase(key); }
@@ -210,28 +263,38 @@ CacheAllocationPtr CompressedSecondaryCache::MergeChunksIntoValue(
   return ptr;
 }
 
-void CompressedSecondaryCache::DeletionCallback(const Slice& /*key*/,
-                                                void* obj) {
-  CacheValueChunk* chunks_head = reinterpret_cast<CacheValueChunk*>(obj);
-  while (chunks_head != nullptr) {
-    CacheValueChunk* tmp_chunk = chunks_head;
-    chunks_head = chunks_head->next;
-    tmp_chunk->Free();
+Cache::DeleterFn CompressedSecondaryCache::GetDeletionCallback(
+    bool enable_custom_split_merge) {
+  if (enable_custom_split_merge) {
+    return [](const Slice& /*key*/, void* obj) {
+      CacheValueChunk* chunks_head = reinterpret_cast<CacheValueChunk*>(obj);
+      while (chunks_head != nullptr) {
+        CacheValueChunk* tmp_chunk = chunks_head;
+        chunks_head = chunks_head->next;
+        tmp_chunk->Free();
+        obj = nullptr;
+      };
+    };
+  } else {
+    return [](const Slice& /*key*/, void* obj) {
+      delete reinterpret_cast<CacheAllocationPtr*>(obj);
+      obj = nullptr;
+    };
   }
-  obj = nullptr;
 }
 
 std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio,
+    double high_pri_pool_ratio, double low_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version,
-    double low_pri_pool_ratio) {
+    bool enable_custom_split_merge) {
   return std::make_shared<CompressedSecondaryCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       low_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-      metadata_charge_policy, compression_type, compress_format_version);
+      metadata_charge_policy, compression_type, compress_format_version,
+      enable_custom_split_merge);
 }
 
 std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
@@ -240,9 +303,10 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
   assert(opts.secondary_cache == nullptr);
   return NewCompressedSecondaryCache(
       opts.capacity, opts.num_shard_bits, opts.strict_capacity_limit,
-      opts.high_pri_pool_ratio, opts.memory_allocator, opts.use_adaptive_mutex,
-      opts.metadata_charge_policy, opts.compression_type,
-      opts.compress_format_version, opts.low_pri_pool_ratio);
+      opts.high_pri_pool_ratio, opts.low_pri_pool_ratio, opts.memory_allocator,
+      opts.use_adaptive_mutex, opts.metadata_charge_policy,
+      opts.compression_type, opts.compress_format_version,
+      opts.enable_custom_split_merge);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

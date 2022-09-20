@@ -803,7 +803,6 @@ class Version {
   void AddIterators(const ReadOptions& read_options,
                     const FileOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder,
-                    RangeDelAggregator* range_del_agg,
                     bool allow_unprepared_value);
 
   // @param read_options Must outlive any iterator built by
@@ -811,8 +810,7 @@ class Version {
   void AddIteratorsForLevel(const ReadOptions& read_options,
                             const FileOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
-                            int level, RangeDelAggregator* range_del_agg,
-                            bool allow_unprepared_value);
+                            int level, bool allow_unprepared_value);
 
   Status OverlapWithLevelIterator(const ReadOptions&, const FileOptions&,
                                   const Slice& smallest_user_key,
@@ -961,7 +959,9 @@ class Version {
 
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
-  Status VerifySstUniqueIds() const;
+  InternalIterator* TEST_GetLevelIterator(
+      const ReadOptions& read_options, MergeIteratorBuilder* merge_iter_builder,
+      int level, bool allow_unprepared_value);
 
  private:
   Env* env_;
@@ -1014,15 +1014,14 @@ class Version {
   // queue coroutine tasks to mget_tasks. It may also split the input batch
   // by creating a new batch with keys definitely not in this level and
   // enqueuing it to to_process.
-  Status ProcessBatch(const ReadOptions& read_options,
-                      FilePickerMultiGet* batch,
-                      std::vector<folly::coro::Task<Status>>& mget_tasks,
-                      std::unordered_map<uint64_t, BlobReadContexts>* blob_ctxs,
-                      autovector<FilePickerMultiGet, 4>& batches,
-                      std::deque<size_t>& waiting,
-                      std::deque<size_t>& to_process,
-                      unsigned int& num_tasks_queued, uint64_t& num_filter_read,
-                      uint64_t& num_index_read, uint64_t& num_sst_read);
+  Status ProcessBatch(
+      const ReadOptions& read_options, FilePickerMultiGet* batch,
+      std::vector<folly::coro::Task<Status>>& mget_tasks,
+      std::unordered_map<uint64_t, BlobReadContexts>* blob_ctxs,
+      autovector<FilePickerMultiGet, 4>& batches, std::deque<size_t>& waiting,
+      std::deque<size_t>& to_process, unsigned int& num_tasks_queued,
+      std::unordered_map<int, std::tuple<uint64_t, uint64_t, uint64_t>>&
+          mget_stats);
 #endif
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs

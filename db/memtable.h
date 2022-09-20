@@ -649,6 +649,11 @@ class MemTable {
   std::unique_ptr<FragmentedRangeTombstoneList>
       fragmented_range_tombstone_list_;
 
+  // makes sure there is a single range tombstone writer to invalidate cache
+  std::mutex range_del_mutex_;
+  CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
+      cached_range_tombstone_;
+
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,
                            SequenceNumber s, char* checksum_ptr);

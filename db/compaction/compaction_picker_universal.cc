@@ -164,8 +164,8 @@ struct SmallestKeyHeapComparator {
   explicit SmallestKeyHeapComparator(const Comparator* ucmp) { ucmp_ = ucmp; }
 
   bool operator()(InputFileInfo i1, InputFileInfo i2) const {
-    return (ucmp_->Compare(i1.f->smallest.user_key(),
-                           i2.f->smallest.user_key()) > 0);
+    return (ucmp_->CompareWithoutTimestamp(i1.f->smallest.user_key(),
+                                           i2.f->smallest.user_key()) > 0);
   }
 
  private:
@@ -249,13 +249,13 @@ bool UniversalCompactionBuilder::IsInputFilesNonOverlapping(Compaction* c) {
       prev = curr;
       first_iter = 0;
     } else {
-      if (comparator->Compare(prev.f->largest.user_key(),
-                              curr.f->smallest.user_key()) >= 0) {
+      if (comparator->CompareWithoutTimestamp(
+              prev.f->largest.user_key(), curr.f->smallest.user_key()) >= 0) {
         // found overlapping files, return false
         return false;
       }
-      assert(comparator->Compare(curr.f->largest.user_key(),
-                                 prev.f->largest.user_key()) > 0);
+      assert(comparator->CompareWithoutTimestamp(
+                 curr.f->largest.user_key(), prev.f->largest.user_key()) > 0);
       prev = curr;
     }
 
