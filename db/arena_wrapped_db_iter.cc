@@ -93,6 +93,7 @@ Status ArenaWrappedDBIter::Refresh() {
             read_options_, latest_seq, false /* immutable_memtable */);
         if (!t || t->empty()) {
           if (memtable_range_tombstone_iter_) {
+            delete *memtable_range_tombstone_iter_;
             *memtable_range_tombstone_iter_ = nullptr;
           }
           delete t;
