@@ -3824,6 +3824,48 @@ TEST_F(DBCompactionTest, NoCompactBottomLevelFilesWithDeletions) {
   }
 }
 
+TEST_F(DBCompactionTest, RoundRobinTtlCompaction) {
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = 10;
+  options.ttl = 24 * 60 * 60;  // 24 hours
+  options.compaction_pri = kRoundRobin;
+  env_->SetMockSleep();
+  options.env = env_;
+
+  DestroyAndReopen(options);
+
+  std::cout << "hi" << std::endl;
+
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 100 + j), "value" + std::to_string(i * 100 + j)));
+    }
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(6);
+
+  std::cout << "L5 files" << std::endl;
+
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 200; j++) {
+      ASSERT_OK(Put(Key(i * 200 + j), "value" + std::to_string(i * 200 + j)));
+    }
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(5);
+
+  env_->MockSleepForSeconds(36 * 60 * 60);  // 36 hours
+
+  // trigger TTL compaction
+  ASSERT_OK(Put(Key(4), "value" + std::to_string(4)));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  std::cout << FilesPerLevel() << std::endl;
+}
+
 TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;
