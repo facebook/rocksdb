@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 ## Unreleased
 
+### Public API changes
+* Add `rocksdb_writebatch_update_timestamps`, `rocksdb_writebatch_wi_update_timestamps` in C API.
+* Add `rocksdb_iter_refresh` in C API.
+* Add `rocksdb_writebatch_create_with_params`, `rocksdb_writebatch_wi_create_with_params` to create WB and WBWI with all options in C API
+
 ## 7.7.0 (09/18/2022)
 ### Bug Fixes
 * Fixed a hang when an operation such as `GetLiveFiles` or `CreateNewBackup` is asked to trigger and wait for memtable flush on a read-only DB. Such indirect requests for memtable flush are now ignored on a read-only DB.
@@ -16,9 +21,6 @@
 ### Public API changes
 * Add `rocksdb_column_family_handle_get_id`, `rocksdb_column_family_handle_get_name` to get name, id of column family in C API
 * Add a new stat rocksdb.async.prefetch.abort.micros to measure time spent waiting for async prefetch reads to abort
-* Add `rocksdb_writebatch_update_timestamps`, `rocksdb_writebatch_wi_update_timestamps` in C API.
-* Add `rocksdb_iter_refresh` in C API.
-* Add `rocksdb_writebatch_create_with_params`, `rocksdb_writebatch_wi_create_with_params` to create WB and WBWI with all options in C API
 
 ### Java API Changes
 * Add CompactionPriority.RoundRobin.
