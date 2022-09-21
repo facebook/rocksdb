@@ -242,7 +242,8 @@ uint32_t GetValueBase(Slice s) {
 WideColumns GenerateWideColumns(uint32_t value_base, Slice slice) {
   WideColumns columns{{kDefaultWideColumnName, slice}};
 
-  if (value_base % FLAGS_use_put_entity_one_in != 0) {
+  if (!FLAGS_use_put_entity_one_in ||
+      (value_base % FLAGS_use_put_entity_one_in) != 0) {
     return columns;
   }
 
