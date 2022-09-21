@@ -88,13 +88,11 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           Status s = iter->status();
-          Slice iter_key;
+
           std::string from_db;
 
           if (iter->Valid()) {
-            iter_key = iter->key();
-
-            const int diff = iter_key.compare(k);
+            const int diff = iter->key().compare(k);
 
             if (diff > 0) {
               s = Status::NotFound();
