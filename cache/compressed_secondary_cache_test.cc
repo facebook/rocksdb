@@ -465,6 +465,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
                            stats.get());
 
     ASSERT_NE(handle, nullptr);
+    cache->Release(handle);
     ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 3);
 
     cache.reset();

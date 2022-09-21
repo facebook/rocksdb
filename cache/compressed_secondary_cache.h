@@ -7,7 +7,6 @@
 
 #include <array>
 #include <cstddef>
-#include <iostream>
 #include <memory>
 
 #include "cache/lru_cache.h"
