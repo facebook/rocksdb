@@ -729,6 +729,16 @@ bool LevelCompactionBuilder::PickFileToCompact() {
 
   const std::vector<FileMetaData*>& level_files =
       vstorage_->LevelFiles(start_level_);
+      
+  if (start_level_ == 0) {
+    uint64_t total_l0_size =0;
+    for (const FileMetaData* level_file : level_files) {
+      total_l0_size += level_file->fd.GetFileSize();
+    }
+    if (total_l0_size <  mutable_cf_options_.target_file_size_base) {
+      return false;
+    }
+  }
 
   // Pick the file with the highest score in this level that is not already
   // being compacted.
