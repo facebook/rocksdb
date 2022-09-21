@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 ## Unreleased
 
+### Public API changes
+* CompactRange C APIs now requires an error pointer (`char** errptr`) for receiving any error.
+* Add v2 C APIs for WriteBatch, WriteBatchWithIndex which accepts an error pointer (`char** errptr`) for receiving any error.
+
 ## 7.7.0 (09/18/2022)
 ### Bug Fixes
 * Fixed a hang when an operation such as `GetLiveFiles` or `CreateNewBackup` is asked to trigger and wait for memtable flush on a read-only DB. Such indirect requests for memtable flush are now ignored on a read-only DB.
