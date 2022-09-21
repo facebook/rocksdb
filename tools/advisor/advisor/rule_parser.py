@@ -67,7 +67,7 @@ class Rule(Section):
                     + ": rule must be associated with 2 conditions\
                     in order to check for a time dependency between them"
                 )
-            time_format = "^\d+[s|m|h|d]$" # noqa
+            time_format = "^\d+[s|m|h|d]$"  # noqa
             if not re.match(time_format, self.overlap_time_seconds, re.IGNORECASE):
                 raise ValueError(
                     self.name + ": overlap_time_seconds format: \d+[s|m|h|d]"
