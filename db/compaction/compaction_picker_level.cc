@@ -730,7 +730,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   const std::vector<FileMetaData*>& level_files =
       vstorage_->LevelFiles(start_level_);
       
-  if (start_level_ == 0) {
+  if (start_level_ == 0 && mutable_cf_options_.enable_l0_inner_compaction) {
     uint64_t total_l0_size =0;
     for (const FileMetaData* level_file : level_files) {
       total_l0_size += level_file->fd.GetFileSize();

@@ -297,6 +297,10 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool disable_auto_compactions = false;
 
+  // Enable inner compaction in L0 when L0 total file size is smaller than target_file_size_base,
+  // enable this option can reduce write amplification when L0 file is too small.
+  bool enable_l0_inner_compaction = false;
+
   // This is a factory that provides TableFactory objects.
   // Default: a block-based table factory that provides a default
   // implementation of TableBuilder and TableReader with default
