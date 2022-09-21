@@ -7,11 +7,12 @@
 
 #include "db_stress_tool/expected_state.h"
 
+#include <iostream>
+
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record_result.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 ExpectedState::ExpectedState(size_t max_key, size_t num_column_families)
@@ -352,7 +353,8 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         state_(state),
         buffered_writes_(nullptr) {}
 
-  ~ExpectedStateTraceRecordHandler() { assert(IsDone()); }
+  ~ExpectedStateTraceRecordHandler() { /* assert(IsDone());  */
+  }
 
   // True if we have already reached the limit on write operations to apply.
   bool IsDone() { return num_write_ops_ == max_write_ops_; }
@@ -394,8 +396,13 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
     uint64_t key_id;
     if (!GetIntVal(key.ToString(), &key_id)) {
+      // std::cout << "ExpectedHandler::PutCF Unable to parse key corruption "
+      //           << std::endl;
       return Status::Corruption("unable to parse key", key.ToString());
     }
+
+    // std::cout << "ExpectedHandler::PutCF key_id "
+    //           << static_cast<int64_t>(key_id) << std::endl;
     uint32_t value_id = GetValueBase(value);
 
     bool should_buffer_write = !(buffered_writes_ == nullptr);
@@ -414,6 +421,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
   Status DeleteCF(uint32_t column_family_id,
                   const Slice& key_with_ts) override {
+    assert(false);
     Slice key =
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
     uint64_t key_id;
@@ -437,6 +445,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
   Status SingleDeleteCF(uint32_t column_family_id,
                         const Slice& key_with_ts) override {
+    assert(false);
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
       Slice key =
@@ -461,6 +470,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   Status DeleteRangeCF(uint32_t column_family_id,
                        const Slice& begin_key_with_ts,
                        const Slice& end_key_with_ts) override {
+    assert(false);
     Slice begin_key =
         StripTimestampFromUserKey(begin_key_with_ts, FLAGS_user_timestamp_size);
     Slice end_key =
@@ -493,6 +503,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
   Status MergeCF(uint32_t column_family_id, const Slice& key_with_ts,
                  const Slice& value) override {
+    assert(false);
     Slice key =
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
 
@@ -606,8 +617,10 @@ Status FileExpectedStateManager::Restore(DB* db) {
       s = state->Open(false /* create */);
     }
     if (s.ok()) {
-      handler.reset(new ExpectedStateTraceRecordHandler(seqno - saved_seqno_,
-                                                        state.get()));
+      handler.reset(
+          new ExpectedStateTraceRecordHandler(std::numeric_limits<uint64_t>::max() - 1, state.get()));
+      // handler.reset(new ExpectedStateTraceRecordHandler(seqno -
+      // saved_seqno_,state.get()));
       // TODO(ajkr): An API limitation requires we provide `handles` although
       // they will be unused since we only use the replayer for reading records.
       // Just give a default CFH for now to satisfy the requirement.

@@ -6,6 +6,7 @@
 #include "trace_replay/trace_replay.h"
 
 #include <chrono>
+#include <iostream>
 #include <sstream>
 #include <thread>
 
@@ -19,7 +20,6 @@
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
 #include "util/string_util.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 const std::string kTraceMagic = "feedcafedeadbeef";
@@ -352,9 +352,15 @@ Tracer::Tracer(SystemClock* clock, const TraceOptions& trace_options,
 
 Tracer::~Tracer() { trace_writer_.reset(); }
 
-Status Tracer::Write(WriteBatch* write_batch) {
+Status Tracer::Write(WriteBatch* write_batch, int64_t txn_id) {
+  if (txn_id > 0) {
+    // std::cout << "Trace::Write txn_id: " << txn_id << std::endl;
+  }
   TraceType trace_type = kTraceWrite;
   if (ShouldSkipTrace(trace_type)) {
+    if (txn_id > 0) {
+      // std::cout << "Trace::Write txn_id point 2: " << txn_id << std::endl;
+    }
     return Status::OK();
   }
   Trace trace;
@@ -363,8 +369,18 @@ Status Tracer::Write(WriteBatch* write_batch) {
   TracerHelper::SetPayloadMap(trace.payload_map,
                               TracePayloadType::kWriteBatchData);
   PutFixed64(&trace.payload, trace.payload_map);
-  PutLengthPrefixedSlice(&trace.payload, Slice(write_batch->Data()));
-  return WriteTrace(trace);
+    PutLengthPrefixedSlice(&trace.payload, Slice(write_batch->Data()));
+  // PutLengthPrefixedSlice(&trace.payload,
+  //                        Slice(write_batch->Data().data(),
+  //                              write_batch->GetWalTerminationPoint().size));
+  if (txn_id > 0) {
+    // std::cout << "Trace::Write txn_id point 3: " << txn_id << std::endl;
+  }
+  Status s = WriteTrace(trace);
+  if (txn_id > 0 && !s.ok()) {
+    // std::cout << "Trace::Write txn_id point 4: " << txn_id << std::endl;
+  }
+  return s;
 }
 
 Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {

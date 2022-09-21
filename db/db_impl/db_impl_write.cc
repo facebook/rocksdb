@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
+#include <iostream>
 
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -16,7 +17,6 @@
 #include "options/options_helper.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
-
 namespace ROCKSDB_NAMESPACE {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
@@ -154,7 +154,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          bool disable_memtable, uint64_t* seq_used,
                          size_t batch_cnt,
                          PreReleaseCallback* pre_release_callback,
-                         PostMemTableCallback* post_memtable_callback) {
+                         PostMemTableCallback* post_memtable_callback,
+                         int64_t txn_id) {
+  if (txn_id > 0) {
+    // std::cout << "WriteImpl txn_id: " << txn_id << std::endl;
+  }
+
   assert(!seq_per_batch_ || batch_cnt != 0);
   assert(my_batch == nullptr || my_batch->Count() == 0 ||
          write_options.protection_bytes_per_key == 0 ||
@@ -192,6 +197,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::InvalidArgument(
         "`WriteOptions::protection_bytes_per_key` must be zero or eight");
   }
+  if (txn_id > 0) {
+    // std::cout << "WriteImpl POINT 1 txn_id: " << txn_id << std::endl;
+  }
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.
   if (tracer_) {
@@ -201,7 +209,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // efficient to trace here than to add latency to a phase of the log/apply
       // pipeline.
       // TODO: maybe handle the tracing status?
-      tracer_->Write(my_batch).PermitUncheckedError();
+      tracer_->Write(my_batch, txn_id).PermitUncheckedError();
     }
   }
   if (write_options.sync && write_options.disableWAL) {
@@ -249,7 +257,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return WriteImplWALOnly(&nonmem_write_thread_, write_options, my_batch,
                             callback, log_used, log_ref, seq_used, batch_cnt,
                             pre_release_callback, assign_order,
-                            kDontPublishLastSeq, disable_memtable);
+                            kDontPublishLastSeq, disable_memtable, txn_id);
+  }
+
+  if (txn_id > 0) {
+    // std::cout << "WriteImpl POINT 2 txn_id: " << txn_id << std::endl;
   }
 
   if (immutable_db_options_.unordered_write) {
@@ -263,7 +275,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     Status status = WriteImplWALOnly(
         &write_thread_, write_options, my_batch, callback, log_used, log_ref,
         &seq, sub_batch_cnt, pre_release_callback, kDoAssignOrder,
-        kDoPublishLastSeq, disable_memtable);
+        kDoPublishLastSeq, disable_memtable, txn_id);
     TEST_SYNC_POINT("DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL");
     if (!status.ok()) {
       return status;
@@ -281,17 +293,23 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (immutable_db_options_.enable_pipelined_write) {
     return PipelinedWriteImpl(write_options, my_batch, callback, log_used,
-                              log_ref, disable_memtable, seq_used);
+                              log_ref, disable_memtable, seq_used, txn_id);
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable, batch_cnt, pre_release_callback,
-                        post_memtable_callback);
+                        post_memtable_callback, txn_id);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
+  if (txn_id > 0) {
+    // std::cout << "WriteImpl POINT 3 txn_id: " << txn_id << std::endl;
+  }
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
+    if (txn_id > 0) {
+      // std::cout << "WriteImpl POINT 4 txn_id: " << txn_id << std::endl;
+    }
     // we are a non-leader in a parallel group
 
     if (w.ShouldWriteToMemtable()) {
@@ -332,6 +350,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // STATE_COMPLETED conditional below handles exit
   }
   if (w.state == WriteThread::STATE_COMPLETED) {
+    if (txn_id > 0) {
+      // std::cout << "WriteImpl POINT 5 txn_id: " << txn_id << std::endl;
+    }
     if (log_used != nullptr) {
       *log_used = w.log_used;
     }
@@ -343,6 +364,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
   // else we are the leader of the write batch group
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
+  if (txn_id > 0) {
+    // std::cout << "WriteImpl POINT 6 txn_id: " << txn_id << std::endl;
+  }
   Status status;
   // Once reaches this point, the current writer "w" will try to do its write
   // job.  It may also pick up some of the remaining writers in the "writers_"
@@ -384,6 +408,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   IOStatus io_s;
   Status pre_release_cb_status;
+  if (txn_id > 0) {
+    // std::cout << "WriteImpl POINT 8 before loop group tracer write txn_id: "
+    // << txn_id << std::endl;
+  }
   if (status.ok()) {
     // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
     // grabs but does not seem thread-safe.
@@ -392,7 +420,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       if (tracer_ && tracer_->IsWriteOrderPreserved()) {
         for (auto* writer : write_group) {
           // TODO: maybe handle the tracing status?
-          tracer_->Write(writer->batch).PermitUncheckedError();
+          Status s = tracer_->Write(writer->batch, writer->txn_id_);
+          assert(s.ok());
         }
       }
     }
@@ -637,7 +666,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                                   WriteBatch* my_batch, WriteCallback* callback,
                                   uint64_t* log_used, uint64_t log_ref,
-                                  bool disable_memtable, uint64_t* seq_used) {
+                                  bool disable_memtable, uint64_t* seq_used,
+                                  int64_t txn_id) {
+  if (txn_id > 0) {
+    // std::cout << "PipelinedWriteImpl txn_id: " << txn_id << std::endl;
+  }
+
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
@@ -675,7 +709,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
         if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
           for (auto* writer : wal_write_group) {
             // TODO: maybe handle the tracing status?
-            tracer_->Write(writer->batch).PermitUncheckedError();
+            tracer_->Write(writer->batch, txn_id).PermitUncheckedError();
           }
         }
       }
@@ -857,12 +891,19 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
 // The 2nd write queue. If enabled it will be used only for WAL-only writes.
 // This is the only queue that updates LastPublishedSequence which is only
 // applicable in a two-queue setting.
-Status DBImpl::WriteImplWALOnly(
-    WriteThread* write_thread, const WriteOptions& write_options,
-    WriteBatch* my_batch, WriteCallback* callback, uint64_t* log_used,
-    const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
-    PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
-    const PublishLastSeq publish_last_seq, const bool disable_memtable) {
+Status DBImpl::WriteImplWALOnly(WriteThread* write_thread,
+                                const WriteOptions& write_options,
+                                WriteBatch* my_batch, WriteCallback* callback,
+                                uint64_t* log_used, const uint64_t log_ref,
+                                uint64_t* seq_used, const size_t sub_batch_cnt,
+                                PreReleaseCallback* pre_release_callback,
+                                const AssignOrder assign_order,
+                                const PublishLastSeq publish_last_seq,
+                                const bool disable_memtable, int64_t txn_id) {
+  if (txn_id > 0) {
+    // std::cout << "WriteImplWALOnly txn_id: " << txn_id << std::endl;
+  }
+
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable, sub_batch_cnt, pre_release_callback);
@@ -918,7 +959,7 @@ Status DBImpl::WriteImplWALOnly(
     if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
       for (auto* writer : write_group) {
         // TODO: maybe handle the tracing status?
-        tracer_->Write(writer->batch).PermitUncheckedError();
+        tracer_->Write(writer->batch, txn_id).PermitUncheckedError();
       }
     }
   }

@@ -7,6 +7,7 @@
 
 #include "utilities/transactions/pessimistic_transaction.h"
 
+#include <iostream>
 #include <map>
 #include <set>
 #include <string>
@@ -26,7 +27,6 @@
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 struct WriteOptions;
@@ -566,10 +566,11 @@ Status WriteCommittedTxn::PrepareInternal() {
   const bool kDisableMemtable = true;
   SequenceNumber* const KIgnoreSeqUsed = nullptr;
   const size_t kNoBatchCount = 0;
+  // std::cout << "PrepareInternal txn id: " << GetID() << std::endl;
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                           kNoWriteCallback, &log_number_, kRefNoLog,
                           kDisableMemtable, KIgnoreSeqUsed, kNoBatchCount,
-                          &mark_log_callback);
+                          &mark_log_callback, nullptr, GetID());
   return s;
 }
 
