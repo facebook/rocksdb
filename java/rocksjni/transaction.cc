@@ -286,6 +286,12 @@ void free_parts(
   }
 }
 
+void free_key_values(std::vector<jbyte*>& keys_to_free) {
+  for (auto& key : keys_to_free) {
+    delete[] key;
+  }
+}
+
 // TODO(AR) consider refactoring to share this between here and rocksjni.cc
 // cf multi get
 jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
@@ -294,29 +300,30 @@ jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
   const jsize len_key_parts = env->GetArrayLength(jkey_parts);
 
   std::vector<ROCKSDB_NAMESPACE::Slice> key_parts;
-  std::vector<std::tuple<jbyteArray, jbyte*, jobject>> key_parts_to_free;
+  std::vector<jbyte*> keys_to_free;
   for (int i = 0; i < len_key_parts; i++) {
     const jobject jk = env->GetObjectArrayElement(jkey_parts, i);
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
-      free_parts(env, key_parts_to_free);
+      free_key_values(keys_to_free);
       return nullptr;
     }
     jbyteArray jk_ba = reinterpret_cast<jbyteArray>(jk);
     const jsize len_key = env->GetArrayLength(jk_ba);
-    jbyte* jk_val = env->GetByteArrayElements(jk_ba, nullptr);
+    jbyte* jk_val = new jbyte[len_key];
     if (jk_val == nullptr) {
       // exception thrown: OutOfMemoryError
       env->DeleteLocalRef(jk);
-      free_parts(env, key_parts_to_free);
+      free_key_values(keys_to_free);
       return nullptr;
     }
+    env->GetByteArrayRegion(jk_ba, 0, len_key, jk_val);
 
     ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(jk_val),
                                        len_key);
     key_parts.push_back(key_slice);
-
-    key_parts_to_free.push_back(std::make_tuple(jk_ba, jk_val, jk));
+    keys_to_free.push_back(jk_val);
+    env->DeleteLocalRef(jk);
   }
 
   auto* read_options =
@@ -326,7 +333,7 @@ jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
       fn_multi_get(*read_options, key_parts, &value_parts);
 
   // free up allocated byte arrays
-  free_parts(env, key_parts_to_free);
+  free_key_values(keys_to_free);
 
   // prepare the results
   const jclass jcls_ba = env->FindClass("[B");
@@ -640,6 +647,11 @@ void txn_write_kv_parts_helper(JNIEnv* env,
   auto value_parts = std::vector<ROCKSDB_NAMESPACE::Slice>();
   auto jparts_to_free = std::vector<std::tuple<jbyteArray, jbyte*, jobject>>();
 
+  // Since this is fundamentally a gather write at the RocksDB level,
+  // it seems wrong to refactor it by copying (gathering) keys and data here,
+  // in order to avoid the local reference limit.
+  // The user needs to be a aware that there is a limit to the number of parts
+  // which can be gathered.
   if (env->EnsureLocalCapacity(jkey_parts_len + jvalue_parts_len) != 0) {
     // no space for all the jobjects we store up
     env->ExceptionClear();
