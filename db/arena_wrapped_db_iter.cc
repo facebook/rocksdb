@@ -58,48 +58,60 @@ Status ArenaWrappedDBIter::Refresh() {
   uint64_t cur_sv_number = cfd_->GetSuperVersionNumber();
   TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:1");
   TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:2");
+  auto reinit_internal_iter = [&]() {
+    Env* env = db_iter_->env();
+    db_iter_->~DBIter();
+    arena_.~Arena();
+    new (&arena_) Arena();
+
+    SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_);
+    SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
+    if (read_callback_) {
+      read_callback_->Refresh(latest_seq);
+    }
+    Init(env, read_options_, *(cfd_->ioptions()), sv->mutable_cf_options,
+         sv->current, latest_seq,
+         sv->mutable_cf_options.max_sequential_skip_in_iterations,
+         cur_sv_number, read_callback_, db_impl_, cfd_, expose_blob_index_,
+         allow_refresh_);
+
+    InternalIterator* internal_iter = db_impl_->NewInternalIterator(
+        read_options_, cfd_, sv, &arena_, latest_seq,
+        /* allow_unprepared_value */ true, /* db_iter */ this);
+    SetIterUnderDBIter(internal_iter);
+  };
   while (true) {
     if (sv_number_ != cur_sv_number) {
-      Env* env = db_iter_->env();
-      db_iter_->~DBIter();
-      arena_.~Arena();
-      new (&arena_) Arena();
-
-      SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_);
-      SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
-      if (read_callback_) {
-        read_callback_->Refresh(latest_seq);
-      }
-      Init(env, read_options_, *(cfd_->ioptions()), sv->mutable_cf_options,
-           sv->current, latest_seq,
-           sv->mutable_cf_options.max_sequential_skip_in_iterations,
-           cur_sv_number, read_callback_, db_impl_, cfd_, expose_blob_index_,
-           allow_refresh_);
-
-      InternalIterator* internal_iter = db_impl_->NewInternalIterator(
-          read_options_, cfd_, sv, &arena_, latest_seq,
-          /* allow_unprepared_value */ true, /* db_iter */ this);
-      SetIterUnderDBIter(internal_iter);
+      reinit_internal_iter();
       break;
     } else {
       SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
       // Refresh range-tombstones in MemTable
       if (!read_options_.ignore_range_deletions) {
-        assert(memtable_range_tombstone_iter_ != nullptr);
-        if (memtable_range_tombstone_iter_ != nullptr) {
-          SuperVersion* sv = cfd_->GetThreadLocalSuperVersion(db_impl_);
-          auto t = sv->mem->NewRangeTombstoneIterator(
-              read_options_, latest_seq, false /* immutable_memtable */);
-          delete *memtable_range_tombstone_iter_;
-          if (t == nullptr || t->empty()) {
+        SuperVersion* sv = cfd_->GetThreadLocalSuperVersion(db_impl_);
+        auto t = sv->mem->NewRangeTombstoneIterator(
+            read_options_, latest_seq, false /* immutable_memtable */);
+        if (!t || t->empty()) {
+          if (memtable_range_tombstone_iter_) {
             *memtable_range_tombstone_iter_ = nullptr;
+          }
+          delete t;
+        } else {  // current mutable memtable has range tombstones
+          if (!memtable_range_tombstone_iter_) {
+            delete t;
+            cfd_->ReturnThreadLocalSuperVersion(sv);
+            // The memtable under DBIter did not have range tombstone before
+            // refresh.
+            reinit_internal_iter();
+            break;
           } else {
+            delete *memtable_range_tombstone_iter_;
             *memtable_range_tombstone_iter_ = new TruncatedRangeDelIterator(
                 std::unique_ptr<FragmentedRangeTombstoneIterator>(t),
                 &cfd_->internal_comparator(), nullptr, nullptr);
           }
-          cfd_->ReturnThreadLocalSuperVersion(sv);
         }
+        cfd_->ReturnThreadLocalSuperVersion(sv);
       }
       // Refresh latest sequence number
       db_iter_->set_sequence(latest_seq);
