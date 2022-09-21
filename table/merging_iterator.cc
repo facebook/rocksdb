@@ -1295,22 +1295,40 @@ void MergeIteratorBuilder::AddIterator(InternalIterator* iter) {
   }
 }
 
-void MergeIteratorBuilder::AddRangeTombstoneIterator(
-    TruncatedRangeDelIterator* iter, TruncatedRangeDelIterator*** iter_ptr) {
-  if (!use_merging_iter) {
+void MergeIteratorBuilder::AddPointAndTombstoneIterator(
+    InternalIterator* point_iter, TruncatedRangeDelIterator* tombstone_iter,
+    TruncatedRangeDelIterator*** tombstone_iter_ptr) {
+  // tombstone_iter_ptr != nullptr means point_iter is a LevelIterator.
+  bool add_range_tombstone = tombstone_iter ||
+                             !merge_iter->range_tombstone_iters_.empty() ||
+                             tombstone_iter_ptr;
+  if (!use_merging_iter && (add_range_tombstone || first_iter)) {
     use_merging_iter = true;
     if (first_iter) {
       merge_iter->AddIterator(first_iter);
       first_iter = nullptr;
     }
   }
-  merge_iter->AddRangeTombstoneIterator(iter);
-  if (iter_ptr) {
-    // This is needed instead of setting to &range_tombstone_iters_[i] directly
-    // here since the memory address of range_tombstone_iters_[i] might change
-    // during vector resizing.
-    range_del_iter_ptrs_.emplace_back(
-        merge_iter->range_tombstone_iters_.size() - 1, iter_ptr);
+  if (use_merging_iter) {
+    merge_iter->AddIterator(point_iter);
+    if (add_range_tombstone) {
+      // If there was a gap, fill in nullptr as empty range tombstone iterators.
+      while (merge_iter->range_tombstone_iters_.size() <
+             merge_iter->children_.size() - 1) {
+        merge_iter->AddRangeTombstoneIterator(nullptr);
+      }
+      merge_iter->AddRangeTombstoneIterator(tombstone_iter);
+    }
+
+    if (tombstone_iter_ptr) {
+      // This is needed instead of setting to &range_tombstone_iters_[i]
+      // directly here since the memory address of range_tombstone_iters_[i]
+      // might change during vector resizing.
+      range_del_iter_ptrs_.emplace_back(
+          merge_iter->range_tombstone_iters_.size() - 1, tombstone_iter_ptr);
+    }
+  } else {
+    first_iter = point_iter;
   }
 }
 
@@ -1323,8 +1341,7 @@ InternalIterator* MergeIteratorBuilder::Finish(ArenaWrappedDBIter* db_iter) {
     for (auto& p : range_del_iter_ptrs_) {
       *(p.second) = &(merge_iter->range_tombstone_iters_[p.first]);
     }
-    if (db_iter) {
-      assert(!merge_iter->range_tombstone_iters_.empty());
+    if (db_iter && !merge_iter->range_tombstone_iters_.empty()) {
       // memtable is always the first level
       db_iter->SetMemtableRangetombstoneIter(
           &merge_iter->range_tombstone_iters_.front());
