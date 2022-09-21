@@ -1803,31 +1803,31 @@ InternalIterator* DBImpl::NewInternalIterator(
       &cfd->internal_comparator(), arena,
       !read_options.total_order_seek &&
           super_version->mutable_cf_options.prefix_extractor != nullptr);
-  // Collect iterator for mutable mem
-  merge_iter_builder.AddIterator(
-      super_version->mem->NewIterator(read_options, arena));
+  // Collect iterator for mutable memtable
+  auto mem_iter = super_version->mem->NewIterator(read_options, arena);
   Status s;
   if (!read_options.ignore_range_deletions) {
+    TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
     auto range_del_iter = super_version->mem->NewRangeTombstoneIterator(
         read_options, sequence, false /* immutable_memtable */);
     if (range_del_iter == nullptr || range_del_iter->empty()) {
       delete range_del_iter;
-      merge_iter_builder.AddRangeTombstoneIterator(nullptr);
     } else {
-      merge_iter_builder.AddRangeTombstoneIterator(
-          new TruncatedRangeDelIterator(
-              std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
-              &cfd->ioptions()->internal_comparator, nullptr /* smallest */,
-              nullptr /* largest */));
+      mem_tombstone_iter = new TruncatedRangeDelIterator(
+          std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
+          &cfd->ioptions()->internal_comparator, nullptr /* smallest */,
+          nullptr /* largest */);
     }
+    merge_iter_builder.AddPointAndTombstoneIterator(mem_iter,
+                                                    mem_tombstone_iter);
+  } else {
+    merge_iter_builder.AddIterator(mem_iter);
   }
+
   // Collect all needed child iterators for immutable memtables
   if (s.ok()) {
-    super_version->imm->AddIterators(read_options, &merge_iter_builder);
-    if (!read_options.ignore_range_deletions) {
-      s = super_version->imm->AddRangeTombstoneIterators(read_options, arena,
-                                                         merge_iter_builder);
-    }
+    super_version->imm->AddIterators(read_options, &merge_iter_builder,
+                                     !read_options.ignore_range_deletions);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
   if (s.ok()) {
