@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fix a bug in io_uring_prep_cancel in AbortIO API for posix which expects sqe->addr to match with read request submitted and wrong paramter was being passed.
 
 ## 7.7.0 (09/18/2022)
 ### Bug Fixes
