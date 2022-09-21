@@ -44,8 +44,14 @@ class TimeSeriesData(DataSource):
         # for each of them and populates the 'keys_ts' dictionary
         pass
 
-    def fetch_burst_epochs(self, entities: str, statistic: int,
-        window_sec: float, threshold: bool, percent: bool) -> Dict[str, Dict[int, float]]:
+    def fetch_burst_epochs(
+        self,
+        entities: str,
+        statistic: int,
+        window_sec: float,
+        threshold: bool,
+        percent: bool,
+    ) -> Dict[str, Dict[int, float]]:
         # this method calculates the (percent) rate change in the 'statistic'
         # for each entity (over 'window_sec' seconds) and returns the epochs
         # where this rate change is greater than or equal to the 'threshold'

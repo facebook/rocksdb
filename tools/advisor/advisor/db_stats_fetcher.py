@@ -299,8 +299,14 @@ class OdsStatsFetcher(TimeSeriesData):
                 reqd_stats.append(key)
         return reqd_stats
 
-    def fetch_rate_url(self, entities: List[str], keys: List[str],
-        window_len: str, percent: str, display: bool) -> str:
+    def fetch_rate_url(
+        self,
+        entities: List[str],
+        keys: List[str],
+        window_len: str,
+        percent: str,
+        display: bool,
+    ) -> str:
         transform_desc = (
             "rate(" + str(window_len) + ",duration=" + str(self.duration_sec)
         )
