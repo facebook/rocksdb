@@ -92,7 +92,13 @@ class SecondaryCache : public Customizable {
   // Wait for a collection of handles to become ready.
   virtual void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) = 0;
 
-  virtual std::string GetPrintableOptions() const = 0;
+  // Set the maximum configured capacity of the cache.
+  // When the new capacity is less than the old capacity and the existing usage
+  // is greater than new capacity, the implementation will do its best job to
+  // purge the released entries from the cache in order to lower the usage.
+  virtual void SetCapacity(size_t capacity) = 0;
+
+  virtual size_t GetCapacity() const = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

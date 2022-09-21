@@ -178,6 +178,17 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
 
 void CompressedSecondaryCache::Erase(const Slice& key) { cache_->Erase(key); }
 
+void CompressedSecondaryCache::SetCapacity(size_t capacity) {
+  MutexLock l(&capacity_mutex_);
+  cache_options_.capacity = capacity;
+  cache_->SetCapacity(capacity);
+}
+
+size_t CompressedSecondaryCache::GetCapacity() const {
+  MutexLock l(&capacity_mutex_);
+  return cache_options_.capacity;
+}
+
 std::string CompressedSecondaryCache::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(20000);

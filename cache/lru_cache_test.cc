@@ -1115,6 +1115,10 @@ class TestSecondaryCache : public SecondaryCache {
     }
   }
 
+  void SetCapacity(size_t /*capacity*/) override {}
+
+  size_t GetCapacity() const override { return 0; }
+
   std::string GetPrintableOptions() const override { return ""; }
 
   void SetResultMap(ResultMap&& map) { result_map_ = std::move(map); }

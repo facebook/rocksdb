@@ -406,11 +406,13 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     // This Lookup should erase k1 from the secondary cache and insert
     // it into primary cache; then k3 is demoted.
+    // k2 and k3 are in secondary cache.
     handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
                            stats.get());
     ASSERT_NE(handle, nullptr);
     ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 1);
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 3);
     cache->Release(handle);
 
     // k2 is still in secondary cache.
@@ -420,6 +422,50 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_NE(handle, nullptr);
     ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 2);
     cache->Release(handle);
+
+    // Testing SetCapacity().
+    secondary_cache->SetCapacity(0);
+    handle = cache->Lookup("k3", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
+    ASSERT_EQ(handle, nullptr);
+
+    secondary_cache->SetCapacity(7000);
+    TestItem* item1_3 = new TestItem(str1.data(), str1.length());
+    // After this Insert, primary cache contains k1.
+    ASSERT_OK(cache->Insert(
+        "k1", item1_3, &CompressedSecondaryCacheTest::helper_, str2.length()));
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 3);
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 4);
+
+    TestItem* item2_3 = new TestItem(str2.data(), str2.length());
+    // After this Insert, primary cache contains k2 and secondary cache contains
+    // k1's dummy item.
+    ASSERT_OK(cache->Insert(
+        "k2", item2_3, &CompressedSecondaryCacheTest::helper_, str1.length()));
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 4);
+
+    TestItem* item1_4 = new TestItem(str1.data(), str1.length());
+    // After this Insert, primary cache contains k1 and secondary cache contains
+    // k1's dummy item and k2's dummy item.
+    ASSERT_OK(cache->Insert(
+        "k1", item1_4, &CompressedSecondaryCacheTest::helper_, str2.length()));
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 5);
+
+    TestItem* item2_4 = new TestItem(str2.data(), str2.length());
+    // After this Insert, primary cache contains k2 and secondary cache contains
+    // k1's real item and k2's dummy item.
+    ASSERT_OK(cache->Insert(
+        "k2", item2_4, &CompressedSecondaryCacheTest::helper_, str2.length()));
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 5);
+    // This Lookup should just insert a dummy handle in the primary cache
+    // and the k1 is still in the secondary cache.
+    handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
+
+    ASSERT_NE(handle, nullptr);
+    ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 3);
 
     cache.reset();
     secondary_cache.reset();

@@ -1342,6 +1342,10 @@ class TestSecondaryCache : public SecondaryCache {
   // Wait for a collection of handles to become ready
   void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
 
+  void SetCapacity(size_t /*capacity*/) override {}
+
+  size_t GetCapacity() const override { return 0; }
+
   std::string GetPrintableOptions() const override { return ""; }
 };
 

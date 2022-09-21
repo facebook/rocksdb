@@ -44,6 +44,10 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
 
   void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) override;
 
+  void SetCapacity(size_t capacity) override { base_->SetCapacity(capacity); }
+
+  size_t GetCapacity() const override { return base_->GetCapacity(); }
+
   std::string GetPrintableOptions() const override {
     return base_->GetPrintableOptions();
   }

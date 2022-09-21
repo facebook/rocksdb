@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <iostream>
 #include <memory>
 
 #include "cache/lru_cache.h"
@@ -15,6 +16,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/compression.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -95,6 +97,10 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
 
+  void SetCapacity(size_t capacity) override;
+
+  size_t GetCapacity() const override;
+
   std::string GetPrintableOptions() const override;
 
  private:
@@ -128,6 +134,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   static Cache::DeleterFn GetDeletionCallback(bool enable_custom_split_merge);
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
+  mutable port::Mutex capacity_mutex_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
