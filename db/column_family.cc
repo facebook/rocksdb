@@ -1144,7 +1144,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_opts, &arena));
-  super_version->imm->AddIterators(read_opts, &merge_iter_builder);
+  super_version->imm->AddIterators(read_opts, &merge_iter_builder,
+                                   false /* add_range_tombstone_iter */);
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
   auto read_seq = super_version->current->version_set()->LastSequence();
