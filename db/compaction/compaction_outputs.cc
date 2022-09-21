@@ -515,9 +515,16 @@ Status CompactionOutputs::AddRangeDels(
       // Seek() key in InternalKey's ordering. So Seek() will look in the
       // next file for the user key
       if (ts_sz) {
-        const std::string kTsMax(ts_sz, '\xff');
-        largest_candidate = InternalKey(*upper_bound, kMaxSequenceNumber,
-                                        kTypeRangeDeletion, kTsMax);
+        static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+        if (ts_sz <= strlen(kTsMax)) {
+          largest_candidate =
+              InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion,
+                          Slice(kTsMax, ts_sz));
+        } else {
+          largest_candidate =
+              InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion,
+                          std::string(ts_sz, '\xff'));
+        }
       } else {
         largest_candidate =
             InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion);

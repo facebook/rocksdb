@@ -749,9 +749,14 @@ struct RangeTombstone {
   // be careful to use SerializeEndKey(), allocates new memory
   InternalKey SerializeEndKey() const {
     if (!ts_.empty()) {
-      const std::string kTsMax(ts_.size(), '\xff');
-      return InternalKey(end_key_, kMaxSequenceNumber, kTypeRangeDeletion,
-                         kTsMax);
+      static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+      if (ts_.size() <= strlen(kTsMax)) {
+        return InternalKey(end_key_, kMaxSequenceNumber, kTypeRangeDeletion,
+                           Slice(kTsMax, ts_.size()));
+      } else {
+        return InternalKey(end_key_, kMaxSequenceNumber, kTypeRangeDeletion,
+                           std::string(ts_.size(), '\xff'));
+      }
     }
     return InternalKey(end_key_, kMaxSequenceNumber, kTypeRangeDeletion);
   }

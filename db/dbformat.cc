@@ -91,9 +91,14 @@ void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
 void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                    size_t ts_sz) {
   assert(ts_sz > 0);
-  const std::string kTsMax(ts_sz, static_cast<unsigned char>(0xff));
   result->append(key.data(), key.size() - ts_sz);
-  result->append(kTsMax.data(), ts_sz);
+
+  static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+  if (ts_sz < strlen(kTsMax)) {
+    result->append(kTsMax, ts_sz);
+  } else {
+    result->append(std::string(ts_sz, '\xff'));
+  }
 }
 
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
