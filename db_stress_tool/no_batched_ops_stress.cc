@@ -75,7 +75,6 @@ class NonBatchedOpsStressTest : public StressTest {
             } else if (iter->key().compare(k) == 0) {
               from_db = iter->value().ToString();
               columns_from_db = iter->columns();
-              iter->Next();
             } else if (iter_key.compare(k) < 0) {
               VerificationAbort(shared, "An out of range key was found",
                                 static_cast<int>(cf), i);
@@ -87,6 +86,11 @@ class NonBatchedOpsStressTest : public StressTest {
           }
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
                             &columns_from_db, s, true);
+
+          if (iter->Valid() && iter->key().compare(k) == 0) {
+            iter->Next();
+          }
+
           if (from_db.length()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
                           from_db.data(), from_db.length());
@@ -1204,8 +1208,9 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (s.ok() && columns) {
-      if (*columns !=
-          GenerateWideColumns(GetValueBase(value_from_db), value_from_db)) {
+      const WideColumns expected_columns =
+          GenerateWideColumns(GetValueBase(value_from_db), value_from_db);
+      if (*columns != expected_columns) {
         VerificationAbort(shared, "Value and columns inconsistent", cf, key);
         return false;
       }
