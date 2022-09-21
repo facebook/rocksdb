@@ -7,29 +7,29 @@
 // ROCKSDB_NAMESPACE::TraceWriter.
 
 #include "rocksjni/trace_writer_jnicallback.h"
+
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
-TraceWriterJniCallback::TraceWriterJniCallback(
-    JNIEnv* env, jobject jtrace_writer)
+TraceWriterJniCallback::TraceWriterJniCallback(JNIEnv* env,
+                                               jobject jtrace_writer)
     : JniCallback(env, jtrace_writer) {
-  m_jwrite_proxy_methodid =
-      AbstractTraceWriterJni::getWriteProxyMethodId(env);
-  if(m_jwrite_proxy_methodid == nullptr) {
+  m_jwrite_proxy_methodid = AbstractTraceWriterJni::getWriteProxyMethodId(env);
+  if (m_jwrite_proxy_methodid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
 
   m_jclose_writer_proxy_methodid =
       AbstractTraceWriterJni::getCloseWriterProxyMethodId(env);
-  if(m_jclose_writer_proxy_methodid == nullptr) {
+  if (m_jclose_writer_proxy_methodid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
 
   m_jget_file_size_methodid =
       AbstractTraceWriterJni::getGetFileSizeMethodId(env);
-  if(m_jget_file_size_methodid == nullptr) {
+  if (m_jget_file_size_methodid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
@@ -42,21 +42,22 @@ Status TraceWriterJniCallback::Write(const Slice& data) {
     return Status::IOError("Unable to attach JNI Environment");
   }
 
-  jshort jstatus = env->CallShortMethod(m_jcallback_obj,
-      m_jwrite_proxy_methodid,
-      &data);
+  jshort jstatus =
+      env->CallShortMethod(m_jcallback_obj, m_jwrite_proxy_methodid, &data);
 
-  if(env->ExceptionCheck()) {
+  if (env->ExceptionCheck()) {
     // exception thrown from CallShortMethod
     env->ExceptionDescribe();  // print out exception to stderr
     releaseJniEnv(attached_thread);
-    return Status::IOError("Unable to call AbstractTraceWriter#writeProxy(long)");
+    return Status::IOError(
+        "Unable to call AbstractTraceWriter#writeProxy(long)");
   }
 
   // unpack status code and status sub-code from jstatus
   jbyte jcode_value = (jstatus >> 8) & 0xFF;
   jbyte jsub_code_value = jstatus & 0xFF;
-  std::unique_ptr<Status> s = StatusJni::toCppStatus(jcode_value, jsub_code_value);
+  std::unique_ptr<Status> s =
+      StatusJni::toCppStatus(jcode_value, jsub_code_value);
 
   releaseJniEnv(attached_thread);
 
@@ -70,20 +71,22 @@ Status TraceWriterJniCallback::Close() {
     return Status::IOError("Unable to attach JNI Environment");
   }
 
-  jshort jstatus = env->CallShortMethod(m_jcallback_obj,
-      m_jclose_writer_proxy_methodid);
+  jshort jstatus =
+      env->CallShortMethod(m_jcallback_obj, m_jclose_writer_proxy_methodid);
 
-  if(env->ExceptionCheck()) {
+  if (env->ExceptionCheck()) {
     // exception thrown from CallShortMethod
     env->ExceptionDescribe();  // print out exception to stderr
     releaseJniEnv(attached_thread);
-    return Status::IOError("Unable to call AbstractTraceWriter#closeWriterProxy()");
+    return Status::IOError(
+        "Unable to call AbstractTraceWriter#closeWriterProxy()");
   }
 
   // unpack status code and status sub-code from jstatus
   jbyte code_value = (jstatus >> 8) & 0xFF;
   jbyte sub_code_value = jstatus & 0xFF;
-  std::unique_ptr<Status> s = StatusJni::toCppStatus(code_value, sub_code_value);
+  std::unique_ptr<Status> s =
+      StatusJni::toCppStatus(code_value, sub_code_value);
 
   releaseJniEnv(attached_thread);
 
@@ -97,10 +100,10 @@ uint64_t TraceWriterJniCallback::GetFileSize() {
     return 0;
   }
 
-  jlong jfile_size = env->CallLongMethod(m_jcallback_obj,
-      m_jget_file_size_methodid);
+  jlong jfile_size =
+      env->CallLongMethod(m_jcallback_obj, m_jget_file_size_methodid);
 
-  if(env->ExceptionCheck()) {
+  if (env->ExceptionCheck()) {
     // exception thrown from CallLongMethod
     env->ExceptionDescribe();  // print out exception to stderr
     releaseJniEnv(attached_thread);

@@ -86,7 +86,8 @@ class PartitionedFilterBlockTest
     int num_keys = sizeof(keys) / sizeof(*keys);
     uint64_t max_key_size = 0;
     for (int i = 1; i < num_keys; i++) {
-      max_key_size = std::max(max_key_size, static_cast<uint64_t>(keys[i].size()));
+      max_key_size =
+          std::max(max_key_size, static_cast<uint64_t>(keys[i].size()));
     }
     uint64_t max_index_size = num_keys * (max_key_size + 8 /*handle*/);
     return max_index_size;
@@ -116,11 +117,11 @@ class PartitionedFilterBlockTest
       PartitionedIndexBuilder* const p_index_builder,
       const SliceTransform* prefix_extractor = nullptr) {
     assert(table_options_.block_size_deviation <= 100);
-    auto partition_size = static_cast<uint32_t>(
-             ((table_options_.metadata_block_size *
-               (100 - table_options_.block_size_deviation)) +
-              99) /
-             100);
+    auto partition_size =
+        static_cast<uint32_t>(((table_options_.metadata_block_size *
+                                (100 - table_options_.block_size_deviation)) +
+                               99) /
+                              100);
     partition_size = std::max(partition_size, static_cast<uint32_t>(1));
     const bool kValueDeltaEncoded = true;
     return new PartitionedFilterBlockBuilder(

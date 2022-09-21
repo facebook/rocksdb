@@ -602,7 +602,8 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
       "memtable=skip_list:10;arena_block_size=1024",
       &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
-  ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
+  ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()),
+            "SkipListFactory");
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
 
   // blob cache
@@ -927,7 +928,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
   ASSERT_TRUE(new_opt.block_cache != nullptr);
-  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL * 1024UL);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL);
   ASSERT_EQ(new_opt.block_size, 1024UL);
@@ -1063,20 +1064,24 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       "strict_capacity_limit=true;high_pri_pool_ratio=0.5;}",
       &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
-  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
+                ->GetHighPriPoolRatio(),
+            0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
-  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      4);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
-                0.5);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
+                ->GetHighPriPoolRatio(),
+            0.5);
 
   // Set only block cache capacity. Check other values are
   // reset to default values.
@@ -1086,22 +1091,22 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       "block_cache_compressed={capacity=2M}",
       &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
-  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 2*1024UL*1024UL);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 2 * 1024UL * 1024UL);
   // Default values
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(),
-                GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
                 ->GetHighPriPoolRatio(),
             0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
-  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 2*1024UL*1024UL);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 2 * 1024UL * 1024UL);
   // Default values
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(),
-                GetDefaultCacheShardBits(
-                    new_opt.block_cache_compressed->GetCapacity()));
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      GetDefaultCacheShardBits(new_opt.block_cache_compressed->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -1115,15 +1120,19 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       "high_pri_pool_ratio=0.0;}",
       &new_opt));
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 0);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 5);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            5);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
+                ->GetHighPriPoolRatio(),
+            0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 0);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 5);
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      5);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -1138,17 +1147,20 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       "strict_capacity_limit=true;}",
       &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
-  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
                 ->GetHighPriPoolRatio(),
             0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
-  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      4);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -1174,7 +1186,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       new_opt.filter_policy->IsInstanceOf(RibbonFilterPolicy::kNickName()));
 }
 #endif  // !ROCKSDB_LITE
-
 
 #ifndef ROCKSDB_LITE  // GetPlainTableOptionsFromString is not supported
 TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
@@ -1230,14 +1241,14 @@ TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
                                              &new_mem_factory));
 
   ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash", &new_mem_factory));
-  ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash:1000",
-                                            &new_mem_factory));
+  ASSERT_OK(
+      GetMemTableRepFactoryFromString("prefix_hash:1000", &new_mem_factory));
   ASSERT_STREQ(new_mem_factory->Name(), "HashSkipListRepFactory");
   ASSERT_NOK(GetMemTableRepFactoryFromString("prefix_hash:1000:invalid_opt",
                                              &new_mem_factory));
 
-  ASSERT_OK(GetMemTableRepFactoryFromString("hash_linkedlist",
-                                            &new_mem_factory));
+  ASSERT_OK(
+      GetMemTableRepFactoryFromString("hash_linkedlist", &new_mem_factory));
   ASSERT_OK(GetMemTableRepFactoryFromString("hash_linkedlist:1000",
                                             &new_mem_factory));
   ASSERT_EQ(std::string(new_mem_factory->Name()), "HashLinkListRepFactory");
@@ -1767,9 +1778,8 @@ TEST_F(OptionsTest, MutableCFOptions) {
 
 #endif  // !ROCKSDB_LITE
 
-Status StringToMap(
-    const std::string& opts_str,
-    std::unordered_map<std::string, std::string>* opts_map);
+Status StringToMap(const std::string& opts_str,
+                   std::unordered_map<std::string, std::string>* opts_map);
 
 #ifndef ROCKSDB_LITE  // StringToMap is not supported in ROCKSDB_LITE
 TEST_F(OptionsTest, StringToMapTest) {
@@ -1828,17 +1838,17 @@ TEST_F(OptionsTest, StringToMapTest) {
   ASSERT_EQ(opts_map["k3"], "v3");
   // Multi-level nested options
   opts_map.clear();
-  ASSERT_OK(StringToMap("k1=v1;k2={nk1=nv1;nk2={nnk1=nnk2}};"
-                        "k3={nk1={nnk1={nnnk1=nnnv1;nnnk2;nnnv2}}};k4=v4",
-                        &opts_map));
+  ASSERT_OK(
+      StringToMap("k1=v1;k2={nk1=nv1;nk2={nnk1=nnk2}};"
+                  "k3={nk1={nnk1={nnnk1=nnnv1;nnnk2;nnnv2}}};k4=v4",
+                  &opts_map));
   ASSERT_EQ(opts_map["k1"], "v1");
   ASSERT_EQ(opts_map["k2"], "nk1=nv1;nk2={nnk1=nnk2}");
   ASSERT_EQ(opts_map["k3"], "nk1={nnk1={nnnk1=nnnv1;nnnk2;nnnv2}}");
   ASSERT_EQ(opts_map["k4"], "v4");
   // Garbage inside curly braces
   opts_map.clear();
-  ASSERT_OK(StringToMap("k1=v1;k2={dfad=};k3={=};k4=v4",
-                        &opts_map));
+  ASSERT_OK(StringToMap("k1=v1;k2={dfad=};k3={=};k4=v4", &opts_map));
   ASSERT_EQ(opts_map["k1"], "v1");
   ASSERT_EQ(opts_map["k2"], "dfad=");
   ASSERT_EQ(opts_map["k3"], "=");
@@ -1854,9 +1864,10 @@ TEST_F(OptionsTest, StringToMapTest) {
   ASSERT_EQ(opts_map["k2"], "{{{}}}{}{}");
   // With random spaces
   opts_map.clear();
-  ASSERT_OK(StringToMap("  k1 =  v1 ; k2= {nk1=nv1; nk2={nnk1=nnk2}}  ; "
-                        "k3={  {   } }; k4= v4  ",
-                        &opts_map));
+  ASSERT_OK(
+      StringToMap("  k1 =  v1 ; k2= {nk1=nv1; nk2={nnk1=nnk2}}  ; "
+                  "k3={  {   } }; k4= v4  ",
+                  &opts_map));
   ASSERT_EQ(opts_map["k1"], "v1");
   ASSERT_EQ(opts_map["k2"], "nk1=nv1; nk2={nnk1=nnk2}");
   ASSERT_EQ(opts_map["k3"], "{   }");
@@ -1906,8 +1917,8 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
       for (int attempt = 0; attempt < 10; attempt++) {
         std::string str = base;
         // Replace random position to space
-        size_t pos = static_cast<size_t>(
-            rnd.Uniform(static_cast<int>(base.size())));
+        size_t pos =
+            static_cast<size_t>(rnd.Uniform(static_cast<int>(base.size())));
         str[pos] = ' ';
         Status s = StringToMap(str, &opts_map);
         ASSERT_TRUE(s.ok() || s.IsInvalidArgument());
@@ -1924,8 +1935,8 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
     std::string str = "";
     for (int attempt = 0; attempt < len; attempt++) {
       // Add a random character
-      size_t pos = static_cast<size_t>(
-          rnd.Uniform(static_cast<int>(chars.size())));
+      size_t pos =
+          static_cast<size_t>(rnd.Uniform(static_cast<int>(chars.size())));
       str.append(1, chars[pos]);
     }
     Status s = StringToMap(str, &opts_map);
@@ -2410,8 +2421,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
 
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
-  ASSERT_OK(GetColumnFamilyOptionsFromMap(
-            base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 1U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 2);
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
@@ -2498,22 +2509,24 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
-  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
-             base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_NOK(
+      GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, &new_cf_opt));
   ConfigOptions exact, loose;
   exact.sanity_level = ConfigOptions::kSanityLevelExactMatch;
   loose.sanity_level = ConfigOptions::kSanityLevelLooselyCompatible;
 
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   cf_options_map["write_buffer_size"] = "1";
-  ASSERT_OK(GetColumnFamilyOptionsFromMap(
-            base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, &new_cf_opt));
 
   cf_options_map["unknown_option"] = "1";
-  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
-             base_cf_opt, cf_options_map, &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(
+      GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   ASSERT_OK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map,
                                           &new_cf_opt,
@@ -2522,7 +2535,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
       loose, base_cf_opt, new_cf_opt, nullptr /* new_opt_map */));
   ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
-      exact /* default for VerifyCFOptions */, base_cf_opt, new_cf_opt, nullptr));
+      exact /* default for VerifyCFOptions */, base_cf_opt, new_cf_opt,
+      nullptr));
 
   DBOptions base_db_opt;
   DBOptions new_db_opt;
@@ -2570,19 +2584,24 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
 
   db_options_map["max_open_files"] = "hello";
   ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(loose, base_db_opt, new_db_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(loose, base_db_opt, new_db_opt));
 
   // unknow options should fail parsing without ignore_unknown_options = true
   db_options_map["unknown_db_option"] = "1";
   ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
 
   ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt,
                                 false, /* input_strings_escaped  */
                                 true /* ignore_unknown_options */));
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(loose, base_db_opt, new_db_opt));
-  ASSERT_NOK(RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(loose, base_db_opt, new_db_opt));
+  ASSERT_NOK(
+      RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
 }
 
 TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
@@ -2590,35 +2609,37 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   ColumnFamilyOptions new_cf_opt;
   base_cf_opt.table_factory.reset();
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt, "", &new_cf_opt));
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=5", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt, "write_buffer_size=5",
+                                             &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 5U);
   ASSERT_TRUE(new_cf_opt.table_factory == nullptr);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=6;", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=6;", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 6U);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "  write_buffer_size =  7  ", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "  write_buffer_size =  7  ", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 7U);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "  write_buffer_size =  8 ; ", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "  write_buffer_size =  8 ; ", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 8U);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=9;max_write_buffer_number=10", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=9;max_write_buffer_number=10",
+      &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 9U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 10);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=11; max_write_buffer_number  =  12 ;",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=11; max_write_buffer_number  =  12 ;",
+      &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 11U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 12);
   // Wrong name "max_write_buffer_number_"
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13;max_write_buffer_number_=14;",
-              &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=13;max_write_buffer_number_=14;",
+      &new_cf_opt));
   ConfigOptions exact;
   exact.sanity_level = ConfigOptions::kSanityLevelExactMatch;
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Comparator from object registry
   std::string kCompName = "reverse_comp";
@@ -2640,19 +2661,24 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(kMoName, std::string(new_cf_opt.merge_operator->Name()));
 
   // Wrong key/value pair
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13;max_write_buffer_number;", &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=13;max_write_buffer_number;",
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Error Paring value
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13;max_write_buffer_number=;", &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=13;max_write_buffer_number=;",
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Missing option name
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13; =100;", &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=13; =100;", &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   const uint64_t kilo = 1024UL;
   const uint64_t mega = 1024 * kilo;
@@ -2664,9 +2690,9 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
       base_cf_opt, "max_write_buffer_number=15K", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 15 * kilo);
   // Units (m)
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "max_write_buffer_number=16m;inplace_update_num_locks=17M",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "max_write_buffer_number=16m;inplace_update_num_locks=17M",
+      &new_cf_opt));
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 16 * mega);
   ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 17u * mega);
   // Units (g)
@@ -2682,101 +2708,115 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.CappedPrefix.8");
 
   // Units (t)
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=20t;arena_block_size=21T", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=20t;arena_block_size=21T", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 20 * tera);
   ASSERT_EQ(new_cf_opt.arena_block_size, 21 * tera);
 
   // Nested block based table options
   // Empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "block_based_table_factory={};arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={};arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   // Non-empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "block_based_table_factory={block_cache=1M;block_size=4;};"
-            "arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_cache=1M;block_size=4;};"
+      "arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   // Last one
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "block_based_table_factory={block_cache=1M;block_size=4;}",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_cache=1M;block_size=4;}",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   // Mismatch curly braces
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={{{block_size=4;};"
-             "arena_block_size=1024",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={{{block_size=4;};"
+      "arena_block_size=1024",
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Unexpected chars after closing curly brace
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={block_size=4;}};"
-             "arena_block_size=1024",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_size=4;}};"
+      "arena_block_size=1024",
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={block_size=4;}xdfa;"
-             "arena_block_size=1024",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_size=4;}xdfa;"
+      "arena_block_size=1024",
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={block_size=4;}xdfa",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_size=4;}xdfa",
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Invalid block based table option
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={xx_block_size=4;}",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={xx_block_size=4;}",
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-           "optimize_filters_for_hits=true",
-           &new_cf_opt));
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "optimize_filters_for_hits=false",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "optimize_filters_for_hits=true", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "optimize_filters_for_hits=false", &new_cf_opt));
 
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-              "optimize_filters_for_hits=junk",
-              &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "optimize_filters_for_hits=junk", &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Nested plain table options
   // Empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "plain_table_factory={};arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "plain_table_factory={};arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.table_factory->Name()), "PlainTable");
   // Non-empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "plain_table_factory={user_key_len=66;bloom_bits_per_key=20;};"
-            "arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "plain_table_factory={user_key_len=66;bloom_bits_per_key=20;};"
+      "arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.table_factory->Name()), "PlainTable");
 
   // memtable factory
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "memtable=skip_list:10;arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "memtable=skip_list:10;arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
 
@@ -2903,7 +2943,7 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
   ASSERT_TRUE(new_opt.no_block_cache);
   ASSERT_TRUE(new_opt.block_cache != nullptr);
-  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL * 1024UL);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL);
   ASSERT_EQ(new_opt.block_size, 1024UL);
@@ -2918,35 +2958,37 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 5);
 
   // unknown option
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
-             "bad_option=1",
-             &new_opt));
+  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
+      "bad_option=1",
+      &new_opt));
   ASSERT_EQ(static_cast<bool>(table_opt.cache_index_and_filter_blocks),
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized index type
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX",
-             &new_opt));
+  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+      table_opt, "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX",
+      &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized checksum type
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;checksum=kxxHashXX",
-             &new_opt));
+  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+      table_opt, "cache_index_and_filter_blocks=1;checksum=kxxHashXX",
+      &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized filter policy name
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;"
-             "filter_policy=bloomfilterxx:4:true",
-             &new_opt));
+  ASSERT_NOK(
+      GetBlockBasedTableOptionsFromString(table_opt,
+                                          "cache_index_and_filter_blocks=1;"
+                                          "filter_policy=bloomfilterxx:4:true",
+                                          &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
@@ -2960,51 +3002,57 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
 
   // Check block cache options are overwritten when specified
   // in new format as a struct.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};"
-             "block_cache_compressed={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;high_pri_pool_ratio=0.5;}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "block_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};"
+      "block_cache_compressed={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;}",
+      &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
-  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
+                ->GetHighPriPoolRatio(),
+            0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
-  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      4);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
-                0.5);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
+                ->GetHighPriPoolRatio(),
+            0.5);
 
   // Set only block cache capacity. Check other values are
   // reset to default values.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={capacity=2M};"
-             "block_cache_compressed={capacity=2M}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "block_cache={capacity=2M};"
+      "block_cache_compressed={capacity=2M}",
+      &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
-  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 2*1024UL*1024UL);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 2 * 1024UL * 1024UL);
   // Default values
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(),
-                GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
                 ->GetHighPriPoolRatio(),
             0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
-  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 2*1024UL*1024UL);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 2 * 1024UL * 1024UL);
   // Default values
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(),
-                GetDefaultCacheShardBits(
-                    new_opt.block_cache_compressed->GetCapacity()));
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      GetDefaultCacheShardBits(new_opt.block_cache_compressed->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -3018,39 +3066,47 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
       "high_pri_pool_ratio=0.0;}",
       &new_opt));
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 0);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 5);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            5);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
+                ->GetHighPriPoolRatio(),
+            0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 0);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 5);
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      5);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
             0.0);
 
   // Set couple of block cache options.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;};"
-             "block_cache_compressed={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "block_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;};"
+      "block_cache_compressed={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;}",
+      &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
-  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
                 ->GetHighPriPoolRatio(),
             0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
-  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCache>(new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      4);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -3061,11 +3117,12 @@ TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
   PlainTableOptions table_opt;
   PlainTableOptions new_opt;
   // make sure default values are overwritten by something else
-  ASSERT_OK(GetPlainTableOptionsFromString(table_opt,
-            "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-            "index_sparseness=8;huge_page_tlb_size=4;encoding_type=kPrefix;"
-            "full_scan_mode=true;store_index_in_file=true",
-            &new_opt));
+  ASSERT_OK(GetPlainTableOptionsFromString(
+      table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "index_sparseness=8;huge_page_tlb_size=4;encoding_type=kPrefix;"
+      "full_scan_mode=true;store_index_in_file=true",
+      &new_opt));
   ASSERT_EQ(new_opt.user_key_len, 66u);
   ASSERT_EQ(new_opt.bloom_bits_per_key, 20);
   ASSERT_EQ(new_opt.hash_table_ratio, 0.5);
@@ -3084,16 +3141,18 @@ TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
   ASSERT_EQ(new_opt.huge_page_tlb_size, 8);
 
   // unknown option
-  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
-             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-             "bad_option=1",
-             &new_opt));
+  ASSERT_NOK(GetPlainTableOptionsFromString(
+      table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "bad_option=1",
+      &new_opt));
 
   // unrecognized EncodingType
-  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
-             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-             "encoding_type=kPrefixXX",
-             &new_opt));
+  ASSERT_NOK(GetPlainTableOptionsFromString(
+      table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "encoding_type=kPrefixXX",
+      &new_opt));
 }
 
 TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
@@ -3178,7 +3237,8 @@ TEST_F(OptionsOldApiTest, DBOptionsSerialization) {
   ASSERT_OK(GetDBOptionsFromString(DBOptions(), base_options_file_content,
                                    &new_options));
   ConfigOptions config_options;
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_options, base_options, new_options));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_options, base_options,
+                                                  new_options));
 }
 
 TEST_F(OptionsOldApiTest, ColumnFamilyOptionsSerialization) {
@@ -3199,7 +3259,8 @@ TEST_F(OptionsOldApiTest, ColumnFamilyOptionsSerialization) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       ColumnFamilyOptions(), base_options_file_content, &new_opt));
   ConfigOptions config_options;
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_opt, new_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(config_options, base_opt, new_opt));
   if (base_opt.compaction_filter) {
     delete base_opt.compaction_filter;
   }
@@ -3517,13 +3578,19 @@ TEST_F(OptionsParserTest, ParseVersion) {
   RocksDBOptionsParser parser;
 
   const std::vector<std::string> invalid_versions = {
-      "a.b.c", "3.2.2b", "3.-12", "3. 1",  // only digits and dots are allowed
+      "a.b.c",
+      "3.2.2b",
+      "3.-12",
+      "3. 1",  // only digits and dots are allowed
       "1.2.3.4",
       "1.2.3"  // can only contains at most one dot.
       "0",     // options_file_version must be at least one
       "3..2",
-      ".", ".1.2",             // must have at least one digit before each dot
-      "1.2.", "1.", "2.34."};  // must have at least one digit after each dot
+      ".",
+      ".1.2",  // must have at least one digit before each dot
+      "1.2.",
+      "1.",
+      "2.34."};  // must have at least one digit after each dot
   for (auto iv : invalid_versions) {
     snprintf(buffer, kLength - 1, file_template.c_str(), iv.c_str());
 
@@ -3682,7 +3749,10 @@ TEST_F(OptionsParserTest, Readahead) {
 TEST_F(OptionsParserTest, DumpAndParse) {
   DBOptions base_db_opt;
   std::vector<ColumnFamilyOptions> base_cf_opts;
-  std::vector<std::string> cf_names = {"default", "cf1", "cf2", "cf3",
+  std::vector<std::string> cf_names = {"default",
+                                       "cf1",
+                                       "cf2",
+                                       "cf3",
                                        "c:f:4:4:4"
                                        "p\\i\\k\\a\\chu\\\\\\",
                                        "###rocksdb#1-testcf#2###"};

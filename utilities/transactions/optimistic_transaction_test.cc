@@ -53,7 +53,7 @@ class OptimisticTransactionTest
     Open();
   }
 
-private:
+ private:
   void Open() {
     ColumnFamilyOptions cf_options(options);
     OptimisticTransactionDBOptions occ_opts;
@@ -1367,7 +1367,8 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
   WriteOptions write_options;
   OptimisticTransactionOptions transaction_options;
 
-  Transaction* transaction(txn_db->BeginTransaction(write_options, transaction_options));
+  Transaction* transaction(
+      txn_db->BeginTransaction(write_options, transaction_options));
   Status s = transaction->Put("foo", "val");
   ASSERT_OK(s);
   s = transaction->Put("foo2", "val");

@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memory/arena.h"
+
 #include "test_util/testharness.h"
 #include "util/random.h"
 
@@ -31,7 +32,7 @@ bool CheckMemoryAllocated(size_t allocated, size_t expected) {
 
 void MemoryAllocatedBytesTest(size_t huge_page_size) {
   const int N = 17;
-  size_t req_sz;  // requested size
+  size_t req_sz;           // requested size
   size_t bsz = 32 * 1024;  // block size
   size_t expected_memory_allocated;
 

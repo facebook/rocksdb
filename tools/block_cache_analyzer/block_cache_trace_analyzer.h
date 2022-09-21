@@ -106,7 +106,7 @@ struct BlockAccessInfo {
           ParsedInternalKey internal_key;
           Status s = ParseInternalKey(access.referenced_key, &internal_key,
                                       false /* log_err_key */);  // TODO
-          assert(s.ok());  // TODO
+          assert(s.ok());                                        // TODO
         }
       } else {
         non_exist_key_num_access_map[access.referenced_key][access.caller]++;
@@ -292,7 +292,8 @@ class BlockCacheTraceAnalyzer {
   // The file is named
   // "block_type_user_access_only_reuse_window_reuse_timeline". The file format
   // is start_time,0,1,...,N where N equals trace_duration / reuse_window.
-  void WriteBlockReuseTimeline(const uint64_t reuse_window, bool user_access_only,
+  void WriteBlockReuseTimeline(const uint64_t reuse_window,
+                               bool user_access_only,
                                TraceType block_type) const;
 
   // Write the Get spatical locality into csv files saved in 'output_dir'.

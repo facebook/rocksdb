@@ -42,9 +42,7 @@ std::string Key1(int i) {
   return buf;
 }
 
-std::string Key2(int i) {
-  return Key1(i) + "_xxx";
-}
+std::string Key2(int i) { return Key1(i) + "_xxx"; }
 
 class ManualCompactionTest : public testing::Test {
  public:
@@ -102,10 +100,10 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
   for (int iter = 0; iter < 2; ++iter) {
     DB* db;
     Options options;
-    if (iter == 0) { // level compaction
+    if (iter == 0) {  // level compaction
       options.num_levels = 3;
       options.compaction_style = CompactionStyle::kCompactionStyleLevel;
-    } else { // universal compaction
+    } else {  // universal compaction
       options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
     }
     options.create_if_missing = true;

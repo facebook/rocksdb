@@ -25,7 +25,7 @@ const std::string ExternalSstFilePropertyNames::kGlobalSeqno =
 
 #ifndef ROCKSDB_LITE
 
-const size_t kFadviseTrigger = 1024 * 1024; // 1MB
+const size_t kFadviseTrigger = 1024 * 1024;  // 1MB
 
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
@@ -176,8 +176,7 @@ struct SstFileWriter::Rep {
       // Fadvise disabled
       return s;
     }
-    uint64_t bytes_since_last_fadvise =
-      builder->FileSize() - last_fadvise_size;
+    uint64_t bytes_since_last_fadvise = builder->FileSize() - last_fadvise_size;
     if (bytes_since_last_fadvise > kFadviseTrigger || closing) {
       TEST_SYNC_POINT_CALLBACK("SstFileWriter::Rep::InvalidatePageCache",
                                &(bytes_since_last_fadvise));
@@ -383,9 +382,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   return s;
 }
 
-uint64_t SstFileWriter::FileSize() {
-  return rep_->file_info.file_size;
-}
+uint64_t SstFileWriter::FileSize() { return rep_->file_info.file_size; }
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

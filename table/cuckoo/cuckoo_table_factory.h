@@ -7,9 +7,10 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+
+#include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "util/murmurhash.h"
-#include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
 

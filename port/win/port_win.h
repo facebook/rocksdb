@@ -16,28 +16,26 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#include <intrin.h>
+#include <malloc.h>
+#include <process.h>
+#include <stdint.h>
+#include <string.h>
 #include <windows.h>
+
+#include <condition_variable>
+#include <limits>
+#include <mutex>
 #include <string>
 #include <thread>
-#include <string.h>
-#include <mutex>
-#include <limits>
-#include <condition_variable>
-#include <malloc.h>
-#include <intrin.h>
-#include <process.h>
-
-#include <stdint.h>
 
 #include "port/win/win_thread.h"
-
 #include "rocksdb/options.h"
 
 #undef min
 #undef max
 #undef DeleteFile
 #undef GetCurrentTime
-
 
 #ifndef strcasecmp
 #define strcasecmp _stricmp
@@ -133,12 +131,9 @@ class Mutex {
   void operator=(const Mutex&) = delete;
 
  private:
-
   friend class CondVar;
 
-  std::mutex& getLock() {
-    return mutex_;
-  }
+  std::mutex& getLock() { return mutex_; }
 
   std::mutex mutex_;
 #ifndef NDEBUG
@@ -170,8 +165,7 @@ class RWMutex {
 
 class CondVar {
  public:
-  explicit CondVar(Mutex* mu) : mu_(mu) {
-  }
+  explicit CondVar(Mutex* mu) : mu_(mu) {}
 
   ~CondVar();
   void Wait();
@@ -191,7 +185,6 @@ class CondVar {
   Mutex* mu_;
 };
 
-
 #ifdef _POSIX_THREADS
 using Thread = std::thread;
 #else
@@ -204,15 +197,14 @@ using Thread = WindowsThread;
 // Posix semantics with initialization
 // adopted in the project
 struct OnceType {
+  struct Init {};
 
-    struct Init {};
+  OnceType() {}
+  OnceType(const Init&) {}
+  OnceType(const OnceType&) = delete;
+  OnceType& operator=(const OnceType&) = delete;
 
-    OnceType() {}
-    OnceType(const Init&) {}
-    OnceType(const OnceType&) = delete;
-    OnceType& operator=(const OnceType&) = delete;
-
-    std::once_flag flag_;
+  std::once_flag flag_;
 };
 
 #define LEVELDB_ONCE_INIT port::OnceType::Init()
@@ -228,7 +220,7 @@ void* jemalloc_aligned_alloc(size_t size, size_t alignment) noexcept;
 void jemalloc_aligned_free(void* p) noexcept;
 #endif
 
-inline void *cacheline_aligned_alloc(size_t size) {
+inline void* cacheline_aligned_alloc(size_t size) {
 #ifdef ROCKSDB_JEMALLOC
   return jemalloc_aligned_alloc(size, CACHE_LINE_SIZE);
 #else
@@ -236,7 +228,7 @@ inline void *cacheline_aligned_alloc(size_t size) {
 #endif
 }
 
-inline void cacheline_aligned_free(void *memblock) {
+inline void cacheline_aligned_free(void* memblock) {
 #ifdef ROCKSDB_JEMALLOC
   jemalloc_aligned_free(memblock);
 #else
@@ -327,7 +319,6 @@ bool GenerateRfcUuid(std::string* output);
 
 }  // namespace port
 
-
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
 
 #define RX_FILESTRING std::wstring
@@ -381,11 +372,11 @@ bool GenerateRfcUuid(std::string* output);
 
 #endif
 
-using port::pthread_key_t;
+using port::pthread_getspecific;
 using port::pthread_key_create;
 using port::pthread_key_delete;
+using port::pthread_key_t;
 using port::pthread_setspecific;
-using port::pthread_getspecific;
 using port::truncate;
 
 }  // namespace ROCKSDB_NAMESPACE

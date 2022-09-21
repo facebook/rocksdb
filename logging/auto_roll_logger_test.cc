@@ -64,8 +64,9 @@ class AutoRollLoggerTest : public testing::Test {
     ASSERT_TRUE(system(deleteDbDirCmd.c_str()) == 0);
 
     std::string testDir(kTestDir);
-    std::replace_if(testDir.begin(), testDir.end(),
-                    [](char ch) { return ch == '/'; }, '\\');
+    std::replace_if(
+        testDir.begin(), testDir.end(), [](char ch) { return ch == '/'; },
+        '\\');
     std::string deleteCmd = "if exist " + testDir + " rd /s /q " + testDir;
 #else
     std::string deleteCmd = "rm -rf " + kTestDir + " " + kTestDbDir;
@@ -203,15 +204,15 @@ void AutoRollLoggerTest::RollLogFileByTimeTest(
 }
 
 TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
-    InitTestDb();
-    size_t log_max_size = 1024 * 5;
-    size_t keep_log_file_num = 10;
+  InitTestDb();
+  size_t log_max_size = 1024 * 5;
+  size_t keep_log_file_num = 10;
 
-    AutoRollLogger logger(FileSystem::Default(), SystemClock::Default(),
-                          kTestDir, "", log_max_size, 0, keep_log_file_num);
+  AutoRollLogger logger(FileSystem::Default(), SystemClock::Default(), kTestDir,
+                        "", log_max_size, 0, keep_log_file_num);
 
-    RollLogFileBySizeTest(&logger, log_max_size,
-                          kSampleMessage + ":RollLogFileBySize");
+  RollLogFileBySizeTest(&logger, log_max_size,
+                        kSampleMessage + ":RollLogFileBySize");
 }
 
 TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
@@ -319,11 +320,10 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   options.max_log_file_size = 1024;
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
   AutoRollLogger* auto_roll_logger =
-    dynamic_cast<AutoRollLogger*>(logger.get());
+      dynamic_cast<AutoRollLogger*>(logger.get());
   ASSERT_TRUE(auto_roll_logger);
-  RollLogFileBySizeTest(
-      auto_roll_logger, options.max_log_file_size,
-      kSampleMessage + ":CreateLoggerFromOptions - size");
+  RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
+                        kSampleMessage + ":CreateLoggerFromOptions - size");
 
   // Only roll by Time
   options.env = nse.get();
@@ -331,8 +331,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   options.max_log_file_size = 0;
   options.log_file_time_to_roll = 2;
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
-  auto_roll_logger =
-    dynamic_cast<AutoRollLogger*>(logger.get());
+  auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
   RollLogFileByTimeTest(options.env->GetFileSystem(), nsc, auto_roll_logger,
                         options.log_file_time_to_roll,
                         kSampleMessage + ":CreateLoggerFromOptions - time");
@@ -342,8 +341,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   options.max_log_file_size = 1024 * 5;
   options.log_file_time_to_roll = 2;
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
-  auto_roll_logger =
-    dynamic_cast<AutoRollLogger*>(logger.get());
+  auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
   RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
                         kSampleMessage + ":CreateLoggerFromOptions - both");
   RollLogFileByTimeTest(options.env->GetFileSystem(), nsc, auto_roll_logger,
@@ -527,7 +525,7 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   }
   std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());
   size_t lines = std::count(std::istreambuf_iterator<char>(inFile),
-                         std::istreambuf_iterator<char>(), '\n');
+                            std::istreambuf_iterator<char>(), '\n');
   ASSERT_EQ(log_lines, lines);
   inFile.close();
 }
@@ -567,7 +565,7 @@ TEST_F(AutoRollLoggerTest, Close) {
 
   std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());
   size_t lines = std::count(std::istreambuf_iterator<char>(inFile),
-                         std::istreambuf_iterator<char>(), '\n');
+                            std::istreambuf_iterator<char>(), '\n');
   ASSERT_EQ(log_lines, lines);
   inFile.close();
 }
@@ -602,7 +600,6 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
   // test_num == 0 -> standard call to Header()
   // test_num == 1 -> call to Log() with InfoLogLevel::HEADER_LEVEL
   for (int test_num = 0; test_num < 2; test_num++) {
-
     InitTestDb();
 
     AutoRollLogger logger(FileSystem::Default(), SystemClock::Default(),
@@ -640,7 +637,7 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
 
     const auto oldfiles = GetOldFileNames(newfname);
 
-    ASSERT_EQ(oldfiles.size(), (size_t) 2);
+    ASSERT_EQ(oldfiles.size(), (size_t)2);
 
     for (auto& oldfname : oldfiles) {
       // verify that the files rolled over
@@ -658,8 +655,8 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
   // Replace all slashes in the path so windows CompSpec does not
   // become confused
   std::string testDir(kTestDir);
-  std::replace_if(testDir.begin(), testDir.end(),
-    [](char ch) { return ch == '/'; }, '\\');
+  std::replace_if(
+      testDir.begin(), testDir.end(), [](char ch) { return ch == '/'; }, '\\');
   std::string deleteCmd = "if exist " + testDir + " rd /s /q " + testDir;
 #else
   std::string deleteCmd = "rm -rf " + kTestDir;

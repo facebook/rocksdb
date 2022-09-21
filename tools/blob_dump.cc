@@ -5,6 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 #include <getopt.h>
+
 #include <cstdio>
 #include <string>
 #include <unordered_map>

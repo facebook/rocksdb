@@ -78,9 +78,7 @@ class TestCustomizable : public Customizable {
  public:
   TestCustomizable(const std::string& name) : name_(name) {}
   // Method to allow CheckedCast to work for this class
-  static const char* kClassName() {
-    return "TestCustomizable";
-  }
+  static const char* kClassName() { return "TestCustomizable"; }
 
   const char* Name() const override { return name_.c_str(); }
   static const char* Type() { return "test.custom"; }

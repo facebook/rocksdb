@@ -25,9 +25,11 @@ using ExpirationRange = std::pair<uint64_t, uint64_t>;
 // Format of blob log file header (30 bytes):
 //
 //    +--------------+---------+---------+-------+-------------+-------------------+
-//    | magic number | version |  cf id  | flags | compression | expiration range  |
+//    | magic number | version |  cf id  | flags | compression | expiration
+//    range  |
 //    +--------------+---------+---------+-------+-------------+-------------------+
-//    |   Fixed32    | Fixed32 | Fixed32 | char  |    char     | Fixed64   Fixed64 |
+//    |   Fixed32    | Fixed32 | Fixed32 | char  |    char     | Fixed64 Fixed64
+//    |
 //    +--------------+---------+---------+-------+-------------+-------------------+
 //
 // List of flags:
@@ -84,9 +86,11 @@ struct BlobLogFooter {
 // Blob record format (32 bytes header + key + value):
 //
 //    +------------+--------------+------------+------------+----------+---------+-----------+
-//    | key length | value length | expiration | header CRC | blob CRC |   key   |   value   |
+//    | key length | value length | expiration | header CRC | blob CRC |   key
+//    |   value   |
 //    +------------+--------------+------------+------------+----------+---------+-----------+
-//    |   Fixed64  |   Fixed64    |  Fixed64   |  Fixed32   | Fixed32  | key len | value len |
+//    |   Fixed64  |   Fixed64    |  Fixed64   |  Fixed32   | Fixed32  | key len
+//    | value len |
 //    +------------+--------------+------------+------------+----------+---------+-----------+
 //
 // If file has has_ttl = false, expiration field is always 0, and the blob

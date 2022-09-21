@@ -1656,10 +1656,10 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   UpdateVersionStorageInfo(&new_vstorage);
 
   VersionBuilder version_builder2(env_options, &ioptions_, table_cache,
-                                 &new_vstorage, version_set);
+                                  &new_vstorage, version_set);
   VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
-                                  kCompactionStyleLevel, nullptr,
-                                  true /* force_consistency_checks */);
+                                   kCompactionStyleLevel, nullptr,
+                                   true /* force_consistency_checks */);
   ASSERT_NOK(version_builder2.Apply(&version_edit));
 
   UnrefFilesInVersion(&new_vstorage);

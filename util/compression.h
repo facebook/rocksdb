@@ -49,7 +49,7 @@
 #include <zstd.h>
 #if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
 #include <zdict.h>
-#endif  // ZSTD_VERSION_NUMBER >= 10103
+#endif                            // ZSTD_VERSION_NUMBER >= 10103
 #if ZSTD_VERSION_NUMBER >= 10400  // v1.4.0+
 #define ZSTD_STREAMING
 #endif  // ZSTD_VERSION_NUMBER >= 10400
@@ -143,6 +143,7 @@ class ZSTDUncompressCachedData {
   int64_t GetCacheIndex() const { return -1; }
   void CreateIfNeeded() {}
   void InitFromCache(const ZSTDUncompressCachedData&, int64_t) {}
+
  private:
   void ignore_padding__() { padding = nullptr; }
 };
@@ -1256,7 +1257,7 @@ inline bool LZ4HC_Compress(const CompressionInfo& info,
   size_t compression_dict_size = compression_dict.size();
   if (compression_dict_data != nullptr) {
     LZ4_loadDictHC(stream, compression_dict_data,
-                  static_cast<int>(compression_dict_size));
+                   static_cast<int>(compression_dict_size));
   }
 
 #if LZ4_VERSION_NUMBER >= 10700  // r129+

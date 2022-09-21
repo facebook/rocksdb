@@ -14,6 +14,7 @@
 #include "util/work_queue.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 #include <memory>
 #include <mutex>

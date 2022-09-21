@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cassert>
+
 #include "port/likely.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/cleanable.h"
@@ -40,18 +41,17 @@ namespace ROCKSDB_NAMESPACE {
 
 template <class T>
 class CachableEntry {
-public:
+ public:
   CachableEntry() = default;
 
   CachableEntry(T* value, Cache* cache, Cache::Handle* cache_handle,
-    bool own_value)
-    : value_(value)
-    , cache_(cache)
-    , cache_handle_(cache_handle)
-    , own_value_(own_value)
-  {
+                bool own_value)
+      : value_(value),
+        cache_(cache),
+        cache_handle_(cache_handle),
+        own_value_(own_value) {
     assert(value_ != nullptr ||
-      (cache_ == nullptr && cache_handle_ == nullptr && !own_value_));
+           (cache_ == nullptr && cache_handle_ == nullptr && !own_value_));
     assert(!!cache_ == !!cache_handle_);
     assert(!cache_handle_ || !own_value_);
   }
@@ -65,7 +65,7 @@ public:
         cache_handle_(rhs.cache_handle_),
         own_value_(rhs.own_value_) {
     assert(value_ != nullptr ||
-      (cache_ == nullptr && cache_handle_ == nullptr && !own_value_));
+           (cache_ == nullptr && cache_handle_ == nullptr && !own_value_));
     assert(!!cache_ == !!cache_handle_);
     assert(!cache_handle_ || !own_value_);
 
@@ -85,7 +85,7 @@ public:
     own_value_ = rhs.own_value_;
 
     assert(value_ != nullptr ||
-      (cache_ == nullptr && cache_handle_ == nullptr && !own_value_));
+           (cache_ == nullptr && cache_handle_ == nullptr && !own_value_));
     assert(!!cache_ == !!cache_handle_);
     assert(!cache_handle_ || !own_value_);
 
@@ -94,13 +94,11 @@ public:
     return *this;
   }
 
-  ~CachableEntry() {
-    ReleaseResource();
-  }
+  ~CachableEntry() { ReleaseResource(); }
 
   bool IsEmpty() const {
     return value_ == nullptr && cache_ == nullptr && cache_handle_ == nullptr &&
-      !own_value_;
+           !own_value_;
   }
 
   bool IsCached() const {
@@ -193,22 +191,22 @@ public:
     return true;
   }
 
-private:
- void ReleaseResource() noexcept {
-   if (LIKELY(cache_handle_ != nullptr)) {
-     assert(cache_ != nullptr);
-     cache_->Release(cache_handle_);
-   } else if (own_value_) {
-     delete value_;
-   }
- }
+ private:
+  void ReleaseResource() noexcept {
+    if (LIKELY(cache_handle_ != nullptr)) {
+      assert(cache_ != nullptr);
+      cache_->Release(cache_handle_);
+    } else if (own_value_) {
+      delete value_;
+    }
+  }
 
- void ResetFields() noexcept {
-   value_ = nullptr;
-   cache_ = nullptr;
-   cache_handle_ = nullptr;
-   own_value_ = false;
- }
+  void ResetFields() noexcept {
+    value_ = nullptr;
+    cache_ = nullptr;
+    cache_handle_ = nullptr;
+    own_value_ = false;
+  }
 
   static void ReleaseCacheHandle(void* arg1, void* arg2) {
     Cache* const cache = static_cast<Cache*>(arg1);
@@ -224,7 +222,7 @@ private:
     delete static_cast<T*>(arg1);
   }
 
-private:
+ private:
   T* value_ = nullptr;
   Cache* cache_ = nullptr;
   Cache::Handle* cache_handle_ = nullptr;

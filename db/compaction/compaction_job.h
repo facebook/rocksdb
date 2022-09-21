@@ -261,12 +261,12 @@ class CompactionJob {
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
   void UpdateCompactionJobStats(
-    const InternalStats::CompactionStats& stats) const;
+      const InternalStats::CompactionStats& stats) const;
   void RecordDroppedKeys(const CompactionIterationStats& c_iter_stats,
                          CompactionJobStats* compaction_job_stats = nullptr);
 
-  void UpdateCompactionInputStatsHelper(
-      int* num_files, uint64_t* bytes_read, int input_level);
+  void UpdateCompactionInputStatsHelper(int* num_files, uint64_t* bytes_read,
+                                        int input_level);
 
   void NotifyOnSubcompactionBegin(SubcompactionState* sub_compact);
 
