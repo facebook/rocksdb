@@ -6,10 +6,7 @@ package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -37,29 +34,13 @@ public class MultiGetManyKeysTest {
   @Test
   public void multiGetAsListLarge() throws RocksDBException {
     final List<byte[]> keys = generateRandomKeys(numKeys);
+    final Map<Key, byte[]> keyValues = generateRandomKeyValues(keys, 10);
+    putKeysAndValues(keyValues);
 
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       final List<byte[]> values = db.multiGetAsList(keys);
-      assertThat(values.size()).isEqualTo(keys.size());
-    }
-  }
-
-  @Test
-  public void multiGetAsListCheckResults() throws RocksDBException {
-    try (final Options opt = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
-      final List<byte[]> keys = generateOrderedKeys(numKeys);
-      final List<byte[]> entries = generateOrderedValues(numKeys);
-      for (int i = 0; i < numKeys; i++) {
-        db.put(keys.get(i), entries.get(i));
-      }
-
-      final List<byte[]> values = db.multiGetAsList(keys);
-      assertThat(values.size()).isEqualTo(keys.size());
-      for (int i = 0; i < numKeys; i++) {
-        assertThat(values.get(i)).isEqualTo(entries.get(i));
-      }
+      assertKeysAndValues(keys, keyValues, values);
     }
   }
 
@@ -70,6 +51,8 @@ public class MultiGetManyKeysTest {
   @Test
   public void multiGetAsListLargeTransactional() throws RocksDBException {
     final List<byte[]> keys = generateRandomKeys(numKeys);
+    final Map<Key, byte[]> keyValues = generateRandomKeyValues(keys, 10);
+    putKeysAndValues(keyValues);
 
     try (final Options options = new Options().setCreateIfMissing(true);
          final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
@@ -77,29 +60,7 @@ public class MultiGetManyKeysTest {
              TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
       try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
         final List<byte[]> values = transaction.multiGetAsList(new ReadOptions(), keys);
-        assertThat(values.size()).isEqualTo(keys.size());
-      }
-    }
-  }
-
-  @Test
-  public void multiGetAsListLargeTransactionalCheckResults() throws RocksDBException {
-    final List<byte[]> keys = generateOrderedKeys(numKeys);
-
-    try (final Options options = new Options().setCreateIfMissing(true);
-         final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
-         final TransactionDB txnDB =
-             TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
-      try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
-        final List<byte[]> entries = generateOrderedValues(numKeys);
-        for (int i = 0; i < numKeys; i++) {
-          transaction.put(keys.get(i), entries.get(i));
-        }
-        final List<byte[]> values = transaction.multiGetAsList(new ReadOptions(), keys);
-        assertThat(values.size()).isEqualTo(keys.size());
-        for (int i = 0; i < numKeys; i++) {
-          assertThat(values.get(i)).isEqualTo(entries.get(i));
-        }
+        assertKeysAndValues(keys, keyValues, values);
       }
     }
   }
@@ -111,6 +72,8 @@ public class MultiGetManyKeysTest {
   @Test
   public void multiGetForUpdateAsListLargeTransactional() throws RocksDBException {
     final List<byte[]> keys = generateRandomKeys(numKeys);
+    final Map<Key, byte[]> keyValues = generateRandomKeyValues(keys, 10);
+    putKeysAndValues(keyValues);
 
     try (final Options options = new Options().setCreateIfMissing(true);
          final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
@@ -118,7 +81,7 @@ public class MultiGetManyKeysTest {
              TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
       try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
         final List<byte[]> values = transaction.multiGetForUpdateAsList(new ReadOptions(), keys);
-        assertThat(values.size()).isEqualTo(keys.size());
+        assertKeysAndValues(keys, keyValues, values);
       }
     }
   }
@@ -130,6 +93,8 @@ public class MultiGetManyKeysTest {
   @Test
   public void multiGetAsListLargeTransactionalCF() throws RocksDBException {
     final List<byte[]> keys = generateRandomKeys(numKeys);
+    final Map<Key, byte[]> keyValues = generateRandomKeyValues(keys, 10);
+    putKeysAndValues(keyValues);
 
     try (final Options options = new Options().setCreateIfMissing(true);
          final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
@@ -142,7 +107,7 @@ public class MultiGetManyKeysTest {
       try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
         final List<byte[]> values =
             transaction.multiGetAsList(new ReadOptions(), columnFamilyHandles, keys);
-        assertThat(values.size()).isEqualTo(keys.size());
+        assertKeysAndValues(keys, keyValues, values);
       }
     }
   }
@@ -154,19 +119,30 @@ public class MultiGetManyKeysTest {
   @Test
   public void multiGetForUpdateAsListLargeTransactionalCF() throws RocksDBException {
     final List<byte[]> keys = generateRandomKeys(numKeys);
+    final Map<Key, byte[]> keyValues = generateRandomKeyValues(keys, 10);
+    final ColumnFamilyDescriptor columnFamilyDescriptor =
+        new ColumnFamilyDescriptor("cfTest".getBytes());
+    putKeysAndValues(columnFamilyDescriptor, keyValues);
 
+    final List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
+    columnFamilyDescriptors.add(columnFamilyDescriptor);
+    columnFamilyDescriptors.add(new ColumnFamilyDescriptor("default".getBytes()));
+    final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
     try (final Options options = new Options().setCreateIfMissing(true);
          final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
-         final TransactionDB txnDB =
-             TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath());
-         final ColumnFamilyHandle columnFamilyHandle =
-             txnDB.createColumnFamily(new ColumnFamilyDescriptor("cfTest".getBytes()))) {
-      List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>(numKeys);
-      for (int i = 0; i < numKeys; i++) columnFamilyHandles.add(columnFamilyHandle);
+         final TransactionDB txnDB = TransactionDB.open(new DBOptions(options), txnDbOptions,
+             dbFolder.getRoot().getAbsolutePath(), columnFamilyDescriptors, columnFamilyHandles)) {
+      List<ColumnFamilyHandle> columnFamilyHandlesForMultiGet = new ArrayList<>(numKeys);
+      for (int i = 0; i < numKeys; i++)
+        columnFamilyHandlesForMultiGet.add(columnFamilyHandles.get(0));
       try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
-        final List<byte[]> values =
-            transaction.multiGetForUpdateAsList(new ReadOptions(), columnFamilyHandles, keys);
+        final List<byte[]> values = transaction.multiGetForUpdateAsList(
+            new ReadOptions(), columnFamilyHandlesForMultiGet, keys);
         assertThat(values.size()).isEqualTo(keys.size());
+        assertKeysAndValues(keys, keyValues, values);
+      }
+      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
+        columnFamilyHandle.close();
       }
     }
   }
@@ -182,20 +158,77 @@ public class MultiGetManyKeysTest {
     return keys;
   }
 
-  private List<byte[]> generateOrderedKeys(final int numKeys) {
-    final List<byte[]> keys = new ArrayList<>();
+  private Map<Key, byte[]> generateRandomKeyValues(final List<byte[]> keys, final int percent) {
+    final Random rand = new Random();
+    final Map<Key, byte[]> keyValues = new HashMap<>();
     for (int i = 0; i < numKeys; i++) {
-      byte[] key = ("key" + i + ":").getBytes();
-      keys.add(key);
+      if (rand.nextInt(100) < percent) {
+        final byte[] value = new byte[1024];
+        rand.nextBytes(value);
+        keyValues.put(new Key(keys.get(i)), value);
+      }
     }
-    return keys;
+    return keyValues;
   }
-  private List<byte[]> generateOrderedValues(final int numKeys) {
-    final List<byte[]> keys = new ArrayList<>();
-    for (int i = 0; i < numKeys; i++) {
-      byte[] key = ("value" + i + ":").getBytes();
-      keys.add(key);
+
+  private void putKeysAndValues(Map<Key, byte[]> keyValues) throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      for (Map.Entry<Key, byte[]> keyValue : keyValues.entrySet()) {
+        db.put(keyValue.getKey().get(), keyValue.getValue());
+      }
     }
-    return keys;
+  }
+
+  private void putKeysAndValues(ColumnFamilyDescriptor columnFamilyDescriptor,
+      Map<Key, byte[]> keyValues) throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+         final ColumnFamilyHandle columnFamilyHandle =
+             db.createColumnFamily(columnFamilyDescriptor)) {
+      for (Map.Entry<Key, byte[]> keyValue : keyValues.entrySet()) {
+        db.put(columnFamilyHandle, keyValue.getKey().get(), keyValue.getValue());
+      }
+    }
+  }
+
+  private void assertKeysAndValues(
+      final List<byte[]> keys, final Map<Key, byte[]> keyValues, final List<byte[]> values) {
+    assertThat(values.size()).isEqualTo(keys.size());
+    for (int i = 0; i < numKeys; i++) {
+      final Key key = new Key(keys.get(i));
+      final byte[] value = values.get(i);
+      if (keyValues.containsKey(key)) {
+        assertThat(value).isEqualTo(keyValues.get(key));
+      } else {
+        assertThat(value).isNull();
+      }
+    }
+  }
+
+  static private class Key {
+    private final byte[] bytes;
+    public Key(byte[] bytes) {
+      this.bytes = bytes;
+    }
+
+    public byte[] get() {
+      return this.bytes;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o)
+        return true;
+      if (o == null || getClass() != o.getClass())
+        return false;
+      Key key = (Key) o;
+      return Arrays.equals(bytes, key.bytes);
+    }
+
+    @Override
+    public int hashCode() {
+      return Arrays.hashCode(bytes);
+    }
   }
 }

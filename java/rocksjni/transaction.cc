@@ -315,6 +315,10 @@ jobjectArray txn_multi_get_helper(JNIEnv* env, const FnMultiGet& fn_multi_get,
       // exception thrown: OutOfMemoryError
       env->DeleteLocalRef(jk);
       free_key_values(keys_to_free);
+
+      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+      (env)->ThrowNew(exception_cls,
+                      "Insufficient Memory for CF handle array.");
       return nullptr;
     }
     env->GetByteArrayRegion(jk_ba, 0, len_key, jk_val);
