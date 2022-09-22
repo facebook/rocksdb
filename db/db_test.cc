@@ -485,42 +485,91 @@ TEST_F(DBTest, LevelLimitReopen) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, LevelReopenWithFIFO) {
+  const int kLevelCount = 4;
+  const int kKeyCount = 5;
+  const int kTotalSstFileCount = kLevelCount * kKeyCount;
+  const int kCF = 1;
+
   Options options = CurrentOptions();
+  // Config level0_file_num_compaction_trigger to prevent L0 files being
+  // automatically compacted while we are constructing a LSM tree structure
+  // to test multi-level FIFO compaction.
+  options.level0_file_num_compaction_trigger = kKeyCount + 1;
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  const std::string expected_foo_entries[] = {
-      "[ v5 ]", "[ v4, v5 ]", "[ v3, v4, v5 ]", "[ v2, v3, v4, v5 ]",
-      "[ v1, v2, v3, v4, v5 ]"};
+  // The expected number of files per level after each file creation.
+  const std::string expected_files_per_level[kLevelCount][kKeyCount] = {
+      {"0,0,0,1", "0,0,0,2", "0,0,0,3", "0,0,0,4", "0,0,0,5"},
+      {"0,0,1,5", "0,0,2,5", "0,0,3,5", "0,0,4,5", "0,0,5,5"},
+      {"0,1,5,5", "0,2,5,5", "0,3,5,5", "0,4,5,5", "0,5,5,5"},
+      {"1,5,5,5", "2,5,5,5", "3,5,5,5", "4,5,5,5", "5,5,5,5"},
+  };
 
-  const std::string expected_files_per_level[] = {"0,0,0,0,0,1", "0,0,0,0,1,1",
-                                                  "0,0,0,1,1,1", "0,0,1,1,1,1",
-                                                  "0,1,1,1,1,1"};
+  const std::string expected_entries[kKeyCount][kLevelCount + 1] = {
+      {"[ ]", "[ a3 ]", "[ a2, a3 ]", "[ a1, a2, a3 ]", "[ a0, a1, a2, a3 ]"},
+      {"[ ]", "[ b3 ]", "[ b2, b3 ]", "[ b1, b2, b3 ]", "[ b0, b1, b2, b3 ]"},
+      {"[ ]", "[ c3 ]", "[ c2, c3 ]", "[ c1, c2, c3 ]", "[ c0, c1, c2, c3 ]"},
+      {"[ ]", "[ d3 ]", "[ d2, d3 ]", "[ d1, d2, d3 ]", "[ d0, d1, d2, d3 ]"},
+      {"[ ]", "[ e3 ]", "[ e2, e3 ]", "[ e1, e2, e3 ]", "[ e0, e1, e2, e3 ]"},
+  };
 
-  // Sequentially insert "v5" "v4" "v3" "v2" "v1" with same key "foo".
-  // For each insertion, flush then into a single sst file and move to a
-  // dedicate level as the above constant vectors.
-  for (int i = 0; i < 5; ++i) {
-    int level = 5 - i;
-    ASSERT_OK(Put(1, "foo", std::string("v") + std::to_string(level)));
-    ASSERT_OK(Flush(1));
-    CheckAllEntriesWithFifoReopen(expected_foo_entries[i], "foo", 1,
-                                  {"pikachu"}, options);
-    MoveFilesToLevel(level, 1);
-    CheckAllEntriesWithFifoReopen(expected_foo_entries[i], "foo", 1,
-                                  {"pikachu"}, options);
-    ASSERT_EQ(expected_files_per_level[i], FilesPerLevel(1));
+  // The loop below creates the following LSM tree where each (k, v) pair
+  // represents a file that contains that entry.  When a file is created,
+  // the db is reopend with FIFO compaction and verified the LSM tree
+  // structure is still the same.
+  //
+  // The resulting LSM tree will contain 5 different keys.  Each key as
+  // 4 different versions, located in different level.
+  //
+  // L0:  (e, e0) (d, d0) (c, c0) (b, b0) (a, a0)
+  // L1:  (a, a1) (b, b1) (c, c1) (d, d1) (e, e1)
+  // L2:  (a, a2) (b, b2) (c, c2) (d, d2) (e, e2)
+  // L3:  (a, a3) (b, b3) (c, c3) (d, d3) (e, e3)
+  for (int l = 0; l < kLevelCount; ++l) {
+    int level = kLevelCount - 1 - l;
+    for (int p = 0; p < kKeyCount; ++p) {
+      std::string put_key = std::string(1, char('a' + p));
+      ASSERT_OK(Put(kCF, put_key, put_key + std::to_string(level)));
+      ASSERT_OK(Flush(kCF));
+      dbfull()->TEST_WaitForFlushMemTable();
+      for (int g = 0; g < kKeyCount; ++g) {
+        int entry_count = (p >= g) ? l + 1 : l;
+        std::string get_key = std::string(1, char('a' + g));
+        CheckAllEntriesWithFifoReopen(expected_entries[g][entry_count], get_key,
+                                      kCF, {"pikachu"}, options);
+      }
+      if (level != 0) {
+        MoveFilesToLevel(level, kCF);
+        for (int g = 0; g < kKeyCount; ++g) {
+          int entry_count = (p >= g) ? l + 1 : l;
+          std::string get_key = std::string(1, char('a' + g));
+          CheckAllEntriesWithFifoReopen(expected_entries[g][entry_count],
+                                        get_key, kCF, {"pikachu"}, options);
+        }
+      }
+      ASSERT_EQ(expected_files_per_level[l][p], FilesPerLevel(kCF));
+    }
   }
 
-  const std::string expected_foo_entries_after_fifo_compaction[] = {
-      "[ v1, v2, v3, v4 ]", "[ v1, v2, v3 ]", "[ v1, v2 ]", "[ v1 ]"};
+  const std::string expected_files_per_level_after_fifo[] = {
+      "5,5,5,4", "5,5,5,3", "5,5,5,2", "5,5,5,1", "5,5,5", "5,5,4", "5,5,3",
+      "5,5,2",   "5,5,1",   "5,5",     "5,4",     "5,3",   "5,2",   "5,1",
+      "5",       "4",       "3",       "2",       "1",     "",
+  };
 
-  const std::string expected_files_per_level_after_fifo_compaction[] = {
-      "0,1,1,1,1", "0,1,1,1", "0,1,1", "0,1"};
+  const std::string expected_entries_after_fifo[kKeyCount][kLevelCount + 1] = {
+      {"[ a0, a1, a2, a3 ]", "[ a0, a1, a2 ]", "[ a0, a1 ]", "[ a0 ]", "[ ]"},
+      {"[ b0, b1, b2, b3 ]", "[ b0, b1, b2 ]", "[ b0, b1 ]", "[ b0 ]", "[ ]"},
+      {"[ c0, c1, c2, c3 ]", "[ c0, c1, c2 ]", "[ c0, c1 ]", "[ c0 ]", "[ ]"},
+      {"[ d0, d1, d2, d3 ]", "[ d0, d1, d2 ]", "[ d0, d1 ]", "[ d0 ]", "[ ]"},
+      {"[ e0, e1, e2, e3 ]", "[ e0, e1, e2 ]", "[ e0, e1 ]", "[ e0 ]", "[ ]"},
+  };
 
-  // Then, we reopen the DB with fifo compaction with proper
-  // max_table_files_size that will remove one file upon compaction, and verify
-  // FIFO compaction will first delete files from older (i.e. bottom) levels.
-  for (int i = 0; i < 4; ++i) {
+  // In the 2nd phase, we reopen the DB with FIFO compaction.  In each reopen,
+  // we config max_table_files_size so that FIFO will remove exactly one file
+  // at a time upon compaction, and we will use it to verify whether the sst
+  // files are deleted in the correct order.
+  for (int i = 0; i < kTotalSstFileCount; ++i) {
     uint64_t total_sst_files_size = 0;
     ASSERT_TRUE(dbfull()->GetIntProperty(
         handles_[1], "rocksdb.total-sst-files-size", &total_sst_files_size));
@@ -531,6 +580,8 @@ TEST_F(DBTest, LevelReopenWithFIFO) {
     options.create_if_missing = false;
     fifo_options.max_open_files = -1;
     fifo_options.disable_auto_compactions = false;
+    // Config max_table_files_size to be total_sst_files_size - 1 so that
+    // FIFO will delete one file.
     fifo_options.compaction_options_fifo.max_table_files_size =
         total_sst_files_size - 1;
     ASSERT_OK(
@@ -538,10 +589,20 @@ TEST_F(DBTest, LevelReopenWithFIFO) {
     // For FIFO to pick a compaction
     ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
     ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
-    CheckAllEntriesWithFifoReopen(expected_foo_entries_after_fifo_compaction[i],
-                                  "foo", 1, {"pikachu"}, options);
-    ASSERT_EQ(expected_files_per_level_after_fifo_compaction[i],
-              FilesPerLevel(1));
+    for (int g = 0; g < kKeyCount; ++g) {
+      std::string get_key = std::string(1, char('a' + g));
+      int status_index = i / kKeyCount;
+      if ((i % kKeyCount) >= g) {
+        // If true, then it means the sst file containing the get_key in the
+        // current level has already been deleted, so we need to move the
+        // status_index for checking the expected value.
+        status_index++;
+      }
+      CheckAllEntriesWithFifoReopen(
+          expected_entries_after_fifo[g][status_index], get_key, kCF,
+          {"pikachu"}, options);
+    }
+    ASSERT_EQ(expected_files_per_level_after_fifo[i], FilesPerLevel(kCF));
   }
 }
 #endif  // !ROCKSDB_LITE

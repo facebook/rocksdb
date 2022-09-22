@@ -11,6 +11,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,18 @@ uint64_t GetTotalFilesSize(const std::vector<FileMetaData*>& files) {
   }
   return total_size;
 }
+
+// A boolean function for the priority queue that is used to pick the file
+// with oldest file_creation_time in multi-level FIFO compaction.
+bool FIFOFileCompare(FileMetaData* a, FileMetaData* b) {
+  // This function is the "less-then" function in the priority queue, and
+  // the priority queue will pop up the greater element first.  As a result,
+  // we will treat a file with bigger file_creation_time "smaller", indicating
+  // it is a younger file so that priority queue will pop the file with the
+  // oldest (numerically smallest) file_creation_time.
+  return a->file_creation_time > b->file_creation_time;
+}
+
 }  // anonymous namespace
 
 bool FIFOCompactionPicker::NeedsCompaction(
@@ -199,20 +212,52 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
   inputs.emplace_back();
   inputs[0].level = last_level;
 
-  for (auto ritr = last_level_files.rbegin(); ritr != last_level_files.rend();
-       ++ritr) {
-    auto f = *ritr;
-    total_size -= f->fd.file_size;
-    inputs[0].files.push_back(f);
-    char tmp_fsize[16];
-    AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
-    ROCKS_LOG_BUFFER(log_buffer,
-                     "[%s] FIFO compaction: picking file %" PRIu64
-                     " with size %s for deletion",
-                     cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
-    if (total_size <=
-        mutable_cf_options.compaction_options_fifo.max_table_files_size) {
-      break;
+  // If last_level is L0, then iterating the files in reverse order will allow
+  // us to evict files from old to new.
+  if (last_level == 0) {
+    for (auto ritr = last_level_files.rbegin(); ritr != last_level_files.rend();
+         ++ritr) {
+      auto f = *ritr;
+      total_size -= f->fd.file_size;
+      inputs[0].files.push_back(f);
+      char tmp_fsize[16];
+      AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] FIFO compaction: picking file %" PRIu64
+                       " with size %s for deletion",
+                       cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
+      if (total_size <=
+          mutable_cf_options.compaction_options_fifo.max_table_files_size) {
+        break;
+      }
+    }
+  } else {
+    // If last_level is not L0, then the best is to evict files based on its
+    // creation time, and we again evict the oldest files first.
+
+    std::priority_queue<FileMetaData*, std::vector<FileMetaData*>,
+                        std::function<bool(FileMetaData*, FileMetaData*)>>
+        pqueue(FIFOFileCompare);
+    for (auto iter = last_level_files.begin(); iter != last_level_files.end();
+         ++iter) {
+      pqueue.push(*iter);
+    }
+
+    while (!pqueue.empty()) {
+      auto* f = pqueue.top();
+      pqueue.pop();
+      total_size -= f->fd.file_size;
+      inputs[0].files.push_back(f);
+      char tmp_fsize[16];
+      AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] FIFO compaction: picking file %" PRIu64
+                       " with size %s for deletion",
+                       cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
+      if (total_size <=
+          mutable_cf_options.compaction_options_fifo.max_table_files_size) {
+        break;
+      }
     }
   }
 
