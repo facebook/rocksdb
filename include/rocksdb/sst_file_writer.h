@@ -149,7 +149,7 @@ class SstFileWriter {
   Status DeleteRange(const Slice& begin_key, const Slice& end_key);
 
   // Add a range deletion tombstone to currently opened file.
-  // REQUIRES: begin_key and end_key both contain or both not contain timestamp.
+  // REQUIRES: begin_key and end_key are user keys without timestamp.
   // REQUIRES: the timestamp's size is equal to what is expected by
   // the comparator.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key,

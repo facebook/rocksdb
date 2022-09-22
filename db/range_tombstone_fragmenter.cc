@@ -317,27 +317,6 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
   Invalidate();
 }
 
-void FragmentedRangeTombstoneIterator::SetMaxVisibleSeqAndTimestamp() {
-  seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
-                              tombstones_->seq_iter(pos_->seq_end_idx),
-                              upper_bound_, std::greater<SequenceNumber>());
-  if (ts_upper_bound_ && !ts_upper_bound_->empty()) {
-    auto ts_pos = std::lower_bound(tombstones_->ts_iter(pos_->seq_start_idx),
-                                   tombstones_->ts_iter(pos_->seq_end_idx),
-                                   *ts_upper_bound_,
-                                   [this](const Slice& s1, const Slice& s2) {
-                                     return ucmp_->CompareTimestamp(s1, s2) > 0;
-                                   });
-    auto ts_idx = ts_pos - tombstones_->ts_iter(pos_->seq_start_idx);
-    auto seq_idx = seq_pos_ - tombstones_->seq_iter(pos_->seq_start_idx);
-    if (seq_idx < ts_idx) {
-      // seq and ts are ordered in non-increasing order. Only updates seq_pos_
-      // to a larger index for smaller sequence number and timestamp.
-      seq_pos_ = tombstones_->seq_iter(pos_->seq_start_idx + ts_idx);
-    }
-  }
-}
-
 void FragmentedRangeTombstoneIterator::SeekToFirst() {
   pos_ = tombstones_->begin();
   seq_pos_ = tombstones_->seq_begin();

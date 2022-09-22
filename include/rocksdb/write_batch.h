@@ -150,6 +150,7 @@ class WriteBatch : public WriteBatchBase {
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) override {
     return DeleteRange(nullptr, begin_key, end_key);
   }
+  // begin_key and end_key should be user keys without timestamp.
   Status DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
                      const Slice& end_key, const Slice& ts) override;
 

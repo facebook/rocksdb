@@ -172,7 +172,7 @@ struct SstFileWriter::Rep {
     return DeleteRangeImpl(begin_key, end_key);
   }
 
-  // begin_key and end_key should both contain or not contain timestamp.
+  // begin_key and end_key should be users keys without timestamp.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key,
                      const Slice& timestamp) {
     const size_t timestamp_size = timestamp.size();

@@ -333,9 +333,9 @@ class InternalKey {
     SetFrom(ParsedInternalKey(_user_key, s, t));
   }
 
-  void Set(const Slice& _user_key, SequenceNumber s, ValueType t,
+  void Set(const Slice& _user_key_with_ts, SequenceNumber s, ValueType t,
            const Slice& ts) {
-    ParsedInternalKey pik = ParsedInternalKey(_user_key, s, t);
+    ParsedInternalKey pik = ParsedInternalKey(_user_key_with_ts, s, t);
     // Should not call pik.SetTimestamp() directly as it overwrites the buffer
     // containing _user_key.
     SetFrom(pik, ts);
@@ -540,7 +540,8 @@ class IterKey {
 
   bool IsKeyPinned() const { return (key_ != buf_); }
 
-  // ts is appended to user_key if provided.
+  // If `ts` is provided, user_key should not contain timestamp,
+  // and `ts` is appended after user_key.
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
                       SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,

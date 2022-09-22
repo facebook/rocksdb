@@ -328,7 +328,26 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   // upper bound `ts_upper_bound_` and sequence number upper bound
   // `upper_bound_`. Update the sequence number (and timestamp) pointer
   // `seq_pos_` to the first valid position satisfying both bounds.
-  inline void SetMaxVisibleSeqAndTimestamp();
+  void SetMaxVisibleSeqAndTimestamp() {
+    seq_pos_ = std::lower_bound(tombstones_->seq_iter(pos_->seq_start_idx),
+                                tombstones_->seq_iter(pos_->seq_end_idx),
+                                upper_bound_, std::greater<SequenceNumber>());
+    if (ts_upper_bound_ && !ts_upper_bound_->empty()) {
+      auto ts_pos = std::lower_bound(
+          tombstones_->ts_iter(pos_->seq_start_idx),
+          tombstones_->ts_iter(pos_->seq_end_idx), *ts_upper_bound_,
+          [this](const Slice& s1, const Slice& s2) {
+            return ucmp_->CompareTimestamp(s1, s2) > 0;
+          });
+      auto ts_idx = ts_pos - tombstones_->ts_iter(pos_->seq_start_idx);
+      auto seq_idx = seq_pos_ - tombstones_->seq_iter(pos_->seq_start_idx);
+      if (seq_idx < ts_idx) {
+        // seq and ts are ordered in non-increasing order. Only updates seq_pos_
+        // to a larger index for smaller sequence number and timestamp.
+        seq_pos_ = tombstones_->seq_iter(pos_->seq_start_idx + ts_idx);
+      }
+    }
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE
