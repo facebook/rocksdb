@@ -1165,7 +1165,7 @@ Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
     UncompressionContext context(compression_type);
     UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
                            compression_type);
-    Status s = UncompressBlockContentsForCompressionType(
+    Status s = UncompressBlockData(
         info, compressed_value.data(), compressed_value.size(), &contents,
         kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
     if (!s.ok()) {
