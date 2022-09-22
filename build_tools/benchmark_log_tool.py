@@ -98,7 +98,7 @@ class BenchmarkUtils:
         # e.g. 2022-07-1T00:14:55 should be 2022-07-01T00:14:55
         row["test_date"] = dt.isoformat()
         row["date"] = dt.isoformat()
-        return {key.replace(".", "_") : value for key, value in row.items()}
+        return {key.replace(".", "_"): value for key, value in row.items()}
 
 
 class ResultParser:
@@ -141,7 +141,9 @@ class ResultParser:
                         row.append("")
                     line = line[len(intra) :]
                 else:
-                    raise BenchmarkResultException("Invalid TSV line", f"{line_in} at {line}")
+                    raise BenchmarkResultException(
+                        "Invalid TSV line", f"{line_in} at {line}"
+                    )
         return row
 
     def parse(self, lines):
