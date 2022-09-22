@@ -289,7 +289,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     if (!io_s.ok()) {
       break;
     }
-    // create the uncompressed_block based on the information in the dump_unit
+    // Create the uncompressed_block based on the information in the dump_unit
     // (There is no block trailer here compatible with block-based SST file.)
     BlockContents uncompressed_block(
         Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len));
