@@ -1225,7 +1225,7 @@ class BlockCountingTablePropertiesCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  void BlockAdd(uint64_t /* block_raw_bytes */,
+  void BlockAdd(uint64_t /* block_uncomp_bytes */,
                 uint64_t block_compressed_bytes_fast,
                 uint64_t block_compressed_bytes_slow) override {
     if (block_compressed_bytes_fast > 0 || block_compressed_bytes_slow > 0) {
