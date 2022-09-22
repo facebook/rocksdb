@@ -552,15 +552,7 @@ class DBImpl : public DB {
   using DB::StartTrace;
   virtual Status StartTrace(
       const TraceOptions& options,
-      std::unique_ptr<TraceWriter>&& trace_writer) override {
-    std::list<WriteBatch*> initial_traced_contents;
-    return StartTrace(options, std::move(trace_writer),
-                      initial_traced_contents);
-  }
-
-  Status StartTrace(const TraceOptions& options,
-                    std::unique_ptr<TraceWriter>&& trace_writer,
-                    const std::list<WriteBatch*>& initial_traced_contents);
+      std::unique_ptr<TraceWriter>&& trace_writer) override;
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
@@ -1432,14 +1424,13 @@ class DBImpl : public DB {
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr,
-                   PostMemTableCallback* post_memtable_callback = nullptr,
-                   int64_t txn_id = -1);
+                   PostMemTableCallback* post_memtable_callback = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false,
-                            uint64_t* seq_used = nullptr, int64_t txn_id = -1);
+                            uint64_t* seq_used = nullptr);
 
   // Write only to memtables without joining any write queue
   Status UnorderedWriteMemtable(const WriteOptions& write_options,
@@ -1461,15 +1452,12 @@ class DBImpl : public DB {
   // of the write batch that does not have duplicate keys. When seq_per_batch is
   // not set, each key is a separate sub_batch. Otherwise each duplicate key
   // marks start of a new sub-batch.
-  Status WriteImplWALOnly(WriteThread* write_thread,
-                          const WriteOptions& options, WriteBatch* updates,
-                          WriteCallback* callback, uint64_t* log_used,
-                          const uint64_t log_ref, uint64_t* seq_used,
-                          const size_t sub_batch_cnt,
-                          PreReleaseCallback* pre_release_callback,
-                          const AssignOrder assign_order,
-                          const PublishLastSeq publish_last_seq,
-                          const bool disable_memtable, int64_t txn_id = -1);
+  Status WriteImplWALOnly(
+      WriteThread* write_thread, const WriteOptions& options,
+      WriteBatch* updates, WriteCallback* callback, uint64_t* log_used,
+      const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
+      PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
+      const PublishLastSeq publish_last_seq, const bool disable_memtable);
 
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_

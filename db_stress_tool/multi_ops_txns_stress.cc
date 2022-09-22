@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db_stress_common.h"
 #ifdef GFLAGS
 #include "db_stress_tool/multi_ops_txns_stress.h"
 
@@ -329,6 +330,10 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_enable_compaction_filter) {
     // TODO (yanqin) enable compaction filter
   }
+#ifndef ROCKSDB_LITE
+  ProcessRecoveredPreparedTxns(shared);
+#endif
+
   ReopenAndPreloadDbIfNeeded(shared);
   // TODO (yanqin) parallelize if key space is large
   for (auto& key_gen : key_gen_for_a_) {
@@ -1353,6 +1358,18 @@ uint32_t MultiOpsTxnsStressTest::GenerateNextC(ThreadState* thread) {
 }
 
 #ifndef ROCKSDB_LITE
+void MultiOpsTxnsStressTest::ProcessRecoveredPreparedTxnsHelper(
+    Transaction* txn, SharedState*) {
+  thread_local Random rand(static_cast<uint32_t>(FLAGS_seed));
+  if (rand.OneIn(2)) {
+    Status s = txn->Commit();
+    assert(s.ok());
+  } else {
+    Status s = txn->Rollback();
+    assert(s.ok());
+  }
+}
+
 Status MultiOpsTxnsStressTest::WriteToCommitTimeWriteBatch(Transaction& txn) {
   WriteBatch* ctwb = txn.GetCommitTimeWriteBatch();
   assert(ctwb);
@@ -1775,6 +1792,12 @@ void CheckAndSetOptionsForMultiOpsTxnStressTest() {
               "write-prepared/write-unprepared transactions\n");
       exit(1);
     }
+  }
+  if (FLAGS_sync_fault_injection == 1) {
+    fprintf(stderr,
+            "Sync fault injection is currently not supported in "
+            "-test_multi_ops_txns\n");
+    exit(1);
   }
 #else
   fprintf(stderr, "-test_multi_ops_txns not supported in ROCKSDB_LITE mode\n");

@@ -5707,21 +5707,12 @@ void DBImpl::WaitForIngestFile() {
   }
 }
 
-Status DBImpl::StartTrace(
-    const TraceOptions& trace_options,
-    std::unique_ptr<TraceWriter>&& trace_writer,
-    const std::list<WriteBatch*>& initial_traced_contents) {
+Status DBImpl::StartTrace(const TraceOptions& trace_options,
+                          std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock(&trace_mutex_);
-  Status s = Status::OK();
   tracer_.reset(new Tracer(immutable_db_options_.clock, trace_options,
                            std::move(trace_writer)));
-  for (auto content : initial_traced_contents) {
-    s = tracer_->Write(content);
-    if (!s.ok()) {
-      break;
-    }
-  }
-  return s;
+  return Status::OK();
 }
 
 Status DBImpl::EndTrace() {

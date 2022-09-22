@@ -75,9 +75,6 @@ bool RunStressTest(StressTest* stress) {
 
   stress->InitDb(&shared);
   stress->FinishInitDb(&shared);
-  if (FLAGS_use_txn) {
-    stress->ProcessRecoveredPreparedTxns();
-  }
 
   if (FLAGS_sync_fault_injection) {
     fault_fs_guard->SetFilesystemDirectWritable(false);
@@ -144,25 +141,9 @@ bool RunStressTest(StressTest* stress) {
       }
     }
 
-    std::list<WriteBatch*> initial_tracked_contents;
-#ifndef ROCKSDB_LITE
-    // stress->GetInitialTrackedContents(&initial_tracked_contents);
-#endif
     // This is after the verification step to avoid making all those `Get()`s
     // and `MultiGet()`s contend on the DB-wide trace mutex.
-    stress->TrackExpectedState(&shared, initial_tracked_contents);
-#ifndef ROCKSDB_LITE
-    // if (FLAGS_use_txn) {
-    // stress->ProcessRecoveredPreparedTxns();
-    // A hack s.t stress->VerifyOrSyncValue() is called and update the
-    // ExpectedState for the committed transaction above
-    // shared.SetStartVerify();
-    // shared.GetCondVar()->SignalAll();
-    // while (!shared.AllDone()) {
-    //   shared.GetCondVar()->Wait();
-    // }
-    // }
-#endif
+    stress->TrackExpectedState(&shared);
 
     now = clock->NowMicros();
     fprintf(stdout, "%s Starting database operations\n",

@@ -215,10 +215,8 @@ class SharedState {
     }
   }
 
-  Status SaveAtAndAfter(
-      DB* db, const std::list<WriteBatch*>& initial_tracked_contents = {}) {
-    return expected_state_manager_->SaveAtAndAfter(db,
-                                                   initial_tracked_contents);
+  Status SaveAtAndAfter(DB* db) {
+    return expected_state_manager_->SaveAtAndAfter(db);
   }
 
   bool HasHistory() { return expected_state_manager_->HasHistory(); }

@@ -138,7 +138,6 @@ class WriteThread {
     std::aligned_storage<sizeof(std::condition_variable)>::type state_cv_bytes;
     Writer* link_older;  // read/write only before linking, or as leader
     Writer* link_newer;  // lazy, read/write only before linking, or as leader
-    int64_t txn_id_ = -1;
 
     Writer()
         : batch(nullptr),
@@ -165,8 +164,7 @@ class WriteThread {
            WriteCallback* _callback, uint64_t _log_ref, bool _disable_memtable,
            size_t _batch_cnt = 0,
            PreReleaseCallback* _pre_release_callback = nullptr,
-           PostMemTableCallback* _post_memtable_callback = nullptr,
-           int64_t txn_id = -1)
+           PostMemTableCallback* _post_memtable_callback = nullptr)
         : batch(_batch),
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
@@ -185,8 +183,7 @@ class WriteThread {
           write_group(nullptr),
           sequence(kMaxSequenceNumber),
           link_older(nullptr),
-          link_newer(nullptr),
-          txn_id_(txn_id) {}
+          link_newer(nullptr) {}
 
     ~Writer() {
       if (made_waitable) {

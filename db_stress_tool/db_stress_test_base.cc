@@ -310,7 +310,15 @@ void StressTest::FinishInitDb(SharedState* shared) {
       exit(1);
     }
   }
-
+#ifndef ROCKSDB_LITE
+  if (FLAGS_use_txn) {
+    // It's OK here without sync because unsynced data cannot be lost at this
+    // point
+    // - even with sync_fault_injection=1 as the
+    // file is still directly writable until after FinishInitDb()
+    ProcessRecoveredPreparedTxns(shared);
+  }
+#endif
   if (FLAGS_enable_compaction_filter) {
     auto* compaction_filter_factory =
         reinterpret_cast<DbStressCompactionFilterFactory*>(
@@ -325,58 +333,9 @@ void StressTest::FinishInitDb(SharedState* shared) {
   }
 }
 
-#ifndef ROCKSDB_LITE
-Status StressTest::GetInitialTrackedContents(
-    std::list<WriteBatch*>* initial_tracked_contents) {
-  Status s = Status::OK();
-  assert(initial_tracked_contents);
-
-  if (FLAGS_use_txn &&
-      FLAGS_txn_write_policy ==
-          static_cast<uint64_t>(TxnDBWritePolicy::WRITE_COMMITTED)) {
-    // For stress testing on write-committeed transactions,
-    // the trace of a recovered prepared-not-committeed transaction
-    // will be split into two parts:
-    //
-    // (1) the trace of prepared content, located in .trace file of
-    // previous stress-test run
-    // and deleted upon the current run.
-    // (2) the trace of commit/roll-back, which will be added to
-    // the .trace file of the current stress-test run
-    // in ProcessRecoveredPreparedTxns().
-    //
-    // In order for such transaction to survive a crash and recover
-    // correctly in the next stress-test run, we need to explicitly
-    // add the deleted part (1) into initial tracked contents of
-    // the .trace file where part(2) will be located.
-    assert(txn_db_);
-
-    std::vector<Transaction*> trans;
-    txn_db_->GetAllPreparedTransactions(&trans);
-
-    for (auto txn : trans) {
-      WriteBatch* prepared_write_batch = txn->GetWriteBatch()->GetWriteBatch();
-      std::string txn_name_str = txn->GetName();
-      Slice txn_name(txn_name_str);
-      s = WriteBatchInternal::MarkEndPrepare(prepared_write_batch, txn_name,
-                                             true /* write_after_commit */,
-                                             false /* unprepared_batch */);
-      if (!s.ok()) {
-        break;
-      }
-      initial_tracked_contents->push_back(prepared_write_batch);
-    }
-  }
-
-  return s;
-}
-#endif
-
-void StressTest::TrackExpectedState(
-    SharedState* shared,
-    const std::list<WriteBatch*>& initial_tracked_contents) {
+void StressTest::TrackExpectedState(SharedState* shared) {
   if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
-    Status s = shared->SaveAtAndAfter(db_, initial_tracked_contents);
+    Status s = shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
               s.ToString().c_str());
@@ -384,28 +343,6 @@ void StressTest::TrackExpectedState(
     }
   }
 }
-
-#ifndef ROCKSDB_LITE
-void StressTest::ProcessRecoveredPreparedTxns() {
-  assert(txn_db_);
-  std::vector<Transaction*> recovered_prepared_trans;
-  txn_db_->GetAllPreparedTransactions(&recovered_prepared_trans);
-  Random rand(static_cast<uint32_t>(FLAGS_seed));
-  for (auto txn : recovered_prepared_trans) {
-    if (rand.OneIn(2)) {
-      Status s = txn->Commit();
-      assert(s.ok());
-    } else {
-      Status s = txn->Rollback();
-      assert(s.ok());
-    }
-    delete txn;
-  }
-  recovered_prepared_trans.clear();
-  txn_db_->GetAllPreparedTransactions(&recovered_prepared_trans);
-  assert(recovered_prepared_trans.size() == 0);
-}
-#endif
 
 Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
                               ThreadState::SnapshotState& snap_state) {
@@ -627,6 +564,42 @@ Status StressTest::SetOptions(ThreadState* thread) {
 }
 
 #ifndef ROCKSDB_LITE
+void StressTest::ProcessRecoveredPreparedTxns(SharedState* shared) {
+  assert(txn_db_);
+  std::vector<Transaction*> recovered_prepared_trans;
+  txn_db_->GetAllPreparedTransactions(&recovered_prepared_trans);
+  for (Transaction* txn : recovered_prepared_trans) {
+    ProcessRecoveredPreparedTxnsHelper(txn, shared);
+    delete txn;
+  }
+  recovered_prepared_trans.clear();
+  txn_db_->GetAllPreparedTransactions(&recovered_prepared_trans);
+  assert(recovered_prepared_trans.size() == 0);
+}
+
+void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
+                                                    SharedState* shared) {
+  thread_local Random rand(static_cast<uint32_t>(FLAGS_seed));
+  for (size_t i = 0; i < column_families_.size(); ++i) {
+    std::unique_ptr<WBWIIterator> wbwi_iter(
+        txn->GetWriteBatch()->NewIterator(column_families_[i]));
+    for (wbwi_iter->SeekToFirst(); wbwi_iter->Valid(); wbwi_iter->Next()) {
+      uint64_t key_val;
+      if (GetIntVal(wbwi_iter->Entry().key.ToString(), &key_val)) {
+        shared->Put(static_cast<int>(i) /* cf_idx */, key_val, 0 /* ts */,
+                    true /* pending */);
+      }
+    }
+  }
+  if (rand.OneIn(2)) {
+    Status s = txn->Commit();
+    assert(s.ok());
+  } else {
+    Status s = txn->Rollback();
+    assert(s.ok());
+  }
+}
+
 Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
