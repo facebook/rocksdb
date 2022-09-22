@@ -343,13 +343,20 @@ Status CloudEnvImpl::NewWritableFile(const std::string& logical_fname,
 
   if (HasDestBucket() && (sstfile || identity || manifest)) {
     std::unique_ptr<CloudStorageWritableFile> f;
-    GetStorageProvider()->NewCloudWritableFile(fname, GetDestBucketName(),
+    s = GetStorageProvider()->NewCloudWritableFile(fname, GetDestBucketName(),
                                                destname(fname), &f, options);
+    if (!s.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[%s] NewWritableFile fails while NewCloudWritableFile, src %s %s",
+          Name(), fname.c_str(), s.ToString().c_str());
+      return s;
+    }
     s = f->status();
     if (!s.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[%s] NewWritableFile src %s %s", Name(), fname.c_str(),
-          s.ToString().c_str());
+          "[%s] NewWritableFile fails; unexpected WritableFile Status, src %s "
+          "%s",
+          Name(), fname.c_str(), s.ToString().c_str());
       return s;
     }
     result->reset(f.release());
