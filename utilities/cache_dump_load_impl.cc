@@ -39,12 +39,9 @@ Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
       // We only want to save cache entries that are portable to another
       // DB::Open, so only save entries with stable keys.
       bool is_stable;
-      // WART: if the file is extremely large (> kMaxFileSizeStandardEncoding)
-      // then the prefix will be different. But this should not be a concern
-      // in practice because that limit is currently 4TB on a single file.
-      BlockBasedTable::SetupBaseCacheKey(
-          id->second.get(), /*cur_db_session_id*/ "", /*cur_file_num*/ 0,
-          /*file_size*/ 42, &base, &is_stable);
+      BlockBasedTable::SetupBaseCacheKey(id->second.get(),
+                                         /*cur_db_session_id*/ "",
+                                         /*cur_file_num*/ 0, &base, &is_stable);
       if (is_stable) {
         Slice prefix_slice = base.CommonPrefixSlice();
         assert(prefix_slice.size() == OffsetableCacheKey::kCommonPrefixSize);

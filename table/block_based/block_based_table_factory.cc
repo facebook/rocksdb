@@ -416,6 +416,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, initial_auto_readahead_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"num_file_reads_for_auto_readahead",
+         {offsetof(struct BlockBasedTableOptions,
+                   num_file_reads_for_auto_readahead),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 
 #endif  // ROCKSDB_LITE
 };
@@ -454,6 +459,7 @@ void BlockBasedTableFactory::InitializeOptions() {
     // It makes little sense to pay overhead for mid-point insertion while the
     // block size is only 8MB.
     co.high_pri_pool_ratio = 0.0;
+    co.low_pri_pool_ratio = 0.0;
     table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||
@@ -622,8 +628,8 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
       table_reader_options.block_cache_tracer,
       table_reader_options.max_file_size_for_l0_meta_pin,
-      table_reader_options.cur_db_session_id,
-      table_reader_options.cur_file_num);
+      table_reader_options.cur_db_session_id, table_reader_options.cur_file_num,
+      table_reader_options.unique_id);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -892,6 +898,10 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize,
            "  initial_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
            table_options_.initial_auto_readahead_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  num_file_reads_for_auto_readahead: %" PRIu64 "\n",
+           table_options_.num_file_reads_for_auto_readahead);
   ret.append(buffer);
   return ret;
 }

@@ -72,6 +72,14 @@ commands:
           path: /tmp/core_dumps
           when: on_fail
 
+  upgrade-cmake:
+    steps:
+      - run:
+          name: Upgrade cmake
+          command: |
+            sudo apt remove --purge cmake
+            sudo snap install cmake --classic
+
   install-gflags:
     steps:
       - run:
@@ -93,6 +101,13 @@ commands:
           command: |
             make checkout_folly
 
+  build-folly:
+    steps:
+      - run:
+          name: Build folly and dependencies
+          command: |
+            make build_folly
+
   build-for-benchmarks:
     steps:
       - pre-steps
@@ -105,14 +120,23 @@ commands:
     steps:
       - run:
           name: "Test low-variance benchmarks"
-          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 50000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
             # How long to run parts of the test(s)
-            DURATION_RO: 450
-            DURATION_RW: 450
+            DURATION_RO: 400
+            DURATION_RW: 700
+            # Keep threads within physical capacity of server (much lower than default)
+            NUM_THREADS: 1
+            MAX_BACKGROUND_JOBS: 3
+            # Don't run a couple of "optional" initial tests
+            CI_TESTS_ONLY: "true"
+            # Reduce configured size of levels to ensure more levels in the leveled compaction LSM tree
+            WRITE_BUFFER_SIZE_MB: 16
+            TARGET_FILE_SIZE_BASE_MB: 16
+            MAX_BYTES_FOR_LEVEL_BASE_MB: 64
             # The benchmark host has 32GB memory
-            # The folllowing values are tailored to work with that
+            # The following values are tailored to work with that
             # Note, tests may not exercise the targeted issues if the memory is increased on new test hosts.
 
 
@@ -149,7 +173,7 @@ executors:
       # to run the CI image environment locally:
       #  $ docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -it zjay437/rocksdb:0.5 bash
       # option `--cap-add=SYS_PTRACE --security-opt seccomp=unconfined` is used to enable gdb to attach an existing process
-      - image: zjay437/rocksdb:0.5
+      - image: zjay437/rocksdb:0.6
 
 jobs:
   build-macos:
@@ -346,7 +370,17 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
-      - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20)
+      - build-folly
+      - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
+      - post-steps
+
+  build-linux-cmake-with-folly-lite-no-test:
+    executor: linux-docker
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - setup-folly
+      - run: (mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)
       - post-steps
 
   build-linux-cmake-with-benchmark:
@@ -376,7 +410,17 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
+      - build-folly
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+      - post-steps
+
+  build-linux-gcc-7-with-folly-lite-no-test:
+    executor: linux-docker
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - setup-folly
+      - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
       - post-steps
 
   build-linux-gcc-8-no_test_run:
@@ -385,6 +429,19 @@ jobs:
     steps:
       - pre-steps
       - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
+      - post-steps
+
+  build-linux-cmake-with-folly-coroutines:
+    executor: linux-docker
+    resource_class: 2xlarge
+    environment:
+      CC: gcc-10
+      CXX: g++-10
+    steps:
+      - pre-steps
+      - setup-folly
+      - build-folly
+      - run: (mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
@@ -418,6 +475,7 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
+      - build-folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
 
@@ -435,7 +493,7 @@ jobs:
     resource_class: large
     steps:
       - pre-steps
-      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
+      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000' blackbox_crash_test_with_atomic_flush
       - post-steps
 
   build-linux-crashtest-tiered-storage-bb:
@@ -584,6 +642,7 @@ jobs:
       - run:
           name: "Test RocksDBJava"
           command: make V=1 J=16 -j16 jtest
+          no_output_timeout: 20m
       - post-steps
 
   build-macos-java-static:
@@ -608,6 +667,7 @@ jobs:
       - run:
           name: "Build RocksDBJava x86 and ARM Static Libraries"
           command: make V=1 J=16 -j16 rocksdbjavastaticosx
+          no_output_timeout: 20m
       - post-steps
 
   build-macos-java-static-universal:
@@ -632,6 +692,7 @@ jobs:
       - run:
           name: "Build RocksDBJava Universal Binary Static Library"
           command: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
+          no_output_timeout: 20m
       - post-steps
 
   build-examples:
@@ -765,7 +826,10 @@ workflows:
     jobs:
       - build-linux
       - build-linux-cmake-with-folly
+      - build-linux-cmake-with-folly-lite-no-test
       - build-linux-gcc-7-with-folly
+      - build-linux-gcc-7-with-folly-lite-no-test
+      - build-linux-cmake-with-folly-coroutines
       - build-linux-cmake-with-benchmark
       - build-linux-encrypted_env-no_compression
       - build-linux-lite

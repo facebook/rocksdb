@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -526,7 +527,6 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
 void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
                                         const std::string& cur_db_session_id,
                                         uint64_t cur_file_number,
-                                        uint64_t file_size,
                                         OffsetableCacheKey* out_base_cache_key,
                                         bool* out_is_stable) {
   // Use a stable cache key if sufficient data is in table properties
@@ -570,8 +570,7 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
 
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
   // from offsets. See GetCacheKey.
-  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num,
-                                           /*max_offset*/ file_size >> 2);
+  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num);
 }
 
 CacheKey BlockBasedTable::GetCacheKey(const OffsetableCacheKey& base_cache_key,
@@ -595,7 +594,7 @@ Status BlockBasedTable::Open(
     TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer,
     size_t max_file_size_for_l0_meta_pin, const std::string& cur_db_session_id,
-    uint64_t cur_file_num) {
+    uint64_t cur_file_num, UniqueId64x2 expected_unique_id) {
   table_reader->reset();
 
   Status s;
@@ -604,7 +603,7 @@ Status BlockBasedTable::Open(
 
   // From read_options, retain deadline, io_timeout, and rate_limiter_priority.
   // In future, we may retain more
-  // options. Specifically, w ignore verify_checksums and default to
+  // options. Specifically, we ignore verify_checksums and default to
   // checksum verification anyway when creating the index and filter
   // readers.
   ReadOptions ro;
@@ -689,6 +688,53 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
+
+  // Check expected unique id if provided
+  if (expected_unique_id != kNullUniqueId64x2) {
+    auto props = rep->table_properties;
+    if (!props) {
+      return Status::Corruption("Missing table properties on file " +
+                                std::to_string(cur_file_num) +
+                                " with known unique ID");
+    }
+    UniqueId64x2 actual_unique_id{};
+    s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                               props->orig_file_number, &actual_unique_id,
+                               /*force*/ true);
+    assert(s.ok());  // because force=true
+    if (expected_unique_id != actual_unique_id) {
+      return Status::Corruption(
+          "Mismatch in unique ID on table file " +
+          std::to_string(cur_file_num) +
+          ". Expected: " + InternalUniqueIdToHumanString(&expected_unique_id) +
+          " Actual: " + InternalUniqueIdToHumanString(&actual_unique_id));
+    }
+    TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::PassedVerifyUniqueId",
+                             &actual_unique_id);
+  } else {
+    TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::SkippedVerifyUniqueId",
+                             nullptr);
+    if (ioptions.verify_sst_unique_id_in_manifest && ioptions.logger) {
+      // A crude but isolated way of reporting unverified files. This should not
+      // be an ongoing concern so doesn't deserve a place in Statistics IMHO.
+      static std::atomic<uint64_t> unverified_count{0};
+      auto prev_count =
+          unverified_count.fetch_add(1, std::memory_order_relaxed);
+      if (prev_count == 0) {
+        ROCKS_LOG_WARN(
+            ioptions.logger,
+            "At least one SST file opened without unique ID to verify: %" PRIu64
+            ".sst",
+            cur_file_num);
+      } else if (prev_count % 1000 == 0) {
+        ROCKS_LOG_WARN(
+            ioptions.logger,
+            "Another ~1000 SST files opened without unique ID to verify");
+      }
+    }
+  }
+
+  // Set up prefix extracto as needed
   bool force_null_table_prefix_extractor = false;
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
@@ -722,7 +768,7 @@ Status BlockBasedTable::Open(
 
   // With properties loaded, we can set up portable/stable cache keys
   SetupBaseCacheKey(rep->table_properties.get(), cur_db_session_id,
-                    cur_file_num, file_size, &rep->base_cache_key);
+                    cur_file_num, &rep->base_cache_key);
 
   rep->persistent_cache_options =
       PersistentCacheOptions(rep->table_options.persistent_cache,
@@ -1259,12 +1305,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   Statistics* statistics = rep_->ioptions.statistics.get();
   bool using_zstd = rep_->blocks_definitely_zstd_compressed;
   const FilterPolicy* filter_policy = rep_->filter_policy;
-  CacheCreateCallback<TBlocklike> callback(read_amp_bytes_per_bit, statistics,
-                                           using_zstd, filter_policy);
-  // avoid dynamic memory allocation by using the reference (std::ref) of the
-  // callback. Otherwise, binding a functor to std::function will allocate extra
-  // memory from heap.
-  Cache::CreateCallback create_cb(std::ref(callback));
+  Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
+      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
@@ -1294,11 +1336,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   BlockContents contents;
   if (rep_->ioptions.lowest_used_cache_tier ==
       CacheTier::kNonVolatileBlockTier) {
-    CacheCreateCallback<BlockContents> special_callback(
+    Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
         read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
-    // avoid dynamic memory allocation by using the reference (std::ref) of the
-    // callback. Make sure the callback is only used within this code block.
-    Cache::CreateCallback create_cb_special(std::ref(special_callback));
     block_cache_compressed_handle = block_cache_compressed->Lookup(
         cache_key,
         BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),

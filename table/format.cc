@@ -390,6 +390,10 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
   if (footer_input.size() < Footer::kMinEncodedLength) {
+    // FIXME: this error message is bad. We should be checking whether the
+    // provided file_size matches what's on disk, at least in this case.
+    // Unfortunately FileSystem/Env does not provide a way to get the size
+    // of an open file, so getting file size requires a full path seek.
     return Status::Corruption("file is too short (" +
                               std::to_string(file_size) +
                               " bytes) to be an "

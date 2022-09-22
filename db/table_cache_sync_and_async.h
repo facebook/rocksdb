@@ -18,8 +18,8 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
 (const ReadOptions& options, const InternalKeyComparator& internal_comparator,
  const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
  const std::shared_ptr<const SliceTransform>& prefix_extractor,
- HistogramImpl* file_read_hist, bool skip_filters, int level,
- Cache::Handle* table_handle) {
+ HistogramImpl* file_read_hist, bool skip_filters, bool skip_range_deletions,
+ int level, Cache::Handle* table_handle) {
   auto& fd = file_meta.fd;
   Status s;
   TableReader* t = fd.table_reader;
@@ -67,8 +67,8 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
   if (s.ok() && !table_range.empty()) {
     if (t == nullptr) {
       assert(handle == nullptr);
-      s = FindTable(options, file_options_, internal_comparator, fd, &handle,
-                    prefix_extractor,
+      s = FindTable(options, file_options_, internal_comparator, file_meta,
+                    &handle, prefix_extractor,
                     options.read_tier == kBlockCacheTier /* no_io */,
                     true /* record_read_stats */, file_read_hist, skip_filters,
                     level, true /* prefetch_index_and_filter_in_cache */,
@@ -79,7 +79,7 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
         assert(t);
       }
     }
-    if (s.ok() && !options.ignore_range_deletions) {
+    if (s.ok() && !options.ignore_range_deletions && !skip_range_deletions) {
       UpdateRangeTombstoneSeqnums(options, t, table_range);
     }
     if (s.ok()) {

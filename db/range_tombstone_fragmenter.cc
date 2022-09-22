@@ -67,8 +67,8 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
                         unfragmented_tombstones->value().size());
   }
   // VectorIterator implicitly sorts by key during construction.
-  auto iter = std::unique_ptr<VectorIterator>(
-      new VectorIterator(std::move(keys), std::move(values), &icmp));
+  auto iter = std::make_unique<VectorIterator>(std::move(keys),
+                                               std::move(values), &icmp);
   FragmentTombstones(std::move(iter), icmp, for_compaction, snapshots);
 }
 
@@ -245,6 +245,22 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
       ucmp_(icmp.user_comparator()),
       tombstones_ref_(tombstones),
       tombstones_(tombstones_ref_.get()),
+      upper_bound_(_upper_bound),
+      lower_bound_(_lower_bound) {
+  assert(tombstones_ != nullptr);
+  Invalidate();
+}
+
+FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
+    const std::shared_ptr<FragmentedRangeTombstoneListCache>& tombstones_cache,
+    const InternalKeyComparator& icmp, SequenceNumber _upper_bound,
+    SequenceNumber _lower_bound)
+    : tombstone_start_cmp_(icmp.user_comparator()),
+      tombstone_end_cmp_(icmp.user_comparator()),
+      icmp_(&icmp),
+      ucmp_(icmp.user_comparator()),
+      tombstones_cache_ref_(tombstones_cache),
+      tombstones_(tombstones_cache_ref_->tombstones.get()),
       upper_bound_(_upper_bound),
       lower_bound_(_lower_bound) {
   assert(tombstones_ != nullptr);
@@ -433,9 +449,8 @@ FragmentedRangeTombstoneIterator::SplitBySnapshot(
       upper = snapshots[i];
     }
     if (tombstones_->ContainsRange(lower, upper)) {
-      splits.emplace(upper, std::unique_ptr<FragmentedRangeTombstoneIterator>(
-                                new FragmentedRangeTombstoneIterator(
-                                    tombstones_, *icmp_, upper, lower)));
+      splits.emplace(upper, std::make_unique<FragmentedRangeTombstoneIterator>(
+                                tombstones_, *icmp_, upper, lower));
     }
     lower = upper + 1;
   }

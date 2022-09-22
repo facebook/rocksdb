@@ -105,14 +105,15 @@ int MemTableList::NumFlushed() const {
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
+                              PinnableWideColumns* columns,
                               std::string* timestamp, Status* s,
                               MergeContext* merge_context,
                               SequenceNumber* max_covering_tombstone_seq,
                               SequenceNumber* seq, const ReadOptions& read_opts,
                               ReadCallback* callback, bool* is_blob_index) {
-  return GetFromList(&memlist_, key, value, timestamp, s, merge_context,
-                     max_covering_tombstone_seq, seq, read_opts, callback,
-                     is_blob_index);
+  return GetFromList(&memlist_, key, value, columns, timestamp, s,
+                     merge_context, max_covering_tombstone_seq, seq, read_opts,
+                     callback, is_blob_index);
 }
 
 void MemTableListVersion::MultiGet(const ReadOptions& read_options,
@@ -131,10 +132,10 @@ bool MemTableListVersion::GetMergeOperands(
     const LookupKey& key, Status* s, MergeContext* merge_context,
     SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {
   for (MemTable* memtable : memlist_) {
-    bool done =
-        memtable->Get(key, /*value*/ nullptr, /*timestamp*/ nullptr, s,
-                      merge_context, max_covering_tombstone_seq, read_opts,
-                      true /* immutable_memtable */, nullptr, nullptr, false);
+    bool done = memtable->Get(
+        key, /*value=*/nullptr, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
+        merge_context, max_covering_tombstone_seq, read_opts,
+        true /* immutable_memtable */, nullptr, nullptr, false);
     if (done) {
       return true;
     }
@@ -143,19 +144,21 @@ bool MemTableListVersion::GetMergeOperands(
 }
 
 bool MemTableListVersion::GetFromHistory(
-    const LookupKey& key, std::string* value, std::string* timestamp, Status* s,
-    MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
-    SequenceNumber* seq, const ReadOptions& read_opts, bool* is_blob_index) {
-  return GetFromList(&memlist_history_, key, value, timestamp, s, merge_context,
-                     max_covering_tombstone_seq, seq, read_opts,
+    const LookupKey& key, std::string* value, PinnableWideColumns* columns,
+    std::string* timestamp, Status* s, MergeContext* merge_context,
+    SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
+    const ReadOptions& read_opts, bool* is_blob_index) {
+  return GetFromList(&memlist_history_, key, value, columns, timestamp, s,
+                     merge_context, max_covering_tombstone_seq, seq, read_opts,
                      nullptr /*read_callback*/, is_blob_index);
 }
 
 bool MemTableListVersion::GetFromList(
     std::list<MemTable*>* list, const LookupKey& key, std::string* value,
-    std::string* timestamp, Status* s, MergeContext* merge_context,
-    SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
-    const ReadOptions& read_opts, ReadCallback* callback, bool* is_blob_index) {
+    PinnableWideColumns* columns, std::string* timestamp, Status* s,
+    MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
+    SequenceNumber* seq, const ReadOptions& read_opts, ReadCallback* callback,
+    bool* is_blob_index) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
@@ -163,7 +166,7 @@ bool MemTableListVersion::GetFromList(
     SequenceNumber current_seq = kMaxSequenceNumber;
 
     bool done =
-        memtable->Get(key, value, timestamp, s, merge_context,
+        memtable->Get(key, value, columns, timestamp, s, merge_context,
                       max_covering_tombstone_seq, &current_seq, read_opts,
                       true /* immutable_memtable */, callback, is_blob_index);
     if (*seq == kMaxSequenceNumber) {
@@ -215,11 +218,33 @@ void MemTableListVersion::AddIterators(
   }
 }
 
-void MemTableListVersion::AddIterators(
-    const ReadOptions& options, MergeIteratorBuilder* merge_iter_builder) {
+void MemTableListVersion::AddIterators(const ReadOptions& options,
+                                       MergeIteratorBuilder* merge_iter_builder,
+                                       bool add_range_tombstone_iter) {
   for (auto& m : memlist_) {
-    merge_iter_builder->AddIterator(
-        m->NewIterator(options, merge_iter_builder->GetArena()));
+    auto mem_iter = m->NewIterator(options, merge_iter_builder->GetArena());
+    if (!add_range_tombstone_iter || options.ignore_range_deletions) {
+      merge_iter_builder->AddIterator(mem_iter);
+    } else {
+      // Except for snapshot read, using kMaxSequenceNumber is OK because these
+      // are immutable memtables.
+      SequenceNumber read_seq = options.snapshot != nullptr
+                                    ? options.snapshot->GetSequenceNumber()
+                                    : kMaxSequenceNumber;
+      TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
+      auto range_del_iter = m->NewRangeTombstoneIterator(
+          options, read_seq, true /* immutale_memtable */);
+      if (range_del_iter == nullptr || range_del_iter->empty()) {
+        delete range_del_iter;
+      } else {
+        mem_tombstone_iter = new TruncatedRangeDelIterator(
+            std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
+            &m->GetInternalKeyComparator(), nullptr /* smallest */,
+            nullptr /* largest */);
+      }
+      merge_iter_builder->AddPointAndTombstoneIterator(mem_iter,
+                                                       mem_tombstone_iter);
+    }
   }
 }
 
@@ -349,6 +374,14 @@ bool MemTableList::IsFlushPending() const {
     return true;
   }
   return false;
+}
+
+bool MemTableList::IsFlushPendingOrRunning() const {
+  if (current_->memlist_.size() - num_flush_not_started_ > 0) {
+    // Flush is already running on at least one memtable
+    return true;
+  }
+  return IsFlushPending();
 }
 
 // Returns the memtables that need to be flushed.

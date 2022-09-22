@@ -937,6 +937,11 @@ void CompactionIterator::NextFromInput() {
   if (IsPausingManualCompaction()) {
     status_ = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
+
+  // Propagate corruption status from memtable itereator
+  if (!input_.Valid() && input_.status().IsCorruption()) {
+    status_ = input_.status();
+  }
 }
 
 bool CompactionIterator::ExtractLargeValueIfNeededImpl() {

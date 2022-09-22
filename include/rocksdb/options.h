@@ -516,22 +516,25 @@ struct DBOptions {
   // Default: false
   bool track_and_verify_wals_in_manifest = false;
 
-  // EXPERIMENTAL: This API/behavior is subject to change
-  // If true, during DB-open it verifies the SST unique id between MANIFEST
-  // and SST properties, which is to make sure the SST is not overwritten or
-  // misplaced. A corruption error will be reported if mismatch detected, but
-  // only when MANIFEST tracks the unique id, which starts from version 7.3.
-  // The unique id is an internal unique id and subject to change.
+  // If true, verifies the SST unique id between MANIFEST and actual file
+  // each time an SST file is opened. This check ensures an SST file is not
+  // overwritten or misplaced. A corruption error will be reported if mismatch
+  // detected, but only when MANIFEST tracks the unique id, which starts from
+  // RocksDB version 7.3. Although the tracked internal unique id is related
+  // to the one returned by GetUniqueIdFromTableProperties, that is subject to
+  // change.
+  // NOTE: verification is currently only done on SST files using block-based
+  // table format.
   //
-  // Note:
-  // 1. if enabled, it opens every SST files during DB open to read the unique
-  //    id from SST properties, so it's recommended to have `max_open_files=-1`
-  //    to pre-open the SST files before the verification.
-  // 2. existing SST files won't have its unique_id tracked in MANIFEST, then
-  //    verification will be skipped.
+  // Setting to false should only be needed in case of unexpected problems.
   //
-  // Default: false
-  bool verify_sst_unique_id_in_manifest = false;
+  // Although an early version of this option opened all SST files for
+  // verification on DB::Open, that is no longer guaranteed. However, as
+  // documented in an above option, if max_open_files is -1, DB will open all
+  // files on DB::Open().
+  //
+  // Default: true
+  bool verify_sst_unique_id_in_manifest = true;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
@@ -905,7 +908,8 @@ struct DBOptions {
   // can be passed into multiple DBs and it will track the sum of size of all
   // the DBs. If the total size of all live memtables of all the DBs exceeds
   // a limit, a flush will be triggered in the next DB to which the next write
-  // is issued.
+  // is issued, as long as there is one or more column family not already
+  // flushing.
   //
   // If the object is only passed to one DB, the behavior is the same as
   // db_write_buffer_size. When write_buffer_manager is set, the value set will
@@ -1685,6 +1689,17 @@ struct ReadOptions {
   // Default: false
   bool async_io;
 
+  // Experimental
+  //
+  // If async_io is set, then this flag controls whether we read SST files
+  // in multiple levels asynchronously. Enabling this flag can help reduce
+  // MultiGet latency by maximizing the number of SST files read in
+  // parallel if the keys in the MultiGet batch are in different levels. It
+  // comes at the expense of slightly higher CPU overhead.
+  //
+  // Default: true
+  bool optimize_multiget_for_io;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
@@ -2082,7 +2097,8 @@ struct LiveFilesStorageInfoOptions {
   // Whether to populate FileStorageInfo::file_checksum* or leave blank
   bool include_checksum_info = false;
   // Flushes memtables if total size in bytes of live WAL files is >= this
-  // number. Default: always force a flush without checking sizes.
+  // number (and DB is not read-only).
+  // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
 };
 #endif  // !ROCKSDB_LITE

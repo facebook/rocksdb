@@ -17,6 +17,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/wide_columns.h"
 #include "table/iterator_wrapper.h"
 #include "util/autovector.h"
 
@@ -139,7 +140,6 @@ class DBIter final : public Iterator {
     iter_.Set(iter);
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
-  ReadRangeDelAggregator* GetRangeDelAggregator() { return &range_del_agg_; }
 
   bool Valid() const override {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
@@ -160,22 +160,16 @@ class DBIter final : public Iterator {
   }
   Slice value() const override {
     assert(valid_);
-    assert(!is_blob_ || !is_wide_);
 
-    if (!expose_blob_index_ && is_blob_) {
-      return blob_value_;
-    } else if (is_wide_) {
-      return value_of_default_column_;
-    } else if (current_entry_is_merged_) {
-      // If pinned_value_ is set then the result of merge operator is one of
-      // the merge operands and we should return it.
-      return pinned_value_.data() ? pinned_value_ : saved_value_;
-    } else if (direction_ == kReverse) {
-      return pinned_value_;
-    } else {
-      return iter_.value();
-    }
+    return value_;
   }
+
+  const WideColumns& columns() const override {
+    assert(valid_);
+
+    return wide_columns_;
+  }
+
   Status status() const override {
     if (status_.ok()) {
       return iter_.status();
@@ -308,11 +302,19 @@ class DBIter final : public Iterator {
     blob_value_.Reset();
   }
 
-  bool SetWideColumnValueIfNeeded(const Slice& wide_columns_slice);
+  void SetValueAndColumnsFromPlain(const Slice& slice) {
+    assert(value_.empty());
+    assert(wide_columns_.empty());
 
-  void ResetWideColumnValue() {
-    is_wide_ = false;
-    value_of_default_column_.clear();
+    value_ = slice;
+    wide_columns_.emplace_back(kDefaultWideColumnName, slice);
+  }
+
+  bool SetValueAndColumnsFromEntity(Slice slice);
+
+  void ResetValueAndColumns() {
+    value_.clear();
+    wide_columns_.clear();
   }
 
   Status Merge(const Slice* val, const Slice& user_key);
@@ -339,7 +341,10 @@ class DBIter final : public Iterator {
   Slice pinned_value_;
   // for prefix seek mode to support prev()
   PinnableSlice blob_value_;
-  Slice value_of_default_column_;
+  // Value of the default column
+  Slice value_;
+  // All columns (i.e. name-value pairs)
+  WideColumns wide_columns_;
   Statistics* statistics_;
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
@@ -376,11 +381,9 @@ class DBIter final : public Iterator {
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
   bool is_blob_;
-  bool is_wide_;
   bool arena_mode_;
   // List of operands for merge operator.
   MergeContext merge_context_;
-  ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
 #ifdef ROCKSDB_LITE

@@ -423,6 +423,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_drop_column_family(
 extern ROCKSDB_LIBRARY_API void rocksdb_column_family_handle_destroy(
     rocksdb_column_family_handle_t*);
 
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_column_family_handle_get_id(rocksdb_column_family_handle_t* handle);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_column_family_handle_get_name(
+    rocksdb_column_family_handle_t* handle, size_t* name_len);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_close(rocksdb_t* db);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_put(
@@ -977,6 +983,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_block_based_table_options_t*
 rocksdb_block_based_options_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_destroy(
     rocksdb_block_based_table_options_t* options);
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_checksum(
+    rocksdb_block_based_table_options_t*, char);
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_block_size(
     rocksdb_block_based_table_options_t* options, size_t block_size);
 extern ROCKSDB_LIBRARY_API void
@@ -1707,7 +1715,8 @@ enum {
   rocksdb_blob_read_time,
   rocksdb_blob_checksum_time,
   rocksdb_blob_decompress_time,
-  rocksdb_total_metric_count = 77
+  rocksdb_internal_range_del_reseek_count,
+  rocksdb_total_metric_count = 78
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);

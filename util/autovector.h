@@ -299,6 +299,16 @@ class autovector {
   }
 
   template <class... Args>
+#if _LIBCPP_STD_VER > 14
+  reference emplace_back(Args&&... args) {
+    if (num_stack_items_ < kSize) {
+      return *(new ((void*)(&values_[num_stack_items_++]))
+          value_type(std::forward<Args>(args)...));
+    } else {
+      return vect_.emplace_back(std::forward<Args>(args)...);
+    }
+  }
+#else
   void emplace_back(Args&&... args) {
     if (num_stack_items_ < kSize) {
       new ((void*)(&values_[num_stack_items_++]))
@@ -307,6 +317,8 @@ class autovector {
       vect_.emplace_back(std::forward<Args>(args)...);
     }
   }
+#endif
+
 
   void pop_back() {
     assert(!empty());

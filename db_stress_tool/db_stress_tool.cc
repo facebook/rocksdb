@@ -280,6 +280,12 @@ int db_stress_tool(int argc, char** argv) {
     }
   }
 
+  if (FLAGS_preserve_unverified_changes && FLAGS_reopen != 0) {
+    fprintf(stderr,
+            "Reopen DB is incompatible with preserving unverified changes\n");
+    exit(1);
+  }
+
 #ifndef NDEBUG
   KillPoint* kp = KillPoint::GetInstance();
   kp->rocksdb_kill_odds = FLAGS_kill_random_test;

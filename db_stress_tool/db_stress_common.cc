@@ -346,5 +346,76 @@ std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
   return std::make_shared<DbStressChecksumGenFactory>(internal_name);
 }
 
+Status DeleteFilesInDirectory(const std::string& dirname) {
+  std::vector<std::string> filenames;
+  Status s = Env::Default()->GetChildren(dirname, &filenames);
+  for (size_t i = 0; s.ok() && i < filenames.size(); ++i) {
+    s = Env::Default()->DeleteFile(dirname + "/" + filenames[i]);
+  }
+  return s;
+}
+
+Status SaveFilesInDirectory(const std::string& src_dirname,
+                            const std::string& dst_dirname) {
+  std::vector<std::string> filenames;
+  Status s = Env::Default()->GetChildren(src_dirname, &filenames);
+  for (size_t i = 0; s.ok() && i < filenames.size(); ++i) {
+    bool is_dir = false;
+    s = Env::Default()->IsDirectory(src_dirname + "/" + filenames[i], &is_dir);
+    if (s.ok()) {
+      if (is_dir) {
+        continue;
+      }
+      s = Env::Default()->LinkFile(src_dirname + "/" + filenames[i],
+                                   dst_dirname + "/" + filenames[i]);
+    }
+  }
+  return s;
+}
+
+Status InitUnverifiedSubdir(const std::string& dirname) {
+  Status s = Env::Default()->FileExists(dirname);
+  if (s.IsNotFound()) {
+    return Status::OK();
+  }
+
+  const std::string kUnverifiedDirname = dirname + "/unverified";
+  if (s.ok()) {
+    s = Env::Default()->CreateDirIfMissing(kUnverifiedDirname);
+  }
+  if (s.ok()) {
+    // It might already exist with some stale contents. Delete any such
+    // contents.
+    s = DeleteFilesInDirectory(kUnverifiedDirname);
+  }
+  if (s.ok()) {
+    s = SaveFilesInDirectory(dirname, kUnverifiedDirname);
+  }
+  return s;
+}
+
+Status DestroyUnverifiedSubdir(const std::string& dirname) {
+  Status s = Env::Default()->FileExists(dirname);
+  if (s.IsNotFound()) {
+    return Status::OK();
+  }
+
+  const std::string kUnverifiedDirname = dirname + "/unverified";
+  if (s.ok()) {
+    s = Env::Default()->FileExists(kUnverifiedDirname);
+  }
+  if (s.IsNotFound()) {
+    return Status::OK();
+  }
+
+  if (s.ok()) {
+    s = DeleteFilesInDirectory(kUnverifiedDirname);
+  }
+  if (s.ok()) {
+    s = Env::Default()->DeleteDir(kUnverifiedDirname);
+  }
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
