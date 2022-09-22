@@ -259,6 +259,23 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
 // into the mmapped region. Depending on context, it might be a serialized
 // (potentially compressed) block, including a trailer beyond `size`, or an
 // uncompressed block.
+//
+// Please try to use this terminology when dealing with blocks:
+// * "Serialized block" - bytes that go into storage. For block-based table
+// (usually the case) this includes the block trailer. Here the `size` does
+// not include the trailer, but other places in code might include the trailer
+// in the size.
+// * "Maybe compressed block" - like a serialized block, but without the
+// trailer (or no promise of including a trailer). Must be accompanied by a
+// CompressionType in some other variable or field.
+// * "Uncompressed block" - "payload" bytes that are either stored with no
+// compression, used as input to compression function, or result of
+// decompression function.
+// * "Parsed block" - an in-memory form of a block in block cache, as it is
+// used by the table reader. Different C++ types are used depending on the
+// block type (see block_like_traits.h). Only trivially parsable block types
+// use BlockContents as the parsed form.
+//
 struct BlockContents {
   // Points to block payload (without trailer)
   Slice data;

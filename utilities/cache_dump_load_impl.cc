@@ -289,8 +289,9 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     if (!io_s.ok()) {
       break;
     }
-    // create the serialized_block based on the information in the dump_unit
-    BlockContents serialized_block(
+    // create the uncompressed_block based on the information in the dump_unit
+    // (There is no block trailer here compatible with block-based SST file.)
+    BlockContents uncompressed_block(
         Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len));
     Cache::CacheItemHelper* helper = nullptr;
     Statistics* statistics = nullptr;
@@ -303,7 +304,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
             BlockType::kFilter);
         std::unique_ptr<ParsedFullFilterBlock> block_holder;
         block_holder.reset(BlocklikeTraits<ParsedFullFilterBlock>::Create(
-            std::move(serialized_block), toptions_.read_amp_bytes_per_bit,
+            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get()));
         if (helper != nullptr) {
           s = secondary_cache_->Insert(dump_unit.key,
@@ -315,7 +316,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kData);
         std::unique_ptr<Block> block_holder;
         block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(serialized_block), toptions_.read_amp_bytes_per_bit,
+            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get()));
         if (helper != nullptr) {
           s = secondary_cache_->Insert(dump_unit.key,
@@ -327,7 +328,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kIndex);
         std::unique_ptr<Block> block_holder;
         block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(serialized_block), 0, statistics, false,
+            std::move(uncompressed_block), 0, statistics, false,
             toptions_.filter_policy.get()));
         if (helper != nullptr) {
           s = secondary_cache_->Insert(dump_unit.key,
@@ -340,7 +341,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
             BlockType::kFilterPartitionIndex);
         std::unique_ptr<Block> block_holder;
         block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(serialized_block), toptions_.read_amp_bytes_per_bit,
+            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get()));
         if (helper != nullptr) {
           s = secondary_cache_->Insert(dump_unit.key,
