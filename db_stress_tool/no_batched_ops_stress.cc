@@ -44,8 +44,21 @@ class NonBatchedOpsStressTest : public StressTest {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
       }
-      if (thread->rand.OneIn(4)) {
-        // 1/4 chance use iterator to verify this range
+
+      enum class VerificationMethod {
+        Iterator,
+        Get,
+        MultiGet,
+        GetMergeOperands,
+        NumberOfMethods
+      };
+
+      const int num_methods =
+          static_cast<int>(VerificationMethod::NumberOfMethods);
+      const VerificationMethod method =
+          static_cast<VerificationMethod>(thread->rand.Uniform(num_methods));
+
+      if (method == VerificationMethod::Iterator) {
         Slice prefix;
         std::string seek_key = Key(start);
         std::unique_ptr<Iterator> iter(
@@ -90,8 +103,7 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.length());
           }
         }
-      } else if (thread->rand.OneIn(3)) {
-        // 1/4 chance use Get to verify this range
+      } else if (method == VerificationMethod::Get) {
         for (auto i = start; i < end; i++) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -107,8 +119,7 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.length());
           }
         }
-      } else if (thread->rand.OneIn(2)) {
-        // 1/4 chance use MultiGet to verify this range
+      } else if (method == VerificationMethod::MultiGet) {
         for (auto i = start; i < end;) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -140,7 +151,8 @@ class NonBatchedOpsStressTest : public StressTest {
           i += batch_size;
         }
       } else {
-        // 1/4 chance use GetMergeOperand to verify this range
+        assert(method == VerificationMethod::GetMergeOperands);
+
         // Start off with small size that will be increased later if necessary
         std::vector<PinnableSlice> values(4);
         GetMergeOperandsOptions merge_operands_info;
