@@ -301,6 +301,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->bloom_locality = ioptions.bloom_locality;
   cf_opts->level_compaction_dynamic_level_bytes =
       ioptions.level_compaction_dynamic_level_bytes;
+  cf_opts->level_compaction_dynamic_file_size =
+      ioptions.level_compaction_dynamic_file_size;
   cf_opts->num_levels = ioptions.num_levels;
   cf_opts->optimize_filters_for_hits = ioptions.optimize_filters_for_hits;
   cf_opts->force_consistency_checks = ioptions.force_consistency_checks;

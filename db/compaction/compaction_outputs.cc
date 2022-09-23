@@ -142,7 +142,8 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
 bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   assert(c_iter.Valid());
 
-  // always update grandparent information like: overlap file number, size.
+  // always update grandparent information like overlapped file number, size
+  // etc.
   const Slice& internal_key = c_iter.key();
   const uint64_t previous_overlapped_bytes = grandparent_overlapped_bytes_;
   size_t switched_num = UpdateGrandparentBoundaryInfo(internal_key);
@@ -166,6 +167,12 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   // reach the max file size
   if (current_output_file_size_ >= compaction_->max_output_file_size()) {
     return true;
+  }
+
+  // no need to have complicated cut logic for non level compaction
+  if (compaction_->immutable_options()->compaction_style !=
+      kCompactionStyleLevel) {
+    return false;
   }
 
   const InternalKeyComparator* icmp =
@@ -209,8 +216,10 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // triggers this condition, but if the user is adding 2 different datasets
     // without any overlap, it may likely happen.
     // More details, check PR #1963
-    const size_t kSkippableFileSwitchedNum = size_t{3} - being_grandparent_gap_;
-    if (switched_num > kSkippableFileSwitchedNum &&
+    const size_t skippable_file_switched_num =
+        size_t{3} - being_grandparent_gap_;
+    if (compaction_->immutable_options()->level_compaction_dynamic_file_size &&
+        switched_num >= skippable_file_switched_num &&
         grandparent_overlapped_bytes_ - previous_overlapped_bytes >
             compaction_->target_output_file_size() / 8) {
       return true;
@@ -228,9 +237,11 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // target file size. The test shows it can generate larger files than a
     // static threshold like 75% and has a similar write amplification
     // improvement.
-    if (current_output_file_size_ >
-        (50 + std::min(grandparent_boundary_switched_num_ * 5, size_t{40})) *
-            compaction_->target_output_file_size() / 100) {
+    if (compaction_->immutable_options()->level_compaction_dynamic_file_size &&
+        current_output_file_size_ >
+            (50 +
+             std::min(grandparent_boundary_switched_num_ * 5, size_t{40})) *
+                compaction_->target_output_file_size() / 100) {
       return true;
     }
   }

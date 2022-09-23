@@ -1736,7 +1736,23 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   }
 }
 
-TEST_F(CompactionJobTest, CutForMaxCompactionBytes) {
+class CompactionJobDynamicFileSizeTest
+    : public CompactionJobTestBase,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  CompactionJobDynamicFileSizeTest()
+      : CompactionJobTestBase(
+            test::PerThreadDBPath("compaction_job_dynamic_file_size_test"),
+            BytewiseComparator(), [](uint64_t /*ts*/) { return ""; },
+            /*test_io_priority=*/false, TableTypeForTest::kMockTable) {}
+};
+
+TEST_P(CompactionJobDynamicFileSizeTest, CutForMaxCompactionBytes) {
+  // dynamic_file_size option should has no impact on cutting for max compaction
+  // bytes.
+  bool enable_dyanmic_file_size = GetParam();
+  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
+
   NewDB();
   mutable_cf_options_.target_file_size_base = 80;
   mutable_cf_options_.max_compaction_bytes = 21;
@@ -1801,7 +1817,10 @@ TEST_F(CompactionJobTest, CutForMaxCompactionBytes) {
                 {expected_file1, expected_file2});
 }
 
-TEST_F(CompactionJobTest, CutToSkipGrandparentFile) {
+TEST_P(CompactionJobDynamicFileSizeTest, CutToSkipGrandparentFile) {
+  bool enable_dyanmic_file_size = GetParam();
+  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
+
   NewDB();
   // Make sure the grandparent level file size (10) qualifies skipping.
   // Currently, it has to be > 1/8 of target file size.
@@ -1836,15 +1855,28 @@ TEST_F(CompactionJobTest, CutToSkipGrandparentFile) {
       mock::MakeMockFile({{KeyStr("x", 4U, kTypeValue), "val"},
                           {KeyStr("z", 6U, kTypeValue), "val3"}});
 
+  auto expected_file_disable_dynamic_file_size =
+      mock::MakeMockFile({{KeyStr("a", 5U, kTypeValue), "val2"},
+                          {KeyStr("c", 3U, kTypeValue), "val"},
+                          {KeyStr("x", 4U, kTypeValue), "val"},
+                          {KeyStr("z", 6U, kTypeValue), "val3"}});
+
   SetLastSequence(6U);
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-  RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                {expected_file1, expected_file2});
+  if (enable_dyanmic_file_size) {
+    RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                  {expected_file1, expected_file2});
+  } else {
+    RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                  {expected_file_disable_dynamic_file_size});
+  }
 }
 
-TEST_F(CompactionJobTest, CutToAlignGrandparentBoundary) {
+TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundary) {
+  bool enable_dyanmic_file_size = GetParam();
+  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
   NewDB();
   // Make sure the grandparent level file size (10) qualifies skipping.
   mutable_cf_options_.target_file_size_base = 10;
@@ -1903,13 +1935,31 @@ TEST_F(CompactionJobTest, CutToAlignGrandparentBoundary) {
   }
   expected_file2.emplace_back(KeyStr("s", 4U, kTypeValue), "val");
 
+  mock::KVVector expected_file_disable_dynamic_file_size;
+  for (char i = 0; i < 12; i++) {
+    expected_file_disable_dynamic_file_size.emplace_back(
+        KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
+        "val" + std::to_string(i));
+  }
+
+  expected_file_disable_dynamic_file_size.emplace_back(
+      KeyStr("s", 4U, kTypeValue), "val");
+
   SetLastSequence(22U);
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-  RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                {expected_file1, expected_file2});
+  if (enable_dyanmic_file_size) {
+    RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                  {expected_file1, expected_file2});
+  } else {
+    RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                  {expected_file_disable_dynamic_file_size});
+  }
 }
+
+INSTANTIATE_TEST_CASE_P(CompactionJobDynamicFileSizeTest,
+                        CompactionJobDynamicFileSizeTest, testing::Bool());
 
 class CompactionJobTimestampTest : public CompactionJobTestBase {
  public:

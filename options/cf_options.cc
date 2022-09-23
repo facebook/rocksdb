@@ -550,6 +550,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    level_compaction_dynamic_level_bytes),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"level_compaction_dynamic_file_size",
+         {offsetof(struct ImmutableCFOptions,
+                   level_compaction_dynamic_file_size),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"optimize_filters_for_hits",
          {offsetof(struct ImmutableCFOptions, optimize_filters_for_hits),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -892,6 +897,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       bloom_locality(cf_options.bloom_locality),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
+      level_compaction_dynamic_file_size(
+          cf_options.level_compaction_dynamic_file_size),
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),

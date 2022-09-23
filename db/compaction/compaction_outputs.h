@@ -216,6 +216,10 @@ class CompactionOutputs {
     }
   }
 
+  // update tracked grandparents information like grandparent index, if it's
+  // in the gap between 2 grandparent files, accumulated grandparent files size
+  // etc.
+  // It returns how many boundaries it crosses by including current key.
   size_t UpdateGrandparentBoundaryInfo(const Slice& internal_key);
 
   // Add current key from compaction_iterator to the output file. If needed
