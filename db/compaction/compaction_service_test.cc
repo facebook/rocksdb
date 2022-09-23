@@ -325,6 +325,7 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
       });
   Reopen(options);
   ASSERT_GT(verify_passed, 0);
+  Close();
 }
 
 TEST_F(CompactionServiceTest, ManualCompaction) {

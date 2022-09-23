@@ -38,6 +38,8 @@ extern InternalIterator* NewMergingIterator(
 class MergingIterator;
 
 // A builder class to build a merging iterator by adding iterators one by one.
+// User should call only one of AddIterator() or AddPointAndTombstoneIterator()
+// exclusively for the same builder.
 class MergeIteratorBuilder {
  public:
   // comparator: the comparator used in merging comparator
@@ -49,16 +51,20 @@ class MergeIteratorBuilder {
   // Add iter to the merging iterator.
   void AddIterator(InternalIterator* iter);
 
-  // Add a range tombstone iterator to underlying merge iterator.
-  // See MergingIterator::AddRangeTombstoneIterator() for more detail.
-  //
-  // If `iter_ptr` is not nullptr, *iter_ptr will be set to where the merging
-  // iterator stores `iter` when MergeIteratorBuilder::Finish() is called. This
-  // is used by level iterator to update range tombstone iters when switching to
-  // a different SST file.
-  void AddRangeTombstoneIterator(
-      TruncatedRangeDelIterator* iter,
-      TruncatedRangeDelIterator*** iter_ptr = nullptr);
+  // Add a point key iterator and a range tombstone iterator.
+  // `tombstone_iter_ptr` should and only be set by LevelIterator.
+  // *tombstone_iter_ptr will be set to where the merging iterator stores
+  // `tombstone_iter` when MergeIteratorBuilder::Finish() is called. This is
+  // used by LevelIterator to update range tombstone iters when switching to a
+  // different SST file. If a single point iterator with a nullptr range
+  // tombstone iterator is provided, and the point iterator is not a level
+  // iterator, then this builder will return the point iterator directly,
+  // instead of creating a merging iterator on top of it. Internally, if all
+  // point iterators are not LevelIterator, then range tombstone iterator is
+  // only added to the merging iter if there is a non-null `tombstone_iter`.
+  void AddPointAndTombstoneIterator(
+      InternalIterator* point_iter, TruncatedRangeDelIterator* tombstone_iter,
+      TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr);
 
   // Get arena used to build the merging iterator. It is called one a child
   // iterator needs to be allocated.

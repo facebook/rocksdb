@@ -249,16 +249,16 @@ class BlockBasedTable : public TableReader {
     return static_cast<size_t>(handle.size() + kBlockTrailerSize);
   }
 
-  // It's the caller's responsibility to make sure that this is
-  // for raw block contents, which contains the compression
-  // byte in the end.
+  // It is the caller's responsibility to make sure that this is called with
+  // block-based table serialized block contents, which contains the compression
+  // byte in the trailer after `block_size`.
   static inline CompressionType GetBlockCompressionType(const char* block_data,
                                                         size_t block_size) {
     return static_cast<CompressionType>(block_data[block_size]);
   }
   static inline CompressionType GetBlockCompressionType(
       const BlockContents& contents) {
-    assert(contents.is_raw_block);
+    assert(contents.has_trailer);
     return GetBlockCompressionType(contents.data.data(), contents.data.size());
   }
 
@@ -327,7 +327,7 @@ class BlockBasedTable : public TableReader {
   Status InsertEntryToCache(const CacheTier& cache_tier, Cache* block_cache,
                             const Slice& key,
                             const Cache::CacheItemHelper* cache_helper,
-                            std::unique_ptr<TBlocklike>& block_holder,
+                            std::unique_ptr<TBlocklike>&& block_holder,
                             size_t charge, Cache::Handle** cache_handle,
                             Cache::Priority priority) const;
 
@@ -411,13 +411,13 @@ class BlockBasedTable : public TableReader {
                                BlockType block_type, const bool wait,
                                GetContext* get_context) const;
 
-  // Put a raw block (maybe compressed) to the corresponding block caches.
-  // This method will perform decompression against raw_block if needed and then
-  // populate the block caches.
+  // Put a maybe compressed block to the corresponding block caches.
+  // This method will perform decompression against block_contents if needed
+  // and then populate the block caches.
   // On success, Status::OK will be returned; also @block will be populated with
   // uncompressed block and its cache handle.
   //
-  // Allocated memory managed by raw_block_contents will be transferred to
+  // Allocated memory managed by block_contents will be transferred to
   // PutDataBlockToCache(). After the call, the object will be invalid.
   // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
@@ -425,8 +425,8 @@ class BlockBasedTable : public TableReader {
   Status PutDataBlockToCache(const Slice& cache_key, Cache* block_cache,
                              Cache* block_cache_compressed,
                              CachableEntry<TBlocklike>* cached_block,
-                             BlockContents* raw_block_contents,
-                             CompressionType raw_block_comp_type,
+                             BlockContents&& block_contents,
+                             CompressionType block_comp_type,
                              const UncompressionDict& uncompression_dict,
                              MemoryAllocator* memory_allocator,
                              BlockType block_type,
