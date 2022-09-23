@@ -269,7 +269,7 @@ Compaction::Compaction(
   }
 
   // for the non-bottommost levels, it tries to build files match the target
-  // file size, but not generated. It could be 2x the size of the target size.
+  // file size, but not guaranteed. It could be 2x the size of the target size.
   max_output_file_size_ = bottommost_level_ || grandparents_.empty()
                               ? target_output_file_size_
                               : 2 * target_output_file_size_;
