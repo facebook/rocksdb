@@ -239,7 +239,7 @@ jobs:
       - pre-steps
       - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
       - run: |
-          ./sst_dump --help | egrep -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
+          ./sst_dump --help | grep -E -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
       - post-steps
 
   build-linux-shared_lib-alt_namespace-status_checked:

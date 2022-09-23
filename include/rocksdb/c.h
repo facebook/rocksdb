@@ -1551,6 +1551,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_report_bg_io_stats(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_report_bg_io_stats(
     rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_avoid_unnecessary_blocking_io(rocksdb_options_t*,
+                                                  unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_avoid_unnecessary_blocking_io(rocksdb_options_t*);
 
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_experimental_mempurge_threshold(rocksdb_options_t*, double);

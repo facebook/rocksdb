@@ -128,7 +128,7 @@ class BlockFetcher {
   bool TryGetUncompressBlockFromPersistentCache();
   // return true if found
   bool TryGetFromPrefetchBuffer();
-  bool TryGetCompressedBlockFromPersistentCache();
+  bool TryGetSerializedBlockFromPersistentCache();
   void PrepareBufferForBlockFromFile();
   // Copy content from used_buf_ to new heap_buf_.
   void CopyBufferToHeapBuf();
