@@ -318,7 +318,7 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
   // Constraint 3 (pre-calculate the ideal max bytes to compact)
   for (auto f : level_files) {
     if (!f->being_compacted) {
-      start_lvl_bytes_no_compacting += f->compensated_file_size;
+      start_lvl_bytes_no_compacting += f->fd.GetFileSize();
     }
   }
   if (start_lvl_bytes_no_compacting >
@@ -341,7 +341,7 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
     }
   }
   // Constraint 3
-  if (start_level_inputs_[0]->compensated_file_size >=
+  if (start_level_inputs_[0]->fd.GetFileSize() >=
       start_lvl_max_bytes_to_compact) {
     return;
   }
@@ -368,7 +368,7 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
 
     curr_bytes_to_compact = 0;
     for (auto start_lvl_f : tmp_start_level_inputs.files) {
-      curr_bytes_to_compact += start_lvl_f->compensated_file_size;
+      curr_bytes_to_compact += start_lvl_f->fd.GetFileSize();
     }
 
     // Check whether any output level files are locked
@@ -385,7 +385,7 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
 
     uint64_t start_lvl_curr_bytes_to_compact = curr_bytes_to_compact;
     for (auto output_lvl_f : output_level_inputs.files) {
-      curr_bytes_to_compact += output_lvl_f->compensated_file_size;
+      curr_bytes_to_compact += output_lvl_f->fd.GetFileSize();
     }
     if (curr_bytes_to_compact > mutable_cf_options_.max_compaction_bytes) {
       // Constraint 2
