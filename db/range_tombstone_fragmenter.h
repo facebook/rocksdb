@@ -17,6 +17,15 @@
 #include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct FragmentedRangeTombstoneList;
+
+struct FragmentedRangeTombstoneListCache {
+  // ensure only the first reader needs to initialize l
+  std::mutex reader_mutex;
+  std::unique_ptr<FragmentedRangeTombstoneList> tombstones = nullptr;
+  // readers will first check this bool to avoid
+  std::atomic<bool> initialized = false;
+};
 
 struct FragmentedRangeTombstoneList {
  public:
@@ -111,6 +120,10 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
       SequenceNumber lower_bound = 0);
   FragmentedRangeTombstoneIterator(
       const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
+      const InternalKeyComparator& icmp, SequenceNumber upper_bound,
+      SequenceNumber lower_bound = 0);
+  FragmentedRangeTombstoneIterator(
+      const std::shared_ptr<FragmentedRangeTombstoneListCache>& tombstones,
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
       SequenceNumber lower_bound = 0);
 
@@ -260,6 +273,7 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   const InternalKeyComparator* icmp_;
   const Comparator* ucmp_;
   std::shared_ptr<const FragmentedRangeTombstoneList> tombstones_ref_;
+  std::shared_ptr<FragmentedRangeTombstoneListCache> tombstones_cache_ref_;
   const FragmentedRangeTombstoneList* tombstones_;
   SequenceNumber upper_bound_;
   SequenceNumber lower_bound_;

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cinttypes>
+#include <memory>
 
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
@@ -107,14 +108,17 @@ class BlobSource {
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,
-                          CacheHandleGuard<BlobContents>* blob) const;
+                          CacheHandleGuard<BlobContents>* cached_blob) const;
 
   Status PutBlobIntoCache(const Slice& cache_key,
-                          CacheHandleGuard<BlobContents>* cached_blob,
-                          PinnableSlice* blob) const;
+                          std::unique_ptr<BlobContents>* blob,
+                          CacheHandleGuard<BlobContents>* cached_blob) const;
 
   static void PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
                             PinnableSlice* value);
+
+  static void PinOwnedBlob(std::unique_ptr<BlobContents>* owned_blob,
+                           PinnableSlice* value);
 
   Cache::Handle* GetEntryFromCache(const Slice& key) const;
 

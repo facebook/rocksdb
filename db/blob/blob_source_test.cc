@@ -219,7 +219,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
-      ASSERT_FALSE(values[i].IsPinned());
+      ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 

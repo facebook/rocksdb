@@ -42,7 +42,8 @@ class WriteBatchBase {
                      const SliceParts& value);
   virtual Status Put(const SliceParts& key, const SliceParts& value);
 
-  // UNDER CONSTRUCTION -- DO NOT USE
+  // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
+  // column family specified by "column_family".
   virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns) = 0;
 

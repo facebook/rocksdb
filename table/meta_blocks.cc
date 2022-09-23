@@ -196,10 +196,11 @@ bool NotifyCollectTableCollectorsOnAdd(
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    const uint64_t block_raw_bytes, const uint64_t block_compressed_bytes_fast,
+    const uint64_t block_uncomp_bytes,
+    const uint64_t block_compressed_bytes_fast,
     const uint64_t block_compressed_bytes_slow) {
   for (auto& collector : collectors) {
-    collector->BlockAdd(block_raw_bytes, block_compressed_bytes_fast,
+    collector->BlockAdd(block_uncomp_bytes, block_compressed_bytes_fast,
                         block_compressed_bytes_slow);
   }
 }

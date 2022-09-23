@@ -49,7 +49,7 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
 inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       !cache_options_.persistent_cache->IsCompressed()) {
-    Status status = PersistentCacheHelper::LookupUncompressedPage(
+    Status status = PersistentCacheHelper::LookupUncompressed(
         cache_options_, handle_, contents_);
     if (status.ok()) {
       // uncompressed page is found for the block handle
@@ -99,15 +99,14 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   return got_from_prefetch_buffer_;
 }
 
-inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
+inline bool BlockFetcher::TryGetSerializedBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
-    // lookup uncompressed cache mode p-cache
-    std::unique_ptr<char[]> raw_data;
-    io_status_ = status_to_io_status(PersistentCacheHelper::LookupRawPage(
-        cache_options_, handle_, &raw_data, block_size_with_trailer_));
+    std::unique_ptr<char[]> buf;
+    io_status_ = status_to_io_status(PersistentCacheHelper::LookupSerialized(
+        cache_options_, handle_, &buf, block_size_with_trailer_));
     if (io_status_.ok()) {
-      heap_buf_ = CacheAllocationPtr(raw_data.release());
+      heap_buf_ = CacheAllocationPtr(buf.release());
       used_buf_ = heap_buf_.get();
       slice_ = Slice(heap_buf_.get(), block_size_);
       ProcessTrailerIfPresent();
@@ -162,9 +161,8 @@ inline void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
   if (io_status_.ok() && read_options_.fill_cache &&
       cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
-    // insert to raw cache
-    PersistentCacheHelper::InsertRawPage(cache_options_, handle_, used_buf_,
-                                         block_size_with_trailer_);
+    PersistentCacheHelper::InsertSerialized(cache_options_, handle_, used_buf_,
+                                            block_size_with_trailer_);
   }
 }
 
@@ -173,8 +171,8 @@ inline void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
       read_options_.fill_cache && cache_options_.persistent_cache &&
       !cache_options_.persistent_cache->IsCompressed()) {
     // insert to uncompressed cache
-    PersistentCacheHelper::InsertUncompressedPage(cache_options_, handle_,
-                                                  *contents_);
+    PersistentCacheHelper::InsertUncompressed(cache_options_, handle_,
+                                              *contents_);
   }
 }
 
@@ -234,7 +232,7 @@ inline void BlockFetcher::GetBlockContents() {
     *contents_ = BlockContents(std::move(heap_buf_), block_size_);
   }
 #ifndef NDEBUG
-  contents_->is_raw_block = true;
+  contents_->has_trailer = footer_.GetBlockTrailerSize() > 0;
 #endif
 }
 
@@ -242,7 +240,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
-    contents_->is_raw_block = true;
+    contents_->has_trailer = footer_.GetBlockTrailerSize() > 0;
 #endif  // NDEBUG
     return IOStatus::OK();
   }
@@ -250,7 +248,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (!io_status_.ok()) {
       return io_status_;
     }
-  } else if (!TryGetCompressedBlockFromPersistentCache()) {
+  } else if (!TryGetSerializedBlockFromPersistentCache()) {
     IOOptions opts;
     io_status_ = file_->PrepareIOOptions(read_options_, opts);
     // Actual file read
@@ -327,7 +325,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     // compressed page, uncompress, update cache
     UncompressionContext context(compression_type_);
     UncompressionInfo info(context, uncompression_dict_, compression_type_);
-    io_status_ = status_to_io_status(UncompressBlockContents(
+    io_status_ = status_to_io_status(UncompressSerializedBlock(
         info, slice_.data(), block_size_, contents_, footer_.format_version(),
         ioptions_, memory_allocator_));
 #ifndef NDEBUG
@@ -347,10 +345,10 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
-    contents_->is_raw_block = true;
+    contents_->has_trailer = footer_.GetBlockTrailerSize() > 0;
 #endif  // NDEBUG
     return IOStatus::OK();
-  } else if (!TryGetCompressedBlockFromPersistentCache()) {
+  } else if (!TryGetSerializedBlockFromPersistentCache()) {
     assert(prefetch_buffer_ != nullptr);
     if (!for_compaction_) {
       IOOptions opts;
@@ -378,7 +376,7 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
           UncompressionContext context(compression_type_);
           UncompressionInfo info(context, uncompression_dict_,
                                  compression_type_);
-          io_status_ = status_to_io_status(UncompressBlockContents(
+          io_status_ = status_to_io_status(UncompressSerializedBlock(
               info, slice_.data(), block_size_, contents_,
               footer_.format_version(), ioptions_, memory_allocator_));
 #ifndef NDEBUG

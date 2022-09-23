@@ -37,7 +37,6 @@
 #include <thread>
 #include <unordered_map>
 
-#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
@@ -560,7 +559,7 @@ DEFINE_bool(universal_incremental, false,
 DEFINE_int64(cache_size, 8 << 20,  // 8MB
              "Number of bytes to use as a cache of uncompressed data");
 
-DEFINE_int32(cache_numshardbits, 6,
+DEFINE_int32(cache_numshardbits, -1,
              "Number of shards for the block cache"
              " is 2 ** cache_numshardbits. Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");
@@ -617,8 +616,11 @@ DEFINE_int64(simcache_size, -1,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "Cache index/filter blocks in block cache.");
 
+DEFINE_bool(use_cache_jemalloc_no_dump_allocator, false,
+            "Use JemallocNodumpAllocator for block/blob cache.");
+
 DEFINE_bool(use_cache_memkind_kmem_allocator, false,
-            "Use memkind kmem allocator for block cache.");
+            "Use memkind kmem allocator for block/blob cache.");
 
 DEFINE_bool(partition_index_and_filters, false,
             "Partition index and filter blocks.");
@@ -1235,6 +1237,14 @@ DEFINE_uint64(
     "Rocksdb implicit readahead starts at "
     "BlockBasedTableOptions.initial_auto_readahead_size and doubles on every "
     "additional read upto max_auto_readahead_size");
+
+DEFINE_uint64(
+    num_file_reads_for_auto_readahead,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .num_file_reads_for_auto_readahead,
+    "Rocksdb implicit readahead is enabled if reads are sequential and "
+    "num_file_reads_for_auto_readahead indicates after how many sequential "
+    "reads into that file internal auto prefetching should be start.");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -3020,20 +3030,39 @@ class Benchmark {
     const char* Name() const override { return "KeepFilter"; }
   };
 
-  std::shared_ptr<Cache> NewCache(int64_t capacity) {
+  static std::shared_ptr<MemoryAllocator> GetCacheAllocator() {
+    std::shared_ptr<MemoryAllocator> allocator;
+
+    if (FLAGS_use_cache_jemalloc_no_dump_allocator) {
+      JemallocAllocatorOptions jemalloc_options;
+      if (!NewJemallocNodumpAllocator(jemalloc_options, &allocator).ok()) {
+        fprintf(stderr, "JemallocNodumpAllocator not supported.\n");
+        exit(1);
+      }
+    } else if (FLAGS_use_cache_memkind_kmem_allocator) {
+#ifdef MEMKIND
+      allocator = std::make_shared<MemkindKmemAllocator>();
+#else
+      fprintf(stderr, "Memkind library is not linked with the binary.\n");
+      exit(1);
+#endif
+    }
+
+    return allocator;
+  }
+
+  static std::shared_ptr<Cache> NewCache(int64_t capacity) {
     if (capacity <= 0) {
       return nullptr;
     }
     if (FLAGS_cache_type == "clock_cache") {
-      auto cache = ExperimentalNewClockCache(
-          static_cast<size_t>(capacity), FLAGS_block_size,
-          FLAGS_cache_numshardbits, false /*strict_capacity_limit*/,
-          kDefaultCacheMetadataChargePolicy);
-      if (!cache) {
-        fprintf(stderr, "Clock cache not supported.");
-        exit(1);
-      }
-      return cache;
+      fprintf(stderr, "Old clock cache implementation has been removed.\n");
+      exit(1);
+    } else if (FLAGS_cache_type == "hyper_clock_cache") {
+      return HyperClockCacheOptions(static_cast<size_t>(capacity),
+                                    FLAGS_block_size /*estimated_entry_charge*/,
+                                    FLAGS_cache_numshardbits)
+          .MakeSharedCache();
     } else if (FLAGS_cache_type == "fast_lru_cache") {
       return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
                              FLAGS_cache_numshardbits,
@@ -3043,21 +3072,9 @@ class Benchmark {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
           false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
-#ifdef MEMKIND
-          FLAGS_use_cache_memkind_kmem_allocator
-              ? std::make_shared<MemkindKmemAllocator>()
-              : nullptr,
-#else
-          nullptr,
-#endif
-          kDefaultToAdaptiveMutex, kDefaultCacheMetadataChargePolicy,
-          FLAGS_cache_low_pri_pool_ratio);
-      if (FLAGS_use_cache_memkind_kmem_allocator) {
-#ifndef MEMKIND
-        fprintf(stderr, "Memkind library is not linked with the binary.");
-        exit(1);
-#endif
-      }
+          GetCacheAllocator(), kDefaultToAdaptiveMutex,
+          kDefaultCacheMetadataChargePolicy, FLAGS_cache_low_pri_pool_ratio);
+
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
@@ -3598,6 +3615,9 @@ class Benchmark {
         }
         fresh_db = true;
         method = &Benchmark::TimeSeries;
+      } else if (name == "block_cache_entry_stats") {
+        // DB::Properties::kBlockCacheEntryStats
+        PrintStats("rocksdb.block-cache-entry-stats");
       } else if (name == "stats") {
         PrintStats("rocksdb.stats");
       } else if (name == "resetstats") {
@@ -4372,6 +4392,8 @@ class Benchmark {
           FLAGS_max_auto_readahead_size;
       block_based_options.initial_auto_readahead_size =
           FLAGS_initial_auto_readahead_size;
+      block_based_options.num_file_reads_for_auto_readahead =
+          FLAGS_num_file_reads_for_auto_readahead;
       BlockBasedTableOptions::PrepopulateBlockCache prepopulate_block_cache =
           block_based_options.prepopulate_block_cache;
       switch (FLAGS_prepopulate_block_cache) {
@@ -4444,6 +4466,8 @@ class Benchmark {
             LRUCacheOptions co;
             co.capacity = FLAGS_blob_cache_size;
             co.num_shard_bits = FLAGS_blob_cache_numshardbits;
+            co.memory_allocator = GetCacheAllocator();
+
             options.blob_cache = NewLRUCache(co);
           } else {
             fprintf(

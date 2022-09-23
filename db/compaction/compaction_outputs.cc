@@ -76,6 +76,107 @@ IOStatus CompactionOutputs::WriterSyncClose(const Status& input_status,
   return io_s;
 }
 
+bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
+  assert(c_iter.Valid());
+
+  // If there's user defined partitioner, check that first
+  if (HasBuilder() && partitioner_ &&
+      partitioner_->ShouldPartition(
+          PartitionerRequest(last_key_for_partitioner_, c_iter.user_key(),
+                             current_output_file_size_)) == kRequired) {
+    return true;
+  }
+
+  // files output to Level 0 won't be split
+  if (compaction_->output_level() == 0) {
+    return false;
+  }
+
+  // reach the target file size
+  if (current_output_file_size_ >= compaction_->max_output_file_size()) {
+    return true;
+  }
+
+  const Slice& internal_key = c_iter.key();
+  const InternalKeyComparator* icmp =
+      &compaction_->column_family_data()->internal_comparator();
+
+  // Check if it needs to split for RoundRobin
+  // Invalid local_output_split_key indicates that we do not need to split
+  if (local_output_split_key_ != nullptr && !is_split_) {
+    // Split occurs when the next key is larger than/equal to the cursor
+    if (icmp->Compare(internal_key, local_output_split_key_->Encode()) >= 0) {
+      is_split_ = true;
+      return true;
+    }
+  }
+
+  // Update grandparent information
+  const std::vector<FileMetaData*>& grandparents = compaction_->grandparents();
+  bool grandparant_file_switched = false;
+  // Scan to find the earliest grandparent file that contains key.
+  while (grandparent_index_ < grandparents.size() &&
+         icmp->Compare(internal_key,
+                       grandparents[grandparent_index_]->largest.Encode()) >
+             0) {
+    if (seen_key_) {
+      overlapped_bytes_ += grandparents[grandparent_index_]->fd.GetFileSize();
+      grandparant_file_switched = true;
+    }
+    assert(grandparent_index_ + 1 >= grandparents.size() ||
+           icmp->Compare(
+               grandparents[grandparent_index_]->largest.Encode(),
+               grandparents[grandparent_index_ + 1]->smallest.Encode()) <= 0);
+    grandparent_index_++;
+  }
+  seen_key_ = true;
+
+  if (grandparant_file_switched &&
+      overlapped_bytes_ + current_output_file_size_ >
+          compaction_->max_compaction_bytes()) {
+    // Too much overlap for current output; start new output
+    overlapped_bytes_ = 0;
+    return true;
+  }
+
+  // check ttl file boundaries if there's any
+  if (!files_to_cut_for_ttl_.empty()) {
+    if (cur_files_to_cut_for_ttl_ != -1) {
+      // Previous key is inside the range of a file
+      if (icmp->Compare(internal_key,
+                        files_to_cut_for_ttl_[cur_files_to_cut_for_ttl_]
+                            ->largest.Encode()) > 0) {
+        next_files_to_cut_for_ttl_ = cur_files_to_cut_for_ttl_ + 1;
+        cur_files_to_cut_for_ttl_ = -1;
+        return true;
+      }
+    } else {
+      // Look for the key position
+      while (next_files_to_cut_for_ttl_ <
+             static_cast<int>(files_to_cut_for_ttl_.size())) {
+        if (icmp->Compare(internal_key,
+                          files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
+                              ->smallest.Encode()) >= 0) {
+          if (icmp->Compare(internal_key,
+                            files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
+                                ->largest.Encode()) <= 0) {
+            // With in the current file
+            cur_files_to_cut_for_ttl_ = next_files_to_cut_for_ttl_;
+            return true;
+          }
+          // Beyond the current file
+          next_files_to_cut_for_ttl_++;
+        } else {
+          // Still fall into the gap
+          break;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 Status CompactionOutputs::AddToOutput(
     const CompactionIterator& c_iter,
     const CompactionFileOpenFunc& open_file_func,
@@ -83,27 +184,19 @@ Status CompactionOutputs::AddToOutput(
   Status s;
   const Slice& key = c_iter.key();
 
-  if (!pending_close_ && c_iter.Valid() && partitioner_ && HasBuilder() &&
-      partitioner_->ShouldPartition(
-          PartitionerRequest(last_key_for_partitioner_, c_iter.user_key(),
-                             current_output_file_size_)) == kRequired) {
-    pending_close_ = true;
-  }
-
-  if (pending_close_) {
+  if (ShouldStopBefore(c_iter) && HasBuilder()) {
     s = close_file_func(*this, c_iter.InputStatus(), key);
-    pending_close_ = false;
-  }
-  if (!s.ok()) {
-    return s;
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   // Open output file if necessary
   if (!HasBuilder()) {
     s = open_file_func(*this);
-  }
-  if (!s.ok()) {
-    return s;
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   Output& curr = current_output();
@@ -129,19 +222,6 @@ Status CompactionOutputs::AddToOutput(
   const ParsedInternalKey& ikey = c_iter.ikey();
   s = current_output().meta.UpdateBoundaries(key, value, ikey.sequence,
                                              ikey.type);
-
-  // Close output file if it is big enough. Two possibilities determine it's
-  // time to close it: (1) the current key should be this file's last key, (2)
-  // the next key should not be in this file.
-  //
-  // TODO(aekmekji): determine if file should be closed earlier than this
-  // during subcompactions (i.e. if output size, estimated by input size, is
-  // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
-  // and 0.6MB instead of 1MB and 0.2MB)
-  if (compaction_->output_level() != 0 &&
-      current_output_file_size_ >= compaction_->max_output_file_size()) {
-    pending_close_ = true;
-  }
 
   if (partitioner_) {
     last_key_for_partitioner_.assign(c_iter.user_key().data_,
@@ -318,4 +398,59 @@ Status CompactionOutputs::AddRangeDels(
   }
   return Status::OK();
 }
+
+void CompactionOutputs::FillFilesToCutForTtl() {
+  if (compaction_->immutable_options()->compaction_style !=
+          kCompactionStyleLevel ||
+      compaction_->immutable_options()->compaction_pri !=
+          kMinOverlappingRatio ||
+      compaction_->mutable_cf_options()->ttl == 0 ||
+      compaction_->num_input_levels() < 2 || compaction_->bottommost_level()) {
+    return;
+  }
+
+  // We define new file with the oldest ancestor time to be younger than 1/4
+  // TTL, and an old one to be older than 1/2 TTL time.
+  int64_t temp_current_time;
+  auto get_time_status =
+      compaction_->immutable_options()->clock->GetCurrentTime(
+          &temp_current_time);
+  if (!get_time_status.ok()) {
+    return;
+  }
+
+  auto current_time = static_cast<uint64_t>(temp_current_time);
+  if (current_time < compaction_->mutable_cf_options()->ttl) {
+    return;
+  }
+
+  uint64_t old_age_thres =
+      current_time - compaction_->mutable_cf_options()->ttl / 2;
+  const std::vector<FileMetaData*>& olevel =
+      *(compaction_->inputs(compaction_->num_input_levels() - 1));
+  for (FileMetaData* file : olevel) {
+    // Worth filtering out by start and end?
+    uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
+    // We put old files if they are not too small to prevent a flood
+    // of small files.
+    if (oldest_ancester_time < old_age_thres &&
+        file->fd.GetFileSize() >
+            compaction_->mutable_cf_options()->target_file_size_base / 2) {
+      files_to_cut_for_ttl_.push_back(file);
+    }
+  }
+}
+
+CompactionOutputs::CompactionOutputs(const Compaction* compaction,
+                                     const bool is_penultimate_level)
+    : compaction_(compaction), is_penultimate_level_(is_penultimate_level) {
+  partitioner_ = compaction->output_level() == 0
+                     ? nullptr
+                     : compaction->CreateSstPartitioner();
+
+  if (compaction->output_level() != 0) {
+    FillFilesToCutForTtl();
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE

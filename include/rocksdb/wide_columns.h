@@ -76,6 +76,9 @@ using WideColumns = std::vector<WideColumn>;
 // The anonymous default wide column (an empty Slice).
 extern const Slice kDefaultWideColumnName;
 
+// An empty set of wide columns.
+extern const WideColumns kNoWideColumns;
+
 // A self-contained collection of wide columns. Used for the results of
 // wide-column queries.
 class PinnableWideColumns {

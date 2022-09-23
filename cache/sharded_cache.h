@@ -20,7 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 // Single cache shard interface.
 class CacheShard {
  public:
-  CacheShard() = default;
+  explicit CacheShard(CacheMetadataChargePolicy metadata_charge_policy)
+      : metadata_charge_policy_(metadata_charge_policy) {}
   virtual ~CacheShard() = default;
 
   using DeleterFn = Cache::DeleterFn;
@@ -47,6 +48,8 @@ class CacheShard {
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
   virtual size_t GetUsage() const = 0;
   virtual size_t GetPinnedUsage() const = 0;
+  virtual size_t GetOccupancyCount() const = 0;
+  virtual size_t GetTableAddressCount() const = 0;
   // Handles iterating over roughly `average_entries_per_lock` entries, using
   // `state` to somehow record where it last ended up. Caller initially uses
   // *state == 0 and implementation sets *state = UINT32_MAX to indicate
@@ -57,13 +60,9 @@ class CacheShard {
       uint32_t average_entries_per_lock, uint32_t* state) = 0;
   virtual void EraseUnRefEntries() = 0;
   virtual std::string GetPrintableOptions() const { return ""; }
-  void set_metadata_charge_policy(
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    metadata_charge_policy_ = metadata_charge_policy;
-  }
 
  protected:
-  CacheMetadataChargePolicy metadata_charge_policy_ = kDontChargeCacheMetadata;
+  const CacheMetadataChargePolicy metadata_charge_policy_;
 };
 
 // Generic cache interface which shards cache by hash of keys. 2^num_shard_bits
@@ -106,6 +105,8 @@ class ShardedCache : public Cache {
   virtual size_t GetUsage() const override;
   virtual size_t GetUsage(Handle* handle) const override;
   virtual size_t GetPinnedUsage() const override;
+  virtual size_t GetOccupancyCount() const override;
+  virtual size_t GetTableAddressCount() const override;
   virtual void ApplyToAllEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
                                DeleterFn deleter)>& callback,
@@ -127,6 +128,8 @@ class ShardedCache : public Cache {
   std::atomic<uint64_t> last_id_;
 };
 
-extern int GetDefaultCacheShardBits(size_t capacity);
+// 512KB is traditional minimum shard size.
+int GetDefaultCacheShardBits(size_t capacity,
+                             size_t min_shard_size = 512U * 1024U);
 
 }  // namespace ROCKSDB_NAMESPACE

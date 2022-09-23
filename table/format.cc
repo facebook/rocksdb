@@ -498,10 +498,11 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
   }
 }
 
-Status UncompressBlockContentsForCompressionType(
-    const UncompressionInfo& uncompression_info, const char* data, size_t n,
-    BlockContents* contents, uint32_t format_version,
-    const ImmutableOptions& ioptions, MemoryAllocator* allocator) {
+Status UncompressBlockData(const UncompressionInfo& uncompression_info,
+                           const char* data, size_t size,
+                           BlockContents* out_contents, uint32_t format_version,
+                           const ImmutableOptions& ioptions,
+                           MemoryAllocator* allocator) {
   Status ret = Status::OK();
 
   assert(uncompression_info.type() != kNoCompression &&
@@ -511,7 +512,7 @@ Status UncompressBlockContentsForCompressionType(
                       ShouldReportDetailedTime(ioptions.env, ioptions.stats));
   size_t uncompressed_size = 0;
   CacheAllocationPtr ubuf =
-      UncompressData(uncompression_info, data, n, &uncompressed_size,
+      UncompressData(uncompression_info, data, size, &uncompressed_size,
                      GetCompressFormatForVersion(format_version), allocator);
   if (!ubuf) {
     if (!CompressionTypeSupported(uncompression_info.type())) {
@@ -525,44 +526,36 @@ Status UncompressBlockContentsForCompressionType(
     }
   }
 
-  *contents = BlockContents(std::move(ubuf), uncompressed_size);
+  *out_contents = BlockContents(std::move(ubuf), uncompressed_size);
 
   if (ShouldReportDetailedTime(ioptions.env, ioptions.stats)) {
     RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
                           timer.ElapsedNanos());
   }
   RecordTimeToHistogram(ioptions.stats, BYTES_DECOMPRESSED,
-                        contents->data.size());
+                        out_contents->data.size());
   RecordTick(ioptions.stats, NUMBER_BLOCK_DECOMPRESSED);
 
+  TEST_SYNC_POINT_CALLBACK("UncompressBlockData:TamperWithReturnValue",
+                           static_cast<void*>(&ret));
   TEST_SYNC_POINT_CALLBACK(
-      "UncompressBlockContentsForCompressionType:TamperWithReturnValue",
-      static_cast<void*>(&ret));
-  TEST_SYNC_POINT_CALLBACK(
-      "UncompressBlockContentsForCompressionType:"
+      "UncompressBlockData:"
       "TamperWithDecompressionOutput",
-      static_cast<void*>(contents));
+      static_cast<void*>(out_contents));
 
   return ret;
 }
 
-//
-// The 'data' points to the raw block contents that was read in from file.
-// This method allocates a new heap buffer and the raw block
-// contents are uncompresed into this buffer. This
-// buffer is returned via 'result' and it is upto the caller to
-// free this buffer.
-// format_version is the block format as defined in include/rocksdb/table.h
-Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
-                               const char* data, size_t n,
-                               BlockContents* contents, uint32_t format_version,
-                               const ImmutableOptions& ioptions,
-                               MemoryAllocator* allocator) {
-  assert(data[n] != kNoCompression);
-  assert(data[n] == static_cast<char>(uncompression_info.type()));
-  return UncompressBlockContentsForCompressionType(uncompression_info, data, n,
-                                                   contents, format_version,
-                                                   ioptions, allocator);
+Status UncompressSerializedBlock(const UncompressionInfo& uncompression_info,
+                                 const char* data, size_t size,
+                                 BlockContents* out_contents,
+                                 uint32_t format_version,
+                                 const ImmutableOptions& ioptions,
+                                 MemoryAllocator* allocator) {
+  assert(data[size] != kNoCompression);
+  assert(data[size] == static_cast<char>(uncompression_info.type()));
+  return UncompressBlockData(uncompression_info, data, size, out_contents,
+                             format_version, ioptions, allocator);
 }
 
 // Replace the contents of db_host_id with the actual hostname, if db_host_id

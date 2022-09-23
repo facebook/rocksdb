@@ -10,7 +10,6 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
-#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
@@ -115,14 +114,13 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   }
 
   if (FLAGS_cache_type == "clock_cache") {
-    auto cache = ExperimentalNewClockCache(
-        static_cast<size_t>(capacity), FLAGS_block_size, num_shard_bits,
-        false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
-    if (!cache) {
-      fprintf(stderr, "Clock cache not supported.");
-      exit(1);
-    }
-    return cache;
+    fprintf(stderr, "Old clock cache implementation has been removed.\n");
+    exit(1);
+  } else if (FLAGS_cache_type == "hyper_clock_cache") {
+    return HyperClockCacheOptions(static_cast<size_t>(capacity),
+                                  FLAGS_block_size /*estimated_entry_charge*/,
+                                  num_shard_bits)
+        .MakeSharedCache();
   } else if (FLAGS_cache_type == "fast_lru_cache") {
     return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
                            num_shard_bits, false /*strict_capacity_limit*/,
@@ -635,6 +633,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   read_opts.async_io = FLAGS_async_io;
   read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
+  read_opts.readahead_size = FLAGS_readahead_size;
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
@@ -747,11 +746,6 @@ void StressTest::OperateDb(ThreadState* thread) {
       int64_t rand_key = GenerateOneKey(thread, i);
       std::string keystr = Key(rand_key);
       Slice key = keystr;
-      std::unique_ptr<MutexLock> lock;
-      if (ShouldAcquireMutexOnKey()) {
-        lock.reset(new MutexLock(
-            shared->GetMutexForKey(rand_column_family, rand_key)));
-      }
 
       if (thread->rand.OneInOpt(FLAGS_compact_range_one_in)) {
         TestCompactRange(thread, rand_key, key, column_family);
@@ -824,7 +818,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
 
       if (thread->rand.OneInOpt(FLAGS_ingest_external_file_one_in)) {
-        TestIngestExternalFile(thread, rand_column_families, rand_keys, lock);
+        TestIngestExternalFile(thread, rand_column_families, rand_keys);
       }
 
       if (thread->rand.OneInOpt(FLAGS_backup_one_in)) {
@@ -880,7 +874,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       std::string write_ts_str;
       Slice read_ts;
       Slice write_ts;
-      if (ShouldAcquireMutexOnKey() && FLAGS_user_timestamp_size > 0) {
+      if (FLAGS_user_timestamp_size > 0) {
         read_ts_str = GetNowNanos();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
@@ -922,16 +916,15 @@ void StressTest::OperateDb(ThreadState* thread) {
         assert(prefix_bound <= prob_op);
         // OPERATION write
         TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
-                value, lock);
+                value);
       } else if (prob_op < del_bound) {
         assert(write_bound <= prob_op);
         // OPERATION delete
-        TestDelete(thread, write_opts, rand_column_families, rand_keys, lock);
+        TestDelete(thread, write_opts, rand_column_families, rand_keys);
       } else if (prob_op < delrange_bound) {
         assert(del_bound <= prob_op);
         // OPERATION delete range
-        TestDeleteRange(thread, write_opts, rand_column_families, rand_keys,
-                        lock);
+        TestDeleteRange(thread, write_opts, rand_column_families, rand_keys);
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
@@ -939,7 +932,7 @@ void StressTest::OperateDb(ThreadState* thread) {
             thread->rand.OneInOpt(
                 FLAGS_verify_iterator_with_expected_state_one_in)) {
           TestIterateAgainstExpected(thread, read_opts, rand_column_families,
-                                     rand_keys, lock);
+                                     rand_keys);
         } else {
           int num_seeks = static_cast<int>(
               std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
@@ -1422,6 +1415,15 @@ void StressTest::TestCompactFiles(ThreadState* /* thread */,
 Status StressTest::TestBackupRestore(
     ThreadState* thread, const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& rand_keys) {
+  std::vector<std::unique_ptr<MutexLock>> locks;
+  if (ShouldAcquireMutexOnKey()) {
+    for (int rand_column_family : rand_column_families) {
+      // `rand_keys[0]` on each chosen CF will be verified.
+      locks.emplace_back(new MutexLock(
+          thread->shared->GetMutexForKey(rand_column_family, rand_keys[0])));
+    }
+  }
+
   const std::string backup_dir =
       FLAGS_db + "/.backup" + std::to_string(thread->tid);
   const std::string restore_dir =
@@ -1723,6 +1725,15 @@ Status StressTest::TestApproximateSize(
 Status StressTest::TestCheckpoint(ThreadState* thread,
                                   const std::vector<int>& rand_column_families,
                                   const std::vector<int64_t>& rand_keys) {
+  std::vector<std::unique_ptr<MutexLock>> locks;
+  if (ShouldAcquireMutexOnKey()) {
+    for (int rand_column_family : rand_column_families) {
+      // `rand_keys[0]` on each chosen CF will be verified.
+      locks.emplace_back(new MutexLock(
+          thread->shared->GetMutexForKey(rand_column_family, rand_keys[0])));
+    }
+  }
+
   std::string checkpoint_dir =
       FLAGS_db + "/.checkpoint" + std::to_string(thread->tid);
   Options tmp_opts(options_);
@@ -2694,6 +2705,21 @@ void StressTest::Open(SharedState* shared) {
     exit(1);
 #endif
   }
+
+  if (FLAGS_preserve_unverified_changes) {
+    // Up until now, no live file should have become obsolete due to these
+    // options. After `DisableFileDeletions()` we can reenable auto compactions
+    // since, even if live files become obsolete, they won't be deleted.
+    assert(options_.avoid_flush_during_recovery);
+    assert(options_.disable_auto_compactions);
+    if (s.ok()) {
+      s = db_->DisableFileDeletions();
+    }
+    if (s.ok()) {
+      s = db_->EnableAutoCompaction(column_families_);
+    }
+  }
+
   if (!s.ok()) {
     fprintf(stderr, "open error: %s\n", s.ToString().c_str());
     exit(1);
@@ -2950,6 +2976,11 @@ void InitializeOptionsFromFlags(
   block_based_options.prepopulate_block_cache =
       static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
           FLAGS_prepopulate_block_cache);
+  block_based_options.initial_auto_readahead_size =
+      FLAGS_initial_auto_readahead_size;
+  block_based_options.max_auto_readahead_size = FLAGS_max_auto_readahead_size;
+  block_based_options.num_file_reads_for_auto_readahead =
+      FLAGS_num_file_reads_for_auto_readahead;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
   options.db_write_buffer_size = FLAGS_db_write_buffer_size;
   options.write_buffer_size = FLAGS_write_buffer_size;
@@ -3201,6 +3232,20 @@ void InitializeOptionsGeneral(
               status.ToString().c_str());
       exit(1);
     }
+  }
+
+  if (FLAGS_preserve_unverified_changes) {
+    if (!options.avoid_flush_during_recovery) {
+      fprintf(stderr,
+              "WARNING: flipping `avoid_flush_during_recovery` to true for "
+              "`preserve_unverified_changes` to keep all files\n");
+      options.avoid_flush_during_recovery = true;
+    }
+    // Together with `avoid_flush_during_recovery == true`, this will prevent
+    // live files from becoming obsolete and deleted between `DB::Open()` and
+    // `DisableFileDeletions()` due to flush or compaction. We do not need to
+    // warn the user since we will reenable compaction soon.
+    options.disable_auto_compactions = true;
   }
 
   options.table_properties_collector_factories.emplace_back(

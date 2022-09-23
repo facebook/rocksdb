@@ -115,7 +115,8 @@ LRUCacheShard::LRUCacheShard(
     double low_pri_pool_ratio, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy, int max_upper_hash_bits,
     const std::shared_ptr<SecondaryCache>& secondary_cache)
-    : capacity_(0),
+    : CacheShard(metadata_charge_policy),
+      capacity_(0),
       high_pri_pool_usage_(0),
       low_pri_pool_usage_(0),
       strict_capacity_limit_(strict_capacity_limit),
@@ -128,7 +129,6 @@ LRUCacheShard::LRUCacheShard(
       lru_usage_(0),
       mutex_(use_adaptive_mutex),
       secondary_cache_(secondary_cache) {
-  set_metadata_charge_policy(metadata_charge_policy);
   // Make empty circular linked list.
   lru_.next = &lru_;
   lru_.prev = &lru_;
@@ -458,6 +458,8 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         e->Unref();
         e->Free();
         e = nullptr;
+      } else {
+        PERF_COUNTER_ADD(block_cache_standalone_handle_count, 1);
       }
 
       // Insert a dummy handle into the primary cache. This dummy handle is
@@ -477,6 +479,9 @@ void LRUCacheShard::Promote(LRUHandle* e) {
       // and the caller will most likely just read it from disk if we erase it
       // here.
       s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
+      if (s.ok()) {
+        PERF_COUNTER_ADD(block_cache_real_handle_count, 1);
+      }
     }
 
     if (!s.ok()) {
@@ -754,6 +759,16 @@ size_t LRUCacheShard::GetPinnedUsage() const {
   return usage_ - lru_usage_;
 }
 
+size_t LRUCacheShard::GetOccupancyCount() const {
+  DMutexLock l(mutex_);
+  return table_.GetOccupancyCount();
+}
+
+size_t LRUCacheShard::GetTableAddressCount() const {
+  DMutexLock l(mutex_);
+  return size_t{1} << table_.GetLengthBits();
+}
+
 std::string LRUCacheShard::GetPrintableOptions() const {
   const int kBufferSize = 200;
   char buffer[kBufferSize];
@@ -915,7 +930,7 @@ std::shared_ptr<Cache> NewLRUCache(
     return nullptr;
   }
   if (low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0) {
-    // Invalid high_pri_pool_ratio
+    // Invalid low_pri_pool_ratio
     return nullptr;
   }
   if (low_pri_pool_ratio + high_pri_pool_ratio > 1.0) {

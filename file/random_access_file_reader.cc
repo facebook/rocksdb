@@ -473,6 +473,7 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
   if (use_direct_io() && is_aligned == false) {
     FSReadRequest aligned_req = Align(req, alignment);
+    aligned_req.status.PermitUncheckedError();
 
     // Allocate aligned buffer.
     read_async_info->buf_.Alignment(alignment);

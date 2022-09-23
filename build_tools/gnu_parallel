@@ -1170,7 +1170,7 @@ sub parse_env_var {
     # Check if any variables contain \n
     if(my @v = map { s/BASH_FUNC_(.*)\(\)/$1/; $_ } grep { $ENV{$_}=~/\n/ } @vars) {
 	# \n is bad for csh and will cause it to fail.
-	$Global::envwarn = ::shell_quote_scalar(q{echo $SHELL | egrep "/t?csh" > /dev/null && echo CSH/TCSH DO NOT SUPPORT newlines IN VARIABLES/FUNCTIONS. Unset }."@v".q{ && exec false;}."\n\n") . $Global::envwarn;
+	$Global::envwarn = ::shell_quote_scalar(q{echo $SHELL | grep -E "/t?csh" > /dev/null && echo CSH/TCSH DO NOT SUPPORT newlines IN VARIABLES/FUNCTIONS. Unset }."@v".q{ && exec false;}."\n\n") . $Global::envwarn;
     }
 
     if(not @qcsh) { push @qcsh, "true"; }
