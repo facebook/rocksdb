@@ -241,6 +241,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       if (*seq_ == kMaxSequenceNumber) {
         *seq_ = parsed_key.sequence;
       }
+      if (max_covering_tombstone_seq_) {
+        *seq_ = std::max(*seq_, *max_covering_tombstone_seq_);
+      }
     }
 
     auto type = parsed_key.type;

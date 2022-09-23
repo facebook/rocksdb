@@ -166,6 +166,37 @@ TEST_P(OptimisticTransactionTest, WriteConflictTest2) {
   delete txn;
 }
 
+TEST_P(OptimisticTransactionTest, WriteConflictTest3) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  std::string value;
+
+  ASSERT_OK(txn_db->Put(write_options, "foo", "bar"));
+
+  Transaction* txn = txn_db->BeginTransaction(write_options);
+  ASSERT_NE(txn, nullptr);
+
+  ASSERT_OK(txn->GetForUpdate(read_options, "foo", &value));
+  ASSERT_EQ(value, "bar");
+  ASSERT_OK(txn->Merge("foo", "bar3"));
+
+  // Merge outside of a transaction should conflict with the previous merge
+  ASSERT_OK(txn_db->Merge(write_options, "foo", "bar2"));
+  ASSERT_OK(txn_db->Get(read_options, "foo", &value));
+  ASSERT_EQ(value, "bar2");
+
+  ASSERT_EQ(1, txn->GetNumKeys());
+
+  Status s = txn->Commit();
+  EXPECT_TRUE(s.IsBusy());  // Txn should not commit
+
+  // Verify that transaction did not write anything
+  ASSERT_OK(txn_db->Get(read_options, "foo", &value));
+  ASSERT_EQ(value, "bar2");
+
+  delete txn;
+}
+
 TEST_P(OptimisticTransactionTest, ReadConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;

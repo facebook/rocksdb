@@ -958,7 +958,11 @@ static bool SaveValue(void* arg, const char* entry) {
       return true;  // to continue to the next seq
     }
 
-    s->seq = seq;
+    if (s->seq == kMaxSequenceNumber) {
+      s->seq = seq;
+    }
+
+    s->seq = std::max(s->seq, max_covering_tombstone_seq);
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
          type == kTypeWideColumnEntity) &&
