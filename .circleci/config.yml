@@ -120,7 +120,7 @@ commands:
     steps:
       - run:
           name: "Test low-variance benchmarks"
-          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 50000
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
             # How long to run parts of the test(s)
