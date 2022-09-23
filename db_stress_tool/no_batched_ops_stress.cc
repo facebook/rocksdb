@@ -48,6 +48,7 @@ class NonBatchedOpsStressTest : public StressTest {
       enum class VerificationMethod {
         Iterator,
         Get,
+        GetEntity,
         MultiGet,
         GetMergeOperands,
         NumberOfMethods
@@ -127,6 +128,34 @@ class NonBatchedOpsStressTest : public StressTest {
           if (from_db.length()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
                           from_db.data(), from_db.length());
+          }
+        }
+      } else if (method == VerificationMethod::GetEntity) {
+        for (int64_t i = start; i < end; ++i) {
+          if (thread->shared->HasVerificationFailedYet()) {
+            break;
+          }
+
+          const std::string key = Key(i);
+          PinnableWideColumns columns;
+
+          Status s =
+              db_->GetEntity(options, column_families_[cf], key, &columns);
+
+          const WideColumns& columns_from_db = columns.columns();
+
+          std::string from_db;
+          if (s.ok() && !columns_from_db.empty() &&
+              columns_from_db[0].name() == kDefaultWideColumnName) {
+            from_db = columns_from_db[0].value().ToString();
+          }
+
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+                            &columns_from_db, s, true);
+
+          if (!from_db.empty()) {
+            PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
+                          from_db.data(), from_db.size());
           }
         }
       } else if (method == VerificationMethod::MultiGet) {
