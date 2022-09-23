@@ -254,7 +254,8 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   }
 
   // TTL Compaction
-  if (ioptions_.compaction_pri == kRoundRobin && !vstorage_->ExpiredTtlFiles().empty()) {
+  if (ioptions_.compaction_pri == kRoundRobin &&
+      !vstorage_->ExpiredTtlFiles().empty()) {
     auto expired_files = vstorage_->ExpiredTtlFiles();
     // the expired files list should already be sorted by level
     start_level_ = expired_files.front().first;
