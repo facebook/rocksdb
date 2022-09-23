@@ -6468,6 +6468,16 @@ void rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t* opt,
   opt->rep.memtable_whole_key_filtering = val;
 }
 
+void rocksdb_options_set_avoid_unnecessary_blocking_io(rocksdb_options_t* opt,
+                                                       unsigned char val) {
+  opt->rep.avoid_unnecessary_blocking_io = val;
+}
+
+unsigned char rocksdb_options_get_avoid_unnecessary_blocking_io(
+    rocksdb_options_t* opt) {
+  return opt->rep.avoid_unnecessary_blocking_io;
+}
+
 // deletes container with memory usage estimates
 void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
   delete usage;
