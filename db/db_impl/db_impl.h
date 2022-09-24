@@ -423,7 +423,7 @@ class DBImpl : public DB {
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
   virtual Status FlushWAL(bool sync) override;
-  bool TEST_WALBufferIsEmpty(bool lock = true);
+  bool WALBufferIsEmpty(bool lock = true);
   virtual Status SyncWAL() override;
   virtual Status LockWAL() override;
   virtual Status UnlockWAL() override;

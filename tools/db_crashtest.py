@@ -77,6 +77,7 @@ default_params = {
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": 1000000,
+    "manual_wal_flush_one_in": lambda: random.choice([0, 0, 1000, 1000000]),
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_one_in": 1000000,
     # Note: the following two are intentionally disabled as the corresponding
