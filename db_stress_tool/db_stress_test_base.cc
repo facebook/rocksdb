@@ -3028,6 +3028,7 @@ void InitializeOptionsFromFlags(
       static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style);
   options.compaction_pri =
       static_cast<ROCKSDB_NAMESPACE::CompactionPri>(FLAGS_compaction_pri);
+  options.num_levels = FLAGS_num_levels;
   if (FLAGS_prefix_size >= 0) {
     options.prefix_extractor.reset(NewFixedPrefixTransform(FLAGS_prefix_size));
   }
