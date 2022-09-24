@@ -2120,6 +2120,12 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       MaybeScheduleFlushOrCompaction();
     }
 
+    if (flush_options.wait) {
+      TEST_SYNC_POINT("DBImpl::FlushMemTable:AfterScheduleExportFlush");
+    } else {
+      TEST_SYNC_POINT("DBImpl::FlushMemTable:AfterScheduleNonExportFlush");
+    }
+
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
       if (two_write_queues_) {
@@ -2376,10 +2382,19 @@ Status DBImpl::WaitForFlushMemTables(
     for (int i = 0; i < num; ++i) {
       if (cfds[i]->IsDropped()) {
         ++num_dropped;
-      } else if (cfds[i]->imm()->NumNotFlushed() == 0 ||
-                 (flush_memtable_ids[i] != nullptr &&
-                  cfds[i]->imm()->GetEarliestMemTableID() >
-                      *flush_memtable_ids[i])) {
+        continue;
+      }
+      int num_not_flushed = cfds[i]->imm()->NumNotFlushed();
+      uint64_t earliest_memtable_id = cfds[i]->imm()->GetEarliestMemTableID();
+      if (num_not_flushed == 0 ||
+          (flush_memtable_ids[i] != nullptr &&
+           earliest_memtable_id > *flush_memtable_ids[i])) {
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "[%s] Num not flushed: %d, "
+                       "earliest_memtable_id_now: %" PRIu64
+                       ", mem_table_we_flushed: %" PRIu64,
+                       cfds[i]->GetName().c_str(), num_not_flushed,
+                       earliest_memtable_id, *flush_memtable_ids[i]);
         ++num_finished;
       }
     }

@@ -890,6 +890,8 @@ Status FlushJob::WriteLevel0Table() {
                      "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
                      cfd_->GetName().c_str(), job_context_->job_id,
                      meta_.fd.GetNumber());
+      TEST_SYNC_POINT("FlushJob::WriteLevel0Table:flush_started1");
+      TEST_SYNC_POINT("FlushJob::WriteLevel0Table:flush_started2");
 
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
@@ -987,6 +989,8 @@ Status FlushJob::WriteLevel0Table() {
     db_mutex_->Lock();
   }
   base_->Unref();
+
+  TEST_SYNC_POINT("FlushJob::WriteLevel0Table:add_delay");
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.

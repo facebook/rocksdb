@@ -9,11 +9,14 @@
 
 #include <atomic>
 #include <limits>
+#include <chrono>
+#include <thread>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
+#include "include/rocksdb/utilities/checkpoint.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -76,6 +79,75 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
 #ifndef ROCKSDB_LITE
   ASSERT_EQ(2, TotalTableFiles());
 #endif  // ROCKSDB_LITE
+}
+
+// We had issue when a flush with wait triggered due to ExportColumnFamily can
+// finish before the result is committed to manifest. This is happening because
+// of a simultaneous flush on the column family. Run in loop to reproduce the
+// failure.
+TEST_F(DBFlushTest, FlushBeforeWritingManifestWithCheckpoint) {
+  Options options;
+  options.disable_auto_compactions = true;
+  options.max_background_flushes = 3;
+  options.max_write_buffer_number = 3;
+  options.create_if_missing = true;
+  env_->SetBackgroundThreads(3, Env::HIGH);
+  options.env = env_;
+  DestroyAndReopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::FlushMemTable:AfterScheduleNonExportFlush",
+        "FlushJob::WriteLevel0Table:flush_started2"}});
+
+  bool processed = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:flush_started1", [&](void* /*arg*/) {
+        // Add second write and flush without wait.
+        if (processed) {
+          return;
+        }
+
+        processed = true;
+        FlushOptions no_wait;
+        no_wait.wait = false;
+        no_wait.allow_write_stall = true;
+        ASSERT_OK(Put("foo", "v"));
+        ASSERT_OK(dbfull()->Flush(no_wait));
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:add_delay", [&](void* /*arg*/) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  rocksdb::ExportImportFilesMetaData* cf_sst_files_metadata = nullptr;
+  rocksdb::Checkpoint* checkpoint;
+  auto status = rocksdb::Checkpoint::Create(dbfull(), &checkpoint);
+  ASSERT_OK(status);
+
+  // Add first write and trigger an ExportColumnFamily which will trigger a
+  // flush with wait.
+  ASSERT_OK(Put("bar", "v"));
+  uint64_t timeSinceEpochMilliseconds =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  std::string dir_path =
+      "/tmp/checkpoint1_" + std::to_string(timeSinceEpochMilliseconds);
+  status = checkpoint->ExportColumnFamily(dbfull()->DefaultColumnFamily(),
+                                          dir_path, &cf_sst_files_metadata);
+  ASSERT_OK(status);
+
+  int total_files = cf_sst_files_metadata->files.size();
+  ASSERT_OK(DestroyDir(env_, dir_path));
+#ifndef ROCKSDB_LITE
+  ASSERT_GT(total_files, 0);
+#endif  // ROCKSDB_LITE
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // Disable this test temporarily on Travis as it fails intermittently.
