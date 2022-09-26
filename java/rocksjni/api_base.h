@@ -14,10 +14,10 @@
 
 class APIBase {
   /**
-   * @brief control deletion of the underllying pointer.
+   * @brief control deletion of the underlying pointer.
    * We do not own, and should not delete, the pointer if it is
    * the default instance of a pointer class in RocksDB.
-   * For instance, ColumnFamilyHandle behaves llike this.
+   * For instance, ColumnFamilyHandle behaves like this.
    *
    */
 
@@ -44,11 +44,14 @@ class APIBase {
   /**
    * @brief create a THandle wrapped with a SharedPtrHolder which will delete
    * the THandle at delete() time only if the handle is NOT a special default.
-   * This was devised in order not to delete the default CFH,
-   * which shouldn't be deleted by us, as it is owned by the C++ layer.
+   * 
+   * This uses the distinction between the owned and stored pointers in std::shared_ptr
+   * 
+   * This usage was devised in order not to delete the default CFH,
+   * which shouldn't be deleted by us, as it is owned by the core RocksDB C++ layer.
    *
    * @param handle
-   * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
+   * @return std::shared_ptr<ROCKSDB_NAMESPACE::THandle> (most probably a ColumnFamilyHandle)
    */
   template <class THandle>
   static std::shared_ptr<THandle> createSharedPtr(THandle* handle,
