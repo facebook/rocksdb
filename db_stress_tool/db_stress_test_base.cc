@@ -586,8 +586,8 @@ void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
     for (wbwi_iter->SeekToFirst(); wbwi_iter->Valid(); wbwi_iter->Next()) {
       uint64_t key_val;
       if (GetIntVal(wbwi_iter->Entry().key.ToString(), &key_val)) {
-        shared->Put(static_cast<int>(i) /* cf_idx */, key_val, 0 /* ts */,
-                    true /* pending */);
+        shared->Put(static_cast<int>(i) /* cf_idx */, key_val,
+                    0 /* value_base */, true /* pending */);
       }
     }
   }
