@@ -252,6 +252,8 @@ WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
 
   assert(slice.size() >= num_columns);
 
+  columns.reserve(num_columns);
+
   for (size_t i = 1; i < num_columns; ++i) {
     const Slice name(slice.data(), i);
     const Slice value(slice.data() + i, slice.size() - i);
