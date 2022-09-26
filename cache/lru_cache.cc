@@ -433,10 +433,11 @@ void LRUCacheShard::Promote(LRUHandle* e, bool standalone) {
   e->SetIsPending(false);
   e->value = secondary_handle->Value();
   assert(e->total_charge == 0);
+  size_t value_size = secondary_handle->Size();
   delete secondary_handle;
 
   if (e->value) {
-    e->CalcTotalCharge(secondary_handle->Size(), metadata_charge_policy_);
+    e->CalcTotalCharge(value_size, metadata_charge_policy_);
     Status s;
     if (secondary_cache_ && secondary_cache_->SupportForceErase() &&
         standalone) {
