@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db_stress_common.h"
 #ifdef GFLAGS
 #include "db_stress_tool/multi_ops_txns_stress.h"
 
