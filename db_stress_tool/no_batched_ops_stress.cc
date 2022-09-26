@@ -49,24 +49,25 @@ class NonBatchedOpsStressTest : public StressTest {
       }
 
       enum class VerificationMethod {
-        Iterator,
-        Get,
-        GetEntity,
-        MultiGet,
-        GetMergeOperands,
-        NumberOfMethods
+        kIterator,
+        kGet,
+        kGetEntity,
+        kMultiGet,
+        kGetMergeOperands,
+        // Add any new items above kNumberOfMethods
+        kNumberOfMethods
       };
 
       // Note: GetMergeOperands is currently not supported for wide-column
       // entities
       const int num_methods =
           FLAGS_use_put_entity_one_in > 0
-              ? static_cast<int>(VerificationMethod::NumberOfMethods) - 1
-              : static_cast<int>(VerificationMethod::NumberOfMethods);
+              ? static_cast<int>(VerificationMethod::kNumberOfMethods) - 1
+              : static_cast<int>(VerificationMethod::kNumberOfMethods);
       const VerificationMethod method =
           static_cast<VerificationMethod>(thread->rand.Uniform(num_methods));
 
-      if (method == VerificationMethod::Iterator) {
+      if (method == VerificationMethod::kIterator) {
         std::unique_ptr<Iterator> iter(
             db_->NewIterator(options, column_families_[cf]));
 
@@ -132,7 +133,7 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.size());
           }
         }
-      } else if (method == VerificationMethod::Get) {
+      } else if (method == VerificationMethod::kGet) {
         for (int64_t i = start; i < end; ++i) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -152,7 +153,7 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.size());
           }
         }
-      } else if (method == VerificationMethod::GetEntity) {
+      } else if (method == VerificationMethod::kGetEntity) {
         for (int64_t i = start; i < end; ++i) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -180,7 +181,7 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.size());
           }
         }
-      } else if (method == VerificationMethod::MultiGet) {
+      } else if (method == VerificationMethod::kMultiGet) {
         for (int64_t i = start; i < end;) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -219,7 +220,7 @@ class NonBatchedOpsStressTest : public StressTest {
           i += batch_size;
         }
       } else {
-        assert(method == VerificationMethod::GetMergeOperands);
+        assert(method == VerificationMethod::kGetMergeOperands);
 
         // Start off with small size that will be increased later if necessary
         std::vector<PinnableSlice> values(4);
