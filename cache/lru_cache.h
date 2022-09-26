@@ -185,9 +185,6 @@ struct LRUHandle {
     } else {
       im_flags &= ~IM_IS_SECONDARY_CACHE_COMPATIBLE;
     }
-#ifdef __SANITIZE_THREAD__
-    is_secondary_cache_compatible_for_tsan = compat;
-#endif  // __SANITIZE_THREAD__
   }
 
   void SetIsPending(bool pending) {
@@ -208,11 +205,6 @@ struct LRUHandle {
 
   void Free() {
     assert(refs == 0);
-#ifdef __SANITIZE_THREAD__
-    // Here we can safely assert they are the same without a data race reported
-    assert(((flags & IS_SECONDARY_CACHE_COMPATIBLE) != 0) ==
-           is_secondary_cache_compatible_for_tsan);
-#endif  // __SANITIZE_THREAD__
     if (!IsSecondaryCacheCompatible() && info_.deleter) {
       (*info_.deleter)(key(), value);
     } else if (IsSecondaryCacheCompatible()) {
