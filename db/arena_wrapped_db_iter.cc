@@ -45,6 +45,7 @@ void ArenaWrappedDBIter::Init(
   sv_number_ = version_number;
   read_options_ = read_options;
   allow_refresh_ = allow_refresh;
+  memtable_range_tombstone_iter_ = nullptr;
 }
 
 Status ArenaWrappedDBIter::Refresh() {
