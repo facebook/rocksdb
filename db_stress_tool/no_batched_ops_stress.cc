@@ -49,19 +49,20 @@ class NonBatchedOpsStressTest : public StressTest {
       }
 
       enum class VerificationMethod {
-        Iterator,
-        Get,
-        MultiGet,
-        GetMergeOperands,
-        NumberOfMethods
+        kIterator,
+        kGet,
+        kMultiGet,
+        kGetMergeOperands,
+        // Add any new items above kNumberOfMethods
+        kNumberOfMethods
       };
 
       const int num_methods =
-          static_cast<int>(VerificationMethod::NumberOfMethods);
+          static_cast<int>(VerificationMethod::kNumberOfMethods);
       const VerificationMethod method =
           static_cast<VerificationMethod>(thread->rand.Uniform(num_methods));
 
-      if (method == VerificationMethod::Iterator) {
+      if (method == VerificationMethod::kIterator) {
         std::unique_ptr<Iterator> iter(
             db_->NewIterator(options, column_families_[cf]));
 
@@ -120,7 +121,7 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.size());
           }
         }
-      } else if (method == VerificationMethod::Get) {
+      } else if (method == VerificationMethod::kGet) {
         for (int64_t i = start; i < end; ++i) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -139,7 +140,7 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.size());
           }
         }
-      } else if (method == VerificationMethod::MultiGet) {
+      } else if (method == VerificationMethod::kMultiGet) {
         for (int64_t i = start; i < end;) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -177,7 +178,7 @@ class NonBatchedOpsStressTest : public StressTest {
           i += batch_size;
         }
       } else {
-        assert(method == VerificationMethod::GetMergeOperands);
+        assert(method == VerificationMethod::kGetMergeOperands);
 
         // Start off with small size that will be increased later if necessary
         std::vector<PinnableSlice> values(4);
