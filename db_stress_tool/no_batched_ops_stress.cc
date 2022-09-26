@@ -741,7 +741,7 @@ class NonBatchedOpsStressTest : public StressTest {
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
       if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
-                             from_db, s, true)) {
+                             from_db, s, /* strict */ true)) {
         return s;
       }
     }
