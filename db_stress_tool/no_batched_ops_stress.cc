@@ -30,6 +30,7 @@ class NonBatchedOpsStressTest : public StressTest {
       ts = ts_str;
       options.timestamp = &ts;
     }
+
     auto shared = thread->shared;
     const int64_t max_key = shared->GetMaxKey();
     const int64_t keys_per_thread = max_key / shared->GetNumThreads();
@@ -37,9 +38,11 @@ class NonBatchedOpsStressTest : public StressTest {
     int64_t end = start + keys_per_thread;
     uint64_t prefix_to_use =
         (FLAGS_prefix_size < 0) ? 1 : static_cast<size_t>(FLAGS_prefix_size);
+
     if (thread->tid == shared->GetNumThreads() - 1) {
       end = max_key;
     }
+
     for (size_t cf = 0; cf < column_families_.size(); ++cf) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
@@ -64,36 +67,48 @@ class NonBatchedOpsStressTest : public StressTest {
           static_cast<VerificationMethod>(thread->rand.Uniform(num_methods));
 
       if (method == VerificationMethod::Iterator) {
-        Slice prefix;
-        std::string seek_key = Key(start);
         std::unique_ptr<Iterator> iter(
             db_->NewIterator(options, column_families_[cf]));
+
+        std::string seek_key = Key(start);
         iter->Seek(seek_key);
-        prefix = Slice(seek_key.data(), prefix_to_use);
-        for (auto i = start; i < end; i++) {
+
+        Slice prefix(seek_key.data(), prefix_to_use);
+
+        for (int64_t i = start; i < end; ++i) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
           }
-          std::string from_db;
-          WideColumns columns_from_db;
-          std::string keystr = Key(i);
-          Slice k = keystr;
-          Slice pfx = Slice(keystr.data(), prefix_to_use);
+
+          const std::string key = Key(i);
+          const Slice k(key);
+          const Slice pfx(key.data(), prefix_to_use);
+
           // Reseek when the prefix changes
           if (prefix_to_use > 0 && prefix.compare(pfx) != 0) {
             iter->Seek(k);
-            seek_key = keystr;
+            seek_key = key;
             prefix = Slice(seek_key.data(), prefix_to_use);
           }
+
           Status s = iter->status();
+          Slice iter_key;
+          std::string from_db;
+          WideColumns columns_from_db;
+
           if (iter->Valid()) {
-            Slice iter_key = iter->key();
-            if (iter->key().compare(k) > 0) {
-              s = Status::NotFound(Slice());
-            } else if (iter->key().compare(k) == 0) {
+            iter_key = iter->key();
+
+            const int diff = iter_key.compare(k);
+
+            if (diff > 0) {
+              s = Status::NotFound();
+            } else if (diff == 0) {
               from_db = iter->value().ToString();
               columns_from_db = iter->columns();
-            } else if (iter_key.compare(k) < 0) {
+            } else {
+              assert(diff < 0);
+
               VerificationAbort(shared, "An out of range key was found",
                                 static_cast<int>(cf), i);
             }
@@ -102,32 +117,39 @@ class NonBatchedOpsStressTest : public StressTest {
             // move to the next item in the iterator
             s = Status::NotFound();
           }
-          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            &columns_from_db, s, true);
 
-          if (iter->Valid() && iter->key().compare(k) == 0) {
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+                            &columns_from_db, s, /* strict */ true);
+
+          // Note: we have to wait with advancing the iterator until after
+          // verification because it invalidates columns()
+          if (iter->Valid() && iter_key == k) {
             iter->Next();
           }
 
-          if (from_db.length()) {
+          if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
-                          from_db.data(), from_db.length());
+                          from_db.data(), from_db.size());
           }
         }
       } else if (method == VerificationMethod::Get) {
-        for (auto i = start; i < end; i++) {
+        for (int64_t i = start; i < end; ++i) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
           }
+
+          const std::string key = Key(i);
           std::string from_db;
-          std::string keystr = Key(i);
-          Slice k = keystr;
-          Status s = db_->Get(options, column_families_[cf], k, &from_db);
+
+          Status s = db_->Get(options, column_families_[cf], key, &from_db);
+
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            nullptr, s, true);
-          if (from_db.length()) {
+                            /* columns_from_db */ nullptr, s,
+                            /* strict */ true);
+
+          if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
-                          from_db.data(), from_db.length());
+                          from_db.data(), from_db.size());
           }
         }
       } else if (method == VerificationMethod::GetEntity) {
@@ -159,31 +181,38 @@ class NonBatchedOpsStressTest : public StressTest {
           }
         }
       } else if (method == VerificationMethod::MultiGet) {
-        for (auto i = start; i < end;) {
+        for (int64_t i = start; i < end;) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
           }
+
           // Keep the batch size to some reasonable value
           size_t batch_size = thread->rand.Uniform(128) + 1;
           batch_size = std::min<size_t>(batch_size, end - i);
+
           std::vector<std::string> keystrs(batch_size);
           std::vector<Slice> keys(batch_size);
           std::vector<PinnableSlice> values(batch_size);
           std::vector<Status> statuses(batch_size);
+
           for (size_t j = 0; j < batch_size; ++j) {
             keystrs[j] = Key(i + j);
-            keys[j] = Slice(keystrs[j].data(), keystrs[j].length());
+            keys[j] = Slice(keystrs[j].data(), keystrs[j].size());
           }
+
           db_->MultiGet(options, column_families_[cf], batch_size, keys.data(),
                         values.data(), statuses.data());
+
           for (size_t j = 0; j < batch_size; ++j) {
-            Status s = statuses[j];
-            std::string from_db = values[j].ToString();
+            const std::string from_db = values[j].ToString();
+
             VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
-                              from_db, nullptr, s, true);
-            if (from_db.length()) {
+                              from_db, /* columns_from_db */ nullptr,
+                              statuses[j], /* strict */ true);
+
+            if (!from_db.empty()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
-                            from_db.data(), from_db.length());
+                            from_db.data(), from_db.size());
             }
           }
 
@@ -194,20 +223,25 @@ class NonBatchedOpsStressTest : public StressTest {
 
         // Start off with small size that will be increased later if necessary
         std::vector<PinnableSlice> values(4);
+
         GetMergeOperandsOptions merge_operands_info;
         merge_operands_info.expected_max_number_of_operands =
             static_cast<int>(values.size());
-        for (auto i = start; i < end; i++) {
+
+        for (int64_t i = start; i < end; ++i) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
           }
+
+          const std::string key = Key(i);
+          const Slice k(key);
           std::string from_db;
-          std::string keystr = Key(i);
-          Slice k = keystr;
           int number_of_operands = 0;
+
           Status s = db_->GetMergeOperands(options, column_families_[cf], k,
                                            values.data(), &merge_operands_info,
                                            &number_of_operands);
+
           if (s.IsIncomplete()) {
             // Need to resize values as there are more than values.size() merge
             // operands on this key. Should only happen a few times when we
@@ -224,11 +258,14 @@ class NonBatchedOpsStressTest : public StressTest {
           if (number_of_operands) {
             from_db = values[number_of_operands - 1].ToString();
           }
+
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            nullptr, s, true);
-          if (from_db.length()) {
+                            /* columns_from_db */ nullptr, s,
+                            /* strict */ true);
+
+          if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
-                          from_db.data(), from_db.length());
+                          from_db.data(), from_db.size());
           }
         }
       }
