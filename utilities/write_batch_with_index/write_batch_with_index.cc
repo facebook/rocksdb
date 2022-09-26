@@ -153,6 +153,13 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
 #endif
   assert(success);
 
+  const Comparator* const ucmp = comparator.GetComparator(column_family_id);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+
+  if (ts_sz > 0) {
+    key.remove_suffix(ts_sz);
+  }
+
   auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
   auto* index_entry =
       new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
