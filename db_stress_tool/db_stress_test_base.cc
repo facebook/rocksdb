@@ -422,6 +422,25 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
   shared->SetVerificationFailure();
 }
 
+void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
+                                   int64_t key, Slice value_from_db,
+                                   const WideColumns& columns_from_db) const {
+  auto key_str = Key(key);
+
+  std::ostringstream oss;
+  for (const auto& column : columns_from_db) {
+    oss << ' ' << column.DebugString(/* hex */ true);
+  }
+
+  fprintf(stderr,
+          "Verification failed for column family %d key %s (%" PRIi64
+          "): value_from_db: %s, columns_from_db:%s, msg: %s\n",
+          cf, Slice(key_str).ToString(/* hex */ true).c_str(), key,
+          value_from_db.ToString(/* hex */ true).c_str(), oss.str().c_str(),
+          msg.c_str());
+  shared->SetVerificationFailure();
+}
+
 void StressTest::PrintStatistics() {
   if (dbstats) {
     fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());

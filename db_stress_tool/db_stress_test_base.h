@@ -222,6 +222,10 @@ class StressTest {
                          int64_t key, Slice value_from_db,
                          Slice value_from_expected) const;
 
+  void VerificationAbort(SharedState* shared, std::string msg, int cf,
+                         int64_t key, Slice value_from_db,
+                         const WideColumns& columns_from_db) const;
+
   void PrintEnv() const;
 
   void Open(SharedState* shared);
