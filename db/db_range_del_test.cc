@@ -2687,6 +2687,24 @@ TEST_F(DBRangeDelTest, PrefixSentinelKey) {
   delete iter;
 }
 
+TEST_F(DBRangeDelTest, RefreshMemtableIter) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+  ReadOptions ro;
+  ro.read_tier = kMemtableTier;
+  auto iter = db_->NewIterator(ro);
+  Flush();
+  // First refresh reinits iter, which had a bug where
+  // iter.memtable_range_tombstone_iter_ was not set to nullptr, and caused
+  // subsequent refresh to double free.
+  iter->Refresh();
+  iter->Refresh();
+  delete iter;
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
