@@ -120,7 +120,7 @@ commands:
     steps:
       - run:
           name: "Test low-variance benchmarks"
-          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 50000
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
             # How long to run parts of the test(s)
@@ -239,7 +239,7 @@ jobs:
       - pre-steps
       - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
       - run: |
-          ./sst_dump --help | egrep -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
+          ./sst_dump --help | grep -E -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
       - post-steps
 
   build-linux-shared_lib-alt_namespace-status_checked:

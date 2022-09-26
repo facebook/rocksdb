@@ -100,27 +100,31 @@ struct ShardedCacheOptions {
 };
 
 struct LRUCacheOptions : public ShardedCacheOptions {
-  // Percentage of cache reserved for high priority entries.
-  // If greater than zero, the LRU list will be split into a high-pri
-  // list and a low-pri list. High-pri entries will be inserted to the
-  // tail of high-pri list, while low-pri entries will be first inserted to
-  // the low-pri list (the midpoint). This is referred to as
-  // midpoint insertion strategy to make entries that never get hit in cache
-  // age out faster.
+  // Ratio of cache reserved for high-priority and low-priority entries,
+  // respectively. (See Cache::Priority below more information on the levels.)
+  // Valid values are between 0 and 1 (inclusive), and the sum of the two
+  // values cannot exceed 1.
   //
-  // See also
-  // BlockBasedTableOptions::cache_index_and_filter_blocks_with_high_priority.
+  // If high_pri_pool_ratio is greater than zero, a dedicated high-priority LRU
+  // list is maintained by the cache. Similarly, if low_pri_pool_ratio is
+  // greater than zero, a dedicated low-priority LRU list is maintained.
+  // There is also a bottom-priority LRU list, which is always enabled and not
+  // explicitly configurable. Entries are spilled over to the next available
+  // lower-priority pool if a certain pool's capacity is exceeded.
+  //
+  // Entries with cache hits are inserted into the highest priority LRU list
+  // available regardless of the entry's priority. Entries without hits
+  // are inserted into highest priority LRU list available whose priority
+  // does not exceed the entry's priority. (For example, high-priority items
+  // with no hits are placed in the high-priority pool if available;
+  // otherwise, they are placed in the low-priority pool if available;
+  // otherwise, they are placed in the bottom-priority pool.) This results
+  // in lower-priority entries without hits getting evicted from the cache
+  // sooner.
+  //
+  // Default values: high_pri_pool_ratio = 0.5 (which is referred to as
+  // "midpoint insertion"), low_pri_pool_ratio = 0
   double high_pri_pool_ratio = 0.5;
-
-  // Percentage of cache reserved for low priority entries.
-  // If greater than zero, the LRU list will be split into a high-pri list, a
-  // low-pri list and a bottom-pri list. High-pri entries will be inserted to
-  // the tail of high-pri list, while low-pri entries will be first inserted to
-  // the low-pri list (the midpoint) and bottom-pri entries will be first
-  // inserted to the bottom-pri list.
-  //
-  //
-  // See also high_pri_pool_ratio.
   double low_pri_pool_ratio = 0.0;
 
   // Whether to use adaptive mutexes for cache shards. Note that adaptive
@@ -290,18 +294,15 @@ extern std::shared_ptr<Cache> NewClockCache(
 
 class Cache {
  public:
-  // Depending on implementation, cache entries with high priority could be less
-  // likely to get evicted than low priority entries.
-  //
-  // The BOTTOM priority is mainly used for blob caching. Blobs are typically
-  // lower-value targets for caching than data blocks, since 1) with BlobDB,
-  // data blocks containing blob references conceptually form an index structure
-  // which has to be consulted before we can read the blob value, and 2) cached
-  // blobs represent only a single key-value, while cached data blocks generally
-  // contain multiple KVs. Since we would like to make it possible to use the
-  // same backing cache for the block cache and the blob cache, it would make
-  // sense to add a new, bottom cache priority level for blobs so data blocks
-  // are prioritized over them.
+  // Depending on implementation, cache entries with higher priority levels
+  // could be less likely to get evicted than entries with lower priority
+  // levels. The "high" priority level applies to certain SST metablocks (e.g.
+  // index and filter blocks) if the option
+  // cache_index_and_filter_blocks_with_high_priority is set. The "low" priority
+  // level is used for other kinds of SST blocks (most importantly, data
+  // blocks), as well as the above metablocks in case
+  // cache_index_and_filter_blocks_with_high_priority is
+  // not set. The "bottom" priority level is for BlobDB's blob values.
   enum class Priority { HIGH, LOW, BOTTOM };
 
   // A set of callbacks to allow objects in the primary block cache to be

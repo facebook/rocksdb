@@ -166,6 +166,65 @@ TEST_P(OptimisticTransactionTest, WriteConflictTest2) {
   delete txn;
 }
 
+TEST_P(OptimisticTransactionTest, WriteConflictTest3) {
+  ASSERT_OK(txn_db->Put(WriteOptions(), "foo", "bar"));
+
+  Transaction* txn = txn_db->BeginTransaction(WriteOptions());
+  ASSERT_NE(txn, nullptr);
+
+  std::string value;
+  ASSERT_OK(txn->GetForUpdate(ReadOptions(), "foo", &value));
+  ASSERT_EQ(value, "bar");
+  ASSERT_OK(txn->Merge("foo", "bar3"));
+
+  // Merge outside of a transaction should conflict with the previous merge
+  ASSERT_OK(txn_db->Merge(WriteOptions(), "foo", "bar2"));
+  ASSERT_OK(txn_db->Get(ReadOptions(), "foo", &value));
+  ASSERT_EQ(value, "bar2");
+
+  ASSERT_EQ(1, txn->GetNumKeys());
+
+  Status s = txn->Commit();
+  EXPECT_TRUE(s.IsBusy());  // Txn should not commit
+
+  // Verify that transaction did not write anything
+  ASSERT_OK(txn_db->Get(ReadOptions(), "foo", &value));
+  ASSERT_EQ(value, "bar2");
+
+  delete txn;
+}
+
+TEST_P(OptimisticTransactionTest, WriteConflict4) {
+  ASSERT_OK(txn_db->Put(WriteOptions(), "foo", "bar"));
+
+  Transaction* txn = txn_db->BeginTransaction(WriteOptions());
+  ASSERT_NE(txn, nullptr);
+
+  std::string value;
+  ASSERT_OK(txn->GetForUpdate(ReadOptions(), "foo", &value));
+  ASSERT_EQ(value, "bar");
+  ASSERT_OK(txn->Merge("foo", "bar3"));
+
+  // Range delete outside of a transaction should conflict with the previous
+  // merge inside txn
+  auto* dbimpl = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+  ColumnFamilyHandle* default_cf = dbimpl->DefaultColumnFamily();
+  ASSERT_OK(dbimpl->DeleteRange(WriteOptions(), default_cf, "foo", "foo1"));
+  Status s = txn_db->Get(ReadOptions(), "foo", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  ASSERT_EQ(1, txn->GetNumKeys());
+
+  s = txn->Commit();
+  EXPECT_TRUE(s.IsBusy());  // Txn should not commit
+
+  // Verify that transaction did not write anything
+  s = txn_db->Get(ReadOptions(), "foo", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete txn;
+}
+
 TEST_P(OptimisticTransactionTest, ReadConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;

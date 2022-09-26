@@ -241,6 +241,23 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       if (*seq_ == kMaxSequenceNumber) {
         *seq_ = parsed_key.sequence;
       }
+      if (max_covering_tombstone_seq_) {
+        *seq_ = std::max(*seq_, *max_covering_tombstone_seq_);
+      }
+    }
+
+    size_t ts_sz = ucmp_->timestamp_size();
+    if (ts_sz > 0 && timestamp_ != nullptr) {
+      if (!timestamp_->empty()) {
+        assert(ts_sz == timestamp_->size());
+      }
+      // TODO optimize for small size ts
+      const std::string kMaxTs(ts_sz, '\xff');
+      if (timestamp_->empty() ||
+          ucmp_->CompareTimestamp(*timestamp_, kMaxTs) == 0) {
+        Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+        timestamp_->assign(ts.data(), ts.size());
+      }
     }
 
     auto type = parsed_key.type;
@@ -359,13 +376,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             }
           }
         }
-        if (state_ == kFound) {
-          size_t ts_sz = ucmp_->timestamp_size();
-          if (ts_sz > 0 && timestamp_ != nullptr) {
-            Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
-            timestamp_->assign(ts.data(), ts.size());
-          }
-        }
         return false;
 
       case kTypeDeletion:
@@ -377,11 +387,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
           state_ = kDeleted;
-          size_t ts_sz = ucmp_->timestamp_size();
-          if (ts_sz > 0 && timestamp_ != nullptr) {
-            Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
-            timestamp_->assign(ts.data(), ts.size());
-          }
         } else if (kMerge == state_) {
           state_ = kFound;
           Merge(nullptr);

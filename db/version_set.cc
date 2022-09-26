@@ -941,18 +941,18 @@ namespace {
 class LevelIterator final : public InternalIterator {
  public:
   // @param read_options Must outlive this iterator.
-  LevelIterator(TableCache* table_cache, const ReadOptions& read_options,
-                const FileOptions& file_options,
-                const InternalKeyComparator& icomparator,
-                const LevelFilesBrief* flevel,
-                const std::shared_ptr<const SliceTransform>& prefix_extractor,
-                bool should_sample, HistogramImpl* file_read_hist,
-                TableReaderCaller caller, bool skip_filters, int level,
-                RangeDelAggregator* range_del_agg,
-                const std::vector<AtomicCompactionUnitBoundary>*
-                    compaction_boundaries = nullptr,
-                bool allow_unprepared_value = false,
-                MergeIteratorBuilder* merge_iter_builder = nullptr)
+  LevelIterator(
+      TableCache* table_cache, const ReadOptions& read_options,
+      const FileOptions& file_options, const InternalKeyComparator& icomparator,
+      const LevelFilesBrief* flevel,
+      const std::shared_ptr<const SliceTransform>& prefix_extractor,
+      bool should_sample, HistogramImpl* file_read_hist,
+      TableReaderCaller caller, bool skip_filters, int level,
+      RangeDelAggregator* range_del_agg,
+      const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries =
+          nullptr,
+      bool allow_unprepared_value = false,
+      TruncatedRangeDelIterator**** range_tombstone_iter_ptr_ = nullptr)
       : table_cache_(table_cache),
         read_options_(read_options),
         file_options_(file_options),
@@ -975,10 +975,8 @@ class LevelIterator final : public InternalIterator {
         to_return_sentinel_(false) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
-    if (merge_iter_builder && !read_options.ignore_range_deletions) {
-      // lazily initialize range_tombstone_iter_ together with file_iter_
-      merge_iter_builder->AddRangeTombstoneIterator(nullptr,
-                                                    &range_tombstone_iter_);
+    if (range_tombstone_iter_ptr_) {
+      *range_tombstone_iter_ptr_ = &range_tombstone_iter_;
     }
   }
 
@@ -1840,14 +1838,22 @@ InternalIterator* Version::TEST_GetLevelIterator(
     int level, bool allow_unprepared_value) {
   auto* arena = merge_iter_builder->GetArena();
   auto* mem = arena->AllocateAligned(sizeof(LevelIterator));
-  return new (mem) LevelIterator(
+  TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr;
+  auto level_iter = new (mem) LevelIterator(
       cfd_->table_cache(), read_options, file_options_,
       cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
       mutable_cf_options_.prefix_extractor, should_sample_file_read(),
       cfd_->internal_stats()->GetFileReadHist(level),
       TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
       nullptr /* range_del_agg */, nullptr /* compaction_boundaries */,
-      allow_unprepared_value, merge_iter_builder);
+      allow_unprepared_value, &tombstone_iter_ptr);
+  if (read_options.ignore_range_deletions) {
+    merge_iter_builder->AddIterator(level_iter);
+  } else {
+    merge_iter_builder->AddPointAndTombstoneIterator(
+        level_iter, nullptr /* tombstone_iter */, tombstone_iter_ptr);
+  }
+  return level_iter;
 }
 
 uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
@@ -1927,10 +1933,10 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
   auto* arena = merge_iter_builder->GetArena();
   if (level == 0) {
     // Merge all level zero files together since they may overlap
-    TruncatedRangeDelIterator* iter = nullptr;
+    TruncatedRangeDelIterator* tombstone_iter = nullptr;
     for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
-      merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
+      auto table_iter = cfd_->table_cache()->NewIterator(
           read_options, soptions, cfd_->internal_comparator(),
           *file.file_metadata, /*range_del_agg=*/nullptr,
           mutable_cf_options_.prefix_extractor, nullptr,
@@ -1938,9 +1944,13 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           TableReaderCaller::kUserIterator, arena,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr, allow_unprepared_value, &iter));
-      if (!read_options.ignore_range_deletions) {
-        merge_iter_builder->AddRangeTombstoneIterator(iter);
+          /*largest_compaction_key=*/nullptr, allow_unprepared_value,
+          &tombstone_iter);
+      if (read_options.ignore_range_deletions) {
+        merge_iter_builder->AddIterator(table_iter);
+      } else {
+        merge_iter_builder->AddPointAndTombstoneIterator(table_iter,
+                                                         tombstone_iter);
       }
     }
     if (should_sample) {
@@ -1957,14 +1967,21 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     // walks through the non-overlapping files in the level, opening them
     // lazily.
     auto* mem = arena->AllocateAligned(sizeof(LevelIterator));
-    merge_iter_builder->AddIterator(new (mem) LevelIterator(
+    TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr;
+    auto level_iter = new (mem) LevelIterator(
         cfd_->table_cache(), read_options, soptions,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
         mutable_cf_options_.prefix_extractor, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
         /*range_del_agg=*/nullptr, /*compaction_boundaries=*/nullptr,
-        allow_unprepared_value, merge_iter_builder));
+        allow_unprepared_value, &tombstone_iter_ptr);
+    if (read_options.ignore_range_deletions) {
+      merge_iter_builder->AddIterator(level_iter);
+    } else {
+      merge_iter_builder->AddPointAndTombstoneIterator(
+          level_iter, nullptr /* tombstone_iter */, tombstone_iter_ptr);
+    }
   }
 }
 
