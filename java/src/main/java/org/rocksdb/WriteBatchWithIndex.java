@@ -76,8 +76,13 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   WriteBatchWithIndex(final long nativeHandle) {
     super(nativeHandle);
-    disOwnNativeHandle();
+    //TODO (AP) reference counted API - we need to close() the WBWI when finished with it - see caller(s)
+    //disOwnNativeHandle();
   }
+
+  @Override
+  protected native void nativeClose(long nativeReference);
+  //TODO (AP) reference counted API
 
   /**
    * Create an iterator of a column family. User can call
@@ -93,8 +98,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   public WBWIRocksIterator newIterator(
       final ColumnFamilyHandle columnFamilyHandle) {
-    return new WBWIRocksIterator(this, iterator1(nativeHandle_,
-            columnFamilyHandle.nativeHandle_));
+    return new WBWIRocksIterator(this, iterator1(getNative(),
+            columnFamilyHandle.getNative()));
   }
 
   /**
@@ -108,7 +113,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @return An iterator for the Write Batch contents
    */
   public WBWIRocksIterator newIterator() {
-    return new WBWIRocksIterator(this, iterator0(nativeHandle_));
+    return new WBWIRocksIterator(this, iterator0(getNative()));
   }
 
   /**
@@ -155,7 +160,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   public RocksIterator newIteratorWithBase(final ColumnFamilyHandle columnFamilyHandle,
       final RocksIterator baseIterator, /* @Nullable */ final ReadOptions readOptions) {
     final RocksIterator iterator = new RocksIterator(baseIterator.parent_,
-        iteratorWithBase(nativeHandle_, columnFamilyHandle.nativeHandle_,
+        iteratorWithBase(getNative(), columnFamilyHandle.getNative(),
             baseIterator.nativeHandle_, readOptions == null ? 0 : readOptions.nativeHandle_));
 
     // when the iterator is deleted it will also delete the baseIterator
@@ -213,8 +218,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   public byte[] getFromBatch(final ColumnFamilyHandle columnFamilyHandle,
       final DBOptions options, final byte[] key) throws RocksDBException {
-    return getFromBatch(nativeHandle_, options.nativeHandle_,
-        key, key.length, columnFamilyHandle.nativeHandle_);
+    return getFromBatch(getNative(), options.nativeHandle_,
+        key, key.length, columnFamilyHandle.getNative());
   }
 
   /**
@@ -232,7 +237,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   public byte[] getFromBatch(final DBOptions options, final byte[] key)
       throws RocksDBException {
-    return getFromBatch(nativeHandle_, options.nativeHandle_, key, key.length);
+    return getFromBatch(getNative(), options.nativeHandle_, key, key.length);
   }
 
   /**
@@ -260,9 +265,9 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   public byte[] getFromBatchAndDB(final RocksDB db, final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions options, final byte[] key) throws RocksDBException {
-    return getFromBatchAndDB(nativeHandle_, db.nativeHandle_,
+    return getFromBatchAndDB(getNative(), db.getNative(),
         options.nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_);
+        columnFamilyHandle.getNative());
   }
 
   /**
@@ -289,11 +294,10 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   public byte[] getFromBatchAndDB(final RocksDB db, final ReadOptions options,
       final byte[] key) throws RocksDBException {
-    return getFromBatchAndDB(nativeHandle_, db.nativeHandle_,
+    return getFromBatchAndDB(getNative(), db.getNative(),
         options.nativeHandle_, key, key.length);
   }
 
-  @Override protected final native void disposeInternal(final long handle);
   @Override final native int count0(final long handle);
   @Override final native void put(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen);

@@ -51,6 +51,31 @@ jlongArray Java_org_rocksdb_api_RocksDB_open(JNIEnv* env, jclass,
     return nullptr;
   }
 
+  return db_api(jresult_handles);
+}
+
+/**
+ * @brief construct reference counted DB API object from DB*
+ *
+ * @param jresult_db_handle
+ * @return jlong
+ */
+jlong db_api(jlong jresult_db_handle) {
+  std::shared_ptr<ROCKSDB_NAMESPACE::DB> db(
+      reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jresult_db_handle));
+  std::unique_ptr<APIRocksDB> apiRocksDB(new APIRocksDB(db));
+
+  return reinterpret_cast<jlong>(apiRocksDB.release());
+}
+
+/**
+ * @brief construct reference counted DB API object and CFH API objects from
+ * DB*, CF*[]
+ *
+ * @param jresult_handles
+ * @return jlongArray
+ */
+jlongArray db_api(jlongArray jresult_handles) {
   const jsize len_results = env->GetArrayLength(jresult_handles);
   jlong* jresults = env->GetLongArrayElements(jresult_handles, nullptr);
   // TODO AP - there is no error checking, nullptr return, or JVM

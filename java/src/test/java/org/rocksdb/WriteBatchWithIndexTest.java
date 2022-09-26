@@ -843,7 +843,8 @@ public class WriteBatchWithIndexTest {
 
       final WriteBatch wb = wbwi.getWriteBatch();
       assertThat(wb).isNotNull();
-      assertThat(wb.isOwningHandle()).isFalse();
+      //TODO (AP) reference counted API -- is there anything to assert here ?
+      //assertThat(wb.isOwningHandle()).isFalse();
     }
   }
 

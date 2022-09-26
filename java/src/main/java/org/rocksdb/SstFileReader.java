@@ -5,7 +5,9 @@
 
 package org.rocksdb;
 
-public class SstFileReader extends RocksObject {
+import org.rocksdb.api.RocksNative;
+
+public class SstFileReader extends RocksNative {
   static {
     RocksDB.loadLibrary();
   }
@@ -31,8 +33,7 @@ public class SstFileReader extends RocksObject {
    * @return instance of iterator object.
    */
   public SstFileReaderIterator newIterator(final ReadOptions readOptions) {
-    assert (isOwningHandle());
-    long iter = newIterator(nativeHandle_, readOptions.nativeHandle_);
+    long iter = newIterator(getNative(), readOptions.nativeHandle_);
     return new SstFileReaderIterator(this, iter);
   }
 
@@ -45,7 +46,8 @@ public class SstFileReader extends RocksObject {
    *    native library.
    */
   public void open(final String filePath) throws RocksDBException {
-    open(nativeHandle_, filePath);
+    //TODO (AP) reference counted API
+    open(getNative(), filePath);
   }
 
   /**
@@ -54,7 +56,7 @@ public class SstFileReader extends RocksObject {
    * @throws RocksDBException if the checksum is not valid
    */
   public void verifyChecksum() throws RocksDBException {
-    verifyChecksum(nativeHandle_);
+    verifyChecksum(getNative());
   }
 
   /**
@@ -66,10 +68,10 @@ public class SstFileReader extends RocksObject {
    *     properties
    */
   public TableProperties getTableProperties() throws RocksDBException {
-    return getTableProperties(nativeHandle_);
+    return getTableProperties(getNative());
   }
 
-  @Override protected final native void disposeInternal(final long handle);
+  //TODO (AP) reference counted API
   private native long newIterator(final long handle, final long readOptionsHandle);
 
   private native void open(final long handle, final String filePath)
@@ -79,4 +81,8 @@ public class SstFileReader extends RocksObject {
   private native void verifyChecksum(final long handle) throws RocksDBException;
   private native TableProperties getTableProperties(final long handle)
       throws RocksDBException;
+
+  @Override
+  protected native void nativeClose(long nativeReference);
+  //TODO (AP) reference counted API
 }

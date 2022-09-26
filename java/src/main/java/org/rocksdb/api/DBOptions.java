@@ -11,5 +11,17 @@ public class DBOptions extends RocksNative {
     super(nativeReference);
   }
 
+  /**
+   * Construct DBOptions.
+   *
+   * This constructor will create (by allocating a block of memory)
+   * an {@code rocksdb::DBOptions} in the c++ side.
+   */
+  public DBOptions() {
+    super(newDBOptions());
+  }
+
   protected native void nativeClose(long nativeReference);
+
+  private static native long newDBOptions();
 }

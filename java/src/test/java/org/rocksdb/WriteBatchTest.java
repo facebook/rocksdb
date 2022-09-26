@@ -483,7 +483,7 @@ public class WriteBatchTest {
   }
 
   static byte[] getContents(final WriteBatch wb) {
-    return getContents(wb.nativeHandle_);
+    return getContents(wb.getNative());
   }
 
   static String getFromWriteBatch(final WriteBatch wb, final String key)
@@ -507,15 +507,15 @@ public class WriteBatchTest {
  */
 class WriteBatchTestInternalHelper {
   static void setSequence(final WriteBatch wb, final long sn) {
-    setSequence(wb.nativeHandle_, sn);
+    setSequence(wb.getNative(), sn);
   }
 
   static long sequence(final WriteBatch wb) {
-    return sequence(wb.nativeHandle_);
+    return sequence(wb.getNative());
   }
 
   static void append(final WriteBatch wb1, final WriteBatch wb2) {
-    append(wb1.nativeHandle_, wb2.nativeHandle_);
+    append(wb1.getNative(), wb2.getNative());
   }
 
   private static native void setSequence(final long writeBatchHandle,

@@ -63,11 +63,13 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
  */
 jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path) {
-  return rocksdb_open_helper(env, jopt_handle, jdb_path,
-                             (ROCKSDB_NAMESPACE::Status(*)(
-                                 const ROCKSDB_NAMESPACE::Options&,
-                                 const std::string&, ROCKSDB_NAMESPACE::DB**)) &
-                                 ROCKSDB_NAMESPACE::DB::Open);
+  jlong jresult_db_handle =
+      rocksdb_open_helper(env, jopt_handle, jdb_path,
+                          (ROCKSDB_NAMESPACE::Status(*)(
+                              const ROCKSDB_NAMESPACE::Options&,
+                              const std::string&, ROCKSDB_NAMESPACE::DB**)) &
+                              ROCKSDB_NAMESPACE::DB::Open);
+  return db_api(jresult_db_handle);
 }
 
 /*

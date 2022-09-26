@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <jni.h>
+
 #include "rocksdb/db.h"
 
 class APIRocksDB {
@@ -18,3 +20,20 @@ class APIRocksDB {
 
   APIRocksDB(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db) : db(db){};
 };
+
+/**
+ * @brief construct reference counted DB API object from DB*
+ *
+ * @param jresult_db_handle
+ * @return jlong
+ */
+jlong db_api(jlong jresult_db_handle);
+
+/**
+ * @brief construct reference counted DB API object and CFH API objects from
+ * DB*, CF*[]
+ *
+ * @param jresult_handles
+ * @return jlongArray
+ */
+jlongArray db_api(jlongArray jresult_handles);

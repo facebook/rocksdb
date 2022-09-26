@@ -280,7 +280,7 @@ public class RefCountTest {
     }
 
     assertThat(cfHandle.getName()).isEqualTo(cfHandles.get(1).getName());
-    assertThat(cfHandle.nativeHandle_).isEqualTo(cfHandles.get(1).nativeHandle_);
+    assertThat(cfHandle.getNative()).isEqualTo(cfHandles.get(1).getNative());
   }
 
   @Test

@@ -125,9 +125,9 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param flushJobInfo the flush job info
    */
   private void onFlushCompletedProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle(); // we don't own this!
-    onFlushCompleted(db, flushJobInfo);
+    try (final RocksDB db = new RocksDB(dbHandle)) {
+      onFlushCompleted(db, flushJobInfo);
+    }
   }
 
   @Override
@@ -143,9 +143,9 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param flushJobInfo the flush job info
    */
   private void onFlushBeginProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle(); // we don't own this!
-    onFlushBegin(db, flushJobInfo);
+    try (final RocksDB db = new RocksDB(dbHandle)) {
+      onFlushBegin(db, flushJobInfo);
+    }
   }
 
   @Override
@@ -167,9 +167,9 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   private void onCompactionBeginProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle(); // we don't own this!
-    onCompactionBegin(db, compactionJobInfo);
+    try (final RocksDB db = new RocksDB(dbHandle)) {
+      onCompactionBegin(db, compactionJobInfo);
+    }
   }
 
   @Override
@@ -186,9 +186,9 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   private void onCompactionCompletedProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle(); // we don't own this!
-    onCompactionCompleted(db, compactionJobInfo);
+    try (final RocksDB db = new RocksDB(dbHandle)) {
+      onCompactionCompleted(db, compactionJobInfo);
+    }
   }
 
   @Override
@@ -227,9 +227,9 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   private void onExternalFileIngestedProxy(
       final long dbHandle, final ExternalFileIngestionInfo externalFileIngestionInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle(); // we don't own this!
-    onExternalFileIngested(db, externalFileIngestionInfo);
+    try (final RocksDB db = new RocksDB(dbHandle)) {
+      onExternalFileIngested(db, externalFileIngestionInfo);
+    }
   }
 
   @Override

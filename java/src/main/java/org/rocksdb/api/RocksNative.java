@@ -8,7 +8,7 @@ public abstract class RocksNative implements AutoCloseable {
    * The reference is final, and the fact that it has been closed (and is no longer valid) must be checked
    * with the atomic flag.
    */
-  private final long nativeReference_;
+  private final long nativeAPIReference_;
   protected final AtomicBoolean isOpen;
 
   protected RocksNative(long nativeReference) {
@@ -16,7 +16,7 @@ public abstract class RocksNative implements AutoCloseable {
   }
 
   protected RocksNative(long nativeReference, boolean isOpen) {
-    this.nativeReference_ = nativeReference;
+    this.nativeAPIReference_ = nativeReference;
     this.isOpen = new AtomicBoolean(isOpen);
   }
 
@@ -24,13 +24,13 @@ public abstract class RocksNative implements AutoCloseable {
   public final void close() {
 
     if (isOpen.getAndSet(false)) {
-      nativeClose(nativeReference_);
+      nativeClose(nativeAPIReference_);
     }
   }
 
   public long getNative() {
     if (isOpen.get()) {
-      return nativeReference_;
+      return nativeAPIReference_;
     } else {
       // TODO AP ref-counting-experiments - should we throw a checked exception ?
       throw new RuntimeException("RocksDB native reference was previously closed");

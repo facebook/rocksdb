@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import org.rocksdb.api.RocksNative;
+
 import java.nio.ByteBuffer;
 
 /**
@@ -21,7 +23,7 @@ import java.nio.ByteBuffer;
  *          issues with the underlying C++ object.
  * @see org.rocksdb.RocksObject
  */
-public abstract class AbstractRocksIterator<P extends RocksObject>
+public abstract class AbstractRocksIterator<P extends RocksNative>
     extends RocksObject implements RocksIteratorInterface {
   final P parent_;
 
@@ -124,9 +126,11 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
    */
   @Override
   protected void disposeInternal() {
-      if (parent_.isOwningHandle()) {
-        disposeInternal(nativeHandle_);
-      }
+    //TODO (AP) conversion of AbstractRocksIterator to RocksNative
+    throw new RuntimeException("TODO (AP) conversion of AbstractRocksIterator to RocksNative");
+      //if (parent_.isOwningHandle()) {
+      //  disposeInternal(nativeHandle_);
+      //}
   }
 
   abstract boolean isValid0(long handle);

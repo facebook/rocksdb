@@ -60,7 +60,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @throws RocksDBException If we cannot iterate over the batch
    */
   public void iterate(final Handler handler) throws RocksDBException {
-    iterate(nativeHandle_, handler.nativeHandle_);
+    iterate(getNative(), handler.nativeHandle_);
   }
 
   /**
@@ -72,7 +72,7 @@ public class WriteBatch extends AbstractWriteBatch {
    *   the serialized batch data.
    */
   public byte[] data() throws RocksDBException {
-    return data(nativeHandle_);
+    return data(getNative());
   }
 
   /**
@@ -81,7 +81,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return the serialized data size of the batch.
    */
   public long getDataSize() {
-    return getDataSize(nativeHandle_);
+    return getDataSize(getNative());
   }
 
   /**
@@ -90,7 +90,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return true if Put will be called during Iterate.
    */
   public boolean hasPut() {
-    return hasPut(nativeHandle_);
+    return hasPut(getNative());
   }
 
   /**
@@ -99,7 +99,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return true if Delete will be called during Iterate.
    */
   public boolean hasDelete() {
-    return hasDelete(nativeHandle_);
+    return hasDelete(getNative());
   }
 
   /**
@@ -108,7 +108,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return true if SingleDelete will be called during Iterate.
    */
   public boolean hasSingleDelete() {
-    return hasSingleDelete(nativeHandle_);
+    return hasSingleDelete(getNative());
   }
 
   /**
@@ -117,7 +117,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return true if DeleteRange will be called during Iterate.
    */
   public boolean hasDeleteRange() {
-    return hasDeleteRange(nativeHandle_);
+    return hasDeleteRange(getNative());
   }
 
   /**
@@ -126,7 +126,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return true if Merge will be called during Iterate.
    */
   public boolean hasMerge() {
-    return hasMerge(nativeHandle_);
+    return hasMerge(getNative());
   }
 
   /**
@@ -135,7 +135,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return true if MarkBeginPrepare will be called during Iterate.
    */
   public boolean hasBeginPrepare() {
-    return hasBeginPrepare(nativeHandle_);
+    return hasBeginPrepare(getNative());
   }
 
   /**
@@ -144,7 +144,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return true if MarkEndPrepare will be called during Iterate.
    */
   public boolean hasEndPrepare() {
-    return hasEndPrepare(nativeHandle_);
+    return hasEndPrepare(getNative());
   }
 
   /**
@@ -153,7 +153,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return true if MarkCommit will be called during Iterate.
    */
   public boolean hasCommit() {
-    return hasCommit(nativeHandle_);
+    return hasCommit(getNative());
   }
 
   /**
@@ -162,7 +162,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return true if MarkRollback will be called during Iterate.
    */
   public boolean hasRollback() {
-    return hasRollback(nativeHandle_);
+    return hasRollback(getNative());
   }
 
   @Override
@@ -175,7 +175,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * be inserted into the WAL, provided the WAL is enabled.
    */
   public void markWalTerminationPoint() {
-    markWalTerminationPoint(nativeHandle_);
+    markWalTerminationPoint(getNative());
   }
 
   /**
@@ -186,7 +186,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @return the WAL termination point
    */
   public SavePoint getWalTerminationPoint() {
-    return getWalTerminationPoint(nativeHandle_);
+    return getWalTerminationPoint(getNative());
   }
 
   @Override
@@ -214,11 +214,13 @@ public class WriteBatch extends AbstractWriteBatch {
    */
   WriteBatch(final long nativeHandle, final boolean owningNativeHandle) {
     super(nativeHandle);
-    if(!owningNativeHandle)
-      disOwnNativeHandle();
   }
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected void nativeClose(long nativeReference) {
+    
+  }
+
   @Override final native int count0(final long handle);
   @Override final native void put(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen);

@@ -5,9 +5,11 @@
 
 package org.rocksdb;
 
+import org.rocksdb.api.RocksNative;
+
 import java.nio.ByteBuffer;
 
-public abstract class AbstractWriteBatch extends RocksObject
+public abstract class AbstractWriteBatch extends RocksNative
     implements WriteBatchInterface {
 
   protected AbstractWriteBatch(final long nativeHandle) {
@@ -16,37 +18,37 @@ public abstract class AbstractWriteBatch extends RocksObject
 
   @Override
   public int count() {
-    return count0(nativeHandle_);
+    return count0(getNative());
   }
 
   @Override
   public void put(byte[] key, byte[] value) throws RocksDBException {
-    put(nativeHandle_, key, key.length, value, value.length);
+    put(getNative(), key, key.length, value, value.length);
   }
 
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key,
       byte[] value) throws RocksDBException {
-    put(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
+    put(getNative(), key, key.length, value, value.length,
+        columnFamilyHandle.getNative());
   }
 
   @Override
   public void merge(byte[] key, byte[] value) throws RocksDBException {
-    merge(nativeHandle_, key, key.length, value, value.length);
+    merge(getNative(), key, key.length, value, value.length);
   }
 
   @Override
   public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key,
       byte[] value) throws RocksDBException {
-    merge(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
+    merge(getNative(), key, key.length, value, value.length,
+        columnFamilyHandle.getNative());
   }
 
   @Override
   public void put(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     assert key.isDirect() && value.isDirect();
-    putDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
+    putDirect(getNative(), key, key.position(), key.remaining(), value, value.position(),
         value.remaining(), 0);
     key.position(key.limit());
     value.position(value.limit());
@@ -56,26 +58,26 @@ public abstract class AbstractWriteBatch extends RocksObject
   public void put(ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
       final ByteBuffer value) throws RocksDBException {
     assert key.isDirect() && value.isDirect();
-    putDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
-        value.remaining(), columnFamilyHandle.nativeHandle_);
+    putDirect(getNative(), key, key.position(), key.remaining(), value, value.position(),
+        value.remaining(), columnFamilyHandle.getNative());
     key.position(key.limit());
     value.position(value.limit());
   }
 
   @Override
   public void delete(byte[] key) throws RocksDBException {
-    delete(nativeHandle_, key, key.length);
+    delete(getNative(), key, key.length);
   }
 
   @Override
   public void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key)
       throws RocksDBException {
-    delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
+    delete(getNative(), key, key.length, columnFamilyHandle.getNative());
   }
 
   @Override
   public void delete(final ByteBuffer key) throws RocksDBException {
-    deleteDirect(nativeHandle_, key, key.position(), key.remaining(), 0);
+    deleteDirect(getNative(), key, key.position(), key.remaining(), 0);
     key.position(key.limit());
   }
 
@@ -83,67 +85,67 @@ public abstract class AbstractWriteBatch extends RocksObject
   public void delete(ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key)
       throws RocksDBException {
     deleteDirect(
-        nativeHandle_, key, key.position(), key.remaining(), columnFamilyHandle.nativeHandle_);
+        getNative(), key, key.position(), key.remaining(), columnFamilyHandle.getNative());
     key.position(key.limit());
   }
 
   @Override
   public void singleDelete(byte[] key) throws RocksDBException {
-    singleDelete(nativeHandle_, key, key.length);
+    singleDelete(getNative(), key, key.length);
   }
 
   @Override
   public void singleDelete(ColumnFamilyHandle columnFamilyHandle, byte[] key)
       throws RocksDBException {
-    singleDelete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
+    singleDelete(getNative(), key, key.length, columnFamilyHandle.getNative());
   }
 
   @Override
   public void deleteRange(byte[] beginKey, byte[] endKey)
       throws RocksDBException {
-    deleteRange(nativeHandle_, beginKey, beginKey.length, endKey, endKey.length);
+    deleteRange(getNative(), beginKey, beginKey.length, endKey, endKey.length);
   }
 
   @Override
   public void deleteRange(ColumnFamilyHandle columnFamilyHandle,
       byte[] beginKey, byte[] endKey) throws RocksDBException {
-    deleteRange(nativeHandle_, beginKey, beginKey.length, endKey, endKey.length,
-        columnFamilyHandle.nativeHandle_);
+    deleteRange(getNative(), beginKey, beginKey.length, endKey, endKey.length,
+        columnFamilyHandle.getNative());
   }
 
   @Override
   public void putLogData(byte[] blob) throws RocksDBException {
-    putLogData(nativeHandle_, blob, blob.length);
+    putLogData(getNative(), blob, blob.length);
   }
 
   @Override
   public void clear() {
-    clear0(nativeHandle_);
+    clear0(getNative());
   }
 
   @Override
   public void setSavePoint() {
-    setSavePoint0(nativeHandle_);
+    setSavePoint0(getNative());
   }
 
   @Override
   public void rollbackToSavePoint() throws RocksDBException {
-    rollbackToSavePoint0(nativeHandle_);
+    rollbackToSavePoint0(getNative());
   }
 
   @Override
   public void popSavePoint() throws RocksDBException {
-    popSavePoint(nativeHandle_);
+    popSavePoint(getNative());
   }
 
   @Override
   public void setMaxBytes(final long maxBytes) {
-    setMaxBytes(nativeHandle_, maxBytes);
+    setMaxBytes(getNative(), maxBytes);
   }
 
   @Override
   public WriteBatch getWriteBatch() {
-    return getWriteBatch(nativeHandle_);
+    return getWriteBatch(getNative());
   }
 
   abstract int count0(final long handle);
