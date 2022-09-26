@@ -146,7 +146,8 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   // etc.
   const Slice& internal_key = c_iter.key();
   const uint64_t previous_overlapped_bytes = grandparent_overlapped_bytes_;
-  size_t switched_num = UpdateGrandparentBoundaryInfo(internal_key);
+  size_t num_grandparent_boundaries_crossed =
+      UpdateGrandparentBoundaryInfo(internal_key);
 
   if (!HasBuilder()) {
     return false;
@@ -169,12 +170,6 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     return true;
   }
 
-  // no need to have complicated cut logic for non level compaction
-  if (compaction_->immutable_options()->compaction_style !=
-      kCompactionStyleLevel) {
-    return false;
-  }
-
   const InternalKeyComparator* icmp =
       &compaction_->column_family_data()->internal_comparator();
 
@@ -190,7 +185,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
 
   // only check if the current key is going to cross the grandparents file
   // boundary (either the file beginning or ending).
-  if (switched_num > 0) {
+  if (num_grandparent_boundaries_crossed > 0) {
     // Cut the file before the current key if the size of the current output
     // file + its overlapped grandparent files is bigger than
     // max_compaction_bytes. Which is to prevent future bigger than
@@ -216,10 +211,11 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // triggers this condition, but if the user is adding 2 different datasets
     // without any overlap, it may likely happen.
     // More details, check PR #1963
-    const size_t skippable_file_switched_num =
-        size_t{3} - being_grandparent_gap_;
+    const size_t num_skippable_boundaries_crossed =
+        being_grandparent_gap_ ? 2 : 3;
     if (compaction_->immutable_options()->level_compaction_dynamic_file_size &&
-        switched_num >= skippable_file_switched_num &&
+        num_grandparent_boundaries_crossed >=
+            num_skippable_boundaries_crossed &&
         grandparent_overlapped_bytes_ - previous_overlapped_bytes >
             compaction_->target_output_file_size() / 8) {
       return true;
@@ -239,9 +235,9 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // improvement.
     if (compaction_->immutable_options()->level_compaction_dynamic_file_size &&
         current_output_file_size_ >
-            (50 +
-             std::min(grandparent_boundary_switched_num_ * 5, size_t{40})) *
-                compaction_->target_output_file_size() / 100) {
+            ((compaction_->target_output_file_size() + 99) / 100) *
+                (50 + std::min(grandparent_boundary_switched_num_ * 5,
+                               size_t{40}))) {
       return true;
     }
   }
