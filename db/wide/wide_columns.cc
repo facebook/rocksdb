@@ -5,9 +5,19 @@
 
 #include "rocksdb/wide_columns.h"
 
+#include <sstream>
+
 #include "db/wide/wide_column_serialization.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+std::string WideColumn::DebugString(bool hex) const {
+  std::ostringstream oss;
+
+  oss << name_.ToString(hex) << ':' << value_.ToString(hex);
+
+  return oss.str();
+}
 
 Status PinnableWideColumns::CreateIndexForWideColumns() {
   Slice value_copy = value_;

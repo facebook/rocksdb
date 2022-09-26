@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -55,6 +56,8 @@ class WideColumn {
 
   Slice& name() { return name_; }
   Slice& value() { return value_; }
+
+  std::string DebugString(bool hex) const;
 
  private:
   Slice name_;
