@@ -1324,16 +1324,16 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                          SharedState* shared, const std::string& value_from_db,
-                         const WideColumns* columns, const Status& s,
+                         const WideColumns* columns_from_db, const Status& s,
                          bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
 
-    if (s.ok() && columns) {
+    if (s.ok() && columns_from_db) {
       const WideColumns expected_columns =
           GenerateWideColumns(GetValueBase(value_from_db), value_from_db);
-      if (*columns != expected_columns) {
+      if (*columns_from_db != expected_columns) {
         VerificationAbort(shared, "Value and columns inconsistent", cf, key);
         return false;
       }
