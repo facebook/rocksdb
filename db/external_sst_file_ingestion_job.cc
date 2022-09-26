@@ -473,7 +473,7 @@ Status ExternalSstFileIngestionJob::Run() {
         ingestion_options_.ingest_behind
             ? kReservedEpochNumberForFileIngestedBehind
             : cfd_->NewEpochNumber(),
-        f.file_checksum, f.file_checksum_func_name, f.unique_id);
+        f.file_checksum, f.file_checksum_func_name, f.unique_id, 0);
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }

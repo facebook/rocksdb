@@ -941,7 +941,7 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->internal_stats(), &io_s, io_tracer_,
           BlobFileCreationReason::kFlush, seqno_to_time_mapping_, event_logger_,
           job_context_->job_id, io_priority, &table_properties_, write_hint,
-          full_history_ts_low, blob_callback_, &num_input_entries,
+          full_history_ts_low, blob_callback_, base_, &num_input_entries,
           &memtable_payload_bytes, &memtable_garbage_bytes);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
@@ -1003,8 +1003,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
                    meta_.file_creation_time, meta_.epoch_number,
                    meta_.file_checksum, meta_.file_checksum_func_name,
-                   meta_.unique_id);
-
+                   meta_.unique_id, meta_.compensated_range_deletion_size);
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }
 #ifndef ROCKSDB_LITE

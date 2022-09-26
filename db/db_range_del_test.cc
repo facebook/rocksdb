@@ -2952,7 +2952,7 @@ TEST_F(DBRangeDelTest, RefreshMemtableIter) {
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
   ASSERT_OK(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+          db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
   ReadOptions ro;
   ro.read_tier = kMemtableTier;
   std::unique_ptr<Iterator> iter{db_->NewIterator(ro)};
@@ -2965,43 +2965,169 @@ TEST_F(DBRangeDelTest, RefreshMemtableIter) {
 }
 
 TEST_F(DBRangeDelTest, RangeTombstoneRespectIterateUpperBound) {
-  // Memtable: a, [b, bz)
-  // Do a Seek on `a` with iterate_upper_bound being az
-  // range tombstone [b, bz) should not be processed (added to and
-  // popped from the min_heap in MergingIterator).
-  Options options = CurrentOptions();
-  options.disable_auto_compactions = true;
-  DestroyAndReopen(options);
+      // Memtable: a, [b, bz)
+      // Do a Seek on `a` with iterate_upper_bound being az
+      // range tombstone [b, bz) should not be processed (added to and
+      // popped from the min_heap in MergingIterator).
+      Options options = CurrentOptions();
+      options.disable_auto_compactions = true;
+      DestroyAndReopen(options);
 
-  ASSERT_OK(Put("a", "bar"));
+      ASSERT_OK(Put("a", "bar"));
+      ASSERT_OK(
+              db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "b", "bz"));
+
+      // I could not find a cleaner way to test this without relying on
+      // implementation detail. Tried to test the value of
+      // `internal_range_del_reseek_count` but that did not work
+      // since BlockBasedTable iterator becomes !Valid() when point key
+      // is out of bound and that reseek only happens when a point key
+      // is covered by some range tombstone.
+      SyncPoint::GetInstance()->SetCallBack("MergeIterator::PopDeleteRangeStart",
+                                            [](void *) {
+                                                // there should not be any range
+                                                // tombstone in the heap.
+                                                FAIL();
+                                            });
+      SyncPoint::GetInstance()->EnableProcessing();
+
+      ReadOptions read_opts;
+      std::string upper_bound = "az";
+      Slice upper_bound_slice = upper_bound;
+      read_opts.iterate_upper_bound = &upper_bound_slice;
+      std::unique_ptr<Iterator> iter{db_->NewIterator(read_opts)};
+      iter->Seek("a");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->key(), "a");
+      iter->Next();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+    }
+
+TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesize) {
+  Options opts = CurrentOptions();
+  opts.disable_auto_compactions = true;
+  DestroyAndReopen(opts);
+
+  std::vector<std::string> values;
+  Random rnd(301);
+  values.push_back(rnd.RandomString(1 << 10));
+  ASSERT_OK(Put("a", values.back()));
+  values.push_back(rnd.RandomString(1 << 10));
+  ASSERT_OK(Put("b", values.back()));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  uint64_t l2_size = 0;
+  Size("a", "c", 0, &l2_size);
+
   ASSERT_OK(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "b", "bz"));
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "c"));
+  ASSERT_OK(Flush());
 
-  // I could not find a cleaner way to test this without relying on
-  // implementation detail. Tried to test the value of
-  // `internal_range_del_reseek_count` but that did not work
-  // since BlockBasedTable iterator becomes !Valid() when point key
-  // is out of bound and that reseek only happens when a point key
-  // is covered by some range tombstone.
-  SyncPoint::GetInstance()->SetCallBack("MergeIterator::PopDeleteRangeStart",
-                                        [](void*) {
-                                          // there should not be any range
-                                          // tombstone in the heap.
-                                          FAIL();
-                                        });
-  SyncPoint::GetInstance()->EnableProcessing();
+  // compensated_range_deletion_size currently considers only the next level
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_EQ(level_to_files[0].size(), 1);
+  ASSERT_EQ(level_to_files[0][0].compensated_range_deletion_size, 0);
+  ASSERT_EQ(level_to_files[2].size(), 1);
+  ASSERT_EQ(level_to_files[2][0].compensated_range_deletion_size, 0);
 
-  ReadOptions read_opts;
-  std::string upper_bound = "az";
-  Slice upper_bound_slice = upper_bound;
-  read_opts.iterate_upper_bound = &upper_bound_slice;
-  std::unique_ptr<Iterator> iter{db_->NewIterator(read_opts)};
-  iter->Seek("a");
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(iter->key(), "a");
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
-  ASSERT_OK(iter->status());
+  // Trivial move does not update range deletion compensate size yet
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_EQ(level_to_files[1].size(), 1);
+  ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, l2_size);
+  ASSERT_EQ(level_to_files[2].size(), 1);
+  ASSERT_EQ(level_to_files[2][0].compensated_range_deletion_size, 0);
+}
+
+TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesizeSkippedDuringOpen) {
+  Options opts = CurrentOptions();
+  opts.disable_auto_compactions = true;
+  DestroyAndReopen(opts);
+
+  std::vector<std::string> values;
+  Random rnd(301);
+  values.push_back(rnd.RandomString(1 << 10));
+  ASSERT_OK(Put("a", values.back()));
+  values.push_back(rnd.RandomString(1 << 10));
+  ASSERT_OK(Put("b", values.back()));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  uint64_t l1_size = 0;
+  Size("a", "c", 0, &l1_size);
+  ASSERT_GT(l1_size, 0);
+
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "c"));
+  opts.skip_stats_update_on_db_open = false;
+  Reopen(opts);
+
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_EQ(level_to_files[0].size(), 1);
+  ASSERT_EQ(level_to_files[0][0].compensated_range_deletion_size, l1_size);
+  ASSERT_EQ(level_to_files[1].size(), 1);
+  ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, 0);
+
+  DestroyAndReopen(opts);
+  values.push_back(rnd.RandomString(1 << 10));
+  ASSERT_OK(Put("a", values.back()));
+  values.push_back(rnd.RandomString(1 << 10));
+  ASSERT_OK(Put("b", values.back()));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  Size("a", "c", 0, &l1_size);
+  ASSERT_GT(l1_size, 0);
+
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "c"));
+  opts.skip_stats_update_on_db_open = true;
+  Reopen(opts);
+
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_EQ(level_to_files[0].size(), 1);
+  ASSERT_EQ(level_to_files[0][0].compensated_range_deletion_size, 0);
+  ASSERT_EQ(level_to_files[1].size(), 1);
+  ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, 0);
+}
+
+TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesizePersistDuringReopen) {
+  Options opts = CurrentOptions();
+  opts.disable_auto_compactions = true;
+  DestroyAndReopen(opts);
+
+  std::vector<std::string> values;
+  Random rnd(301);
+  values.push_back(rnd.RandomString(1 << 10));
+  ASSERT_OK(Put("a", values.back()));
+  values.push_back(rnd.RandomString(1 << 10));
+  ASSERT_OK(Put("b", values.back()));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  uint64_t l1_size = 0;
+  Size("a", "c", 0, &l1_size);
+  ASSERT_GT(l1_size, 0);
+
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "c"));
+  ASSERT_OK(Flush());
+  Reopen(opts);
+
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_EQ(level_to_files[0].size(), 1);
+  ASSERT_EQ(level_to_files[0][0].compensated_range_deletion_size, l1_size);
+  ASSERT_EQ(level_to_files[1].size(), 1);
+  ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, 0);
 }
 
 #endif  // ROCKSDB_LITE
