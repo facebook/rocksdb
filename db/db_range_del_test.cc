@@ -3018,7 +3018,7 @@ TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesize) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(2);
   uint64_t l2_size = 0;
-  Size("a", "c", 0, &l2_size);
+  ASSERT_OK(Size("a", "c", 0, &l2_size));
 
   ASSERT_OK(
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "c"));
@@ -3034,8 +3034,8 @@ TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesize) {
   ASSERT_EQ(level_to_files[2][0].compensated_range_deletion_size, 0);
 
   // Trivial move does not update range deletion compensate size yet
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
-                              true /* disallow_trivial_move */);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                                        true /* disallow_trivial_move */));
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
@@ -3060,7 +3060,7 @@ TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesizeSkippedDuringOpen) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
   uint64_t l1_size = 0;
-  Size("a", "c", 0, &l1_size);
+  ASSERT_OK(Size("a", "c", 0, &l1_size));
   ASSERT_GT(l1_size, 0);
 
   ASSERT_OK(
@@ -3083,7 +3083,7 @@ TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesizeSkippedDuringOpen) {
   ASSERT_OK(Put("b", values.back()));
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
-  Size("a", "c", 0, &l1_size);
+  ASSERT_OK(Size("a", "c", 0, &l1_size));
   ASSERT_GT(l1_size, 0);
 
   ASSERT_OK(
@@ -3113,7 +3113,7 @@ TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesizePersistDuringReopen) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
   uint64_t l1_size = 0;
-  Size("a", "c", 0, &l1_size);
+  ASSERT_OK(Size("a", "c", 0, &l1_size));
   ASSERT_GT(l1_size, 0);
 
   ASSERT_OK(
