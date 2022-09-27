@@ -45,6 +45,7 @@ void ArenaWrappedDBIter::Init(
   sv_number_ = version_number;
   read_options_ = read_options;
   allow_refresh_ = allow_refresh;
+  memtable_range_tombstone_iter_ = nullptr;
 }
 
 Status ArenaWrappedDBIter::Refresh() {
@@ -92,9 +93,15 @@ Status ArenaWrappedDBIter::Refresh() {
         auto t = sv->mem->NewRangeTombstoneIterator(
             read_options_, latest_seq, false /* immutable_memtable */);
         if (!t || t->empty()) {
+          // If memtable_range_tombstone_iter_ points to a non-empty tombstone
+          // iterator, then it means sv->mem is not the memtable that
+          // memtable_range_tombstone_iter_ points to, so SV must have changed
+          // after the sv_number_ != cur_sv_number check above. We will fall
+          // back to re-init the InternalIterator, and the tombstone iterator
+          // will be freed during db_iter destruction there.
           if (memtable_range_tombstone_iter_) {
-            delete *memtable_range_tombstone_iter_;
-            *memtable_range_tombstone_iter_ = nullptr;
+            assert(!*memtable_range_tombstone_iter_ ||
+                   sv_number_ != cfd_->GetSuperVersionNumber());
           }
           delete t;
         } else {  // current mutable memtable has range tombstones
