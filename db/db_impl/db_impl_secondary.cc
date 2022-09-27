@@ -101,7 +101,7 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   std::vector<std::string> filenames;
   Status s;
   IOOptions io_opts;
-  io_opts.SetProperty("list_files_only", "true");
+  io_opts.list_files_only = true;
   s = immutable_db_options_.fs->GetChildren(immutable_db_options_.GetWalDir(),
                                             io_opts, &filenames,
                                             /*IODebugContext*=*/nullptr);

@@ -164,7 +164,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     // safe
     std::vector<std::string> filenames;
     IOOptions io_opts;
-    io_opts.SetProperty("list_files_only", "true");
+    io_opts.list_files_only = true;
     auto wal_dir = immutable_db_options.GetWalDir();
     Status s = immutable_db_options.fs->GetChildren(
         wal_dir, io_opts, &filenames, /*IODebugContext*=*/nullptr);
@@ -436,7 +436,7 @@ Status DBImpl::Recover(
     } else {
       s = Status::NotFound();
       IOOptions io_opts;
-      io_opts.SetProperty("list_files_only", "true");
+      io_opts.list_files_only = true;
       Status io_s = immutable_db_options_.fs->GetChildren(
           dbname_, io_opts, &files_in_dbname, /*IODebugContext*=*/nullptr);
       if (!io_s.ok()) {
@@ -505,7 +505,7 @@ Status DBImpl::Recover(
   } else if (immutable_db_options_.best_efforts_recovery) {
     assert(files_in_dbname.empty());
     IOOptions io_opts;
-    io_opts.SetProperty("list_files_only", "true");
+    io_opts.list_files_only = true;
     Status s = immutable_db_options_.fs->GetChildren(
         dbname_, io_opts, &files_in_dbname, /*IODebugContext*=*/nullptr);
     if (s.IsNotFound()) {
@@ -580,7 +580,7 @@ Status DBImpl::Recover(
     auto wal_dir = immutable_db_options_.GetWalDir();
     if (!immutable_db_options_.best_efforts_recovery) {
       IOOptions io_opts;
-      io_opts.SetProperty("list_files_only", "true");
+      io_opts.list_files_only = true;
       s = immutable_db_options_.fs->GetChildren(
           wal_dir, io_opts, &files_in_wal_dir, /*IODebugContext*=*/nullptr);
     }
@@ -691,7 +691,7 @@ Status DBImpl::Recover(
         filenames = std::move(files_in_wal_dir);
       } else {
         IOOptions io_opts;
-        io_opts.SetProperty("list_files_only", "true");
+        io_opts.list_files_only = true;
         s = immutable_db_options_.fs->GetChildren(
             GetName(), io_opts, &filenames, /*IODebugContext*=*/nullptr);
       }
@@ -2038,7 +2038,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     std::sort(paths.begin(), paths.end());
     paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
     IOOptions io_opts;
-    io_opts.SetProperty("list_files_only", "true");
+    io_opts.list_files_only = true;
     for (auto& path : paths) {
       std::vector<std::string> existing_files;
       impl->immutable_db_options_.fs

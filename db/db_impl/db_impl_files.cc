@@ -194,7 +194,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
 
     IOOptions io_opts;
-    io_opts.SetProperty("list_files_only", "true");
+    io_opts.list_files_only = true;
     for (auto& path : paths) {
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
