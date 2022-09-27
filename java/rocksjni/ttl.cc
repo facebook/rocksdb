@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 
+#include "api_columnfamilyhandle.h"
+#include "api_rocksdb.h"
 #include "include/org_rocksdb_TtlDB.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
@@ -43,7 +45,11 @@ jlong Java_org_rocksdb_TtlDB_open(
   // as TTLDB extends RocksDB on the java side, we can reuse
   // the RocksDB portal here.
   if (s.ok()) {
-    return GET_CPLUSPLUS_POINTER(db);
+    std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbShared =
+        APIBase::createSharedPtr(db, false /*isDefault*/);
+    std::unique_ptr<APIRocksDB<ROCKSDB_NAMESPACE::DB>> dbAPI(
+        new APIRocksDB(dbShared));
+    return GET_CPLUSPLUS_POINTER(dbAPI.release());
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
@@ -110,10 +116,10 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(
   env->ReleaseIntArrayElements(jttls, jttlv, JNI_ABORT);
 
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jopt_handle);
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> handles;
+  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
   ROCKSDB_NAMESPACE::DBWithTTL* db = nullptr;
   ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::DBWithTTL::Open(
-      *opt, db_path, column_families, &handles, &db, ttl_values, jread_only);
+      *opt, db_path, column_families, &cf_handles, &db, ttl_values, jread_only);
 
   // we have now finished with db_path
   env->ReleaseStringUTFChars(jdb_path, db_path);
@@ -123,10 +129,21 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(
     const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
     std::unique_ptr<jlong[]> results =
         std::unique_ptr<jlong[]>(new jlong[resultsLen]);
-    results[0] = GET_CPLUSPLUS_POINTER(db);
+    std::shared_ptr<ROCKSDB_NAMESPACE::DBWithTTL> dbShared =
+        APIBase::createSharedPtr(db, false);  // isDefault=false
+    std::unique_ptr<APIRocksDB<ROCKSDB_NAMESPACE::DBWithTTL>> dbAPI(
+        new APIRocksDB(dbShared));
     for (int i = 1; i <= len_cols; i++) {
-      results[i] = GET_CPLUSPLUS_POINTER(handles[i - 1]);
+      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfShared =
+          APIBase::createSharedPtr(cf_handles[i - 1],
+                                   false);  // isDefault=false
+      std::unique_ptr<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DBWithTTL>>
+          cfhAPI(new APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DBWithTTL>(
+              dbShared, cfShared));
+      dbAPI->columnFamilyHandles.push_back(cfShared);
+      results[i] = GET_CPLUSPLUS_POINTER(cfhAPI.release());
     }
+    results[0] = GET_CPLUSPLUS_POINTER(dbAPI.release());
 
     jlongArray jresults = env->NewLongArray(resultsLen);
     if (jresults == nullptr) {
@@ -148,31 +165,23 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(
   }
 }
 
-/*
+/**
+ * @brief
+ *
  * Class:     org_rocksdb_TtlDB
- * Method:    disposeInternal
+ * Method:    nativeClose
  * Signature: (J)V
- */
-void Java_org_rocksdb_TtlDB_disposeInternal(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* ttl_db = reinterpret_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(jhandle);
-  assert(ttl_db != nullptr);
-  delete ttl_db;
-}
 
-/*
- * Class:     org_rocksdb_TtlDB
- * Method:    closeDatabase
- * Signature: (J)V
  */
-void Java_org_rocksdb_TtlDB_closeDatabase(
-    JNIEnv* /* env */, jclass, jlong /* jhandle */) {
-  // auto* ttl_db = reinterpret_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(jhandle);
-  // assert(ttl_db != nullptr);
-  // ROCKSDB_NAMESPACE::Status s = ttl_db->Close();
-  // ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-
+void Java_org_rocksdb_TtlDB_nativeClose(JNIEnv*, jobject, jlong /*jhandle*/) {
   //TODO(AR) this is disabled until https://github.com/facebook/rocksdb/issues/4818 is resolved!
+  /*
+  std::unique_ptr<APIRocksDB<ROCKSDB_NAMESPACE::DBWithTTL>> dbAPI(
+      reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DBWithTTL>*>(jhandle));
+  dbAPI->check("nativeClose()");
+  // Now the unique_ptr destructor will delete() referenced shared_ptr contents
+  // in the API object.
+  */
 }
 
 /*
@@ -193,17 +202,25 @@ jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
   auto* cfOptions = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(
       jcolumn_options);
 
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(jdb_handle);
-  ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle;
-  ROCKSDB_NAMESPACE::Status s = db_handle->CreateColumnFamilyWithTtl(
-      *cfOptions, std::string(reinterpret_cast<char*>(cfname), len), &handle,
+  auto& dbAPI =
+      *reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DBWithTTL>*>(jdb_handle);
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
+  ROCKSDB_NAMESPACE::Status s = dbAPI->CreateColumnFamilyWithTtl(
+      *cfOptions, std::string(reinterpret_cast<char*>(cfname), len), &cf_handle,
       jttl);
 
   env->ReleaseByteArrayElements(jcolumn_name, cfname, JNI_ABORT);
 
-  if (s.ok()) {
-    return GET_CPLUSPLUS_POINTER(handle);
+  if (!s.ok()) {
+    // error occurred
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return 0;
   }
-  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-  return 0;
+
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
+      APIBase::createSharedPtr(cf_handle, false /*isDefault*/);
+  std::unique_ptr<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>> cfhAPI(
+      new APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>(dbAPI.db, cfh));
+  dbAPI.columnFamilyHandles.push_back(cfh);
+  return GET_CPLUSPLUS_POINTER(cfhAPI.release());
 }

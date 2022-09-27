@@ -140,8 +140,6 @@ public class TtlDB extends RocksDB {
   }
 
   @Override protected native void nativeClose(long nativeReference);
-  // TODO (AP) in native, duplicate the closeDatabase() functionality and the reference counted API
-  // dance
 
   /**
    * <p>Creates a new ttl based column family with a name defined
