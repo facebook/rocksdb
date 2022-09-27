@@ -89,6 +89,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
   if (iter_.iter()) {
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
+  status_.PermitUncheckedError();
   assert(timestamp_size_ == user_comparator_.timestamp_size());
 }
 

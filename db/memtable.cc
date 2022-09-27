@@ -958,7 +958,24 @@ static bool SaveValue(void* arg, const char* entry) {
       return true;  // to continue to the next seq
     }
 
-    s->seq = seq;
+    if (s->seq == kMaxSequenceNumber) {
+      s->seq = seq;
+    }
+
+    s->seq = std::max(s->seq, max_covering_tombstone_seq);
+
+    if (ts_sz > 0 && s->timestamp != nullptr) {
+      if (!s->timestamp->empty()) {
+        assert(ts_sz == s->timestamp->size());
+      }
+      // TODO optimize for smaller size ts
+      const std::string kMaxTs(ts_sz, '\xff');
+      if (s->timestamp->empty() ||
+          user_comparator->CompareTimestamp(*(s->timestamp), kMaxTs) == 0) {
+        Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
+        s->timestamp->assign(ts.data(), ts_sz);
+      }
+    }
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
          type == kTypeWideColumnEntity) &&
@@ -1039,10 +1056,6 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->is_blob_index) = (type == kTypeBlobIndex);
         }
 
-        if (ts_sz > 0 && s->timestamp != nullptr) {
-          Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
-          s->timestamp->assign(ts.data(), ts.size());
-        }
         return false;
       }
       case kTypeDeletion:
@@ -1058,10 +1071,6 @@ static bool SaveValue(void* arg, const char* entry) {
           }
         } else {
           *(s->status) = Status::NotFound();
-          if (ts_sz > 0 && s->timestamp != nullptr) {
-            Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
-            s->timestamp->assign(ts.data(), ts.size());
-          }
         }
         *(s->found_final_value) = true;
         return false;
