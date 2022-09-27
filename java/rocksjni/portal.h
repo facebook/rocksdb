@@ -2283,6 +2283,9 @@ class JniUtil {
      * Creates a Java array of C++ pointer addresses
      *     from a vector of C++ pointers.
      *
+     * TODO (AP) check - is this made obsolete (unused) by the APIHandles
+     * changes ?
+     *
      * @param env (IN) A pointer to the java environment
      * @param pointers (IN) A vector of C++ pointers
      * @param has_exception (OUT) will be set to JNI_TRUE
@@ -2326,6 +2329,9 @@ class JniUtil {
      *
      * TODO(AR) could be extended to cover returning ROCKSDB_NAMESPACE::Status
      * from `op` and used for RocksDB->Put etc.
+     *
+     * TODO (AP) check - is this made obsolete (unused) by the APIHandles
+     * changes ?
      */
     static void kv_op_direct(std::function<void(ROCKSDB_NAMESPACE::Slice&,
                                                 ROCKSDB_NAMESPACE::Slice&)>

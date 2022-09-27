@@ -1327,14 +1327,15 @@ jint Java_org_rocksdb_RocksDB_getDirect(JNIEnv* env, jobject /*jdb*/,
                                         jint jkey_len, jobject jval,
                                         jint jval_off, jint jval_len,
                                         jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto& dbAPI =
+      *reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DB>*>(jdb_handle);
   auto* ro_opt =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   bool has_exception = false;
   return rocksdb_get_helper_direct(
-      env, db_handle,
+      env, dbAPI.get(),
       ro_opt == nullptr ? ROCKSDB_NAMESPACE::ReadOptions() : *ro_opt, cf_handle,
       jkey, jkey_off, jkey_len, jval, jval_off, jval_len, &has_exception);
 }
@@ -3431,14 +3432,20 @@ void Java_org_rocksdb_RocksDB_enableAutoCompaction(
   auto& dbAPI =
       *reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DB>*>(jdb_handle);
   jboolean has_exception = JNI_FALSE;
-  const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles =
-      ROCKSDB_NAMESPACE::JniUtil::fromJPointers<
-          ROCKSDB_NAMESPACE::ColumnFamilyHandle>(env, jcf_handles,
-                                                 &has_exception);
+  const std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>>
+      cfHandlePtrs = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+          env, jcf_handles, &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
     return;
   }
+  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
+  std::for_each(
+      cfHandlePtrs.begin(), cfHandlePtrs.end(),
+      [&cf_handles](
+          const std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>& cfh) {
+        cf_handles.push_back(cfh.get());
+      });
   dbAPI->EnableAutoCompaction(cf_handles);
 }
 

@@ -84,6 +84,46 @@ class APIColumnFamilyHandle : public APIWeakDB<TDatabase> {
     return cfh;
   }
 
+  /**
+   * @brief lock an array of reference pointers
+   *
+   * @param env
+   * @param jhandles
+   * @return std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>>
+   * a vector of locked (shared_ptr) CF handles
+   */
+  static std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>>
+  lock(JNIEnv* env, jlongArray jhandles, jboolean* has_exception) {
+    const jsize jhandles_len = env->GetArrayLength(jhandles);
+    std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>> handles;
+    jlong* jhandle = env->GetLongArrayElements(jhandles, nullptr);
+    if (jhandle == nullptr) {
+      // exception thrown: OutOfMemoryError
+      *has_exception = JNI_TRUE;
+      return handles;
+    }
+    handles.reserve(jhandles_len);
+    for (jsize i = 0; i < jhandles_len; i++) {
+      auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jhandle[i]);
+      if (cfhAPI == nullptr) {
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
+        *has_exception = JNI_TRUE;
+        return handles;
+      }
+      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
+          cfhAPI->cfh.lock();
+      if (!cfh) {
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env, "Column family already closed");
+        *has_exception = JNI_TRUE;
+        return handles;
+      }
+      handles.push_back(cfh);
+    }
+    return handles;
+  }
+
   static std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
   lockCFHOrDefault(JNIEnv* env, jlong jhandle,
                    const APIRocksDB<TDatabase>& dbAPI) {
