@@ -174,7 +174,7 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            &columns_from_db, s, true);
+                            &columns_from_db, s, /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),

@@ -345,6 +345,10 @@ class MultiOpsTxnsStressTest : public StressTest {
   uint32_t GenerateNextC(ThreadState* thread);
 
 #ifndef ROCKSDB_LITE
+  // Randomly commit or rollback `txn`
+  void ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
+                                          SharedState*) override;
+
   // Some applications, e.g. MyRocks writes a KV pair to the database via
   // commit-time-write-batch (ctwb) in additional to the transaction's regular
   // write batch. The key is usually constant representing some system
