@@ -178,10 +178,11 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
 
 void CompressedSecondaryCache::Erase(const Slice& key) { cache_->Erase(key); }
 
-void CompressedSecondaryCache::SetCapacity(size_t capacity) {
+Status CompressedSecondaryCache::SetCapacity(size_t capacity) {
   MutexLock l(&capacity_mutex_);
   cache_options_.capacity = capacity;
   cache_->SetCapacity(capacity);
+  return Status::OK();
 }
 
 size_t CompressedSecondaryCache::GetCapacity() const {
@@ -205,9 +206,9 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
 }
 
 CompressedSecondaryCache::CacheValueChunk*
-CompressedSecondaryCache::SplitValueIntoChunks(
-    const Slice& value, const CompressionType compression_type,
-    size_t& charge) {
+CompressedSecondaryCache::SplitValueIntoChunks(const Slice& value,
+                                               CompressionType compression_type,
+                                               size_t& charge) {
   assert(!value.empty());
   const char* src_ptr = value.data();
   size_t src_size{value.size()};

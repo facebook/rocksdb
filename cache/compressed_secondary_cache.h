@@ -23,7 +23,7 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
  public:
   CompressedSecondaryCacheResultHandle(void* value, size_t size)
       : value_(value), size_(size) {}
-  virtual ~CompressedSecondaryCacheResultHandle() override = default;
+  ~CompressedSecondaryCacheResultHandle() override = default;
 
   CompressedSecondaryCacheResultHandle(
       const CompressedSecondaryCacheResultHandle&) = delete;
@@ -79,7 +79,7 @@ class CompressedSecondaryCache : public SecondaryCache {
       CompressionType compression_type = CompressionType::kLZ4Compression,
       uint32_t compress_format_version = 2,
       bool enable_custom_split_merge = false);
-  virtual ~CompressedSecondaryCache() override;
+  ~CompressedSecondaryCache() override;
 
   const char* Name() const override { return "CompressedSecondaryCache"; }
 
@@ -96,7 +96,7 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
 
-  void SetCapacity(size_t capacity) override;
+  Status SetCapacity(size_t capacity) override;
 
   size_t GetCapacity() const override;
 
@@ -121,7 +121,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   // are stored in CacheValueChunk and extra charge is needed for each chunk,
   // so the cache charge is recalculated here.
   CacheValueChunk* SplitValueIntoChunks(const Slice& value,
-                                        const CompressionType compression_type,
+                                        CompressionType compression_type,
                                         size_t& charge);
 
   // After merging chunks, the extra charge for each chunk is removed, so

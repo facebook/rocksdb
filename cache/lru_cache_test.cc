@@ -1025,7 +1025,10 @@ class TestSecondaryCache : public SecondaryCache {
   using ResultMap = std::unordered_map<std::string, ResultType>;
 
   explicit TestSecondaryCache(size_t capacity)
-      : num_inserts_(0), num_lookups_(0), inject_failure_(false) {
+      : num_inserts_(0),
+        num_lookups_(0),
+        capacity_(capacity),
+        inject_failure_(false) {
     cache_ =
         NewLRUCache(capacity, 0, false, 0.5 /* high_pri_pool_ratio */, nullptr,
                     kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
@@ -1115,9 +1118,11 @@ class TestSecondaryCache : public SecondaryCache {
     }
   }
 
-  void SetCapacity(size_t /*capacity*/) override {}
+  Status SetCapacity(size_t /*capacity*/) override {
+    return Status::NotSupported();
+  }
 
-  size_t GetCapacity() const override { return 0; }
+  size_t GetCapacity() const override { return capacity_; }
 
   std::string GetPrintableOptions() const override { return ""; }
 
@@ -1177,6 +1182,7 @@ class TestSecondaryCache : public SecondaryCache {
   std::shared_ptr<Cache> cache_;
   uint32_t num_inserts_;
   uint32_t num_lookups_;
+  size_t capacity_;
   bool inject_failure_;
   std::string ckey_prefix_;
   ResultMap result_map_;
