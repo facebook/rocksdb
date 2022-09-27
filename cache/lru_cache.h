@@ -99,6 +99,8 @@ struct LRUHandle {
     IM_IS_PENDING = (1 << 3),
     // Whether this handle is still in a lower tier
     IM_IS_IN_SECONDARY_CACHE = (1 << 4),
+    // Marks result handles that should not be inserted into cache
+    IM_IS_STANDALONE = (1 << 5),
   };
 
   // Beginning of the key (MUST BE THE LAST FIELD IN THIS STRUCT!)
@@ -132,6 +134,7 @@ struct LRUHandle {
   bool IsInSecondaryCache() const {
     return im_flags & IM_IS_IN_SECONDARY_CACHE;
   }
+  bool IsStandalone() const { return im_flags & IM_IS_STANDALONE; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -193,6 +196,14 @@ struct LRUHandle {
       im_flags |= IM_IS_IN_SECONDARY_CACHE;
     } else {
       im_flags &= ~IM_IS_IN_SECONDARY_CACHE;
+    }
+  }
+
+  void SetIsStandalone(bool is_standalone) {
+    if (is_standalone) {
+      im_flags |= IM_IS_STANDALONE;
+    } else {
+      im_flags &= ~IM_IS_STANDALONE;
     }
   }
 
@@ -411,7 +422,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // the last reference, the item is added to the LRU list.
   // The item is promoted to the high pri or low pri pool as specified by the
   // caller in Lookup.
-  void Promote(LRUHandle* e, bool standalone);
+  void Promote(LRUHandle* e);
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
 

@@ -22,10 +22,8 @@
 namespace ROCKSDB_NAMESPACE {
 namespace lru_cache {
 
-// Distinct pointer values for marking "dummy" and "standalone" cache entries
+// A distinct pointer value for marking "dummy" cache entries
 void* const kDummyValueMarker = const_cast<char*>("kDummyValueMarker");
-void* const kStandAloneValueMarker =
-    const_cast<char*>("kStandAloneValueMarker");
 
 LRUHandleTable::LRUHandleTable(int max_upper_hash_bits)
     : length_bits_(/* historical starting size*/ 4),
@@ -426,7 +424,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
   return s;
 }
 
-void LRUCacheShard::Promote(LRUHandle* e, bool standalone) {
+void LRUCacheShard::Promote(LRUHandle* e) {
   SecondaryCacheResultHandle* secondary_handle = e->sec_handle;
 
   assert(secondary_handle->IsReady());
@@ -441,8 +439,9 @@ void LRUCacheShard::Promote(LRUHandle* e, bool standalone) {
   if (e->value) {
     e->CalcTotalCharge(value_size, metadata_charge_policy_);
     Status s;
-    if (secondary_cache_ && secondary_cache_->SupportForceErase() &&
-        standalone) {
+    if (e->IsStandalone()) {
+      assert(secondary_cache_ && secondary_cache_->SupportForceErase());
+
       // Insert a dummy handle and return a standalone handle to caller.
       // Charge the standalone handle.
       autovector<LRUHandle*> last_reference_list;
@@ -577,11 +576,11 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->total_charge = 0;
       e->Ref();
       e->SetIsInSecondaryCache(is_in_sec_cache);
+      e->SetIsStandalone(secondary_cache_->SupportForceErase() &&
+                         !found_dummy_entry);
 
-      bool standalone =
-          secondary_cache_->SupportForceErase() && !found_dummy_entry;
       if (wait) {
-        Promote(e, standalone);
+        Promote(e);
         if (e) {
           if (!e->value) {
             // The secondary cache returned a handle, but the lookup failed.
@@ -597,9 +596,6 @@ Cache::Handle* LRUCacheShard::Lookup(
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure.
         e->SetIsPending(true);
-        if (standalone) {
-          e->value = kStandAloneValueMarker;
-        }
         // This may be slightly inaccurate, if the lookup eventually fails.
         // But the probability is very low.
         PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
@@ -830,6 +826,7 @@ const CacheShard* LRUCache::GetShard(uint32_t shard) const {
 void* LRUCache::Value(Handle* handle) {
   auto h = reinterpret_cast<const LRUHandle*>(handle);
   assert(!h->IsPending() || h->value == nullptr);
+  assert(h->value != kDummyValueMarker);
   return h->value;
 }
 
@@ -904,7 +901,7 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
       }
       uint32_t hash = GetHash(handle);
       LRUCacheShard* shard = static_cast<LRUCacheShard*>(GetShard(Shard(hash)));
-      shard->Promote(lru_handle, lru_handle->value == kStandAloneValueMarker);
+      shard->Promote(lru_handle);
     }
   }
 }
