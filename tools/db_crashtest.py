@@ -759,7 +759,7 @@ def whitebox_crash_main(args, unknown_args):
     check_mode = 0
     kill_random_test = cmd_params["random_kill_odd"]
     kill_mode = 0
-
+    prev_compaction_style = -1
     while time.time() < exit_time:
         if check_mode == 0:
             additional_opts = {
@@ -832,6 +832,12 @@ def whitebox_crash_main(args, unknown_args):
                 "kill_random_test": None,
                 "ops_per_thread": cmd_params["ops_per_thread"],
             }
+
+        cur_compaction_style = additional_opts.get("compaction_style", cmd_params.get("compaction_style", 0))
+        if prev_compaction_style != -1 and prev_compaction_style != cur_compaction_style:
+            print("`compaction_style` is changed in current run so `destroy_db_initially` is set to 1 as a short-term solution to avoid cycling through previous db of different compaction style." + "\n")
+            additional_opts["destroy_db_initially"] = 1
+        prev_compaction_style = cur_compaction_style
 
         cmd = gen_cmd(
             dict(
