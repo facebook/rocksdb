@@ -1878,8 +1878,14 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundary) {
   bool enable_dyanmic_file_size = GetParam();
   cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
   NewDB();
-  // Make sure the grandparent level file size (10) qualifies skipping.
-  mutable_cf_options_.target_file_size_base = 10;
+
+  // MockTable has 1 byte per entry by default and each file is 10 bytes.
+  // When the file size is smaller than 100, it won't cut file earlier to align
+  // with its grandparent boundary.
+  const size_t kKeyValueSize = 10000;
+  mock_table_factory_->SetKeyValueSize(kKeyValueSize);
+  // Make sure the grandparent level file size qualifies skipping.
+  mutable_cf_options_.target_file_size_base = 10 * kKeyValueSize;
 
   mock::KVVector file1;
   char ch = 'd';
