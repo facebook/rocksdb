@@ -445,6 +445,7 @@ multiops_txn_default_params = {
     # Re-enable once we have a compaction for MultiOpsTxnStressTest
     "enable_compaction_filter": 0,
     "create_timestamped_snapshot_one_in": 50,
+    "sync_fault_injection": 0,
 }
 
 multiops_wc_txn_params = {
@@ -513,10 +514,6 @@ def finalize_and_sanitize(src_params):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
         dest_params["ingest_external_file_one_in"] = 0
-    # Correctness testing with unsync data loss is not currently compatible
-    # with transactions
-    if dest_params.get("use_txn") == 1:
-        dest_params["sync_fault_injection"] = 0
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
@@ -594,7 +591,10 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
         dest_params["txn_write_policy"] = 0
         dest_params["unordered_write"] = 0
-
+    # For TransactionDB, correctness testing with unsync data loss is currently
+    # compatible with only write committed policy
+    if (dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0):
+        dest_params["sync_fault_injection"] = 0
     return dest_params
 
 

@@ -34,13 +34,10 @@ class StressTest {
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
   virtual void FinishInitDb(SharedState*);
-
   void TrackExpectedState(SharedState* shared);
-
   void OperateDb(ThreadState* thread);
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
-
   void PrintStatistics();
 
  protected:
@@ -54,6 +51,18 @@ class StressTest {
   Status SetOptions(ThreadState* thread);
 
 #ifndef ROCKSDB_LITE
+  // For transactionsDB, there can be txns prepared but not yet committeed
+  // right before previous stress run crash.
+  // They will be recovered and processed through
+  // ProcessRecoveredPreparedTxnsHelper on the start of current stress run.
+  void ProcessRecoveredPreparedTxns(SharedState* shared);
+
+  // Default implementation will first update ExpectedState to be
+  // `SharedState::UNKNOWN` for each keys in `txn` and then randomly
+  // commit or rollback `txn`.
+  virtual void ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
+                                                  SharedState* shared);
+
   Status NewTxn(WriteOptions& write_opts, Transaction** txn);
 
   Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
