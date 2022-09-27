@@ -38,21 +38,14 @@ namespace lru_cache {
 //    (refs == 0 && in_cache == true)
 // 3. Referenced externally AND not in hash table.
 //    In that case the entry is not in the LRU list and not in hash table.
-//    The entry can be freed when refs becomes 0.
+//    The entry must be freed if refs becomes 0 in this state.
 //    (refs >= 1 && in_cache == false)
-// 4. The handle is never inserted into the LRUCache (both hash table and LRU
-//    list) and it doesn't experience the above three states.
-//    The entry can be freed when refs becomes 0.
-//    (refs >= 1 && in_cache == false && IS_STANDALONE == true)
-// All newly created LRUHandles are in state 1 or 4. If you call
-// LRUCacheShard::Release on entry in state 1, it will go into state 2.
-// To move from state 1 to state 3, either call LRUCacheShard::Erase or
-// LRUCacheShard::Insert with the same key (but possibly different value).
-// To move from state 2 to state 1, use LRUCacheShard::Lookup.
-// Before destruction, make sure that no handles are in state 1. This means
-// that any successful LRUCacheShard::Lookup/LRUCacheShard::Insert have a
-// matching LRUCache::Release (to move into state 2) or LRUCacheShard::Erase
-// (to move into state 3).
+// If you call LRUCacheShard::Release enough times on an entry in state 1, it
+// will go into state 2. To move from state 1 to state 3, either call
+// LRUCacheShard::Erase or LRUCacheShard::Insert with the same key (but
+// possibly different value). To move from state 2 to state 1, use
+// LRUCacheShard::Lookup.
+// While refs > 0, public properties like value and deleter must not change.
 
 struct LRUHandle {
   void* value;
