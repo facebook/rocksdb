@@ -409,7 +409,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
 
   // vector int options
   cf_opt->max_bytes_for_level_multiplier_additional.resize(cf_opt->num_levels);
-  for (int i = 0; i < cf_opt->num_levels; i++) {
+  for (unsigned int i = 0; i < cf_opt->num_levels; i++) {
     cf_opt->max_bytes_for_level_multiplier_additional[i] = rnd->Uniform(100);
   }
 

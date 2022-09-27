@@ -173,9 +173,10 @@ struct CompressionOptions {
         parallel_threads(1),
         enabled(false),
         max_dict_buffer_bytes(0) {}
-  CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
-                     int _zstd_max_train_bytes, int _parallel_threads,
-                     bool _enabled, uint64_t _max_dict_buffer_bytes)
+  CompressionOptions(int wbits, int _lev, int _strategy,
+                     uint32_t _max_dict_bytes, uint32_t _zstd_max_train_bytes,
+                     uint32_t _parallel_threads, bool _enabled,
+                     uint64_t _max_dict_buffer_bytes)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
@@ -419,7 +420,7 @@ struct AdvancedColumnFamilyOptions {
   std::vector<CompressionType> compression_per_level;
 
   // Number of levels for this database
-  int num_levels = 7;
+  unsigned int num_levels = 7;
 
   // Soft limit on number of level-0 files. We start slowing down writes at this
   // point. A value <0 means that no writing slow down will be triggered by

@@ -4504,7 +4504,7 @@ void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt, int level
     for (int i = 0; i < level; i++) {
       opt->rep.compression_per_level[i] = ROCKSDB_NAMESPACE::kNoCompression;
     }
-    for (int i = level; i < opt->rep.num_levels; i++) {
+    for (unsigned int i = static_cast<unsigned int>(level); i < opt->rep.num_levels; i++) {
       opt->rep.compression_per_level[i] = opt->rep.compression;
     }
   }

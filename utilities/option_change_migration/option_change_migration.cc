@@ -93,7 +93,7 @@ Status MigrateToUniversal(std::string dbname, const Options& old_opts,
       ColumnFamilyMetaData metadata;
       db->GetColumnFamilyMetaData(&metadata);
       if (!metadata.levels.empty() &&
-          metadata.levels.back().level >= new_opts.num_levels) {
+          static_cast<unsigned int>(metadata.levels.back().level) >= new_opts.num_levels) {
         need_compact = true;
       }
     }
