@@ -343,7 +343,9 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                         public WriteBatch::Handler {
  public:
   ExpectedStateTraceRecordHandler(uint64_t max_write_ops, ExpectedState* state)
-      : max_write_ops_(max_write_ops), state_(state) {}
+      : max_write_ops_(max_write_ops),
+        state_(state),
+        buffered_writes_(nullptr) {}
 
   ~ExpectedStateTraceRecordHandler() { assert(IsDone()); }
 
@@ -391,6 +393,12 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     }
     uint32_t value_id = GetValueBase(value);
 
+    bool should_buffer_write = !(buffered_writes_ == nullptr);
+    if (should_buffer_write) {
+      return WriteBatchInternal::Put(buffered_writes_.get(), column_family_id,
+                                     key, value);
+    }
+
     state_->Put(column_family_id, static_cast<int64_t>(key_id), value_id,
                 false /* pending */);
     ++num_write_ops_;
@@ -406,6 +414,12 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
       return Status::Corruption("unable to parse key", key.ToString());
     }
 
+    bool should_buffer_write = !(buffered_writes_ == nullptr);
+    if (should_buffer_write) {
+      return WriteBatchInternal::Delete(buffered_writes_.get(),
+                                        column_family_id, key);
+    }
+
     state_->Delete(column_family_id, static_cast<int64_t>(key_id),
                    false /* pending */);
     ++num_write_ops_;
@@ -414,6 +428,18 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
   Status SingleDeleteCF(uint32_t column_family_id,
                         const Slice& key_with_ts) override {
+    bool should_buffer_write = !(buffered_writes_ == nullptr);
+    if (should_buffer_write) {
+      Slice key =
+          StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+      Slice ts =
+          ExtractTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+      std::array<Slice, 2> key_with_ts_arr{{key, ts}};
+      return WriteBatchInternal::SingleDelete(
+          buffered_writes_.get(), column_family_id,
+          SliceParts(key_with_ts_arr.data(), 2));
+    }
+
     return DeleteCF(column_family_id, key_with_ts);
   }
 
@@ -433,6 +459,12 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
       return Status::Corruption("unable to parse end key", end_key.ToString());
     }
 
+    bool should_buffer_write = !(buffered_writes_ == nullptr);
+    if (should_buffer_write) {
+      return WriteBatchInternal::DeleteRange(
+          buffered_writes_.get(), column_family_id, begin_key, end_key);
+    }
+
     state_->DeleteRange(column_family_id, static_cast<int64_t>(begin_key_id),
                         static_cast<int64_t>(end_key_id), false /* pending */);
     ++num_write_ops_;
@@ -443,13 +475,64 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                  const Slice& value) override {
     Slice key =
         StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+
+    bool should_buffer_write = !(buffered_writes_ == nullptr);
+    if (should_buffer_write) {
+      return WriteBatchInternal::Merge(buffered_writes_.get(), column_family_id,
+                                       key, value);
+    }
+
     return PutCF(column_family_id, key, value);
+  }
+
+  Status MarkBeginPrepare(bool = false) override {
+    assert(!buffered_writes_);
+    buffered_writes_.reset(new WriteBatch());
+    return Status::OK();
+  }
+
+  Status MarkEndPrepare(const Slice& xid) override {
+    assert(buffered_writes_);
+    std::string xid_str = xid.ToString();
+    assert(xid_to_buffered_writes_.find(xid_str) ==
+           xid_to_buffered_writes_.end());
+
+    xid_to_buffered_writes_[xid_str].swap(buffered_writes_);
+
+    buffered_writes_.reset();
+
+    return Status::OK();
+  }
+
+  Status MarkCommit(const Slice& xid) override {
+    std::string xid_str = xid.ToString();
+    assert(xid_to_buffered_writes_.find(xid_str) !=
+           xid_to_buffered_writes_.end());
+    assert(xid_to_buffered_writes_.at(xid_str));
+
+    Status s = xid_to_buffered_writes_.at(xid_str)->Iterate(this);
+    xid_to_buffered_writes_.erase(xid_str);
+
+    return s;
+  }
+
+  Status MarkRollback(const Slice& xid) override {
+    std::string xid_str = xid.ToString();
+    assert(xid_to_buffered_writes_.find(xid_str) !=
+           xid_to_buffered_writes_.end());
+    assert(xid_to_buffered_writes_.at(xid_str));
+    xid_to_buffered_writes_.erase(xid_str);
+
+    return Status::OK();
   }
 
  private:
   uint64_t num_write_ops_ = 0;
   uint64_t max_write_ops_;
   ExpectedState* state_;
+  std::unordered_map<std::string, std::unique_ptr<WriteBatch>>
+      xid_to_buffered_writes_;
+  std::unique_ptr<WriteBatch> buffered_writes_;
 };
 
 }  // anonymous namespace

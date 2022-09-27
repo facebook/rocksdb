@@ -286,6 +286,14 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
 
+  if (FLAGS_use_txn && FLAGS_sync_fault_injection &&
+      FLAGS_txn_write_policy != 0) {
+    fprintf(stderr,
+            "For TransactionDB, correctness testing with unsync data loss is "
+            "currently compatible with only write committed policy\n");
+    exit(1);
+  }
+
 #ifndef NDEBUG
   KillPoint* kp = KillPoint::GetInstance();
   kp->rocksdb_kill_odds = FLAGS_kill_random_test;

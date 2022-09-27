@@ -21,6 +21,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "utilities/backup/backup_engine_impl.h"
@@ -309,7 +310,15 @@ void StressTest::FinishInitDb(SharedState* shared) {
       exit(1);
     }
   }
-
+#ifndef ROCKSDB_LITE
+  if (FLAGS_use_txn) {
+    // It's OK here without sync because unsynced data cannot be lost at this
+    // point
+    // - even with sync_fault_injection=1 as the
+    // file is still directly writable until after FinishInitDb()
+    ProcessRecoveredPreparedTxns(shared);
+  }
+#endif
   if (FLAGS_enable_compaction_filter) {
     auto* compaction_filter_factory =
         reinterpret_cast<DbStressCompactionFilterFactory*>(
@@ -555,6 +564,42 @@ Status StressTest::SetOptions(ThreadState* thread) {
 }
 
 #ifndef ROCKSDB_LITE
+void StressTest::ProcessRecoveredPreparedTxns(SharedState* shared) {
+  assert(txn_db_);
+  std::vector<Transaction*> recovered_prepared_trans;
+  txn_db_->GetAllPreparedTransactions(&recovered_prepared_trans);
+  for (Transaction* txn : recovered_prepared_trans) {
+    ProcessRecoveredPreparedTxnsHelper(txn, shared);
+    delete txn;
+  }
+  recovered_prepared_trans.clear();
+  txn_db_->GetAllPreparedTransactions(&recovered_prepared_trans);
+  assert(recovered_prepared_trans.size() == 0);
+}
+
+void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
+                                                    SharedState* shared) {
+  thread_local Random rand(static_cast<uint32_t>(FLAGS_seed));
+  for (size_t i = 0; i < column_families_.size(); ++i) {
+    std::unique_ptr<WBWIIterator> wbwi_iter(
+        txn->GetWriteBatch()->NewIterator(column_families_[i]));
+    for (wbwi_iter->SeekToFirst(); wbwi_iter->Valid(); wbwi_iter->Next()) {
+      uint64_t key_val;
+      if (GetIntVal(wbwi_iter->Entry().key.ToString(), &key_val)) {
+        shared->Put(static_cast<int>(i) /* cf_idx */, key_val,
+                    0 /* value_base */, true /* pending */);
+      }
+    }
+  }
+  if (rand.OneIn(2)) {
+    Status s = txn->Commit();
+    assert(s.ok());
+  } else {
+    Status s = txn->Rollback();
+    assert(s.ok());
+  }
+}
+
 Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
@@ -2648,24 +2693,6 @@ void StressTest::Open(SharedState* shared) {
         db_ = txn_db_;
         db_aptr_.store(txn_db_, std::memory_order_release);
       }
-
-      // after a crash, rollback to commit recovered transactions
-      std::vector<Transaction*> trans;
-      txn_db_->GetAllPreparedTransactions(&trans);
-      Random rand(static_cast<uint32_t>(FLAGS_seed));
-      for (auto txn : trans) {
-        if (rand.OneIn(2)) {
-          s = txn->Commit();
-          assert(s.ok());
-        } else {
-          s = txn->Rollback();
-          assert(s.ok());
-        }
-        delete txn;
-      }
-      trans.clear();
-      txn_db_->GetAllPreparedTransactions(&trans);
-      assert(trans.size() == 0);
 #endif
     }
     if (!s.ok()) {
