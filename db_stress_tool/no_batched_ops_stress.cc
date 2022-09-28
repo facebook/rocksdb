@@ -1029,6 +1029,10 @@ class NonBatchedOpsStressTest : public StressTest {
       s = sst_file_writer.Put(Slice(key_str), Slice(value, value_len));
     }
 
+    if (s.ok() && keys.empty()) {
+      return;
+    }
+
     if (s.ok()) {
       s = sst_file_writer.Finish();
     }
