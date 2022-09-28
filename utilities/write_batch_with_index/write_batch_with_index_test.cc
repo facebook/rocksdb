@@ -2387,6 +2387,26 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
   }
 }
 
+TEST_P(WriteBatchWithIndexTest, IndexNoTs) {
+  const Comparator* const ucmp = test::BytewiseComparatorWithU64TsWrapper();
+  ColumnFamilyHandleImplDummy cf(1, ucmp);
+  WriteBatchWithIndex wbwi;
+  ASSERT_OK(wbwi.Put(&cf, "a", "a0"));
+  ASSERT_OK(wbwi.Put(&cf, "a", "a1"));
+  {
+    std::string ts;
+    PutFixed64(&ts, 10000);
+    ASSERT_OK(wbwi.GetWriteBatch()->UpdateTimestamps(
+        ts, [](uint32_t cf_id) { return cf_id == 1 ? 8 : 0; }));
+  }
+  {
+    std::string value;
+    Status s = wbwi.GetFromBatch(&cf, options_, "a", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("a1", value);
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(WBWI, WriteBatchWithIndexTest, testing::Bool());
 }  // namespace ROCKSDB_NAMESPACE
 

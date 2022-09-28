@@ -1003,21 +1003,21 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   int blob_file_starting_level = 0;
 
-  // This feature is WORK IN PROGRESS
-  // If non-NULL use the specified cache for blobs.
-  // If NULL, rocksdb will not use a blob cache.
+  // The Cache object to use for blobs. Using a dedicated object for blobs and
+  // using the same object for the block and blob caches are both supported. In
+  // the latter case, note that blobs are less valuable from a caching
+  // perspective than SST blocks, and some cache implementations have
+  // configuration options that can be used to prioritize items accordingly (see
+  // Cache::Priority and LRUCacheOptions::{high,low}_pri_pool_ratio).
   //
   // Default: nullptr (disabled)
   std::shared_ptr<Cache> blob_cache = nullptr;
 
-  // If enabled, prepopulate warm/hot blobs which are already in memory into
-  // blob cache at the time of flush. On a flush, the blob that is in memory (in
-  // memtables) get flushed to the device. If using Direct IO, additional IO is
-  // incurred to read this blob back into memory again, which is avoided by
-  // enabling this option. This further helps if the workload exhibits high
-  // temporal locality, where most of the reads go to recently written data.
-  // This also helps in case of the remote file system since it involves network
-  // traffic and higher latencies.
+  // Enable/disable prepopulating the blob cache. When set to kFlushOnly, BlobDB
+  // will insert newly written blobs into the blob cache during flush. This can
+  // improve performance when reading back these blobs would otherwise be
+  // expensive (e.g. when using direct I/O or remote storage), or when the
+  // workload has a high temporal locality.
   //
   // Default: disabled
   //
