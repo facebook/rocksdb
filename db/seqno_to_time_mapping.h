@@ -109,6 +109,7 @@ class SeqnoToTimeMapping {
   // Truncate the old entries based on the current time and max_time_duration_
   void TruncateOldEntries(uint64_t now);
 
+  // Given a time, return it's oldest possible sequence number
   SequenceNumber GetOldestSequenceNum(uint64_t time);
 
   // Encode to a binary string

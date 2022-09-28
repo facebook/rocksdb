@@ -914,6 +914,18 @@ struct AdvancedColumnFamilyOptions {
   uint64_t preclude_last_level_data_seconds = 0;
 
   // EXPERIMENTAL
+  // If this option is set, it will preserve the internal time information about
+  // the data until it's older than the specified time here.
+  // Internally the time information is a map between sequence number and time,
+  // which is the same as `preclude_last_level_data_seconds`. But it won't
+  // preclude the data from the last level and the data in the last level won't
+  // have the sequence number zeroed out.
+  //
+  // Note: if `preclude_last_level_data_seconds` is set, this option is ignored.
+  //  It's typically used for the migration of existing data to tiered storage.
+  //  The user can enable this feature first, then the existing data will have
+  //  time information for `preclude_last_level_data_seconds` feature which will
+  //  be enabled later.
   uint64_t preserve_internal_time_seconds = 0;
 
   // When set, large values (blobs) are written to separate blob files, and

@@ -847,7 +847,8 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
     InstrumentedMutexLock l(&mutex_);
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      // If track internal time option is specified, use it
+      // If preclude_last_level is specified, use it. Otherwise, check if
+      // preserve_internal is specified.
       uint64_t track_time_duration =
           cfd->ioptions()->preclude_last_level_data_seconds == 0
               ? cfd->ioptions()->preserve_internal_time_seconds
