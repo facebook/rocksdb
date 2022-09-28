@@ -602,7 +602,13 @@ class PosixFileSystem : public FileSystem {
       const bool ignore =
           entry->d_type == DT_DIR &&
           (strcmp(entry->d_name, ".") == 0 ||
-           strcmp(entry->d_name, "..") == 0 || opts.list_files_only);
+           strcmp(entry->d_name, "..") == 0
+#ifndef ASSERT_STATUS_CHECKED
+           // In case of ASSERT_STATUS_CHECKED, GetChildren support older
+           // version of API for debugging purpose.
+           || opts.list_files_only
+#endif
+          );
       if (!ignore) {
         result->push_back(entry->d_name);
       }
