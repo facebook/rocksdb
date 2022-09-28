@@ -614,7 +614,8 @@ class NonBatchedOpsStressTest : public StressTest {
                   keys[i].ToString(true).c_str());
           fprintf(stderr, "MultiGet returned value %s\n",
                   values[i].ToString(true).c_str());
-          fprintf(stderr, "Get returned value %s\n", value.c_str());
+          fprintf(stderr, "Get returned value %s\n",
+                  Slice(value).ToString(true /* hex */).c_str());
           is_consistent = false;
         }
       }
