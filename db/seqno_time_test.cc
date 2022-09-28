@@ -272,9 +272,51 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   Close();
 }
 
-TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
+enum class SeqnoTimeTestType : char {
+  kTrackInternalTimeSeconds = 0,
+  kPrecludeLastLevel = 1,
+  kBothSetTrackSmaller = 2,
+  kBothSetTrackLarger = 3,
+};
+
+class SeqnoTimeTablePropTest : public SeqnoTimeTest, public ::testing::WithParamInterface<SeqnoTimeTestType> {
+ public:
+  SeqnoTimeTablePropTest() : SeqnoTimeTest() {}
+
+  void SetTrackTimeDurationOptions(Options& options, uint64_t track_time_duration) const {
+    // either option set will enable the time tracking feature
+    switch (GetParam()) {
+      case SeqnoTimeTestType::kTrackInternalTimeSeconds:
+        options.preclude_last_level_data_seconds = 0;
+        options.track_internal_time_seconds = track_time_duration;
+        break;
+      case SeqnoTimeTestType::kPrecludeLastLevel:
+        options.preclude_last_level_data_seconds = track_time_duration;
+        options.track_internal_time_seconds = 0;
+        break;
+      case SeqnoTimeTestType::kBothSetTrackSmaller:
+        options.preclude_last_level_data_seconds = 10 * track_time_duration;
+        options.track_internal_time_seconds = track_time_duration;
+        break;
+      case SeqnoTimeTestType::kBothSetTrackLarger:
+        options.preclude_last_level_data_seconds = track_time_duration / 10;
+        options.track_internal_time_seconds = track_time_duration;
+        break;
+    }
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    SeqnoTimeTablePropTest, SeqnoTimeTablePropTest,
+    ::testing::Values(SeqnoTimeTestType::kTrackInternalTimeSeconds,
+                      SeqnoTimeTestType::kPrecludeLastLevel,
+                      SeqnoTimeTestType::kBothSetTrackSmaller,
+                      SeqnoTimeTestType::kBothSetTrackLarger));
+
+TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   Options options = CurrentOptions();
-  options.preclude_last_level_data_seconds = 10000;
+  SetTrackTimeDurationOptions(options, 10000);
+
   options.env = mock_env_.get();
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
@@ -457,9 +499,10 @@ TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
   ASSERT_OK(db_->Close());
 }
 
-TEST_F(SeqnoTimeTest, MultiCFs) {
+TEST_P(SeqnoTimeTablePropTest, MultiCFs) {
   Options options = CurrentOptions();
   options.preclude_last_level_data_seconds = 0;
+  options.track_internal_time_seconds = 0;
   options.env = mock_env_.get();
   options.stats_dump_period_sec = 0;
   options.stats_persist_period_sec = 0;
@@ -485,7 +528,7 @@ TEST_F(SeqnoTimeTest, MultiCFs) {
   ASSERT_TRUE(dbfull()->TEST_GetSeqnoToTimeMapping().Empty());
 
   Options options_1 = options;
-  options_1.preclude_last_level_data_seconds = 10000;  // 10k
+  SetTrackTimeDurationOptions(options_1, 10000);
   CreateColumnFamilies({"one"}, options_1);
   ASSERT_TRUE(scheduler.TEST_HasTask(PeriodicTaskType::kRecordSeqnoTime));
 
@@ -518,7 +561,7 @@ TEST_F(SeqnoTimeTest, MultiCFs) {
 
   // Create one more CF with larger preclude_last_level time
   Options options_2 = options;
-  options_2.preclude_last_level_data_seconds = 1000000;  // 1m
+  SetTrackTimeDurationOptions(options_2, 1000000); // 1m
   CreateColumnFamilies({"two"}, options_2);
 
   // Add more data to CF "two" to fill the in memory mapping
@@ -618,11 +661,11 @@ TEST_F(SeqnoTimeTest, MultiCFs) {
   Close();
 }
 
-TEST_F(SeqnoTimeTest, MultiInstancesBasic) {
+TEST_P(SeqnoTimeTablePropTest, MultiInstancesBasic) {
   const int kInstanceNum = 2;
 
   Options options = CurrentOptions();
-  options.preclude_last_level_data_seconds = 10000;
+  SetTrackTimeDurationOptions(options, 10000);
   options.env = mock_env_.get();
   options.stats_dump_period_sec = 0;
   options.stats_persist_period_sec = 0;
@@ -650,13 +693,23 @@ TEST_F(SeqnoTimeTest, MultiInstancesBasic) {
   }
 }
 
-TEST_F(SeqnoTimeTest, SeqnoToTimeMappingUniversal) {
+TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   Options options = CurrentOptions();
+  SetTrackTimeDurationOptions(options, 10000);
   options.compaction_style = kCompactionStyleUniversal;
-  options.preclude_last_level_data_seconds = 10000;
   options.env = mock_env_.get();
 
   DestroyAndReopen(options);
+
+  std::atomic_uint64_t num_seqno_zeroing{0};
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
+        num_seqno_zeroing++;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   for (int j = 0; j < 3; j++) {
     for (int i = 0; i < 100; i++) {
@@ -696,6 +749,41 @@ TEST_F(SeqnoTimeTest, SeqnoToTimeMappingUniversal) {
   SeqnoToTimeMapping tp_mapping;
   ASSERT_FALSE(it->second->seqno_to_time_mapping.empty());
   ASSERT_OK(tp_mapping.Add(it->second->seqno_to_time_mapping));
+
+  // compact to the last level
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  // make sure the data is all compacted to penultimate level if the feature is
+  // on, otherwise, compacted to the last level.
+  if (options.preclude_last_level_data_seconds > 0) {
+    ASSERT_GT(NumTableFilesAtLevel(5), 0);
+    ASSERT_EQ(NumTableFilesAtLevel(6), 0);
+  } else {
+    ASSERT_EQ(NumTableFilesAtLevel(5), 0);
+    ASSERT_GT(NumTableFilesAtLevel(6), 0);
+  }
+
+  // regardless the file is on the last level or not, it should keep the time
+  // information and sequence number are not set
+  tables_props.clear();
+  tp_mapping.Clear();
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
+  ASSERT_EQ(tables_props.size(), 1);
+  ASSERT_EQ(num_seqno_zeroing, 0);
+
+  it = tables_props.begin();
+  ASSERT_FALSE(it->second->seqno_to_time_mapping.empty());
+  ASSERT_OK(tp_mapping.Add(it->second->seqno_to_time_mapping));
+
+  // make all data expired and compact again to push it to the last level
+  // regardless if the tiering feature is enabled or not
+  mock_clock_->MockSleepForSeconds(static_cast<int>(20000));
+
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  ASSERT_GT(num_seqno_zeroing, 0);
+
   Close();
 }
 

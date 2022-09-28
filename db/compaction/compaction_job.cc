@@ -265,11 +265,27 @@ void CompactionJob::Prepare() {
                                               /*sub_job_id*/ 0);
   }
 
-  if (c->immutable_options()->preclude_last_level_data_seconds > 0) {
-    // TODO(zjay): move to a function
-    seqno_time_mapping_.SetMaxTimeDuration(
-        c->immutable_options()->preclude_last_level_data_seconds);
+  // collect all seqno->time information from the input files which will be used
+  // to encode seqno->time to the output files.
+  uint64_t track_time_duration =
+      c->immutable_options()->track_internal_time_seconds == 0
+          ? c->immutable_options()->preclude_last_level_data_seconds
+          : c->immutable_options()->track_internal_time_seconds;
+  if (track_time_duration > 0) {
+    int64_t _current_time = 0;
+    auto status = db_options_.clock->GetCurrentTime(&_current_time);
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to get current time in compaction to decide the "
+                     "temperature of the data: Status: %s",
+                     status.ToString().c_str());
+      // assuming all data is non-last-level tier
+      penultimate_level_cutoff_seqno_ = 0;
+      return;
+    }
+
     // setup seqno_time_mapping_
+    seqno_time_mapping_.SetMaxTimeDuration(track_time_duration);
     for (const auto& each_level : *c->inputs()) {
       for (const auto& fmd : each_level.files) {
         std::shared_ptr<const TableProperties> tp;
@@ -283,23 +299,15 @@ void CompactionJob::Prepare() {
       }
     }
 
-    auto status = seqno_time_mapping_.Sort();
+    status = seqno_time_mapping_.Sort();
     if (!status.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Invalid sequence number to time mapping: Status: %s",
                      status.ToString().c_str());
     }
-    int64_t _current_time = 0;
-    status = db_options_.clock->GetCurrentTime(&_current_time);
-    if (!status.ok()) {
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "Failed to get current time in compaction: Status: %s",
-                     status.ToString().c_str());
-      penultimate_level_cutoff_seqno_ = 0;
-    } else {
-      penultimate_level_cutoff_seqno_ =
-          seqno_time_mapping_.TruncateOldEntries(_current_time);
-    }
+
+    penultimate_level_cutoff_seqno_ =
+        seqno_time_mapping_.TruncateOldEntries(_current_time);
   }
 }
 
