@@ -240,10 +240,9 @@ uint32_t GetValueBase(Slice s) {
 }
 
 WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
-  assert(FLAGS_use_put_entity_one_in > 0);
-  assert((value_base % FLAGS_use_put_entity_one_in) == 0);
+  assert(value_base == GetValueBase(slice));
 
-  WideColumns columns{{kDefaultWideColumnName, slice}};
+  WideColumns columns;
 
   constexpr size_t max_columns = 4;
   const size_t num_columns = (value_base % max_columns) + 1;
@@ -251,6 +250,8 @@ WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
   columns.reserve(num_columns);
 
   assert(slice.size() >= num_columns);
+
+  columns.emplace_back(kDefaultWideColumnName, slice);
 
   for (size_t i = 1; i < num_columns; ++i) {
     const Slice name(slice.data(), i);
