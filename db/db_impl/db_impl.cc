@@ -849,9 +849,9 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       // If track internal time option is specified, use it
       uint64_t track_time_duration =
-          cfd->ioptions()->track_internal_time_seconds == 0
-              ? cfd->ioptions()->preclude_last_level_data_seconds
-              : cfd->ioptions()->track_internal_time_seconds;
+          cfd->ioptions()->preclude_last_level_data_seconds == 0
+              ? cfd->ioptions()->track_internal_time_seconds
+              : cfd->ioptions()->preclude_last_level_data_seconds;
       if (!cfd->IsDropped() && track_time_duration > 0) {
         min_time_duration = std::min(track_time_duration, min_time_duration);
         max_time_duration = std::max(track_time_duration, max_time_duration);

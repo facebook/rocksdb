@@ -340,7 +340,7 @@ class CompactionJob {
   // If a key with sequence number larger than penultimate_level_cutoff_seqno_,
   // it will be placed on the penultimate_level and seqnuence number won't be
   // zeroed out.
-  SequenceNumber penultimate_level_cutoff_seqno_ = kMaxSequenceNumber;
+  SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.

@@ -268,22 +268,11 @@ void CompactionJob::Prepare() {
   // collect all seqno->time information from the input files which will be used
   // to encode seqno->time to the output files.
   uint64_t track_time_duration =
-      c->immutable_options()->track_internal_time_seconds == 0
-          ? c->immutable_options()->preclude_last_level_data_seconds
-          : c->immutable_options()->track_internal_time_seconds;
-  if (track_time_duration > 0) {
-    int64_t _current_time = 0;
-    auto status = db_options_.clock->GetCurrentTime(&_current_time);
-    if (!status.ok()) {
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "Failed to get current time in compaction to decide the "
-                     "temperature of the data: Status: %s",
-                     status.ToString().c_str());
-      // assuming all data is non-last-level tier
-      penultimate_level_cutoff_seqno_ = 0;
-      return;
-    }
+      c->immutable_options()->preclude_last_level_data_seconds == 0
+          ? c->immutable_options()->track_internal_time_seconds
+          : c->immutable_options()->preclude_last_level_data_seconds;
 
+  if (track_time_duration > 0) {
     // setup seqno_time_mapping_
     seqno_time_mapping_.SetMaxTimeDuration(track_time_duration);
     for (const auto& each_level : *c->inputs()) {
@@ -299,15 +288,25 @@ void CompactionJob::Prepare() {
       }
     }
 
-    status = seqno_time_mapping_.Sort();
+    auto status = seqno_time_mapping_.Sort();
     if (!status.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Invalid sequence number to time mapping: Status: %s",
                      status.ToString().c_str());
     }
-
-    penultimate_level_cutoff_seqno_ =
-        seqno_time_mapping_.TruncateOldEntries(_current_time);
+    int64_t _current_time = 0;
+    status = db_options_.clock->GetCurrentTime(&_current_time);
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to get current time in compaction: Status: %s",
+                     status.ToString().c_str());
+      // preserve all time information
+      preserve_time_min_seqno_ = 0;
+    } else {
+      seqno_time_mapping_.TruncateOldEntries(_current_time);
+      uint64_t preserve_time = static_cast<uint64_t>(_current_time) > track_time_duration ? _current_time - track_time_duration : 0;
+      preserve_time_min_seqno_ = seqno_time_mapping_.GetOldestSequenceNum(preserve_time);
+    }
   }
 }
 
@@ -1225,7 +1224,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
       sub_compact->compaction, compaction_filter, shutting_down_,
       db_options_.info_log, full_history_ts_low,
-      penultimate_level_cutoff_seqno_);
+      preserve_time_min_seqno_);
   c_iter->SeekToFirst();
 
   // Assign range delete aggregator to the target output level, which makes sure

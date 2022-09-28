@@ -295,12 +295,12 @@ class SeqnoTimeTablePropTest : public SeqnoTimeTest, public ::testing::WithParam
         options.track_internal_time_seconds = 0;
         break;
       case SeqnoTimeTestType::kBothSetTrackSmaller:
-        options.preclude_last_level_data_seconds = 10 * track_time_duration;
-        options.track_internal_time_seconds = track_time_duration;
+        options.preclude_last_level_data_seconds = track_time_duration;
+        options.track_internal_time_seconds = track_time_duration / 10;
         break;
       case SeqnoTimeTestType::kBothSetTrackLarger:
-        options.preclude_last_level_data_seconds = track_time_duration / 10;
-        options.track_internal_time_seconds = track_time_duration;
+        options.preclude_last_level_data_seconds = track_time_duration;
+        options.track_internal_time_seconds = track_time_duration * 10;
         break;
     }
   }
@@ -783,6 +783,7 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
   ASSERT_GT(num_seqno_zeroing, 0);
+  ASSERT_GT(NumTableFilesAtLevel(6), 0);
 
   Close();
 }
