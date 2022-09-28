@@ -710,7 +710,7 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::PrepareOutput:ZeroingSeq",
-      [&](void* arg) { num_seqno_zeroing++; });
+      [&](void* /*arg*/) { num_seqno_zeroing++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   for (int j = 0; j < 3; j++) {
