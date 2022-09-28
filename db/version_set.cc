@@ -6300,7 +6300,7 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
   if (end_level <= start_level) {
     return 0;
   }
-  assert(start_level <= end_level);
+  assert(start_level < end_level);
 
   // Outline of the optimization that uses options.files_size_error_margin.
   // When approximating the files total size that is used to store a keys range,

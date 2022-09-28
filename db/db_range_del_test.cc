@@ -464,6 +464,9 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
   options.num_levels = kNumLevels;
   options.target_file_size_base = kNumPerFile << 10;
   options.target_file_size_multiplier = 1;
+  // Compensated range deletions size will trigger major compaction with default
+  // 200 space amp percent.
+  options.compaction_options_universal.max_size_amplification_percent = 300;
   Reopen(options);
 
   Random rnd(301);
