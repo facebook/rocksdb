@@ -267,14 +267,14 @@ void CompactionJob::Prepare() {
 
   // collect all seqno->time information from the input files which will be used
   // to encode seqno->time to the output files.
-  uint64_t track_time_duration =
+  uint64_t preserve_time_duration =
       c->immutable_options()->preclude_last_level_data_seconds == 0
-          ? c->immutable_options()->track_internal_time_seconds
+          ? c->immutable_options()->preserve_internal_time_seconds
           : c->immutable_options()->preclude_last_level_data_seconds;
 
-  if (track_time_duration > 0) {
+  if (preserve_time_duration > 0) {
     // setup seqno_time_mapping_
-    seqno_time_mapping_.SetMaxTimeDuration(track_time_duration);
+    seqno_time_mapping_.SetMaxTimeDuration(preserve_time_duration);
     for (const auto& each_level : *c->inputs()) {
       for (const auto& fmd : each_level.files) {
         std::shared_ptr<const TableProperties> tp;
@@ -304,8 +304,12 @@ void CompactionJob::Prepare() {
       preserve_time_min_seqno_ = 0;
     } else {
       seqno_time_mapping_.TruncateOldEntries(_current_time);
-      uint64_t preserve_time = static_cast<uint64_t>(_current_time) > track_time_duration ? _current_time - track_time_duration : 0;
-      preserve_time_min_seqno_ = seqno_time_mapping_.GetOldestSequenceNum(preserve_time);
+      uint64_t preserve_time =
+          static_cast<uint64_t>(_current_time) > preserve_time_duration
+              ? _current_time - preserve_time_duration
+              : 0;
+      preserve_time_min_seqno_ =
+          seqno_time_mapping_.GetOldestSequenceNum(preserve_time);
     }
   }
 }
@@ -1223,8 +1227,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      db_options_.info_log, full_history_ts_low,
-      preserve_time_min_seqno_);
+      db_options_.info_log, full_history_ts_low, preserve_time_min_seqno_);
   c_iter->SeekToFirst();
 
   // Assign range delete aggregator to the target output level, which makes sure

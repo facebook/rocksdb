@@ -914,7 +914,7 @@ struct AdvancedColumnFamilyOptions {
   uint64_t preclude_last_level_data_seconds = 0;
 
   // EXPERIMENTAL
-  uint64_t track_internal_time_seconds = 0;
+  uint64_t preserve_internal_time_seconds = 0;
 
   // When set, large values (blobs) are written to separate blob files, and
   // only pointers to them are stored in SST files. This can reduce write

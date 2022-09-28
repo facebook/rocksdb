@@ -850,7 +850,7 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
       // If track internal time option is specified, use it
       uint64_t track_time_duration =
           cfd->ioptions()->preclude_last_level_data_seconds == 0
-              ? cfd->ioptions()->track_internal_time_seconds
+              ? cfd->ioptions()->preserve_internal_time_seconds
               : cfd->ioptions()->preclude_last_level_data_seconds;
       if (!cfd->IsDropped() && track_time_duration > 0) {
         min_time_duration = std::min(track_time_duration, min_time_duration);
@@ -3106,7 +3106,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
-  if (cf_options.track_internal_time_seconds > 0 ||
+  if (cf_options.preserve_internal_time_seconds > 0 ||
       cf_options.preclude_last_level_data_seconds > 0) {
     s = RegisterRecordSeqnoTimeWorker();
   }
@@ -3198,7 +3198,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     bg_cv_.SignalAll();
   }
 
-  if (cfd->ioptions()->track_internal_time_seconds > 0 ||
+  if (cfd->ioptions()->preserve_internal_time_seconds > 0 ||
       cfd->ioptions()->preclude_last_level_data_seconds > 0) {
     s = RegisterRecordSeqnoTimeWorker();
   }

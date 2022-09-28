@@ -279,28 +279,31 @@ enum class SeqnoTimeTestType : char {
   kBothSetTrackLarger = 3,
 };
 
-class SeqnoTimeTablePropTest : public SeqnoTimeTest, public ::testing::WithParamInterface<SeqnoTimeTestType> {
+class SeqnoTimeTablePropTest
+    : public SeqnoTimeTest,
+      public ::testing::WithParamInterface<SeqnoTimeTestType> {
  public:
   SeqnoTimeTablePropTest() : SeqnoTimeTest() {}
 
-  void SetTrackTimeDurationOptions(Options& options, uint64_t track_time_duration) const {
+  void SetTrackTimeDurationOptions(Options& options,
+                                   uint64_t track_time_duration) const {
     // either option set will enable the time tracking feature
     switch (GetParam()) {
       case SeqnoTimeTestType::kTrackInternalTimeSeconds:
         options.preclude_last_level_data_seconds = 0;
-        options.track_internal_time_seconds = track_time_duration;
+        options.preserve_internal_time_seconds = track_time_duration;
         break;
       case SeqnoTimeTestType::kPrecludeLastLevel:
         options.preclude_last_level_data_seconds = track_time_duration;
-        options.track_internal_time_seconds = 0;
+        options.preserve_internal_time_seconds = 0;
         break;
       case SeqnoTimeTestType::kBothSetTrackSmaller:
         options.preclude_last_level_data_seconds = track_time_duration;
-        options.track_internal_time_seconds = track_time_duration / 10;
+        options.preserve_internal_time_seconds = track_time_duration / 10;
         break;
       case SeqnoTimeTestType::kBothSetTrackLarger:
         options.preclude_last_level_data_seconds = track_time_duration;
-        options.track_internal_time_seconds = track_time_duration * 10;
+        options.preserve_internal_time_seconds = track_time_duration * 10;
         break;
     }
   }
@@ -502,7 +505,7 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
 TEST_P(SeqnoTimeTablePropTest, MultiCFs) {
   Options options = CurrentOptions();
   options.preclude_last_level_data_seconds = 0;
-  options.track_internal_time_seconds = 0;
+  options.preserve_internal_time_seconds = 0;
   options.env = mock_env_.get();
   options.stats_dump_period_sec = 0;
   options.stats_persist_period_sec = 0;
@@ -561,7 +564,7 @@ TEST_P(SeqnoTimeTablePropTest, MultiCFs) {
 
   // Create one more CF with larger preclude_last_level time
   Options options_2 = options;
-  SetTrackTimeDurationOptions(options_2, 1000000); // 1m
+  SetTrackTimeDurationOptions(options_2, 1000000);  // 1m
   CreateColumnFamilies({"two"}, options_2);
 
   // Add more data to CF "two" to fill the in memory mapping
@@ -706,9 +709,8 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
-      "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
-        num_seqno_zeroing++;
-      });
+      "CompactionIterator::PrepareOutput:ZeroingSeq",
+      [&](void* arg) { num_seqno_zeroing++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   for (int j = 0; j < 3; j++) {

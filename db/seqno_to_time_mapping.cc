@@ -69,7 +69,6 @@ SequenceNumber SeqnoToTimeMapping::GetOldestSequenceNum(uint64_t time) {
   return it->seqno;
 }
 
-
 // The encoded format is:
 //  [num_of_entries][[seqno][time],[seqno][time],...]
 //      ^                                 ^

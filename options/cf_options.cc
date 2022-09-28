@@ -567,8 +567,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, preclude_last_level_data_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {"track_internal_time_seconds",
-         {offsetof(struct ImmutableCFOptions, track_internal_time_seconds),
+        {"preserve_internal_time_seconds",
+         {offsetof(struct ImmutableCFOptions, preserve_internal_time_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         // Need to keep this around to be able to read old OPTIONS files.
@@ -908,7 +908,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       force_consistency_checks(cf_options.force_consistency_checks),
       preclude_last_level_data_seconds(
           cf_options.preclude_last_level_data_seconds),
-      track_internal_time_seconds(cf_options.track_internal_time_seconds),
+      preserve_internal_time_seconds(cf_options.preserve_internal_time_seconds),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor),
       cf_paths(cf_options.cf_paths),
