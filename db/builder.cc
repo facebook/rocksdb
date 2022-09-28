@@ -255,7 +255,7 @@ Status BuildTable(
           approx_opts.files_size_error_margin = 0.1;
           meta->compensated_range_deletion_size += versions->ApproximateSize(
               approx_opts, version, kv.first.Encode(), tombstone_end.Encode(),
-              1 /* start_level */, 2 /* end_level */,
+              1 /* start_level */, -1 /* end_level */,
               TableReaderCaller::kFlush);
         }
       }

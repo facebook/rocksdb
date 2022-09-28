@@ -654,7 +654,7 @@ Status CompactionOutputs::AddRangeDels(
                 approx_opts, compaction_->input_version(),
                 tombstone_start.Encode(), tombstone_end.Encode(),
                 compaction_->output_level() + 1 /* start_level */,
-                compaction_->output_level() + 2 /* end_level */, kCompaction);
+                -1 /* end_level */, kCompaction);
         meta.compensated_range_deletion_size += approximate_covered_size;
       }
     }
