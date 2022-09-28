@@ -1428,7 +1428,7 @@ void Java_org_rocksdb_RocksDB_merge__J_3BII_3BIIJ(
       *reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DB>*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
-  auto cfhAPI = reinterpret_cast<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>*>(
+  auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>*>(
       jcf_handle);
   if (cfhAPI != nullptr) {
     rocksdb_merge_helper(env, dbAPI, default_write_options, cfhAPI, jkey,
@@ -1469,7 +1469,7 @@ void Java_org_rocksdb_RocksDB_merge__JJ_3BII_3BIIJ(
       *reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DB>*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  auto cfhAPI = reinterpret_cast<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>*>(
+  auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>*>(
       jcf_handle);
   if (cfhAPI != nullptr) {
     rocksdb_merge_helper(env, dbAPI, *write_options, cfhAPI, jkey, jkey_off,
