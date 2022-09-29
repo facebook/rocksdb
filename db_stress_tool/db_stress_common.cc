@@ -240,8 +240,6 @@ uint32_t GetValueBase(Slice s) {
 }
 
 WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
-  assert(value_base == GetValueBase(slice));
-
   WideColumns columns;
 
   constexpr size_t max_columns = 4;
