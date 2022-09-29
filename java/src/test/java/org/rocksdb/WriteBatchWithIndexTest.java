@@ -100,6 +100,10 @@ public class WriteBatchWithIndexTest {
         assertThat(it.isValid()).isTrue();
         assertThat(it.key()).isEqualTo(k3);
         assertThat(it.value()).isEqualTo(v3Other);
+
+        it.close();
+        base.close();
+        wbwi.close();
       }
     }
   }

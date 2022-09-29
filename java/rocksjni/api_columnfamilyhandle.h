@@ -23,8 +23,8 @@ class APIColumnFamilyHandle : public APIWeakDB<TDatabase> {
   std::weak_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
 
   APIColumnFamilyHandle(
-      std::shared_ptr<TDatabase> db,
-      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)
+      std::shared_ptr<TDatabase>& db,
+      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>& cfh)
       : APIWeakDB<TDatabase>(db), cfh(cfh){};
 
   const std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLock(

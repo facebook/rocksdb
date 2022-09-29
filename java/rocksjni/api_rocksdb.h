@@ -13,7 +13,7 @@
 #include "api_base.h"
 #include "rocksdb/db.h"
 
-template <class TDatabase>
+template <class TDatabase, class TIterator>
 class APIIterator;
 
 /**
@@ -31,7 +31,7 @@ class APIRocksDB : APIBase {
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
       defaultColumnFamilyHandle;
 
-  APIRocksDB(std::shared_ptr<TDatabase> db)
+  APIRocksDB(std::shared_ptr<TDatabase>& db)
       : db(db),
         defaultColumnFamilyHandle(APIBase::createSharedPtr(
             db->DefaultColumnFamily(), true /*isDefault*/)){};
@@ -60,12 +60,10 @@ class APIRocksDB : APIBase {
     std::cout << std::endl;
   }
 
-  std::unique_ptr<APIIterator<TDatabase>> newIterator(
-      ROCKSDB_NAMESPACE::Iterator* iterator,
-      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh) {
-    std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iter(iterator);
-    std::unique_ptr<APIIterator<TDatabase>> iterAPI(
-        new APIIterator(db, iter, cfh));
-    return iterAPI;
+  template <class TIterator>
+  std::unique_ptr<APIIterator<TDatabase, TIterator>> newIterator(
+      TIterator* iterator,
+      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>& cfh) {
+    return std::move(std::make_unique<APIIterator<TDatabase, TIterator>>(db, std::move(std::unique_ptr<TIterator>(iterator)), cfh));
   }
 };

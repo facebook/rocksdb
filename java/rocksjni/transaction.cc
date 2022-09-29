@@ -555,8 +555,8 @@ jlong Java_org_rocksdb_Transaction_getIterator__JJ(JNIEnv* /*env*/,
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
   auto* it = apiTxn->GetIterator(*read_options);
-  auto* apiIt = new APIIterator<ROCKSDB_NAMESPACE::StackableDB>(
-      apiTxn.db, std::shared_ptr<ROCKSDB_NAMESPACE::Iterator>(it));
+  auto* apiIt = new APIIterator<ROCKSDB_NAMESPACE::StackableDB, ROCKSDB_NAMESPACE::Iterator>(
+      apiTxn.db, std::unique_ptr<ROCKSDB_NAMESPACE::Iterator>(it));
   return GET_CPLUSPLUS_POINTER(apiIt);
 }
 
@@ -578,8 +578,8 @@ jlong Java_org_rocksdb_Transaction_getIterator__JJJ(
     return 0L;
   }
   auto* it = apiTxn->GetIterator(*read_options, cfh.get());
-  auto* apiIt = new APIIterator<ROCKSDB_NAMESPACE::StackableDB>(
-      apiTxn.db, std::shared_ptr<ROCKSDB_NAMESPACE::Iterator>(it), cfh);
+  auto* apiIt = new APIIterator<ROCKSDB_NAMESPACE::StackableDB, ROCKSDB_NAMESPACE::Iterator>(
+      apiTxn.db, std::unique_ptr<ROCKSDB_NAMESPACE::Iterator>(it), cfh);
   return GET_CPLUSPLUS_POINTER(apiIt);
 }
 

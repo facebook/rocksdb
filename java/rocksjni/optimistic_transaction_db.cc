@@ -154,8 +154,10 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
   for (int i = 1; i <= len_cols; i++) {
     std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfShared =
         APIBase::createSharedPtr(cf_handles[i - 1], false /*isDefault*/);
-    std::unique_ptr<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>> cfhAPI(
-        new APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>(dbShared, cfShared));
+    std::unique_ptr<
+        APIColumnFamilyHandle<ROCKSDB_NAMESPACE::OptimisticTransactionDB>>
+        cfhAPI(new APIColumnFamilyHandle<
+               ROCKSDB_NAMESPACE::OptimisticTransactionDB>(dbShared, cfShared));
     otdbAPI->columnFamilyHandles.push_back(cfShared);
     results[i] = GET_CPLUSPLUS_POINTER(cfhAPI.release());
   }

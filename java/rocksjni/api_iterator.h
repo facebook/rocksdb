@@ -5,6 +5,10 @@
 //
 // This file defines the "bridge" object between Java and C++ for
 // ROCKSDB_NAMESPACE::Iterator.
+//
+// The shared objects are used to ensure the lifetime of their contents
+// When the Iterator is not a DB iterator, db may be empty.
+// 
 
 #pragma once
 
@@ -13,31 +17,43 @@
 #include "api_base.h"
 #include "rocksdb/db.h"
 
-template <class TDatabase>
+template <class TDatabase, class TIterator>
 class APIIterator : APIBase {
  public:
   std::shared_ptr<TDatabase> db;
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
-  std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iterator;
+  std::unique_ptr<TIterator> iterator;
 
-  APIIterator(std::shared_ptr<TDatabase> db,
-              std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iterator,
-              std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)
-      : db(db), cfh(cfh), iterator(iterator){};
+  APIIterator(const std::shared_ptr<TDatabase>& db,
+              std::unique_ptr<TIterator> iterator,
+              const std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>& cfh)
+      : db(db), cfh(cfh), iterator(std::move(iterator)){};
 
-  APIIterator(std::shared_ptr<TDatabase> db,
-              std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iterator)
-      : db(db), iterator(iterator){};
+  APIIterator(const std::shared_ptr<TDatabase>& db,
+              std::unique_ptr<TIterator> iterator)
+      : db(db), iterator(std::move(iterator)){};
 
   ROCKSDB_NAMESPACE::Iterator* operator->() const { return iterator.get(); }
 
-  std::shared_ptr<ROCKSDB_NAMESPACE::Iterator>& operator*() { return iterator; }
+  std::shared_ptr<TIterator>& operator*() { return iterator; }
 
-  ROCKSDB_NAMESPACE::Iterator* get() const { return iterator.get(); }
+  TIterator* get() const { return iterator.get(); }
+
+  template <class TChildIterator> 
+  std::unique_ptr<APIIterator<TDatabase, TChildIterator>> childIteratorWithBase(
+      TChildIterator* rocksdbIterator,
+      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>& rocksdbCFH) {
+    auto childIterator = std::make_unique<APIIterator<TDatabase, TChildIterator>>(db, std::move(std::unique_ptr<TIterator> (rocksdbIterator)), rocksdbCFH);
+    // Internally, ~BaseDeltaIterator() deletes its base iterator,
+    // therefore it is effectively delete()d by childIterator,
+    // and we here should NOT delete() it. Hence the call to release()
+    // Subsequent uses of this will segfault
+    iterator.release();
+    return childIterator;
+  }
 
   void check(std::string message) {
     std::cout << " APIIterator::check(); " << message << " ";
-    std::cout << " iterator.use_count() " << iterator.use_count() << "; ";
     std::cout << " db.use_count() " << db.use_count() << "; ";
     std::cout << " cfh.use_count() " << cfh.use_count();
     std::cout << std::endl;

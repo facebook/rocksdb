@@ -219,8 +219,8 @@ jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
 
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
       APIBase::createSharedPtr(cf_handle, false /*isDefault*/);
-  std::unique_ptr<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>> cfhAPI(
-      new APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>(dbAPI.db, cfh));
+  std::unique_ptr<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DBWithTTL>> cfhAPI(
+      new APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DBWithTTL>(dbAPI.db, cfh));
   dbAPI.columnFamilyHandles.push_back(cfh);
   return GET_CPLUSPLUS_POINTER(cfhAPI.release());
 }

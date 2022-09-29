@@ -2748,10 +2748,10 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(JNIEnv* env, jobject,
       return nullptr;
     }
 
-    std::vector<APIIterator<ROCKSDB_NAMESPACE::DB>*> itAPIs;
+    std::vector<APIIterator<ROCKSDB_NAMESPACE::DB, ROCKSDB_NAMESPACE::Iterator>*> itAPIs;
     for (std::vector<ROCKSDB_NAMESPACE::Iterator*>::size_type i = 0;
          i < iterators.size(); i++) {
-      std::unique_ptr<APIIterator<ROCKSDB_NAMESPACE::DB>> itAPI =
+      std::unique_ptr<APIIterator<ROCKSDB_NAMESPACE::DB, ROCKSDB_NAMESPACE::Iterator>> itAPI =
           dbAPI.newIterator(iterators[i], cfhs[i]);
       itAPIs.push_back(itAPI.release());
     }
