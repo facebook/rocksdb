@@ -76,8 +76,7 @@ IOStatus CompactionOutputs::WriterSyncClose(const Status& input_status,
   return io_s;
 }
 
-size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
-    const Slice& internal_key) {
+size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(const Slice& user_key) {
   size_t curr_key_boundary_switched_num = 0;
   const std::vector<FileMetaData*>& grandparents = compaction_->grandparents();
 
@@ -85,23 +84,15 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
     return curr_key_boundary_switched_num;
   }
 
-  // TODO: here it uses the internal comparator but Compaction picker uses user
-  //  comparator to get a clean cut with `GetOverlappingInputs()`, which means
-  //  this function may cut files still be overlapped in compaction, for example
-  //  current function can generate L1 files like:
-  //   L1: [2-21]  [22-30]
-  //   L2: [1-10] [21-30]
-  //  Because L1 `21` has higher seq_number, which is smaller than `21` on L2,
-  //  it cuts in the first file. But for compaction picker L1 [2-21] file
-  //  overlaps with both files on L2. Ideally it should cut to
-  //   L1: [2-20] [21-30]
-  const InternalKeyComparator* icmp =
-      &compaction_->column_family_data()->internal_comparator();
+  const Comparator* ucmp = compaction_->column_family_data()->user_comparator();
 
+  // Move the grandparent_index_ to the file containing the current user_key.
+  // If there are multiple files containing the same user_key, make sure the
+  // index points to the last file containing the key.
   while (grandparent_index_ < grandparents.size()) {
     if (being_grandparent_gap_) {
-      if (icmp->Compare(internal_key,
-                        grandparents[grandparent_index_]->smallest.Encode()) <
+      if (ucmp->Compare(user_key,
+                        grandparents[grandparent_index_]->smallest.user_key()) <
           0) {
         break;
       }
@@ -113,9 +104,15 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
       }
       being_grandparent_gap_ = false;
     } else {
-      if (icmp->Compare(internal_key,
-                        grandparents[grandparent_index_]->largest.Encode()) <=
-          0) {
+      int cmp_result = ucmp->Compare(
+          user_key, grandparents[grandparent_index_]->largest.user_key());
+      // If it's same key, make sure grandparent_index_ is pointing to the last
+      // one.
+      if (cmp_result < 0 ||
+          (cmp_result == 0 &&
+           (grandparent_index_ == grandparents.size() - 1 ||
+            ucmp->Compare(user_key, grandparents[grandparent_index_ + 1]
+                                        ->smallest.user_key()) < 0))) {
         break;
       }
       if (seen_key_) {
@@ -132,11 +129,58 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
   if (!seen_key_ && !being_grandparent_gap_) {
     assert(grandparent_overlapped_bytes_ == 0);
     grandparent_overlapped_bytes_ =
-        grandparents[grandparent_index_]->fd.GetFileSize();
+        GetCurrentKeyGrandparentOverlappedBytes(user_key);
   }
 
   seen_key_ = true;
   return curr_key_boundary_switched_num;
+}
+
+uint64_t CompactionOutputs::GetCurrentKeyGrandparentOverlappedBytes(
+    const Slice& user_key) const {
+  // current it's only used to get the first key's overlap grandparent (it
+  // should work with other keys too, but they should already be handled in the
+  // `UpdateGrandparentBoundaryInfo()`.
+  assert(grandparent_overlapped_bytes_ == 0);
+
+  // no overlap with any grandparent file
+  if (being_grandparent_gap_) {
+    return 0;
+  }
+  uint64_t overlapped_bytes = 0;
+
+  const std::vector<FileMetaData*>& grandparents = compaction_->grandparents();
+  const Comparator* ucmp = compaction_->column_family_data()->user_comparator();
+#ifndef NDEBUG
+  // make sure the grandparent_index_ is pointing to the last files containing
+  // the current key.
+  int cmp_result = ucmp->Compare(
+      user_key, grandparents[grandparent_index_]->largest.user_key());
+  assert(cmp_result < 0 ||
+         (cmp_result == 0 &&
+          (grandparent_index_ == grandparents.size() - 1 ||
+           ucmp->Compare(
+               user_key,
+               grandparents[grandparent_index_ + 1]->smallest.user_key()))));
+  assert(ucmp->Compare(user_key,
+                       grandparents[grandparent_index_]->smallest.user_key()) >=
+         0);
+#endif
+  overlapped_bytes += grandparents[grandparent_index_]->fd.GetFileSize();
+
+  // go backwards to find all overlapped files, one key can overlap multiple
+  // files. In the following example, if the current output key is `c`, and one
+  // compaction file was cut before `c`, current `c` can overlap with 3 files:
+  //  [a b]               [c...
+  // [b, b] [c, c] [c, c] [c, d]
+  for (int64_t i = static_cast<int64_t>(grandparent_index_) - 1;
+       i >= 0 &&
+       ucmp->Compare(grandparents[i]->largest.user_key(), user_key) == 0;
+       i--) {
+    overlapped_bytes += grandparents[i]->fd.GetFileSize();
+  }
+
+  return overlapped_bytes;
 }
 
 bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
@@ -147,7 +191,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   const Slice& internal_key = c_iter.key();
   const uint64_t previous_overlapped_bytes = grandparent_overlapped_bytes_;
   size_t num_grandparent_boundaries_crossed =
-      UpdateGrandparentBoundaryInfo(internal_key);
+      UpdateGrandparentBoundaryInfo(c_iter.user_key());
 
   if (!HasBuilder()) {
     return false;
@@ -238,7 +282,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     if (compaction_->immutable_options()->compaction_style ==
             kCompactionStyleLevel &&
         compaction_->immutable_options()->level_compaction_dynamic_file_size &&
-        current_output_file_size_ >
+        current_output_file_size_ >=
             ((compaction_->target_output_file_size() + 99) / 100) *
                 (50 + std::min(grandparent_boundary_switched_num_ * 5,
                                size_t{40}))) {
@@ -299,11 +343,10 @@ Status CompactionOutputs::AddToOutput(
     // reset grandparent information
     const std::vector<FileMetaData*>& grandparents =
         compaction_->grandparents();
-    grandparent_overlapped_bytes_ =
-        being_grandparent_gap_
-            ? 0
-            : grandparents[grandparent_index_]->fd.GetFileSize();
+    grandparent_overlapped_bytes_ = 0;
     grandparent_boundary_switched_num_ = 0;
+    grandparent_overlapped_bytes_ =
+        GetCurrentKeyGrandparentOverlappedBytes(c_iter.user_key());
   }
 
   // Open output file if necessary
