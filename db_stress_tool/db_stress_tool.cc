@@ -296,7 +296,7 @@ int db_stress_tool(int argc, char** argv) {
 
   if (FLAGS_use_put_entity_one_in > 0 &&
       (FLAGS_use_merge || FLAGS_use_full_merge_v1 || FLAGS_use_txn ||
-       FLAGS_user_timestamp_size > 0)) {
+       FLAGS_test_multi_ops_txns || FLAGS_user_timestamp_size > 0)) {
     fprintf(stderr,
             "PutEntity is currently incompatible with Merge, transactions, and "
             "user-defined timestamps\n");
