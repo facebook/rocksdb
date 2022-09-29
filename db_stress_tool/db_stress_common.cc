@@ -261,6 +261,18 @@ WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
   return columns;
 }
 
+WideColumns GenerateExpectedWideColumns(uint32_t value_base,
+                                        const Slice& slice) {
+  WideColumns columns = GenerateWideColumns(value_base, slice);
+
+  std::sort(columns.begin(), columns.end(),
+            [](const WideColumn& lhs, const WideColumn& rhs) {
+              return lhs.name().compare(rhs.name()) < 0;
+            });
+
+  return columns;
+}
+
 std::string GetNowNanos() {
   uint64_t t = db_stress_env->NowNanos();
   std::string ret;

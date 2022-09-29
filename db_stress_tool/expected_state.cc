@@ -432,7 +432,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
     const uint32_t value_base = GetValueBase(value_of_default);
 
-    if (columns != GenerateWideColumns(value_base, value_of_default)) {
+    if (columns != GenerateExpectedWideColumns(value_base, value_of_default)) {
       return Status::Corruption("Wide columns in entity inconsistent",
                                 entity.ToString(/* hex */ true));
     }
