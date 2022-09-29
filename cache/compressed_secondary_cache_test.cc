@@ -424,7 +424,9 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_EQ(handle, nullptr);
 
     ASSERT_OK(secondary_cache->SetCapacity(7000));
-    ASSERT_EQ(secondary_cache->GetCapacity(), 7000);
+    size_t capacity;
+    ASSERT_OK(secondary_cache->GetCapacity(capacity));
+    ASSERT_EQ(capacity, 7000);
     auto item1_3 = new TestItem(str1.data(), str1.length());
     // After this Insert, primary cache contains k1.
     ASSERT_OK(cache->Insert(

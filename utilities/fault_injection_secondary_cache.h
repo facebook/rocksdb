@@ -48,7 +48,9 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
     return base_->SetCapacity(capacity);
   }
 
-  size_t GetCapacity() const override { return base_->GetCapacity(); }
+  Status GetCapacity(size_t& capacity) override {
+    return base_->GetCapacity(capacity);
+  }
 
   std::string GetPrintableOptions() const override {
     return base_->GetPrintableOptions();

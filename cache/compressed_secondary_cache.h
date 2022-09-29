@@ -98,7 +98,7 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   Status SetCapacity(size_t capacity) override;
 
-  size_t GetCapacity() const override;
+  Status GetCapacity(size_t& capacity) override;
 
   std::string GetPrintableOptions() const override;
 

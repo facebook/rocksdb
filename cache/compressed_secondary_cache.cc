@@ -185,9 +185,10 @@ Status CompressedSecondaryCache::SetCapacity(size_t capacity) {
   return Status::OK();
 }
 
-size_t CompressedSecondaryCache::GetCapacity() const {
+Status CompressedSecondaryCache::GetCapacity(size_t& capacity) {
   MutexLock l(&capacity_mutex_);
-  return cache_options_.capacity;
+  capacity = cache_options_.capacity;
+  return Status::OK();
 }
 
 std::string CompressedSecondaryCache::GetPrintableOptions() const {
