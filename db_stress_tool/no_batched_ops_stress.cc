@@ -614,7 +614,8 @@ class NonBatchedOpsStressTest : public StressTest {
                   keys[i].ToString(true).c_str());
           fprintf(stderr, "MultiGet returned value %s\n",
                   values[i].ToString(true).c_str());
-          fprintf(stderr, "Get returned value %s\n", value.c_str());
+          fprintf(stderr, "Get returned value %s\n",
+                  Slice(value).ToString(true /* hex */).c_str());
           is_consistent = false;
         }
       }
@@ -1026,6 +1027,10 @@ class NonBatchedOpsStressTest : public StressTest {
       size_t value_len = GenerateValue(value_base, value, sizeof(value));
       auto key_str = Key(key);
       s = sst_file_writer.Put(Slice(key_str), Slice(value, value_len));
+    }
+
+    if (s.ok() && keys.empty()) {
+      return;
     }
 
     if (s.ok()) {
