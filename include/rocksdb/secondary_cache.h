@@ -98,10 +98,12 @@ class SecondaryCache : public Customizable {
   // purge the released entries from the cache in order to lower the usage.
   //
   // The derived class can make this function no-op and return NotSupported().
-  virtual Status SetCapacity(size_t capacity) { return Status::NotSupported(); }
+  virtual Status SetCapacity(size_t /* capacity */) {
+    return Status::NotSupported();
+  }
 
   // The derived class can make this function no-op and return NotSupported().
-  virtual Status GetCapacity(size_t& capacity) {
+  virtual Status GetCapacity(size_t& /* capacity */) {
     return Status::NotSupported();
   }
 };
