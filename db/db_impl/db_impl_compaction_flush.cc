@@ -2020,7 +2020,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              bool entered_write_thread) {
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
-  if (write_controller_.IsStopped() && !flush_options.wait) {
+  if (!flush_options.wait && write_controller_.IsStopped()) {
     std::ostringstream oss;
     oss << "Writes have been stopped, thus unable to perform manual flush. "
            "Please try again later after writes are resumed";
@@ -2166,7 +2166,7 @@ Status DBImpl::AtomicFlushMemTables(
     const FlushOptions& flush_options, FlushReason flush_reason,
     bool entered_write_thread) {
   assert(immutable_db_options_.atomic_flush);
-  if (write_controller_.IsStopped() && !flush_options.wait) {
+  if (!flush_options.wait && write_controller_.IsStopped()) {
     std::ostringstream oss;
     oss << "Writes have been stopped, thus unable to perform manual flush. "
            "Please try again later after writes are resumed";
