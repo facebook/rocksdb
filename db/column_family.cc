@@ -1295,8 +1295,18 @@ void ColumnFamilyData::InstallSuperVersion(
     }
     if (old_superversion->mutable_cf_options.disable_auto_flush != mutable_cf_options.disable_auto_flush) {
       assert(!mutable_cf_options.disable_auto_flush);
-      ROCKS_LOG_INFO(ioptions_.info_log, "Enabling auto flush for column family: %s",
-                     GetName().c_str());
+      ROCKS_LOG_INFO(
+          ioptions_.info_log,
+          "Enabling auto flush for column family: %s; old super "
+          "version: %" PRIu64
+          ", disable_auto_flush: %d; new super version: %" PRIu64
+          ", disable_auto_flush: %d",
+          GetName().c_str(), old_superversion->version_number,
+          static_cast<int>(
+              old_superversion->mutable_cf_options.disable_auto_flush),
+          new_superversion->version_number,
+          static_cast<int>(
+              new_superversion->mutable_cf_options.disable_auto_flush));
       mem_->EnableAutoFlush();
     }
 

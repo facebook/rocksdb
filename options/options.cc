@@ -414,7 +414,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "         Options.blob_compaction_readahead_size: %" PRIu64,
         blob_compaction_readahead_size);
-    ROCKS_LOG_HEADER(log, "                          Options.disable_flush: %d",
+    ROCKS_LOG_HEADER(log, "                     Options.disable_auto_flush: %d",
                      disable_auto_flush);
 }  // ColumnFamilyOptions::Dump
 

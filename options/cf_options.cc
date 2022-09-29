@@ -1074,8 +1074,8 @@ void MutableCFOptions::Dump(Logger* log) const {
 
   ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
                  static_cast<int>(bottommost_temperature));
-  ROCKS_LOG_INFO(log, "                           disable_flush: %d",
-                 static_cast<int>(bottommost_temperature));
+  ROCKS_LOG_INFO(log, "                       disable_auto_flush: %d",
+                 static_cast<int>(disable_auto_flush));
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)
