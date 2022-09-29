@@ -44,6 +44,8 @@ template <>
 class BlocklikeTraits<BlockContents> {
  public:
   static BlockContents* Create(BlockContents&& contents,
+                               BlockType /* block_type */,
+                               uint32_t /* block_protection_bytes_per_key */,
                                size_t /* read_amp_bytes_per_bit */,
                                Statistics* /* statistics */,
                                bool /* using_zstd */,
@@ -82,11 +84,11 @@ class BlocklikeTraits<BlockContents> {
 template <>
 class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
-  static ParsedFullFilterBlock* Create(BlockContents&& contents,
-                                       size_t /* read_amp_bytes_per_bit */,
-                                       Statistics* /* statistics */,
-                                       bool /* using_zstd */,
-                                       const FilterPolicy* filter_policy) {
+  static ParsedFullFilterBlock* Create(
+      BlockContents&& contents, BlockType /* block_type */,
+      uint32_t /* block_protection_bytes_per_key */,
+      size_t /* read_amp_bytes_per_bit */, Statistics* /* statistics */,
+      bool /* using_zstd */, const FilterPolicy* filter_policy) {
     return new ParsedFullFilterBlock(filter_policy, std::move(contents));
   }
 
@@ -122,9 +124,12 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
 template <>
 class BlocklikeTraits<Block> {
  public:
-  static Block* Create(BlockContents&& contents, size_t read_amp_bytes_per_bit,
-                       Statistics* statistics, bool /* using_zstd */,
-                       const FilterPolicy* /* filter_policy */) {
+  static Block* Create(BlockContents&& contents, BlockType block_type,
+                       uint32_t block_protection_bytes_per_key,
+                       size_t read_amp_bytes_per_bit, Statistics* statistics,
+                       bool /* using_zstd */,
+                       const FilterPolicy* /* filter_policy */
+  ) {
     return new Block(std::move(contents), read_amp_bytes_per_bit, statistics);
   }
 
@@ -171,11 +176,11 @@ class BlocklikeTraits<Block> {
 template <>
 class BlocklikeTraits<UncompressionDict> {
  public:
-  static UncompressionDict* Create(BlockContents&& contents,
-                                   size_t /* read_amp_bytes_per_bit */,
-                                   Statistics* /* statistics */,
-                                   bool using_zstd,
-                                   const FilterPolicy* /* filter_policy */) {
+  static UncompressionDict* Create(
+      BlockContents&& contents, BlockType /* block_type */,
+      uint32_t /* block_protection_bytes_per_key */,
+      size_t /* read_amp_bytes_per_bit */, Statistics* /* statistics */,
+      bool using_zstd, const FilterPolicy* /* filter_policy */) {
     return new UncompressionDict(contents.data, std::move(contents.allocation),
                                  using_zstd);
   }

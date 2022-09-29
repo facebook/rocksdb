@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "block_type.h"
 #include "db/pinned_iterators_manager.h"
 #include "port/malloc.h"
 #include "rocksdb/iterator.h"
@@ -153,7 +154,9 @@ class BlockReadAmpBitmap {
 class Block {
  public:
   // Initialize the block with the specified contents.
-  explicit Block(BlockContents&& contents, size_t read_amp_bytes_per_bit = 0,
+  explicit Block(BlockContents&& contents, BlockType block_type,
+                 uint32_t block_protection_bytes_per_key,
+                 size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
   // No copying allowed
   Block(const Block&) = delete;
@@ -560,7 +563,7 @@ class DataBlockIter final : public BlockIter<Slice> {
  private:
   // read-amp bitmap
   BlockReadAmpBitmap* read_amp_bitmap_;
-  // last `current_` value we report to read-amp bitmp
+  // last `current_` value we report to read-amp bitmap
   mutable uint32_t last_bitmap_offset_;
   struct CachedPrevEntry {
     explicit CachedPrevEntry(uint32_t _offset, const char* _key_ptr,
@@ -586,6 +589,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   std::vector<CachedPrevEntry> prev_entries_;
   int32_t prev_entries_idx_ = -1;
   uint32_t block_protection_bytes_per_key_ = 0;
+  uint32_t entry_position_ = 0;
 
   DataBlockHashIndex* data_block_hash_index_;
 

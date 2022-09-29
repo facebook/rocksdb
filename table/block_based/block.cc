@@ -225,6 +225,7 @@ void DataBlockIter::PrevImpl() {
     raw_key_.SetKey(current_key, raw_key_cached /* copy */);
     value_ = current_prev_entry.value;
 
+    entry_position_ -= 1;
     return;
   }
 
@@ -515,6 +516,7 @@ void DataBlockIter::SeekToFirstImpl() {
     return;
   }
   SeekToRestartPoint(0);
+  entry_position_ = 0;
   bool is_shared = false;
   ParseNextDataKey(&is_shared);
 }
@@ -978,8 +980,9 @@ Block::~Block() {
   // TEST_SYNC_POINT("Block::~Block");
 }
 
-Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
-             Statistics* statistics)
+Block::Block(BlockContents&& contents, BlockType block_type,
+             uint32_t block_protection_bytes_per_key,
+             size_t read_amp_bytes_per_bit, Statistics* statistics)
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
       size_(contents_.data.size()),
@@ -1032,6 +1035,11 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
   if (read_amp_bytes_per_bit != 0 && statistics && size_ != 0) {
     read_amp_bitmap_.reset(new BlockReadAmpBitmap(
         restart_offset_, read_amp_bytes_per_bit, statistics));
+  }
+
+  if (block_type == BlockType::kData) {
+    //
+    DataBlockIter* iter = NewDataIterator();
   }
 }
 
