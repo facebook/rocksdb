@@ -437,6 +437,11 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                 entity.ToString(/* hex */ true));
     }
 
+    if (buffered_writes_) {
+      return WriteBatchInternal::PutEntity(buffered_writes_.get(),
+                                           column_family_id, key, columns);
+    }
+
     state_->Put(column_family_id, static_cast<int64_t>(key_id), value_base,
                 false /* pending */);
 
