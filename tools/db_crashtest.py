@@ -391,7 +391,6 @@ ts_params = {
     "delrangepercent": 0,
     "delpercent": 5,
     "use_merge": 0,
-    "use_put_entity_one_in": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
     "enable_blob_files": 0,

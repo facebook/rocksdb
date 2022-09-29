@@ -97,8 +97,10 @@ class NonBatchedOpsStressTest : public StressTest {
           std::string from_db;
           WideColumns columns_from_db;
 
+          int diff = 0;
+
           if (iter->Valid()) {
-            const int diff = iter->key().compare(k);
+            diff = iter->key().compare(k);
 
             if (diff > 0) {
               s = Status::NotFound();
@@ -122,7 +124,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
           // Note: we have to wait with advancing the iterator until after
           // verification because it invalidates columns()
-          if (iter->Valid() && iter_key == k) {
+          if (iter->Valid() && diff == 0) {
             iter->Next();
           }
 
@@ -1344,8 +1346,8 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (s.ok() && columns_from_db) {
-      const WideColumns expected_columns =
-          GenerateWideColumns(GetValueBase(value_from_db), value_from_db);
+      const WideColumns expected_columns = GenerateExpectedWideColumns(
+          GetValueBase(value_from_db), value_from_db);
       if (*columns_from_db != expected_columns) {
         VerificationAbort(shared, "Value and columns inconsistent", cf, key);
         return false;
