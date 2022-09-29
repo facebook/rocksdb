@@ -213,7 +213,9 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // More details, check PR #1963
     const size_t num_skippable_boundaries_crossed =
         being_grandparent_gap_ ? 2 : 3;
-    if (compaction_->immutable_options()->level_compaction_dynamic_file_size &&
+    if (compaction_->immutable_options()->compaction_style ==
+            kCompactionStyleLevel &&
+        compaction_->immutable_options()->level_compaction_dynamic_file_size &&
         num_grandparent_boundaries_crossed >=
             num_skippable_boundaries_crossed &&
         grandparent_overlapped_bytes_ - previous_overlapped_bytes >
@@ -233,7 +235,9 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // target file size. The test shows it can generate larger files than a
     // static threshold like 75% and has a similar write amplification
     // improvement.
-    if (compaction_->immutable_options()->level_compaction_dynamic_file_size &&
+    if (compaction_->immutable_options()->compaction_style ==
+            kCompactionStyleLevel &&
+        compaction_->immutable_options()->level_compaction_dynamic_file_size &&
         current_output_file_size_ >
             ((compaction_->target_output_file_size() + 99) / 100) *
                 (50 + std::min(grandparent_boundary_switched_num_ * 5,

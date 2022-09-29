@@ -2382,9 +2382,10 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
   // Output files to L1 are cut to 4 pieces, according to
   // options.max_compaction_bytes (300K)
   // There are 8 files on L2 (grandparents level), each one is 100K. The first
-  // file overlaps with a, b, c, which max_compaction_bytes is 300K, the second
-  // one overlaps with c, d, e, which is also 300K.
-  // L1: [   1   ] [  2  ] [  3  ] [ 4 ]
+  // file overlaps with a, b which max_compaction_bytes is less than 300K, the
+  // second one overlaps with d, e, which is also less than 300K. Including any
+  // extra grandparent file will make the future compaction larger than 300K.
+  // L1: [  1  ] [  2 ]  [  3  ] [ 4 ]
   // L2: [a] [b] [c] [d] [e] [f] [g] [h]
   ASSERT_EQ("0,4,8", FilesPerLevel(0));
 }

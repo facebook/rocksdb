@@ -1725,7 +1725,7 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 
-  // The key range is broken up into three SSTs to avoid a future big compaction
+  // The key range is broken up into 4 SSTs to avoid a future big compaction
   // with the grandparent
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));

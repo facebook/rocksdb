@@ -1767,7 +1767,7 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutForMaxCompactionBytes) {
                                    {KeyStr("j", 4U, kTypeValue), "val"}});
   AddMockFile(file2, 1);
 
-  // Create three L2 files, each size 8.
+  // Create three L2 files, each size 10.
   // max_compaction_bytes 21 means the compaction output in L1 will
   // be cut to at least two files.
   auto file3 = mock::MakeMockFile({{KeyStr("b", 1U, kTypeValue), "val"},
@@ -1884,7 +1884,7 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundary) {
   // with its grandparent boundary.
   const size_t kKeyValueSize = 10000;
   mock_table_factory_->SetKeyValueSize(kKeyValueSize);
-  // Make sure the grandparent level file size qualifies skipping.
+
   mutable_cf_options_.target_file_size_base = 10 * kKeyValueSize;
 
   mock::KVVector file1;
@@ -1926,6 +1926,8 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundary) {
   //  L1:         [d,e,f,g,h,i,j] [k,l,m,n,o,s]
   //  L2: [a, b] [c,  e]   [h, j] [k, n]  [q, t]
   // The first output cut earlier at "j", so it could be aligned with L2 files.
+  // If dynamic_file_size is not enabled, it will be cut based on the
+  // target_file_size
   mock::KVVector expected_file1;
   for (char i = 0; i < 7; i++) {
     expected_file1.emplace_back(
@@ -1941,14 +1943,21 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundary) {
   }
   expected_file2.emplace_back(KeyStr("s", 4U, kTypeValue), "val");
 
-  mock::KVVector expected_file_disable_dynamic_file_size;
-  for (char i = 0; i < 12; i++) {
-    expected_file_disable_dynamic_file_size.emplace_back(
+  mock::KVVector expected_file_disable_dynamic_file_size1;
+  for (char i = 0; i < 10; i++) {
+    expected_file_disable_dynamic_file_size1.emplace_back(
         KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
         "val" + std::to_string(i));
   }
 
-  expected_file_disable_dynamic_file_size.emplace_back(
+  mock::KVVector expected_file_disable_dynamic_file_size2;
+  for (char i = 10; i < 12; i++) {
+    expected_file_disable_dynamic_file_size2.emplace_back(
+        KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
+        "val" + std::to_string(i));
+  }
+
+  expected_file_disable_dynamic_file_size2.emplace_back(
       KeyStr("s", 4U, kTypeValue), "val");
 
   SetLastSequence(22U);
@@ -1960,7 +1969,8 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundary) {
                   {expected_file1, expected_file2});
   } else {
     RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file_disable_dynamic_file_size});
+                  {expected_file_disable_dynamic_file_size1,
+                   expected_file_disable_dynamic_file_size2});
   }
 }
 
