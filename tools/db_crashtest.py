@@ -526,6 +526,7 @@ def finalize_and_sanitize(src_params):
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
+        or dest_params.get("manual_wal_flush_one_in") > 0
     ):
         # File ingestion does not guarantee prefix-recoverability when unsynced
         # data can be lost. Ingesting a file syncs data immediately that is
@@ -604,7 +605,7 @@ def finalize_and_sanitize(src_params):
     # compatible with only write committed policy
     if (dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0):
         dest_params["sync_fault_injection"] = 0
-
+        dest_params["manual_wal_flush_one_in"] = 0
     # PutEntity is currently not supported with Merge
     if dest_params["use_put_entity_one_in"] != 0:
         dest_params["use_merge"] = 0
