@@ -460,9 +460,9 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
       const std::string key = Key(k);
 
       constexpr uint32_t value_base = 0;
-      size_t sz = GenerateValue(value_base, value, sizeof(value));
+      const size_t sz = GenerateValue(value_base, value, sizeof(value));
 
-      Slice v(value, sz);
+      const Slice v(value, sz);
 
       shared->Put(cf_idx, k, value_base, true /* pending */);
 
@@ -486,11 +486,8 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
                            GenerateWideColumns(value_base, v));
       } else {
         if (!FLAGS_use_txn) {
-          std::string ts_str;
-          Slice ts;
           if (FLAGS_user_timestamp_size > 0) {
-            ts_str = GetNowNanos();
-            ts = ts_str;
+            const std::string ts = GetNowNanos();
             s = db_->Put(write_opts, cfh, key, ts, v);
           } else {
             s = db_->Put(write_opts, cfh, key, v);
