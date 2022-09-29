@@ -294,6 +294,15 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
 
+  if (FLAGS_use_put_entity_one_in > 0 &&
+      (FLAGS_use_merge || FLAGS_use_full_merge_v1 || FLAGS_use_txn ||
+       FLAGS_test_multi_ops_txns || FLAGS_user_timestamp_size > 0)) {
+    fprintf(stderr,
+            "PutEntity is currently incompatible with Merge, transactions, and "
+            "user-defined timestamps\n");
+    exit(1);
+  }
+
 #ifndef NDEBUG
   KillPoint* kp = KillPoint::GetInstance();
   kp->rocksdb_kill_odds = FLAGS_kill_random_test;

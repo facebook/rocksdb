@@ -240,19 +240,16 @@ uint32_t GetValueBase(Slice s) {
 }
 
 WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
-  WideColumns columns{{kDefaultWideColumnName, slice}};
-
-  if (!FLAGS_use_put_entity_one_in ||
-      (value_base % FLAGS_use_put_entity_one_in) != 0) {
-    return columns;
-  }
+  WideColumns columns;
 
   constexpr size_t max_columns = 4;
   const size_t num_columns = (value_base % max_columns) + 1;
 
+  columns.reserve(num_columns);
+
   assert(slice.size() >= num_columns);
 
-  columns.reserve(num_columns);
+  columns.emplace_back(kDefaultWideColumnName, slice);
 
   for (size_t i = 1; i < num_columns; ++i) {
     const Slice name(slice.data(), i);
@@ -260,6 +257,13 @@ WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
 
     columns.emplace_back(name, value);
   }
+
+  return columns;
+}
+
+WideColumns GenerateExpectedWideColumns(uint32_t value_base,
+                                        const Slice& slice) {
+  WideColumns columns = GenerateWideColumns(value_base, slice);
 
   std::sort(columns.begin(), columns.end(),
             [](const WideColumn& lhs, const WideColumn& rhs) {
