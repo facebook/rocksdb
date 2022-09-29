@@ -3250,6 +3250,8 @@ class ModelDB : public DB {
 
   void NewManifestOnNextUpdate() override {}
 
+  uint64_t GetNextFileNumber() const override { return 0; };
+
  private:
   class ModelIter : public Iterator {
    public:

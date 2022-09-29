@@ -2741,6 +2741,81 @@ TEST_F(CloudTest, ReopenEphemeralAfterFileDeletion) {
   closeDurable();
 }
 
+TEST_F(CloudTest, SanitizeDirectoryTest) {
+  auto get_all_local_files = [&]() -> std::vector<Env::FileAttributes> {
+    std::vector<Env::FileAttributes> local_files;
+    assert(base_env_->GetChildrenFileAttributes(dbname_, &local_files).ok());
+    return local_files;
+  };
+
+  cloud_env_options_.keep_local_sst_files = true;
+  OpenDB();
+  ASSERT_OK(db_->Put({}, "k1", "v1"));
+  ASSERT_OK(db_->Flush({}));
+  CloseDB();
+
+  auto local_files = get_all_local_files();
+  // Files exist locally: cm/m, sst, options-xxx, xxx.log, identity, current
+  EXPECT_EQ(local_files.size(), 7);
+
+  EXPECT_OK(GetCloudEnvImpl()->SanitizeDirectory(
+    options_, dbname_, false));
+  
+  // cleaning up during sanitization not triggered
+  EXPECT_EQ(local_files.size(), get_all_local_files().size());
+
+  // Delete the local CLOUDMANIFEST file to force cleaning up
+  ASSERT_OK(
+      base_env_->DeleteFile(MakeCloudManifestFile(dbname_, "" /* cooke */)));
+  
+  EXPECT_OK(GetCloudEnvImpl()->SanitizeDirectory(
+    options_, dbname_, false));
+  
+  local_files = get_all_local_files();
+  // IDENTITY file is downloaded after cleaning up, which is the only file that
+  // exists locally
+  EXPECT_EQ(get_all_local_files().size(), 1);
+
+  // reinitialize local directory
+  OpenDB();
+  CloseDB();
+  local_files = get_all_local_files();
+  // we have two local MANIFEST files after opening second time.
+  EXPECT_EQ(local_files.size(), 8);
+
+  // create some random directory, which is expected to be not deleted
+  ASSERT_OK(base_env_->CreateDir(dbname_ + "/tmp_writes"));
+
+  // Delete the local CLOUDMANIFEST file to force cleaning up
+  ASSERT_OK(
+      base_env_->DeleteFile(MakeCloudManifestFile(dbname_, "" /* cooke */)));
+
+  ASSERT_OK(GetCloudEnvImpl()->SanitizeDirectory(options_, dbname_, false));
+
+  // IDENTITY file + the random directory we created
+  EXPECT_EQ(get_all_local_files().size(), 2);
+
+  // reinitialize local directory
+  OpenDB();
+  CloseDB();
+
+  // inject io errors during cleaning up. The io errors should be ignored
+  SyncPoint::GetInstance()->SetCallBack(
+    "CloudEnvImpl::SanitizeDirectory:AfterDeleteFile",
+    [](void* arg) {
+        auto st = reinterpret_cast<Status*>(arg);
+        *st = Status::IOError("Inject io error during cleaning up");
+    });
+  
+  SyncPoint::GetInstance()->EnableProcessing();
+  // Delete the local CLOUDMANIFEST file to force cleaning up
+  ASSERT_OK(
+      base_env_->DeleteFile(MakeCloudManifestFile(dbname_, "" /* cooke */)));
+
+  ASSERT_OK(GetCloudEnvImpl()->SanitizeDirectory(options_, dbname_, false));
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 }  //  namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the cloud wrapper around rocksdb
