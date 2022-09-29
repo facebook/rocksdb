@@ -316,6 +316,7 @@ class CompactionJob {
   // Stores the Slices that designate the boundaries for each subcompaction
   std::vector<std::string> boundaries_;
   Env::Priority thread_pri_;
+  Env::IOPriority io_pri_;
   std::string full_history_ts_low_;
   std::string trim_ts_;
   BlobFileCompletionCallback* blob_callback_;

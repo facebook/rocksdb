@@ -326,7 +326,7 @@ TEST_F(DBRateLimiterOnWriteTest, Compact) {
 
   std::int64_t prev_total_request =
       options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
-  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_LOW));
+  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_MID));
 
   Compact(kStartKey, kEndKey);
 
@@ -345,7 +345,7 @@ TEST_F(DBRateLimiterOnWriteTest, Compact) {
   std::int64_t exepcted_compaction_request = 1;
   EXPECT_EQ(actual_compaction_request, exepcted_compaction_request);
   EXPECT_EQ(actual_compaction_request,
-            options_.rate_limiter->GetTotalRequests(Env::IO_LOW));
+            options_.rate_limiter->GetTotalRequests(Env::IO_MID));
 }
 
 class DBRateLimiterOnWriteWALTest
