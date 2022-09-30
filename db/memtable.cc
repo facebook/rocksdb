@@ -947,6 +947,10 @@ static bool SaveValue(void* arg, const char* entry) {
   const Comparator* user_comparator =
       s->mem->GetInternalKeyComparator().user_comparator();
   size_t ts_sz = user_comparator->timestamp_size();
+  if (ts_sz && s->timestamp && max_covering_tombstone_seq > 0) {
+    // timestamp should already be set to range tombstone timestamp
+    assert(s->timestamp->size() == ts_sz);
+  }
   if (user_comparator->EqualWithoutTimestamp(user_key_slice,
                                              s->key->user_key())) {
     // Correct user key
@@ -967,9 +971,6 @@ static bool SaveValue(void* arg, const char* entry) {
           // `SaveValue` is ever called. This key has a higher sequence number
           // than range tombstone, and is the key with the highest seqno across
           // all keys with this user_key, so we update timestamp here.
-          if (max_covering_tombstone_seq > 0) {
-            assert(s->timestamp->size() == ts_sz);
-          }
           Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
           s->timestamp->assign(ts.data(), ts_sz);
         }
