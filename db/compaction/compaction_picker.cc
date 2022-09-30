@@ -27,16 +27,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
-  uint64_t sum = 0;
-  for (size_t i = 0; i < files.size() && files[i]; i++) {
-    sum += files[i]->compensated_file_size;
-  }
-  return sum;
-}
-}  // anonymous namespace
-
 bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            size_t min_files_to_compact,
                            uint64_t max_compact_bytes_per_del_file,
@@ -63,8 +53,6 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
     return false;
   }
   size_t compact_bytes = static_cast<size_t>(level_files[start]->fd.file_size);
-  uint64_t compensated_compact_bytes =
-      level_files[start]->compensated_file_size;
   size_t compact_bytes_per_del_file = std::numeric_limits<size_t>::max();
   // Compaction range will be [start, limit).
   size_t limit;
@@ -73,11 +61,10 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
   size_t new_compact_bytes_per_del_file = 0;
   for (limit = start + 1; limit < level_files.size(); ++limit) {
     compact_bytes += static_cast<size_t>(level_files[limit]->fd.file_size);
-    compensated_compact_bytes += level_files[limit]->compensated_file_size;
     new_compact_bytes_per_del_file = compact_bytes / (limit - start);
     if (level_files[limit]->being_compacted ||
         new_compact_bytes_per_del_file > compact_bytes_per_del_file ||
-        compensated_compact_bytes > max_compaction_bytes) {
+        compact_bytes > max_compaction_bytes) {
       break;
     }
     compact_bytes_per_del_file = new_compact_bytes_per_del_file;
@@ -507,8 +494,8 @@ bool CompactionPicker::SetupOtherInputs(
   if (!output_level_inputs->empty()) {
     const uint64_t limit = mutable_cf_options.max_compaction_bytes;
     const uint64_t output_level_inputs_size =
-        TotalCompensatedFileSize(output_level_inputs->files);
-    const uint64_t inputs_size = TotalCompensatedFileSize(inputs->files);
+        TotalFileSize(output_level_inputs->files);
+    const uint64_t inputs_size = TotalFileSize(inputs->files);
     bool expand_inputs = false;
 
     CompactionInputFiles expanded_inputs;
@@ -527,8 +514,7 @@ bool CompactionPicker::SetupOtherInputs(
                                      &expanded_inputs.files, base_index,
                                      nullptr);
     }
-    uint64_t expanded_inputs_size =
-        TotalCompensatedFileSize(expanded_inputs.files);
+    uint64_t expanded_inputs_size = TotalFileSize(expanded_inputs.files);
     if (!ExpandInputsToCleanCut(cf_name, vstorage, &expanded_inputs)) {
       try_overlapping_inputs = false;
     }
@@ -554,7 +540,7 @@ bool CompactionPicker::SetupOtherInputs(
       vstorage->GetCleanInputsWithinInterval(input_level, &all_start,
                                              &all_limit, &expanded_inputs.files,
                                              base_index, nullptr);
-      expanded_inputs_size = TotalCompensatedFileSize(expanded_inputs.files);
+      expanded_inputs_size = TotalFileSize(expanded_inputs.files);
       if (expanded_inputs.size() > inputs->size() &&
           output_level_inputs_size + expanded_inputs_size < limit &&
           !AreFilesInCompaction(expanded_inputs.files)) {
@@ -724,18 +710,18 @@ Compaction* CompactionPicker::CompactRange(
       }
       largest = &inputs[i]->largest;
 
-      uint64_t s = inputs[i]->compensated_file_size;
+      uint64_t input_file_size = inputs[i]->fd.GetFileSize();
       uint64_t output_level_total = 0;
       if (output_level < vstorage->num_non_empty_levels()) {
         std::vector<FileMetaData*> files;
         vstorage->GetOverlappingInputsRangeBinarySearch(
             output_level, smallest, largest, &files, hint_index, &hint_index);
         for (const auto& file : files) {
-          output_level_total += file->compensated_file_size;
+          output_level_total += file->fd.GetFileSize();
         }
       }
 
-      input_level_total += s;
+      input_level_total += input_file_size;
 
       if (input_level_total + output_level_total >= limit) {
         covering_the_whole_range = false;
