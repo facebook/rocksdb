@@ -967,7 +967,9 @@ static bool SaveValue(void* arg, const char* entry) {
           // `SaveValue` is ever called. This key has a higher sequence number
           // than range tombstone, and is the key with the highest seqno across
           // all keys with this user_key, so we update timestamp here.
-          assert(s->timestamp->size() == ts_sz);
+          if (max_covering_tombstone_seq > 0) {
+            assert(s->timestamp->size() == ts_sz);
+          }
           Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
           s->timestamp->assign(ts.data(), ts_sz);
         }
