@@ -1726,17 +1726,16 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 
-  // The key range is broken up into 4 SSTs to avoid a future big compaction
+  // The key range is broken up into three SSTs to avoid a future big compaction
   // with the grandparent
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));
-  ASSERT_EQ(4, NumTableFilesAtLevel(1));
+  ASSERT_EQ(3, NumTableFilesAtLevel(1));
 
   ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));
-  // L1->L2 compaction outputs to 2 files because there are 2 separated
-  // compactions: [0-4] and [5-9]
-  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+  // L1->L2 compaction size is limited to max_compaction_bytes
+  ASSERT_EQ(3, NumTableFilesAtLevel(2));
   ASSERT_EQ(0, NumTableFilesAtLevel(1));
 }
 
