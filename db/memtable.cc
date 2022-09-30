@@ -220,6 +220,10 @@ void MemTable::EnableAutoFlush() {
   }
 }
 
+bool MemTable::TEST_IsAutoFlushEnabled() const {
+  return !disable_auto_flush_.load(std::memory_order_relaxed);
+}
+
 void MemTable::UpdateFlushState() {
   auto state = flush_state_.load(std::memory_order_relaxed);
   if (state == FLUSH_NOT_REQUESTED && ShouldFlushNow()) {

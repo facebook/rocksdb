@@ -511,6 +511,7 @@ class MemTable {
 
   // Enable auto flush if it's previously disabled
   void EnableAutoFlush();
+  bool TEST_IsAutoFlushEnabled() const;
 
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };

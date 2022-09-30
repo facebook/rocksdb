@@ -1293,8 +1293,23 @@ void ColumnFamilyData::InstallSuperVersion(
         mutable_cf_options.write_buffer_size) {
       mem_->UpdateWriteBufferSize(mutable_cf_options.write_buffer_size);
     }
-    if (old_superversion->mutable_cf_options.disable_auto_flush != mutable_cf_options.disable_auto_flush) {
-      assert(!mutable_cf_options.disable_auto_flush);
+
+    // Only enabling auto flush if it's disabled in previous superversion.
+    //
+    // NOTE: we can't check
+    // `old_superversion->mutable_cf_options.disable_auto_flush !=
+    // new_superversion->mutable_cf_options.disable_auto_flush` here since
+    // following sequence of actions is possible:
+    // - Flush/Compaction starts with own copy of `mutable_cf_options`
+    // (`disable_auto_flush=true`)
+    // - `SetOptions()` with `disable_auto_flush=false`
+    // - Flush/Compaction finishes and calls `InstallSuperVersion` with
+    // `mutable_cf_options`(`disable_auto_flush=true`)
+    //
+    // At this time, old_superversion has `disable_auto_flush=false` while
+    // `new_superversion` has `disable_auto_flush=true`.
+    if (old_superversion->mutable_cf_options.disable_auto_flush &&
+        !mutable_cf_options.disable_auto_flush) {
       ROCKS_LOG_INFO(
           ioptions_.info_log,
           "Enabling auto flush for column family: %s; old super "

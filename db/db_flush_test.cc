@@ -16,6 +16,7 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
@@ -3049,6 +3050,93 @@ TEST_F(DBFlushTest, DisableAutoFlushMultiCF) {
 
 TEST_F(DBFlushTest, DisableAutoFlushOnRunningDB) {
   EXPECT_NOK(db_->SetOptions({{"disable_auto_flush", "true"}}));
+}
+
+// Test the case that non-trival compaction job is triggered before
+// we enable auto flush and make sure that compaction job with old
+// mutable_cf_options won't cause auto flush to be disabled
+TEST_F(DBFlushTest, AutoCompactionBeforeEnablingFlush) {
+  const int kNumKeysPerFile = 100;
+
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = false;
+  options.disable_auto_flush = true;
+  options.num_levels = 3;
+  options.level0_file_num_compaction_trigger = 3;
+
+  options.info_log = info_log_;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1])->cfd();
+
+  Random rnd(301);
+
+  for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
+       num++) {
+    std::vector<std::string> values;
+    // Write 100KB (100 values, each 1K)
+    for (int i = 0; i < kNumKeysPerFile; i++) {
+      values.push_back(rnd.RandomString(990));
+      ASSERT_OK(Put(1, Key(i), values[i]));
+    }
+    ASSERT_OK(dbfull()->Flush({}, handles_[1]));
+    ASSERT_EQ(NumTableFilesAtLevel(0, 1), num + 1);
+  }
+
+  // Order of steps:
+  // - CompactionJob with old mutable_cf_options(disable_auto_flush=true)
+  // created but not running yet
+  // - SetOptions with disable_auto_flush=false starts
+  // - SetOptions with disable_auto_flush=false done
+  // - CompactionJob continues to run and InstallSuperVersionw with old
+  // mutable_cf_options(disable_auto_flush=true)
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
+        "DBFlushTest::CompactionBeforeFlush:BeforeEnableAutoFlush"},
+        {
+          "DBFlushTest::CompactionBeforeFlush:AfterEnableAutoFlush",
+          "CompactionJob::Run():Start"
+        }});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Write one more file to trigger auto compaction
+  std::vector<std::string> values;
+  for (int i = 0; i < kNumKeysPerFile; i++) {
+    values.push_back(rnd.RandomString(990));
+    ASSERT_OK(Put(1, Key(i), values[i]));
+  }
+  ASSERT_OK(dbfull()->Flush({}, handles_[1]));
+
+  TEST_SYNC_POINT("DBFlushTest::CompactionBeforeFlush:BeforeEnableAutoFlush");
+  EXPECT_TRUE(cfd->GetSuperVersion()->mutable_cf_options.disable_auto_flush);
+  ASSERT_OK(db_->SetOptions(
+    handles_[1], {{"disable_auto_flush", "false"}}));
+  EXPECT_FALSE(cfd->GetSuperVersion()->mutable_cf_options.disable_auto_flush);
+  TEST_SYNC_POINT("DBFlushTest::CompactionBeforeFlush:AfterEnableAutoFlush");
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // old super version of compaction job installed, which has
+  // `disable_auto_flush = true!`
+  EXPECT_TRUE(cfd->GetSuperVersion()->mutable_cf_options.disable_auto_flush);
+  // But auto flush of memtable won't be disabled. So we have a short period
+  // of time that current superversion's `mutable_cf_option` to be not consistent
+  // with memtable's auto_flush setting, which is fine since next time we call
+  // `InstallSuperVersion` will fix this
+  EXPECT_TRUE(cfd->GetSuperVersion()->mem->TEST_IsAutoFlushEnabled());
+
+  // trigger a manual flush to install a new super version
+  // the new superversion will use the latest `mutable_cf_options` of the
+  // CF(`disable_auto_flush=false`)
+  ASSERT_OK(Put(1, "k", "v"));
+  ASSERT_OK(dbfull()->Flush({}, handles_[1]));
+
+  EXPECT_FALSE(cfd->GetSuperVersion()->mutable_cf_options.disable_auto_flush);
+  EXPECT_TRUE(cfd->GetSuperVersion()->mem->TEST_IsAutoFlushEnabled());
+
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
