@@ -2034,9 +2034,11 @@ TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundarySameKey) {
   // make sure `b` is cut in a separated file (so internally it's not using
   // internal comparator, which will think the "b:90" (seqno 90) here is smaller
   // than "b:85" on L2.)
-  auto expected_file2 = mock::MakeMockFile({{KeyStr("b", 90U, kTypeValue), "valb"}});
+  auto expected_file2 =
+      mock::MakeMockFile({{KeyStr("b", 90U, kTypeValue), "valb"}});
 
-  expected_file_disable_dynamic_file_size.emplace_back(KeyStr("b", 90U, kTypeValue), "valb");
+  expected_file_disable_dynamic_file_size.emplace_back(
+      KeyStr("b", 90U, kTypeValue), "valb");
 
   SetLastSequence(122U);
   const std::vector<int> input_levels = {0, 1};
