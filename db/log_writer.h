@@ -96,7 +96,7 @@ class Writer {
 
   IOStatus Close();
 
-  bool TEST_BufferIsEmpty();
+  bool BufferIsEmpty();
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;

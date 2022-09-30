@@ -334,7 +334,14 @@ void StressTest::FinishInitDb(SharedState* shared) {
 }
 
 void StressTest::TrackExpectedState(SharedState* shared) {
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+  // For `FLAGS_manual_wal_flush_one_inWAL`
+  // data can be lost when `manual_wal_flush_one_in > 0` and `FlushWAL()` is not
+  // explictly called by users of RocksDB (in our case, db stress).
+  // Therefore recovery from such potential WAL data loss is a prefix recovery
+  // that requires tracing
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal ||
+       FLAGS_manual_wal_flush_one_in > 0) &&
+      IsStateTracked()) {
     Status s = shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -776,6 +783,15 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       MaybeClearOneColumnFamily(thread);
+
+      if (thread->rand.OneInOpt(FLAGS_manual_wal_flush_one_in)) {
+        bool sync = thread->rand.OneIn(2) ? true : false;
+        Status s = db_->FlushWAL(sync);
+        if (!s.ok()) {
+          fprintf(stderr, "FlushWAL(sync=%s) failed: %s\n",
+                  (sync ? "true" : "false"), s.ToString().c_str());
+        }
+      }
 
       if (thread->rand.OneInOpt(FLAGS_sync_wal_one_in)) {
         Status s = db_->SyncWAL();
@@ -2293,6 +2309,8 @@ void StressTest::PrintEnv() const {
           FLAGS_read_only ? "true" : "false");
   fprintf(stdout, "Atomic flush              : %s\n",
           FLAGS_atomic_flush ? "true" : "false");
+  fprintf(stdout, "Manual WAL flush          : %s\n",
+          FLAGS_manual_wal_flush_one_in > 0 ? "true" : "false");
   fprintf(stdout, "Column families           : %d\n", FLAGS_column_families);
   if (!FLAGS_test_batches_snapshots) {
     fprintf(stdout, "Clear CFs one in          : %d\n",
@@ -2801,7 +2819,9 @@ void StressTest::Reopen(ThreadState* thread) {
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open(thread->shared);
 
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal ||
+       FLAGS_manual_wal_flush_one_in > 0) &&
+      IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -3094,6 +3114,7 @@ void InitializeOptionsFromFlags(
   options.compaction_options_universal.max_size_amplification_percent =
       FLAGS_universal_max_size_amplification_percent;
   options.atomic_flush = FLAGS_atomic_flush;
+  options.manual_wal_flush = FLAGS_manual_wal_flush_one_in > 0 ? true : false;
   options.avoid_unnecessary_blocking_io = FLAGS_avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
   options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
