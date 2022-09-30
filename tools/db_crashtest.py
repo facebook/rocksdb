@@ -904,7 +904,10 @@ def whitebox_crash_main(args, unknown_args):
             # success
             shutil.rmtree(dbname, True)
             os.mkdir(dbname)
-            cmd_params.pop("expected_values_dir", None)
+            if (expected_values_dir is not None):
+                shutil.rmtree(expected_values_dir, True)
+                os.mkdir(expected_values_dir)
+
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
