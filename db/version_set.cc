@@ -1632,6 +1632,7 @@ Status Version::TablesRangeTombstoneSummary(int max_entries_to_print,
       if (tombstone_iter) {
         tombstone_iter->SeekToFirst();
 
+        // TODO: print timestamp
         while (tombstone_iter->Valid() && num_entries_left > 0) {
           ss << "start: " << tombstone_iter->start_key().ToString(true)
              << " end: " << tombstone_iter->end_key().ToString(true)

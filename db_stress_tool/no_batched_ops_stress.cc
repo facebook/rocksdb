@@ -390,8 +390,8 @@ class NonBatchedOpsStressTest : public StressTest {
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
     Slice read_ts_slice;
-    MaybeUseOlderTimestampForPointLookup(thread, read_ts_str, read_ts_slice,
-                                         read_opts_copy);
+    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+        thread, read_ts_str, read_ts_slice, read_opts_copy);
 
     Status s = db_->Get(read_opts_copy, cfh, key, &from_db);
     if (fault_fs_guard) {
@@ -424,7 +424,7 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       // not found case
       thread->stats.AddGets(1, 0);
-      if (!FLAGS_skip_verifydb && !read_opts_copy.timestamp) {
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
         auto expected =
             thread->shared->Get(rand_column_families[0], rand_keys[0]);
         if (expected != SharedState::DELETION_SENTINEL &&
@@ -959,7 +959,16 @@ class NonBatchedOpsStressTest : public StressTest {
     auto cfh = column_families_[rand_column_family];
     std::string end_keystr = Key(rand_key + FLAGS_range_deletion_width);
     Slice end_key = end_keystr;
-    Status s = db_->DeleteRange(write_opts, cfh, key, end_key);
+    std::string write_ts_str;
+    Slice write_ts;
+    Status s;
+    if (FLAGS_user_timestamp_size) {
+      write_ts_str = GetNowNanos();
+      write_ts = write_ts_str;
+      s = db_->DeleteRange(write_opts, cfh, key, end_key, write_ts);
+    } else {
+      s = db_->DeleteRange(write_opts, cfh, key, end_key);
+    }
     if (!s.ok()) {
       if (FLAGS_injest_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {

@@ -13,6 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO(cbi): parameterize the test to cover user-defined timestamp cases
 class DBRangeDelTest : public DBTestBase {
  public:
   DBRangeDelTest() : DBTestBase("db_range_del_test", /*env_do_fsync=*/false) {}

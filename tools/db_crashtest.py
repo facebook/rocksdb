@@ -389,8 +389,6 @@ ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
     "user_timestamp_size": 8,
-    "delrangepercent": 0,
-    "delpercent": 5,
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
@@ -515,14 +513,14 @@ def finalize_and_sanitize(src_params):
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
-    if (
-        dest_params.get("test_batches_snapshots") == 1
-        or dest_params.get("use_txn") == 1
-        or dest_params.get("user_timestamp_size") > 0
-    ):
+    if (dest_params.get("test_batches_snapshots") == 1 or
+        dest_params.get("use_txn") == 1 or
+        dest_params.get("user_timestamp_size") > 0):
+        dest_params["ingest_external_file_one_in"] = 0
+    if (dest_params.get("test_batches_snapshots") == 1 or
+        dest_params.get("use_txn") == 1):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
-        dest_params["ingest_external_file_one_in"] = 0
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1

@@ -935,15 +935,11 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       // Assign timestamps if necessary.
       std::string read_ts_str;
-      std::string write_ts_str;
       Slice read_ts;
-      Slice write_ts;
       if (FLAGS_user_timestamp_size > 0) {
         read_ts_str = GetNowNanos();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
-        write_ts_str = GetNowNanos();
-        write_ts = write_ts_str;
       }
 
       int prob_op = thread->rand.Uniform(100);
@@ -2831,17 +2827,17 @@ void StressTest::Reopen(ThreadState* thread) {
   }
 }
 
-void StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+bool StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
                                                       std::string& ts_str,
                                                       Slice& ts_slice,
                                                       ReadOptions& read_opts) {
   if (FLAGS_user_timestamp_size == 0) {
-    return;
+    return false;
   }
 
   assert(thread);
   if (!thread->rand.OneInOpt(3)) {
-    return;
+    return false;
   }
 
   const SharedState* const shared = thread->shared;
@@ -2857,6 +2853,7 @@ void StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
   PutFixed64(&ts_str, ts);
   ts_slice = ts_str;
   read_opts.timestamp = &ts_slice;
+  return true;
 }
 
 void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
@@ -2912,10 +2909,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
   }
   if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
     fprintf(stderr, "Merge does not support timestamp yet.\n");
-    exit(1);
-  }
-  if (FLAGS_delrangepercent > 0) {
-    fprintf(stderr, "DeleteRange does not support timestamp yet.\n");
     exit(1);
   }
   if (FLAGS_use_txn) {

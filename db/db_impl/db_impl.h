@@ -222,6 +222,9 @@ class DBImpl : public DB {
   Status DeleteRange(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& begin_key,
                      const Slice& end_key) override;
+  Status DeleteRange(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key, const Slice& ts) override;
 
   using DB::Write;
   virtual Status Write(const WriteOptions& options,

@@ -244,7 +244,8 @@ class StressTest {
                                    TransactionDBOptions& /*txn_db_opts*/) {}
 #endif
 
-  void MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+  // Returns whether the timestamp of read_opts is updated.
+  bool MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
                                             std::string& ts_str,
                                             Slice& ts_slice,
                                             ReadOptions& read_opts);
