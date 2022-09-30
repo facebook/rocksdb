@@ -216,9 +216,11 @@ class CompactionOutputs {
     }
   }
 
-  uint64_t GetCurrentOutputFileSize() const {
-    return current_output_file_size_;
-  }
+  // update tracked grandparents information like grandparent index, if it's
+  // in the gap between 2 grandparent files, accumulated grandparent files size
+  // etc.
+  // It returns how many boundaries it crosses by including current key.
+  size_t UpdateGrandparentBoundaryInfo(const Slice& internal_key);
 
   // Add current key from compaction_iterator to the output file. If needed
   // close and open new compaction output with the functions provided.
@@ -311,12 +313,21 @@ class CompactionOutputs {
   // An index that used to speed up ShouldStopBefore().
   size_t grandparent_index_ = 0;
 
+  // if the output key is being grandparent files gap, so:
+  //  key > grandparents[grandparent_index_ - 1].largest &&
+  //  key < grandparents[grandparent_index_].smallest
+  bool being_grandparent_gap_ = true;
+
   // The number of bytes overlapping between the current output and
   // grandparent files used in ShouldStopBefore().
-  uint64_t overlapped_bytes_ = 0;
+  uint64_t grandparent_overlapped_bytes_ = 0;
 
   // A flag determines whether the key has been seen in ShouldStopBefore()
   bool seen_key_ = false;
+
+  // for the current output file, how many file boundaries has it crossed,
+  // basically number of files overlapped * 2
+  size_t grandparent_boundary_switched_num_ = 0;
 };
 
 // helper struct to concatenate the last level and penultimate level outputs
