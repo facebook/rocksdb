@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 // handle successfullly read the item.
 class SecondaryCacheResultHandle {
  public:
-  virtual ~SecondaryCacheResultHandle() {}
+  virtual ~SecondaryCacheResultHandle() = default;
 
   // Returns whether the handle is ready or not
   virtual bool IsReady() = 0;
@@ -49,7 +49,7 @@ class SecondaryCacheResultHandle {
 // including data loss, unreported corruption, deadlocks, and more.
 class SecondaryCache : public Customizable {
  public:
-  virtual ~SecondaryCache() {}
+  ~SecondaryCache() override = default;
 
   static const char* Type() { return "SecondaryCache"; }
   static Status CreateFromString(const ConfigOptions& config_options,
@@ -83,7 +83,7 @@ class SecondaryCache : public Customizable {
       bool advise_erase, bool& is_in_sec_cache) = 0;
 
   // Indicate whether a handle can be erased in this secondary cache.
-  virtual bool SupportForceErase() const = 0;
+  [[nodiscard]] virtual bool SupportForceErase() const = 0;
 
   // At the discretion of the implementation, erase the data associated
   // with key.
@@ -92,7 +92,20 @@ class SecondaryCache : public Customizable {
   // Wait for a collection of handles to become ready.
   virtual void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) = 0;
 
-  virtual std::string GetPrintableOptions() const = 0;
+  // Set the maximum configured capacity of the cache.
+  // When the new capacity is less than the old capacity and the existing usage
+  // is greater than new capacity, the implementation will do its best job to
+  // purge the released entries from the cache in order to lower the usage.
+  //
+  // The derived class can make this function no-op and return NotSupported().
+  virtual Status SetCapacity(size_t /* capacity */) {
+    return Status::NotSupported();
+  }
+
+  // The derived class can make this function no-op and return NotSupported().
+  virtual Status GetCapacity(size_t& /* capacity */) {
+    return Status::NotSupported();
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE
