@@ -148,7 +148,13 @@ class GetContext {
     return max_covering_tombstone_seq_;
   }
 
-  std::string* timestamp() { return timestamp_; }
+  bool NeedTimestamp() { return timestamp_ != nullptr; }
+
+  void SetTimestampFromRangeTombstone(const Slice& timestamp) {
+    assert(timestamp_);
+    timestamp_->assign(timestamp.data(), timestamp.size());
+    ts_from_rangetombstone_ = true;
+  }
 
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
@@ -192,6 +198,7 @@ class GetContext {
   PinnableSlice* pinnable_val_;
   PinnableWideColumns* columns_;
   std::string* timestamp_;
+  bool ts_from_rangetombstone_{false};
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   SequenceNumber* max_covering_tombstone_seq_;

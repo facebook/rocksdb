@@ -542,6 +542,7 @@ class IterKey {
 
   // If `ts` is provided, user_key should not contain timestamp,
   // and `ts` is appended after user_key.
+  // TODO: more efficient storage for timestamp.
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
                       SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,
@@ -700,6 +701,8 @@ struct RangeTombstone {
   Slice start_key_;
   Slice end_key_;
   SequenceNumber seq_;
+  // TODO: we should optimize the storage here when user-defined timestamp
+  //  is NOT enabled: they currently take up (16 + 32 + 32) bytes per tombstone.
   Slice ts_;
   std::string pinned_start_key_;
   std::string pinned_end_key_;

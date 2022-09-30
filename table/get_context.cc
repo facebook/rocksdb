@@ -250,6 +250,20 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     if (ts_sz > 0 && timestamp_ != nullptr) {
       if (!timestamp_->empty()) {
         assert(ts_sz == timestamp_->size());
+        // `timestamp` can be set before `SaveValue` is ever called
+        // when max_covering_tombstone_seq_ was set.
+        // If this key has a higher sequence number than range tombstone,
+        // then timestamp should be updated. `ts_from_rangetombstone_` is
+        // set to false afterwards so that only the key with highest seqno
+        // updates the timestamp.
+        if (ts_from_rangetombstone_) {
+          assert(max_covering_tombstone_seq_);
+          if (parsed_key.sequence > *max_covering_tombstone_seq_) {
+            Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+            timestamp_->assign(ts.data(), ts.size());
+            ts_from_rangetombstone_ = false;
+          }
+        }
       }
       // TODO optimize for small size ts
       const std::string kMaxTs(ts_sz, '\xff');

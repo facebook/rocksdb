@@ -494,10 +494,9 @@ Status TableCache::Get(
             range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k));
         if (seq > *max_covering_tombstone_seq) {
           *max_covering_tombstone_seq = seq;
-          if (get_context->timestamp()) {
-            get_context->timestamp()->assign(
-                range_del_iter->timestamp().data(),
-                range_del_iter->timestamp().size());
+          if (get_context->NeedTimestamp()) {
+            get_context->SetTimestampFromRangeTombstone(
+                range_del_iter->timestamp());
           }
         }
       }
@@ -546,10 +545,9 @@ void TableCache::UpdateRangeTombstoneSeqnums(
           range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts);
       if (seq > *max_covering_tombstone_seq) {
         *max_covering_tombstone_seq = seq;
-        if (iter->get_context->timestamp()) {
-          iter->get_context->timestamp()->assign(
-              range_del_iter->timestamp().data(),
-              range_del_iter->timestamp().size());
+        if (iter->get_context->NeedTimestamp()) {
+          iter->get_context->SetTimestampFromRangeTombstone(
+              range_del_iter->timestamp());
         }
       }
     }

@@ -961,9 +961,20 @@ static bool SaveValue(void* arg, const char* entry) {
 
     if (s->seq == kMaxSequenceNumber) {
       s->seq = seq;
+      if (s->seq > max_covering_tombstone_seq) {
+        if (ts_sz && s->timestamp != nullptr) {
+          // `timestamp` was set to range tombstone's timestamp before
+          // `SaveValue` is ever called. This key has a higher sequence number
+          // than range tombstone, and is the key with the highest seqno across
+          // all keys with this user_key, so we update timestamp here.
+          assert(s->timestamp->size() == ts_sz);
+          Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
+          s->timestamp->assign(ts.data(), ts_sz);
+        }
+      } else {
+        s->seq = max_covering_tombstone_seq;
+      }
     }
-
-    s->seq = std::max(s->seq, max_covering_tombstone_seq);
 
     if (ts_sz > 0 && s->timestamp != nullptr) {
       if (!s->timestamp->empty()) {
@@ -982,9 +993,6 @@ static bool SaveValue(void* arg, const char* entry) {
          type == kTypeWideColumnEntity || type == kTypeDeletion ||
          type == kTypeSingleDeletion || type == kTypeDeletionWithTimestamp) &&
         max_covering_tombstone_seq > seq) {
-      // Note that deletion types are also considered, this is for the case
-      // when we need to return timestamp to user. If a range tombstone has a
-      // higher seqno than point tombstone, its timestamp should be returned.
       type = kTypeRangeDeletion;
     }
     switch (type) {
