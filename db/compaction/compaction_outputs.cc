@@ -341,8 +341,6 @@ Status CompactionOutputs::AddToOutput(
       return s;
     }
     // reset grandparent information
-    const std::vector<FileMetaData*>& grandparents =
-        compaction_->grandparents();
     grandparent_overlapped_bytes_ = 0;
     grandparent_boundary_switched_num_ = 0;
     grandparent_overlapped_bytes_ =
