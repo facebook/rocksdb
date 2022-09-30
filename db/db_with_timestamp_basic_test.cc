@@ -3677,7 +3677,7 @@ TEST_F(DBBasicTestWithTimestamp, DeleteRangeGetIteratorWithSnapshot) {
   for (int i = 0; i < kNum; ++i) {
     if (i == kRangeBegin) {
       expected_status[i] = Status::NotFound();
-      expected_values.clear();
+      expected_values[i].clear();
     } else {
       expected_status[i] = Status::OK();
       expected_values[i] = "val" + std::to_string(i);
