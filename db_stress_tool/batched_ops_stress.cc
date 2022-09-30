@@ -26,31 +26,41 @@ class BatchedOpsStressTest : public StressTest {
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys,
                  char (&value)[100]) override {
-    uint32_t value_base =
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    const std::string key_suffix = Key(rand_keys[0]);
+
+    const uint32_t value_base =
         thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
-    size_t sz = GenerateValue(value_base, value, sizeof(value));
-    Slice v(value, sz);
-    std::string keys[10] = {"9", "8", "7", "6", "5", "4", "3", "2", "1", "0"};
-    std::string values[10] = {"9", "8", "7", "6", "5", "4", "3", "2", "1", "0"};
-    Slice value_slices[10];
+    const size_t sz = GenerateValue(value_base, value, sizeof(value));
+    const std::string value_suffix = Slice(value, sz).ToString();
+
     WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
                      FLAGS_batch_protection_bytes_per_key,
                      FLAGS_user_timestamp_size);
-    Status s;
-    auto cfh = column_families_[rand_column_families[0]];
-    std::string key_str = Key(rand_keys[0]);
-    for (int i = 0; i < 10; i++) {
-      keys[i] += key_str;
-      values[i] += v.ToString();
-      value_slices[i] = values[i];
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    for (int i = 9; i >= 0; --i) {
+      const std::string prefix = std::to_string(i);
+
+      const std::string k = prefix + key_suffix;
+      const std::string v = prefix + value_suffix;
+
       if (FLAGS_use_merge) {
-        batch.Merge(cfh, keys[i], value_slices[i]);
+        batch.Merge(cfh, k, v);
+      } else if (FLAGS_use_put_entity_one_in > 0 &&
+                 (value_base % FLAGS_use_put_entity_one_in) == 0) {
+        batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
       } else {
-        batch.Put(cfh, keys[i], value_slices[i]);
+        batch.Put(cfh, k, v);
       }
     }
 
-    s = db_->Write(write_opts, &batch);
+    const Status s = db_->Write(write_opts, &batch);
+
     if (!s.ok()) {
       fprintf(stderr, "multiput error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);

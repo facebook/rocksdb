@@ -457,11 +457,14 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   Status s;
   for (auto cfh : column_families_) {
     for (int64_t k = 0; k != number_of_keys; ++k) {
-      std::string key_str = Key(k);
-      Slice key = key_str;
-      size_t sz = GenerateValue(0 /*value_base*/, value, sizeof(value));
-      Slice v(value, sz);
-      shared->Put(cf_idx, k, 0, true /* pending */);
+      const std::string key = Key(k);
+
+      constexpr uint32_t value_base = 0;
+      const size_t sz = GenerateValue(value_base, value, sizeof(value));
+
+      const Slice v(value, sz);
+
+      shared->Put(cf_idx, k, value_base, true /* pending */);
 
       if (FLAGS_use_merge) {
         if (!FLAGS_use_txn) {
@@ -478,13 +481,13 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
           }
 #endif
         }
+      } else if (FLAGS_use_put_entity_one_in > 0) {
+        s = db_->PutEntity(write_opts, cfh, key,
+                           GenerateWideColumns(value_base, v));
       } else {
         if (!FLAGS_use_txn) {
-          std::string ts_str;
-          Slice ts;
           if (FLAGS_user_timestamp_size > 0) {
-            ts_str = GetNowNanos();
-            ts = ts_str;
+            const std::string ts = GetNowNanos();
             s = db_->Put(write_opts, cfh, key, ts, v);
           } else {
             s = db_->Put(write_opts, cfh, key, v);
@@ -503,7 +506,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
         }
       }
 
-      shared->Put(cf_idx, k, 0, false /* pending */);
+      shared->Put(cf_idx, k, value_base, false /* pending */);
       if (!s.ok()) {
         break;
       }

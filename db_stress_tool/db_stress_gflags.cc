@@ -858,6 +858,10 @@ DEFINE_bool(use_merge, false,
             "On true, replaces all writes with a Merge "
             "that behaves like a Put");
 
+DEFINE_uint32(use_put_entity_one_in, 0,
+              "If greater than zero, PutEntity will be used once per every N "
+              "write ops on average.");
+
 DEFINE_bool(use_full_merge_v1, false,
             "On true, use a merge operator that implement the deprecated "
             "version of FullMerge");

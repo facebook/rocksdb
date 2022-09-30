@@ -57,10 +57,14 @@ class NonBatchedOpsStressTest : public StressTest {
         kNumberOfMethods
       };
 
-      const int num_methods =
+      constexpr int num_methods =
           static_cast<int>(VerificationMethod::kNumberOfMethods);
+
+      // Note: Merge/GetMergeOperands is currently not supported for wide-column
+      // entities
       const VerificationMethod method =
-          static_cast<VerificationMethod>(thread->rand.Uniform(num_methods));
+          static_cast<VerificationMethod>(thread->rand.Uniform(
+              FLAGS_use_put_entity_one_in > 0 ? num_methods - 1 : num_methods));
 
       if (method == VerificationMethod::kIterator) {
         std::unique_ptr<Iterator> iter(
@@ -88,13 +92,11 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           Status s = iter->status();
-          Slice iter_key;
+
           std::string from_db;
 
           if (iter->Valid()) {
-            iter_key = iter->key();
-
-            const int diff = iter_key.compare(k);
+            const int diff = iter->key().compare(k);
 
             if (diff > 0) {
               s = Status::NotFound();
@@ -708,38 +710,44 @@ class NonBatchedOpsStressTest : public StressTest {
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys,
                  char (&value)[100]) override {
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
     auto shared = thread->shared;
-    int64_t max_key = shared->GetMaxKey();
+    assert(shared);
+
+    const int64_t max_key = shared->GetMaxKey();
+
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
-    std::string write_ts_str;
-    Slice write_ts;
+    std::string write_ts;
+
     std::unique_ptr<MutexLock> lock(
         new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
     while (!shared->AllowsOverwrite(rand_key) &&
            (FLAGS_use_merge || shared->Exists(rand_column_family, rand_key))) {
       lock.reset();
+
       rand_key = thread->rand.Next() % max_key;
       rand_column_family = thread->rand.Next() % FLAGS_column_families;
+
       lock.reset(
           new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
       if (FLAGS_user_timestamp_size > 0) {
-        write_ts_str = GetNowNanos();
-        write_ts = write_ts_str;
+        write_ts = GetNowNanos();
       }
     }
-    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
-      write_ts_str = GetNowNanos();
-      write_ts = write_ts_str;
+
+    if (write_ts.empty() && FLAGS_user_timestamp_size) {
+      write_ts = GetNowNanos();
     }
 
-    std::string key_str = Key(rand_key);
-    Slice key = key_str;
-    ColumnFamilyHandle* cfh = column_families_[rand_column_family];
+    const std::string k = Key(rand_key);
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_family];
+    assert(cfh);
 
     if (FLAGS_verify_before_write) {
-      std::string key_str2 = Key(rand_key);
-      Slice k = key_str2;
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
       if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
@@ -747,39 +755,47 @@ class NonBatchedOpsStressTest : public StressTest {
         return s;
       }
     }
-    uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
-    size_t sz = GenerateValue(value_base, value, sizeof(value));
-    Slice v(value, sz);
+
+    const uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
+    const size_t sz = GenerateValue(value_base, value, sizeof(value));
+    const Slice v(value, sz);
+
     shared->Put(rand_column_family, rand_key, value_base, true /* pending */);
+
     Status s;
+
     if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
-        s = db_->Merge(write_opts, cfh, key, v);
+        s = db_->Merge(write_opts, cfh, k, v);
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
         s = NewTxn(write_opts, &txn);
         if (s.ok()) {
-          s = txn->Merge(cfh, key, v);
+          s = txn->Merge(cfh, k, v);
           if (s.ok()) {
             s = CommitTxn(txn, thread);
           }
         }
 #endif
       }
+    } else if (FLAGS_use_put_entity_one_in > 0 &&
+               (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      s = db_->PutEntity(write_opts, cfh, k,
+                         GenerateWideColumns(value_base, v));
     } else {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
-          s = db_->Put(write_opts, cfh, key, v);
+          s = db_->Put(write_opts, cfh, k, v);
         } else {
-          s = db_->Put(write_opts, cfh, key, write_ts, v);
+          s = db_->Put(write_opts, cfh, k, write_ts, v);
         }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
         s = NewTxn(write_opts, &txn);
         if (s.ok()) {
-          s = txn->Put(cfh, key, v);
+          s = txn->Put(cfh, k, v);
           if (s.ok()) {
             s = CommitTxn(txn, thread);
           }
@@ -787,7 +803,9 @@ class NonBatchedOpsStressTest : public StressTest {
 #endif
       }
     }
+
     shared->Put(rand_column_family, rand_key, value_base, false /* pending */);
+
     if (!s.ok()) {
       if (FLAGS_injest_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
@@ -802,6 +820,7 @@ class NonBatchedOpsStressTest : public StressTest {
         std::terminate();
       }
     }
+
     thread->stats.AddBytesForWrites(1, sz);
     PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
                   sz);

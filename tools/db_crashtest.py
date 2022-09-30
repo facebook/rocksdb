@@ -124,6 +124,8 @@ default_params = {
     # fast_lru_cache is incompatible with stress tests, because it doesn't support strict_capacity_limit == false.
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
+    # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
+    "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
     "value_size_mult": 32,
@@ -348,6 +350,8 @@ txn_params = {
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
+    # PutEntity in transactions is not yet implemented
+    "use_put_entity_one_in" : 0,
 }
 
 best_efforts_recovery_params = {
@@ -392,6 +396,8 @@ ts_params = {
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "ingest_external_file_one_in": 0,
+    # PutEntity with timestamps is not yet implemented
+    "use_put_entity_one_in" : 0,
 }
 
 tiered_params = {
@@ -446,6 +452,8 @@ multiops_txn_default_params = {
     "enable_compaction_filter": 0,
     "create_timestamped_snapshot_one_in": 50,
     "sync_fault_injection": 0,
+    # PutEntity in transactions is not yet implemented
+    "use_put_entity_one_in" : 0,
 }
 
 multiops_wc_txn_params = {
@@ -595,6 +603,12 @@ def finalize_and_sanitize(src_params):
     # compatible with only write committed policy
     if (dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0):
         dest_params["sync_fault_injection"] = 0
+
+    # PutEntity is currently not supported with Merge
+    if dest_params["use_put_entity_one_in"] != 0:
+        dest_params["use_merge"] = 0
+        dest_params["use_full_merge_v1"] = 0
+
     return dest_params
 
 
