@@ -606,7 +606,7 @@ class PosixFileSystem : public FileSystem {
 #ifndef ASSERT_STATUS_CHECKED
            // In case of ASSERT_STATUS_CHECKED, GetChildren support older
            // version of API for debugging purpose.
-           || opts.list_files_only
+           || opts.do_not_recurse
 #endif
           );
       if (!ignore) {

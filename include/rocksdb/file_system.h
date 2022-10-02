@@ -112,9 +112,9 @@ struct IOOptions {
   // fsync, set this to force the fsync
   bool force_dir_fsync;
 
-  // Can be used by underlying file systems to skip sub directories and list
-  // only files in GetChildren API.
-  bool list_files_only;
+  // Can be used by underlying file systems to skip recursing through sub
+  // directories and list only files in GetChildren API.
+  bool do_not_recurse;
 
   IOOptions() : IOOptions(false) {}
 
@@ -124,7 +124,7 @@ struct IOOptions {
         rate_limiter_priority(Env::IO_TOTAL),
         type(IOType::kUnknown),
         force_dir_fsync(force_dir_fsync_),
-        list_files_only(false) {}
+        do_not_recurse(false) {}
 };
 
 struct DirFsyncOptions {

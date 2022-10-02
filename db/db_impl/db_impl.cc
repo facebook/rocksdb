@@ -4405,7 +4405,7 @@ Status DBImpl::CheckConsistency() {
     }
 
     IOOptions io_opts;
-    io_opts.list_files_only = true;
+    io_opts.do_not_recurse = true;
     for (const auto& dir_files : files_by_directory) {
       std::string directory = dir_files.first;
       std::vector<std::string> existing_files;
@@ -4821,7 +4821,7 @@ Status DBImpl::DeleteObsoleteOptionsFiles() {
   std::map<uint64_t, std::string> options_filenames;
   Status s;
   IOOptions io_opts;
-  io_opts.list_files_only = true;
+  io_opts.do_not_recurse = true;
   s = fs_->GetChildren(GetName(), io_opts, &filenames,
                        /*IODebugContext*=*/nullptr);
   if (!s.ok()) {

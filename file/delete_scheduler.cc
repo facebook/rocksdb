@@ -143,7 +143,7 @@ Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
   std::vector<std::string> files_in_path;
   const auto& fs = env->GetFileSystem();
   IOOptions io_opts;
-  io_opts.list_files_only = true;
+  io_opts.do_not_recurse = true;
   s = fs->GetChildren(path, io_opts, &files_in_path,
                       /*IODebugContext*=*/nullptr);
   if (!s.ok()) {
