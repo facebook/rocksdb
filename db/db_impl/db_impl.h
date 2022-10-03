@@ -222,6 +222,9 @@ class DBImpl : public DB {
   Status DeleteRange(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& begin_key,
                      const Slice& end_key) override;
+  Status DeleteRange(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key, const Slice& ts) override;
 
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
@@ -423,7 +426,7 @@ class DBImpl : public DB {
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
   virtual Status FlushWAL(bool sync) override;
-  bool TEST_WALBufferIsEmpty(bool lock = true);
+  bool WALBufferIsEmpty(bool lock = true);
   virtual Status SyncWAL() override;
   virtual Status LockWAL() override;
   virtual Status UnlockWAL() override;

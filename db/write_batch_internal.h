@@ -314,8 +314,12 @@ class TimestampUpdater : public WriteBatch::Handler {
   }
 
   Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
-                       const Slice&) override {
-    return UpdateTimestamp(cf, begin_key);
+                       const Slice& end_key) override {
+    Status s = UpdateTimestamp(cf, begin_key, true /* is_key */);
+    if (s.ok()) {
+      s = UpdateTimestamp(cf, end_key, false /* is_key */);
+    }
+    return s;
   }
 
   Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
@@ -341,13 +345,15 @@ class TimestampUpdater : public WriteBatch::Handler {
   Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
 
  private:
-  Status UpdateTimestamp(uint32_t cf, const Slice& key) {
-    Status s = UpdateTimestampImpl(cf, key, idx_);
+  // @param is_key specifies whether the update is for key or value.
+  Status UpdateTimestamp(uint32_t cf, const Slice& buf, bool is_key = true) {
+    Status s = UpdateTimestampImpl(cf, buf, idx_, is_key);
     ++idx_;
     return s;
   }
 
-  Status UpdateTimestampImpl(uint32_t cf, const Slice& key, size_t /*idx*/) {
+  Status UpdateTimestampImpl(uint32_t cf, const Slice& buf, size_t /*idx*/,
+                             bool is_key) {
     if (timestamp_.empty()) {
       return Status::InvalidArgument("Timestamp is empty");
     }
@@ -361,22 +367,27 @@ class TimestampUpdater : public WriteBatch::Handler {
     } else if (cf_ts_sz != timestamp_.size()) {
       return Status::InvalidArgument("timestamp size mismatch");
     }
-    UpdateProtectionInformationIfNeeded(key, timestamp_);
+    UpdateProtectionInformationIfNeeded(buf, timestamp_, is_key);
 
-    char* ptr = const_cast<char*>(key.data() + key.size() - cf_ts_sz);
+    char* ptr = const_cast<char*>(buf.data() + buf.size() - cf_ts_sz);
     assert(ptr);
     memcpy(ptr, timestamp_.data(), timestamp_.size());
     return Status::OK();
   }
 
-  void UpdateProtectionInformationIfNeeded(const Slice& key, const Slice& ts) {
+  void UpdateProtectionInformationIfNeeded(const Slice& buf, const Slice& ts,
+                                           bool is_key) {
     if (prot_info_ != nullptr) {
       const size_t ts_sz = ts.size();
-      SliceParts old_key(&key, 1);
-      Slice key_no_ts(key.data(), key.size() - ts_sz);
-      std::array<Slice, 2> new_key_cmpts{{key_no_ts, ts}};
-      SliceParts new_key(new_key_cmpts.data(), 2);
-      prot_info_->entries_[idx_].UpdateK(old_key, new_key);
+      SliceParts old(&buf, 1);
+      Slice old_no_ts(buf.data(), buf.size() - ts_sz);
+      std::array<Slice, 2> new_key_cmpts{{old_no_ts, ts}};
+      SliceParts new_parts(new_key_cmpts.data(), 2);
+      if (is_key) {
+        prot_info_->entries_[idx_].UpdateK(old, new_parts);
+      } else {
+        prot_info_->entries_[idx_].UpdateV(old, new_parts);
+      }
     }
   }
 

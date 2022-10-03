@@ -1035,7 +1035,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   NotifyOnSubcompactionBegin(sub_compact);
 
   auto range_del_agg = std::make_unique<CompactionRangeDelAggregator>(
-      &cfd->internal_comparator(), existing_snapshots_);
+      &cfd->internal_comparator(), existing_snapshots_, &full_history_ts_low_,
+      &trim_ts_);
 
   // TODO: since we already use C++17, should use
   // std::optional<const Slice> instead.
@@ -1455,7 +1456,7 @@ Status CompactionJob::FinishCompactionOutputFile(
                                          : nullptr,
           sub_compact->end.has_value() ? &(sub_compact->end.value()) : nullptr,
           range_del_out_stats, bottommost_level_, cfd->internal_comparator(),
-          earliest_snapshot, next_table_min_key);
+          earliest_snapshot, next_table_min_key, full_history_ts_low_);
     }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
     TEST_SYNC_POINT("CompactionJob::FinishCompactionOutputFile1");

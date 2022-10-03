@@ -239,6 +239,40 @@ uint32_t GetValueBase(Slice s) {
   return res;
 }
 
+WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
+  WideColumns columns;
+
+  constexpr size_t max_columns = 4;
+  const size_t num_columns = (value_base % max_columns) + 1;
+
+  columns.reserve(num_columns);
+
+  assert(slice.size() >= num_columns);
+
+  columns.emplace_back(kDefaultWideColumnName, slice);
+
+  for (size_t i = 1; i < num_columns; ++i) {
+    const Slice name(slice.data(), i);
+    const Slice value(slice.data() + i, slice.size() - i);
+
+    columns.emplace_back(name, value);
+  }
+
+  return columns;
+}
+
+WideColumns GenerateExpectedWideColumns(uint32_t value_base,
+                                        const Slice& slice) {
+  WideColumns columns = GenerateWideColumns(value_base, slice);
+
+  std::sort(columns.begin(), columns.end(),
+            [](const WideColumn& lhs, const WideColumn& rhs) {
+              return lhs.name().compare(rhs.name()) < 0;
+            });
+
+  return columns;
+}
+
 std::string GetNowNanos() {
   uint64_t t = db_stress_env->NowNanos();
   std::string ret;

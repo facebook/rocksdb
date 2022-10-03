@@ -7,6 +7,7 @@
 
 #include "db_stress_tool/expected_state.h"
 
+#include "db/wide/wide_column_serialization.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "rocksdb/trace_reader_writer.h"
@@ -402,6 +403,50 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     state_->Put(column_family_id, static_cast<int64_t>(key_id), value_id,
                 false /* pending */);
     ++num_write_ops_;
+    return Status::OK();
+  }
+
+  Status PutEntityCF(uint32_t column_family_id, const Slice& key_with_ts,
+                     const Slice& entity) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+
+    uint64_t key_id = 0;
+    if (!GetIntVal(key.ToString(), &key_id)) {
+      return Status::Corruption("Unable to parse key", key.ToString());
+    }
+
+    Slice entity_copy = entity;
+    WideColumns columns;
+    if (!WideColumnSerialization::Deserialize(entity_copy, columns).ok()) {
+      return Status::Corruption("Unable to deserialize entity",
+                                entity.ToString(/* hex */ true));
+    }
+
+    if (columns.empty() || columns[0].name() != kDefaultWideColumnName) {
+      return Status::Corruption("Cannot find default column in entity",
+                                entity.ToString(/* hex */ true));
+    }
+
+    const Slice& value_of_default = columns[0].value();
+
+    const uint32_t value_base = GetValueBase(value_of_default);
+
+    if (columns != GenerateExpectedWideColumns(value_base, value_of_default)) {
+      return Status::Corruption("Wide columns in entity inconsistent",
+                                entity.ToString(/* hex */ true));
+    }
+
+    if (buffered_writes_) {
+      return WriteBatchInternal::PutEntity(buffered_writes_.get(),
+                                           column_family_id, key, columns);
+    }
+
+    state_->Put(column_family_id, static_cast<int64_t>(key_id), value_base,
+                false /* pending */);
+
+    ++num_write_ops_;
+
     return Status::OK();
   }
 

@@ -1353,8 +1353,31 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
     return WriteBatchInternal::DeleteRange(this, cf_id, begin_key, end_key);
   }
 
-  return Status::InvalidArgument(
-      "Cannot call this method on column family enabling timestamp");
+  needs_in_place_update_ts_ = true;
+  has_key_with_ts_ = true;
+  std::string dummy_ts(ts_sz, '\0');
+  std::array<Slice, 2> begin_key_with_ts{{begin_key, dummy_ts}};
+  std::array<Slice, 2> end_key_with_ts{{end_key, dummy_ts}};
+  return WriteBatchInternal::DeleteRange(
+      this, cf_id, SliceParts(begin_key_with_ts.data(), 2),
+      SliceParts(end_key_with_ts.data(), 2));
+}
+
+Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
+                               const Slice& begin_key, const Slice& end_key,
+                               const Slice& ts) {
+  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  if (!s.ok()) {
+    return s;
+  }
+  assert(column_family);
+  has_key_with_ts_ = true;
+  uint32_t cf_id = column_family->GetID();
+  std::array<Slice, 2> key_with_ts{{begin_key, ts}};
+  std::array<Slice, 2> end_key_with_ts{{end_key, ts}};
+  return WriteBatchInternal::DeleteRange(this, cf_id,
+                                         SliceParts(key_with_ts.data(), 2),
+                                         SliceParts(end_key_with_ts.data(), 2));
 }
 
 Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
@@ -1928,10 +1951,9 @@ class MemTableInserter : public WriteBatch::Handler {
       // always 0 in
       // non-recovery, regular write code-path)
       // * If recovering_log_number_ < cf_mems_->GetLogNumber(), this means that
-      // column
-      // family already contains updates from this log. We can't apply updates
-      // twice because of update-in-place or merge workloads -- ignore the
-      // update
+      // column family already contains updates from this log. We can't apply
+      // updates twice because of update-in-place or merge workloads -- ignore
+      // the update
       *s = Status::OK();
       return false;
     }
@@ -2331,7 +2353,8 @@ class MemTableInserter : public WriteBatch::Handler {
             cfd->ioptions()->table_factory->Name() + " in CF " +
             cfd->GetName());
       }
-      int cmp = cfd->user_comparator()->Compare(begin_key, end_key);
+      int cmp =
+          cfd->user_comparator()->CompareWithoutTimestamp(begin_key, end_key);
       if (cmp > 0) {
         // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
         ret_status.PermitUncheckedError();

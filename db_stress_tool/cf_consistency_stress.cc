@@ -25,22 +25,36 @@ class CfConsistencyStressTest : public StressTest {
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys,
                  char (&value)[100]) override {
-    std::string key_str = Key(rand_keys[0]);
-    Slice key = key_str;
-    uint64_t value_base = batch_id_.fetch_add(1);
-    size_t sz =
-        GenerateValue(static_cast<uint32_t>(value_base), value, sizeof(value));
-    Slice v(value, sz);
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    const std::string k = Key(rand_keys[0]);
+
+    const uint32_t value_base = batch_id_.fetch_add(1);
+    const size_t sz = GenerateValue(value_base, value, sizeof(value));
+    const Slice v(value, sz);
+
     WriteBatch batch;
+
+    const bool use_put_entity = !FLAGS_use_merge &&
+                                FLAGS_use_put_entity_one_in > 0 &&
+                                (value_base % FLAGS_use_put_entity_one_in) == 0;
+
     for (auto cf : rand_column_families) {
-      ColumnFamilyHandle* cfh = column_families_[cf];
+      ColumnFamilyHandle* const cfh = column_families_[cf];
+      assert(cfh);
+
       if (FLAGS_use_merge) {
-        batch.Merge(cfh, key, v);
-      } else { /* !FLAGS_use_merge */
-        batch.Put(cfh, key, v);
+        batch.Merge(cfh, k, v);
+      } else if (use_put_entity) {
+        batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+      } else {
+        batch.Put(cfh, k, v);
       }
     }
+
     Status s = db_->Write(write_opts, &batch);
+
     if (!s.ok()) {
       fprintf(stderr, "multi put or merge error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
@@ -538,7 +552,7 @@ class CfConsistencyStressTest : public StressTest {
   }
 
  private:
-  std::atomic<int64_t> batch_id_;
+  std::atomic<uint32_t> batch_id_;
 };
 
 StressTest* CreateCfConsistencyStressTest() {

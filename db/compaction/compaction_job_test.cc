@@ -228,6 +228,9 @@ class CompactionJobTestBase : public testing::Test {
         test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     env_ = base_env;
     fs_ = env_->GetFileSystem();
+    // set default for the tests
+    mutable_cf_options_.target_file_size_base = 1024 * 1024;
+    mutable_cf_options_.max_compaction_bytes = 10 * 1024 * 1024;
   }
 
   void SetUp() override {
@@ -415,8 +418,9 @@ class CompactionJobTestBase : public testing::Test {
 
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
     if (table_type_ == TableTypeForTest::kMockTable) {
-      assert(expected_results.size() == 1);
-      mock_table_factory_->AssertLatestFile(expected_results[0]);
+      ASSERT_EQ(compaction_job_stats_.num_output_files,
+                expected_results.size());
+      mock_table_factory_->AssertLatestFiles(expected_results);
     } else {
       assert(table_type_ == TableTypeForTest::kBlockBasedTable);
     }
@@ -426,7 +430,8 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_EQ(expected_output_file_num, output_files.size());
 
     if (table_type_ == TableTypeForTest::kMockTable) {
-      assert(output_files.size() == 1);
+      assert(output_files.size() ==
+             static_cast<size_t>(expected_output_file_num));
       const FileMetaData* const output_file = output_files[0];
       ASSERT_EQ(output_file->oldest_blob_file_number,
                 expected_oldest_blob_file_numbers[0]);
@@ -620,12 +625,22 @@ class CompactionJobTestBase : public testing::Test {
       num_input_files += level_files.size();
     }
 
+    std::vector<FileMetaData*> grandparents;
+    // it should actually be the next non-empty level
+    const int kGrandparentsLevel = output_level + 1;
+    if (kGrandparentsLevel < cf_options_.num_levels) {
+      grandparents =
+          cfd_->current()->storage_info()->LevelFiles(kGrandparentsLevel);
+    }
+
     Compaction compaction(
         cfd->current()->storage_info(), *cfd->ioptions(),
         *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
-        compaction_input_files, output_level, 1024 * 1024, 10 * 1024 * 1024, 0,
-        kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts,
-        Temperature::kUnknown, max_subcompactions, {}, true);
+        compaction_input_files, output_level,
+        mutable_cf_options_.target_file_size_base,
+        mutable_cf_options_.max_compaction_bytes, 0, kNoCompression,
+        cfd->GetLatestMutableCFOptions()->compression_opts,
+        Temperature::kUnknown, max_subcompactions, grandparents, true);
     compaction.SetInputVersion(cfd->current());
 
     assert(db_options_.info_log);
@@ -1721,6 +1736,246 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   }
 }
 
+class CompactionJobDynamicFileSizeTest
+    : public CompactionJobTestBase,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  CompactionJobDynamicFileSizeTest()
+      : CompactionJobTestBase(
+            test::PerThreadDBPath("compaction_job_dynamic_file_size_test"),
+            BytewiseComparator(), [](uint64_t /*ts*/) { return ""; },
+            /*test_io_priority=*/false, TableTypeForTest::kMockTable) {}
+};
+
+TEST_P(CompactionJobDynamicFileSizeTest, CutForMaxCompactionBytes) {
+  // dynamic_file_size option should has no impact on cutting for max compaction
+  // bytes.
+  bool enable_dyanmic_file_size = GetParam();
+  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
+
+  NewDB();
+  mutable_cf_options_.target_file_size_base = 80;
+  mutable_cf_options_.max_compaction_bytes = 21;
+
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("c", 5U, kTypeValue), "val2"},
+      {KeyStr("n", 6U, kTypeValue), "val3"},
+  });
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("h", 3U, kTypeValue), "val"},
+                                   {KeyStr("j", 4U, kTypeValue), "val"}});
+  AddMockFile(file2, 1);
+
+  // Create three L2 files, each size 10.
+  // max_compaction_bytes 21 means the compaction output in L1 will
+  // be cut to at least two files.
+  auto file3 = mock::MakeMockFile({{KeyStr("b", 1U, kTypeValue), "val"},
+                                   {KeyStr("c", 1U, kTypeValue), "val"},
+                                   {KeyStr("c1", 1U, kTypeValue), "val"},
+                                   {KeyStr("c2", 1U, kTypeValue), "val"},
+                                   {KeyStr("c3", 1U, kTypeValue), "val"},
+                                   {KeyStr("c4", 1U, kTypeValue), "val"},
+                                   {KeyStr("d", 1U, kTypeValue), "val"},
+                                   {KeyStr("e", 2U, kTypeValue), "val"}});
+  AddMockFile(file3, 2);
+
+  auto file4 = mock::MakeMockFile({{KeyStr("h", 1U, kTypeValue), "val"},
+                                   {KeyStr("i", 1U, kTypeValue), "val"},
+                                   {KeyStr("i1", 1U, kTypeValue), "val"},
+                                   {KeyStr("i2", 1U, kTypeValue), "val"},
+                                   {KeyStr("i3", 1U, kTypeValue), "val"},
+                                   {KeyStr("i4", 1U, kTypeValue), "val"},
+                                   {KeyStr("j", 1U, kTypeValue), "val"},
+                                   {KeyStr("k", 2U, kTypeValue), "val"}});
+  AddMockFile(file4, 2);
+
+  auto file5 = mock::MakeMockFile({{KeyStr("l", 1U, kTypeValue), "val"},
+                                   {KeyStr("m", 1U, kTypeValue), "val"},
+                                   {KeyStr("m1", 1U, kTypeValue), "val"},
+                                   {KeyStr("m2", 1U, kTypeValue), "val"},
+                                   {KeyStr("m3", 1U, kTypeValue), "val"},
+                                   {KeyStr("m4", 1U, kTypeValue), "val"},
+                                   {KeyStr("n", 1U, kTypeValue), "val"},
+                                   {KeyStr("o", 2U, kTypeValue), "val"}});
+  AddMockFile(file5, 2);
+
+  auto expected_file1 =
+      mock::MakeMockFile({{KeyStr("c", 5U, kTypeValue), "val2"},
+                          {KeyStr("h", 3U, kTypeValue), "val"}});
+  auto expected_file2 =
+      mock::MakeMockFile({{KeyStr("j", 4U, kTypeValue), "val"},
+                          {KeyStr("n", 6U, kTypeValue), "val3"}});
+
+  SetLastSequence(6U);
+
+  const std::vector<int> input_levels = {0, 1};
+  auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
+  auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
+
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2});
+}
+
+TEST_P(CompactionJobDynamicFileSizeTest, CutToSkipGrandparentFile) {
+  bool enable_dyanmic_file_size = GetParam();
+  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
+
+  NewDB();
+  // Make sure the grandparent level file size (10) qualifies skipping.
+  // Currently, it has to be > 1/8 of target file size.
+  mutable_cf_options_.target_file_size_base = 70;
+
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("a", 5U, kTypeValue), "val2"},
+      {KeyStr("z", 6U, kTypeValue), "val3"},
+  });
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("c", 3U, kTypeValue), "val"},
+                                   {KeyStr("x", 4U, kTypeValue), "val"}});
+  AddMockFile(file2, 1);
+
+  auto file3 = mock::MakeMockFile({{KeyStr("b", 1U, kTypeValue), "val"},
+                                   {KeyStr("d", 2U, kTypeValue), "val"}});
+  AddMockFile(file3, 2);
+
+  auto file4 = mock::MakeMockFile({{KeyStr("h", 1U, kTypeValue), "val"},
+                                   {KeyStr("i", 2U, kTypeValue), "val"}});
+  AddMockFile(file4, 2);
+
+  auto file5 = mock::MakeMockFile({{KeyStr("v", 1U, kTypeValue), "val"},
+                                   {KeyStr("y", 2U, kTypeValue), "val"}});
+  AddMockFile(file5, 2);
+
+  auto expected_file1 =
+      mock::MakeMockFile({{KeyStr("a", 5U, kTypeValue), "val2"},
+                          {KeyStr("c", 3U, kTypeValue), "val"}});
+  auto expected_file2 =
+      mock::MakeMockFile({{KeyStr("x", 4U, kTypeValue), "val"},
+                          {KeyStr("z", 6U, kTypeValue), "val3"}});
+
+  auto expected_file_disable_dynamic_file_size =
+      mock::MakeMockFile({{KeyStr("a", 5U, kTypeValue), "val2"},
+                          {KeyStr("c", 3U, kTypeValue), "val"},
+                          {KeyStr("x", 4U, kTypeValue), "val"},
+                          {KeyStr("z", 6U, kTypeValue), "val3"}});
+
+  SetLastSequence(6U);
+  const std::vector<int> input_levels = {0, 1};
+  auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
+  auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
+  if (enable_dyanmic_file_size) {
+    RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                  {expected_file1, expected_file2});
+  } else {
+    RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                  {expected_file_disable_dynamic_file_size});
+  }
+}
+
+TEST_P(CompactionJobDynamicFileSizeTest, CutToAlignGrandparentBoundary) {
+  bool enable_dyanmic_file_size = GetParam();
+  cf_options_.level_compaction_dynamic_file_size = enable_dyanmic_file_size;
+  NewDB();
+
+  // MockTable has 1 byte per entry by default and each file is 10 bytes.
+  // When the file size is smaller than 100, it won't cut file earlier to align
+  // with its grandparent boundary.
+  const size_t kKeyValueSize = 10000;
+  mock_table_factory_->SetKeyValueSize(kKeyValueSize);
+
+  mutable_cf_options_.target_file_size_base = 10 * kKeyValueSize;
+
+  mock::KVVector file1;
+  char ch = 'd';
+  // Add value from d -> o
+  for (char i = 0; i < 12; i++) {
+    file1.emplace_back(KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
+                       "val" + std::to_string(i));
+  }
+
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("e", 3U, kTypeValue), "val"},
+                                   {KeyStr("s", 4U, kTypeValue), "val"}});
+  AddMockFile(file2, 1);
+
+  // the 1st grandparent file should be skipped
+  auto file3 = mock::MakeMockFile({{KeyStr("a", 1U, kTypeValue), "val"},
+                                   {KeyStr("b", 2U, kTypeValue), "val"}});
+  AddMockFile(file3, 2);
+
+  auto file4 = mock::MakeMockFile({{KeyStr("c", 1U, kTypeValue), "val"},
+                                   {KeyStr("e", 2U, kTypeValue), "val"}});
+  AddMockFile(file4, 2);
+
+  auto file5 = mock::MakeMockFile({{KeyStr("h", 1U, kTypeValue), "val"},
+                                   {KeyStr("j", 2U, kTypeValue), "val"}});
+  AddMockFile(file5, 2);
+
+  auto file6 = mock::MakeMockFile({{KeyStr("k", 1U, kTypeValue), "val"},
+                                   {KeyStr("n", 2U, kTypeValue), "val"}});
+  AddMockFile(file6, 2);
+
+  auto file7 = mock::MakeMockFile({{KeyStr("q", 1U, kTypeValue), "val"},
+                                   {KeyStr("t", 2U, kTypeValue), "val"}});
+  AddMockFile(file7, 2);
+
+  // The expected outputs are:
+  //  L1:         [d,e,f,g,h,i,j] [k,l,m,n,o,s]
+  //  L2: [a, b] [c,  e]   [h, j] [k, n]  [q, t]
+  // The first output cut earlier at "j", so it could be aligned with L2 files.
+  // If dynamic_file_size is not enabled, it will be cut based on the
+  // target_file_size
+  mock::KVVector expected_file1;
+  for (char i = 0; i < 7; i++) {
+    expected_file1.emplace_back(
+        KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
+        "val" + std::to_string(i));
+  }
+
+  mock::KVVector expected_file2;
+  for (char i = 7; i < 12; i++) {
+    expected_file2.emplace_back(
+        KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
+        "val" + std::to_string(i));
+  }
+  expected_file2.emplace_back(KeyStr("s", 4U, kTypeValue), "val");
+
+  mock::KVVector expected_file_disable_dynamic_file_size1;
+  for (char i = 0; i < 10; i++) {
+    expected_file_disable_dynamic_file_size1.emplace_back(
+        KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
+        "val" + std::to_string(i));
+  }
+
+  mock::KVVector expected_file_disable_dynamic_file_size2;
+  for (char i = 10; i < 12; i++) {
+    expected_file_disable_dynamic_file_size2.emplace_back(
+        KeyStr(std::string(1, ch + i), i + 10, kTypeValue),
+        "val" + std::to_string(i));
+  }
+
+  expected_file_disable_dynamic_file_size2.emplace_back(
+      KeyStr("s", 4U, kTypeValue), "val");
+
+  SetLastSequence(22U);
+  const std::vector<int> input_levels = {0, 1};
+  auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
+  auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
+  if (enable_dyanmic_file_size) {
+    RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                  {expected_file1, expected_file2});
+  } else {
+    RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                  {expected_file_disable_dynamic_file_size1,
+                   expected_file_disable_dynamic_file_size2});
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(CompactionJobDynamicFileSizeTest,
+                        CompactionJobDynamicFileSizeTest, testing::Bool());
 
 class CompactionJobTimestampTest : public CompactionJobTestBase {
  public:

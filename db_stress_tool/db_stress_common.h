@@ -86,6 +86,7 @@ DECLARE_string(options_file);
 DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
+DECLARE_int32(manual_wal_flush_one_in);
 DECLARE_bool(test_cf_consistency);
 DECLARE_bool(test_multi_ops_txns);
 DECLARE_int32(threads);
@@ -235,6 +236,7 @@ DECLARE_bool(in_place_update);
 DECLARE_string(memtablerep);
 DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
+DECLARE_uint32(use_put_entity_one_in);
 DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
@@ -619,6 +621,10 @@ extern std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
 
 extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
 extern uint32_t GetValueBase(Slice s);
+
+extern WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
+extern WideColumns GenerateExpectedWideColumns(uint32_t value_base,
+                                               const Slice& slice);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
