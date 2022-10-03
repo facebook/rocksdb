@@ -621,10 +621,10 @@ class Cache {
   // saved and used later when the object is evicted. Therefore, it must
   // outlive the cache.
   //
-  // ======================== Async Lookup (wait=true) ======================
-  // When wait=true, the handle returned might be in any of three states:
+  // ======================== Async Lookup (wait=false) ======================
+  // When wait=false, the handle returned might be in any of three states:
   // * Present - If Value() != nullptr, then the result is present and
-  // the handle can be used just as if wait=false.
+  // the handle can be used just as if wait=true.
   // * Pending, not ready (IsReady() == false) - secondary cache is still
   // working to retrieve the value. Might become ready any time.
   // * Pending, ready (IsReady() == true) - secondary cache has the value
