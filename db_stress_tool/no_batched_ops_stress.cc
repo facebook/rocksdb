@@ -1334,7 +1334,8 @@ class NonBatchedOpsStressTest : public StressTest {
       const WideColumns expected_columns = GenerateExpectedWideColumns(
           GetValueBase(value_from_db), value_from_db);
       if (*columns_from_db != expected_columns) {
-        VerificationAbort(shared, "Value and columns inconsistent", cf, key);
+        VerificationAbort(shared, "Value and columns inconsistent", cf, key,
+                          value_from_db, *columns_from_db);
         return false;
       }
     }
