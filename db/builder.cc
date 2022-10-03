@@ -90,7 +90,7 @@ Status BuildTable(
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
-                                       snapshots));
+                                       snapshots, full_history_ts_low));
   uint64_t num_unfragmented_tombstones = 0;
   uint64_t total_tombstone_payload_bytes = 0;
   for (auto& range_del_iter : range_del_iters) {

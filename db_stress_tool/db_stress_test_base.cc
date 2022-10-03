@@ -334,7 +334,14 @@ void StressTest::FinishInitDb(SharedState* shared) {
 }
 
 void StressTest::TrackExpectedState(SharedState* shared) {
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+  // For `FLAGS_manual_wal_flush_one_inWAL`
+  // data can be lost when `manual_wal_flush_one_in > 0` and `FlushWAL()` is not
+  // explictly called by users of RocksDB (in our case, db stress).
+  // Therefore recovery from such potential WAL data loss is a prefix recovery
+  // that requires tracing
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal ||
+       FLAGS_manual_wal_flush_one_in > 0) &&
+      IsStateTracked()) {
     Status s = shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -796,6 +803,15 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       MaybeClearOneColumnFamily(thread);
 
+      if (thread->rand.OneInOpt(FLAGS_manual_wal_flush_one_in)) {
+        bool sync = thread->rand.OneIn(2) ? true : false;
+        Status s = db_->FlushWAL(sync);
+        if (!s.ok()) {
+          fprintf(stderr, "FlushWAL(sync=%s) failed: %s\n",
+                  (sync ? "true" : "false"), s.ToString().c_str());
+        }
+      }
+
       if (thread->rand.OneInOpt(FLAGS_sync_wal_one_in)) {
         Status s = db_->SyncWAL();
         if (!s.ok() && !s.IsNotSupported()) {
@@ -938,15 +954,11 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       // Assign timestamps if necessary.
       std::string read_ts_str;
-      std::string write_ts_str;
       Slice read_ts;
-      Slice write_ts;
       if (FLAGS_user_timestamp_size > 0) {
         read_ts_str = GetNowNanos();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
-        write_ts_str = GetNowNanos();
-        write_ts = write_ts_str;
       }
 
       int prob_op = thread->rand.Uniform(100);
@@ -2312,6 +2324,8 @@ void StressTest::PrintEnv() const {
           FLAGS_read_only ? "true" : "false");
   fprintf(stdout, "Atomic flush              : %s\n",
           FLAGS_atomic_flush ? "true" : "false");
+  fprintf(stdout, "Manual WAL flush          : %s\n",
+          FLAGS_manual_wal_flush_one_in > 0 ? "true" : "false");
   fprintf(stdout, "Column families           : %d\n", FLAGS_column_families);
   if (!FLAGS_test_batches_snapshots) {
     fprintf(stdout, "Clear CFs one in          : %d\n",
@@ -2820,7 +2834,9 @@ void StressTest::Reopen(ThreadState* thread) {
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open(thread->shared);
 
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal ||
+       FLAGS_manual_wal_flush_one_in > 0) &&
+      IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -2830,17 +2846,17 @@ void StressTest::Reopen(ThreadState* thread) {
   }
 }
 
-void StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+bool StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
                                                       std::string& ts_str,
                                                       Slice& ts_slice,
                                                       ReadOptions& read_opts) {
   if (FLAGS_user_timestamp_size == 0) {
-    return;
+    return false;
   }
 
   assert(thread);
   if (!thread->rand.OneInOpt(3)) {
-    return;
+    return false;
   }
 
   const SharedState* const shared = thread->shared;
@@ -2856,6 +2872,7 @@ void StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
   PutFixed64(&ts_str, ts);
   ts_slice = ts_str;
   read_opts.timestamp = &ts_slice;
+  return true;
 }
 
 void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
@@ -2911,10 +2928,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
   }
   if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
     fprintf(stderr, "Merge does not support timestamp yet.\n");
-    exit(1);
-  }
-  if (FLAGS_delrangepercent > 0) {
-    fprintf(stderr, "DeleteRange does not support timestamp yet.\n");
     exit(1);
   }
   if (FLAGS_use_txn) {
@@ -3113,6 +3126,7 @@ void InitializeOptionsFromFlags(
   options.compaction_options_universal.max_size_amplification_percent =
       FLAGS_universal_max_size_amplification_percent;
   options.atomic_flush = FLAGS_atomic_flush;
+  options.manual_wal_flush = FLAGS_manual_wal_flush_one_in > 0 ? true : false;
   options.avoid_unnecessary_blocking_io = FLAGS_avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
   options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;

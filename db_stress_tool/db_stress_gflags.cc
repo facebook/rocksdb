@@ -85,6 +85,13 @@ DEFINE_bool(test_batches_snapshots, false,
 DEFINE_bool(atomic_flush, false,
             "If set, enables atomic flush in the options.\n");
 
+DEFINE_int32(
+    manual_wal_flush_one_in, 0,
+    "If non-zero, then `FlushWAL(bool sync)`, where `bool sync` is randomly "
+    "decided, will be explictly called in db stress once for every N ops "
+    "on average. Setting `manual_wal_flush_one_in` to be greater than 0 "
+    "implies `Options::manual_wal_flush = true` is set.");
+
 DEFINE_bool(test_cf_consistency, false,
             "If set, runs the stress test dedicated to verifying writes to "
             "multiple column families are consistent. Setting this implies "

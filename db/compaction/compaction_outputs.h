@@ -168,11 +168,16 @@ class CompactionOutputs {
   }
 
   // Add range-dels from the aggregator to the current output file
-  Status AddRangeDels(const Slice* comp_start, const Slice* comp_end,
+  // @param comp_start_user_key and comp_end_user_key include timestamp if
+  // user-defined timestamp is enabled.
+  // @param full_history_ts_low used for range tombstone garbage collection.
+  Status AddRangeDels(const Slice* comp_start_user_key,
+                      const Slice* comp_end_user_key,
                       CompactionIterationStats& range_del_out_stats,
                       bool bottommost_level, const InternalKeyComparator& icmp,
                       SequenceNumber earliest_snapshot,
-                      const Slice& next_table_min_key);
+                      const Slice& next_table_min_key,
+                      const std::string& full_history_ts_low);
 
   // if the outputs have range delete, range delete is also data
   bool HasRangeDel() const {

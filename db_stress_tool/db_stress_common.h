@@ -86,6 +86,7 @@ DECLARE_string(options_file);
 DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
+DECLARE_int32(manual_wal_flush_one_in);
 DECLARE_bool(test_cf_consistency);
 DECLARE_bool(test_multi_ops_txns);
 DECLARE_int32(threads);

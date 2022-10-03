@@ -1453,6 +1453,18 @@ Status DBImpl::FlushWAL(bool sync) {
   return SyncWAL();
 }
 
+bool DBImpl::WALBufferIsEmpty(bool lock) {
+  if (lock) {
+    log_write_mutex_.Lock();
+  }
+  log::Writer* cur_log_writer = logs_.back().writer;
+  auto res = cur_log_writer->BufferIsEmpty();
+  if (lock) {
+    log_write_mutex_.Unlock();
+  }
+  return res;
+}
+
 Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBImpl::SyncWAL:Begin");
   autovector<log::Writer*, 1> logs_to_sync;
