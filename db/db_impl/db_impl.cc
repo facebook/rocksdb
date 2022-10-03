@@ -4403,10 +4403,14 @@ Status DBImpl::CheckConsistency() {
       }
       files_by_directory[md.db_path].push_back(fname);
     }
+
+    IOOptions io_opts;
+    io_opts.do_not_recurse = true;
     for (const auto& dir_files : files_by_directory) {
       std::string directory = dir_files.first;
       std::vector<std::string> existing_files;
-      Status s = env_->GetChildren(directory, &existing_files);
+      Status s = fs_->GetChildren(directory, io_opts, &existing_files,
+                                  /*IODebugContext*=*/nullptr);
       if (!s.ok()) {
         corruption_messages +=
             "Can't list files in " + directory + ": " + s.ToString() + "\n";
@@ -4588,8 +4592,12 @@ Status DestroyDB(const std::string& dbname, const Options& options,
   // Reset the logger because it holds a handle to the
   // log file and prevents cleanup and directory removal
   soptions.info_log.reset();
+  IOOptions io_opts;
   // Ignore error in case directory does not exist
-  env->GetChildren(dbname, &filenames).PermitUncheckedError();
+  soptions.fs
+      ->GetChildren(dbname, io_opts, &filenames,
+                    /*IODebugContext*=*/nullptr)
+      .PermitUncheckedError();
 
   FileLock* lock;
   const std::string lockname = LockFileName(dbname);
@@ -4629,8 +4637,12 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         paths.insert(cf_path.path);
       }
     }
+
     for (const auto& path : paths) {
-      if (env->GetChildren(path, &filenames).ok()) {
+      if (soptions.fs
+              ->GetChildren(path, io_opts, &filenames,
+                            /*IODebugContext*=*/nullptr)
+              .ok()) {
         for (const auto& fname : filenames) {
           if (ParseFileName(fname, &number, &type) &&
               (type == kTableFile ||
@@ -4652,7 +4664,11 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     std::string archivedir = ArchivalDirectory(dbname);
     bool wal_dir_exists = false;
     if (!soptions.IsWalDirSameAsDBPath(dbname)) {
-      wal_dir_exists = env->GetChildren(soptions.wal_dir, &walDirFiles).ok();
+      wal_dir_exists =
+          soptions.fs
+              ->GetChildren(soptions.wal_dir, io_opts, &walDirFiles,
+                            /*IODebugContext*=*/nullptr)
+              .ok();
       archivedir = ArchivalDirectory(soptions.wal_dir);
     }
 
@@ -4660,7 +4676,10 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     // processed and removed before those otherwise we have issues
     // removing them
     std::vector<std::string> archiveFiles;
-    if (env->GetChildren(archivedir, &archiveFiles).ok()) {
+    if (soptions.fs
+            ->GetChildren(archivedir, io_opts, &archiveFiles,
+                          /*IODebugContext*=*/nullptr)
+            .ok()) {
       // Delete archival files.
       for (const auto& file : archiveFiles) {
         if (ParseFileName(file, &number, &type) && type == kWalFile) {
@@ -4801,7 +4820,10 @@ Status DBImpl::DeleteObsoleteOptionsFiles() {
   // to the oldest.
   std::map<uint64_t, std::string> options_filenames;
   Status s;
-  s = GetEnv()->GetChildren(GetName(), &filenames);
+  IOOptions io_opts;
+  io_opts.do_not_recurse = true;
+  s = fs_->GetChildren(GetName(), io_opts, &filenames,
+                       /*IODebugContext*=*/nullptr);
   if (!s.ok()) {
     return s;
   }

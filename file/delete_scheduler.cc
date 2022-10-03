@@ -141,7 +141,11 @@ Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
   Status s;
   // Check if there are any files marked as trash in this path
   std::vector<std::string> files_in_path;
-  s = env->GetChildren(path, &files_in_path);
+  const auto& fs = env->GetFileSystem();
+  IOOptions io_opts;
+  io_opts.do_not_recurse = true;
+  s = fs->GetChildren(path, io_opts, &files_in_path,
+                      /*IODebugContext*=*/nullptr);
   if (!s.ok()) {
     return s;
   }
