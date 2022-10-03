@@ -8215,14 +8215,19 @@ TEST_F(DBCompactionTest, BottommostFileCompactionAllowIngestBehind) {
   auto snapshot = db_->GetSnapshot();
   // Bump up oldest_snapshot_seqnum_ in VersionStorageInfo.
   db_->ReleaseSnapshot(snapshot);
+  bool compacted = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* /* arg */) {
         // There should not be a compaction.
-        FAIL();
+        compacted = true;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  // This used to wait forever without the above callback.
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true /* wait_unscheduled */));
+  // Wait for compaction to be scheduled.
+  env_->SleepForMicroseconds(2000000);
+  ASSERT_FALSE(compacted);
+  // The following assert can be used to check for compaction loop:
+  // it used to wait forever before the fix.
+  // ASSERT_OK(dbfull()->TEST_WaitForCompact(true /* wait_unscheduled */));
 }
 
 #endif  // !defined(ROCKSDB_LITE)
