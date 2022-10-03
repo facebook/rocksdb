@@ -137,6 +137,7 @@ default_params = {
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    "stats_dump_period_sec": lambda: random.choice([0, 30]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
