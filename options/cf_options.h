@@ -64,6 +64,8 @@ struct ImmutableCFOptions {
 
   bool level_compaction_dynamic_level_bytes;
 
+  bool level_compaction_dynamic_file_size;
+
   int num_levels;
 
   bool optimize_filters_for_hits;

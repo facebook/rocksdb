@@ -143,7 +143,9 @@ bool RunStressTest(StressTest* stress) {
 
     // This is after the verification step to avoid making all those `Get()`s
     // and `MultiGet()`s contend on the DB-wide trace mutex.
-    stress->TrackExpectedState(&shared);
+    if (!FLAGS_expected_values_dir.empty()) {
+      stress->TrackExpectedState(&shared);
+    }
 
     now = clock->NowMicros();
     fprintf(stdout, "%s Starting database operations\n",

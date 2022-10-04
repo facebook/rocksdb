@@ -453,15 +453,15 @@ TEST_P(DBWriteTest, ManualWalFlushInEffect) {
   Reopen(options);
   // try the 1st WAL created during open
   ASSERT_TRUE(Put("key" + std::to_string(0), "value").ok());
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
-  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
   ASSERT_TRUE(Put("key" + std::to_string(0), "value").ok());
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
-  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
 }
 
 TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
@@ -609,16 +609,16 @@ TEST_P(DBWriteTest, LockWalInEffect) {
   Reopen(options);
   // try the 1st WAL created during open
   ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
   ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
   ASSERT_OK(dbfull()->UnlockWAL());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
   ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
   ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
   ASSERT_OK(dbfull()->UnlockWAL());
 }
 

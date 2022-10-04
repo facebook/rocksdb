@@ -639,6 +639,8 @@ class MemTable {
   // Always returns non-null and assumes certain pre-checks (e.g.,
   // is_range_del_table_empty_) are done. This is only valid during the lifetime
   // of the underlying memtable.
+  // read_seq and read_options.timestamp will be used as the upper bound
+  // for range tombstones.
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
       const ReadOptions& read_options, SequenceNumber read_seq,
       bool immutable_memtable);

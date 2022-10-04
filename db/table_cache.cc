@@ -490,9 +490,15 @@ Status TableCache::Get(
       std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
           t->NewRangeTombstoneIterator(options));
       if (range_del_iter != nullptr) {
-        *max_covering_tombstone_seq = std::max(
-            *max_covering_tombstone_seq,
-            range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k)));
+        SequenceNumber seq =
+            range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k));
+        if (seq > *max_covering_tombstone_seq) {
+          *max_covering_tombstone_seq = seq;
+          if (get_context->NeedTimestamp()) {
+            get_context->SetTimestampFromRangeTombstone(
+                range_del_iter->timestamp());
+          }
+        }
       }
     }
     if (s.ok()) {
@@ -535,9 +541,15 @@ void TableCache::UpdateRangeTombstoneSeqnums(
     for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
       SequenceNumber* max_covering_tombstone_seq =
           iter->get_context->max_covering_tombstone_seq();
-      *max_covering_tombstone_seq = std::max(
-          *max_covering_tombstone_seq,
-          range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
+      SequenceNumber seq =
+          range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts);
+      if (seq > *max_covering_tombstone_seq) {
+        *max_covering_tombstone_seq = seq;
+        if (iter->get_context->NeedTimestamp()) {
+          iter->get_context->SetTimestampFromRangeTombstone(
+              range_del_iter->timestamp());
+        }
+      }
     }
   }
 }

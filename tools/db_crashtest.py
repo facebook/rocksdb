@@ -78,6 +78,7 @@ default_params = {
     "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": 1000000,
+    "manual_wal_flush_one_in": lambda: random.choice([0, 0, 1000, 1000000]),
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_one_in": 1000000,
     # Note: the following two are intentionally disabled as the corresponding
@@ -125,6 +126,8 @@ default_params = {
     # fast_lru_cache is incompatible with stress tests, because it doesn't support strict_capacity_limit == false.
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
+    # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
+    "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
     "value_size_mult": 32,
@@ -349,6 +352,8 @@ txn_params = {
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
+    # PutEntity in transactions is not yet implemented
+    "use_put_entity_one_in" : 0,
 }
 
 best_efforts_recovery_params = {
@@ -385,14 +390,14 @@ ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
     "user_timestamp_size": 8,
-    "delrangepercent": 0,
-    "delpercent": 5,
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "ingest_external_file_one_in": 0,
+    # PutEntity with timestamps is not yet implemented
+    "use_put_entity_one_in" : 0,
 }
 
 tiered_params = {
@@ -447,6 +452,8 @@ multiops_txn_default_params = {
     "enable_compaction_filter": 0,
     "create_timestamped_snapshot_one_in": 50,
     "sync_fault_injection": 0,
+    # PutEntity in transactions is not yet implemented
+    "use_put_entity_one_in" : 0,
 }
 
 multiops_wc_txn_params = {
@@ -507,17 +514,18 @@ def finalize_and_sanitize(src_params):
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
-    if (
-        dest_params.get("test_batches_snapshots") == 1
-        or dest_params.get("use_txn") == 1
-        or dest_params.get("user_timestamp_size") > 0
-    ):
+    if (dest_params.get("test_batches_snapshots") == 1 or
+        dest_params.get("use_txn") == 1 or
+        dest_params.get("user_timestamp_size") > 0):
+        dest_params["ingest_external_file_one_in"] = 0
+    if (dest_params.get("test_batches_snapshots") == 1 or
+        dest_params.get("use_txn") == 1):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
-        dest_params["ingest_external_file_one_in"] = 0
     if (
         dest_params.get("disable_wal") == 1
         or dest_params.get("sync_fault_injection") == 1
+        or dest_params.get("manual_wal_flush_one_in") > 0
     ):
         # File ingestion does not guarantee prefix-recoverability when unsynced
         # data can be lost. Ingesting a file syncs data immediately that is
@@ -596,6 +604,12 @@ def finalize_and_sanitize(src_params):
     # compatible with only write committed policy
     if (dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0):
         dest_params["sync_fault_injection"] = 0
+        dest_params["manual_wal_flush_one_in"] = 0
+    # PutEntity is currently not supported with Merge
+    if dest_params["use_put_entity_one_in"] != 0:
+        dest_params["use_merge"] = 0
+        dest_params["use_full_merge_v1"] = 0
+
     return dest_params
 
 
@@ -905,7 +919,10 @@ def whitebox_crash_main(args, unknown_args):
             # success
             shutil.rmtree(dbname, True)
             os.mkdir(dbname)
-            cmd_params.pop("expected_values_dir", None)
+            if (expected_values_dir is not None):
+                shutil.rmtree(expected_values_dir, True)
+                os.mkdir(expected_values_dir)
+
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill

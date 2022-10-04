@@ -2028,8 +2028,9 @@ FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
   if (read_options.snapshot != nullptr) {
     snapshot = read_options.snapshot->GetSequenceNumber();
   }
-  return new FragmentedRangeTombstoneIterator(
-      rep_->fragmented_range_dels, rep_->internal_comparator, snapshot);
+  return new FragmentedRangeTombstoneIterator(rep_->fragmented_range_dels,
+                                              rep_->internal_comparator,
+                                              snapshot, read_options.timestamp);
 }
 
 bool BlockBasedTable::FullFilterKeyMayMatch(
