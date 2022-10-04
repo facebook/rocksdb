@@ -33,7 +33,7 @@ class APIIterator : APIBase {
               std::unique_ptr<TIterator> iterator)
       : db(db), iterator(std::move(iterator)){};
 
-  ROCKSDB_NAMESPACE::Iterator* operator->() const { return iterator.get(); }
+  TIterator* operator->() const { return iterator.get(); }
 
   std::shared_ptr<TIterator>& operator*() { return iterator; }
 

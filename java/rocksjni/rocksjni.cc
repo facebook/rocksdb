@@ -20,6 +20,7 @@
 #include "api_columnfamilyhandle.h"
 #include "api_iterator.h"
 #include "api_rocksdb.h"
+#include "api_wrapper.h"
 #include "include/org_rocksdb_RocksDB.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
@@ -33,6 +34,8 @@
 #ifdef min
 #undef min
 #endif
+
+using APIWriteBatchWithIndex = APIWrapper<ROCKSDB_NAMESPACE::WriteBatchWithIndex>;
 
 jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
                           std::function<ROCKSDB_NAMESPACE::Status(
@@ -1569,9 +1572,8 @@ void Java_org_rocksdb_RocksDB_write1(JNIEnv* env, jobject, jlong jdb_handle,
       *reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DB>*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  auto* wbwi =
-      reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchWithIndex*>(jwbwi_handle);
-  auto* wb = wbwi->GetWriteBatch();
+  auto& wbwiAPI = *reinterpret_cast<APIWriteBatchWithIndex*>(jwbwi_handle);
+  auto* wb = wbwiAPI->GetWriteBatch();
 
   ROCKSDB_NAMESPACE::Status s = dbAPI->Write(*write_options, wb);
 

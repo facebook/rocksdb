@@ -346,8 +346,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);
-  private native long iteratorWithBase(final long handle, final long baseIteratorHandle,
-      final long cfHandle, final long readOptionsHandle);
+  private native long iteratorWithBase(final long handle, final long cfHandle,
+      final long baseIteratorHandle, final long readOptionsHandle);
   private native byte[] getFromBatch(final long handle, final long optHandle,
       final byte[] key, final int keyLen);
   private native byte[] getFromBatch(final long handle, final long optHandle,
