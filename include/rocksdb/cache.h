@@ -342,9 +342,8 @@ class Cache {
                                     size_t length, void* out);
 
   // A function pointer type for custom destruction of an entry's
-  // value. The Cache is responsible for copying and reclaiming space
-  // for the key, but values are managed by the caller.
-  using DeleterFn = void (*)(const Slice& key, void* value);
+  // value.
+  using DeleterFn = void (*)(void* value);
 
   // A struct with pointers to helper functions for spilling items from the
   // cache into the secondary cache. May be extended in the future. An
@@ -388,8 +387,9 @@ class Cache {
                                  const std::string& value,
                                  std::shared_ptr<Cache>* result);
 
-  // Destroys all existing entries by calling the "deleter"
-  // function that was passed via the Insert() function.
+  // Destroys the Cache, including calling the "deleter" on all entries
+  // in the cache. Requires no outstanding references to entries in the
+  // cache.
   //
   // @See Insert
   virtual ~Cache() {}

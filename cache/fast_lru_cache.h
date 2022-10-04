@@ -177,7 +177,7 @@ struct LRUHandle {
   void FreeData() {
     assert(refs == 0);
     if (deleter) {
-      (*deleter)(key(), value);
+      (*deleter)(value);
     }
   }
 

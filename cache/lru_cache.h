@@ -210,7 +210,7 @@ struct LRUHandle {
   void Free() {
     assert(refs == 0);
     if (!IsSecondaryCacheCompatible() && info_.deleter) {
-      (*info_.deleter)(key(), value);
+      (*info_.deleter)(value);
     } else if (IsSecondaryCacheCompatible()) {
       if (IsPending()) {
         assert(sec_handle != nullptr);
@@ -220,7 +220,7 @@ struct LRUHandle {
         delete tmp_sec_handle;
       }
       if (value) {
-        (*info_.helper->del_cb)(key(), value);
+        (*info_.helper->del_cb)(value);
       }
     }
     delete[] reinterpret_cast<char*>(this);

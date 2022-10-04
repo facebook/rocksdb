@@ -157,7 +157,7 @@ class CacheEntryStatsCollector {
         cache_(cache),
         clock_(clock) {}
 
-  static void Deleter(const Slice &, void *value) {
+  static void Deleter(void *value) {
     delete static_cast<CacheEntryStatsCollector *>(value);
   }
 

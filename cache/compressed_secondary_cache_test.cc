@@ -51,9 +51,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
     return Status::OK();
   }
 
-  static void DeletionCallback(const Slice& /*key*/, void* obj) {
+  static void DeletionCallback(void* obj) {
     delete reinterpret_cast<TestItem*>(obj);
-    obj = nullptr;
   }
 
   static Cache::CacheItemHelper helper_;
@@ -741,7 +740,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     current_chunk = current_chunk->next;
     ASSERT_EQ(current_chunk->size, 98);
 
-    sec_cache->GetDeletionCallback(true)("dummy", chunks_head);
+    sec_cache->GetDeletionCallback(true)(chunks_head);
   }
 
   void MergeChunksIntoValueTest() {
@@ -822,7 +821,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::string value_str{value.get(), charge};
     ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
 
-    sec_cache->GetDeletionCallback(true)("dummy", chunks_head);
+    sec_cache->GetDeletionCallback(true)(chunks_head);
   }
 
  private:

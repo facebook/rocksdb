@@ -279,7 +279,7 @@ CacheAllocationPtr CompressedSecondaryCache::MergeChunksIntoValue(
 Cache::DeleterFn CompressedSecondaryCache::GetDeletionCallback(
     bool enable_custom_split_merge) {
   if (enable_custom_split_merge) {
-    return [](const Slice& /*key*/, void* obj) {
+    return [](void* obj) {
       CacheValueChunk* chunks_head = reinterpret_cast<CacheValueChunk*>(obj);
       while (chunks_head != nullptr) {
         CacheValueChunk* tmp_chunk = chunks_head;
@@ -289,7 +289,7 @@ Cache::DeleterFn CompressedSecondaryCache::GetDeletionCallback(
       };
     };
   } else {
-    return [](const Slice& /*key*/, void* obj) {
+    return [](void* obj) {
       delete reinterpret_cast<CacheAllocationPtr*>(obj);
       obj = nullptr;
     };

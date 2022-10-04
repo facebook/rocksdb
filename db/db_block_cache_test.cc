@@ -405,8 +405,8 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
 
   using Cache::Insert;
   Status Insert(const Slice& /*key*/, void* /*value*/, size_t /*charge*/,
-                void (*)(const Slice& key, void* value) /*deleter*/,
-                Handle** /*handle*/, Priority /*priority*/) override {
+                Cache::DeleterFn /*deleter*/, Handle** /*handle*/,
+                Priority /*priority*/) override {
     return Status::NotSupported();
   }
 };

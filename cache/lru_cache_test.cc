@@ -800,9 +800,7 @@ TEST_F(ClockCacheTest, ClockEvictionTest) {
   }
 }
 
-void IncrementIntDeleter(const Slice& /*key*/, void* value) {
-  *reinterpret_cast<int*>(value) += 1;
-}
+void IncrementIntDeleter(void* value) { *reinterpret_cast<int*>(value) += 1; }
 
 // Testing calls to CorrectNearOverflow in Release
 TEST_F(ClockCacheTest, ClockCounterOverflowTest) {
@@ -1057,10 +1055,9 @@ class TestSecondaryCache : public SecondaryCache {
       delete[] buf;
       return s;
     }
-    return cache_->Insert(key, buf, size,
-                          [](const Slice& /*key*/, void* val) -> void {
-                            delete[] static_cast<char*>(val);
-                          });
+    return cache_->Insert(key, buf, size, [](void* val) -> void {
+      delete[] static_cast<char*>(val);
+    });
   }
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
@@ -1226,7 +1223,7 @@ class LRUCacheSecondaryCacheTest : public LRUCacheTest {
     return Status::OK();
   }
 
-  static void DeletionCallback(const Slice& /*key*/, void* obj) {
+  static void DeletionCallback(void* obj) {
     delete reinterpret_cast<TestItem*>(obj);
   }
 

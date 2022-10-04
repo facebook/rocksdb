@@ -676,8 +676,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
 }
 
 Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
-                             size_t charge,
-                             void (*deleter)(const Slice& key, void* value),
+                             size_t charge, Cache::DeleterFn deleter,
                              const Cache::CacheItemHelper* helper,
                              Cache::Handle** handle, Cache::Priority priority) {
   // Allocate the memory here outside of the mutex.

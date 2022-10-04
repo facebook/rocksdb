@@ -62,14 +62,14 @@ int DecodeValue(void* v) {
   return static_cast<int>(reinterpret_cast<uintptr_t>(v));
 }
 
-void DumbDeleter(const Slice& /*key*/, void* /*value*/) {}
+void DumbDeleter(void* /*value*/) {}
 
-void EraseDeleter1(const Slice& /*key*/, void* value) {
+void EraseDeleter1(void* value) {
   Cache* cache = reinterpret_cast<Cache*>(value);
   cache->Erase("foo");
 }
 
-void EraseDeleter2(const Slice& /*key*/, void* value) {
+void EraseDeleter2(void* value) {
   Cache* cache = reinterpret_cast<Cache*>(value);
   cache->Erase(EncodeKey16Bytes(1234));
 }
@@ -85,12 +85,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
   static CacheTest* current_;
   static std::string type_;
 
-  static void Deleter(const Slice& key, void* v) {
-    if (type_ == kFast || type_ == kHyperClock) {
-      current_->deleted_keys_.push_back(DecodeKey16Bytes(key));
-    } else {
-      current_->deleted_keys_.push_back(DecodeKey32Bits(key));
-    }
+  static void Deleter(void* v) {
     current_->deleted_values_.push_back(DecodeValue(v));
   }
 
@@ -100,7 +95,6 @@ class CacheTest : public testing::TestWithParam<std::string> {
   static const int kCacheSize2 = 100;
   static const int kNumShardBits2 = 2;
 
-  std::vector<int> deleted_keys_;
   std::vector<int> deleted_values_;
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> cache2_;
@@ -436,8 +430,7 @@ TEST_P(CacheTest, HitAndMiss) {
   ASSERT_EQ(201, Lookup(200));
   ASSERT_EQ(-1,  Lookup(300));
 
-  ASSERT_EQ(1U, deleted_keys_.size());
-  ASSERT_EQ(100, deleted_keys_[0]);
+  ASSERT_EQ(1U, deleted_values_.size());
   if (GetParam() == kHyperClock) {
     ASSERT_EQ(102, deleted_values_[0]);
   } else {
@@ -458,21 +451,20 @@ TEST_P(CacheTest, InsertSameKey) {
 
 TEST_P(CacheTest, Erase) {
   Erase(200);
-  ASSERT_EQ(0U, deleted_keys_.size());
+  ASSERT_EQ(0U, deleted_values_.size());
 
   Insert(100, 101);
   Insert(200, 201);
   Erase(100);
   ASSERT_EQ(-1,  Lookup(100));
   ASSERT_EQ(201, Lookup(200));
-  ASSERT_EQ(1U, deleted_keys_.size());
-  ASSERT_EQ(100, deleted_keys_[0]);
+  ASSERT_EQ(1U, deleted_values_.size());
   ASSERT_EQ(101, deleted_values_[0]);
 
   Erase(100);
   ASSERT_EQ(-1,  Lookup(100));
   ASSERT_EQ(201, Lookup(200));
-  ASSERT_EQ(1U, deleted_keys_.size());
+  ASSERT_EQ(1U, deleted_values_.size());
 }
 
 TEST_P(CacheTest, EntriesArePinned) {
@@ -489,23 +481,21 @@ TEST_P(CacheTest, EntriesArePinned) {
   Insert(100, 102);
   Cache::Handle* h2 = cache_->Lookup(EncodeKey(100));
   ASSERT_EQ(102, DecodeValue(cache_->Value(h2)));
-  ASSERT_EQ(0U, deleted_keys_.size());
+  ASSERT_EQ(0U, deleted_values_.size());
   ASSERT_EQ(2U, cache_->GetUsage());
 
   cache_->Release(h1);
-  ASSERT_EQ(1U, deleted_keys_.size());
-  ASSERT_EQ(100, deleted_keys_[0]);
+  ASSERT_EQ(1U, deleted_values_.size());
   ASSERT_EQ(101, deleted_values_[0]);
   ASSERT_EQ(1U, cache_->GetUsage());
 
   Erase(100);
   ASSERT_EQ(-1, Lookup(100));
-  ASSERT_EQ(1U, deleted_keys_.size());
+  ASSERT_EQ(1U, deleted_values_.size());
   ASSERT_EQ(1U, cache_->GetUsage());
 
   cache_->Release(h2);
-  ASSERT_EQ(2U, deleted_keys_.size());
-  ASSERT_EQ(100, deleted_keys_[1]);
+  ASSERT_EQ(2U, deleted_values_.size());
   ASSERT_EQ(102, deleted_values_[1]);
   ASSERT_EQ(0U, cache_->GetUsage());
 }
@@ -703,9 +693,7 @@ class Value {
 };
 
 namespace {
-void deleter(const Slice& /*key*/, void* value) {
-  delete static_cast<Value *>(value);
-}
+void deleter(void* value) { delete static_cast<Value*>(value); }
 }  // namespace
 
 TEST_P(CacheTest, ReleaseAndErase) {
@@ -716,11 +704,11 @@ TEST_P(CacheTest, ReleaseAndErase) {
   ASSERT_TRUE(s.ok());
   ASSERT_EQ(5U, cache->GetCapacity());
   ASSERT_EQ(1U, cache->GetUsage());
-  ASSERT_EQ(0U, deleted_keys_.size());
+  ASSERT_EQ(0U, deleted_values_.size());
   auto erased = cache->Release(handle, true);
   ASSERT_TRUE(erased);
   // This tests that deleter has been called
-  ASSERT_EQ(1U, deleted_keys_.size());
+  ASSERT_EQ(1U, deleted_values_.size());
 }
 
 TEST_P(CacheTest, ReleaseWithoutErase) {
@@ -731,12 +719,12 @@ TEST_P(CacheTest, ReleaseWithoutErase) {
   ASSERT_TRUE(s.ok());
   ASSERT_EQ(5U, cache->GetCapacity());
   ASSERT_EQ(1U, cache->GetUsage());
-  ASSERT_EQ(0U, deleted_keys_.size());
+  ASSERT_EQ(0U, deleted_values_.size());
   auto erased = cache->Release(handle);
   ASSERT_FALSE(erased);
   // This tests that deleter is not called. When cache has free capacity it is
   // not expected to immediately erase the released items.
-  ASSERT_EQ(0U, deleted_keys_.size());
+  ASSERT_EQ(0U, deleted_values_.size());
 }
 
 TEST_P(CacheTest, SetCapacity) {

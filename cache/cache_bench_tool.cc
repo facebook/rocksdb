@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "cache_key.h"
 #ifdef GFLAGS
 #include <cinttypes>
 #include <cstddef>
@@ -13,6 +12,7 @@
 #include <set>
 #include <sstream>
 
+#include "cache/cache_key.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
@@ -246,15 +246,9 @@ Status SaveToFn(void* obj, size_t /*offset*/, size_t size, void* out) {
 
 // Different deleters to simulate using deleter to gather
 // stats on the code origin and kind of cache entries.
-void deleter1(const Slice& /*key*/, void* value) {
-  delete[] static_cast<char*>(value);
-}
-void deleter2(const Slice& /*key*/, void* value) {
-  delete[] static_cast<char*>(value);
-}
-void deleter3(const Slice& /*key*/, void* value) {
-  delete[] static_cast<char*>(value);
-}
+void deleter1(void* value) { delete[] static_cast<char*>(value); }
+void deleter2(void* value) { delete[] static_cast<char*>(value); }
+void deleter3(void* value) { delete[] static_cast<char*>(value); }
 
 Cache::CacheItemHelper helper1(SizeFn, SaveToFn, deleter1);
 Cache::CacheItemHelper helper2(SizeFn, SaveToFn, deleter2);

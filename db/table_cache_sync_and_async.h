@@ -119,7 +119,7 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
         // If row cache is full, it's OK.
         ioptions_.row_cache
             ->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
-                     &DeleteEntry<std::string>)
+                     &DeleteCacheEntry<std::string>)
             .PermitUncheckedError();
       }
     }

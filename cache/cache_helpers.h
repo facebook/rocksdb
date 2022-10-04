@@ -23,7 +23,7 @@ T* GetFromCacheHandle(Cache* cache, Cache::Handle* handle) {
 
 // Simple generic deleter for Cache (to be used with Cache::Insert).
 template <typename T>
-void DeleteCacheEntry(const Slice& /* key */, void* value) {
+void DeleteCacheEntry(void* value) {
   delete static_cast<T*>(value);
 }
 

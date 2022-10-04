@@ -315,7 +315,7 @@ struct ClockHandleBasicData {
 
   void FreeData() const {
     if (deleter) {
-      (*deleter)(KeySlice(), value);
+      (*deleter)(value);
     }
   }
 };

@@ -3472,8 +3472,7 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     using Cache::Insert;
     Status Insert(const Slice& key, void* value, size_t charge,
-                  void (*deleter)(const Slice& key, void* value),
-                  Handle** handle = nullptr,
+                  Cache::DeleterFn deleter, Handle** handle = nullptr,
                   Priority priority = Priority::LOW) override {
       num_inserts_++;
       return target_->Insert(key, value, charge, deleter, handle, priority);

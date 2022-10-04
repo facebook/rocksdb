@@ -9,6 +9,7 @@
 
 #include "db/table_cache.h"
 
+#include "cache/cache_helpers.h"
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/snapshot_impl.h"
@@ -30,16 +31,6 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
-
-namespace ROCKSDB_NAMESPACE {
-namespace {
-template <class T>
-static void DeleteEntry(const Slice& /*key*/, void* value) {
-  T* typed_value = reinterpret_cast<T*>(value);
-  delete typed_value;
-}
-}  // namespace
-}  // namespace ROCKSDB_NAMESPACE
 
 // Generate the regular and coroutine versions of some methods by
 // including table_cache_sync_and_async.h twice
@@ -223,8 +214,8 @@ Status TableCache::FindTable(
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
-      s = cache_->Insert(key, table_reader.get(), 1, &DeleteEntry<TableReader>,
-                         handle);
+      s = cache_->Insert(key, table_reader.get(), 1,
+                         &DeleteCacheEntry<TableReader>, handle);
       if (s.ok()) {
         // Release ownership of table reader.
         table_reader.release();
@@ -521,7 +512,7 @@ Status TableCache::Get(
     // If row cache is full, it's OK to continue.
     ioptions_.row_cache
         ->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
-                 &DeleteEntry<std::string>)
+                 &DeleteCacheEntry<std::string>)
         .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE

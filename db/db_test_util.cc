@@ -1700,10 +1700,11 @@ TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
       cache_charge_increments_sum_(0) {}
 
 template <CacheEntryRole R>
-Status TargetCacheChargeTrackingCache<R>::Insert(
-    const Slice& key, void* value, size_t charge,
-    void (*deleter)(const Slice& key, void* value), Handle** handle,
-    Priority priority) {
+Status TargetCacheChargeTrackingCache<R>::Insert(const Slice& key, void* value,
+                                                 size_t charge,
+                                                 Cache::DeleterFn deleter,
+                                                 Handle** handle,
+                                                 Priority priority) {
   Status s = target_->Insert(key, value, charge, deleter, handle, priority);
   if (deleter == kNoopDeleter) {
     if (last_peak_tracked_) {
