@@ -598,8 +598,8 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(
  */
 void Java_org_rocksdb_WriteBatchWithIndex_nativeClose(JNIEnv*, jobject, jlong jhandle) {
 
-  std::unique_ptr<APIRocksDB<ROCKSDB_NAMESPACE::WriteBatchWithIndex>> wbwiAPI(
-      reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::WriteBatchWithIndex>*>(jhandle));
+  std::unique_ptr<APIWriteBatchWithIndex> wbwiAPI(
+      reinterpret_cast<APIWriteBatchWithIndex*>(jhandle));
   wbwiAPI->check("nativeClose()");
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.

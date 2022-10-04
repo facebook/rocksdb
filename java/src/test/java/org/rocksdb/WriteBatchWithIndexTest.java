@@ -32,11 +32,10 @@ public class WriteBatchWithIndexTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
+
   public void readYourOwnWrites() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())) {
-
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       final byte[] k1 = "key1".getBytes();
       final byte[] v1 = "value1".getBytes();
       final byte[] k2 = "key2".getBytes();
@@ -100,14 +99,9 @@ public class WriteBatchWithIndexTest {
         assertThat(it.isValid()).isTrue();
         assertThat(it.key()).isEqualTo(k3);
         assertThat(it.value()).isEqualTo(v3Other);
-
-        it.close();
-        base.close();
-        wbwi.close();
       }
     }
   }
-
   @Test
   public void readYourOwnWritesCf() throws RocksDBException {
     final List<ColumnFamilyDescriptor> cfNames =

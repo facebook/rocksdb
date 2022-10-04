@@ -36,4 +36,14 @@ class APIWriteBatchWithIndex {  // no DB, so no APIBase inheritance
   }
 
   ROCKSDB_NAMESPACE::WriteBatchWithIndex* get() const { return wbwi.get(); }
+
+  /**
+   * @brief dump some status info to std::cout
+   *
+   */
+  void check(std::string message) {
+    std::cout << " APIWBWI::check(); " << message << " ";
+    std::cout << " wbwi.use_count() " << wbwi.use_count() << "; ";
+    std::cout << std::endl;
+  }
 };
