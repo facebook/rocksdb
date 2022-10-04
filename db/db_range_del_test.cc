@@ -1984,6 +1984,40 @@ TEST_F(DBRangeDelTest, TombstoneFromCurrentLevel) {
   delete iter;
 }
 
+class TombstoneTestSstPartitioner : public SstPartitioner {
+ public:
+  const char* Name() const override { return "SingleKeySstPartitioner"; }
+
+  PartitionerResult ShouldPartition(
+      const PartitionerRequest& request) override {
+    if (cmp->Compare(*request.current_user_key, DBTestBase::Key(5)) == 0) {
+      return kRequired;
+    } else {
+      return kNotRequired;
+    }
+  }
+
+  bool CanDoTrivialMove(const Slice& /*smallest_user_key*/,
+                        const Slice& /*largest_user_key*/) override {
+    return false;
+  }
+
+  const Comparator* cmp = BytewiseComparator();
+};
+
+class TombstoneTestSstPartitionerFactory : public SstPartitionerFactory {
+ public:
+  static const char* kClassName() {
+    return "TombstoneTestSstPartitionerFactory";
+  }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<SstPartitioner> CreatePartitioner(
+      const SstPartitioner::Context& /* context */) const override {
+    return std::unique_ptr<SstPartitioner>(new TombstoneTestSstPartitioner());
+  }
+};
+
 TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
   // Verify that a range tombstone across file boundary covers keys from older
   // levels. Test set up:
@@ -1996,6 +2030,10 @@ TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
   options.disable_auto_compactions = true;
   options.target_file_size_base = 2 * 1024;
   options.max_compaction_bytes = 2 * 1024;
+
+  // Make sure L1 files are split before "5"
+  auto factory = std::make_shared<TombstoneTestSstPartitionerFactory>();
+  options.sst_partitioner_factory = factory;
 
   DestroyAndReopen(options);
 
