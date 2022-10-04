@@ -4561,6 +4561,10 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
     AppendNumberTo(&r, level);
     r.append(" --- version# ");
     AppendNumberTo(&r, version_number_);
+    if (storage_info_.compact_cursor_[level].Valid()) {
+      r.append(" --- compact_cursor: ");
+      r.append(storage_info_.compact_cursor_[level].DebugString(hex));
+    }
     r.append(" ---\n");
     const std::vector<FileMetaData*>& files = storage_info_.files_[level];
     for (size_t i = 0; i < files.size(); i++) {
