@@ -155,6 +155,7 @@ class Block {
  public:
   // Initialize the block with the specified contents.
   explicit Block(BlockContents&& contents, BlockType block_type,
+                 const Comparator* raw_ucmp,
                  uint32_t block_protection_bytes_per_key,
                  size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
@@ -498,11 +499,11 @@ class DataBlockIter final : public BlockIter<Slice> {
                 uint32_t num_restarts, SequenceNumber global_seqno,
                 BlockReadAmpBitmap* read_amp_bitmap, bool block_contents_pinned,
                 DataBlockHashIndex* data_block_hash_index,
-                uint32_t block_protection_bytes_per_key)
+                uint32_t protection_bytes_per_key)
       : DataBlockIter() {
     Initialize(raw_ucmp, data, restarts, num_restarts, global_seqno,
                read_amp_bitmap, block_contents_pinned, data_block_hash_index,
-               block_protection_bytes_per_key);
+               protection_bytes_per_key);
   }
   void Initialize(const Comparator* raw_ucmp, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
@@ -510,14 +511,14 @@ class DataBlockIter final : public BlockIter<Slice> {
                   BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned,
                   DataBlockHashIndex* data_block_hash_index,
-                  uint32_t block_protection_bytes_per_key) {
+                  uint32_t protection_bytes_per_key) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
     raw_key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
     data_block_hash_index_ = data_block_hash_index;
-    block_protection_bytes_per_key_ = block_protection_bytes_per_key;
+    protection_bytes_per_key_ = protection_bytes_per_key;
   }
 
   Slice value() const override {
@@ -588,12 +589,17 @@ class DataBlockIter final : public BlockIter<Slice> {
   std::string prev_entries_keys_buff_;
   std::vector<CachedPrevEntry> prev_entries_;
   int32_t prev_entries_idx_ = -1;
-  uint32_t block_protection_bytes_per_key_ = 0;
+  std::string checksums_;
+  uint32_t protection_bytes_per_key_ = 0;
   uint32_t entry_position_ = 0;
 
   DataBlockHashIndex* data_block_hash_index_;
 
   bool SeekForGetImpl(const Slice& target);
+  Status VerifyEntryChecksum(const char* entry) const;
+  void GenerateEntryChecksum(const Slice& key, const Slice& value,
+                             ValueType type, SequenceNumber s,
+                             char* checksum_ptr) const;
 };
 
 // Iterator over MetaBlocks.  MetaBlocks are similar to Data Blocks and

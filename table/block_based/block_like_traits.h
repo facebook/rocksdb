@@ -21,19 +21,21 @@ template <typename T, CacheEntryRole R>
 Cache::CacheItemHelper* GetCacheItemHelperForRole();
 
 template <typename TBlocklike>
-Cache::CreateCallback GetCreateCallback(size_t read_amp_bytes_per_bit,
+Cache::CreateCallback GetCreateCallback(BlockType block_type,
+                                        const Comparator* raw_ucmp,
+                                        uint32_t block_protection_bytes_per_key,
+                                        size_t read_amp_bytes_per_bit,
                                         Statistics* statistics, bool using_zstd,
                                         const FilterPolicy* filter_policy) {
-  return [read_amp_bytes_per_bit, statistics, using_zstd, filter_policy](
-             const void* buf, size_t size, void** out_obj,
+  return [=](const void* buf, size_t size, void** out_obj,
              size_t* charge) -> Status {
     assert(buf != nullptr);
     std::unique_ptr<char[]> buf_data(new char[size]());
     memcpy(buf_data.get(), buf, size);
     BlockContents bc = BlockContents(std::move(buf_data), size);
     TBlocklike* ucd_ptr = BlocklikeTraits<TBlocklike>::Create(
-        std::move(bc), read_amp_bytes_per_bit, statistics, using_zstd,
-        filter_policy);
+        std::move(bc), block_type, raw_ucmp, block_protection_bytes_per_key,
+        read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
     *out_obj = reinterpret_cast<void*>(ucd_ptr);
     *charge = size;
     return Status::OK();
@@ -45,6 +47,7 @@ class BlocklikeTraits<BlockContents> {
  public:
   static BlockContents* Create(BlockContents&& contents,
                                BlockType /* block_type */,
+                               const Comparator* /* raw_ucmp */,
                                uint32_t /* block_protection_bytes_per_key */,
                                size_t /* read_amp_bytes_per_bit */,
                                Statistics* /* statistics */,
@@ -86,6 +89,7 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
   static ParsedFullFilterBlock* Create(
       BlockContents&& contents, BlockType /* block_type */,
+      const Comparator* /* raw_ucmp */,
       uint32_t /* block_protection_bytes_per_key */,
       size_t /* read_amp_bytes_per_bit */, Statistics* /* statistics */,
       bool /* using_zstd */, const FilterPolicy* filter_policy) {
@@ -125,12 +129,15 @@ template <>
 class BlocklikeTraits<Block> {
  public:
   static Block* Create(BlockContents&& contents, BlockType block_type,
+                       const Comparator* raw_ucmp,
                        uint32_t block_protection_bytes_per_key,
                        size_t read_amp_bytes_per_bit, Statistics* statistics,
                        bool /* using_zstd */,
                        const FilterPolicy* /* filter_policy */
   ) {
-    return new Block(std::move(contents), read_amp_bytes_per_bit, statistics);
+    return new Block(std::move(contents), block_type, raw_ucmp,
+                     block_protection_bytes_per_key, read_amp_bytes_per_bit,
+                     statistics);
   }
 
   static uint32_t GetNumRestarts(const Block& block) {
@@ -178,6 +185,7 @@ class BlocklikeTraits<UncompressionDict> {
  public:
   static UncompressionDict* Create(
       BlockContents&& contents, BlockType /* block_type */,
+      const Comparator* /* raw_ucmp */,
       uint32_t /* block_protection_bytes_per_key */,
       size_t /* read_amp_bytes_per_bit */, Statistics* /* statistics */,
       bool using_zstd, const FilterPolicy* /* filter_policy */) {

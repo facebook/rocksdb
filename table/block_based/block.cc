@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "db/kv_checksum.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -286,6 +287,9 @@ void DataBlockIter::SeekImpl(const Slice& target) {
     return;
   }
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
+  if (!checksums_.empty()) {
+    VerifEntryChecksum();
+  }
 }
 
 void MetaBlockIter::SeekImpl(const Slice& target) {
@@ -519,6 +523,9 @@ void DataBlockIter::SeekToFirstImpl() {
   entry_position_ = 0;
   bool is_shared = false;
   ParseNextDataKey(&is_shared);
+  if (!checksums_.empty()) {
+    VerifEntryChecksum();
+  }
 }
 
 void MetaBlockIter::SeekToFirstImpl() {
@@ -547,6 +554,9 @@ void DataBlockIter::SeekToLastImpl() {
   bool is_shared = false;
   while (ParseNextDataKey(&is_shared) && NextEntryOffset() < restarts_) {
     // Keep skipping
+  }
+  if (!checksums_.empty()) {
+    VerifEntryChecksum();
   }
 }
 
@@ -645,9 +655,48 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
       assert(seqno == 0);
     }
 #endif  // NDEBUG
+
+    if (!checksums_.empty()) {
+      VerifEntryChecksum();
+    }
+
     return true;
   } else {
     return false;
+  }
+}
+
+void DataBlockIter::GenerateEntryChecksum(const Slice& key, const Slice& value,
+                                          ValueType type, SequenceNumber s,
+                                          char* checksum_ptr) const {
+  if (protection_bytes_per_key_ == 0) {
+    return;
+  }
+
+  uint64_t checksum =
+      ProtectionInfo64().ProtectKVO(key, value, type).ProtectS(s).GetVal();
+
+  switch (protection_bytes_per_key_) {
+    case 1:
+      checksum_ptr[0] = static_cast<uint8_t>(checksum);
+      break;
+    case 2:
+      EncodeFixed16(checksum_ptr, static_cast<uint16_t>(checksum));
+      break;
+    case 4:
+      EncodeFixed32(checksum_ptr, static_cast<uint32_t>(checksum));
+      break;
+    case 8:
+      EncodeFixed64(checksum_ptr, checksum);
+      break;
+    default:
+      assert(false);
+  }
+}
+
+Status DataBlockIter::VerifyEntryChecksum(const char* entry) const {
+  if (protection_bytes_per_key_ == 0) {
+    return Status::OK();
   }
 }
 
@@ -981,7 +1030,7 @@ Block::~Block() {
 }
 
 Block::Block(BlockContents&& contents, BlockType block_type,
-             uint32_t block_protection_bytes_per_key,
+             const Comparator* raw_ucmp, uint32_t protection_bytes_per_key,
              size_t read_amp_bytes_per_bit, Statistics* statistics)
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
@@ -1038,8 +1087,29 @@ Block::Block(BlockContents&& contents, BlockType block_type,
   }
 
   if (block_type == BlockType::kData) {
-    //
-    DataBlockIter* iter = NewDataIterator();
+    std::unique_ptr<DataBlockIter> iter(NewDataIterator(
+        raw_ucmp, 0, nullptr, nullptr, false, protection_bytes_per_key));
+
+    iter->SeekToFirst();
+    assert(iter->Valid());
+    uint32_t entry_num{0};
+    for (; iter->Valid(); iter->Next()) {
+      entry_num++;
+    }
+    uint32_t buf_size{entry_num * protection_bytes_per_key};
+    char* buf = new char[buf_size];
+
+    // Update EntryChecksum
+    iter->SeekToFirst();
+    assert(iter->Valid());
+    for (uint32_t i = 0; iter->Valid(); iter->Next(), ++i) {
+      iter->GenerateEntryChecksum(iter->key(), iter->value(),
+                                  ValueType::kTypeValue, 0,
+                                  buf + i * protection_bytes_per_key);
+    }
+
+    // set checksums_
+    iter->checksums_.assign(buf, buf_size);
   }
 }
 
@@ -1062,7 +1132,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
                                       SequenceNumber global_seqno,
                                       DataBlockIter* iter, Statistics* stats,
                                       bool block_contents_pinned,
-                                      uint32_t block_protection_bytes_per_key) {
+                                      uint32_t protection_bytes_per_key) {
   DataBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -1082,7 +1152,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
         raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
         read_amp_bitmap_.get(), block_contents_pinned,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr,
-        block_protection_bytes_per_key);
+        protection_bytes_per_key);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
