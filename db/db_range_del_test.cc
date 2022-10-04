@@ -2039,7 +2039,9 @@ TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
 
   Random rnd(301);
   // L2
-  ASSERT_OK(db_->Put(WriteOptions(), Key(5), rnd.RandomString(1 << 10)));
+  // the file should be smaller than max_compaction_bytes, otherwise the file
+  // will be cut before 7.
+  ASSERT_OK(db_->Put(WriteOptions(), Key(5), rnd.RandomString(1 << 9)));
   ASSERT_OK(db_->Flush(FlushOptions()));
   MoveFilesToLevel(2);
   ASSERT_EQ(1, NumTableFilesAtLevel(2));
