@@ -604,8 +604,9 @@ def finalize_and_sanitize(src_params):
     if (dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0):
         dest_params["sync_fault_injection"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
-    # PutEntity is currently not supported with Merge
+    # PutEntity is currently not supported by SstFileWriter or in conjunction with Merge
     if dest_params["use_put_entity_one_in"] != 0:
+        dest_params["ingest_external_file_one_in"] = 0
         dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
 
