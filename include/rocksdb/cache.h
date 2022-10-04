@@ -569,9 +569,11 @@ class Cache {
   // over time.
 
   // Insert a mapping from key->value into the cache and assign it
-  // the specified charge against the total cache capacity.
-  // If strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::MemoryLimit.
+  // the specified charge against the total cache capacity. If
+  // strict_capacity_limit is true and cache reaches its full capacity,
+  // return Status::MemoryLimit. `value` must be non-nullptr for this
+  // Insert() because Value() == nullptr is reserved for indicating failure
+  // with secondary-cache-compatible mappings.
   //
   // The helper argument is saved by the cache and will be used when the
   // inserted object is evicted or promoted to the secondary cache. It,
@@ -619,11 +621,31 @@ class Cache {
   // saved and used later when the object is evicted. Therefore, it must
   // outlive the cache.
   //
-  // The handle returned may not be ready. The caller should call IsReady()
-  // to check if the item value is ready, and call Wait() or WaitAll() if
-  // its not ready. The caller should then call Value() to check if the
-  // item was successfully retrieved. If unsuccessful (perhaps due to an
-  // IO error), Value() will return nullptr.
+  // ======================== Async Lookup (wait=false) ======================
+  // When wait=false, the handle returned might be in any of three states:
+  // * Present - If Value() != nullptr, then the result is present and
+  // the handle can be used just as if wait=true.
+  // * Pending, not ready (IsReady() == false) - secondary cache is still
+  // working to retrieve the value. Might become ready any time.
+  // * Pending, ready (IsReady() == true) - secondary cache has the value
+  // but it has not been loaded into primary cache. Call to Wait()/WaitAll()
+  // will not block.
+  //
+  // IMPORTANT: Pending handles are not thread-safe, and only these functions
+  // are allowed on them: Value(), IsReady(), Wait(), WaitAll(). Even Release()
+  // can only come after Wait() or WaitAll() even though a reference is held.
+  //
+  // Only Wait()/WaitAll() gets a Handle out of a Pending state. (Waiting is
+  // safe and has no effect on other handle states.) After waiting on a Handle,
+  // it is in one of two states:
+  // * Present - if Value() != nullptr
+  // * Failed - if Value() == nullptr, such as if the secondary cache
+  // initially thought it had the value but actually did not.
+  //
+  // Note that given an arbitrary Handle, the only way to distinguish the
+  // Pending+ready state from the Failed state is to Wait() on it. A cache
+  // entry not compatible with secondary cache can also have Value()==nullptr
+  // like the Failed state, but this is not generally a concern.
   virtual Handle* Lookup(const Slice& key, const CacheItemHelper* /*helper_cb*/,
                          const CreateCallback& /*create_cb*/,
                          Priority /*priority*/, bool /*wait*/,
@@ -634,27 +656,31 @@ class Cache {
   // Release a mapping returned by a previous Lookup(). The "useful"
   // parameter specifies whether the data was actually used or not,
   // which may be used by the cache implementation to decide whether
-  // to consider it as a hit for retention purposes.
+  // to consider it as a hit for retention purposes. As noted elsewhere,
+  // "pending" handles require Wait()/WaitAll() before Release().
   virtual bool Release(Handle* handle, bool /*useful*/,
                        bool erase_if_last_ref) {
     return Release(handle, erase_if_last_ref);
   }
 
-  // Determines if the handle returned by Lookup() has a valid value yet. The
-  // call is not thread safe and should be called only by someone holding a
-  // reference to the handle.
+  // Determines if the handle returned by Lookup() can give a value without
+  // blocking, though Wait()/WaitAll() might be required to publish it to
+  // Value(). See secondary cache compatible Lookup() above for details.
+  // This call is not thread safe on "pending" handles.
   virtual bool IsReady(Handle* /*handle*/) { return true; }
 
-  // If the handle returned by Lookup() is not ready yet, wait till it
-  // becomes ready.
-  // Note: A ready handle doesn't necessarily mean it has a valid value. The
-  // user should call Value() and check for nullptr.
+  // Convert a "pending" handle into a full thread-shareable handle by
+  // * If necessary, wait until secondary cache finishes loading the value.
+  // * Construct the value for primary cache and set it in the handle.
+  // Even after Wait() on a pending handle, the caller must check for
+  // Value() == nullptr in case of failure. This call is not thread-safe
+  // on pending handles. This call has no effect on non-pending handles.
+  // See secondary cache compatible Lookup() above for details.
   virtual void Wait(Handle* /*handle*/) {}
 
   // Wait for a vector of handles to become ready. As with Wait(), the user
   // should check the Value() of each handle for nullptr. This call is not
-  // thread safe and should only be called by the caller holding a reference
-  // to each of the handles.
+  // thread-safe on pending handles.
   virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
 
  private:
