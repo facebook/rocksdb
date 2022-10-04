@@ -639,6 +639,8 @@ class MemTable {
   // Always returns non-null and assumes certain pre-checks (e.g.,
   // is_range_del_table_empty_) are done. This is only valid during the lifetime
   // of the underlying memtable.
+  // read_seq and read_options.timestamp will be used as the upper bound
+  // for range tombstones.
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
       const ReadOptions& read_options, SequenceNumber read_seq,
       bool immutable_memtable);
@@ -648,6 +650,11 @@ class MemTable {
   // if !is_range_del_table_empty_.
   std::unique_ptr<FragmentedRangeTombstoneList>
       fragmented_range_tombstone_list_;
+
+  // makes sure there is a single range tombstone writer to invalidate cache
+  std::mutex range_del_mutex_;
+  CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
+      cached_range_tombstone_;
 
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,

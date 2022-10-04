@@ -253,6 +253,7 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
   ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
   ASSERT_OK(Flush());
+  ASSERT_OK(Put("something_not_flushed", "x"));
   Close();
 
   ASSERT_OK(ReadOnlyReopen(options));
@@ -260,6 +261,20 @@ TEST_F(DBBasicTest, CompactedDB) {
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported operation in read only mode.");
+
+  // TODO: validate that other write ops return NotImplemented
+  // (DBImplReadOnly is missing some overrides)
+
+  // Ensure no deadlock on flush triggered by another API function
+  // (Old deadlock bug depends on something_not_flushed above.)
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  LiveFilesStorageInfoOptions lfsi_opts;
+  lfsi_opts.wal_size_for_flush = 0;  // always
+  std::vector<LiveFileStorageInfo> files2;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files2));
+
   Close();
 
   // Full compaction
@@ -289,6 +304,13 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_EQ(DummyString(kFileSize / 2, 'i'), Get("iii"));
   ASSERT_EQ(DummyString(kFileSize / 2, 'j'), Get("jjj"));
   ASSERT_EQ("NOT_FOUND", Get("kkk"));
+
+  // TODO: validate that other write ops return NotImplemented
+  // (CompactedDB is missing some overrides)
+
+  // Ensure no deadlock on flush triggered by another API function
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files2));
 
   // MultiGet
   std::vector<std::string> values;
@@ -2014,7 +2036,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSize) {
 
 TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
   if (std::get<1>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test needs to be fixed for async IO");
+    ROCKSDB_GTEST_BYPASS("This test needs to be fixed for async IO");
     return;
   }
   // Skip for unbatched MultiGet
@@ -2239,7 +2261,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
     ASSERT_EQ(multiget_io_batch_size.max, 3);
     ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
   } else {
-    ASSERT_EQ(multiget_io_batch_size.count, 0);
+    // Without Async IO, MultiGet will call MultiRead 3 times, once for each
+    // L0 file
+    ASSERT_EQ(multiget_io_batch_size.count, 3);
   }
 }
 
@@ -2356,8 +2380,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
   // There are 2 keys in L1 in twp separate files, and 1 in L2. With
-  // async IO, all three lookups will happen in parallel
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
+  // optimize_multiget_for_io, all three lookups will happen in parallel.
+  // Otherwise, the L2 lookup will happen after L1.
+  ASSERT_EQ(multiget_io_batch_size.count, GetParam() ? 1 : 2);
   ASSERT_EQ(multiget_io_batch_size.max, GetParam() ? 3 : 2);
 }
 

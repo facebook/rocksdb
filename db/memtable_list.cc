@@ -218,11 +218,33 @@ void MemTableListVersion::AddIterators(
   }
 }
 
-void MemTableListVersion::AddIterators(
-    const ReadOptions& options, MergeIteratorBuilder* merge_iter_builder) {
+void MemTableListVersion::AddIterators(const ReadOptions& options,
+                                       MergeIteratorBuilder* merge_iter_builder,
+                                       bool add_range_tombstone_iter) {
   for (auto& m : memlist_) {
-    merge_iter_builder->AddIterator(
-        m->NewIterator(options, merge_iter_builder->GetArena()));
+    auto mem_iter = m->NewIterator(options, merge_iter_builder->GetArena());
+    if (!add_range_tombstone_iter || options.ignore_range_deletions) {
+      merge_iter_builder->AddIterator(mem_iter);
+    } else {
+      // Except for snapshot read, using kMaxSequenceNumber is OK because these
+      // are immutable memtables.
+      SequenceNumber read_seq = options.snapshot != nullptr
+                                    ? options.snapshot->GetSequenceNumber()
+                                    : kMaxSequenceNumber;
+      TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
+      auto range_del_iter = m->NewRangeTombstoneIterator(
+          options, read_seq, true /* immutale_memtable */);
+      if (range_del_iter == nullptr || range_del_iter->empty()) {
+        delete range_del_iter;
+      } else {
+        mem_tombstone_iter = new TruncatedRangeDelIterator(
+            std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
+            &m->GetInternalKeyComparator(), nullptr /* smallest */,
+            nullptr /* largest */);
+      }
+      merge_iter_builder->AddPointAndTombstoneIterator(mem_iter,
+                                                       mem_tombstone_iter);
+    }
   }
 }
 

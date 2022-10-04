@@ -38,18 +38,14 @@ namespace lru_cache {
 //    (refs == 0 && in_cache == true)
 // 3. Referenced externally AND not in hash table.
 //    In that case the entry is not in the LRU list and not in hash table.
-//    The entry can be freed when refs becomes 0.
+//    The entry must be freed if refs becomes 0 in this state.
 //    (refs >= 1 && in_cache == false)
-//
-// All newly created LRUHandles are in state 1. If you call
-// LRUCacheShard::Release on entry in state 1, it will go into state 2.
-// To move from state 1 to state 3, either call LRUCacheShard::Erase or
-// LRUCacheShard::Insert with the same key (but possibly different value).
-// To move from state 2 to state 1, use LRUCacheShard::Lookup.
-// Before destruction, make sure that no handles are in state 1. This means
-// that any successful LRUCacheShard::Lookup/LRUCacheShard::Insert have a
-// matching LRUCache::Release (to move into state 2) or LRUCacheShard::Erase
-// (to move into state 3).
+// If you call LRUCacheShard::Release enough times on an entry in state 1, it
+// will go into state 2. To move from state 1 to state 3, either call
+// LRUCacheShard::Erase or LRUCacheShard::Insert with the same key (but
+// possibly different value). To move from state 2 to state 1, use
+// LRUCacheShard::Lookup.
+// While refs > 0, public properties like value and deleter must not change.
 
 struct LRUHandle {
   void* value;
@@ -74,36 +70,38 @@ struct LRUHandle {
   // The number of external refs to this entry. The cache itself is not counted.
   uint32_t refs;
 
-  enum Flags : uint16_t {
+  // Mutable flags - access controlled by mutex
+  // The m_ and M_ prefixes (and im_ and IM_ later) are to hopefully avoid
+  // checking an M_ flag on im_flags or an IM_ flag on m_flags.
+  uint8_t m_flags;
+  enum MFlags : uint8_t {
     // Whether this entry is referenced by the hash table.
-    IN_CACHE = (1 << 0),
-    // Whether this entry is high priority entry.
-    IS_HIGH_PRI = (1 << 1),
-    // Whether this entry is in high-pri pool.
-    IN_HIGH_PRI_POOL = (1 << 2),
+    M_IN_CACHE = (1 << 0),
     // Whether this entry has had any lookups (hits).
-    HAS_HIT = (1 << 3),
-    // Can this be inserted into the secondary cache.
-    IS_SECONDARY_CACHE_COMPATIBLE = (1 << 4),
-    // Is the handle still being read from a lower tier.
-    IS_PENDING = (1 << 5),
-    // Whether this handle is still in a lower tier
-    IS_IN_SECONDARY_CACHE = (1 << 6),
-    // Whether this entry is low priority entry.
-    IS_LOW_PRI = (1 << 7),
+    M_HAS_HIT = (1 << 1),
+    // Whether this entry is in high-pri pool.
+    M_IN_HIGH_PRI_POOL = (1 << 2),
     // Whether this entry is in low-pri pool.
-    IN_LOW_PRI_POOL = (1 << 8),
+    M_IN_LOW_PRI_POOL = (1 << 3),
   };
 
-  uint16_t flags;
-
-#ifdef __SANITIZE_THREAD__
-  // TSAN can report a false data race on flags, where one thread is writing
-  // to one of the mutable bits and another thread is reading this immutable
-  // bit. So precisely suppress that TSAN warning, we separate out this bit
-  // during TSAN runs.
-  bool is_secondary_cache_compatible_for_tsan;
-#endif  // __SANITIZE_THREAD__
+  // "Immutable" flags - only set in single-threaded context and then
+  // can be accessed without mutex
+  uint8_t im_flags;
+  enum ImFlags : uint8_t {
+    // Whether this entry is high priority entry.
+    IM_IS_HIGH_PRI = (1 << 0),
+    // Whether this entry is low priority entry.
+    IM_IS_LOW_PRI = (1 << 1),
+    // Can this be inserted into the secondary cache.
+    IM_IS_SECONDARY_CACHE_COMPATIBLE = (1 << 2),
+    // Is the handle still being read from a lower tier.
+    IM_IS_PENDING = (1 << 3),
+    // Whether this handle is still in a lower tier
+    IM_IS_IN_SECONDARY_CACHE = (1 << 4),
+    // Marks result handles that should not be inserted into cache
+    IM_IS_STANDALONE = (1 << 5),
+  };
 
   // Beginning of the key (MUST BE THE LAST FIELD IN THIS STRUCT!)
   char key_data[1];
@@ -123,95 +121,94 @@ struct LRUHandle {
   // Return true if there are external refs, false otherwise.
   bool HasRefs() const { return refs > 0; }
 
-  bool InCache() const { return flags & IN_CACHE; }
-  bool IsHighPri() const { return flags & IS_HIGH_PRI; }
-  bool InHighPriPool() const { return flags & IN_HIGH_PRI_POOL; }
-  bool IsLowPri() const { return flags & IS_LOW_PRI; }
-  bool InLowPriPool() const { return flags & IN_LOW_PRI_POOL; }
-  bool HasHit() const { return flags & HAS_HIT; }
+  bool InCache() const { return m_flags & M_IN_CACHE; }
+  bool IsHighPri() const { return im_flags & IM_IS_HIGH_PRI; }
+  bool InHighPriPool() const { return m_flags & M_IN_HIGH_PRI_POOL; }
+  bool IsLowPri() const { return im_flags & IM_IS_LOW_PRI; }
+  bool InLowPriPool() const { return m_flags & M_IN_LOW_PRI_POOL; }
+  bool HasHit() const { return m_flags & M_HAS_HIT; }
   bool IsSecondaryCacheCompatible() const {
-#ifdef __SANITIZE_THREAD__
-    return is_secondary_cache_compatible_for_tsan;
-#else
-    return flags & IS_SECONDARY_CACHE_COMPATIBLE;
-#endif  // __SANITIZE_THREAD__
+    return im_flags & IM_IS_SECONDARY_CACHE_COMPATIBLE;
   }
-  bool IsPending() const { return flags & IS_PENDING; }
-  bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
+  bool IsPending() const { return im_flags & IM_IS_PENDING; }
+  bool IsInSecondaryCache() const {
+    return im_flags & IM_IS_IN_SECONDARY_CACHE;
+  }
+  bool IsStandalone() const { return im_flags & IM_IS_STANDALONE; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
-      flags |= IN_CACHE;
+      m_flags |= M_IN_CACHE;
     } else {
-      flags &= ~IN_CACHE;
+      m_flags &= ~M_IN_CACHE;
     }
   }
 
   void SetPriority(Cache::Priority priority) {
     if (priority == Cache::Priority::HIGH) {
-      flags |= IS_HIGH_PRI;
-      flags &= ~IS_LOW_PRI;
+      im_flags |= IM_IS_HIGH_PRI;
+      im_flags &= ~IM_IS_LOW_PRI;
     } else if (priority == Cache::Priority::LOW) {
-      flags &= ~IS_HIGH_PRI;
-      flags |= IS_LOW_PRI;
+      im_flags &= ~IM_IS_HIGH_PRI;
+      im_flags |= IM_IS_LOW_PRI;
     } else {
-      flags &= ~IS_HIGH_PRI;
-      flags &= ~IS_LOW_PRI;
+      im_flags &= ~IM_IS_HIGH_PRI;
+      im_flags &= ~IM_IS_LOW_PRI;
     }
   }
 
   void SetInHighPriPool(bool in_high_pri_pool) {
     if (in_high_pri_pool) {
-      flags |= IN_HIGH_PRI_POOL;
+      m_flags |= M_IN_HIGH_PRI_POOL;
     } else {
-      flags &= ~IN_HIGH_PRI_POOL;
+      m_flags &= ~M_IN_HIGH_PRI_POOL;
     }
   }
 
   void SetInLowPriPool(bool in_low_pri_pool) {
     if (in_low_pri_pool) {
-      flags |= IN_LOW_PRI_POOL;
+      m_flags |= M_IN_LOW_PRI_POOL;
     } else {
-      flags &= ~IN_LOW_PRI_POOL;
+      m_flags &= ~M_IN_LOW_PRI_POOL;
     }
   }
 
-  void SetHit() { flags |= HAS_HIT; }
+  void SetHit() { m_flags |= M_HAS_HIT; }
 
   void SetSecondaryCacheCompatible(bool compat) {
     if (compat) {
-      flags |= IS_SECONDARY_CACHE_COMPATIBLE;
+      im_flags |= IM_IS_SECONDARY_CACHE_COMPATIBLE;
     } else {
-      flags &= ~IS_SECONDARY_CACHE_COMPATIBLE;
+      im_flags &= ~IM_IS_SECONDARY_CACHE_COMPATIBLE;
     }
-#ifdef __SANITIZE_THREAD__
-    is_secondary_cache_compatible_for_tsan = compat;
-#endif  // __SANITIZE_THREAD__
   }
 
-  void SetIncomplete(bool incomp) {
-    if (incomp) {
-      flags |= IS_PENDING;
+  void SetIsPending(bool pending) {
+    if (pending) {
+      im_flags |= IM_IS_PENDING;
     } else {
-      flags &= ~IS_PENDING;
+      im_flags &= ~IM_IS_PENDING;
     }
   }
 
   void SetIsInSecondaryCache(bool is_in_secondary_cache) {
     if (is_in_secondary_cache) {
-      flags |= IS_IN_SECONDARY_CACHE;
+      im_flags |= IM_IS_IN_SECONDARY_CACHE;
     } else {
-      flags &= ~IS_IN_SECONDARY_CACHE;
+      im_flags &= ~IM_IS_IN_SECONDARY_CACHE;
+    }
+  }
+
+  void SetIsStandalone(bool is_standalone) {
+    if (is_standalone) {
+      im_flags |= IM_IS_STANDALONE;
+    } else {
+      im_flags &= ~IM_IS_STANDALONE;
     }
   }
 
   void Free() {
     assert(refs == 0);
-#ifdef __SANITIZE_THREAD__
-    // Here we can safely assert they are the same without a data race reported
-    assert(((flags & IS_SECONDARY_CACHE_COMPATIBLE) != 0) ==
-           is_secondary_cache_compatible_for_tsan);
-#endif  // __SANITIZE_THREAD__
     if (!IsSecondaryCacheCompatible() && info_.deleter) {
       (*info_.deleter)(key(), value);
     } else if (IsSecondaryCacheCompatible()) {
@@ -289,6 +286,8 @@ class LRUHandleTable {
   }
 
   int GetLengthBits() const { return length_bits_; }
+
+  size_t GetOccupancyCount() const { return elems_; }
 
  private:
   // Return a pointer to slot that points to a cache entry that
@@ -379,6 +378,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   virtual size_t GetUsage() const override;
   virtual size_t GetPinnedUsage() const override;
+  virtual size_t GetOccupancyCount() const override;
+  virtual size_t GetTableAddressCount() const override;
 
   virtual void ApplyToSomeEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
@@ -434,6 +435,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
+
+  // Try to insert the evicted handles into the secondary cache.
+  void TryInsertIntoSecondaryCache(autovector<LRUHandle*> evicted_handles);
 
   // Initialized before use.
   size_t capacity_;

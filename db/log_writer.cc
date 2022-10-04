@@ -194,7 +194,7 @@ IOStatus Writer::AddCompressionTypeRecord() {
   return s;
 }
 
-bool Writer::TEST_BufferIsEmpty() { return dest_->TEST_BufferIsEmpty(); }
+bool Writer::BufferIsEmpty() { return dest_->BufferIsEmpty(); }
 
 IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n,
                                     Env::IOPriority rate_limiter_priority) {

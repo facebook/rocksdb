@@ -148,6 +148,13 @@ class SstFileWriter {
   // REQUIRES: comparator is *not* timestamp-aware.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key);
 
+  // Add a range deletion tombstone to currently opened file.
+  // REQUIRES: begin_key and end_key are user keys without timestamp.
+  // REQUIRES: the timestamp's size is equal to what is expected by
+  // the comparator.
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key,
+                     const Slice& timestamp);
+
   // Finalize writing to sst file and close file.
   //
   // An optional ExternalSstFileInfo pointer can be passed to the function

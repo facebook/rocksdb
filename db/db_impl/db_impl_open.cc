@@ -11,7 +11,7 @@
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
-#include "db/periodic_work_scheduler.h"
+#include "db/periodic_task_scheduler.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -163,8 +163,11 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     // DeleteScheduler::CleanupDirectory on the same dir later, it will be
     // safe
     std::vector<std::string> filenames;
+    IOOptions io_opts;
+    io_opts.do_not_recurse = true;
     auto wal_dir = immutable_db_options.GetWalDir();
-    Status s = result.env->GetChildren(wal_dir, &filenames);
+    Status s = immutable_db_options.fs->GetChildren(
+        wal_dir, io_opts, &filenames, /*IODebugContext*=*/nullptr);
     s.PermitUncheckedError();  //**TODO: What to do on error?
     for (std::string& filename : filenames) {
       if (filename.find(".log.trash", filename.length() -
@@ -432,7 +435,10 @@ Status DBImpl::Recover(
       s = env_->FileExists(current_fname);
     } else {
       s = Status::NotFound();
-      Status io_s = env_->GetChildren(dbname_, &files_in_dbname);
+      IOOptions io_opts;
+      io_opts.do_not_recurse = true;
+      Status io_s = immutable_db_options_.fs->GetChildren(
+          dbname_, io_opts, &files_in_dbname, /*IODebugContext*=*/nullptr);
       if (!io_s.ok()) {
         s = io_s;
         files_in_dbname.clear();
@@ -498,7 +504,10 @@ Status DBImpl::Recover(
     }
   } else if (immutable_db_options_.best_efforts_recovery) {
     assert(files_in_dbname.empty());
-    Status s = env_->GetChildren(dbname_, &files_in_dbname);
+    IOOptions io_opts;
+    io_opts.do_not_recurse = true;
+    Status s = immutable_db_options_.fs->GetChildren(
+        dbname_, io_opts, &files_in_dbname, /*IODebugContext*=*/nullptr);
     if (s.IsNotFound()) {
       return Status::InvalidArgument(dbname_,
                                      "does not exist (open for read only)");
@@ -524,12 +533,6 @@ Status DBImpl::Recover(
   }
   if (!s.ok()) {
     return s;
-  }
-  if (immutable_db_options_.verify_sst_unique_id_in_manifest) {
-    s = VerifySstUniqueIdInManifest();
-    if (!s.ok()) {
-      return s;
-    }
   }
   s = SetupDBId(read_only, recovery_ctx);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
@@ -576,7 +579,10 @@ Status DBImpl::Recover(
     // produced by an older version of rocksdb.
     auto wal_dir = immutable_db_options_.GetWalDir();
     if (!immutable_db_options_.best_efforts_recovery) {
-      s = env_->GetChildren(wal_dir, &files_in_wal_dir);
+      IOOptions io_opts;
+      io_opts.do_not_recurse = true;
+      s = immutable_db_options_.fs->GetChildren(
+          wal_dir, io_opts, &files_in_wal_dir, /*IODebugContext*=*/nullptr);
     }
     if (s.IsNotFound()) {
       return Status::InvalidArgument("wal_dir not found", wal_dir);
@@ -684,7 +690,10 @@ Status DBImpl::Recover(
       } else if (normalized_dbname == normalized_wal_dir) {
         filenames = std::move(files_in_wal_dir);
       } else {
-        s = env_->GetChildren(GetName(), &filenames);
+        IOOptions io_opts;
+        io_opts.do_not_recurse = true;
+        s = immutable_db_options_.fs->GetChildren(
+            GetName(), io_opts, &filenames, /*IODebugContext*=*/nullptr);
       }
     }
     if (s.ok()) {
@@ -706,31 +715,6 @@ Status DBImpl::Recover(
     }
   }
   return s;
-}
-
-Status DBImpl::VerifySstUniqueIdInManifest() {
-  mutex_.AssertHeld();
-  ROCKS_LOG_INFO(
-      immutable_db_options_.info_log,
-      "Verifying SST unique id between MANIFEST and SST file table properties");
-  Status status;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->IsDropped()) {
-      auto version = cfd->current();
-      version->Ref();
-      mutex_.Unlock();
-      status = version->VerifySstUniqueIds();
-      mutex_.Lock();
-      version->Unref();
-      if (!status.ok()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "SST unique id mismatch in column family \"%s\": %s",
-                       cfd->GetName().c_str(), status.ToString().c_str());
-        return status;
-      }
-    }
-  }
-  return status;
 }
 
 Status DBImpl::PersistentStatsProcessFormatVersion() {
@@ -2053,9 +2037,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // Remove duplicate paths.
     std::sort(paths.begin(), paths.end());
     paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+    IOOptions io_opts;
+    io_opts.do_not_recurse = true;
     for (auto& path : paths) {
       std::vector<std::string> existing_files;
-      impl->immutable_db_options_.env->GetChildren(path, &existing_files)
+      impl->immutable_db_options_.fs
+          ->GetChildren(path, io_opts, &existing_files,
+                        /*IODebugContext*=*/nullptr)
           .PermitUncheckedError();  //**TODO: What do to on error?
       for (auto& file_name : existing_files) {
         uint64_t file_number;
@@ -2091,9 +2079,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",
                      impl);
     LogFlush(impl->immutable_db_options_.info_log);
-    assert(impl->TEST_WALBufferIsEmpty());
-    // If the assert above fails then we need to FlushWAL before returning
-    // control back to the user.
+    if (!impl->WALBufferIsEmpty()) {
+      impl->FlushWAL(true /* sync */);
+    }
     if (!persist_options_status.ok()) {
       s = Status::IOError(
           "DB::Open() failed --- Unable to persist Options file",
@@ -2105,7 +2093,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                    "DB::Open() failed: %s", s.ToString().c_str());
   }
   if (s.ok()) {
-    s = impl->StartPeriodicWorkScheduler();
+    s = impl->StartPeriodicTaskScheduler();
   }
 
   if (s.ok()) {

@@ -4196,7 +4196,12 @@ void UnsafeRemoveSstFileCommand::DoCommand() {
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
     edit.DeleteFile(level, sst_file_number_);
-    s = w.LogAndApply(cfd, &edit);
+    std::unique_ptr<FSDirectory> db_dir;
+    s = options_.env->GetFileSystem()->NewDirectory(db_path_, IOOptions(),
+                                                    &db_dir, nullptr);
+    if (s.ok()) {
+      s = w.LogAndApply(cfd, &edit, db_dir.get());
+    }
   }
 
   if (!s.ok()) {

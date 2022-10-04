@@ -198,7 +198,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "block_align=true;"
       "max_auto_readahead_size=0;"
       "prepopulate_block_cache=kDisable;"
-      "initial_auto_readahead_size=0",
+      "initial_auto_readahead_size=0;"
+      "num_file_reads_for_auto_readahead=0",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -508,6 +509,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "experimental_mempurge_threshold=0.0001;"
       "optimize_filters_for_hits=false;"
       "level_compaction_dynamic_level_bytes=false;"
+      "level_compaction_dynamic_file_size=true;"
       "inplace_update_support=false;"
       "compaction_style=kCompactionStyleFIFO;"
       "compaction_pri=kMinOverlappingRatio;"

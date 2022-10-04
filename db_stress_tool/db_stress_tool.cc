@@ -280,6 +280,30 @@ int db_stress_tool(int argc, char** argv) {
     }
   }
 
+  if (FLAGS_preserve_unverified_changes && FLAGS_reopen != 0) {
+    fprintf(stderr,
+            "Reopen DB is incompatible with preserving unverified changes\n");
+    exit(1);
+  }
+
+  if (FLAGS_use_txn && FLAGS_sync_fault_injection &&
+      FLAGS_txn_write_policy != 0) {
+    fprintf(stderr,
+            "For TransactionDB, correctness testing with unsync data loss is "
+            "currently compatible with only write committed policy\n");
+    exit(1);
+  }
+
+  if (FLAGS_use_put_entity_one_in > 0 &&
+      (FLAGS_ingest_external_file_one_in > 0 || FLAGS_use_merge ||
+       FLAGS_use_full_merge_v1 || FLAGS_use_txn || FLAGS_test_multi_ops_txns ||
+       FLAGS_user_timestamp_size > 0)) {
+    fprintf(stderr,
+            "PutEntity is currently incompatible with SstFileWriter, Merge,"
+            " transactions, and user-defined timestamps\n");
+    exit(1);
+  }
+
 #ifndef NDEBUG
   KillPoint* kp = KillPoint::GetInstance();
   kp->rocksdb_kill_odds = FLAGS_kill_random_test;

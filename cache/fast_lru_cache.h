@@ -368,6 +368,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   size_t GetUsage() const override;
   size_t GetPinnedUsage() const override;
+  size_t GetOccupancyCount() const override;
+  size_t GetTableAddressCount() const override;
 
   void ApplyToSomeEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,

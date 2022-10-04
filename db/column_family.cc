@@ -1144,7 +1144,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_opts, &arena));
-  super_version->imm->AddIterators(read_opts, &merge_iter_builder);
+  super_version->imm->AddIterators(read_opts, &merge_iter_builder,
+                                   false /* add_range_tombstone_iter */);
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
   auto read_seq = super_version->current->version_set()->LastSequence();
@@ -1415,6 +1416,14 @@ Status ColumnFamilyData::ValidateOptions(
         "FIFO compaction only supported with max_open_files = -1.");
   }
 
+  std::vector<uint32_t> supported{0, 1, 2, 4, 8};
+  if (std::find(supported.begin(), supported.end(),
+                cf_options.memtable_protection_bytes_per_key) ==
+      supported.end()) {
+    return Status::NotSupported(
+        "Memtable per key-value checksum protection only supports 0, 1, 2, 4 "
+        "or 8 bytes per key.");
+  }
   return s;
 }
 

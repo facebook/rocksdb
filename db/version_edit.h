@@ -23,6 +23,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"
+#include "table/unique_id_impl.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -103,8 +104,6 @@ constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
-
-using UniqueId64x2 = std::array<uint64_t, 2>;
 
 // A copyable structure contains information needed to read data from an SST
 // file. It can contain a pointer to a table reader opened for the file, or

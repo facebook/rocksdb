@@ -381,6 +381,7 @@ IOStatus RandomAccessFileReader::MultiRead(
         }
       }
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
+      RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
 #ifndef ROCKSDB_LITE
@@ -472,6 +473,7 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
   if (use_direct_io() && is_aligned == false) {
     FSReadRequest aligned_req = Align(req, alignment);
+    aligned_req.status.PermitUncheckedError();
 
     // Allocate aligned buffer.
     read_async_info->buf_.Alignment(alignment);

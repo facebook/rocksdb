@@ -277,6 +277,7 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     if [ "$FBCODE_BUILD" = "true" ]; then
       # Enable backtrace on fbcode since the necessary libraries are present
       COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+      FOLLY_DIR="third-party/folly"
     fi
     true
 else
@@ -601,6 +602,17 @@ EOF
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbenchmark"
         fi
     fi
+    if test $USE_FOLLY; then
+        # Test whether libfolly library is installed
+        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <folly/synchronization/DistributedMutex.h>
+          int main() {}
+EOF
+        if [ "$?" != 0 ]; then
+          FOLLY_DIR="./third-party/folly"
+        fi
+    fi
+
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
@@ -827,6 +839,13 @@ fi
 
 rm -f test.o test_dl.o
 
+# Get the path for the folly installation dir
+if [ "$USE_FOLLY" ]; then
+  if [ "$FOLLY_DIR" ]; then
+    FOLLY_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-inst-dir folly`
+  fi
+fi
+
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
 
@@ -866,6 +885,8 @@ echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
 echo "FIND=$FIND" >> "$OUTPUT"
 echo "WATCH=$WATCH" >> "$OUTPUT"
+echo "FOLLY_PATH=$FOLLY_PATH" >> "$OUTPUT"
+
 # This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"

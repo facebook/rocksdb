@@ -127,6 +127,22 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                          6 /* hard coded 6 probes */,
                          moptions_.memtable_huge_page_size, ioptions.logger));
   }
+  // Initialize cached_range_tombstone_ here since it could
+  // be read before it is constructed in MemTable::Add(), which could also lead
+  // to a data race on the global mutex table backing atomic shared_ptr.
+  auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
+  size_t size = cached_range_tombstone_.Size();
+  for (size_t i = 0; i < size; ++i) {
+    std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
+        cached_range_tombstone_.AccessAtCore(i);
+    auto new_local_cache_ref = std::make_shared<
+        const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+    std::atomic_store_explicit(
+        local_cache_ref_ptr,
+        std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
+                                                           new_cache.get()),
+        std::memory_order_relaxed);
+  }
 }
 
 MemTable::~MemTable() {
@@ -557,18 +573,31 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
     assert(IsFragmentedRangeTombstonesConstructed());
     return new FragmentedRangeTombstoneIterator(
         fragmented_range_tombstone_list_.get(), comparator_.comparator,
-        read_seq);
+        read_seq, read_options.timestamp);
   }
 
-  auto* unfragmented_iter = new MemTableIterator(
-      *this, read_options, nullptr /* arena */, true /* use_range_del_table */);
-  auto fragmented_tombstone_list =
-      std::make_shared<FragmentedRangeTombstoneList>(
-          std::unique_ptr<InternalIterator>(unfragmented_iter),
-          comparator_.comparator);
+  // takes current cache
+  std::shared_ptr<FragmentedRangeTombstoneListCache> cache =
+      std::atomic_load_explicit(cached_range_tombstone_.Access(),
+                                std::memory_order_relaxed);
+  // construct fragmented tombstone list if necessary
+  if (!cache->initialized.load(std::memory_order_acquire)) {
+    cache->reader_mutex.lock();
+    if (!cache->tombstones) {
+      auto* unfragmented_iter =
+          new MemTableIterator(*this, read_options, nullptr /* arena */,
+                               true /* use_range_del_table */);
+      cache->tombstones = std::make_unique<FragmentedRangeTombstoneList>(
+          FragmentedRangeTombstoneList(
+              std::unique_ptr<InternalIterator>(unfragmented_iter),
+              comparator_.comparator));
+      cache->initialized.store(true, std::memory_order_release);
+    }
+    cache->reader_mutex.unlock();
+  }
 
   auto* fragmented_iter = new FragmentedRangeTombstoneIterator(
-      fragmented_tombstone_list, comparator_.comparator, read_seq);
+      cache, comparator_.comparator, read_seq, read_options.timestamp);
   return fragmented_iter;
 }
 
@@ -819,6 +848,30 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
   }
   if (type == kTypeRangeDeletion) {
+    auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
+    size_t size = cached_range_tombstone_.Size();
+    if (allow_concurrent) {
+      range_del_mutex_.lock();
+    }
+    for (size_t i = 0; i < size; ++i) {
+      std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
+          cached_range_tombstone_.AccessAtCore(i);
+      auto new_local_cache_ref = std::make_shared<
+          const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+      // It is okay for some reader to load old cache during invalidation as
+      // the new sequence number is not published yet.
+      // Each core will have a shared_ptr to a shared_ptr to the cached
+      // fragmented range tombstones, so that ref count is maintianed locally
+      // per-core using the per-core shared_ptr.
+      std::atomic_store_explicit(
+          local_cache_ref_ptr,
+          std::shared_ptr<FragmentedRangeTombstoneListCache>(
+              new_local_cache_ref, new_cache.get()),
+          std::memory_order_relaxed);
+    }
+    if (allow_concurrent) {
+      range_del_mutex_.unlock();
+    }
     is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();
@@ -894,6 +947,10 @@ static bool SaveValue(void* arg, const char* entry) {
   const Comparator* user_comparator =
       s->mem->GetInternalKeyComparator().user_comparator();
   size_t ts_sz = user_comparator->timestamp_size();
+  if (ts_sz && s->timestamp && max_covering_tombstone_seq > 0) {
+    // timestamp should already be set to range tombstone timestamp
+    assert(s->timestamp->size() == ts_sz);
+  }
   if (user_comparator->EqualWithoutTimestamp(user_key_slice,
                                              s->key->user_key())) {
     // Correct user key
@@ -906,10 +963,38 @@ static bool SaveValue(void* arg, const char* entry) {
       return true;  // to continue to the next seq
     }
 
-    s->seq = seq;
+    if (s->seq == kMaxSequenceNumber) {
+      s->seq = seq;
+      if (s->seq > max_covering_tombstone_seq) {
+        if (ts_sz && s->timestamp != nullptr) {
+          // `timestamp` was set to range tombstone's timestamp before
+          // `SaveValue` is ever called. This key has a higher sequence number
+          // than range tombstone, and is the key with the highest seqno across
+          // all keys with this user_key, so we update timestamp here.
+          Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
+          s->timestamp->assign(ts.data(), ts_sz);
+        }
+      } else {
+        s->seq = max_covering_tombstone_seq;
+      }
+    }
+
+    if (ts_sz > 0 && s->timestamp != nullptr) {
+      if (!s->timestamp->empty()) {
+        assert(ts_sz == s->timestamp->size());
+      }
+      // TODO optimize for smaller size ts
+      const std::string kMaxTs(ts_sz, '\xff');
+      if (s->timestamp->empty() ||
+          user_comparator->CompareTimestamp(*(s->timestamp), kMaxTs) == 0) {
+        Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
+        s->timestamp->assign(ts.data(), ts_sz);
+      }
+    }
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
-         type == kTypeWideColumnEntity) &&
+         type == kTypeWideColumnEntity || type == kTypeDeletion ||
+         type == kTypeSingleDeletion || type == kTypeDeletionWithTimestamp) &&
         max_covering_tombstone_seq > seq) {
       type = kTypeRangeDeletion;
     }
@@ -987,10 +1072,6 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->is_blob_index) = (type == kTypeBlobIndex);
         }
 
-        if (ts_sz > 0 && s->timestamp != nullptr) {
-          Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
-          s->timestamp->assign(ts.data(), ts.size());
-        }
         return false;
       }
       case kTypeDeletion:
@@ -1006,10 +1087,6 @@ static bool SaveValue(void* arg, const char* entry) {
           }
         } else {
           *(s->status) = Status::NotFound();
-          if (ts_sz > 0 && s->timestamp != nullptr) {
-            Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
-            s->timestamp->assign(ts.data(), ts.size());
-          }
         }
         *(s->found_final_value) = true;
         return false;
@@ -1078,9 +1155,17 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
                                 GetInternalKeySeqno(key.internal_key()),
                                 immutable_memtable));
   if (range_del_iter != nullptr) {
-    *max_covering_tombstone_seq =
-        std::max(*max_covering_tombstone_seq,
-                 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+    SequenceNumber covering_seq =
+        range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key());
+    if (covering_seq > *max_covering_tombstone_seq) {
+      *max_covering_tombstone_seq = covering_seq;
+      if (timestamp) {
+        // Will be overwritten in SaveValue() if there is a point key with
+        // a higher seqno.
+        timestamp->assign(range_del_iter->timestamp().data(),
+                          range_del_iter->timestamp().size());
+      }
+    }
   }
 
   bool found_final_value = false;
@@ -1211,9 +1296,17 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           NewRangeTombstoneIteratorInternal(
               read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
               immutable_memtable));
-      iter->max_covering_tombstone_seq = std::max(
-          iter->max_covering_tombstone_seq,
-          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
+      SequenceNumber covering_seq =
+          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key());
+      if (covering_seq > iter->max_covering_tombstone_seq) {
+        iter->max_covering_tombstone_seq = covering_seq;
+        if (iter->timestamp) {
+          // Will be overwritten in SaveValue() if there is a point key with
+          // a higher seqno.
+          iter->timestamp->assign(range_del_iter->timestamp().data(),
+                                  range_del_iter->timestamp().size());
+        }
+      }
     }
     SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,

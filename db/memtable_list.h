@@ -116,7 +116,8 @@ class MemTableListVersion {
                     Arena* arena);
 
   void AddIterators(const ReadOptions& options,
-                    MergeIteratorBuilder* merge_iter_builder);
+                    MergeIteratorBuilder* merge_iter_builder,
+                    bool add_range_tombstone_iter);
 
   uint64_t GetTotalNumEntries() const;
 

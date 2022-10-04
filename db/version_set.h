@@ -803,7 +803,6 @@ class Version {
   void AddIterators(const ReadOptions& read_options,
                     const FileOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder,
-                    RangeDelAggregator* range_del_agg,
                     bool allow_unprepared_value);
 
   // @param read_options Must outlive any iterator built by
@@ -811,8 +810,7 @@ class Version {
   void AddIteratorsForLevel(const ReadOptions& read_options,
                             const FileOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
-                            int level, RangeDelAggregator* range_del_agg,
-                            bool allow_unprepared_value);
+                            int level, bool allow_unprepared_value);
 
   Status OverlapWithLevelIterator(const ReadOptions&, const FileOptions&,
                                   const Slice& smallest_user_key,
@@ -961,7 +959,9 @@ class Version {
 
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
-  Status VerifySstUniqueIds() const;
+  InternalIterator* TEST_GetLevelIterator(
+      const ReadOptions& read_options, MergeIteratorBuilder* merge_iter_builder,
+      int level, bool allow_unprepared_value);
 
  private:
   Env* env_;
@@ -1014,15 +1014,14 @@ class Version {
   // queue coroutine tasks to mget_tasks. It may also split the input batch
   // by creating a new batch with keys definitely not in this level and
   // enqueuing it to to_process.
-  Status ProcessBatch(const ReadOptions& read_options,
-                      FilePickerMultiGet* batch,
-                      std::vector<folly::coro::Task<Status>>& mget_tasks,
-                      std::unordered_map<uint64_t, BlobReadContexts>* blob_ctxs,
-                      autovector<FilePickerMultiGet, 4>& batches,
-                      std::deque<size_t>& waiting,
-                      std::deque<size_t>& to_process,
-                      unsigned int& num_tasks_queued, uint64_t& num_filter_read,
-                      uint64_t& num_index_read, uint64_t& num_sst_read);
+  Status ProcessBatch(
+      const ReadOptions& read_options, FilePickerMultiGet* batch,
+      std::vector<folly::coro::Task<Status>>& mget_tasks,
+      std::unordered_map<uint64_t, BlobReadContexts>* blob_ctxs,
+      autovector<FilePickerMultiGet, 4>& batches, std::deque<size_t>& waiting,
+      std::deque<size_t>& to_process, unsigned int& num_tasks_queued,
+      std::unordered_map<int, std::tuple<uint64_t, uint64_t, uint64_t>>&
+          mget_stats);
 #endif
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
@@ -1099,13 +1098,14 @@ class VersionSet {
 
   Status LogAndApplyToDefaultColumnFamily(
       VersionEdit* edit, InstrumentedMutex* mu,
-      FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
+      FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     ColumnFamilyData* default_cf = GetColumnFamilySet()->GetDefault();
     const MutableCFOptions* cf_options =
         default_cf->GetLatestMutableCFOptions();
-    return LogAndApply(default_cf, *cf_options, edit, mu, db_directory,
-                       new_descriptor_log, column_family_options);
+    return LogAndApply(default_cf, *cf_options, edit, mu,
+                       dir_contains_current_file, new_descriptor_log,
+                       column_family_options);
   }
 
   // Apply *edit to the current version to form a new descriptor that
@@ -1117,7 +1117,7 @@ class VersionSet {
   Status LogAndApply(
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options, VersionEdit* edit,
-      InstrumentedMutex* mu, FSDirectory* db_directory = nullptr,
+      InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     autovector<ColumnFamilyData*> cfds;
@@ -1129,7 +1129,8 @@ class VersionSet {
     edit_list.emplace_back(edit);
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       db_directory, new_descriptor_log, column_family_options);
+                       dir_contains_current_file, new_descriptor_log,
+                       column_family_options);
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
   // no edit in the list column family add or drop
@@ -1137,7 +1138,7 @@ class VersionSet {
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
-      FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
+      FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr,
       const std::function<void(const Status&)>& manifest_wcb = {}) {
     autovector<ColumnFamilyData*> cfds;
@@ -1147,8 +1148,8 @@ class VersionSet {
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       db_directory, new_descriptor_log, column_family_options,
-                       {manifest_wcb});
+                       dir_contains_current_file, new_descriptor_log,
+                       column_family_options, {manifest_wcb});
   }
 
   // The across-multi-cf batch version. If edit_lists contain more than
@@ -1158,7 +1159,7 @@ class VersionSet {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<autovector<VersionEdit*>>& edit_lists,
-      InstrumentedMutex* mu, FSDirectory* db_directory = nullptr,
+      InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr,
       const std::vector<std::function<void(const Status&)>>& manifest_wcbs =
@@ -1574,7 +1575,8 @@ class VersionSet {
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
-                               InstrumentedMutex* mu, FSDirectory* db_directory,
+                               InstrumentedMutex* mu,
+                               FSDirectory* dir_contains_current_file,
                                bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options);
 
@@ -1636,7 +1638,7 @@ class ReactiveVersionSet : public VersionSet {
       const autovector<ColumnFamilyData*>& /*cfds*/,
       const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
-      InstrumentedMutex* /*mu*/, FSDirectory* /*db_directory*/,
+      InstrumentedMutex* /*mu*/, FSDirectory* /*dir_contains_current_file*/,
       bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
       const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/)
       override {

@@ -7,6 +7,7 @@
 
 #include <cassert>
 
+#include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/blob/blob_index.h"
@@ -408,16 +409,28 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
 
     // Objects to be put into the cache have to be heap-allocated and
     // self-contained, i.e. own their contents. The Cache has to be able to
-    // take unique ownership of them. Therefore, we copy the blob into a
-    // string directly, and insert that into the cache.
-    std::unique_ptr<std::string> buf = std::make_unique<std::string>();
-    buf->assign(blob.data(), blob.size());
+    // take unique ownership of them.
+    CacheAllocationPtr allocation =
+        AllocateBlock(blob.size(), blob_cache->memory_allocator());
+    memcpy(allocation.get(), blob.data(), blob.size());
+    std::unique_ptr<BlobContents> buf =
+        BlobContents::Create(std::move(allocation), blob.size());
 
-    // TODO: support custom allocators and provide a better estimated memory
-    // usage using malloc_usable_size.
-    s = blob_cache->Insert(key, buf.get(), buf->size(),
-                           &DeleteCacheEntry<std::string>,
-                           nullptr /* cache_handle */, priority);
+    Cache::CacheItemHelper* const cache_item_helper =
+        BlobContents::GetCacheItemHelper();
+    assert(cache_item_helper);
+
+    if (immutable_options_->lowest_used_cache_tier ==
+        CacheTier::kNonVolatileBlockTier) {
+      s = blob_cache->Insert(key, buf.get(), cache_item_helper,
+                             buf->ApproximateMemoryUsage(),
+                             nullptr /* cache_handle */, priority);
+    } else {
+      s = blob_cache->Insert(key, buf.get(), buf->ApproximateMemoryUsage(),
+                             cache_item_helper->del_cb,
+                             nullptr /* cache_handle */, priority);
+    }
+
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);
       RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, buf->size());

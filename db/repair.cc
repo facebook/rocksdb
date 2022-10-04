@@ -162,9 +162,13 @@ class Repairer {
     edit.AddColumnFamily(cf_name);
 
     mutex_.Lock();
-    Status status = vset_.LogAndApply(cfd, mut_cf_opts, &edit, &mutex_,
-                                      nullptr /* db_directory */,
-                                      false /* new_descriptor_log */, cf_opts);
+    std::unique_ptr<FSDirectory> db_dir;
+    Status status = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(),
+                                                        &db_dir, nullptr);
+    if (status.ok()) {
+      status = vset_.LogAndApply(cfd, mut_cf_opts, &edit, &mutex_, db_dir.get(),
+                                 false /* new_descriptor_log */, cf_opts);
+    }
     mutex_.Unlock();
     return status;
   }
@@ -504,8 +508,8 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
-      status = table_cache_->GetTableProperties(file_options_, icmp_,
-                                                t->meta.fd, &props);
+      status = table_cache_->GetTableProperties(file_options_, icmp_, t->meta,
+                                                &props);
     }
     if (status.ok()) {
       auto s =
@@ -656,9 +660,14 @@ class Repairer {
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);
       mutex_.Lock();
-      Status status = vset_.LogAndApply(
-          cfd, *cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
-          nullptr /* db_directory */, false /* new_descriptor_log */);
+      std::unique_ptr<FSDirectory> db_dir;
+      Status status = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(),
+                                                          &db_dir, nullptr);
+      if (status.ok()) {
+        status = vset_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                   &edit, &mutex_, db_dir.get(),
+                                   false /* new_descriptor_log */);
+      }
       mutex_.Unlock();
       if (!status.ok()) {
         return status;

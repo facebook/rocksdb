@@ -213,9 +213,9 @@ std::string ShardedCache::GetPrintableOptions() const {
   ret.append(GetShard(0)->GetPrintableOptions());
   return ret;
 }
-int GetDefaultCacheShardBits(size_t capacity) {
+
+int GetDefaultCacheShardBits(size_t capacity, size_t min_shard_size) {
   int num_shard_bits = 0;
-  size_t min_shard_size = 512L * 1024L;  // Every shard is at least 512KB.
   size_t num_shards = capacity / min_shard_size;
   while (num_shards >>= 1) {
     if (++num_shard_bits >= 6) {
@@ -229,5 +229,22 @@ int GetDefaultCacheShardBits(size_t capacity) {
 int ShardedCache::GetNumShardBits() const { return BitsSetToOne(shard_mask_); }
 
 uint32_t ShardedCache::GetNumShards() const { return shard_mask_ + 1; }
+
+size_t ShardedCache::GetOccupancyCount() const {
+  size_t oc = 0;
+  uint32_t num_shards = GetNumShards();
+  for (uint32_t s = 0; s < num_shards; s++) {
+    oc += GetShard(s)->GetOccupancyCount();
+  }
+  return oc;
+}
+size_t ShardedCache::GetTableAddressCount() const {
+  size_t tac = 0;
+  uint32_t num_shards = GetNumShards();
+  for (uint32_t s = 0; s < num_shards; s++) {
+    tac += GetShard(s)->GetTableAddressCount();
+  }
+  return tac;
+}
 
 }  // namespace ROCKSDB_NAMESPACE
