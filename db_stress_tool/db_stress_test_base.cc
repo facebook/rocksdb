@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#include <ios>
+
 #include "util/compression.h"
 #ifdef GFLAGS
 #include "cache/fast_lru_cache.h"
@@ -444,23 +446,31 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
                                    const WideColumns& expected_columns) const {
   auto key_str = Key(key);
 
-  std::ostringstream oss;
-  for (const auto& column : columns_from_db) {
-    oss << ' ' << column.DebugString(/* hex */ true);
-  }
+  auto dump = [](const WideColumns& columns) {
+    if (columns.empty()) {
+      return std::string();
+    }
 
-  std::ostringstream xoss;
-  for (const auto& column : expected_columns) {
-    xoss << ' ' << column.DebugString(/* hex */ true);
-  }
+    std::ostringstream oss;
+    oss << std::hex;
+
+    auto it = columns.begin();
+    oss << *it;
+    for (++it; it != columns.end(); ++it) {
+      oss << ' ' << *it;
+    }
+
+    return oss.str();
+  };
 
   fprintf(stderr,
           "Verification failed for column family %d key %s (%" PRIi64
-          "): value_from_db: %s, columns_from_db:%s, expected_columns:%s, "
+          "): value_from_db: %s, columns_from_db: %s, expected_columns: %s, "
           "msg: %s\n",
           cf, Slice(key_str).ToString(/* hex */ true).c_str(), key,
-          value_from_db.ToString(/* hex */ true).c_str(), oss.str().c_str(),
-          xoss.str().c_str(), msg.c_str());
+          value_from_db.ToString(/* hex */ true).c_str(),
+          dump(columns_from_db).c_str(), dump(expected_columns).c_str(),
+          msg.c_str());
   shared->SetVerificationFailure();
 }
 

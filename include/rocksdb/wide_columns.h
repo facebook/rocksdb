@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <string>
+#include <ostream>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -57,8 +57,6 @@ class WideColumn {
   Slice& name() { return name_; }
   Slice& value() { return value_; }
 
-  std::string DebugString(bool hex) const;
-
  private:
   Slice name_;
   Slice value_;
@@ -71,6 +69,13 @@ inline bool operator==(const WideColumn& lhs, const WideColumn& rhs) {
 
 inline bool operator!=(const WideColumn& lhs, const WideColumn& rhs) {
   return !(lhs == rhs);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const WideColumn& column) {
+  const bool hex = (os.flags() & os.basefield) == os.hex;
+  os << column.name().ToString(hex) << ':' << column.value().ToString(hex);
+
+  return os;
 }
 
 // A collection of wide columns.
