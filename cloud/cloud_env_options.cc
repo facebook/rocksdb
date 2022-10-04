@@ -16,6 +16,18 @@ void CloudEnvOptions::Dump(Logger* log) const {
   auto provider = storage_provider.get();
   auto controller = cloud_log_controller.get();
   Header(log, "                         COptions.cloud_type: %s", (provider != nullptr) ? provider->Name() : "Unknown");
+  Header(log, "                    COptions.src_bucket_name: %s",
+         src_bucket.GetBucketName().c_str());
+  Header(log, "                    COptions.src_object_path: %s",
+         src_bucket.GetObjectPath().c_str());
+  Header(log, "                  COptions.src_bucket_region: %s",
+         src_bucket.GetRegion().c_str());
+  Header(log, "                   COptions.dest_bucket_name: %s",
+         dest_bucket.GetBucketName().c_str());
+  Header(log, "                   COptions.dest_object_path: %s",
+         dest_bucket.GetObjectPath().c_str());
+  Header(log, "                 COptions.dest_bucket_region: %s",
+         dest_bucket.GetRegion().c_str());
   Header(log, "                           COptions.log_type: %s", (controller != nullptr) ? controller->Name() : "None");
   Header(log, "               COptions.keep_local_sst_files: %d",
          keep_local_sst_files);

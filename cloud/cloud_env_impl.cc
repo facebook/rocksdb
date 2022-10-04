@@ -2243,26 +2243,8 @@ Status CloudEnvImpl::ValidateOptions(const DBOptions& db_opts,
   if (info_log_ == nullptr) {
     info_log_ = db_opts.info_log;
   }
-  Header(info_log_, "     %s.src_bucket_name: %s", Name(),
-         cloud_env_options.src_bucket.GetBucketName().c_str());
-  Header(info_log_, "     %s.src_object_path: %s", Name(),
-         cloud_env_options.src_bucket.GetObjectPath().c_str());
-  Header(info_log_, "     %s.src_bucket_region: %s", Name(),
-         cloud_env_options.src_bucket.GetRegion().c_str());
-  Header(info_log_, "     %s.dest_bucket_name: %s", Name(),
-         cloud_env_options.dest_bucket.GetBucketName().c_str());
-  Header(info_log_, "     %s.dest_object_path: %s", Name(),
-         cloud_env_options.dest_bucket.GetObjectPath().c_str());
-  Header(info_log_, "     %s.dest_bucket_region: %s", Name(),
-         cloud_env_options.dest_bucket.GetRegion().c_str());
   Status s = CheckValidity();
   if (s.ok()) {
-    Header(info_log_, "     %s.storage_provider: %s", Name(),
-           GetStorageProvider()->Name());
-    if (cloud_env_options.cloud_log_controller) {
-      Header(info_log_, "     %s.log controller: %s", Name(),
-             cloud_env_options.cloud_log_controller->Name());
-    }
     return CloudEnv::ValidateOptions(db_opts, cf_opts);
   } else {
     return s;
