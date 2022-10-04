@@ -703,13 +703,28 @@ class NonBatchedOpsStressTest : public StressTest {
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
 
     uint64_t count = 0;
+    bool columns_inconsistent = false;
+
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
+
+      const WideColumns expected_columns = GenerateExpectedWideColumns(
+          GetValueBase(iter->value()), iter->value());
+      if (iter->columns() != expected_columns) {
+        columns_inconsistent = true;
+      }
     }
 
     if (ro_copy.iter_start_ts == nullptr) {
       assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
+    }
+
+    if (columns_inconsistent) {
+      fprintf(stderr, "TestPrefixScan: columns inconsistent\n");
+      thread->stats.AddErrors(1);
+
+      return Status::Corruption();
     }
 
     const Status s = iter->status();
@@ -1107,6 +1122,7 @@ class NonBatchedOpsStressTest : public StressTest {
       ThreadState* thread, const ReadOptions& read_opts,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) override {
+    // TODO
     // Lock the whole range over which we might iterate to ensure it doesn't
     // change under us.
     std::vector<std::unique_ptr<MutexLock>> range_locks;
@@ -1344,7 +1360,7 @@ class NonBatchedOpsStressTest : public StressTest {
           GetValueBase(value_from_db), value_from_db);
       if (*columns_from_db != expected_columns) {
         VerificationAbort(shared, "Value and columns inconsistent", cf, key,
-                          value_from_db, *columns_from_db);
+                          value_from_db, *columns_from_db, expected_columns);
         return false;
       }
     }

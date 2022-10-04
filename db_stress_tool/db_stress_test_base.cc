@@ -440,7 +440,8 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
                                    int64_t key, Slice value_from_db,
-                                   const WideColumns& columns_from_db) const {
+                                   const WideColumns& columns_from_db,
+                                   const WideColumns& expected_columns) const {
   auto key_str = Key(key);
 
   std::ostringstream oss;
@@ -448,12 +449,18 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
     oss << ' ' << column.DebugString(/* hex */ true);
   }
 
+  std::ostringstream xoss;
+  for (const auto& column : expected_columns) {
+    xoss << ' ' << column.DebugString(/* hex */ true);
+  }
+
   fprintf(stderr,
           "Verification failed for column family %d key %s (%" PRIi64
-          "): value_from_db: %s, columns_from_db:%s, msg: %s\n",
+          "): value_from_db: %s, columns_from_db:%s, expected_columns:%s, "
+          "msg: %s\n",
           cf, Slice(key_str).ToString(/* hex */ true).c_str(), key,
           value_from_db.ToString(/* hex */ true).c_str(), oss.str().c_str(),
-          msg.c_str());
+          xoss.str().c_str(), msg.c_str());
   shared->SetVerificationFailure();
 }
 
@@ -1103,6 +1110,7 @@ Status StressTest::TestIterate(ThreadState* thread,
                                const ReadOptions& read_opts,
                                const std::vector<int>& rand_column_families,
                                const std::vector<int64_t>& rand_keys) {
+  // TODO
   Status s;
   const Snapshot* snapshot = db_->GetSnapshot();
   ReadOptions readoptionscopy = read_opts;
@@ -2273,6 +2281,7 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
   for (it->Seek(start_key);
        it->Valid() && options_.comparator->Compare(it->key(), end_key) <= 0;
        it->Next()) {
+    // TODO
     crc = crc32c::Extend(crc, it->key().data(), it->key().size());
     crc = crc32c::Extend(crc, kCrcCalculatorSepearator.data(), 1);
     crc = crc32c::Extend(crc, it->value().data(), it->value().size());
