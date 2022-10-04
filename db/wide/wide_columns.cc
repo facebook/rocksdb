@@ -5,11 +5,13 @@
 
 #include "rocksdb/wide_columns.h"
 
-#include <sstream>
-
 #include "db/wide/wide_column_serialization.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+const Slice kDefaultWideColumnName;
+
+const WideColumns kNoWideColumns;
 
 Status PinnableWideColumns::CreateIndexForWideColumns() {
   Slice value_copy = value_;
