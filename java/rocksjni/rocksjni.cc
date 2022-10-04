@@ -57,8 +57,7 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
   if (s.ok()) {
     std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbShared =
         APIBase::createSharedPtr(db, false /*isDefault*/);
-    std::unique_ptr<APIRocksDB<ROCKSDB_NAMESPACE::DB>> dbAPI(
-        new APIRocksDB(dbShared));
+    auto dbAPI = std::make_unique<APIRocksDB<ROCKSDB_NAMESPACE::DB>>(dbShared);
     return GET_CPLUSPLUS_POINTER(dbAPI.release());
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);

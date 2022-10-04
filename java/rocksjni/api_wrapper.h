@@ -25,19 +25,13 @@ class APIWrapper {  // no DB, so no APIBase inheritance
  public:
   std::shared_ptr<TWrapped> wrapped;
 
-  APIWrapper(
-      std::shared_ptr<ROCKSDB_NAMESPACE::WriteBatchWithIndex>& wrapped)
-      : wrapped(wrapped){};
+  APIWrapper(std::shared_ptr<TWrapped>& wrapped) : wrapped(wrapped){};
 
-  ROCKSDB_NAMESPACE::WriteBatchWithIndex* operator->() const {
-    return wrapped.get();
-  }
+  TWrapped* operator->() const { return wrapped.get(); }
 
-  std::shared_ptr<ROCKSDB_NAMESPACE::WriteBatchWithIndex>& operator*() {
-    return wrapped;
-  }
+  std::shared_ptr<TWrapped>& operator*() { return wrapped; }
 
-  ROCKSDB_NAMESPACE::WriteBatchWithIndex* get() const { return wrapped.get(); }
+  TWrapped* get() const { return wrapped.get(); }
 
   /**
    * @brief dump some status info to std::cout
