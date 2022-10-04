@@ -229,19 +229,22 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   result.min_write_buffer_number_to_merge =
       std::min(result.min_write_buffer_number_to_merge,
                result.max_write_buffer_number - 1);
-  if (result.min_write_buffer_number_to_merge < 1 || db_options.atomic_flush) {
-    if (db_options.atomic_flush) {
-      ROCKS_LOG_WARN(
-          db_options.logger,
-          "Currently, if atomic_flush is true, then triggering flush for any "
-          "column family internally (non-manual flush) will trigger flushing "
-          "all column families even if the number of memtables is smaller "
-          "min_write_buffer_number_to_merge. Therefore, configuring "
-          "min_write_buffer_number_to_merge > 1 is not compatible and should "
-          "be satinized to 1. Not doing so will lead to data loss and "
-          "inconsistent state across multiple column families when WAL is "
-          "disabled, which is a common setting for atomic flush");
-    }
+  if (result.min_write_buffer_number_to_merge < 1) {
+    result.min_write_buffer_number_to_merge = 1;
+  }
+
+  if (db_options.atomic_flush && result.min_write_buffer_number_to_merge > 1) {
+    ROCKS_LOG_WARN(
+        db_options.logger,
+        "Currently, if atomic_flush is true, then triggering flush for any "
+        "column family internally (non-manual flush) will trigger flushing "
+        "all column families even if the number of memtables is smaller "
+        "min_write_buffer_number_to_merge. Therefore, configuring "
+        "min_write_buffer_number_to_merge > 1 is not compatible and should "
+        "be satinized to 1. Not doing so will lead to data loss and "
+        "inconsistent state across multiple column families when WAL is "
+        "disabled, which is a common setting for atomic flush");
+
     result.min_write_buffer_number_to_merge = 1;
   }
 
