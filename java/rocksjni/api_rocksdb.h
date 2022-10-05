@@ -64,17 +64,15 @@ class APIRocksDB : APIBase {
     return defaultColumnFamilyHandle;
   }
 
-  /**
-   * @brief dump some status info to std::cout
-   *
-   */
-  void check(std::string message) {
-    std::cout << " APIRocksDB::check(); " << message << " ";
-    std::cout << " db.use_count() " << db.use_count() << "; ";
-    for (auto& cfh : columnFamilyHandles) {
-      std::cout << " cfh.use_count() " << cfh.use_count() << "; ";
+  std::vector<long> use_counts() {
+    std::vector<long> vec;
+
+    vec.push_back(db.use_count());
+    for(auto const& cfh: columnFamilyHandles) {
+      vec.push_back(cfh.use_count());
     }
-    std::cout << std::endl;
+
+    return vec;
   }
 
   template <class TIterator>

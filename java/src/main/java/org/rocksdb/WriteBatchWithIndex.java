@@ -81,10 +81,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   }
 
   @Override protected final native void nativeClose(long nativeReference);
-  // TODO (AP) reference counted API
 
-  @Override protected final native boolean isLastReference(long nativeAPIReference);
-  // TODO (AP) reference counted API
+  @Override protected final native long[] getReferenceCounts(long nativeReference);
 
   /**
    * Create an iterator of a column family. User can call

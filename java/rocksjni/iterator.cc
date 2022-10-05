@@ -46,7 +46,6 @@ void Java_org_rocksdb_RocksIterator_nativeClose(JNIEnv* /*env*/,
           reinterpret_cast<
               APIIterator<ROCKSDB_NAMESPACE::DB, ROCKSDB_NAMESPACE::Iterator>*>(
               handle));
-  iteratorAPI->check("nativeClose()");
 }
 
 /*
@@ -62,7 +61,6 @@ jboolean Java_org_rocksdb_RocksIterator_isLastReference(JNIEnv*, jobject,
           reinterpret_cast<
               APIIterator<ROCKSDB_NAMESPACE::DB, ROCKSDB_NAMESPACE::Iterator>*>(
               jhandle));
-  iteratorAPI->check("isLastReference()");
   if (nullptr == iteratorAPI.release()) {
     return false;
   }

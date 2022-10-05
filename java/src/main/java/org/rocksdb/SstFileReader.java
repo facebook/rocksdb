@@ -85,6 +85,6 @@ public class SstFileReader extends RocksNative {
   @Override protected final native void nativeClose(long nativeReference);
   // TODO (AP) reference counted API
 
-  @Override protected final native boolean isLastReference(long nativeAPIReference);
+  @Override protected final native long[] getReferenceCounts(long nativeAPIReference);
   // TODO (AP) reference counted API
 }

@@ -1733,7 +1733,6 @@ jlong Java_org_rocksdb_Transaction_getId(JNIEnv* /*env*/, jobject /*jobj*/,
 void Java_org_rocksdb_Transaction_nativeClose(JNIEnv* /*env*/, jobject /*jobj*/,
                                               jlong jhandle) {
   std::unique_ptr<API_TXN> txnAPI(reinterpret_cast<API_TXN*>(jhandle));
-  txnAPI->check("nativeClose()");
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.
 }

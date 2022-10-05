@@ -48,11 +48,14 @@ public class RefCountTest {
     WeakDB weakDB;
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       weakDB = db.createWeakDB();
-      assertThat(db.isLastReference()).isTrue();
+      final long[] dbCounts = db.getReferenceCounts();
+      assertThat(dbCounts.length).isEqualTo(1);
+      assertThat(dbCounts[0]).isEqualTo(1);
       final RocksIterator iterator = db.newIterator();
-      assertThat(db.isLastReference()).isFalse();
+      final long[] itCounts = iterator.getReferenceCounts();
+      assertThat(itCounts.length).isEqualTo(0);
+      assertThat(itCounts[0]).isEqualTo(1);
       iterator.close();
-      assertThat(db.isLastReference()).isTrue();
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
   }
@@ -65,12 +68,14 @@ public class RefCountTest {
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
 
-      assertThat(db.isLastReference()).isTrue();
+      final long[] dbCounts = db.getReferenceCounts();
+      assertThat(dbCounts[0]).isEqualTo(1);
       final RocksIterator iteratorCF = db.newIterator(cfHandle);
-      assertThat(db.isLastReference()).isFalse();
-      assertThat(iteratorCF.isLastReference()).isTrue();
+      assertThat(dbCounts[0]).isEqualTo(2);
+      final long[] itCounts = iteratorCF.getReferenceCounts();
+      assertThat(itCounts[0]).isEqualTo(1);
       iteratorCF.close();
-      assertThat(db.isLastReference()).isTrue();
+      assertThat(dbCounts[0]).isEqualTo(1);
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
   }
@@ -114,7 +119,8 @@ public class RefCountTest {
       iterator.seekToFirst();
       assertThat(iterator.isValid()).isFalse();
 
-      assertThat(db.isLastReference()).isFalse();
+      final long[] dbCounts = db.getReferenceCounts();
+      assertThat(dbCounts[0]).isEqualTo(2);
 
       // Closing the DB, closes the CF, but the iterator still exists.
       // Assertion failed: (last_ref), function ~ColumnFamilySet, file column_family.cc, line 1494.
@@ -318,7 +324,8 @@ public class RefCountTest {
         // Close the db, but the open iterator should hold a reference, so we can continue to use
         // it. The model is that open iterator(s) prolong the lifetime of the underlying C++
         // database, it is still "open" after db.close(), until the iterator itself is closed.
-        assertThat(db.isLastReference()).isFalse();
+        final long[] dbCount = db.getReferenceCounts();
+        assertThat(dbCount[0]).isEqualTo(2);
         weakDB = db.createWeakDB();
         assertThat(weakDB.isDatabaseOpen()).isTrue();
         db.close();

@@ -55,10 +55,12 @@ class APIIterator : APIBase {
     return childIterator;
   }
 
-  void check(std::string message) {
-    std::cout << " APIIterator::check(); " << message << " ";
-    std::cout << " db.use_count() " << db.use_count() << "; ";
-    std::cout << " cfh.use_count() " << cfh.use_count();
-    std::cout << std::endl;
+  std::vector<long> use_counts() {
+    std::vector<long> vec;
+
+    vec.push_back(db.use_count());
+    vec.push_back(cfh.use_count());
+
+    return vec;
   }
 };

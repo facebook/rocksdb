@@ -206,7 +206,8 @@ public class ColumnFamilyTest {
           new ColumnFamilyDescriptor("tmpCF".getBytes(), new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.dropColumnFamily(tmpColumnFamilyHandle);
-      assertThat(tmpColumnFamilyHandle.isLastReference()).isTrue();
+      final long[] cfCounts = tmpColumnFamilyHandle.getReferenceCounts();
+      assertThat(cfCounts[1]).isEqualTo(17);
     }
   }
 
@@ -231,8 +232,10 @@ public class ColumnFamilyTest {
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.put(tmpColumnFamilyHandle2, "key".getBytes(), "value".getBytes());
       db.dropColumnFamilies(Arrays.asList(tmpColumnFamilyHandle, tmpColumnFamilyHandle2));
-      assertThat(tmpColumnFamilyHandle.isLastReference()).isTrue();
-      assertThat(tmpColumnFamilyHandle2.isLastReference()).isTrue();
+      final long[] cfCounts = tmpColumnFamilyHandle.getReferenceCounts();
+      assertThat(cfCounts[1]).isEqualTo(1);
+      final long[] cfCounts2 = tmpColumnFamilyHandle2.getReferenceCounts();
+      assertThat(cfCounts2[1]).isEqualTo(1);
     }
   }
 
@@ -590,22 +593,28 @@ public class ColumnFamilyTest {
       final ColumnFamilyHandle cf1 = db.createColumnFamily(desc1);
       cf2 = db.createColumnFamily(desc2);
       // TODO (AP) RCA
-      assertThat(cf1.isLastReference()).isFalse();
-      assertThat(cf2.isLastReference()).isFalse();
+      final long[] cfCounts1 = cf1.getReferenceCounts();
+      assertThat(cfCounts1[1]).isEqualTo(13);
+      final long[] cfCounts2 = cf2.getReferenceCounts();
+      assertThat(cfCounts2[1]).isEqualTo(13);
       assertThat(cf1.isDefaultColumnFamily()).isFalse();
       db.destroyColumnFamilyHandle(cf1);
-      assertThat(cf1.isLastReference()).isFalse(); // destroy was deprecated, and is a no-op
+      final long[] cfCounts1_2 = cf1.getReferenceCounts();
+      assertThat(cfCounts1_2[1]).isEqualTo(13); // destroy was deprecated, and is a no-op
       cf1.close(); // but we can still close it
       // At this point cf1 should not be used!
       try {
-        assertThat(cf1.isLastReference()).isTrue();
+        final long[] cfCounts1_3 = cf1.getReferenceCounts();
+        assertThat(cfCounts1_3[1]).isEqualTo(1);
         fail("cf1 should throw an exception on being closed");
       } catch (IllegalStateException illegalStateException) {
         assertThat(illegalStateException.getMessage())
             .contains("RocksDB native reference was previously closed");
       }
-      assertThat(cf2.isLastReference()).isFalse();
+      final long[] cfCounts2_3 = cf2.getReferenceCounts();
+      assertThat(cfCounts2_3[1]).isEqualTo(7);
     }
-    assertThat(cf2.isLastReference()).isTrue();
+    final long[] cfCounts2_4 = cf2.getReferenceCounts();
+    assertThat(cfCounts2_4[1]).isEqualTo(1);
   }
 }

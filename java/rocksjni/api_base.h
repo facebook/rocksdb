@@ -39,7 +39,17 @@ class APIBase {
   };
 
  public:
-  void check(std::string message);
+  std::vector<long> use_counts();
+
+  static jlongArray longArrayFromVector(JNIEnv* env, std::vector<long>& vec) {
+    jlongArray jLongArray = env->NewLongArray(static_cast<jsize>(vec.size()));
+    if (jLongArray == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+    env->SetLongArrayRegion(jLongArray, 0, static_cast<jsize>(vec.size()), &vec[0]);
+    return jLongArray;
+  }
 
   /**
    * @brief create a THandle wrapped with a SharedPtrHolder which will delete

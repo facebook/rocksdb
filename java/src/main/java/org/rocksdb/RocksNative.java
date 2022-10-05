@@ -40,11 +40,8 @@ public abstract class RocksNative implements AutoCloseable {
     }
   }
 
-  /**
-   * Test support method ensures that internal reference counts are as expected.
-   */
-  public final boolean isLastReference() {
-    return isLastReference(getNative());
+  public final long[] getReferenceCounts() {
+    return getReferenceCounts(getNative());
   }
 
   /**
@@ -56,10 +53,9 @@ public abstract class RocksNative implements AutoCloseable {
   protected abstract void nativeClose(long nativeReference);
 
   /**
-   * Test support method ensures that the reference counts are as expected.
+   * Test support method to retrieve reference counts of shadow objects
    *
-   * @param nativeAPIReference handle which is a C++ API pointer
-   * @return true iff nativeAPIReference has just 1 reference left for each member
+   * @return a long array, with reference counts depending on the type of object/shadow
    */
-  protected abstract boolean isLastReference(long nativeAPIReference);
+  protected abstract long[] getReferenceCounts(long nativeReference);
 }

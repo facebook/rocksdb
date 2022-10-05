@@ -150,22 +150,23 @@ class APIColumnFamilyHandle : public APIWeakDB<TDatabase> {
     }
   }
 
-  void check(std::string message) {
-    std::cout << " APIColumnFamilyHandleNonDefault::check(); " << message
-              << " ";
+  std::vector<long> use_counts() {
+    std::vector<long> vec;
+
     std::shared_ptr<TDatabase> dbLocked = APIWeakDB<TDatabase>::db.lock();
     std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLocked =
         cfh.lock();
     if (dbLocked) {
-      std::cout << " db.use_count() " << dbLocked.use_count() << "; ";
+      vec.push_back(dbLocked.use_count());
     } else {
-      std::cout << " db 0 uses; ";
+      vec.push_back(0);
     }
     if (cfhLocked) {
-      std::cout << " cfh.use_count() " << cfhLocked.use_count() << "; ";
+      vec.push_back(cfhLocked.use_count());
     } else {
-      std::cout << " cfh 0 uses;";
+      vec.push_back(0);
     }
-    std::cout << std::endl;
+
+    return vec;
   }
 };

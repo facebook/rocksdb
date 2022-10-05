@@ -33,13 +33,11 @@ class APIWrapper {  // no DB, so no APIBase inheritance
 
   TWrapped* get() const { return wrapped.get(); }
 
-  /**
-   * @brief dump some status info to std::cout
-   *
-   */
-  void check(std::string message) {
-    std::cout << " APIWrapper::check(); " << message << " ";
-    std::cout << " wrapped.use_count() " << wrapped.use_count() << "; ";
-    std::cout << std::endl;
+  std::vector<long> use_counts() {
+    std::vector<long> vec;
+
+    vec.push_back(wrapped.use_count());
+
+    return vec;
   }
 };

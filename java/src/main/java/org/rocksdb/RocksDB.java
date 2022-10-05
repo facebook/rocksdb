@@ -603,8 +603,7 @@ public class RocksDB extends RocksNative {
   }
 
   @Override protected native void nativeClose(long nativeReference);
-  @Override protected native boolean isLastReference(long nativeAPIReference);
-
+  @Override protected final native long[] getReferenceCounts(long nativeReference);
   /**
    * Static method to determine all available column families for a
    * rocksdb database identified by path

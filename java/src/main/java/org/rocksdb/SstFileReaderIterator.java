@@ -134,5 +134,5 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
   private native int valueByteArray0(long handle, byte[] buffer, int bufferOffset, int bufferLen);
 
   @Override protected final native void nativeClose(long nativeReference);
-  @Override protected final native boolean isLastReference(long nativeAPIReference);
+  @Override protected final native long[] getReferenceCounts(long nativeReference);
 }

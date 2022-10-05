@@ -102,7 +102,7 @@ public class ColumnFamilyHandle extends RocksNative {
   }
 
   @Override protected native void nativeClose(long nativeReference);
-  @Override protected native boolean isLastReference(long nativeAPIReference);
+  @Override protected final native long[] getReferenceCounts(long nativeReference);
 
   protected boolean isDefaultColumnFamily() throws RocksDBException {
     return isDefaultColumnFamily(getNative());

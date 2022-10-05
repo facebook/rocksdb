@@ -98,7 +98,13 @@ public class WBWIRocksIterator
   }
 
   @Override protected final native void nativeClose(long nativeReference);
-  @Override protected final native boolean isLastReference(long nativeAPIReference);
+
+  /**
+   * Test support method to retrieve reference counts of shadow objects
+   *
+   * @return a long array, with reference counts depending on the type of object/shadow
+   */
+  @Override protected final native long[] getReferenceCounts(long nativeReference);
 
   /**
    * Represents an entry returned by

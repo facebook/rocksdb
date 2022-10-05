@@ -31,7 +31,6 @@ void Java_org_rocksdb_SstFileReaderIterator_nativeClose(JNIEnv* /*env*/,
                                                         jlong handle) {
   std::unique_ptr<APISSTFileReaderIterator> apiIterator(
       reinterpret_cast<APISSTFileReaderIterator*>(handle));
-  apiIterator->check("nativeClose()");
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.
 }

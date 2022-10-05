@@ -25,7 +25,6 @@ void Java_org_rocksdb_ColumnFamilyHandle_nativeClose(JNIEnv*, jobject,
       reinterpret_cast<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>*>(handle));
   // All pointers in APIColumnFamilyHandle are weak, so there is nothing to do
   // here on return, unique_ptr going out of scope will delete the handle
-  cfhAPI->check("nativeClose()");
 }
 
 /*
@@ -60,7 +59,6 @@ jboolean Java_org_rocksdb_ColumnFamilyHandle_isLastReference(JNIEnv*, jobject,
                                                              jlong handle) {
   auto* cfhAPI =
       reinterpret_cast<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>*>(handle);
-  cfhAPI->check("isLastReference()");
   return !cfhAPI->cfh.lock();
 }
 

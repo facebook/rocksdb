@@ -184,7 +184,6 @@ jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3_3B_3J(
 void Java_org_rocksdb_TransactionDB_nativeClose(JNIEnv*, jobject,
                                                 jlong jhandle) {
   std::unique_ptr<API_TDB> dbAPI(reinterpret_cast<API_TDB*>(jhandle));
-  dbAPI->check("nativeClose()");
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.
 }

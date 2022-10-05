@@ -178,7 +178,6 @@ void Java_org_rocksdb_TtlDB_nativeClose(JNIEnv*, jobject, jlong /*jhandle*/) {
   /*
   std::unique_ptr<APIRocksDB<ROCKSDB_NAMESPACE::DBWithTTL>> dbAPI(
       reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DBWithTTL>*>(jhandle));
-  dbAPI->check("nativeClose()");
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.
   */

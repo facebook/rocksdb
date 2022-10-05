@@ -186,7 +186,6 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
 void Java_org_rocksdb_OptimisticTransactionDB_nativeClose(JNIEnv*, jobject,
                                                           jlong jhandle) {
   std::unique_ptr<API_OTDB> dbAPI(reinterpret_cast<API_OTDB*>(jhandle));
-  dbAPI->check("nativeClose()");
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.
 }
@@ -309,6 +308,5 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(JNIEnv* /*env*/,
       APIBase::createSharedPtr(baseDB, true /*isDefault*/);
   auto baseDBAPI = std::make_unique<APIRocksDB<ROCKSDB_NAMESPACE::DB>>(
       baseDBShared, otdbAPI);
-  baseDBAPI->check("getBaseDB()");
   return GET_CPLUSPLUS_POINTER(baseDBAPI.release());
 }
