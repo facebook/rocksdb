@@ -2,6 +2,7 @@
 ## Unreleased
 ### New Features
 * `DeleteRange()` now supports user-defined timestamp.
+* Provide support for async_io with tailing iterators when ReadOptions.tailing is enabled during scans.
 
 ### Bug Fixes
 * Fix a bug in io_uring_prep_cancel in AbortIO API for posix which expects sqe->addr to match with read request submitted and wrong paramter was being passed.
