@@ -236,6 +236,8 @@ class StressTest {
                          const WideColumns& columns_from_db,
                          const WideColumns& expected_columns) const;
 
+  static std::string DumpColumns(const WideColumns& columns);
+
   void PrintEnv() const;
 
   void Open(SharedState* shared);
