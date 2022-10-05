@@ -17,7 +17,8 @@
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
-using APIWriteBatchWithIndex = APIWrapper<ROCKSDB_NAMESPACE::WriteBatchWithIndex>;
+using APIWriteBatchWithIndex =
+    APIWrapper<ROCKSDB_NAMESPACE::WriteBatchWithIndex>;
 using WBWIAPIIterator = APIIterator<ROCKSDB_NAMESPACE::WriteBatchWithIndex,
                                     ROCKSDB_NAMESPACE::WBWIIterator>;
 
@@ -195,7 +196,7 @@ void Java_org_rocksdb_WriteBatchWithIndex_merge__J_3BI_3BI(
     jint jkey_len, jbyteArray jentry_value, jint jentry_value_len) {
   auto& wbwiAPI = *reinterpret_cast<APIWriteBatchWithIndex*>(jwbwi_handle);
   auto merge = [&wbwiAPI](ROCKSDB_NAMESPACE::Slice key,
-                       ROCKSDB_NAMESPACE::Slice value) {
+                          ROCKSDB_NAMESPACE::Slice value) {
     return wbwiAPI->Merge(key, value);
   };
   std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =
@@ -292,7 +293,6 @@ void Java_org_rocksdb_WriteBatchWithIndex_delete__J_3BIJ(
 void Java_org_rocksdb_WriteBatchWithIndex_singleDelete__J_3BI(
     JNIEnv* env, jobject jobj, jlong jwbwi_handle, jbyteArray jkey,
     jint jkey_len) {
-
   auto& wbwiAPI = *reinterpret_cast<APIWriteBatchWithIndex*>(jwbwi_handle);
   auto single_delete = [&wbwiAPI](ROCKSDB_NAMESPACE::Slice key) {
     return wbwiAPI->SingleDelete(key);
@@ -375,7 +375,7 @@ void Java_org_rocksdb_WriteBatchWithIndex_deleteRange__J_3BI_3BI(
     jint jbegin_key_len, jbyteArray jend_key, jint jend_key_len) {
   auto& wbwiAPI = *reinterpret_cast<APIWriteBatchWithIndex*>(jwbwi_handle);
   auto deleteRange = [&wbwiAPI](ROCKSDB_NAMESPACE::Slice beginKey,
-                             ROCKSDB_NAMESPACE::Slice endKey) {
+                                ROCKSDB_NAMESPACE::Slice endKey) {
     return wbwiAPI->DeleteRange(beginKey, endKey);
   };
   std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =
@@ -405,7 +405,7 @@ void Java_org_rocksdb_WriteBatchWithIndex_deleteRange__J_3BI_3BIJ(
     return;
   }
   auto deleteRange = [&wbwiAPI, &cfh](ROCKSDB_NAMESPACE::Slice beginKey,
-                                         ROCKSDB_NAMESPACE::Slice endKey) {
+                                      ROCKSDB_NAMESPACE::Slice endKey) {
     return wbwiAPI->DeleteRange(cfh.get(), beginKey, endKey);
   };
   std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =
@@ -444,7 +444,7 @@ void Java_org_rocksdb_WriteBatchWithIndex_putLogData(JNIEnv* env, jobject jobj,
 void Java_org_rocksdb_WriteBatchWithIndex_clear0(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jwbwi_handle) {
-  auto& wbwiAPI = *reinterpret_cast<APIWriteBatchWithIndex*>(jwbwi_handle);                                                
+  auto& wbwiAPI = *reinterpret_cast<APIWriteBatchWithIndex*>(jwbwi_handle);
   wbwiAPI->Clear();
 }
 
@@ -456,7 +456,7 @@ void Java_org_rocksdb_WriteBatchWithIndex_clear0(JNIEnv* /*env*/,
 void Java_org_rocksdb_WriteBatchWithIndex_setSavePoint0(JNIEnv* /*env*/,
                                                         jobject /*jobj*/,
                                                         jlong jwbwi_handle) {
-  auto& wbwiAPI = *reinterpret_cast<APIWriteBatchWithIndex*>(jwbwi_handle);                                                
+  auto& wbwiAPI = *reinterpret_cast<APIWriteBatchWithIndex*>(jwbwi_handle);
   wbwiAPI->SetSavePoint();
 }
 
@@ -575,7 +575,8 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(
   auto* cfhAPI =
       reinterpret_cast<APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>*>(
           jcf_handle);
-  auto* baseIteratorAPI = reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB, ROCKSDB_NAMESPACE::Iterator>*>(
+  auto* baseIteratorAPI = reinterpret_cast<
+      APIIterator<ROCKSDB_NAMESPACE::DB, ROCKSDB_NAMESPACE::Iterator>*>(
       jbase_iterator_handle);
   auto cfhLocked = cfhAPI->cfhLock(env);
   if (!cfhLocked) {
@@ -601,8 +602,8 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(
  * Method:    nativeClose
  * Signature: (J)V
  */
-void Java_org_rocksdb_WriteBatchWithIndex_nativeClose(JNIEnv*, jobject, jlong jhandle) {
-
+void Java_org_rocksdb_WriteBatchWithIndex_nativeClose(JNIEnv*, jobject,
+                                                      jlong jhandle) {
   std::unique_ptr<APIWriteBatchWithIndex> wbwiAPI(
       reinterpret_cast<APIWriteBatchWithIndex*>(jhandle));
   wbwiAPI->check("nativeClose()");
@@ -772,7 +773,7 @@ void Java_org_rocksdb_WBWIRocksIterator_prev0(JNIEnv* /*env*/, jobject /*jobj*/,
 void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
                                               jlong handle, jbyteArray jtarget,
                                               jint jtarget_len) {
-  auto& wbwiAPIIterator = *reinterpret_cast<WBWIAPIIterator*>(handle);                                              
+  auto& wbwiAPIIterator = *reinterpret_cast<WBWIAPIIterator*>(handle);
   jbyte* target = new jbyte[jtarget_len];
   env->GetByteArrayRegion(jtarget, 0, jtarget_len, target);
   if (env->ExceptionCheck()) {
@@ -868,9 +869,10 @@ void Java_org_rocksdb_WBWIRocksIterator_seekForPrevDirect0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jobject jtarget,
     jint jtarget_off, jint jtarget_len) {
   auto& wbwiAPIIterator = *reinterpret_cast<WBWIAPIIterator*>(handle);
-  auto seek_for_prev = [&wbwiAPIIterator](ROCKSDB_NAMESPACE::Slice& target_slice) {
-    wbwiAPIIterator->SeekForPrev(target_slice);
-  };
+  auto seek_for_prev =
+      [&wbwiAPIIterator](ROCKSDB_NAMESPACE::Slice& target_slice) {
+        wbwiAPIIterator->SeekForPrev(target_slice);
+      };
   ROCKSDB_NAMESPACE::JniUtil::k_op_direct(seek_for_prev, env, jtarget,
                                           jtarget_off, jtarget_len);
 }
@@ -910,7 +912,7 @@ void Java_org_rocksdb_WBWIRocksIterator_seekForPrevByteArray0(
 void Java_org_rocksdb_WBWIRocksIterator_status0(JNIEnv* env, jobject /*jobj*/,
                                                 jlong handle) {
   auto& wbwiAPIIterator = *reinterpret_cast<WBWIAPIIterator*>(handle);
-  
+
   ROCKSDB_NAMESPACE::Status s = wbwiAPIIterator->status();
 
   if (s.ok()) {

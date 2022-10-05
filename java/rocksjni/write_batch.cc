@@ -195,7 +195,6 @@ void Java_org_rocksdb_WriteBatch_put__J_3BI_3BIJ(
   }
   auto put = [&wb, &cfhPtr](ROCKSDB_NAMESPACE::Slice key,
                             ROCKSDB_NAMESPACE::Slice value) {
-    std::cout << "put to wb (CF)" << std::endl;
     return wb->Put(cfhPtr.get(), key, value);
   };
   std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =

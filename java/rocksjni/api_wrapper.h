@@ -15,8 +15,8 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 /**
- * @brief wrapper for simple native RocksDB class that does not need/hold a database reference for its
- * lifetime
+ * @brief wrapper for simple native RocksDB class that does not need/hold a
+ * database reference for its lifetime
  *
  */
 template <class TWrapped>

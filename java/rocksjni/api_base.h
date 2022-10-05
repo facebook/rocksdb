@@ -25,17 +25,17 @@ class APIBase {
   template <class THandle>
   class SharedPtrHolder {
     const THandle* handle;
-    const bool isDefault;
+    const bool isNotOwned;
 
    public:
     virtual ~SharedPtrHolder() {
-      if (!isDefault) {
+      if (!isNotOwned) {
         delete handle;
       }
     }
 
-    SharedPtrHolder(THandle* handle, bool isDefault)
-        : handle(handle), isDefault(isDefault){};
+    SharedPtrHolder(THandle* handle, bool isNotOwned)
+        : handle(handle), isNotOwned(isNotOwned){};
   };
 
  public:
@@ -44,20 +44,26 @@ class APIBase {
   /**
    * @brief create a THandle wrapped with a SharedPtrHolder which will delete
    * the THandle at delete() time only if the handle is NOT a special default.
-   * 
-   * This uses the distinction between the owned and stored pointers in std::shared_ptr
-   * 
+   *
+   * This uses the distinction between the owned and stored pointers in
+   * std::shared_ptr
+   *
    * This usage was devised in order not to delete the default CFH,
-   * which shouldn't be deleted by us, as it is owned by the core RocksDB C++ layer.
-   * It also gets used to hold callback instances of the DB,
-   * the lifecycle of which must be strictly nested within that of the "real" handle.
+   * which shouldn't be deleted by us, as it is owned by the core RocksDB C++
+   * layer. It also gets used to hold callback instances of the DB, the
+   * lifecycle of which must be strictly nested within that of the "real"
+   * handle.
    *
    * @param handle
-   * @return std::shared_ptr<ROCKSDB_NAMESPACE::THandle> (most probably a ColumnFamilyHandle)
+   * @param isNotOwned - don't delete the underlying object when closing the
+   * shared pointer
+   * @return std::shared_ptr<ROCKSDB_NAMESPACE::THandle> (most probably a
+   * ColumnFamilyHandle)
    */
   template <class THandle>
   static std::shared_ptr<THandle> createSharedPtr(THandle* handle,
-                                                  bool isDefault) {
-    return std::shared_ptr<THandle>(std::make_shared<SharedPtrHolder<THandle>>(handle, isDefault), handle);
+                                                  bool isNotOwned) {
+    return std::shared_ptr<THandle>(
+        std::make_shared<SharedPtrHolder<THandle>>(handle, isNotOwned), handle);
   };
 };

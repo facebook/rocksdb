@@ -27,6 +27,10 @@ class APIColumnFamilyHandle : public APIWeakDB<TDatabase> {
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>& cfh)
       : APIWeakDB<TDatabase>(db), cfh(cfh){};
 
+  /**
+   * @brief lock the CF (std::shared_ptr) if the weak pointer is valid
+   * @return locked CF if the weak ptr is still valid
+   */
   const std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLock(
       JNIEnv* env) const {
     auto lock = cfh.lock();
@@ -39,13 +43,20 @@ class APIColumnFamilyHandle : public APIWeakDB<TDatabase> {
 
   /**
    * @brief lock the CF (std::shared_ptr) if the weak pointer is valid, and
-   * check we have the correct DB
+   * check we have the correct DB. This check fails erroneusly if used by a
+   * wrapper for a non-standard database e.g. open a CF with an optimistic
+   * transaction DB, use it in the context of the base DB, error...
+   *
+   * TODO (AP)
+   * While it is possible to add complexity to check the correct _base_ DB,
+   * maybe this is best left until a bit more testing is done ?
+   *
    * @return locked CF if the weak ptr is still valid and the DB matches, empty
    * ptr otherwise
    */
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLockDBCheck(
       JNIEnv* env, APIRocksDB<TDatabase>& dbAPI) {
-    if (APIWeakDB<TDatabase>::dbLock(env) != *dbAPI) {
+    if (this->dbLock(env) != *dbAPI) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
           env,
           ROCKSDB_NAMESPACE::RocksDBExceptionJni::MismatchedColumnFamily());

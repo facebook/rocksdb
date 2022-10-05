@@ -49,8 +49,8 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2(
   if (s.ok()) {
     std::shared_ptr<ROCKSDB_NAMESPACE::OptimisticTransactionDB> dbShared =
         APIBase::createSharedPtr(otdb, false /*isDefault*/);
-    std::unique_ptr<API_OTDB> dbAPI(new API_OTDB(dbShared));
-    return GET_CPLUSPLUS_POINTER(dbAPI.release());
+    auto otdbAPI = std::make_unique<API_OTDB>(dbShared);
+    return GET_CPLUSPLUS_POINTER(otdbAPI.release());
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
@@ -146,7 +146,7 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
   }
 
   std::shared_ptr<ROCKSDB_NAMESPACE::OptimisticTransactionDB> dbShared(otdb);
-  std::unique_ptr<API_OTDB> otdbAPI(new APIRocksDB(dbShared));
+  auto otdbAPI = std::make_unique<API_OTDB>(dbShared);
 
   const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
   std::unique_ptr<jlong[]> results =
@@ -299,14 +299,16 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
  * Method:    getBaseDB
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(JNIEnv* env, jobject,
-                                                         jlong /*jhandle*/) {
-  // TODO (AP) auto& otdbAPI = *reinterpret_cast<API_OTDB*>(jhandle);
-  // TODO (AP) auto* baseDB = otdbAPI->GetBaseDB();
+jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(JNIEnv* /*env*/,
+                                                         jobject,
+                                                         jlong jhandle) {
+  auto& otdbAPI = *reinterpret_cast<API_OTDB*>(jhandle);
+  auto* baseDB = otdbAPI->GetBaseDB();
 
-  // TODO (AP) we have no way to find the APIDB wrapper
-  // we need to shadow more structures in the API layer
-  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-      env, ROCKSDB_NAMESPACE::Status::NotFound());
-  return 0L;
+  std::shared_ptr<ROCKSDB_NAMESPACE::DB> baseDBShared =
+      APIBase::createSharedPtr(baseDB, true /*isDefault*/);
+  auto baseDBAPI = std::make_unique<APIRocksDB<ROCKSDB_NAMESPACE::DB>>(
+      baseDBShared, otdbAPI);
+  baseDBAPI->check("getBaseDB()");
+  return GET_CPLUSPLUS_POINTER(baseDBAPI.release());
 }

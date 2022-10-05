@@ -36,6 +36,23 @@ class APIRocksDB : APIBase {
         defaultColumnFamilyHandle(APIBase::createSharedPtr(
             db->DefaultColumnFamily(), true /*isDefault*/)){};
 
+  /**
+   * @brief Construct a new APIRocksDB object sharing an existing object
+   * Used to create an APIRocksDB for the base DB of an optimistic DB,
+   * it copies the column family handles from the source DB, but uses the
+   * supplied "new" db
+   *
+   * @tparam TSourceDatabase
+   * @param db
+   * @param sourceDB
+   */
+  template <class TSourceDatabase>
+  APIRocksDB(std::shared_ptr<TDatabase>& newDB,
+             APIRocksDB<TSourceDatabase>& sourceDB)
+      : db(newDB),
+        columnFamilyHandles(sourceDB.columnFamilyHandles),
+        defaultColumnFamilyHandle(sourceDB.defaultColumnFamilyHandle){};
+
   TDatabase* operator->() const { return db.get(); }
 
   std::shared_ptr<TDatabase>& operator*() { return db; }
@@ -64,6 +81,7 @@ class APIRocksDB : APIBase {
   std::unique_ptr<APIIterator<TDatabase, TIterator>> newIterator(
       TIterator* iterator,
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>& cfh) {
-    return std::move(std::make_unique<APIIterator<TDatabase, TIterator>>(db, std::move(std::unique_ptr<TIterator>(iterator)), cfh));
+    return std::move(std::make_unique<APIIterator<TDatabase, TIterator>>(
+        db, std::move(std::unique_ptr<TIterator>(iterator)), cfh));
   }
 };

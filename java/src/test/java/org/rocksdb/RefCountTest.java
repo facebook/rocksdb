@@ -420,8 +420,7 @@ public class RefCountTest {
         final byte[] valueBytes = db2.get(cfHandle, "key1".getBytes());
         fail("Expect exception for already closed cfHandle");
       } catch (RocksDBException rocksDBException) {
-        assertThat(rocksDBException.getMessage())
-            .contains("The DB associated with an object is already closed.");
+        assertThat(rocksDBException.getMessage()).contains("Invalid ColumnFamilyHandle");
       }
 
       assertThat(db2.get(cfHandles.get(1), "key1".getBytes())).isEqualTo("value1".getBytes());
@@ -470,7 +469,9 @@ public class RefCountTest {
         // We are fetching from a valid open handle on another database.
         // We introduced some checking code in the get() to ensure the DB matches.
         bytesFromOtherDB = db2.get(cfHandle, "key1".getBytes());
-        Assert.fail("Why does a CFHandle from DB 1 not error on DB 2 ?");
+        // However that testing (cfhLockDBCheck()) is switched off because it can yield
+        // false +ves (e.g. using the base DB of an Optimistic Transaction DB legally).
+        // Assert.fail("Why does a CFHandle from DB 1 not error on DB 2 ?");
       } catch (RocksDBException exception) {
         assertThat(exception.getMessage()).contains("Invalid ColumnFamilyHandle.");
         assertThat(bytesFromOtherDB).isEqualTo("not the correct answer".getBytes());

@@ -8,7 +8,7 @@
 //
 // The shared objects are used to ensure the lifetime of their contents
 // When the Iterator is not a DB iterator, db may be empty.
-// 
+//
 
 #pragma once
 
@@ -39,11 +39,14 @@ class APIIterator : APIBase {
 
   TIterator* get() const { return iterator.get(); }
 
-  template <class TChildIterator> 
+  template <class TChildIterator>
   std::unique_ptr<APIIterator<TDatabase, TChildIterator>> childIteratorWithBase(
       TChildIterator* rocksdbIterator,
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>& rocksdbCFH) {
-    auto childIterator = std::make_unique<APIIterator<TDatabase, TChildIterator>>(db, std::move(std::unique_ptr<TIterator> (rocksdbIterator)), rocksdbCFH);
+    auto childIterator =
+        std::make_unique<APIIterator<TDatabase, TChildIterator>>(
+            db, std::move(std::unique_ptr<TIterator>(rocksdbIterator)),
+            rocksdbCFH);
     // Internally, ~BaseDeltaIterator() deletes its base iterator,
     // therefore it is effectively delete()d by childIterator,
     // and we here should NOT delete() it. Hence the call to release()
