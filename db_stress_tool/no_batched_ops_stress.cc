@@ -94,18 +94,24 @@ class NonBatchedOpsStressTest : public StressTest {
           Status s = iter->status();
 
           std::string from_db;
-          WideColumns columns_from_db;
-
-          int diff = 0;
 
           if (iter->Valid()) {
-            diff = iter->key().compare(k);
+            const int diff = iter->key().compare(k);
 
             if (diff > 0) {
               s = Status::NotFound();
             } else if (diff == 0) {
+              const WideColumns expected_columns = GenerateExpectedWideColumns(
+                  GetValueBase(iter->value()), iter->value());
+              if (iter->columns() != expected_columns) {
+                VerificationAbort(shared, static_cast<int>(cf), i,
+                                  iter->value(), iter->columns(),
+                                  expected_columns);
+                break;
+              }
+
               from_db = iter->value().ToString();
-              columns_from_db = iter->columns();
+              iter->Next();
             } else {
               assert(diff < 0);
 
@@ -119,13 +125,7 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            &columns_from_db, s, /* strict */ true);
-
-          // Note: we have to wait with advancing the iterator until after
-          // verification because it invalidates columns()
-          if (iter->Valid() && diff == 0) {
-            iter->Next();
-          }
+                            s, /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -144,8 +144,7 @@ class NonBatchedOpsStressTest : public StressTest {
           Status s = db_->Get(options, column_families_[cf], key, &from_db);
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            /* columns_from_db */ nullptr, s,
-                            /* strict */ true);
+                            s, /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -179,8 +178,7 @@ class NonBatchedOpsStressTest : public StressTest {
             const std::string from_db = values[j].ToString();
 
             VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
-                              from_db, /* columns_from_db */ nullptr,
-                              statuses[j], /* strict */ true);
+                              from_db, statuses[j], /* strict */ true);
 
             if (!from_db.empty()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
@@ -232,8 +230,7 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            /* columns_from_db */ nullptr, s,
-                            /* strict */ true);
+                            s, /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -785,8 +782,7 @@ class NonBatchedOpsStressTest : public StressTest {
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
       if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
-                             from_db, /* columns_from_db */ nullptr, s,
-                             /* strict */ true)) {
+                             from_db, s, /* strict */ true)) {
         return s;
       }
     }
@@ -1352,20 +1348,9 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                          SharedState* shared, const std::string& value_from_db,
-                         const WideColumns* columns_from_db, const Status& s,
-                         bool strict = false) const {
+                         const Status& s, bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
-    }
-
-    if (s.ok() && columns_from_db) {
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(value_from_db), value_from_db);
-      if (*columns_from_db != expected_columns) {
-        VerificationAbort(shared, cf, key, value_from_db, *columns_from_db,
-                          expected_columns);
-        return false;
-      }
     }
 
     // compare value_from_db with the value in the shared state
