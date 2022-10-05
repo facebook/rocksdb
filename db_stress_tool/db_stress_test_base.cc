@@ -440,36 +440,49 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
   shared->SetVerificationFailure();
 }
 
-void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
-                                   int64_t key, Slice value_from_db,
-                                   const WideColumns& columns_from_db,
+void StressTest::VerificationAbort(SharedState* shared, int cf, int64_t key,
+                                   const Slice& value,
+                                   const WideColumns& columns,
                                    const WideColumns& expected_columns) const {
+  assert(shared);
+
   auto key_str = Key(key);
 
   fprintf(stderr,
           "Verification failed for column family %d key %s (%" PRIi64
-          "): value_from_db: %s, columns_from_db: %s, expected_columns: %s, "
-          "msg: %s\n",
+          "): Value and columns inconsistent: %s\n",
           cf, Slice(key_str).ToString(/* hex */ true).c_str(), key,
-          value_from_db.ToString(/* hex */ true).c_str(),
-          DumpColumns(columns_from_db).c_str(),
-          DumpColumns(expected_columns).c_str(), msg.c_str());
+          DebugString(value, columns, expected_columns).c_str());
+
   shared->SetVerificationFailure();
 }
 
-std::string StressTest::DumpColumns(const WideColumns& columns) {
-  if (columns.empty()) {
-    return std::string();
-  }
-
+std::string StressTest::DebugString(const Slice& value,
+                                    const WideColumns& columns,
+                                    const WideColumns& expected_columns) {
   std::ostringstream oss;
-  oss << std::hex;
 
-  auto it = columns.begin();
-  oss << *it;
-  for (++it; it != columns.end(); ++it) {
-    oss << ' ' << *it;
-  }
+  oss << "value: " << value.ToString(/* hex */ true);
+
+  auto dump = [](const WideColumns& cols, std::ostream& os) {
+    if (cols.empty()) {
+      return;
+    }
+
+    os << std::hex;
+
+    auto it = cols.begin();
+    os << *it;
+    for (++it; it != cols.end(); ++it) {
+      os << ' ' << *it;
+    }
+  };
+
+  oss << ", columns: ";
+  dump(columns, oss);
+
+  oss << ", expected_columns: ";
+  dump(expected_columns, oss);
 
   return oss.str();
 }
