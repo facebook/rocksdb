@@ -1142,6 +1142,7 @@ std::string DescribeVersionEdit(const VersionEdit& e, ColumnFamilyData* cfd) {
 
 Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
                                          std::string replication_sequence,
+                                         CFOptionsFactory cf_options_factory,
                                          ApplyReplicationLogRecordInfo* info) {
   JobContext job_context(0, true);
   Status s;
@@ -1225,7 +1226,7 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
 
         auto mutable_options =
             default_cf_handle_->cfd()->GetLatestMutableCFOptions();
-        std::unique_ptr<ColumnFamilyOptions> cf_options;
+        std::optional<ColumnFamilyOptions> cf_options;
 
         autovector<ColumnFamilyData*> cfds;
         autovector<const MutableCFOptions*> mutable_cf_options_list;
@@ -1275,8 +1276,13 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
           if (e.IsColumnFamilyAdd()) {
             single_column_family_mode_ = false;
             added_column_families.push_back(e.GetColumnFamily());
-            cf_options = std::make_unique<ColumnFamilyOptions>(
-                default_cf_handle_->cfd()->GetLatestCFOptions());
+            // We need to invoke the factory outside of the DB mutex
+            mutex_.Unlock();
+            // CF manipulation (CF add or drop) cannot be a part of the group
+            // commit, only a single VersionEdit is allowed.
+            assert(edits.size() == 1 && !cf_options);
+            cf_options.emplace(cf_options_factory(e.GetAddColumnFamily()));
+            mutex_.Lock();
           } else if (e.IsColumnFamilyDrop()) {
             info->deleted_column_families.push_back(e.GetColumnFamily());
           }
@@ -1295,7 +1301,7 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
         s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists,
                                    &mutex_, directories_.GetDbDir(),
                                    false /* new_descriptor_log */,
-                                   cf_options.get());
+                                   &*cf_options);
         if (!s.ok()) {
           break;
         }

@@ -1258,11 +1258,17 @@ class DB {
   // leader's ReplicationLogListener. Info contains some useful information
   // about the event that was applied.
   //
+  // cf_options_factory is invoked when ApplyReplicationLogRecord contains a
+  // column family creation. Column family name is given as an argument and its
+  // options need to be returned. The function is invoked done outside of the DB
+  // mutex.
+  //
   //
   // REQUIRES: info needs to be provided, can't be nullptr.
+  using CFOptionsFactory = std::function<ColumnFamilyOptions(Slice)>;
   virtual Status ApplyReplicationLogRecord(
-      ReplicationLogRecord record,
-      std::string replication_sequence,
+      ReplicationLogRecord record, std::string replication_sequence,
+      CFOptionsFactory cf_options_factory,
       ApplyReplicationLogRecordInfo* info) = 0;
   virtual Status GetReplicationRecordDebugString(
       const ReplicationLogRecord& record, std::string* out) const = 0;

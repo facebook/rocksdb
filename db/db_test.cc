@@ -3238,6 +3238,7 @@ class ModelDB : public DB {
 
   Status ApplyReplicationLogRecord(
       ReplicationLogRecord /*record*/, std::string /*replication_sequence*/,
+      CFOptionsFactory /* cf_options_factory */,
       ApplyReplicationLogRecordInfo* /*info*/) override {
     return Status::NotSupported("Not supported in Model DB");
   }
@@ -3245,6 +3246,10 @@ class ModelDB : public DB {
     return Status::NotSupported("Not supported in Model DB");
   }
   Status GetManifestUpdateSequence(uint64_t* /*out*/) override {
+    return Status::NotSupported("Not supported in Model DB");
+  }
+  Status GetReplicationRecordDebugString(const ReplicationLogRecord& /* record */,
+                                         std::string* /* out */) const override {
     return Status::NotSupported("Not supported in Model DB");
   }
 

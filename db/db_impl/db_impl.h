@@ -332,8 +332,8 @@ class DBImpl : public DB {
   virtual void DisableManualCompaction() override;
 
   Status ApplyReplicationLogRecord(
-      ReplicationLogRecord record,
-      std::string replication_sequence,
+      ReplicationLogRecord record, std::string replication_sequence,
+      CFOptionsFactory cf_options_factory,
       ApplyReplicationLogRecordInfo* info) override;
   Status GetReplicationRecordDebugString(
       const ReplicationLogRecord& record, std::string* out) const override;

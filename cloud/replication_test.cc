@@ -285,8 +285,10 @@ DB* ReplicationTest::openLeader(Options options) {
     DB::ApplyReplicationLogRecordInfo info;
     auto leaderSeq = getPersistedSequence(db) + 1;
     for (; leaderSeq < (int)log_records_.size(); ++leaderSeq) {
-      s = db->ApplyReplicationLogRecord(log_records_[leaderSeq].first,
-                                        log_records_[leaderSeq].second, &info);
+      s = db->ApplyReplicationLogRecord(
+          log_records_[leaderSeq].first, log_records_[leaderSeq].second,
+          [this](Slice) { return ColumnFamilyOptions(leaderOptions()); },
+          &info);
       assert(s.ok());
     }
     listener->setState(Listener::TAILING);
@@ -339,7 +341,11 @@ size_t ReplicationTest::catchUpFollower() {
   for (; followerSequence_ < (int)log_records_.size(); ++followerSequence_) {
     auto s = follower_db_->ApplyReplicationLogRecord(
         log_records_[followerSequence_].first,
-        log_records_[followerSequence_].second, &info);
+        log_records_[followerSequence_].second,
+        [this](Slice) {
+          return ColumnFamilyOptions(follower_db_->GetOptions());
+        },
+        &info);
     assert(s.ok());
     ++ret;
   }
