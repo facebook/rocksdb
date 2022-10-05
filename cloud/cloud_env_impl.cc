@@ -928,73 +928,37 @@ std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
   return RemapFilenameWithCloudManifest(logical_path, cloud_manifest_.get());
 }
 
-Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname,
-                                        const std::string& cookie,
-                                        const std::string& new_cookie) {
-  Status s;
-  auto shouldDelete = [&cookie, &new_cookie, this](const std::string fname) -> bool {
-    if (IsCloudManifestFile(fname)) { 
-      auto fname_cookie = GetCookie(fname);
+Status CloudEnvImpl::DeleteCloudInvisibleFiles(
+    const std::vector<std::string>& active_cookies) {
+  assert(HasDestBucket());
+  std::vector<std::string> pathnames;
+  auto s = GetStorageProvider()->ListCloudObjects(GetDestBucketName(),
+                                             GetDestObjectPath(), &pathnames);
+  if (!s.ok()) {
+    Log(InfoLogLevel::WARN_LEVEL, info_log_,
+        "Files in cloud are not scheduled to be deleted since listing cloud "
+        "object fails: %s",
+        s.ToString().c_str());
+    return s;
+  }
 
-      // empty cookie CM file is never deleted
-      // TODO(wei): we can remove this assumption once L/F is fully rolled out
-      if (fname_cookie.empty()) {
-        return false;
-      }
-
-      if (cookie != new_cookie && fname_cookie == new_cookie) {
-        // This means we try to switch to an non-empty cookie which has been
-        // used in the past(since there is some CM file in s3) when opening db.
-        // This is ok, since CLOUDMANIFEST-new_cookie won't be deleted from
-        // cloud, but it's not expected.
-        Log(InfoLogLevel::WARN_LEVEL, info_log_,
-            "Trying to open db with new_cookie: %s which already exists in "
-            "cloud",
-            new_cookie.c_str());
-        // fall through
-      }
-
-      // CLOUDMANIFEST-cookie and CLOUDMANIFEST-new_cookie are not deleted
-      if (fname_cookie != cookie && fname_cookie != new_cookie) {
-        return true;
-      }
-
-      return false;
-    } else {
-      auto noepoch = RemoveEpoch(fname);
-      if ((IsSstFile(noepoch) || IsManifestFile(noepoch)) &&
-          (RemapFilename(noepoch) != fname)) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  if (HasDestBucket()) {
-    std::vector<std::string> pathnames;
-    s = GetStorageProvider()->ListCloudObjects(GetDestBucketName(),
-                                               GetDestObjectPath(), &pathnames);
-    if (!s.ok()) {
-      Log(InfoLogLevel::WARN_LEVEL, info_log_,
-          "Files in cloud are not scheduled to be deleted since listing cloud "
-          "object fails: %s",
-          s.ToString().c_str());
-      return s;
-    }
-
-    for (auto& fname : pathnames) {
-      if (shouldDelete(fname)) {
-        // Ignore returned status on purpose.
-        Log(InfoLogLevel::INFO_LEVEL, info_log_,
-            "DeleteInvisibleFiles deleting %s from destination bucket",
-            fname.c_str());
-        DeleteCloudFileFromDest(fname);
-      }
+  for (auto& fname : pathnames) {
+    if (IsFileInvisible(active_cookies, fname)) {
+      // Ignore returned status on purpose.
+      Log(InfoLogLevel::INFO_LEVEL, info_log_,
+          "DeleteCloudInvisibleFiles deleting %s from destination bucket",
+          fname.c_str());
+      DeleteCloudFileFromDest(fname);
     }
   }
+  return s;
+}
+
+Status CloudEnvImpl::DeleteLocalInvisibleFiles(
+    const std::string& dbname, const std::vector<std::string>& active_cookies) {
   std::vector<std::string> children;
-  s = GetBaseEnv()->GetChildren(dbname, &children);
-  TEST_SYNC_POINT_CALLBACK("CloudEnvImpl::DeleteInvisibleFiles:AfterListLocalFiles", &s);
+  auto s = GetBaseEnv()->GetChildren(dbname, &children);
+  TEST_SYNC_POINT_CALLBACK("CloudEnvImpl::DeleteLocalInvisibleFiles:AfterListLocalFiles", &s);
   if (!s.ok()) {
     Log(InfoLogLevel::WARN_LEVEL, info_log_,
         "Local files are not deleted since listing local files fails: %s",
@@ -1002,15 +966,46 @@ Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname,
     return s;
   }
   for (auto& fname : children) {
-    if (shouldDelete(fname)) {
+    if (IsFileInvisible(active_cookies, fname)) {
         // Ignore returned status on purpose.
         Log(InfoLogLevel::INFO_LEVEL, info_log_,
-            "DeleteInvisibleFiles deleting file %s from local dir",
+            "DeleteLocalInvisibleFiles deleting file %s from local dir",
             fname.c_str());
         GetBaseEnv()->DeleteFile(dbname + "/" + fname);
     }
   }
   return s;
+}
+
+bool CloudEnvImpl::IsFileInvisible(
+    const std::vector<std::string>& active_cookies,
+    const std::string& fname) const {
+  if (IsCloudManifestFile(fname)) {
+    auto fname_cookie = GetCookie(fname);
+
+    // empty cookie CM file is never deleted
+    // TODO(wei): we can remove this assumption once L/F is fully rolled out
+    if (fname_cookie.empty()) {
+      return false;
+    }
+
+    bool is_active = false;
+    for (auto& c: active_cookies) {
+      if (c == fname_cookie) {
+        is_active = true;
+        break;
+      }
+    }
+
+    return !is_active;
+  } else {
+    auto noepoch = RemoveEpoch(fname);
+    if ((IsSstFile(noepoch) || IsManifestFile(noepoch)) &&
+        (RemapFilename(noepoch) != fname)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void CloudEnvImpl::TEST_InitEmptyCloudManifest() {
@@ -1581,8 +1576,13 @@ Status CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
   // before rolling the epoch, so that newly generated CM/M files won't be
   // cleaned up.
   if (st.ok() && !read_only) {
-    st = DeleteInvisibleFiles(local_dbname, cloud_env_options.cookie_on_open,
-                              cloud_env_options.new_cookie_on_open);
+    std::vector<std::string> active_cookies{
+        cloud_env_options.cookie_on_open, cloud_env_options.new_cookie_on_open};
+    st = DeleteLocalInvisibleFiles(local_dbname, active_cookies);
+    if (st.ok() && cloud_env_options.delete_cloud_invisible_files_on_open &&
+        HasDestBucket()) {
+      st = DeleteCloudInvisibleFiles(active_cookies);
+    }
     if (!st.ok()) {
       Log(InfoLogLevel::INFO_LEVEL, info_log_,
           "Failed to delete invisible files: %s", st.ToString().c_str());

@@ -345,6 +345,16 @@ class CloudTest : public testing::Test {
     return static_cast<DBImpl*>(db_->GetBaseDB());
   }
 
+  void SwitchToNewCookie(std::string new_cookie) {
+    CloudManifestDelta delta{
+      db_->GetNextFileNumber(),
+      new_cookie
+    };
+    ASSERT_OK(aenv_->RollNewCookie(dbname_, new_cookie, delta));
+    ASSERT_OK(aenv_->ApplyCloudManifestDelta(delta));
+    db_->NewManifestOnNextUpdate();
+  }
+
  protected:
   void WaitUntilNoScheduledJobs() {
     while (true) {
@@ -2290,11 +2300,8 @@ TEST_F(CloudTest, NewCookieOnOpenTest) {
   CloseDB();
 }
 
-// When opening db with cookie_on_open, files(including CM/M files) belonging to
-// cookie_on_open won't be deleted, all the other files which don't belong to
-// cookie_on_open will be deleted, except CLOUDMANIFEST and
-// CLOUDMANIFEST_new_cookie
-TEST_F(CloudTest, FileDeletionTest) {
+// Test invisible file deletion when db is opened.
+TEST_F(CloudTest, InvisibleFileDeletionOnDBOpenTest) {
   std::string cookie1 = "", cookie2 = "-1-1";
   cloud_env_options_.keep_local_sst_files = true;
 
@@ -2380,7 +2387,7 @@ TEST_F(CloudTest, FileDeletionTest) {
   // files in cloud will be deleted later (checked in the callback)
   for (auto path :
        {cookie2_cm_filepath, cookie2_manifest_filepath, cookie2_sst_filepath}) {
-    EXPECT_NOK(aenv_->GetBaseEnv()->FileExists(path));
+    EXPECT_NOK(aenv_->GetBaseEnv()->FileExists(path)) << path;
   }
   CloseDB();
 
@@ -2389,10 +2396,85 @@ TEST_F(CloudTest, FileDeletionTest) {
 
   WaitUntilNoScheduledJobs();
   // Make sure that these files are indeed deleted
-  EXPECT_TRUE(num_job_executed == 3);
+  EXPECT_EQ(num_job_executed, 3);
 }
 
-// verify that CM files with empty cookie or new_cookie won't be deleted
+// Verify that when opening with `delete_cloud_invisible_files_on_open`, local
+// files will be deleted while cloud files will be kept
+TEST_F(CloudTest, DisableInvisibleFileDeletionOnOpenTest) {
+  std::string cookie1 = "", cookie2 = "1";
+  cloud_env_options_.keep_local_sst_files = true;
+  cloud_env_options_.cookie_on_open = cookie1;
+  cloud_env_options_.new_cookie_on_open = cookie1;
+
+  // opening with cookie1
+  OpenDB();
+  // generate sst file with cookie1
+  ASSERT_OK(db_->Put({}, "k1", "v1"));
+  ASSERT_OK(db_->Flush({}));
+
+  std::vector<std::string> cookie1_sst_files;
+  std::string cookie1_manifest_file;
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &cookie1_sst_files,
+                                    &cookie1_manifest_file));
+  ASSERT_EQ(cookie1_sst_files.size(), 1);
+
+  auto cookie1_manifest_filepath = dbname_ + pathsep + cookie1_manifest_file;
+  auto cookie1_cm_filepath =
+      MakeCloudManifestFile(dbname_, cloud_env_options_.cookie_on_open);
+  auto cookie1_sst_filepath = dbname_ + pathsep + cookie1_sst_files[0];
+
+  SwitchToNewCookie(cookie2);
+
+  // generate sst file with cookie2
+  ASSERT_OK(db_->Put({}, "k2", "v2"));
+  ASSERT_OK(db_->Flush({}));
+
+  std::vector<std::string> cookie2_sst_files;
+  std::string cookie2_manifest_file;
+
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &cookie2_sst_files,
+                                    &cookie2_manifest_file));
+  ASSERT_EQ(cookie2_sst_files.size(), 2);
+
+  // exclude cookie1_sst_files from cookie2_sst_files
+  std::sort(cookie2_sst_files.begin(), cookie2_sst_files.end());
+  std::set_difference(cookie2_sst_files.begin(), cookie2_sst_files.end(),
+                      cookie1_sst_files.begin(), cookie1_sst_files.end(),
+                      cookie2_sst_files.begin());
+  cookie2_sst_files.resize(1);
+
+  auto cookie2_manifest_filepath = dbname_ + pathsep + cookie2_manifest_file;
+  auto cookie2_cm_filepath =
+      MakeCloudManifestFile(dbname_, cookie2);
+  auto cookie2_sst_filepath = dbname_ + pathsep + cookie2_sst_files[0];
+
+  CloseDB();
+
+  // reopen with cookie1 = "". cookie2 sst files are not visible
+  cloud_env_options_.delete_cloud_invisible_files_on_open = false;
+  OpenDB();
+  // files from cookie2 are deleted locally but exists in s3
+  for (auto path: {cookie2_cm_filepath, cookie2_manifest_filepath, cookie2_sst_filepath}) {
+    EXPECT_NOK(aenv_->GetBaseEnv()->FileExists(path));
+    EXPECT_OK(aenv_->GetStorageProvider()->ExistsCloudObject(
+        aenv_->GetSrcBucketName(), path));
+  }
+  std::string value;
+  EXPECT_OK(db_->Get({}, "k1", &value));
+  EXPECT_NOK(db_->Get({}, "k2", &value));
+  CloseDB();
+
+  cloud_env_options_.cookie_on_open = cookie2;
+  cloud_env_options_.new_cookie_on_open = cookie2;
+  // reopen with cookie2 also works since it will fetch files from s3 directly
+  OpenDB();
+  EXPECT_OK(db_->Get({}, "k1", &value));
+  EXPECT_OK(db_->Get({}, "k2", &value));
+  CloseDB();
+}
+
+// Verify invisible CLOUDMANIFEST file deleteion
 TEST_F(CloudTest, CloudManifestFileDeletionTest) {
 
   // create CLOUDMANIFEST file in s3
@@ -2562,7 +2644,8 @@ TEST_F(CloudTest, FileDeletionFailureIgnoredTest) {
 
   // return error during file deletion
   SyncPoint::GetInstance()->SetCallBack(
-      "CloudEnvImpl::DeleteInvisibleFiles:AfterListLocalFiles", [](void* arg) {
+      "CloudEnvImpl::DeleteLocalInvisibleFiles:AfterListLocalFiles",
+      [](void* arg) {
         auto st = reinterpret_cast<Status*>(arg);
         *st =
             Status::Aborted("Manual abortion to simulate file listing failure");

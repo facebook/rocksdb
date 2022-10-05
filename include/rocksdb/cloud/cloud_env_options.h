@@ -385,6 +385,15 @@ class CloudEnvOptions {
   // Default: "", means new cloud manifest file won't have cookie suffix
   std::string new_cookie_on_open;
 
+  // Experimental option!
+  // - If true, both cloud and local invisible files (i.e, CLOUDMANIFEST, MANIFEST
+  // and SST files which don't belong to current epoch) will be deleted when db
+  // is opened.
+  // - Otherwise, only local invisible files will be deleted
+  //
+  // Default: true
+  bool delete_cloud_invisible_files_on_open;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kCloudAws,
       LogType _log_type = LogType::kLogKafka,
@@ -404,7 +413,8 @@ class CloudEnvOptions {
       bool _use_direct_io_for_cloud_download = false,
       std::shared_ptr<Cache> _sst_file_cache = nullptr,
       bool _roll_cloud_manifest_on_open = true,
-      std::string _cookie_on_open = "", std::string _new_cookie_on_open = "")
+      std::string _cookie_on_open = "", std::string _new_cookie_on_open = "",
+      bool _delete_cloud_invisible_files_on_open = true)
       : log_type(_log_type),
         sst_file_cache(_sst_file_cache),
         keep_local_sst_files(_keep_local_sst_files),
@@ -429,7 +439,9 @@ class CloudEnvOptions {
         use_direct_io_for_cloud_download(_use_direct_io_for_cloud_download),
         roll_cloud_manifest_on_open(_roll_cloud_manifest_on_open),
         cookie_on_open(std::move(_cookie_on_open)),
-        new_cookie_on_open(_new_cookie_on_open) {
+        new_cookie_on_open(_new_cookie_on_open),
+        delete_cloud_invisible_files_on_open(
+            _delete_cloud_invisible_files_on_open) {
     (void) _cloud_type;
   }
 
@@ -615,6 +627,9 @@ class CloudEnv : public Env {
   virtual Status RollNewCookie(const std::string& local_dbname,
                                const std::string& cookie,
                                const CloudManifestDelta& delta) const = 0;
+
+  virtual Status DeleteCloudInvisibleFiles(
+      const std::vector<std::string>& active_cookies) = 0;
 
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from

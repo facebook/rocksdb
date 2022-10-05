@@ -301,6 +301,12 @@ class CloudEnvImpl : public CloudEnv {
   // Used for test only
   size_t TEST_NumScheduledJobs() const;
 
+  // Delete invisible files in cloud.
+  //
+  // REQUIRES: Dest bucket set
+  Status DeleteCloudInvisibleFiles(
+      const std::vector<std::string>& active_cookies) override;
+
  protected:
   Status CheckValidity() const;
   // Status TEST_Initialize(const std::string& name) override;
@@ -387,25 +393,18 @@ class CloudEnvImpl : public CloudEnv {
   void StopPurger();
 
  private:
-  // This will delete all files in dest bucket and locally, which don't belong
-  // to CLOUDMANIFEST-cookie, except
-  // - CLOUDMANIFEST file will never be deleted from the cloud. Empty cookie is
-  // special value which we will reuse to open db. We don't want to have a job
-  // scheduled to delete it while another DB tries to open db with empty cookie.
-  // - CLOUDMANIFEST-new_cookie file will never be deleted from cloud. We don't
-  // want to have a job scheduled to delete it while we are still using that file.
-  //
-  // MANIFEST file and sst files will be deleted if their epoch is not current
-  // epoch of CLOUDMANIFEST-cookie. For example, if we find 00010.sst-[epochX],
-  // but the real mapping for 00010.sst is [epochY], in this function we will
-  // delete 00010.sst-[epochX].
-  //
-  // Note that local files are deleted immediately, while cloud files are
-  // deleted with a delay of one hour (just to prevent issues from two RocksDB
-  // databases running on the same bucket for a short time).
-  Status DeleteInvisibleFiles(const std::string& dbname,
-                              const std::string& cookie,
-                              const std::string& new_cookie);
+  // Delete all local files that are invisible
+  Status DeleteLocalInvisibleFiles(const std::string& dbname,
+                                   const std::vector<std::string>& active_cookies);
+  // Files are invisibile if:
+  // - It's CLOUDMANFIEST file and cookie is not active. NOTE: empty cookie is
+  // always active
+  // - It's MANIFEST/SST file but their epoch is not current epoch of current
+  // CLOUDMANFIEST(the one loaded in-memory). For example, if we find
+  // 00010.sst-[epochX], but the real mapping for 00010.sst is [epochY], the
+  // file will be treated as invisible
+  bool IsFileInvisible(const std::vector<std::string>& active_cookies,
+                     const std::string& fname) const;
 
   void log(InfoLogLevel level, const std::string& fname,
            const std::string& msg);
