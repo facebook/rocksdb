@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 7.7.2 (10/05/2022)
+### Bug Fixes
+* Fixed a bug in iterator refresh that was not freeing up SuperVersion, which could cause excessive resource pinniung (#10770).
+
 ## 7.7.1 (09/26/2022)
 ### Bug Fixes
 * Fixed an optimistic transaction validation bug caused by DBImpl::GetLatestSequenceForKey() returning non-latest seq for merge (#10724).
