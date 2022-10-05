@@ -700,7 +700,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
 
     uint64_t count = 0;
-    bool columns_inconsistent = false;
+    Status s;
 
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
@@ -709,7 +709,10 @@ class NonBatchedOpsStressTest : public StressTest {
       const WideColumns expected_columns = GenerateExpectedWideColumns(
           GetValueBase(iter->value()), iter->value());
       if (iter->columns() != expected_columns) {
-        columns_inconsistent = true;
+        s = Status::Corruption(
+            "Value and columns inconsistent",
+            DebugString(iter->value(), iter->columns(), expected_columns));
+        break;
       }
     }
 
@@ -717,14 +720,9 @@ class NonBatchedOpsStressTest : public StressTest {
       assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
     }
 
-    if (columns_inconsistent) {
-      fprintf(stderr, "TestPrefixScan: columns inconsistent\n");
-      thread->stats.AddErrors(1);
-
-      return Status::Corruption();
+    if (s.ok()) {
+      s = iter->status();
     }
-
-    const Status s = iter->status();
 
     if (!s.ok()) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
