@@ -3756,9 +3756,11 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   // triggered soon anyway.
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
   for (auto* my_cfd : *versions_->GetColumnFamilySet()) {
-    bottommost_files_mark_threshold_ = std::min(
-        bottommost_files_mark_threshold_,
-        my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
+    if (!my_cfd->ioptions()->allow_ingest_behind) {
+      bottommost_files_mark_threshold_ = std::min(
+          bottommost_files_mark_threshold_,
+          my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
+    }
   }
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or

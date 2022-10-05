@@ -2914,7 +2914,9 @@ void VersionStorageInfo::PrepareForVersionAppend(
   GenerateFileIndexer();
   GenerateLevelFilesBrief();
   GenerateLevel0NonOverlapping();
-  GenerateBottommostFiles();
+  if (!immutable_options.allow_ingest_behind) {
+    GenerateBottommostFiles();
+  }
   GenerateFileLocationIndex();
 }
 
@@ -3354,7 +3356,9 @@ void VersionStorageInfo::ComputeCompactionScore(
     }
   }
   ComputeFilesMarkedForCompaction();
-  ComputeBottommostFilesMarkedForCompaction();
+  if (!immutable_options.allow_ingest_behind) {
+    ComputeBottommostFilesMarkedForCompaction();
+  }
   if (mutable_cf_options.ttl > 0) {
     ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   }
