@@ -319,19 +319,18 @@ class BatchedOpsStressTest : public StressTest {
                iters[i]->key().starts_with(prefix_slices[i]));
         values[i] = iters[i]->value().ToString();
 
-        char expected_first = (prefixes[i])[0];
-        char actual_first = (values[i])[0];
+        // make sure the first character of the value is the expected digit
+        const char expected_first = prefixes[i][0];
+        const char actual_first = values[i][0];
 
         if (actual_first != expected_first) {
           fprintf(stderr, "error expected first = %c actual = %c\n",
                   expected_first, actual_first);
         }
 
-        (values[i])[0] = ' ';  // blank out the differing character
-      }
+        values[i][0] = ' ';  // blank out the differing character
 
-      // make sure all values are equivalent
-      for (size_t i = 0; i < num_prefixes; ++i) {
+        // make sure all values are equivalent
         if (values[i] != values[0]) {
           fprintf(stderr,
                   "error : %" ROCKSDB_PRIszt
@@ -340,6 +339,19 @@ class BatchedOpsStressTest : public StressTest {
                   StringToHex(values[i]).c_str());
           // we continue after error rather than exiting so that we can
           // find more errors if any
+        }
+
+        // make sure value() and columns() are consistent
+        const WideColumns expected_columns = GenerateExpectedWideColumns(
+            GetValueBase(iters[i]->value()), iters[i]->value());
+        if (iters[i]->columns() != expected_columns) {
+          fprintf(stderr,
+                  "error : %" ROCKSDB_PRIszt
+                  ", value and columns inconsistent for prefix %s: %s\n",
+                  i, prefixes[i].c_str(),
+                  DebugString(iters[i]->value(), iters[i]->columns(),
+                              expected_columns)
+                      .c_str());
         }
 
         iters[i]->Next();
