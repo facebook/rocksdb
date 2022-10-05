@@ -1091,6 +1091,53 @@ Status DeserializeReplicationLogManifestWrite(Slice* src,
   }
   return Status::OK();
 }
+
+std::string DescribeVersionEdit(const VersionEdit& e, ColumnFamilyData* cfd) {
+  std::ostringstream oss;
+  if (cfd && !e.IsColumnFamilyDrop()) {
+    oss << "[" << cfd->GetName() << "] ";
+  }
+  oss << "Applying manifest update seq=" << e.GetManifestUpdateSequence()
+      << ": ";
+
+  if (!e.GetNewFiles().empty()) {
+    oss << "New files: [";
+    bool first = true;
+    for (auto& f : e.GetNewFiles()) {
+      if (!first) {
+        oss << ", ";
+      }
+      first = false;
+      oss << f.second.fd.GetNumber();
+    }
+    oss << "] ";
+  }
+  if (!e.GetDeletedFiles().empty()) {
+    oss << "Deleted files: [";
+    bool first = true;
+    for (auto& f : e.GetDeletedFiles()) {
+      if (!first) {
+        oss << ", ";
+      }
+      first = false;
+      oss << f.second;
+    }
+    oss << "] ";
+  }
+  if (e.IsColumnFamilyAdd()) {
+    oss << "Creating column family " << e.GetAddColumnFamily() << " ";
+  } else if (e.IsColumnFamilyDrop() && cfd) {
+    oss << "Dropping column family " << cfd->GetName() << " " ;
+  }
+
+  uint64_t r;
+  if (e.GetNextFileNumber(&r)) {
+    oss << "NextFileNumber: " << r << " ";
+  }
+
+  return oss.str();
+}
+
 }  // namespace
 
 Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
@@ -1117,16 +1164,18 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
           oss << "Gap in sequence numbers, expected="
               << versions_->LastSequence() + 1
               << " got=" << WriteBatchInternal::Sequence(&batch);
-          return Status::Corruption(oss.str());
+          s = Status::Corruption(oss.str());
         }
 
-        SequenceNumber next_seq;
-        s = WriteBatchInternal::InsertInto(
-            &batch, column_family_memtables_.get(), &flush_scheduler_,
-            &trim_history_scheduler_,
-            true /* ignore_missing_column_families_ */, 0 /* log_number */,
-            this, false /* concurrent_memtable_writes */, &next_seq,
-            nullptr /* has_valid_writes */, seq_per_batch_, batch_per_txn_);
+        SequenceNumber next_seq{0};
+        if (s.ok()) {
+          s = WriteBatchInternal::InsertInto(
+              &batch, column_family_memtables_.get(), &flush_scheduler_,
+              &trim_history_scheduler_,
+              true /* ignore_missing_column_families_ */, 0 /* log_number */,
+              this, false /* concurrent_memtable_writes */, &next_seq,
+              nullptr /* has_valid_writes */, seq_per_batch_, batch_per_txn_);
+        }
         if (s.ok()) {
           versions_->SetLastSequence(next_seq - 1);
         }
@@ -1137,8 +1186,15 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
         WriteContext write_context;
         MemTableSwitchRecord mem_switch_record;
         Slice contents_slice(record.contents);
-        DeserializeMemTableSwitchRecord(&contents_slice, &mem_switch_record);
-
+        s = DeserializeMemTableSwitchRecord(&contents_slice, &mem_switch_record);
+        if (!s.ok()) {
+          break;
+        }
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "Applying memtable switch with next log file: %" PRIu64
+                       ", replication sequence (hex): %s",
+                       mem_switch_record.next_log_num,
+                       Slice(replication_sequence).ToString(true).c_str());
         autovector<ColumnFamilyData*> cfds;
         SelectColumnFamiliesForAtomicFlush(&cfds);
 
@@ -1160,9 +1216,12 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
         break;
       }
       case ReplicationLogRecord::kManifestWrite: {
-        Slice src = record.contents;
+        Slice contents_slice(record.contents);
         autovector<VersionEdit> edits;
-        DeserializeReplicationLogManifestWrite(&src, &edits);
+        s = DeserializeReplicationLogManifestWrite(&contents_slice, &edits);
+        if (!s.ok()) {
+            break;
+        }
 
         auto mutable_options =
             default_cf_handle_->cfd()->GetLatestMutableCFOptions();
@@ -1178,8 +1237,9 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
         uint64_t latest_applied_update_sequence = 0;
         for (auto& e : edits) {
           if (!e.HasManifestUpdateSequence()) {
-            return Status::InvalidArgument(
+            s = Status::InvalidArgument(
                 "Manifest write doesn't have a ManifestUpdateSequence");
+            break;
           }
           latest_applied_update_sequence = e.GetManifestUpdateSequence();
           if (e.GetManifestUpdateSequence() <= current_update_sequence) {
@@ -1192,7 +1252,8 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
             oss << "Gap in ManifestUpdateSequence, expected="
                 << current_update_sequence
                 << " got=" << e.GetManifestUpdateSequence();
-            return Status::Corruption(oss.str());
+            s = Status::Corruption(oss.str());
+            break;
           }
 
           if (e.HasLogNumber()) {
@@ -1224,13 +1285,19 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
           autovector<VersionEdit*> el;
           el.push_back(&e);
           edit_lists.push_back(std::move(el));
+
+          ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s",
+                         DescribeVersionEdit(e, cfd).c_str());
+        }
+        if (!s.ok()) {
+          break;
         }
         s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists,
                                    &mutex_, directories_.GetDbDir(),
                                    false /* new_descriptor_log */,
                                    cf_options.get());
         if (!s.ok()) {
-          return s;
+          break;
         }
         for (auto cfd : cfds) {
           if (!cfd) {
@@ -1266,6 +1333,53 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
 
   job_context.Clean();
 
+  return s;
+}
+
+Status DBImpl::GetReplicationRecordDebugString(
+    const ReplicationLogRecord& record, std::string* out) const {
+  std::ostringstream oss;
+
+  auto s = Status::OK();
+  switch (record.type) {
+    case ReplicationLogRecord::kMemtableWrite: {
+      if (record.contents.size() < 8) {
+        s = Status::Corruption("corrupted kMemtableWrite record");
+        break;
+      }
+      auto seq = DecodeFixed64(record.contents.data());
+      oss << "kMemtableWrite " << record.contents.size() << " bytes, sequence=" << seq;
+      break;
+    }
+    case ReplicationLogRecord::kMemtableSwitch: {
+      WriteContext write_context;
+      MemTableSwitchRecord mem_switch_record;
+      Slice contents_slice(record.contents);
+      s = DeserializeMemTableSwitchRecord(&contents_slice, &mem_switch_record);
+      if (!s.ok()) {
+        break;
+      }
+      oss << "kMemtableSwitch next_log_num=" << mem_switch_record.next_log_num;
+      break;
+    }
+    case ReplicationLogRecord::kManifestWrite: {
+      Slice contents_slice(record.contents);
+      autovector<VersionEdit> edits;
+      s = DeserializeReplicationLogManifestWrite(&contents_slice, &edits);
+      if (!s.ok()) {
+        break;
+      }
+      oss << "kManifestWrite with " << edits.size() << " updates:\n";
+      for (const auto& e : edits) {
+        oss << e.DebugString(true);
+      }
+      break;
+    }
+  }
+
+  if (s.ok()) {
+    *out = oss.str();
+  }
   return s;
 }
 

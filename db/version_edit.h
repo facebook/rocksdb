@@ -586,6 +586,7 @@ class VersionEdit {
   }
 
   bool IsColumnFamilyAdd() const { return is_column_family_add_; }
+  const std::string& GetAddColumnFamily() const { return column_family_name_; }
 
   bool IsColumnFamilyDrop() const { return is_column_family_drop_; }
 

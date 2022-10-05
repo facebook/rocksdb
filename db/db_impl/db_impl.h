@@ -335,6 +335,8 @@ class DBImpl : public DB {
       ReplicationLogRecord record,
       std::string replication_sequence,
       ApplyReplicationLogRecordInfo* info) override;
+  Status GetReplicationRecordDebugString(
+      const ReplicationLogRecord& record, std::string* out) const override;
   Status GetPersistedReplicationSequence(std::string* out) override;
   Status GetManifestUpdateSequence(uint64_t* out) override;
 
