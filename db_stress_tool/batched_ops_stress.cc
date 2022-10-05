@@ -267,9 +267,6 @@ class BatchedOpsStressTest : public StressTest {
     assert(!rand_column_families.empty());
     assert(!rand_keys.empty());
 
-    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
-    assert(cfh);
-
     const std::string key = Key(rand_keys[0]);
 
     const size_t prefix_to_use =
@@ -285,6 +282,9 @@ class BatchedOpsStressTest : public StressTest {
     std::array<std::unique_ptr<Iterator>, num_prefixes> iters;
 
     const Snapshot* const snapshot = db_->GetSnapshot();
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
 
     for (size_t i = 0; i < num_prefixes; ++i) {
       prefixes[i] = std::to_string(i) + key;
@@ -305,7 +305,7 @@ class BatchedOpsStressTest : public StressTest {
       iters[i]->Seek(prefix_slices[i]);
     }
 
-    long count = 0;
+    uint64_t count = 0;
 
     while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
       ++count;
