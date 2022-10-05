@@ -271,7 +271,10 @@ struct AdvancedColumnFamilyOptions {
   // read amplification because a get request has to check in all of these
   // files. Also, an in-memory merge may result in writing lesser
   // data to storage if there are duplicate records in each of these
-  // individual write buffers.  Default: 1
+  // individual write buffers.
+  // If atomic flush is enabled (options.atomic_flush == true), then this
+  // option will be sanitized to 1.
+  // Default: 1
   int min_write_buffer_number_to_merge = 1;
 
   // DEPRECATED
