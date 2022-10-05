@@ -342,8 +342,13 @@ class BatchedOpsStressTest : public StressTest {
         }
 
         // make sure value() and columns() are consistent
+        // note: in these tests, value base is stored after a single-digit
+        // prefix
+        Slice value_base_slice = iters[i]->value();
+        value_base_slice.remove_prefix(1);
+
         const WideColumns expected_columns = GenerateExpectedWideColumns(
-            GetValueBase(iters[i]->value()), iters[i]->value());
+            GetValueBase(value_base_slice), iters[i]->value());
         if (iters[i]->columns() != expected_columns) {
           fprintf(stderr,
                   "error : %" ROCKSDB_PRIszt
