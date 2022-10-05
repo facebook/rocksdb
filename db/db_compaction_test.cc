@@ -7958,6 +7958,42 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   compact_range_thread.join();
 }
 
+TEST_F(DBCompactionTest, BottommostFileCompactionAllowIngestBehind) {
+  // allow_ingest_behind prevents seqnum zeroing, and could cause
+  // compaction loop with reason kBottommostFiles.
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.compaction_style = kCompactionStyleLevel;
+  options.allow_ingest_behind = true;
+  options.comparator = BytewiseComparator();
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  ASSERT_OK(db_->Put(write_opts, "infinite", "compaction loop"));
+  ASSERT_OK(db_->Put(write_opts, "infinite", "loop"));
+
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(db_->Put(write_opts, "bumpseqnum", ""));
+  ASSERT_OK(Flush());
+  auto snapshot = db_->GetSnapshot();
+  // Bump up oldest_snapshot_seqnum_ in VersionStorageInfo.
+  db_->ReleaseSnapshot(snapshot);
+  bool compacted = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* /* arg */) {
+        // There should not be a compaction.
+        compacted = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // Wait for compaction to be scheduled.
+  env_->SleepForMicroseconds(2000000);
+  ASSERT_FALSE(compacted);
+  // The following assert can be used to check for compaction loop:
+  // it used to wait forever before the fix.
+  // ASSERT_OK(dbfull()->TEST_WaitForCompact(true /* wait_unscheduled */));
+}
+
 #endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE

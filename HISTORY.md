@@ -2,6 +2,7 @@
 ## 7.7.2 (10/05/2022)
 ### Bug Fixes
 * Fixed a bug in iterator refresh that was not freeing up SuperVersion, which could cause excessive resource pinniung (#10770).
+* Fixed a bug where RocksDB could be doing compaction endlessly when allow_ingest_behind is true and the bottommost level is not filled (#10767).
 
 ## 7.7.1 (09/26/2022)
 ### Bug Fixes
