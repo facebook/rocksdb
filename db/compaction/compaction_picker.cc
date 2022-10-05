@@ -314,12 +314,19 @@ bool CompactionPicker::FilesRangeOverlapWithCompaction(
   int penultimate_level =
       Compaction::EvaluatePenultimateLevel(ioptions_, start_level, level);
   if (penultimate_level != Compaction::kInvalidLevel) {
-    InternalKey penultimate_smallest, penultimate_largest;
-    GetRange(inputs, &penultimate_smallest, &penultimate_largest, level);
-    if (RangeOverlapWithCompaction(penultimate_smallest.user_key(),
-                                   penultimate_largest.user_key(),
-                                   penultimate_level)) {
-      return true;
+    if (ioptions_.compaction_style == kCompactionStyleUniversal) {
+      if (RangeOverlapWithCompaction(smallest.user_key(), largest.user_key(),
+                                     penultimate_level)) {
+        return true;
+      }
+    } else {
+      InternalKey penultimate_smallest, penultimate_largest;
+      GetRange(inputs, &penultimate_smallest, &penultimate_largest, level);
+      if (RangeOverlapWithCompaction(penultimate_smallest.user_key(),
+                                     penultimate_largest.user_key(),
+                                     penultimate_level)) {
+        return true;
+      }
     }
   }
 
