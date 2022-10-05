@@ -9,6 +9,9 @@
 * Fixed an optimistic transaction validation bug caused by DBImpl::GetLatestSequenceForKey() returning non-latest seq for merge (#10724).
 * Fixed a bug in iterator refresh which could segfault for DeleteRange users (#10739).
 
+### Behavior Changes
+* Sanitize min_write_buffer_number_to_merge to 1 if atomic flush is enabled to prevent unexpected data loss when WAL is disabled in a multi-column-family setting (#10773).
+
 ## 7.7.0 (09/18/2022)
 ### Bug Fixes
 * Fixed a hang when an operation such as `GetLiveFiles` or `CreateNewBackup` is asked to trigger and wait for memtable flush on a read-only DB. Such indirect requests for memtable flush are now ignored on a read-only DB.
