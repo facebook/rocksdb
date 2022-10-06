@@ -90,6 +90,7 @@ Status ArenaWrappedDBIter::Refresh() {
       // Refresh range-tombstones in MemTable
       if (!read_options_.ignore_range_deletions) {
         SuperVersion* sv = cfd_->GetThreadLocalSuperVersion(db_impl_);
+        TEST_SYNC_POINT_CALLBACK("ArenaWrappedDBIter::Refresh:SV", nullptr);
         auto t = sv->mem->NewRangeTombstoneIterator(
             read_options_, latest_seq, false /* immutable_memtable */);
         if (!t || t->empty()) {
@@ -107,7 +108,7 @@ Status ArenaWrappedDBIter::Refresh() {
         } else {  // current mutable memtable has range tombstones
           if (!memtable_range_tombstone_iter_) {
             delete t;
-            cfd_->ReturnThreadLocalSuperVersion(sv);
+            db_impl_->ReturnAndCleanupSuperVersion(cfd_, sv);
             // The memtable under DBIter did not have range tombstone before
             // refresh.
             reinit_internal_iter();
@@ -119,7 +120,7 @@ Status ArenaWrappedDBIter::Refresh() {
                 &cfd_->internal_comparator(), nullptr, nullptr);
           }
         }
-        cfd_->ReturnThreadLocalSuperVersion(sv);
+        db_impl_->ReturnAndCleanupSuperVersion(cfd_, sv);
       }
       // Refresh latest sequence number
       db_iter_->set_sequence(latest_seq);

@@ -97,6 +97,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ChangeTemperature";
     case CompactionReason::kForcedBlobGC:
       return "ForcedBlobGC";
+    case CompactionReason::kRoundRobinTtl:
+      return "RoundRobinTtl";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -1662,7 +1664,9 @@ Status CompactionJob::InstallCompactionResults(
                              stats.GetBytes());
   }
 
-  if (compaction->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
+  if ((compaction->compaction_reason() ==
+           CompactionReason::kLevelMaxLevelSize ||
+       compaction->compaction_reason() == CompactionReason::kRoundRobinTtl) &&
       compaction->immutable_options()->compaction_pri == kRoundRobin) {
     int start_level = compaction->start_level();
     if (start_level > 0) {

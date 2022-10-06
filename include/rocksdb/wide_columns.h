@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <ostream>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -68,6 +69,14 @@ inline bool operator==(const WideColumn& lhs, const WideColumn& rhs) {
 
 inline bool operator!=(const WideColumn& lhs, const WideColumn& rhs) {
   return !(lhs == rhs);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const WideColumn& column) {
+  const bool hex =
+      (os.flags() & std::ios_base::basefield) == std::ios_base::hex;
+  os << column.name().ToString(hex) << ':' << column.value().ToString(hex);
+
+  return os;
 }
 
 // A collection of wide columns.

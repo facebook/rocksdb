@@ -1304,12 +1304,20 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                                                blob_offsets[1]));
 
       // key1's dummy handle is in the primary cache and key1's item is still
-      // in the secondary cache. So, the primary cache's Lookup() can only
-      // get a dummy handle.
+      // in the secondary cache. So, the primary cache's Lookup() without
+      // secondary cache support cannot see it. (NOTE: The dummy handle used
+      // to be a leaky abstraction but not anymore.)
+      handle1 = blob_cache->Lookup(key1, statistics);
+      ASSERT_EQ(handle1, nullptr);
+
+      // But after another access, it is promoted to primary cache
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                               blob_offsets[1]));
+
+      // And Lookup() can find it (without secondary cache support)
       handle1 = blob_cache->Lookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
-      // handl1 is a dummy handle.
-      ASSERT_EQ(blob_cache->Value(handle1), nullptr);
+      ASSERT_NE(blob_cache->Value(handle1), nullptr);
       blob_cache->Release(handle1);
     }
   }
