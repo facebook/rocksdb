@@ -269,14 +269,14 @@ class BatchedOpsStressTest : public StressTest {
 
     const std::string key = Key(rand_keys[0]);
 
-    const size_t prefix_to_use =
-        (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
+    assert(FLAGS_prefix_size > 0);
+    const size_t prefix_to_use = static_cast<size_t>(FLAGS_prefix_size);
 
     constexpr size_t num_prefixes = 10;
 
     std::array<std::string, num_prefixes> prefixes;
     std::array<Slice, num_prefixes> prefix_slices;
-    std::array<ReadOptions, num_prefixes> ro_copy;
+    std::array<ReadOptions, num_prefixes> ro_copies;
     std::array<std::string, num_prefixes> upper_bounds;
     std::array<Slice, num_prefixes> ub_slices;
     std::array<std::unique_ptr<Iterator>, num_prefixes> iters;
@@ -288,20 +288,18 @@ class BatchedOpsStressTest : public StressTest {
 
     for (size_t i = 0; i < num_prefixes; ++i) {
       prefixes[i] = std::to_string(i) + key;
-      prefixes[i].resize(prefix_to_use);
+      prefix_slices[i] = Slice(prefixes[i].data(), prefix_to_use);
 
-      prefix_slices[i] = prefixes[i];
-
-      ro_copy[i] = readoptions;
-      ro_copy[i].snapshot = snapshot;
+      ro_copies[i] = readoptions;
+      ro_copies[i].snapshot = snapshot;
       if (thread->rand.OneIn(2) &&
           GetNextPrefix(prefix_slices[i], &(upper_bounds[i]))) {
         // For half of the time, set the upper bound to the next prefix
         ub_slices[i] = upper_bounds[i];
-        ro_copy[i].iterate_upper_bound = &(ub_slices[i]);
+        ro_copies[i].iterate_upper_bound = &(ub_slices[i]);
       }
 
-      iters[i].reset(db_->NewIterator(ro_copy[i], cfh));
+      iters[i].reset(db_->NewIterator(ro_copies[i], cfh));
       iters[i]->Seek(prefix_slices[i]);
     }
 
@@ -335,7 +333,8 @@ class BatchedOpsStressTest : public StressTest {
           fprintf(stderr,
                   "error : %" ROCKSDB_PRIszt
                   ", inconsistent values for prefix %s: %s, %s\n",
-                  i, prefixes[i].c_str(), StringToHex(values[0]).c_str(),
+                  i, prefix_slices[i].ToString(/* hex */ true).c_str(),
+                  StringToHex(values[0]).c_str(),
                   StringToHex(values[i]).c_str());
           // we continue after error rather than exiting so that we can
           // find more errors if any
@@ -353,7 +352,7 @@ class BatchedOpsStressTest : public StressTest {
           fprintf(stderr,
                   "error : %" ROCKSDB_PRIszt
                   ", value and columns inconsistent for prefix %s: %s\n",
-                  i, prefixes[i].c_str(),
+                  i, prefix_slices[i].ToString(/* hex */ true).c_str(),
                   DebugString(iters[i]->value(), iters[i]->columns(),
                               expected_columns)
                       .c_str());
