@@ -553,15 +553,22 @@ class CfConsistencyStressTest : public StressTest {
       }
     }
 
-    // TODO
     const auto checksum_column_family = [](Iterator* iter,
                                            uint32_t* checksum) -> Status {
       assert(nullptr != checksum);
+
       uint32_t ret = 0;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         ret = crc32c::Extend(ret, iter->key().data(), iter->key().size());
         ret = crc32c::Extend(ret, iter->value().data(), iter->value().size());
+
+        for (const auto& column : iter->columns()) {
+          ret = crc32c::Extend(ret, column.name().data(), column.name().size());
+          ret =
+              crc32c::Extend(ret, column.value().data(), column.value().size());
+        }
       }
+
       *checksum = ret;
       return iter->status();
     };
