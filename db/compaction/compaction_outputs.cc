@@ -80,13 +80,14 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
     const Slice& internal_key) {
   size_t curr_key_boundary_switched_num = 0;
   const std::vector<FileMetaData*>& grandparents = compaction_->grandparents();
-  InternalKey ikey;
-
-  ikey.DecodeFrom(internal_key);
 
   if (grandparents.empty()) {
     return curr_key_boundary_switched_num;
   }
+  assert(!internal_key.empty());
+  InternalKey ikey;
+  ikey.DecodeFrom(internal_key);
+  assert(ikey.Valid());
 
   const Comparator* ucmp = compaction_->column_family_data()->user_comparator();
 
@@ -142,11 +143,6 @@ size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
 
 uint64_t CompactionOutputs::GetCurrentKeyGrandparentOverlappedBytes(
     const Slice& internal_key) const {
-  // current it's only used to get the first key's overlap grandparent (it
-  // should work with other keys too, but they should already be handled in the
-  // `UpdateGrandparentBoundaryInfo()`.
-  assert(grandparent_overlapped_bytes_ == 0);
-
   // no overlap with any grandparent file
   if (being_grandparent_gap_) {
     return 0;
@@ -345,7 +341,6 @@ Status CompactionOutputs::AddToOutput(
       return s;
     }
     // reset grandparent information
-    grandparent_overlapped_bytes_ = 0;
     grandparent_boundary_switched_num_ = 0;
     grandparent_overlapped_bytes_ =
         GetCurrentKeyGrandparentOverlappedBytes(key);
