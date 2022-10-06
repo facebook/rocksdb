@@ -327,7 +327,6 @@ class CfConsistencyStressTest : public StressTest {
   }
 
   void VerifyDb(ThreadState* thread) const override {
-    // TODO
     // This `ReadOptions` is for validation purposes. Ignore
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions options(FLAGS_verify_checksum, true);
@@ -508,7 +507,6 @@ class CfConsistencyStressTest : public StressTest {
       }
     }
 
-    // TODO
     const auto checksum_column_family = [](Iterator* iter,
                                            uint32_t* checksum) -> Status {
       assert(nullptr != checksum);

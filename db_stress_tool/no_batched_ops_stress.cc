@@ -1116,7 +1116,6 @@ class NonBatchedOpsStressTest : public StressTest {
       ThreadState* thread, const ReadOptions& read_opts,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) override {
-    // TODO
     // Lock the whole range over which we might iterate to ensure it doesn't
     // change under us.
     std::vector<std::unique_ptr<MutexLock>> range_locks;
