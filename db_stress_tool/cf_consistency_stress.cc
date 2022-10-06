@@ -278,7 +278,7 @@ class CfConsistencyStressTest : public StressTest {
 
     ColumnFamilyHandle* const cfh =
         column_families_[rand_column_families[thread->rand.Uniform(
-            rand_column_families.size())]];
+            static_cast<int>(rand_column_families.size()))]];
     assert(cfh);
 
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
