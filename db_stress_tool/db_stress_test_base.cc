@@ -2285,8 +2285,6 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
                                   ColumnFamilyHandle* column_family,
                                   const Slice& start_key,
                                   const Slice& end_key) {
-  const std::string kCrcCalculatorSepearator = ";";
-  uint32_t crc = 0;
   // This `ReadOptions` is for validation purposes. Ignore
   // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ro;
@@ -2299,15 +2297,29 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
     ts = ts_str;
     ro.timestamp = &ts;
   }
+
   std::unique_ptr<Iterator> it(db_->NewIterator(ro, column_family));
+
+  constexpr char kCrcCalculatorSepearator = ';';
+
+  uint32_t crc = 0;
+
   for (it->Seek(start_key);
        it->Valid() && options_.comparator->Compare(it->key(), end_key) <= 0;
        it->Next()) {
     crc = crc32c::Extend(crc, it->key().data(), it->key().size());
-    crc = crc32c::Extend(crc, kCrcCalculatorSepearator.data(), 1);
+    crc = crc32c::Extend(crc, &kCrcCalculatorSepearator, sizeof(char));
     crc = crc32c::Extend(crc, it->value().data(), it->value().size());
-    crc = crc32c::Extend(crc, kCrcCalculatorSepearator.data(), 1);
+    crc = crc32c::Extend(crc, &kCrcCalculatorSepearator, sizeof(char));
+
+    for (const auto& column : it->columns()) {
+      crc = crc32c::Extend(crc, column.name().data(), column.name().size());
+      crc = crc32c::Extend(crc, &kCrcCalculatorSepearator, sizeof(char));
+      crc = crc32c::Extend(crc, column.value().data(), column.value().size());
+      crc = crc32c::Extend(crc, &kCrcCalculatorSepearator, sizeof(char));
+    }
   }
+
   if (!it->status().ok()) {
     fprintf(stderr, "Iterator non-OK when calculating range CRC: %s\n",
             it->status().ToString().c_str());
@@ -2315,6 +2327,7 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
     // Fail fast to preserve the DB state.
     thread->shared->SetVerificationFailure();
   }
+
   return crc;
 }
 
