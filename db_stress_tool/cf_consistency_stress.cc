@@ -262,7 +262,7 @@ class CfConsistencyStressTest : public StressTest {
     const size_t prefix_to_use =
         (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
 
-    Slice prefix(key.data(), prefix_to_use);
+    const Slice prefix(key.data(), prefix_to_use);
 
     std::string upper_bound;
     Slice ub_slice;
