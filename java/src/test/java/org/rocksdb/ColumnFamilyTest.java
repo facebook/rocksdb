@@ -201,13 +201,14 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
              columnFamilyHandleList)) {
-      ColumnFamilyHandle tmpColumnFamilyHandle;
-      tmpColumnFamilyHandle = db.createColumnFamily(
+      final ColumnFamilyHandle tmpColumnFamilyHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("tmpCF".getBytes(), new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
-      db.dropColumnFamily(tmpColumnFamilyHandle);
       final long[] cfCounts = tmpColumnFamilyHandle.getReferenceCounts();
-      assertThat(cfCounts[1]).isEqualTo(17);
+      assertThat(cfCounts[1]).isEqualTo(2); // 1 for the db ref + one for the cf.lock()
+      db.dropColumnFamily(tmpColumnFamilyHandle);
+      final long[] cfCounts_dropped = tmpColumnFamilyHandle.getReferenceCounts();
+      assertThat(cfCounts_dropped[1]).isEqualTo(0); // db ref removed, cf.lock() fails, total 0
     }
   }
 
@@ -223,19 +224,17 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
              columnFamilyHandleList)) {
-      ColumnFamilyHandle tmpColumnFamilyHandle = null;
-      ColumnFamilyHandle tmpColumnFamilyHandle2 = null;
-      tmpColumnFamilyHandle = db.createColumnFamily(
+      final ColumnFamilyHandle tmpColumnFamilyHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("tmpCF".getBytes(), new ColumnFamilyOptions()));
-      tmpColumnFamilyHandle2 = db.createColumnFamily(
+      final ColumnFamilyHandle tmpColumnFamilyHandle2 = db.createColumnFamily(
           new ColumnFamilyDescriptor("tmpCF2".getBytes(), new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.put(tmpColumnFamilyHandle2, "key".getBytes(), "value".getBytes());
       db.dropColumnFamilies(Arrays.asList(tmpColumnFamilyHandle, tmpColumnFamilyHandle2));
       final long[] cfCounts = tmpColumnFamilyHandle.getReferenceCounts();
-      assertThat(cfCounts[1]).isEqualTo(1);
+      assertThat(cfCounts[1]).isEqualTo(0);
       final long[] cfCounts2 = tmpColumnFamilyHandle2.getReferenceCounts();
-      assertThat(cfCounts2[1]).isEqualTo(1);
+      assertThat(cfCounts2[1]).isEqualTo(0);
     }
   }
 
