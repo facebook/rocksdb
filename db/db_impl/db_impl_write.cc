@@ -1760,6 +1760,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
                  &time_delayed);
     uint64_t delay =
         write_controller_.GetDelay(immutable_db_options_.clock, num_bytes);
+    TEST_SYNC_POINT("DBImpl::DelayWrite:Start");
     if (delay > 0) {
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
@@ -1769,8 +1770,8 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       // Notify write_thread_ about the stall so it can setup a barrier and
       // fail any pending writers with no_slowdown
       write_thread_.BeginWriteStall();
-      TEST_SYNC_POINT("DBImpl::DelayWrite:BeginWriteStallDone");
       mutex_.Unlock();
+      TEST_SYNC_POINT("DBImpl::DelayWrite:BeginWriteStallDone");
       // We will delay the write until we have slept for `delay` microseconds
       // or we don't need a delay anymore. We check for cancellation every 1ms
       // (slightly longer because WriteController minimum delay is 1ms, in
