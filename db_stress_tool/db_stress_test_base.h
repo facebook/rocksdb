@@ -9,6 +9,9 @@
 
 #ifdef GFLAGS
 #pragma once
+
+#include <ostream>
+
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 
@@ -230,6 +233,13 @@ class StressTest {
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
                          int64_t key, Slice value_from_db,
                          Slice value_from_expected) const;
+
+  void VerificationAbort(SharedState* shared, int cf, int64_t key,
+                         const Slice& value, const WideColumns& columns,
+                         const WideColumns& expected_columns) const;
+
+  static std::string DebugString(const Slice& value, const WideColumns& columns,
+                                 const WideColumns& expected_columns);
 
   void PrintEnv() const;
 

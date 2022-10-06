@@ -101,6 +101,15 @@ class NonBatchedOpsStressTest : public StressTest {
             if (diff > 0) {
               s = Status::NotFound();
             } else if (diff == 0) {
+              const WideColumns expected_columns = GenerateExpectedWideColumns(
+                  GetValueBase(iter->value()), iter->value());
+              if (iter->columns() != expected_columns) {
+                VerificationAbort(shared, static_cast<int>(cf), i,
+                                  iter->value(), iter->columns(),
+                                  expected_columns);
+                break;
+              }
+
               from_db = iter->value().ToString();
               iter->Next();
             } else {
