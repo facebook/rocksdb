@@ -131,6 +131,8 @@ default_params = {
     "use_multiget" : lambda: random.randint(0, 1),
     "periodic_compaction_seconds" :
         lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
+    "stats_dump_period_sec" : lambda: random.choice([0, 10, 600]),
     "compaction_ttl" : lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug

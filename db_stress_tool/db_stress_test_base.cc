@@ -3051,6 +3051,8 @@ void InitializeOptionsFromFlags(
   options.experimental_mempurge_threshold =
       FLAGS_experimental_mempurge_threshold;
   options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
+  options.stats_dump_period_sec =
+      static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
   options.ttl = FLAGS_compaction_ttl;
   options.enable_pipelined_write = FLAGS_enable_pipelined_write;
   options.enable_write_thread_adaptive_yield =
