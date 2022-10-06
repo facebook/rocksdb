@@ -22,7 +22,7 @@ public class RefCountTest {
 
   @Test
   public void testIteratorFromClosedCFHandle() throws RocksDBException {
-    WeakDB weakDB = null;
+    WeakDB weakDB;
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       weakDB = db.createWeakDB();
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
@@ -53,8 +53,9 @@ public class RefCountTest {
       assertThat(dbCounts[0]).isEqualTo(1);
       final RocksIterator iterator = db.newIterator();
       final long[] itCounts = iterator.getReferenceCounts();
-      assertThat(itCounts.length).isEqualTo(0);
-      assertThat(itCounts[0]).isEqualTo(1);
+      assertThat(itCounts.length).isEqualTo(2);
+      assertThat(itCounts[0]).isEqualTo(2); // db
+      assertThat(itCounts[1]).isEqualTo(0); // cf
       iterator.close();
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
@@ -71,11 +72,12 @@ public class RefCountTest {
       final long[] dbCounts = db.getReferenceCounts();
       assertThat(dbCounts[0]).isEqualTo(1);
       final RocksIterator iteratorCF = db.newIterator(cfHandle);
-      assertThat(dbCounts[0]).isEqualTo(2);
       final long[] itCounts = iteratorCF.getReferenceCounts();
-      assertThat(itCounts[0]).isEqualTo(1);
+      assertThat(itCounts[0]).isEqualTo(2);
+      assertThat(itCounts[1]).isEqualTo(2);
       iteratorCF.close();
-      assertThat(dbCounts[0]).isEqualTo(1);
+      final long[] dbCounts_after = db.getReferenceCounts();
+      assertThat(dbCounts_after[0]).isEqualTo(1);
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
   }
@@ -162,7 +164,7 @@ public class RefCountTest {
       closedDB = db;
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
-    // And we crap out accessing the closed DB
+    // And we fail cleanly accessing the closed DB
     try {
       assertThat(closedDB.get("key".getBytes())).isEqualTo("value".getBytes());
       fail("Expect an exception because the DB we accessed was closed");

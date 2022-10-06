@@ -47,8 +47,17 @@ class APIBase {
       // exception thrown: OutOfMemoryError
       return nullptr;
     }
-    env->SetLongArrayRegion(jLongArray, 0, static_cast<jsize>(vec.size()), &vec[0]);
+    env->SetLongArrayRegion(jLongArray, 0, static_cast<jsize>(vec.size()),
+                            &vec[0]);
     return jLongArray;
+  }
+
+  template <class APIHandle>
+  static jlongArray getReferenceCounts(JNIEnv* env, jlong jhandle) {
+    std::unique_ptr<APIHandle> apiHandle(reinterpret_cast<APIHandle*>(jhandle));
+    std::vector<long> counts = apiHandle->use_counts();
+    apiHandle.release();
+    return longArrayFromVector(env, counts);
   }
 
   /**

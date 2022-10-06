@@ -190,6 +190,16 @@ void Java_org_rocksdb_TransactionDB_nativeClose(JNIEnv*, jobject,
 
 /*
  * Class:     org_rocksdb_TransactionDB
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+JNIEXPORT jlongArray JNICALL Java_org_rocksdb_TransactionDB_getReferenceCounts(
+    JNIEnv* env, jobject, jlong jhandle) {
+  return APIBase::getReferenceCounts<API_TDB>(env, jhandle);
+}
+
+/*
+ * Class:     org_rocksdb_TransactionDB
  * Method:    closeDatabase
  * Signature: (J)V
  */

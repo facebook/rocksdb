@@ -1736,3 +1736,13 @@ void Java_org_rocksdb_Transaction_nativeClose(JNIEnv* /*env*/, jobject /*jobj*/,
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.
 }
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+JNIEXPORT jlongArray JNICALL Java_org_rocksdb_Transaction_getReferenceCounts(
+    JNIEnv* env, jobject, jlong jhandle) {
+  return APIBase::getReferenceCounts<API_TXN>(env, jhandle);
+}

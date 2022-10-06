@@ -142,3 +142,13 @@ void Java_org_rocksdb_SstFileReader_nativeClose(JNIEnv * /*env*/,
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.
 }
+
+/*
+ * Class:     org_rocksdb_SstFileReader
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+JNIEXPORT jlongArray JNICALL Java_org_rocksdb_SstFileReader_getReferenceCounts(
+    JNIEnv *env, jobject, jlong jhandle) {
+  return APIBase::getReferenceCounts<APISSTFileReader>(env, jhandle);
+}

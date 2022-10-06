@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "api_columnfamilyhandle.h"
+#include "api_wrapper.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "include/org_rocksdb_WriteBatch.h"
@@ -24,6 +25,8 @@
 #include "rocksjni/portal.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 #include "table/scoped_arena_iterator.h"
+
+using APIWriteBatch = APIWrapper<ROCKSDB_NAMESPACE::WriteBatch>;
 
 /*
  * Class:     org_rocksdb_WriteBatch
@@ -694,6 +697,15 @@ void Java_org_rocksdb_WriteBatch_nativeClose(JNIEnv*, jobject, jlong handle) {
   delete wb;
 }
 
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+JNIEXPORT jlongArray JNICALL Java_org_rocksdb_WriteBatch_getReferenceCounts(
+    JNIEnv* env, jobject, jlong jhandle) {
+  return APIBase::getReferenceCounts<APIWriteBatch>(env, jhandle);
+}
 /*
  * Class:     org_rocksdb_WriteBatch_Handler
  * Method:    createNewHandler0

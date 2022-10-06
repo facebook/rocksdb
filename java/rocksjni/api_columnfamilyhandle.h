@@ -153,9 +153,8 @@ class APIColumnFamilyHandle : public APIWeakDB<TDatabase> {
   std::vector<long> use_counts() {
     std::vector<long> vec;
 
-    std::shared_ptr<TDatabase> dbLocked = APIWeakDB<TDatabase>::db.lock();
-    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLocked =
-        cfh.lock();
+    auto dbLocked = this->db.lock();
+    auto cfhLocked = cfh.lock();
     if (dbLocked) {
       vec.push_back(dbLocked.use_count());
     } else {

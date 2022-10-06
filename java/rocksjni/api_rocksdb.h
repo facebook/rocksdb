@@ -68,7 +68,7 @@ class APIRocksDB : APIBase {
     std::vector<long> vec;
 
     vec.push_back(db.use_count());
-    for(auto const& cfh: columnFamilyHandles) {
+    for (auto const& cfh : columnFamilyHandles) {
       vec.push_back(cfh.use_count());
     }
 
@@ -81,5 +81,12 @@ class APIRocksDB : APIBase {
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>& cfh) {
     return std::move(std::make_unique<APIIterator<TDatabase, TIterator>>(
         db, std::move(std::unique_ptr<TIterator>(iterator)), cfh));
+  }
+
+  template <class TIterator>
+  std::unique_ptr<APIIterator<TDatabase, TIterator>> newIterator(
+      TIterator* iterator) {
+    return std::move(std::make_unique<APIIterator<TDatabase, TIterator>>(
+        db, std::move(std::unique_ptr<TIterator>(iterator))));
   }
 };

@@ -1003,3 +1003,13 @@ void Java_org_rocksdb_WBWIRocksIterator_nativeClose(JNIEnv*, jobject,
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.
 }
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+jlongArray Java_org_rocksdb_WBWIRocksIterator_getReferenceCounts(
+    JNIEnv* env, jobject, jlong jhandle) {
+  return APIBase::getReferenceCounts<WBWIAPIIterator>(env, jhandle);
+}

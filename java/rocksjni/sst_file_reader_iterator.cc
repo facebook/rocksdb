@@ -37,6 +37,17 @@ void Java_org_rocksdb_SstFileReaderIterator_nativeClose(JNIEnv* /*env*/,
 
 /*
  * Class:     org_rocksdb_SstFileReaderIterator
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+JNIEXPORT jlongArray JNICALL
+Java_org_rocksdb_SstFileReaderIterator_getReferenceCounts(JNIEnv* env, jobject,
+                                                          jlong jhandle) {
+  return APIBase::getReferenceCounts<APISSTFileReaderIterator>(env, jhandle);
+}
+
+/*
+ * Class:     org_rocksdb_SstFileReaderIterator
  * Method:    isValid0
  * Signature: (J)Z
  */

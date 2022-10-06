@@ -45,12 +45,25 @@ class APIWeakDB : public APIBase {
    * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
    */
   static std::shared_ptr<TDatabase> lockDB(JNIEnv* env, jlong handle) {
-    auto* weakDBAPI = reinterpret_cast<APIWeakDB*>(handle);
+    auto* weakDBAPI = reinterpret_cast<APIWeakDB<TDatabase>*>(handle);
     auto lock = weakDBAPI->db.lock();
     if (!lock) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
           env, "Internal DB is already closed");
     }
     return lock;
+  }
+
+  std::vector<long> use_counts() {
+    std::vector<long> vec;
+
+    auto dbLocked = db.lock();
+    if (dbLocked) {
+      vec.push_back(dbLocked.use_count());
+    } else {
+      vec.push_back(0);
+    }
+
+    return vec;
   }
 };

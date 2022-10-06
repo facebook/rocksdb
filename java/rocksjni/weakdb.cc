@@ -11,6 +11,8 @@
 #include "api_weakdb.h"
 #include "include/org_rocksdb_WeakDB.h"
 
+using API_Weak = APIWeakDB<ROCKSDB_NAMESPACE::DB>;
+
 /*
  * @brief true iff there are other strong references to the RocksDB object
  * Class:     org_rocksdb_WeakDB
@@ -19,8 +21,7 @@
  */
 jboolean Java_org_rocksdb_WeakDB_isDatabaseOpen(JNIEnv *, jobject,
                                                 jlong handle) {
-  std::unique_ptr<APIWeakDB<ROCKSDB_NAMESPACE::DB>> weakDBAPI(
-      reinterpret_cast<APIWeakDB<ROCKSDB_NAMESPACE::DB> *>(handle));
+  std::unique_ptr<API_Weak> weakDBAPI(reinterpret_cast<API_Weak *>(handle));
   auto lock = weakDBAPI->db.lock();
   bool result = !!lock;
   weakDBAPI.release();
@@ -33,8 +34,17 @@ jboolean Java_org_rocksdb_WeakDB_isDatabaseOpen(JNIEnv *, jobject,
  * Signature: (J)V
  */
 void Java_org_rocksdb_WeakDB_nativeClose(JNIEnv *, jobject, jlong handle) {
-  std::unique_ptr<APIWeakDB<ROCKSDB_NAMESPACE::DB>> weakDBAPI(
-      reinterpret_cast<APIWeakDB<ROCKSDB_NAMESPACE::DB> *>(handle));
+  std::unique_ptr<API_Weak> weakDBAPI(reinterpret_cast<API_Weak *>(handle));
+}
+
+/*
+ * Class:     org_rocksdb_WeakDB
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+JNIEXPORT jlongArray JNICALL Java_org_rocksdb_WeakDB_getReferenceCounts(
+    JNIEnv *env, jobject, jlong jhandle) {
+  return APIBase::getReferenceCounts<API_Weak>(env, jhandle);
 }
 
 /*
@@ -45,8 +55,7 @@ void Java_org_rocksdb_WeakDB_nativeClose(JNIEnv *, jobject, jlong handle) {
  */
 jboolean Java_org_rocksdb_WeakDB_isLastReference(JNIEnv *, jobject,
                                                  jlong handle) {
-  std::unique_ptr<APIWeakDB<ROCKSDB_NAMESPACE::DB>> weakDBAPI(
-      reinterpret_cast<APIWeakDB<ROCKSDB_NAMESPACE::DB> *>(handle));
+  std::unique_ptr<API_Weak> weakDBAPI(reinterpret_cast<API_Weak *>(handle));
   auto lock = weakDBAPI->db.lock();
   bool result = !lock;
   weakDBAPI.release();

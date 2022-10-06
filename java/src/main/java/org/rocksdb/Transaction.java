@@ -2067,5 +2067,4 @@ public class Transaction extends RocksNative {
 
   @Override protected final native void nativeClose(final long handle);
   @Override protected final native long[] getReferenceCounts(long nativeReference);
-
 }
