@@ -1329,7 +1329,6 @@ class NonBatchedOpsStressTest : public StressTest {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
-
     // compare value_from_db with the value in the shared state
     uint32_t value_base = shared->Get(cf, key);
     if (value_base == SharedState::UNKNOWN_SENTINEL) {
