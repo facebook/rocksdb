@@ -264,56 +264,43 @@ class BatchedOpsStressTest : public StressTest {
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {
-    assert(!rand_column_families.empty());
-    assert(!rand_keys.empty());
-
-    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
-    assert(cfh);
-
-    const std::string key = Key(rand_keys[0]);
-
-    const size_t prefix_to_use =
+    // TODO
+    size_t prefix_to_use =
         (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
-
-    constexpr size_t num_prefixes = 10;
-
-    std::array<std::string, num_prefixes> prefixes;
-    std::array<Slice, num_prefixes> prefix_slices;
-    std::array<ReadOptions, num_prefixes> ro_copy;
-    std::array<std::string, num_prefixes> upper_bounds;
-    std::array<Slice, num_prefixes> ub_slices;
-    std::array<std::unique_ptr<Iterator>, num_prefixes> iters;
-
-    const Snapshot* const snapshot = db_->GetSnapshot();
-
-    for (size_t i = 0; i < num_prefixes; ++i) {
-      prefixes[i] = std::to_string(i) + key;
+    std::string key_str = Key(rand_keys[0]);
+    Slice key = key_str;
+    auto cfh = column_families_[rand_column_families[0]];
+    std::string prefixes[10] = {"0", "1", "2", "3", "4",
+                                "5", "6", "7", "8", "9"};
+    Slice prefix_slices[10];
+    ReadOptions readoptionscopy[10];
+    const Snapshot* snapshot = db_->GetSnapshot();
+    Iterator* iters[10];
+    std::string upper_bounds[10];
+    Slice ub_slices[10];
+    Status s = Status::OK();
+    for (int i = 0; i < 10; i++) {
+      prefixes[i] += key.ToString();
       prefixes[i].resize(prefix_to_use);
-
-      prefix_slices[i] = prefixes[i];
-
-      ro_copy[i] = readoptions;
-      ro_copy[i].snapshot = snapshot;
+      prefix_slices[i] = Slice(prefixes[i]);
+      readoptionscopy[i] = readoptions;
+      readoptionscopy[i].snapshot = snapshot;
       if (thread->rand.OneIn(2) &&
           GetNextPrefix(prefix_slices[i], &(upper_bounds[i]))) {
         // For half of the time, set the upper bound to the next prefix
-        ub_slices[i] = upper_bounds[i];
-        ro_copy[i].iterate_upper_bound = &(ub_slices[i]);
+        ub_slices[i] = Slice(upper_bounds[i]);
+        readoptionscopy[i].iterate_upper_bound = &(ub_slices[i]);
       }
-
-      iters[i].reset(db_->NewIterator(ro_copy[i], cfh));
+      iters[i] = db_->NewIterator(readoptionscopy[i], cfh);
       iters[i]->Seek(prefix_slices[i]);
     }
 
     long count = 0;
-
     while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
-      ++count;
-
-      std::array<std::string, num_prefixes> values;
-
+      count++;
+      std::string values[10];
       // get list of all values for this iteration
-      for (size_t i = 0; i < num_prefixes; ++i) {
+      for (int i = 0; i < 10; i++) {
         // no iterator should finish before the first one
         assert(iters[i]->Valid() &&
                iters[i]->key().starts_with(prefix_slices[i]));
@@ -326,39 +313,40 @@ class BatchedOpsStressTest : public StressTest {
           fprintf(stderr, "error expected first = %c actual = %c\n",
                   expected_first, actual_first);
         }
-
         (values[i])[0] = ' ';  // blank out the differing character
       }
-
       // make sure all values are equivalent
-      for (size_t i = 0; i < num_prefixes; ++i) {
+      for (int i = 0; i < 10; i++) {
         if (values[i] != values[0]) {
           fprintf(stderr,
-                  "error : %" ROCKSDB_PRIszt
-                  ", inconsistent values for prefix %s: %s, %s\n",
-                  i, prefixes[i].c_str(), StringToHex(values[0]).c_str(),
+                  "error : %d, inconsistent values for prefix %s: %s, %s\n", i,
+                  prefixes[i].c_str(), StringToHex(values[0]).c_str(),
                   StringToHex(values[i]).c_str());
           // we continue after error rather than exiting so that we can
           // find more errors if any
         }
-
         iters[i]->Next();
       }
     }
 
     // cleanup iterators and snapshot
-    for (size_t i = 0; i < num_prefixes; ++i) {
+    for (int i = 0; i < 10; i++) {
       // if the first iterator finished, they should have all finished
       assert(!iters[i]->Valid() ||
              !iters[i]->key().starts_with(prefix_slices[i]));
       assert(iters[i]->status().ok());
+      delete iters[i];
     }
-
     db_->ReleaseSnapshot(snapshot);
 
-    thread->stats.AddPrefixes(1, count);
+    if (s.ok()) {
+      thread->stats.AddPrefixes(1, count);
+    } else {
+      fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
+      thread->stats.AddErrors(1);
+    }
 
-    return Status::OK();
+    return s;
   }
 
   void VerifyDb(ThreadState* /* thread */) const override {}
