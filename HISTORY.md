@@ -11,6 +11,7 @@
 * Fixed a bug causing manual flush with `flush_opts.wait=false` to stall when database has stopped all writes (#10001).
 * Fixed a bug in iterator refresh that was not freeing up SuperVersion, which could cause excessive resource pinniung (#10770).
 * Fixed a bug where RocksDB could be doing compaction endlessly when allow_ingest_behind is true and the bottommost level is not filled (#10767).
+* Fixed a memory safety bug in experimental HyperClockCache (#10768)
 
 ### Performance Improvements
 * Try to align the compaction output file boundaries to the next level ones, which can reduce more than 10% compaction load for the default level compaction. The feature is enabled by default, to disable, set `AdvancedColumnFamilyOptions.level_compaction_dynamic_file_size` to false. As a side effect, it can create SSTs larger than the target_file_size (capped at 2x target_file_size) or smaller files.
