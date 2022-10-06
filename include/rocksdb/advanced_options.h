@@ -911,6 +911,8 @@ struct AdvancedColumnFamilyOptions {
   //  size constrained, the size amp is going to be only for non-last levels.
   //
   // Default: 0 (disable the feature)
+  //
+  // Not dynamically changeable, change it requires db restart.
   uint64_t preclude_last_level_data_seconds = 0;
 
   // EXPERIMENTAL
@@ -920,12 +922,16 @@ struct AdvancedColumnFamilyOptions {
   // which is the same as `preclude_last_level_data_seconds`. But it won't
   // preclude the data from the last level and the data in the last level won't
   // have the sequence number zeroed out.
+  // Internally, rocksdb would sample the sequence number to time pair and store
+  // that in SST property "rocksdb.seqno.time.map". The information is currently
+  // only used for tiered storage compaction (option
+  // `preclude_last_level_data_seconds`).
   //
   // Note: if `preclude_last_level_data_seconds` is set, this option is ignored.
-  //  It's typically used for the migration of existing data to tiered storage.
-  //  The user can enable this feature first, then the existing data will have
-  //  time information for `preclude_last_level_data_seconds` feature which will
-  //  be enabled later.
+  //
+  // Default: 0 (disable the feature)
+  //
+  // Not dynamically changeable, change it requires db restart.
   uint64_t preserve_internal_time_seconds = 0;
 
   // When set, large values (blobs) are written to separate blob files, and
