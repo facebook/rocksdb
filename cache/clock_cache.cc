@@ -23,6 +23,12 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace hyper_clock_cache {
 
+inline uint64_t GetRefcount(uint64_t meta) {
+  return ((meta >> ClockHandle::kAcquireCounterShift) -
+          (meta >> ClockHandle::kReleaseCounterShift)) &
+         ClockHandle::kCounterMask;
+}
+
 static_assert(sizeof(ClockHandle) == 64U,
               "Expecting size / alignment with common cache line size");
 
@@ -49,6 +55,7 @@ ClockHandleTable::~ClockHandleTable() {
         break;
       case ClockHandle::kStateInvisible:  // rare but possible
       case ClockHandle::kStateVisible:
+        assert(GetRefcount(h.meta) == 0);
         h.FreeData();
 #ifndef NDEBUG
         Rollback(h.hash, &h);
@@ -562,10 +569,7 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
     }
     // Take ownership if no refs
     do {
-      uint64_t refcount = ((old_meta >> ClockHandle::kAcquireCounterShift) -
-                           (old_meta >> ClockHandle::kReleaseCounterShift)) &
-                          ClockHandle::kCounterMask;
-      if (refcount != 0) {
+      if (GetRefcount(old_meta) != 0) {
         // Not last ref at some point in time during this Release call
         // Correct for possible (but rare) overflow
         CorrectNearOverflow(old_meta, h->meta);
@@ -622,6 +626,8 @@ void ClockHandleTable::Ref(ClockHandle& h) {
 
   assert((old_meta >> ClockHandle::kStateShift) &
          ClockHandle::kStateShareableBit);
+  // Must have already had a reference
+  assert(GetRefcount(old_meta) > 0);
   (void)old_meta;
 }
 
@@ -671,10 +677,7 @@ void ClockHandleTable::Erase(const CacheKeyBytes& key, uint32_t hash) {
             old_meta &= ~(uint64_t{ClockHandle::kStateVisibleBit}
                           << ClockHandle::kStateShift);
             for (;;) {
-              uint64_t refcount =
-                  ((old_meta >> ClockHandle::kAcquireCounterShift) -
-                   (old_meta >> ClockHandle::kReleaseCounterShift)) &
-                  ClockHandle::kCounterMask;
+              uint64_t refcount = GetRefcount(old_meta);
               assert(refcount > 0);
               if (refcount > 1) {
                 // Not last ref at some point in time during this Erase call
@@ -683,8 +686,10 @@ void ClockHandleTable::Erase(const CacheKeyBytes& key, uint32_t hash) {
                                   std::memory_order_release);
                 break;
               } else if (h->meta.compare_exchange_weak(
-                             old_meta, uint64_t{ClockHandle::kStateConstruction}
-                                           << ClockHandle::kStateShift)) {
+                             old_meta,
+                             uint64_t{ClockHandle::kStateConstruction}
+                                 << ClockHandle::kStateShift,
+                             std::memory_order_acq_rel)) {
                 // Took ownership
                 assert(hash == h->hash);
                 // TODO? Delay freeing?
@@ -740,20 +745,32 @@ void ClockHandleTable::ConstApplyToEntriesRange(
   for (uint32_t i = index_begin; i < index_end; i++) {
     ClockHandle& h = array_[i];
 
+    // Note: to avoid using compare_exchange, we have to be extra careful.
     uint64_t old_meta = h.meta.load(std::memory_order_relaxed);
     // Check if it's an entry visible to lookups
     if ((old_meta >> ClockHandle::kStateShift) & check_state_mask) {
-      // Increment acquire counter
+      // Increment acquire counter. Note: it's possible that the entry has
+      // completely changed since we loaded old_meta, but incrementing acquire
+      // count is always safe. (Similar to optimistic Lookup here.)
       old_meta = h.meta.fetch_add(ClockHandle::kAcquireIncrement,
                                   std::memory_order_acquire);
-      // Double-check
-      if ((old_meta >> ClockHandle::kStateShift) & check_state_mask) {
-        func(h);
+      // Check whether we actually acquired a reference.
+      if ((old_meta >> ClockHandle::kStateShift) &
+          ClockHandle::kStateShareableBit) {
+        // Apply func if appropriate
+        if ((old_meta >> ClockHandle::kStateShift) & check_state_mask) {
+          func(h);
+        }
+        // Pretend we never took the reference
+        h.meta.fetch_sub(ClockHandle::kAcquireIncrement,
+                         std::memory_order_release);
+        // No net change, so don't need to check for overflow
+      } else {
+        // For other states, incrementing the acquire counter has no effect
+        // so we don't need to undo it. Furthermore, we cannot safely undo
+        // it because we did not acquire a read reference to lock the
+        // entry in a Shareable state.
       }
-      // Pretend we never took the reference
-      h.meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                       std::memory_order_release);
-      // No net change, so don't need to check for overflow
     }
   }
 }
@@ -763,12 +780,9 @@ void ClockHandleTable::EraseUnRefEntries() {
     ClockHandle& h = array_[i];
 
     uint64_t old_meta = h.meta.load(std::memory_order_relaxed);
-    uint64_t refcount = ((old_meta >> ClockHandle::kAcquireCounterShift) -
-                         (old_meta >> ClockHandle::kReleaseCounterShift)) &
-                        ClockHandle::kCounterMask;
     if (old_meta & (uint64_t{ClockHandle::kStateShareableBit}
                     << ClockHandle::kStateShift) &&
-        refcount == 0 &&
+        GetRefcount(old_meta) == 0 &&
         h.meta.compare_exchange_strong(old_meta,
                                        uint64_t{ClockHandle::kStateConstruction}
                                            << ClockHandle::kStateShift,
@@ -877,13 +891,12 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
         // Only clock update entries with no outstanding refs
         continue;
       }
-      if (!(meta >> ClockHandle::kStateShift &
+      if (!((meta >> ClockHandle::kStateShift) &
             ClockHandle::kStateShareableBit)) {
         // Only clock update Shareable entries
         continue;
       }
-      // ModTableSize(old_clock_pointer + i));
-      if (meta >> ClockHandle::kStateShift == ClockHandle::kStateVisible &&
+      if ((meta >> ClockHandle::kStateShift == ClockHandle::kStateVisible) &&
           acquire_count > 0) {
         // Decrement clock
         uint64_t new_count = std::min(acquire_count - 1,
@@ -1101,9 +1114,7 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   table_.ConstApplyToEntriesRange(
       [&table_pinned_usage, charge_metadata](const ClockHandle& h) {
         uint64_t meta = h.meta.load(std::memory_order_relaxed);
-        uint64_t refcount = ((meta >> ClockHandle::kAcquireCounterShift) -
-                             (meta >> ClockHandle::kReleaseCounterShift)) &
-                            ClockHandle::kCounterMask;
+        uint64_t refcount = GetRefcount(meta);
         // Holding one ref for ConstApplyToEntriesRange
         assert(refcount > 0);
         if (refcount > 1) {
