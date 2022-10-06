@@ -3674,14 +3674,16 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     if (oldest_snapshot > bottommost_files_mark_threshold_) {
       CfdList cf_scheduled;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
-        if (!cfd->current()
-                 ->storage_info()
-                 ->BottommostFilesMarkedForCompaction()
-                 .empty()) {
-          SchedulePendingCompaction(cfd);
-          MaybeScheduleFlushOrCompaction();
-          cf_scheduled.push_back(cfd);
+        if (!cfd->ioptions()->allow_ingest_behind) {
+          cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
+          if (!cfd->current()
+                   ->storage_info()
+                   ->BottommostFilesMarkedForCompaction()
+                   .empty()) {
+            SchedulePendingCompaction(cfd);
+            MaybeScheduleFlushOrCompaction();
+            cf_scheduled.push_back(cfd);
+          }
         }
       }
 
@@ -3690,7 +3692,8 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       // mutex might be unlocked during the loop, making the result inaccurate.
       SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (CfdListContains(cf_scheduled, cfd)) {
+        if (CfdListContains(cf_scheduled, cfd) ||
+            cfd->ioptions()->allow_ingest_behind) {
           continue;
         }
         new_bottommost_files_mark_threshold = std::min(
@@ -5281,7 +5284,7 @@ Status DBImpl::IngestExternalFiles(
         mutex_.Unlock();
         status = AtomicFlushMemTables(cfds_to_flush, flush_opts,
                                       FlushReason::kExternalFileIngestion,
-                                      true /* writes_stopped */);
+                                      true /* entered_write_thread */);
         mutex_.Lock();
       } else {
         for (size_t i = 0; i != num_cfs; ++i) {
@@ -5292,7 +5295,7 @@ Status DBImpl::IngestExternalFiles(
                     ->cfd();
             status = FlushMemTable(cfd, flush_opts,
                                    FlushReason::kExternalFileIngestion,
-                                   true /* writes_stopped */);
+                                   true /* entered_write_thread */);
             mutex_.Lock();
             if (!status.ok()) {
               break;

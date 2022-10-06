@@ -1224,6 +1224,11 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "P";
     }
 
+    if (thread->rand.OneIn(2)) {
+      // Refresh after forward/backward scan to allow higher chance of SV
+      // change. It is safe to refresh since the testing key range is locked.
+      iter->Refresh();
+    }
     // start from middle of [lb, ub) otherwise it is easy to iterate out of
     // locked range
     int64_t mid = lb + static_cast<int64_t>(FLAGS_num_iterations / 2);
