@@ -1133,7 +1133,6 @@ Status StressTest::TestIterate(ThreadState* thread,
                                const ReadOptions& read_opts,
                                const std::vector<int>& rand_column_families,
                                const std::vector<int64_t>& rand_keys) {
-  // TODO
   Status s;
   const Snapshot* snapshot = db_->GetSnapshot();
   ReadOptions readoptionscopy = read_opts;
@@ -2304,7 +2303,6 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
   for (it->Seek(start_key);
        it->Valid() && options_.comparator->Compare(it->key(), end_key) <= 0;
        it->Next()) {
-    // TODO
     crc = crc32c::Extend(crc, it->key().data(), it->key().size());
     crc = crc32c::Extend(crc, kCrcCalculatorSepearator.data(), 1);
     crc = crc32c::Extend(crc, it->value().data(), it->value().size());
