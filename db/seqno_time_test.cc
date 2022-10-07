@@ -706,7 +706,6 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
-  const int kKeyPerSec = 10;
 
   Options options = CurrentOptions();
   SetTrackTimeDurationOptions(10000, options);

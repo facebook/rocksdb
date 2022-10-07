@@ -927,7 +927,11 @@ struct AdvancedColumnFamilyOptions {
   // only used for tiered storage compaction (option
   // `preclude_last_level_data_seconds`).
   //
-  // Note: if `preclude_last_level_data_seconds` is set, this option is ignored.
+  // Note: if both `preclude_last_level_data_seconds` and this option is set, it
+  //  will preserve the max time of the 2 options and compaction still preclude
+  //  the data based on `preclude_last_level_data_seconds`.
+  //  The higher the preserve_time is, the less the sampling frequency will be (
+  //  which means less accuracy of the time estimation).
   //
   // Default: 0 (disable the feature)
   //
