@@ -254,42 +254,69 @@ class CfConsistencyStressTest : public StressTest {
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {
-    size_t prefix_to_use =
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    const std::string key = Key(rand_keys[0]);
+
+    const size_t prefix_to_use =
         (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
 
-    std::string key_str = Key(rand_keys[0]);
-    Slice key = key_str;
-    Slice prefix = Slice(key.data(), prefix_to_use);
+    const Slice prefix(key.data(), prefix_to_use);
 
     std::string upper_bound;
     Slice ub_slice;
+
     ReadOptions ro_copy = readoptions;
+
     // Get the next prefix first and then see if we want to set upper bound.
     // We'll use the next prefix in an assertion later on
     if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
     }
-    auto cfh =
-        column_families_[rand_column_families[thread->rand.Next() %
-                                              rand_column_families.size()]];
-    Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    unsigned long count = 0;
+
+    ColumnFamilyHandle* const cfh =
+        column_families_[rand_column_families[thread->rand.Uniform(
+            static_cast<int>(rand_column_families.size()))]];
+    assert(cfh);
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
+
+    uint64_t count = 0;
+    Status s;
+
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
+
+      const WideColumns expected_columns = GenerateExpectedWideColumns(
+          GetValueBase(iter->value()), iter->value());
+      if (iter->columns() != expected_columns) {
+        s = Status::Corruption(
+            "Value and columns inconsistent",
+            DebugString(iter->value(), iter->columns(), expected_columns));
+        break;
+      }
     }
+
     assert(prefix_to_use == 0 ||
            count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
-    Status s = iter->status();
+
     if (s.ok()) {
-      thread->stats.AddPrefixes(1, count);
-    } else {
+      s = iter->status();
+    }
+
+    if (!s.ok()) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
+
+      return s;
     }
-    delete iter;
-    return s;
+
+    thread->stats.AddPrefixes(1, count);
+
+    return Status::OK();
   }
 
   ColumnFamilyHandle* GetControlCfh(ThreadState* thread,

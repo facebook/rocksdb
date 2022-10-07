@@ -671,14 +671,19 @@ class NonBatchedOpsStressTest : public StressTest {
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {
-    auto cfh = column_families_[rand_column_families[0]];
-    std::string key_str = Key(rand_keys[0]);
-    Slice key = key_str;
-    Slice prefix = Slice(key.data(), FLAGS_prefix_size);
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    const std::string key = Key(rand_keys[0]);
+    const Slice prefix(key.data(), FLAGS_prefix_size);
 
     std::string upper_bound;
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
+
     // Get the next prefix first and then see if we want to set upper bound.
     // We'll use the next prefix in an assertion later on
     if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
@@ -692,26 +697,43 @@ class NonBatchedOpsStressTest : public StressTest {
     MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
                                        ro_copy);
 
-    Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    unsigned long count = 0;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
+
+    uint64_t count = 0;
+    Status s;
+
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
+
+      const WideColumns expected_columns = GenerateExpectedWideColumns(
+          GetValueBase(iter->value()), iter->value());
+      if (iter->columns() != expected_columns) {
+        s = Status::Corruption(
+            "Value and columns inconsistent",
+            DebugString(iter->value(), iter->columns(), expected_columns));
+        break;
+      }
     }
 
     if (ro_copy.iter_start_ts == nullptr) {
       assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
     }
 
-    Status s = iter->status();
-    if (iter->status().ok()) {
-      thread->stats.AddPrefixes(1, count);
-    } else {
+    if (s.ok()) {
+      s = iter->status();
+    }
+
+    if (!s.ok()) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
+
+      return s;
     }
-    delete iter;
-    return s;
+
+    thread->stats.AddPrefixes(1, count);
+
+    return Status::OK();
   }
 
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,

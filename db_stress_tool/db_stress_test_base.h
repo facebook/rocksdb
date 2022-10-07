@@ -10,8 +10,6 @@
 #ifdef GFLAGS
 #pragma once
 
-#include <ostream>
-
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 
