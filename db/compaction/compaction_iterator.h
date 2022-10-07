@@ -88,6 +88,7 @@ class CompactionIterator {
 
     virtual int number_levels() const = 0;
 
+    // Result includes timestamp if user-defined timestamp is enabled.
     virtual Slice GetLargestUserKey() const = 0;
 
     virtual bool allow_ingest_behind() const = 0;
@@ -108,6 +109,7 @@ class CompactionIterator {
 
     virtual bool SupportsPerKeyPlacement() const = 0;
 
+    // `key` includes timestamp if user-defined timestamp is enabled.
     virtual bool WithinPenultimateLevelOutputRange(const Slice& key) const = 0;
   };
 
@@ -133,6 +135,7 @@ class CompactionIterator {
 
     int number_levels() const override { return compaction_->number_levels(); }
 
+    // Result includes timestamp if user-defined timestamp is enabled.
     Slice GetLargestUserKey() const override {
       return compaction_->GetLargestUserKey();
     }
@@ -173,6 +176,7 @@ class CompactionIterator {
 
     // Check if key is within penultimate level output range, to see if it's
     // safe to output to the penultimate level for per_key_placement feature.
+    // `key` includes timestamp if user-defined timestamp is enabled.
     bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
       return compaction_->WithinPenultimateLevelOutputRange(key);
     }
