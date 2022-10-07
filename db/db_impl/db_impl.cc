@@ -849,10 +849,8 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       // If preclude_last_level is specified, use it. Otherwise, check if
       // preserve_internal is specified.
-      uint64_t track_time_duration =
-          cfd->ioptions()->preclude_last_level_data_seconds == 0
-              ? cfd->ioptions()->preserve_internal_time_seconds
-              : cfd->ioptions()->preclude_last_level_data_seconds;
+
+      uint64_t track_time_duration = std::max(cfd->ioptions()->preserve_internal_time_seconds, cfd->ioptions()->preclude_last_level_data_seconds);
       if (!cfd->IsDropped() && track_time_duration > 0) {
         min_time_duration = std::min(track_time_duration, min_time_duration);
         max_time_duration = std::max(track_time_duration, max_time_duration);

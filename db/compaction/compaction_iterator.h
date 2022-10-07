@@ -200,7 +200,8 @@ class CompactionIterator {
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
       const std::string* full_history_ts_low = nullptr,
-      const SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber);
+      const SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber,
+      const SequenceNumber preclude_last_level_min_seqno = kMaxSequenceNumber);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(
@@ -218,7 +219,8 @@ class CompactionIterator {
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
       const std::string* full_history_ts_low = nullptr,
-      const SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber);
+      const SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber,
+      const SequenceNumber preclude_last_level_min_seqno = kMaxSequenceNumber);
 
   ~CompactionIterator();
 
@@ -473,6 +475,8 @@ class CompactionIterator {
   // min seqno for preserving the time information. If preclude_last_level is
   // enabled, newer seqno than that will be output to penultimate level
   const SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
+
+  const SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
 
   void AdvanceInputIter() { input_.Next(); }
 

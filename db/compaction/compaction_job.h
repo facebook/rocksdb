@@ -342,6 +342,8 @@ class CompactionJob {
   // be placed on the last level.
   SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
 
+  SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
+
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
   virtual std::string GetTableFileName(uint64_t file_number);

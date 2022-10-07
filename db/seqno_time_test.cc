@@ -285,8 +285,7 @@ class SeqnoTimeTablePropTest
  public:
   SeqnoTimeTablePropTest() : SeqnoTimeTest() {}
 
-  void SetTrackTimeDurationOptions(Options& options,
-                                   uint64_t track_time_duration) const {
+  void SetTrackTimeDurationOptions(uint64_t track_time_duration, Options& options) const {
     // either option set will enable the time tracking feature
     switch (GetParam()) {
       case SeqnoTimeTestType::kTrackInternalTimeSeconds:
@@ -302,8 +301,8 @@ class SeqnoTimeTablePropTest
         options.preserve_internal_time_seconds = track_time_duration / 10;
         break;
       case SeqnoTimeTestType::kBothSetTrackLarger:
-        options.preclude_last_level_data_seconds = track_time_duration;
-        options.preserve_internal_time_seconds = track_time_duration * 10;
+        options.preclude_last_level_data_seconds = track_time_duration / 10;
+        options.preserve_internal_time_seconds = track_time_duration;
         break;
     }
   }
@@ -315,10 +314,13 @@ INSTANTIATE_TEST_CASE_P(
                       SeqnoTimeTestType::kPrecludeLastLevel,
                       SeqnoTimeTestType::kBothSetTrackSmaller,
                       SeqnoTimeTestType::kBothSetTrackLarger));
+//INSTANTIATE_TEST_CASE_P(
+//    SeqnoTimeTablePropTest, SeqnoTimeTablePropTest,
+//    ::testing::Values(SeqnoTimeTestType::kBothSetTrackLarger));
 
 TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   Options options = CurrentOptions();
-  SetTrackTimeDurationOptions(options, 10000);
+  SetTrackTimeDurationOptions(10000, options);
 
   options.env = mock_env_.get();
   options.disable_auto_compactions = true;
@@ -531,7 +533,7 @@ TEST_P(SeqnoTimeTablePropTest, MultiCFs) {
   ASSERT_TRUE(dbfull()->TEST_GetSeqnoToTimeMapping().Empty());
 
   Options options_1 = options;
-  SetTrackTimeDurationOptions(options_1, 10000);
+  SetTrackTimeDurationOptions(10000, options_1);
   CreateColumnFamilies({"one"}, options_1);
   ASSERT_TRUE(scheduler.TEST_HasTask(PeriodicTaskType::kRecordSeqnoTime));
 
@@ -564,7 +566,7 @@ TEST_P(SeqnoTimeTablePropTest, MultiCFs) {
 
   // Create one more CF with larger preclude_last_level time
   Options options_2 = options;
-  SetTrackTimeDurationOptions(options_2, 1000000);  // 1m
+  SetTrackTimeDurationOptions(1000000, options_2);  // 1m
   CreateColumnFamilies({"two"}, options_2);
 
   // Add more data to CF "two" to fill the in memory mapping
@@ -668,7 +670,7 @@ TEST_P(SeqnoTimeTablePropTest, MultiInstancesBasic) {
   const int kInstanceNum = 2;
 
   Options options = CurrentOptions();
-  SetTrackTimeDurationOptions(options, 10000);
+  SetTrackTimeDurationOptions(10000, options);
   options.env = mock_env_.get();
   options.stats_dump_period_sec = 0;
   options.stats_persist_period_sec = 0;
@@ -698,7 +700,7 @@ TEST_P(SeqnoTimeTablePropTest, MultiInstancesBasic) {
 
 TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   Options options = CurrentOptions();
-  SetTrackTimeDurationOptions(options, 10000);
+  SetTrackTimeDurationOptions(10000, options);
   options.compaction_style = kCompactionStyleUniversal;
   options.env = mock_env_.get();
 
@@ -745,6 +747,9 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   tables_props.clear();
   ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
+  if (tables_props.size() > 1) {
+    std::cout << "JJJ1" << std::endl;
+  }
   ASSERT_EQ(tables_props.size(), 1);
 
   auto it = tables_props.begin();

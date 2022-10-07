@@ -34,7 +34,8 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
-    const SequenceNumber preserve_time_min_seqno)
+    const SequenceNumber preserve_time_min_seqno,
+    const SequenceNumber preclude_last_level_min_seqno)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
@@ -44,7 +45,7 @@ CompactionIterator::CompactionIterator(
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
           compaction_filter, shutting_down, info_log, full_history_ts_low,
-          preserve_time_min_seqno) {}
+          preserve_time_min_seqno, preclude_last_level_min_seqno) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -61,7 +62,8 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
-    const SequenceNumber preserve_time_min_seqno)
+    const SequenceNumber preserve_time_min_seqno,
+    const SequenceNumber preclude_last_level_min_seqno)
     : input_(input, cmp,
              !compaction || compaction->DoesInputReferenceBlobFiles()),
       cmp_(cmp),
@@ -105,8 +107,10 @@ CompactionIterator::CompactionIterator(
       current_key_committed_(false),
       cmp_with_history_ts_low_(0),
       level_(compaction_ == nullptr ? 0 : compaction_->level()),
-      preserve_time_min_seqno_(preserve_time_min_seqno) {
+      preserve_time_min_seqno_(preserve_time_min_seqno),
+      preclude_last_level_min_seqno_(preclude_last_level_min_seqno) {
   assert(snapshots_ != nullptr);
+  assert(preserve_time_min_seqno_ <= preclude_last_level_min_seqno_);
 
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
@@ -1100,7 +1104,7 @@ void CompactionIterator::DecideOutputLevel() {
 
   // if the key is newer than the cutoff sequence or within the earliest
   // snapshot, it should output to the penultimate level.
-  if (ikey_.sequence > preserve_time_min_seqno_ ||
+  if (ikey_.sequence > preclude_last_level_min_seqno_ ||
       ikey_.sequence > earliest_snapshot_) {
     output_to_penultimate_level_ = true;
   }
