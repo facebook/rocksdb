@@ -305,19 +305,11 @@ class SeqnoTimeTablePropTest
   }
 };
 
-// INSTANTIATE_TEST_CASE_P(
-//     SeqnoTimeTablePropTest, SeqnoTimeTablePropTest,
-//     ::testing::Values(SeqnoTimeTestType::kTrackInternalTimeSeconds,
-//                       SeqnoTimeTestType::kPrecludeLastLevel,
-//                       SeqnoTimeTestType::kBothSetTrackSmaller));
 INSTANTIATE_TEST_CASE_P(
     SeqnoTimeTablePropTest, SeqnoTimeTablePropTest,
     ::testing::Values(SeqnoTimeTestType::kTrackInternalTimeSeconds,
                       SeqnoTimeTestType::kPrecludeLastLevel,
                       SeqnoTimeTestType::kBothSetTrackSmaller));
-// INSTANTIATE_TEST_CASE_P(
-//     SeqnoTimeTablePropTest, SeqnoTimeTablePropTest,
-//     ::testing::Values(SeqnoTimeTestType::kBothSetTrackLarger));
 
 TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   Options options = CurrentOptions();
