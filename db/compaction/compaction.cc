@@ -342,6 +342,8 @@ bool Compaction::SupportsPerKeyPlacement() const {
 
 int Compaction::GetPenultimateLevel() const { return penultimate_level_; }
 
+// smallest_key and largest_key include timestamps if user-defined timestamp is
+// enabled.
 bool Compaction::OverlapPenultimateLevelOutputRange(
     const Slice& smallest_key, const Slice& largest_key) const {
   if (!SupportsPerKeyPlacement()) {
@@ -350,11 +352,13 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
   const Comparator* ucmp =
       input_vstorage_->InternalComparator()->user_comparator();
 
-  return ucmp->Compare(smallest_key, penultimate_level_largest_user_key_) <=
-             0 &&
-         ucmp->Compare(largest_key, penultimate_level_smallest_user_key_) >= 0;
+  return ucmp->CompareWithoutTimestamp(
+             smallest_key, penultimate_level_largest_user_key_) <= 0 &&
+         ucmp->CompareWithoutTimestamp(
+             largest_key, penultimate_level_smallest_user_key_) >= 0;
 }
 
+// key includes timestamp if user-defined timestamp is enabled.
 bool Compaction::WithinPenultimateLevelOutputRange(const Slice& key) const {
   if (!SupportsPerKeyPlacement()) {
     return false;
@@ -363,8 +367,10 @@ bool Compaction::WithinPenultimateLevelOutputRange(const Slice& key) const {
   const Comparator* ucmp =
       input_vstorage_->InternalComparator()->user_comparator();
 
-  return ucmp->Compare(key, penultimate_level_smallest_user_key_) >= 0 &&
-         ucmp->Compare(key, penultimate_level_largest_user_key_) <= 0;
+  return ucmp->CompareWithoutTimestamp(
+             key, penultimate_level_smallest_user_key_) >= 0 &&
+         ucmp->CompareWithoutTimestamp(
+             key, penultimate_level_largest_user_key_) <= 0;
 }
 
 bool Compaction::InputCompressionMatchesOutput() const {
