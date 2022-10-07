@@ -472,10 +472,11 @@ class CompactionIterator {
   // output to.
   bool output_to_penultimate_level_{false};
 
-  // min seqno for preserving the time information. If preclude_last_level is
-  // enabled, newer seqno than that will be output to penultimate level
+  // min seqno for preserving the time information.
   const SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
 
+  // min seqno to preclude the data from the last level, if the key seqno larger
+  // than this, it will be output to penultimate level
   const SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
 
   void AdvanceInputIter() { input_.Next(); }

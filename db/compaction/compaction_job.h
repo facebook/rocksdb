@@ -338,10 +338,11 @@ class CompactionJob {
   // Minimal sequence number for preserving the time information. The time info
   // older than this sequence number won't be preserved after the compaction and
   // if it's bottommost compaction, the seq num will be zeroed out.
-  // If preclude_last_level feature is enabled, the data newer than this won't
-  // be placed on the last level.
   SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
 
+  // Minimal sequence number to preclude the data from the last level. If the
+  // key has bigger (newer) sequence number than this, it will be precluded from
+  // the last level (output to penultimate level).
   SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
 
   // Get table file name in where it's outputting to, which should also be in

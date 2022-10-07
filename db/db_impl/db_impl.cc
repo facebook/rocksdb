@@ -847,15 +847,13 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
     InstrumentedMutexLock l(&mutex_);
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      // If preclude_last_level is specified, use it. Otherwise, check if
-      // preserve_internal is specified.
-
-      uint64_t track_time_duration =
+      // preserve time is the max of 2 options.
+      uint64_t preserve_time_duration =
           std::max(cfd->ioptions()->preserve_internal_time_seconds,
                    cfd->ioptions()->preclude_last_level_data_seconds);
-      if (!cfd->IsDropped() && track_time_duration > 0) {
-        min_time_duration = std::min(track_time_duration, min_time_duration);
-        max_time_duration = std::max(track_time_duration, max_time_duration);
+      if (!cfd->IsDropped() && preserve_time_duration > 0) {
+        min_time_duration = std::min(preserve_time_duration, min_time_duration);
+        max_time_duration = std::max(preserve_time_duration, max_time_duration);
       }
     }
     if (min_time_duration == std::numeric_limits<uint64_t>::max()) {
