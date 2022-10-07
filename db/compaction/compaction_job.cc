@@ -267,7 +267,9 @@ void CompactionJob::Prepare() {
 
   // collect all seqno->time information from the input files which will be used
   // to encode seqno->time to the output files.
-  uint64_t preserve_time_duration = std::max(c->immutable_options()->preserve_internal_time_seconds, c->immutable_options()->preclude_last_level_data_seconds);
+  uint64_t preserve_time_duration =
+      std::max(c->immutable_options()->preserve_internal_time_seconds,
+               c->immutable_options()->preclude_last_level_data_seconds);
 
   if (preserve_time_duration > 0) {
     // setup seqno_time_mapping_

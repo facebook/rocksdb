@@ -9,6 +9,7 @@
 #include "db/seqno_to_time_mapping.h"
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
+#include "rocksdb/utilities/debug.h"
 #include "test_util/mock_time_env.h"
 
 #ifndef ROCKSDB_LITE
@@ -276,7 +277,6 @@ enum class SeqnoTimeTestType : char {
   kTrackInternalTimeSeconds = 0,
   kPrecludeLastLevel = 1,
   kBothSetTrackSmaller = 2,
-  kBothSetTrackLarger = 3,
 };
 
 class SeqnoTimeTablePropTest
@@ -285,7 +285,8 @@ class SeqnoTimeTablePropTest
  public:
   SeqnoTimeTablePropTest() : SeqnoTimeTest() {}
 
-  void SetTrackTimeDurationOptions(uint64_t track_time_duration, Options& options) const {
+  void SetTrackTimeDurationOptions(uint64_t track_time_duration,
+                                   Options& options) const {
     // either option set will enable the time tracking feature
     switch (GetParam()) {
       case SeqnoTimeTestType::kTrackInternalTimeSeconds:
@@ -300,23 +301,23 @@ class SeqnoTimeTablePropTest
         options.preclude_last_level_data_seconds = track_time_duration;
         options.preserve_internal_time_seconds = track_time_duration / 10;
         break;
-      case SeqnoTimeTestType::kBothSetTrackLarger:
-        options.preclude_last_level_data_seconds = track_time_duration / 10;
-        options.preserve_internal_time_seconds = track_time_duration;
-        break;
     }
   }
 };
 
+// INSTANTIATE_TEST_CASE_P(
+//     SeqnoTimeTablePropTest, SeqnoTimeTablePropTest,
+//     ::testing::Values(SeqnoTimeTestType::kTrackInternalTimeSeconds,
+//                       SeqnoTimeTestType::kPrecludeLastLevel,
+//                       SeqnoTimeTestType::kBothSetTrackSmaller));
 INSTANTIATE_TEST_CASE_P(
     SeqnoTimeTablePropTest, SeqnoTimeTablePropTest,
     ::testing::Values(SeqnoTimeTestType::kTrackInternalTimeSeconds,
                       SeqnoTimeTestType::kPrecludeLastLevel,
-                      SeqnoTimeTestType::kBothSetTrackSmaller,
-                      SeqnoTimeTestType::kBothSetTrackLarger));
-//INSTANTIATE_TEST_CASE_P(
-//    SeqnoTimeTablePropTest, SeqnoTimeTablePropTest,
-//    ::testing::Values(SeqnoTimeTestType::kBothSetTrackLarger));
+                      SeqnoTimeTestType::kBothSetTrackSmaller));
+// INSTANTIATE_TEST_CASE_P(
+//     SeqnoTimeTablePropTest, SeqnoTimeTablePropTest,
+//     ::testing::Values(SeqnoTimeTestType::kBothSetTrackLarger));
 
 TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   Options options = CurrentOptions();
@@ -344,6 +345,8 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   ASSERT_OK(tp_mapping.Sort());
   ASSERT_FALSE(tp_mapping.Empty());
   auto seqs = tp_mapping.TEST_GetInternalMapping();
+  // about ~20 seqs->time entries, because the sample rate is 10000/100, and it
+  // passes 2k time.
   ASSERT_GE(seqs.size(), 19);
   ASSERT_LE(seqs.size(), 21);
   SequenceNumber seq_end = dbfull()->GetLatestSequenceNumber();
@@ -491,7 +494,8 @@ TEST_P(SeqnoTimeTablePropTest, BasicSeqnoToTimeMapping) {
   ASSERT_LE(seqs.size(), 101);
   for (auto i = start_seq; i < seq_end - 99; i++) {
     // likely the first 100 entries reports 0
-    ASSERT_LE(tp_mapping.GetOldestApproximateTime(i), (i - start_seq) + 3000);
+    ASSERT_LE(tp_mapping.GetOldestApproximateTime(i),
+              (i - start_seq) * 100 + 50000);
   }
   start_seq += 101;
 
@@ -562,7 +566,7 @@ TEST_P(SeqnoTimeTablePropTest, MultiCFs) {
   ASSERT_FALSE(tp_mapping.Empty());
   auto seqs = tp_mapping.TEST_GetInternalMapping();
   ASSERT_GE(seqs.size(), 1);
-  ASSERT_LE(seqs.size(), 3);
+  ASSERT_LE(seqs.size(), 4);
 
   // Create one more CF with larger preclude_last_level time
   Options options_2 = options;
@@ -699,9 +703,15 @@ TEST_P(SeqnoTimeTablePropTest, MultiInstancesBasic) {
 }
 
 TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kKeyPerSec = 10;
+
   Options options = CurrentOptions();
   SetTrackTimeDurationOptions(10000, options);
   options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = kNumLevels;
   options.env = mock_env_.get();
 
   DestroyAndReopen(options);
@@ -715,9 +725,10 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
       [&](void* /*arg*/) { num_seqno_zeroing++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  for (int j = 0; j < 3; j++) {
-    for (int i = 0; i < 100; i++) {
-      ASSERT_OK(Put(Key(i), "value"));
+  int sst_num = 0;
+  for (; sst_num < kNumTrigger - 1; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
       dbfull()->TEST_WaitForPeridicTaskRun(
           [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
     }
@@ -738,11 +749,12 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   }
 
   // Trigger a compaction
-  for (int i = 0; i < 100; i++) {
-    ASSERT_OK(Put(Key(i), "value"));
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
     dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
   }
+  sst_num++;
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   tables_props.clear();
@@ -773,12 +785,43 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   tables_props.clear();
   tp_mapping.Clear();
   ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
+
   ASSERT_EQ(tables_props.size(), 1);
   ASSERT_EQ(num_seqno_zeroing, 0);
 
   it = tables_props.begin();
   ASSERT_FALSE(it->second->seqno_to_time_mapping.empty());
   ASSERT_OK(tp_mapping.Add(it->second->seqno_to_time_mapping));
+
+  // make half of the data expired
+  mock_clock_->MockSleepForSeconds(static_cast<int>(8000));
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  tables_props.clear();
+  tp_mapping.Clear();
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
+
+  if (options.preclude_last_level_data_seconds > 0) {
+    ASSERT_EQ(tables_props.size(), 2);
+  } else {
+    ASSERT_EQ(tables_props.size(), 1);
+  }
+  ASSERT_GT(num_seqno_zeroing, 0);
+  std::vector<KeyVersion> key_versions;
+  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
+  // make sure there're more than 300 keys and first 100 keys are having seqno
+  // zeroed out, the last 100 key seqno not zeroed out
+  ASSERT_GT(key_versions.size(), 300);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_EQ(key_versions[i].sequence, 0);
+  }
+  auto rit = key_versions.rbegin();
+  for (int i = 0; i < 100; i++) {
+    ASSERT_GT(rit->sequence, 0);
+    rit++;
+  }
 
   // make all data expired and compact again to push it to the last level
   // regardless if the tiering feature is enabled or not
