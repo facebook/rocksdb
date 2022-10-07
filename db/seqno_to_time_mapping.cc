@@ -107,6 +107,10 @@ void SeqnoToTimeMapping::Encode(std::string& dest, const SequenceNumber start,
       start_it++;
     }
   }
+  // to include the first element
+  if (start_it != seqno_time_mapping_.begin()) {
+    start_it--;
+  }
 
   // If there are more data than needed, pick the entries for encoding.
   // It's not the most optimized algorithm for selecting the best representative
