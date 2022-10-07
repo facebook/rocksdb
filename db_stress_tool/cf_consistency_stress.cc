@@ -262,7 +262,7 @@ class CfConsistencyStressTest : public StressTest {
     const size_t prefix_to_use =
         (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
 
-    Slice prefix(key.data(), prefix_to_use);
+    const Slice prefix(key.data(), prefix_to_use);
 
     std::string upper_bound;
     Slice ub_slice;
@@ -278,7 +278,7 @@ class CfConsistencyStressTest : public StressTest {
 
     ColumnFamilyHandle* const cfh =
         column_families_[rand_column_families[thread->rand.Uniform(
-            rand_column_families.size())]];
+            static_cast<int>(rand_column_families.size()))]];
     assert(cfh);
 
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
