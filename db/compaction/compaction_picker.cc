@@ -32,7 +32,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            uint64_t max_compact_bytes_per_del_file,
                            uint64_t max_compaction_bytes,
                            CompactionInputFiles* comp_inputs,
-                           SequenceNumber earliest_mem_seqno) {
+                           const SequenceNumber earliest_mem_seqno) {
   // Do not pick ingested file when there is at least one memtable not flushed
   // which of seqno is overlap with the sst.
   TEST_SYNC_POINT("FindIntraL0Compaction");
@@ -598,7 +598,8 @@ Compaction* CompactionPicker::CompactRange(
     int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const InternalKey* begin,
     const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
-    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts,
+    const SequenceNumber /*earliest_mem_seqno*/) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 

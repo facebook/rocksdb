@@ -23,7 +23,7 @@ class FIFOCompactionPicker : public CompactionPicker {
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* version,
       LogBuffer* log_buffer,
-      SequenceNumber earliest_memtable_seqno = kMaxSequenceNumber) override;
+      const SequenceNumber earliest_mem_seqno = kMaxSequenceNumber) override;
 
   virtual Compaction* CompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
@@ -32,7 +32,8 @@ class FIFOCompactionPicker : public CompactionPicker {
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      uint64_t max_file_num_to_ignore, const std::string& trim_ts) override;
+      uint64_t max_file_num_to_ignore, const std::string& trim_ts,
+      const SequenceNumber earliest_mem_seqno = kMaxSequenceNumber) override;
 
   // The maximum allowed output level.  Always returns 0.
   virtual int MaxOutputLevel() const override { return 0; }
@@ -51,13 +52,15 @@ class FIFOCompactionPicker : public CompactionPicker {
                                  const MutableCFOptions& mutable_cf_options,
                                  const MutableDBOptions& mutable_db_options,
                                  VersionStorageInfo* version,
-                                 LogBuffer* log_buffer);
+                                 LogBuffer* log_buffer,
+                                 SequenceNumber earliest_mem_seqno);
 
   Compaction* PickCompactionToWarm(const std::string& cf_name,
                                    const MutableCFOptions& mutable_cf_options,
                                    const MutableDBOptions& mutable_db_options,
                                    VersionStorageInfo* version,
-                                   LogBuffer* log_buffer);
+                                   LogBuffer* log_buffer,
+                                   const SequenceNumber earliest_mem_seqno);
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE
