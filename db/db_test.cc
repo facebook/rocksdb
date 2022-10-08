@@ -7211,6 +7211,46 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
   }
 }
 
+TEST_F(DBTest, ShuttingDownNotBlockStalledWrites) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  Random rnd(403);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:1",
+      [&](void* /* arg */) { env_->SleepForMicroseconds(2 * 1000 * 1000); });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::DelayWrite:Wait",
+        "DBTest::ShuttingDownNotBlockStalledWrites"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < 20; i++) {
+    for (int j = 0; j < 100; j++) {
+      std::string value = rnd.RandomString(1000);
+      ASSERT_OK(Put("key_" + std::to_string(j), value));
+    }
+    Flush();
+  }
+  ASSERT_EQ(GetSstFileCount(dbname_), 20);
+
+  options.level0_stop_writes_trigger = 20;
+  options.disable_auto_compactions = false;
+  Reopen(options);
+
+  std::thread thd([&]() {
+    Status s = Put("key_" + std::to_string(101), "101");
+    ASSERT_EQ(s.code(), Status::kShutdownInProgress);
+  });
+
+  TEST_SYNC_POINT("DBTest::ShuttingDownNotBlockStalledWrites");
+  CancelAllBackgroundWork(db_, true);
+  LogFlush(options.info_log);
+
+  thd.join();
+}
 #endif
 
 }  // namespace ROCKSDB_NAMESPACE
