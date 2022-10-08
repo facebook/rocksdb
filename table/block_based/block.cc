@@ -226,7 +226,6 @@ void DataBlockIter::PrevImpl() {
     raw_key_.SetKey(current_key, raw_key_cached /* copy */);
     value_ = current_prev_entry.value;
 
-    entry_position_ -= 1;
     return;
   }
 
@@ -288,7 +287,7 @@ void DataBlockIter::SeekImpl(const Slice& target) {
   }
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
   if (!checksums_.empty()) {
-    VerifEntryChecksum();
+    VerifyEntryChecksum(key_, value());
   }
 }
 
@@ -520,11 +519,10 @@ void DataBlockIter::SeekToFirstImpl() {
     return;
   }
   SeekToRestartPoint(0);
-  entry_position_ = 0;
   bool is_shared = false;
   ParseNextDataKey(&is_shared);
   if (!checksums_.empty()) {
-    VerifEntryChecksum();
+    VerifyEntryChecksum(key_, value());
   }
 }
 
@@ -556,7 +554,7 @@ void DataBlockIter::SeekToLastImpl() {
     // Keep skipping
   }
   if (!checksums_.empty()) {
-    VerifEntryChecksum();
+    VerifyEntryChecksum(key_, value());
   }
 }
 
@@ -657,7 +655,7 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
 #endif  // NDEBUG
 
     if (!checksums_.empty()) {
-      VerifEntryChecksum();
+      VerifyEntryChecksum(key_, value());
     }
 
     return true;
@@ -667,14 +665,16 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
 }
 
 void DataBlockIter::GenerateEntryChecksum(const Slice& key, const Slice& value,
-                                          ValueType type, SequenceNumber s,
+                                          SequenceNumber s,
                                           char* checksum_ptr) const {
   if (protection_bytes_per_key_ == 0) {
     return;
   }
 
-  uint64_t checksum =
-      ProtectionInfo64().ProtectKVO(key, value, type).ProtectS(s).GetVal();
+  uint64_t checksum = ProtectionInfo64()
+                          .ProtectKVO(key, value, ValueType::kTypeValue)
+                          .ProtectS(s)
+                          .GetVal();
 
   switch (protection_bytes_per_key_) {
     case 1:
@@ -694,10 +694,49 @@ void DataBlockIter::GenerateEntryChecksum(const Slice& key, const Slice& value,
   }
 }
 
-Status DataBlockIter::VerifyEntryChecksum(const char* entry) const {
+Status DataBlockIter::VerifyEntryChecksum(const Slice& key,
+                                          const Slice& value) const {
   if (protection_bytes_per_key_ == 0) {
     return Status::OK();
   }
+
+  uint64_t expected = ProtectionInfo64()
+                          .ProtectKVO(key, value, ValueType::kTypeValue)
+                          .ProtectS(0)
+                          .GetVal();
+
+  bool match = true;
+  uint32_t entry_position = GetCurrentEntryPosition();
+  const char* checksum_ptr = checksums_.data();
+  switch (protection_bytes_per_key_) {
+    case 1:
+      match = static_cast<uint8_t>(*(checksum_ptr)) ==
+              static_cast<uint8_t>(expected);
+      break;
+    case 2:
+      match = DecodeFixed16(checksum_ptr) == static_cast<uint16_t>(expected);
+      break;
+    case 4:
+      match = DecodeFixed32(checksum_ptr) == static_cast<uint32_t>(expected);
+      break;
+    case 8:
+      match = DecodeFixed64(checksum_ptr) == expected;
+      break;
+    default:
+      assert(false);
+  }
+  if (!match) {
+    std::string msg(
+        "Corrupted Block entry, per key-value checksum verification "
+        "failed.");
+    msg.append("User key: " + key.ToString(/*hex=*/true));
+    return Status::Corruption(msg.c_str());
+  }
+  return Status::OK();
+}
+
+uint32_t DataBlockIter::GetCurrentEntryPosition() const {
+  return block_restart_interval_ * restart_index_;
 }
 
 bool IndexBlockIter::ParseNextIndexKey() {
@@ -1030,13 +1069,15 @@ Block::~Block() {
 }
 
 Block::Block(BlockContents&& contents, BlockType block_type,
-             const Comparator* raw_ucmp, uint32_t protection_bytes_per_key,
-             size_t read_amp_bytes_per_bit, Statistics* statistics)
+             int block_restart_interval, const Comparator* raw_ucmp,
+             uint32_t protection_bytes_per_key, size_t read_amp_bytes_per_bit,
+             Statistics* statistics)
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
       size_(contents_.data.size()),
       restart_offset_(0),
-      num_restarts_(0) {
+      num_restarts_(0),
+      block_restart_interval_(block_restart_interval) {
   TEST_SYNC_POINT("Block::Block:0");
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
@@ -1087,8 +1128,9 @@ Block::Block(BlockContents&& contents, BlockType block_type,
   }
 
   if (block_type == BlockType::kData) {
-    std::unique_ptr<DataBlockIter> iter(NewDataIterator(
-        raw_ucmp, 0, nullptr, nullptr, false, protection_bytes_per_key));
+    std::unique_ptr<DataBlockIter> iter(
+        NewDataIterator(raw_ucmp, 0, block_restart_interval_, nullptr, nullptr,
+                        false, protection_bytes_per_key));
 
     iter->SeekToFirst();
     assert(iter->Valid());
@@ -1103,8 +1145,8 @@ Block::Block(BlockContents&& contents, BlockType block_type,
     iter->SeekToFirst();
     assert(iter->Valid());
     for (uint32_t i = 0; iter->Valid(); iter->Next(), ++i) {
-      iter->GenerateEntryChecksum(iter->key(), iter->value(),
-                                  ValueType::kTypeValue, 0,
+      // sequence_# is 0
+      iter->GenerateEntryChecksum(iter->key(), iter->value(), 0,
                                   buf + i * protection_bytes_per_key);
     }
 
@@ -1152,7 +1194,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
         raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
         read_amp_bitmap_.get(), block_contents_pinned,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr,
-        protection_bytes_per_key);
+        protection_bytes_per_key, block_restart_interval_);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_

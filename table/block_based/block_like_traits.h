@@ -129,15 +129,15 @@ template <>
 class BlocklikeTraits<Block> {
  public:
   static Block* Create(BlockContents&& contents, BlockType block_type,
-                       const Comparator* raw_ucmp,
+                       int block_restart_interval, const Comparator* raw_ucmp,
                        uint32_t block_protection_bytes_per_key,
                        size_t read_amp_bytes_per_bit, Statistics* statistics,
                        bool /* using_zstd */,
                        const FilterPolicy* /* filter_policy */
   ) {
-    return new Block(std::move(contents), block_type, raw_ucmp,
-                     block_protection_bytes_per_key, read_amp_bytes_per_bit,
-                     statistics);
+    return new Block(std::move(contents), block_type, block_restart_interval,
+                     raw_ucmp, block_protection_bytes_per_key,
+                     read_amp_bytes_per_bit, statistics);
   }
 
   static uint32_t GetNumRestarts(const Block& block) {

@@ -125,7 +125,8 @@ Status ReadBlockFromFile(
     const UncompressionDict& uncompression_dict,
     const PersistentCacheOptions& cache_options, size_t read_amp_bytes_per_bit,
     MemoryAllocator* memory_allocator, bool for_compaction, bool using_zstd,
-    const FilterPolicy* filter_policy, bool async_read) {
+    const FilterPolicy* filter_policy, bool async_read,
+    int block_restart_interval, const Comparator* raw_ucmp) {
   assert(result);
 
   BlockContents contents;
@@ -146,8 +147,8 @@ Status ReadBlockFromFile(
   }
   if (s.ok()) {
     result->reset(BlocklikeTraits<TBlocklike>::Create(
-        std::move(contents), read_amp_bytes_per_bit, ioptions.stats, using_zstd,
-        filter_policy));
+        std::move(contents), block_type, block_restart_interval, raw_ucmp,
+        read_amp_bytes_per_bit, ioptions.stats, using_zstd, filter_policy));
   }
 
   return s;
@@ -1257,7 +1258,9 @@ Status BlockBasedTable::ReadMetaIndexBlock(
       UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
       0 /* read_amp_bytes_per_bit */, GetMemoryAllocator(rep_->table_options),
       false /* for_compaction */, rep_->blocks_definitely_zstd_compressed,
-      nullptr /* filter_policy */, false /* async_read */);
+      nullptr /* filter_policy */, false /* async_read */,
+      rep_->table_options.block_restart_interval,
+      rep_->internal_comparator.user_comparator());
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.logger,
@@ -1821,7 +1824,9 @@ Status BlockBasedTable::RetrieveBlock(
             : 0,
         GetMemoryAllocator(rep_->table_options), for_compaction,
         rep_->blocks_definitely_zstd_compressed,
-        rep_->table_options.filter_policy.get(), async_read);
+        rep_->table_options.filter_policy.get(), async_read,
+        rep_->table_options.block_restart_interval,
+        rep_->internal_comparator.user_comparator());
 
     if (get_context) {
       switch (block_type) {

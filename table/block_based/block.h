@@ -155,7 +155,7 @@ class Block {
  public:
   // Initialize the block with the specified contents.
   explicit Block(BlockContents&& contents, BlockType block_type,
-                 const Comparator* raw_ucmp,
+                 int block_restart_interval, const Comparator* raw_ucmp,
                  uint32_t block_protection_bytes_per_key,
                  size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
@@ -247,6 +247,7 @@ class Block {
   size_t size_;              // contents_.data.size()
   uint32_t restart_offset_;  // Offset in data_ of restart array
   uint32_t num_restarts_;
+  const int block_restart_interval_;
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   DataBlockHashIndex data_block_hash_index_;
 };
@@ -368,6 +369,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Index of restart block in which current_ or current_-1 falls
   uint32_t restart_index_;
   uint32_t restarts_;  // Offset of restart array (list of fixed32)
+  int block_restart_interval_;
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
   // Raw key from block.
@@ -499,11 +501,11 @@ class DataBlockIter final : public BlockIter<Slice> {
                 uint32_t num_restarts, SequenceNumber global_seqno,
                 BlockReadAmpBitmap* read_amp_bitmap, bool block_contents_pinned,
                 DataBlockHashIndex* data_block_hash_index,
-                uint32_t protection_bytes_per_key)
+                uint32_t protection_bytes_per_key, int block_restart_interval)
       : DataBlockIter() {
     Initialize(raw_ucmp, data, restarts, num_restarts, global_seqno,
                read_amp_bitmap, block_contents_pinned, data_block_hash_index,
-               protection_bytes_per_key);
+               protection_bytes_per_key, block_restart_interval);
   }
   void Initialize(const Comparator* raw_ucmp, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
@@ -511,7 +513,8 @@ class DataBlockIter final : public BlockIter<Slice> {
                   BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned,
                   DataBlockHashIndex* data_block_hash_index,
-                  uint32_t protection_bytes_per_key) {
+                  uint32_t protection_bytes_per_key,
+                  int block_restart_interval) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
     raw_key_.SetIsUserKey(false);
@@ -519,6 +522,7 @@ class DataBlockIter final : public BlockIter<Slice> {
     last_bitmap_offset_ = current_ + 1;
     data_block_hash_index_ = data_block_hash_index;
     protection_bytes_per_key_ = protection_bytes_per_key;
+    block_restart_interval_ = block_restart_interval;
   }
 
   Slice value() const override {
@@ -591,15 +595,14 @@ class DataBlockIter final : public BlockIter<Slice> {
   int32_t prev_entries_idx_ = -1;
   std::string checksums_;
   uint32_t protection_bytes_per_key_ = 0;
-  uint32_t entry_position_ = 0;
 
   DataBlockHashIndex* data_block_hash_index_;
 
   bool SeekForGetImpl(const Slice& target);
-  Status VerifyEntryChecksum(const char* entry) const;
   void GenerateEntryChecksum(const Slice& key, const Slice& value,
-                             ValueType type, SequenceNumber s,
-                             char* checksum_ptr) const;
+                             SequenceNumber s, char* checksum_ptr) const;
+  Status VerifyEntryChecksum(const Slice& key, const Slice& value) const;
+  uint32_t GetCurrentEntryPosition() const;
 };
 
 // Iterator over MetaBlocks.  MetaBlocks are similar to Data Blocks and
