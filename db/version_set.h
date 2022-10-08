@@ -321,6 +321,9 @@ class VersionStorageInfo {
     return files_[level];
   }
 
+  int FindFileInRange(int level, const Slice& key, uint32_t left,
+                      uint32_t right) const;
+
   class FileLocation {
    public:
     FileLocation() = default;
