@@ -74,6 +74,8 @@ struct ImmutableCFOptions {
 
   uint64_t preclude_last_level_data_seconds;
 
+  uint64_t preserve_internal_time_seconds;
+
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor;
 

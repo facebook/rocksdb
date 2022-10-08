@@ -335,12 +335,15 @@ class CompactionJob {
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
   SeqnoToTimeMapping seqno_time_mapping_;
 
-  // cutoff sequence number for penultimate level, only set when
-  // per_key_placement feature is enabled.
-  // If a key with sequence number larger than penultimate_level_cutoff_seqno_,
-  // it will be placed on the penultimate_level and seqnuence number won't be
-  // zeroed out.
-  SequenceNumber penultimate_level_cutoff_seqno_ = kMaxSequenceNumber;
+  // Minimal sequence number for preserving the time information. The time info
+  // older than this sequence number won't be preserved after the compaction and
+  // if it's bottommost compaction, the seq num will be zeroed out.
+  SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
+
+  // Minimal sequence number to preclude the data from the last level. If the
+  // key has bigger (newer) sequence number than this, it will be precluded from
+  // the last level (output to penultimate level).
+  SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
