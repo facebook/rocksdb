@@ -122,6 +122,7 @@ public class MutableColumnFamilyOptions
     enable_blob_garbage_collection(ValueType.BOOLEAN),
     blob_garbage_collection_age_cutoff(ValueType.DOUBLE),
     blob_garbage_collection_force_threshold(ValueType.DOUBLE),
+    blob_garbage_collection_space_amp_limit(ValueType.DOUBLE),
     blob_compaction_readahead_size(ValueType.LONG),
     blob_file_starting_level(ValueType.INT),
     prepopulate_blob_cache(ValueType.ENUM);
@@ -585,6 +586,18 @@ public class MutableColumnFamilyOptions
     @Override
     public double blobGarbageCollectionForceThreshold() {
       return getDouble(BlobOption.blob_garbage_collection_force_threshold);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setBlobGarbageCollectionSpaceAmplificationLimit(
+        final double blobGarbageCollectionSpaceAmplificationLimit) {
+      return setDouble(BlobOption.blob_garbage_collection_space_amp_limit,
+          blobGarbageCollectionSpaceAmplificationLimit);
+    }
+
+    @Override
+    public double blobGarbageCollectionSpaceAmplificationLimit() {
+      return getDouble(BlobOption.blob_garbage_collection_space_amp_limit);
     }
 
     @Override

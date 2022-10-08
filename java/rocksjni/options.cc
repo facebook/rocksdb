@@ -3842,6 +3842,30 @@ jdouble Java_org_rocksdb_Options_blobGarbageCollectionForceThreshold(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setBlobGarbageCollectionSpaceAmplificationLimit
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_Options_setBlobGarbageCollectionSpaceAmplificationLimit(
+    JNIEnv*, jobject, jlong jhandle,
+    jdouble jblob_garbage_collection_space_amp_limit) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->blob_garbage_collection_space_amp_limit =
+      static_cast<double>(jblob_garbage_collection_space_amp_limit);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    blobGarbageCollectionSpaceAmplificationLimit
+ * Signature: (J)D
+ */
+jdouble Java_org_rocksdb_Options_blobGarbageCollectionSpaceAmplificationLimit(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jdouble>(opts->blob_garbage_collection_space_amp_limit);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setBlobCompactionReadaheadSize
  * Signature: (JJ)V
  */
@@ -5690,6 +5714,33 @@ Java_org_rocksdb_ColumnFamilyOptions_blobGarbageCollectionForceThreshold(
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   return static_cast<jdouble>(opts->blob_garbage_collection_force_threshold);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setBlobGarbageCollectionSpaceAmplificationLimit
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setBlobGarbageCollectionSpaceAmplificationLimit(
+    JNIEnv*, jobject, jlong jhandle,
+    jdouble jblob_garbage_collection_space_amp_limit) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->blob_garbage_collection_space_amp_limit =
+      static_cast<double>(jblob_garbage_collection_space_amp_limit);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    blobGarbageCollectionSpaceAmplificationLimit
+ * Signature: (J)D
+ */
+jdouble
+Java_org_rocksdb_ColumnFamilyOptions_blobGarbageCollectionSpaceAmplificationLimit(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jdouble>(opts->blob_garbage_collection_space_amp_limit);
 }
 
 /*

@@ -2071,6 +2071,19 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setBlobGarbageCollectionSpaceAmplificationLimit(
+      final double blobGarbageCollectionSpaceAmplificationLimit) {
+    setBlobGarbageCollectionSpaceAmplificationLimit(
+        nativeHandle_, blobGarbageCollectionSpaceAmplificationLimit);
+    return this;
+  }
+
+  @Override
+  public double blobGarbageCollectionSpaceAmplificationLimit() {
+    return blobGarbageCollectionSpaceAmplificationLimit(nativeHandle_);
+  }
+
+  @Override
   public Options setBlobGarbageCollectionForceThreshold(
       final double blobGarbageCollectionForceThreshold) {
     setBlobGarbageCollectionForceThreshold(nativeHandle_, blobGarbageCollectionForceThreshold);
@@ -2546,6 +2559,9 @@ public class Options extends RocksObject
   private native void setBlobGarbageCollectionForceThreshold(
       final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
   private native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
+  private native void setBlobGarbageCollectionSpaceAmplificationLimit(
+      final long nativeHandle_, final double blobGarbageCollectionSpaceAmplificationLimit);
+  private native double blobGarbageCollectionSpaceAmplificationLimit(final long nativeHandle_);
   private native void setBlobCompactionReadaheadSize(
       final long nativeHandle_, final long blobCompactionReadaheadSize);
   private native long blobCompactionReadaheadSize(final long nativeHandle_);

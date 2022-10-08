@@ -98,6 +98,8 @@ const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF =
     "blob_garbage_collection_age_cutoff";
 const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
     "blob_garbage_collection_force_threshold";
+const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_SPACE_AMP_LIMIT =
+    "blob_garbage_collection_space_amp_limit";
 const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
     "blob_compaction_readahead_size";
 const std::string LDBCommand::ARG_BLOB_FILE_STARTING_LEVEL =
@@ -557,6 +559,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_ENABLE_BLOB_GARBAGE_COLLECTION,
                                   ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF,
                                   ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD,
+                                  ARG_BLOB_GARBAGE_COLLECTION_SPACE_AMP_LIMIT,
                                   ARG_BLOB_COMPACTION_READAHEAD_SIZE,
                                   ARG_BLOB_FILE_STARTING_LEVEL,
                                   ARG_PREPOPULATE_BLOB_CACHE,
@@ -812,6 +815,22 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
       exec_state_ = LDBCommandExecuteResult::Failed(
           ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD +
           " must be >= 0 and <= 1.");
+    }
+  }
+
+  double blob_garbage_collection_space_amp_limit;
+  if (ParseDoubleOption(option_map_,
+                        ARG_BLOB_GARBAGE_COLLECTION_SPACE_AMP_LIMIT,
+                        blob_garbage_collection_space_amp_limit, exec_state_)) {
+    if (blob_garbage_collection_space_amp_limit == 0 ||
+        (blob_garbage_collection_space_amp_limit >= 1 &&
+         blob_garbage_collection_space_amp_limit <= 50)) {
+      cf_opts->blob_garbage_collection_space_amp_limit =
+          blob_garbage_collection_space_amp_limit;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_GARBAGE_COLLECTION_SPACE_AMP_LIMIT +
+          " must be == 0 (disabled) or >= 1 and <= 50 (enabled).");
     }
   }
 

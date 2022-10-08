@@ -228,7 +228,8 @@ class VersionStorageInfo {
   // REQUIRES: DB mutex held
   void ComputeFilesMarkedForForcedBlobGC(
       double blob_garbage_collection_age_cutoff,
-      double blob_garbage_collection_force_threshold);
+      double blob_garbage_collection_force_threshold,
+      double blob_garbage_collection_space_amp_limit);
 
   bool level0_non_overlapping() const {
     return level0_non_overlapping_;
@@ -556,6 +557,9 @@ class VersionStorageInfo {
 
   // Returns an estimate of the amount of live data in bytes.
   uint64_t EstimateLiveDataSize() const;
+
+  // Returns an estimate of the amount of live SSTs in bytes (excluding blobs).
+  uint64_t EstimateLiveSSTsSize() const;
 
   uint64_t estimated_compaction_needed_bytes() const {
     return estimated_compaction_needed_bytes_;

@@ -378,6 +378,7 @@ blob_params = {
         [0.0, 0.25, 0.5, 0.75, 1.0]
     ),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
+    "blob_garbage_collection_space_amp_limit": lambda: random.choice([0.0, 2.0, 4.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
     "blob_file_starting_level": lambda: random.choice(
         [0] * 4 + [1] * 3 + [2] * 2 + [3]

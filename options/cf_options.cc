@@ -446,6 +446,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    blob_garbage_collection_force_threshold),
           OptionType::kDouble, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"blob_garbage_collection_space_amp_limit",
+         {offsetof(struct MutableCFOptions,
+                   blob_garbage_collection_space_amp_limit),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"blob_compaction_readahead_size",
          {offsetof(struct MutableCFOptions, blob_compaction_readahead_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -1116,6 +1121,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_garbage_collection_age_cutoff);
   ROCKS_LOG_INFO(log, "  blob_garbage_collection_force_threshold: %f",
                  blob_garbage_collection_force_threshold);
+  ROCKS_LOG_INFO(log, "  blob_garbage_collection_space_amp_limit: %f",
+                 blob_garbage_collection_space_amp_limit);
   ROCKS_LOG_INFO(log, "           blob_compaction_readahead_size: %" PRIu64,
                  blob_compaction_readahead_size);
   ROCKS_LOG_INFO(log, "                 blob_file_starting_level: %d",

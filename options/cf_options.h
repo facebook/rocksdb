@@ -149,6 +149,8 @@ struct MutableCFOptions {
             options.blob_garbage_collection_age_cutoff),
         blob_garbage_collection_force_threshold(
             options.blob_garbage_collection_force_threshold),
+        blob_garbage_collection_space_amp_limit(
+            options.blob_garbage_collection_space_amp_limit),
         blob_compaction_readahead_size(options.blob_compaction_readahead_size),
         blob_file_starting_level(options.blob_file_starting_level),
         prepopulate_blob_cache(options.prepopulate_blob_cache),
@@ -206,6 +208,7 @@ struct MutableCFOptions {
         enable_blob_garbage_collection(false),
         blob_garbage_collection_age_cutoff(0.0),
         blob_garbage_collection_force_threshold(0.0),
+        blob_garbage_collection_space_amp_limit(0.0),
         blob_compaction_readahead_size(0),
         blob_file_starting_level(0),
         prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
@@ -291,6 +294,7 @@ struct MutableCFOptions {
   bool enable_blob_garbage_collection;
   double blob_garbage_collection_age_cutoff;
   double blob_garbage_collection_force_threshold;
+  double blob_garbage_collection_space_amp_limit;
   uint64_t blob_compaction_readahead_size;
   int blob_file_starting_level;
   PrepopulateBlobCache prepopulate_blob_cache;

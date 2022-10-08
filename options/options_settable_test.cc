@@ -528,6 +528,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "enable_blob_garbage_collection=true;"
       "blob_garbage_collection_age_cutoff=0.5;"
       "blob_garbage_collection_force_threshold=0.75;"
+      "blob_garbage_collection_space_amp_limit=5.0;"
       "blob_compaction_readahead_size=262144;"
       "blob_file_starting_level=1;"
       "prepopulate_blob_cache=kDisable;"

@@ -68,6 +68,7 @@ class LDBCommand {
   static const std::string ARG_ENABLE_BLOB_GARBAGE_COLLECTION;
   static const std::string ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF;
   static const std::string ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD;
+  static const std::string ARG_BLOB_GARBAGE_COLLECTION_SPACE_AMP_LIMIT;
   static const std::string ARG_BLOB_COMPACTION_READAHEAD_SIZE;
   static const std::string ARG_BLOB_FILE_STARTING_LEVEL;
   static const std::string ARG_PREPOPULATE_BLOB_CACHE;

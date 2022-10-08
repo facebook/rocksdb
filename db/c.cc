@@ -3134,6 +3134,15 @@ double rocksdb_options_get_blob_gc_force_threshold(rocksdb_options_t* opt) {
   return opt->rep.blob_garbage_collection_force_threshold;
 }
 
+void rocksdb_options_set_blob_gc_space_amp_limit(rocksdb_options_t* opt,
+                                                 double val) {
+  opt->rep.blob_garbage_collection_space_amp_limit = val;
+}
+
+double rocksdb_options_get_blob_gc_space_amp_limit(rocksdb_options_t* opt) {
+  return opt->rep.blob_garbage_collection_space_amp_limit;
+}
+
 void rocksdb_options_set_blob_compaction_readahead_size(rocksdb_options_t* opt,
                                                         uint64_t val) {
   opt->rep.blob_compaction_readahead_size = val;

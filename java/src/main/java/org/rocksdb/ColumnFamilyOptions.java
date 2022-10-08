@@ -1222,6 +1222,38 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
+   *  If the blob space amplication exceeds this limit, targeted compactions
+   *  are scheduled in order to force garbage collecting the blob files in
+   *  question. This option is currently only supported with leveled compactions.
+   *
+   *  Note that {@link #enableBlobGarbageCollection} has to be set in order for this
+   *  option to have any effect.
+   *
+   *  Default: 5.0
+   *
+   * Dynamically changeable through the SetOptions() API
+   *
+   * @param blobGarbageCollectionSpaceAmplificationLimit new value for the limit
+   * @return the reference to the current options
+   */
+  @Override
+  public ColumnFamilyOptions setBlobGarbageCollectionSpaceAmplificationLimit(
+      double blobGarbageCollectionSpaceAmplificationLimit) {
+    setBlobGarbageCollectionSpaceAmplificationLimit(
+        nativeHandle_, blobGarbageCollectionSpaceAmplificationLimit);
+    return this;
+  }
+
+  /**
+   * Get the current value for the {@link #blobGarbageCollectionSpaceAmplificationLimit}
+   * @return the current space amplification limit at which garbage collection of blobs is forced
+   */
+  @Override
+  public double blobGarbageCollectionSpaceAmplificationLimit() {
+    return blobGarbageCollectionSpaceAmplificationLimit(nativeHandle_);
+  }
+
+  /**
    * Set compaction readahead for blob files.
    *
    * Default: 0
@@ -1513,6 +1545,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setBlobGarbageCollectionForceThreshold(
       final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
   private native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
+  private native void setBlobGarbageCollectionSpaceAmplificationLimit(
+      final long nativeHandle_, final double blobGarbageCollectionSpaceAmplificationLimit);
+  private native double blobGarbageCollectionSpaceAmplificationLimit(final long nativeHandle_);
   private native void setBlobCompactionReadaheadSize(
       final long nativeHandle_, final long blobCompactionReadaheadSize);
   private native long blobCompactionReadaheadSize(final long nativeHandle_);

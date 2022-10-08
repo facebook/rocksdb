@@ -78,6 +78,7 @@ public class BlobOptionsTest {
       assertThat(options.blobFileSize()).isEqualTo(268435456L);
       assertThat(options.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
       assertThat(options.blobGarbageCollectionForceThreshold()).isEqualTo(1.0);
+      assertThat(options.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(0.0);
       assertThat(options.blobCompactionReadaheadSize()).isEqualTo(0);
       assertThat(options.prepopulateBlobCache())
           .isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
@@ -90,6 +91,7 @@ public class BlobOptionsTest {
       assertThat(options.setBlobFileSize(132768L)).isEqualTo(options);
       assertThat(options.setBlobGarbageCollectionAgeCutoff(0.89)).isEqualTo(options);
       assertThat(options.setBlobGarbageCollectionForceThreshold(0.80)).isEqualTo(options);
+      assertThat(options.setBlobGarbageCollectionSpaceAmplificationLimit(4.0)).isEqualTo(options);
       assertThat(options.setBlobCompactionReadaheadSize(262144L)).isEqualTo(options);
       assertThat(options.setBlobFileStartingLevel(0)).isEqualTo(options);
       assertThat(options.setPrepopulateBlobCache(PrepopulateBlobCache.PREPOPULATE_BLOB_FLUSH_ONLY))
@@ -102,6 +104,7 @@ public class BlobOptionsTest {
       assertThat(options.blobFileSize()).isEqualTo(132768L);
       assertThat(options.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
       assertThat(options.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
+      assertThat(options.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(4.0);
       assertThat(options.blobCompactionReadaheadSize()).isEqualTo(262144L);
       assertThat(options.blobFileStartingLevel()).isEqualTo(0);
       assertThat(options.prepopulateBlobCache())
@@ -120,6 +123,7 @@ public class BlobOptionsTest {
       assertThat(columnFamilyOptions.blobFileSize()).isEqualTo(268435456L);
       assertThat(columnFamilyOptions.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
       assertThat(columnFamilyOptions.blobGarbageCollectionForceThreshold()).isEqualTo(1.0);
+      assertThat(columnFamilyOptions.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(0.0);
       assertThat(columnFamilyOptions.blobCompactionReadaheadSize()).isEqualTo(0);
 
       assertThat(columnFamilyOptions.setEnableBlobFiles(true)).isEqualTo(columnFamilyOptions);
@@ -132,6 +136,8 @@ public class BlobOptionsTest {
       assertThat(columnFamilyOptions.setBlobGarbageCollectionAgeCutoff(0.89))
           .isEqualTo(columnFamilyOptions);
       assertThat(columnFamilyOptions.setBlobGarbageCollectionForceThreshold(0.80))
+          .isEqualTo(columnFamilyOptions);
+      assertThat(columnFamilyOptions.setBlobGarbageCollectionSpaceAmplificationLimit(3.0))
           .isEqualTo(columnFamilyOptions);
       assertThat(columnFamilyOptions.setBlobCompactionReadaheadSize(262144L))
           .isEqualTo(columnFamilyOptions);
@@ -148,6 +154,7 @@ public class BlobOptionsTest {
       assertThat(columnFamilyOptions.blobFileSize()).isEqualTo(132768L);
       assertThat(columnFamilyOptions.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
       assertThat(columnFamilyOptions.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
+      assertThat(columnFamilyOptions.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(3.0);
       assertThat(columnFamilyOptions.blobCompactionReadaheadSize()).isEqualTo(262144L);
       assertThat(columnFamilyOptions.blobFileStartingLevel()).isEqualTo(0);
       assertThat(columnFamilyOptions.prepopulateBlobCache())
@@ -166,6 +173,7 @@ public class BlobOptionsTest {
         .setEnableBlobGarbageCollection(true)
         .setBlobGarbageCollectionAgeCutoff(0.89)
         .setBlobGarbageCollectionForceThreshold(0.80)
+        .setBlobGarbageCollectionSpaceAmplificationLimit(2.0)
         .setBlobCompactionReadaheadSize(262144)
         .setBlobFileStartingLevel(1)
         .setPrepopulateBlobCache(PrepopulateBlobCache.PREPOPULATE_BLOB_FLUSH_ONLY);
@@ -177,6 +185,7 @@ public class BlobOptionsTest {
     assertThat(builder.enableBlobGarbageCollection()).isEqualTo(true);
     assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
     assertThat(builder.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
+    assertThat(builder.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(2.0);
     assertThat(builder.blobCompactionReadaheadSize()).isEqualTo(262144);
     assertThat(builder.blobFileStartingLevel()).isEqualTo(1);
     assertThat(builder.prepopulateBlobCache())
@@ -189,6 +198,7 @@ public class BlobOptionsTest {
         .setEnableBlobGarbageCollection(false)
         .setBlobGarbageCollectionAgeCutoff(0.91)
         .setBlobGarbageCollectionForceThreshold(0.96)
+        .setBlobGarbageCollectionSpaceAmplificationLimit(6.0)
         .setBlobCompactionReadaheadSize(1024)
         .setBlobFileStartingLevel(0)
         .setPrepopulateBlobCache(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
@@ -200,6 +210,7 @@ public class BlobOptionsTest {
     assertThat(builder.enableBlobGarbageCollection()).isEqualTo(false);
     assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(0.91);
     assertThat(builder.blobGarbageCollectionForceThreshold()).isEqualTo(0.96);
+    assertThat(builder.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(6.0);
     assertThat(builder.blobCompactionReadaheadSize()).isEqualTo(1024);
     assertThat(builder.blobFileStartingLevel()).isEqualTo(0);
     assertThat(builder.prepopulateBlobCache())
@@ -210,11 +221,11 @@ public class BlobOptionsTest {
         .isEqualTo(new String[] {"enable_blob_files", "min_blob_size", "blob_file_size",
             "blob_compression_type", "enable_blob_garbage_collection",
             "blob_garbage_collection_age_cutoff", "blob_garbage_collection_force_threshold",
-            "blob_compaction_readahead_size", "blob_file_starting_level",
-            "prepopulate_blob_cache"});
+            "blob_garbage_collection_space_amp_limit", "blob_compaction_readahead_size",
+            "blob_file_starting_level", "prepopulate_blob_cache"});
     assertThat(options.getValues())
         .isEqualTo(new String[] {"false", "4096", "2048", "LZ4_COMPRESSION", "false", "0.91",
-            "0.96", "1024", "0", "PREPOPULATE_BLOB_DISABLE"});
+            "0.96", "6.0", "1024", "0", "PREPOPULATE_BLOB_DISABLE"});
   }
 
   /**

@@ -3368,12 +3368,15 @@ void VersionStorageInfo::ComputeCompactionScore(
         immutable_options, mutable_cf_options.periodic_compaction_seconds);
   }
 
-  if (mutable_cf_options.enable_blob_garbage_collection &&
-      mutable_cf_options.blob_garbage_collection_age_cutoff > 0.0 &&
-      mutable_cf_options.blob_garbage_collection_force_threshold < 1.0) {
-    ComputeFilesMarkedForForcedBlobGC(
-        mutable_cf_options.blob_garbage_collection_age_cutoff,
-        mutable_cf_options.blob_garbage_collection_force_threshold);
+  if (mutable_cf_options.enable_blob_garbage_collection) {
+    if (mutable_cf_options.blob_garbage_collection_age_cutoff > 0.0 &&
+        (mutable_cf_options.blob_garbage_collection_force_threshold < 1.0 ||
+         mutable_cf_options.blob_garbage_collection_space_amp_limit >= 1.0)) {
+      ComputeFilesMarkedForForcedBlobGC(
+          mutable_cf_options.blob_garbage_collection_age_cutoff,
+          mutable_cf_options.blob_garbage_collection_force_threshold,
+          mutable_cf_options.blob_garbage_collection_space_amp_limit);
+    }
   }
 
   EstimateCompactionBytesNeeded(mutable_cf_options);
@@ -3487,7 +3490,8 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
 
 void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     double blob_garbage_collection_age_cutoff,
-    double blob_garbage_collection_force_threshold) {
+    double blob_garbage_collection_force_threshold,
+    double blob_garbage_collection_space_amp_limit) {
   files_marked_for_forced_blob_gc_.clear();
 
   if (blob_files_.empty()) {
@@ -3543,32 +3547,70 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
 
   assert(cutoff_count <= blob_files_.size());
 
-  for (; count < cutoff_count; ++count) {
-    const auto& meta = blob_files_[count];
-    assert(meta);
-
-    if (!meta->GetLinkedSsts().empty()) {
-      // Found the beginning of the next batch of blob files
-      break;
+  if (blob_garbage_collection_space_amp_limit >= 1.0) {
+    for (; count < cutoff_count; ++count) {
+      const auto& meta = blob_files_[count];
+      assert(meta);
+      sum_total_blob_bytes += meta->GetTotalBlobBytes();
+      sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
     }
 
-    sum_total_blob_bytes += meta->GetTotalBlobBytes();
-    sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
-  }
+    // To bridge the gap between the above notion of LSM tree space amp and the
+    // blob space amp, we would want `blob_garbage_collection_space_amp_limit`
+    // to apply to the entire data structure/database (the LSM tree plus the
+    // blob files). Since we don't know exactly how much space the obsolete KVs
+    // take up in the LSM tree. One simple idea would be to take the reciprocal
+    // of the LSM tree space amplification estimated using the method of
+    // EstimateLiveDataSize(), and scale the number of live blob bytes using the
+    // same factor.
+    //
+    // Example: let's say the LSM tree space amp is 1.5, which means that the
+    // live KVs take up two thirds of the LSM. Then, we can use the same 2/3
+    // factor to multiply the value of (total blob bytes - garbage blob bytes)
+    // to get an estimate of the live blob bytes from the user's perspective.
+    double total_ssts_size = 0;
+    for (int level = 0; level < num_levels(); level++) {
+      total_ssts_size += TotalFileSize(files_[level]);
+    }
+    double lsm_tree_space_amp = total_ssts_size / EstimateLiveSSTsSize();
 
-  if (count < blob_files_.size()) {
-    const auto& meta = blob_files_[count];
-    assert(meta);
+    double sum_live_blob_bytes =
+        (sum_total_blob_bytes - sum_garbage_blob_bytes) / lsm_tree_space_amp;
+    double blob_gc_space_amp = sum_total_blob_bytes / sum_live_blob_bytes;
 
-    if (meta->GetLinkedSsts().empty()) {
-      // Some files in the oldest batch are not eligible for GC
+    if (blob_gc_space_amp < blob_garbage_collection_space_amp_limit) {
       return;
     }
-  }
+  } else {
+    // backwards compatibility
+    assert(blob_garbage_collection_force_threshold < 1.0);
+    for (; count < cutoff_count; ++count) {
+      const auto& meta = blob_files_[count];
+      assert(meta);
 
-  if (sum_garbage_blob_bytes <
-      blob_garbage_collection_force_threshold * sum_total_blob_bytes) {
-    return;
+      if (!meta->GetLinkedSsts().empty()) {
+        // Found the beginning of the next batch of blob files
+        break;
+      }
+
+      sum_total_blob_bytes += meta->GetTotalBlobBytes();
+      sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
+    }
+
+    if (count < blob_files_.size()) {
+      const auto& meta = blob_files_[count];
+      assert(meta);
+
+      if (meta->GetLinkedSsts().empty()) {
+        // Some files in the oldest batch are not eligible for GC
+        return;
+      }
+    }
+
+    if (sum_garbage_blob_bytes <
+        blob_garbage_collection_force_threshold * sum_total_blob_bytes) {
+      return;
+    }
   }
 
   for (uint64_t sst_file_number : linked_ssts) {
@@ -4433,7 +4475,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
   }
 }
 
-uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
+uint64_t VersionStorageInfo::EstimateLiveSSTsSize() const {
   // Estimate the live data size by adding up the size of a maximal set of
   // sst files with no range overlap in same or higher level. The less
   // compacted, the more optimistic (smaller) this estimate is. Also,
@@ -4465,6 +4507,12 @@ uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
       }
     }
   }
+
+  return size;
+}
+
+uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
+  uint64_t size = EstimateLiveSSTsSize();
 
   // For BlobDB, the result also includes the exact value of live bytes in the
   // blob files of the version.

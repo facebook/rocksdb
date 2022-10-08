@@ -104,6 +104,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.blob_garbage_collection_age_cutoff),
       blob_garbage_collection_force_threshold(
           options.blob_garbage_collection_force_threshold),
+      blob_garbage_collection_space_amp_limit(
+          options.blob_garbage_collection_space_amp_limit),
       blob_compaction_readahead_size(options.blob_compaction_readahead_size),
       blob_file_starting_level(options.blob_file_starting_level),
       blob_cache(options.blob_cache),
@@ -422,6 +424,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      blob_garbage_collection_age_cutoff);
     ROCKS_LOG_HEADER(log, "Options.blob_garbage_collection_force_threshold: %f",
                      blob_garbage_collection_force_threshold);
+    ROCKS_LOG_HEADER(log, "Options.blob_garbage_collection_space_amp_limit: %f",
+                     blob_garbage_collection_space_amp_limit);
     ROCKS_LOG_HEADER(
         log, "         Options.blob_compaction_readahead_size: %" PRIu64,
         blob_compaction_readahead_size);

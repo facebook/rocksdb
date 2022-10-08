@@ -758,6 +758,30 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   double blobGarbageCollectionForceThreshold();
 
   /**
+   *  If the blob space amplication exceeds this limit, targeted compactions
+   *  are scheduled in order to force garbage collecting the blob files in
+   *  question. This option is currently only supported with leveled compactions.
+   *
+   *  Note that {@link #enableBlobGarbageCollection} has to be set in order for this
+   *  option to have any effect.
+   *
+   *  Default: 5.0
+   *
+   * Dynamically changeable through the SetOptions() API
+   *
+   * @param blobGarbageCollectionSpaceAmplificationLimit new value for the limit
+   * @return the reference to the current options
+   */
+  T setBlobGarbageCollectionSpaceAmplificationLimit(
+      double blobGarbageCollectionSpaceAmplificationLimit);
+
+  /**
+   * Get the current value for the {@link #blobGarbageCollectionSpaceAmplificationLimit}
+   * @return the current space amplification limit at which garbage collection of blobs is forced
+   */
+  double blobGarbageCollectionSpaceAmplificationLimit();
+
+  /**
    * Set compaction readahead for blob files.
    *
    * Default: 0
