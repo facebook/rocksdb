@@ -1,8 +1,9 @@
 ---
 title: Asynchronous IO in RocksDB
 layout: post
-author: anand1976
-author: akankshamahajan15
+author:
+- akankshamahajan15
+- anand1976
 category: blog
 ---
 ## Summary
