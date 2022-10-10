@@ -451,6 +451,8 @@ struct MemTableInfo {
   // memtable. It can then be assumed that any write with a larger(or equal)
   // sequence number will be present in this memtable or a later memtable.
   SequenceNumber earliest_seqno;
+  // The largest sequence number of writes in this memtable.
+  SequenceNumber largest_seqno;
   // Total number of entries in memtable
   uint64_t num_entries;
   // Total number of deletes in memtable

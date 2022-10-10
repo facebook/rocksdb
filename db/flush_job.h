@@ -80,7 +80,10 @@ class FlushJob {
 
   // Require db_mutex held.
   // Once PickMemTable() is called, either Run() or Cancel() has to be called.
-  void PickMemTable();
+  // The earliest seqno and largest seqno will be returned through the
+  // parameters.
+  void PickMemTable(SequenceNumber* earliest_seqno = nullptr,
+                    SequenceNumber* largest_seqno = nullptr);
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
              FileMetaData* file_meta = nullptr,
              bool* switched_to_mempurge = nullptr);

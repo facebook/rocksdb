@@ -243,8 +243,10 @@ Status DBImpl::FlushMemTableToOutputFile(
   // If the log sync failed, we do not need to pick memtable. Otherwise,
   // num_flush_not_started_ needs to be rollback.
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
+  SequenceNumber earliest_seqno = 0;
+  SequenceNumber largest_seqno = 0;
   if (s.ok()) {
-    flush_job.PickMemTable();
+    flush_job.PickMemTable(&earliest_seqno, &largest_seqno);
     need_cancel = true;
   }
   TEST_SYNC_POINT_CALLBACK(
@@ -252,7 +254,8 @@ Status DBImpl::FlushMemTableToOutputFile(
 
 #ifndef ROCKSDB_LITE
   // may temporarily unlock and lock the mutex.
-  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id);
+  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id,
+                     earliest_seqno, largest_seqno);
 #endif  // ROCKSDB_LITE
 
   bool switched_to_mempurge = false;
@@ -478,15 +481,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   IOStatus log_io_s = IOStatus::OK();
   assert(num_cfs == static_cast<int>(jobs.size()));
 
-#ifndef ROCKSDB_LITE
-  for (int i = 0; i != num_cfs; ++i) {
-    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
-    // may temporarily unlock and lock the mutex.
-    NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
-                       job_context->job_id);
-  }
-#endif /* !ROCKSDB_LITE */
-
   if (logfile_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
@@ -522,12 +516,24 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     pick_status.push_back(false);
   }
 
+  std::vector<SequenceNumber> earliest_seqnos(num_cfs, 0);
+  std::vector<SequenceNumber> largest_seqnos(num_cfs, 0);
   if (s.ok()) {
     for (int i = 0; i != num_cfs; ++i) {
-      jobs[i]->PickMemTable();
+      jobs[i]->PickMemTable(&earliest_seqnos[i], &largest_seqnos[i]);
       pick_status[i] = true;
     }
   }
+
+#ifndef ROCKSDB_LITE
+  for (int i = 0; i != num_cfs; ++i) {
+    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
+    // may temporarily unlock and lock the mutex.
+    NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
+                       job_context->job_id, earliest_seqnos[i],
+                       largest_seqnos[i]);
+  }
+#endif /* !ROCKSDB_LITE */
 
   if (s.ok()) {
     assert(switched_to_mempurge.size() ==
@@ -827,7 +833,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
 void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                                 const MutableCFOptions& mutable_cf_options,
-                                int job_id) {
+                                int job_id, SequenceNumber earliest_seqno,
+                                SequenceNumber largest_seqno) {
 #ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
@@ -858,8 +865,10 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
     info.triggered_writes_stop = triggered_writes_stop;
-    info.smallest_seqno = file_meta->fd.smallest_seqno;
-    info.largest_seqno = file_meta->fd.largest_seqno;
+    // This sequence number is actually smaller than or equal to the sequence
+    // number of any key that be inserted into the flushed memtable.
+    info.smallest_seqno = earliest_seqno;
+    info.largest_seqno = largest_seqno;
     info.flush_reason = cfd->GetFlushReason();
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnFlushBegin(this, info);

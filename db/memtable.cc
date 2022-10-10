@@ -98,6 +98,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       file_number_(0),
       first_seqno_(0),
       earliest_seqno_(latest_seq),
+      largest_seqno_(latest_seq),
       creation_seq_(latest_seq),
       mem_next_logfile_number_(0),
       min_prep_log_referenced_(0),
@@ -620,6 +621,9 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       }
       assert(first_seqno_.load() >= earliest_seqno_.load());
     }
+    if (s > largest_seqno_) {
+      largest_seqno_.store(s, std::memory_order_relaxed);
+    }
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
@@ -646,7 +650,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       bloom_filter_->AddConcurrently(key_without_ts);
     }
 
-    // atomically update first_seqno_ and earliest_seqno_.
+    // atomically update first_seqno_, earliest_seqno_ and largest_seqno_.
     uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);
     while ((cur_seq_num == 0 || s < cur_seq_num) &&
            !first_seqno_.compare_exchange_weak(cur_seq_num, s)) {
@@ -656,6 +660,10 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     while (
         (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
         !first_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
+    }
+    uint64_t cur_largest_seqno = largest_seqno_.load(std::memory_order_acquire);
+    while (s > cur_largest_seqno &&
+           !largest_seqno_.compare_exchange_weak(cur_largest_seqno, s)) {
     }
   }
   if (type == kTypeRangeDeletion) {

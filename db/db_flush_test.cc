@@ -1514,6 +1514,13 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
       }
     }
 
+    void OnFlushBegin(DB* /*db*/, const FlushJobInfo& info) override {
+      ASSERT_LE(info.smallest_seqno, info.largest_seqno);
+      if (info.largest_seqno != seq1) {
+        ASSERT_EQ(info.largest_seqno, seq2);
+      }
+    }
+
     void CheckFlushResultCommitted(DB* db, SequenceNumber seq) {
       DBImpl* db_impl = static_cast_with_check<DBImpl>(db);
       InstrumentedMutex* mutex = db_impl->mutex();

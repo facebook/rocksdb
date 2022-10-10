@@ -166,7 +166,8 @@ void FlushJob::RecordFlushIOStats() {
       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
   IOSTATS_RESET(bytes_written);
 }
-void FlushJob::PickMemTable() {
+void FlushJob::PickMemTable(SequenceNumber* earliest_seqno,
+                            SequenceNumber* largest_seqno) {
   db_mutex_->AssertHeld();
   assert(!pick_memtable_called);
   pick_memtable_called = true;
@@ -194,6 +195,14 @@ void FlushJob::PickMemTable() {
 
   base_ = cfd_->current();
   base_->Ref();  // it is likely that we do not need this reference
+  if (earliest_seqno != nullptr) {
+    *earliest_seqno = m->GetEarliestSequenceNumber();
+  }
+  if (largest_seqno != nullptr) {
+    *largest_seqno = mems_.back()->GetLargestSequenceNumber();
+  }
+  assert(earliest_seqno == nullptr || largest_seqno == nullptr ||
+         *earliest_seqno <= *largest_seqno);
 }
 
 Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
