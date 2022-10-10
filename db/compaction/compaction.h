@@ -163,6 +163,9 @@ class Compaction {
   // Maximum size of files to build during this compaction.
   uint64_t max_output_file_size() const { return max_output_file_size_; }
 
+  // Target output file size for this compaction
+  uint64_t target_output_file_size() const { return target_output_file_size_; }
+
   // What compression for output
   CompressionType output_compression() const { return output_compression_; }
 
@@ -316,6 +319,8 @@ class Compaction {
 
   // Return true if the given range is overlap with penultimate level output
   // range.
+  // Both smallest_key and largest_key include timestamps if user-defined
+  // timestamp is enabled.
   bool OverlapPenultimateLevelOutputRange(const Slice& smallest_key,
                                           const Slice& largest_key) const;
 
@@ -325,6 +330,7 @@ class Compaction {
   // If per_key_placement is not supported, always return false.
   // TODO: currently it doesn't support moving data from the last level to the
   //  penultimate level
+  //  key includes timestamp if user-defined timestamp is enabled.
   bool WithinPenultimateLevelOutputRange(const Slice& key) const;
 
   CompactionReason compaction_reason() const { return compaction_reason_; }
@@ -412,6 +418,7 @@ class Compaction {
 
   const int start_level_;   // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
+  uint64_t target_output_file_size_;
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
   uint32_t max_subcompactions_;
@@ -470,9 +477,11 @@ class Compaction {
   TablePropertiesCollection output_table_properties_;
 
   // smallest user keys in compaction
+  // includes timestamp if user-defined timestamp is enabled.
   Slice smallest_user_key_;
 
   // largest user keys in compaction
+  // includes timestamp if user-defined timestamp is enabled.
   Slice largest_user_key_;
 
   // Reason for compaction
@@ -493,6 +502,7 @@ class Compaction {
   const int penultimate_level_;
 
   // Key range for penultimate level output
+  // includes timestamp if user-defined timestamp is enabled.
   Slice penultimate_level_smallest_user_key_;
   Slice penultimate_level_largest_user_key_;
 };

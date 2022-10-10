@@ -168,11 +168,16 @@ class CompactionOutputs {
   }
 
   // Add range-dels from the aggregator to the current output file
-  Status AddRangeDels(const Slice* comp_start, const Slice* comp_end,
+  // @param comp_start_user_key and comp_end_user_key include timestamp if
+  // user-defined timestamp is enabled.
+  // @param full_history_ts_low used for range tombstone garbage collection.
+  Status AddRangeDels(const Slice* comp_start_user_key,
+                      const Slice* comp_end_user_key,
                       CompactionIterationStats& range_del_out_stats,
                       bool bottommost_level, const InternalKeyComparator& icmp,
                       SequenceNumber earliest_snapshot,
-                      const Slice& next_table_min_key);
+                      const Slice& next_table_min_key,
+                      const std::string& full_history_ts_low);
 
   // if the outputs have range delete, range delete is also data
   bool HasRangeDel() const {
@@ -216,9 +221,16 @@ class CompactionOutputs {
     }
   }
 
-  uint64_t GetCurrentOutputFileSize() const {
-    return current_output_file_size_;
-  }
+  // update tracked grandparents information like grandparent index, if it's
+  // in the gap between 2 grandparent files, accumulated grandparent files size
+  // etc.
+  // It returns how many boundaries it crosses by including current key.
+  size_t UpdateGrandparentBoundaryInfo(const Slice& internal_key);
+
+  // helper function to get the overlapped grandparent files size, it's only
+  // used for calculating the first key's overlap.
+  uint64_t GetCurrentKeyGrandparentOverlappedBytes(
+      const Slice& internal_key) const;
 
   // Add current key from compaction_iterator to the output file. If needed
   // close and open new compaction output with the functions provided.
@@ -311,12 +323,21 @@ class CompactionOutputs {
   // An index that used to speed up ShouldStopBefore().
   size_t grandparent_index_ = 0;
 
+  // if the output key is being grandparent files gap, so:
+  //  key > grandparents[grandparent_index_ - 1].largest &&
+  //  key < grandparents[grandparent_index_].smallest
+  bool being_grandparent_gap_ = true;
+
   // The number of bytes overlapping between the current output and
   // grandparent files used in ShouldStopBefore().
-  uint64_t overlapped_bytes_ = 0;
+  uint64_t grandparent_overlapped_bytes_ = 0;
 
   // A flag determines whether the key has been seen in ShouldStopBefore()
   bool seen_key_ = false;
+
+  // for the current output file, how many file boundaries has it crossed,
+  // basically number of files overlapped * 2
+  size_t grandparent_boundary_switched_num_ = 0;
 };
 
 // helper struct to concatenate the last level and penultimate level outputs

@@ -111,6 +111,17 @@ Status DBImpl::DeleteRange(const WriteOptions& write_options,
   return DB::DeleteRange(write_options, column_family, begin_key, end_key);
 }
 
+Status DBImpl::DeleteRange(const WriteOptions& write_options,
+                           ColumnFamilyHandle* column_family,
+                           const Slice& begin_key, const Slice& end_key,
+                           const Slice& ts) {
+  const Status s = FailIfTsMismatchCf(column_family, ts, /*ts_for_read=*/false);
+  if (!s.ok()) {
+    return s;
+  }
+  return DB::DeleteRange(write_options, column_family, begin_key, end_key, ts);
+}
+
 void DBImpl::SetRecoverableStatePreReleaseCallback(
     PreReleaseCallback* callback) {
   recoverable_state_pre_release_callback_.reset(callback);
@@ -1749,6 +1760,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
                  &time_delayed);
     uint64_t delay =
         write_controller_.GetDelay(immutable_db_options_.clock, num_bytes);
+    TEST_SYNC_POINT("DBImpl::DelayWrite:Start");
     if (delay > 0) {
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
@@ -1758,8 +1770,8 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       // Notify write_thread_ about the stall so it can setup a barrier and
       // fail any pending writers with no_slowdown
       write_thread_.BeginWriteStall();
-      TEST_SYNC_POINT("DBImpl::DelayWrite:BeginWriteStallDone");
       mutex_.Unlock();
+      TEST_SYNC_POINT("DBImpl::DelayWrite:BeginWriteStallDone");
       // We will delay the write until we have slept for `delay` microseconds
       // or we don't need a delay anymore. We check for cancellation every 1ms
       // (slightly longer because WriteController minimum delay is 1ms, in
@@ -2355,6 +2367,24 @@ Status DB::DeleteRange(const WriteOptions& opt,
   WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
                    opt.protection_bytes_per_key, 0 /* default_cf_ts_sz */);
   Status s = batch.DeleteRange(column_family, begin_key, end_key);
+  if (!s.ok()) {
+    return s;
+  }
+  return Write(opt, &batch);
+}
+
+Status DB::DeleteRange(const WriteOptions& opt,
+                       ColumnFamilyHandle* column_family,
+                       const Slice& begin_key, const Slice& end_key,
+                       const Slice& ts) {
+  ColumnFamilyHandle* default_cf = DefaultColumnFamily();
+  assert(default_cf);
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
+  Status s = batch.DeleteRange(column_family, begin_key, end_key, ts);
   if (!s.ok()) {
     return s;
   }

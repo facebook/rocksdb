@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#include <ios>
+
 #include "util/compression.h"
 #ifdef GFLAGS
 #include "cache/fast_lru_cache.h"
@@ -334,7 +336,14 @@ void StressTest::FinishInitDb(SharedState* shared) {
 }
 
 void StressTest::TrackExpectedState(SharedState* shared) {
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+  // For `FLAGS_manual_wal_flush_one_inWAL`
+  // data can be lost when `manual_wal_flush_one_in > 0` and `FlushWAL()` is not
+  // explictly called by users of RocksDB (in our case, db stress).
+  // Therefore recovery from such potential WAL data loss is a prefix recovery
+  // that requires tracing
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal ||
+       FLAGS_manual_wal_flush_one_in > 0) &&
+      IsStateTracked()) {
     Status s = shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -431,6 +440,53 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
   shared->SetVerificationFailure();
 }
 
+void StressTest::VerificationAbort(SharedState* shared, int cf, int64_t key,
+                                   const Slice& value,
+                                   const WideColumns& columns,
+                                   const WideColumns& expected_columns) const {
+  assert(shared);
+
+  auto key_str = Key(key);
+
+  fprintf(stderr,
+          "Verification failed for column family %d key %s (%" PRIi64
+          "): Value and columns inconsistent: %s\n",
+          cf, Slice(key_str).ToString(/* hex */ true).c_str(), key,
+          DebugString(value, columns, expected_columns).c_str());
+
+  shared->SetVerificationFailure();
+}
+
+std::string StressTest::DebugString(const Slice& value,
+                                    const WideColumns& columns,
+                                    const WideColumns& expected_columns) {
+  std::ostringstream oss;
+
+  oss << "value: " << value.ToString(/* hex */ true);
+
+  auto dump = [](const WideColumns& cols, std::ostream& os) {
+    if (cols.empty()) {
+      return;
+    }
+
+    os << std::hex;
+
+    auto it = cols.begin();
+    os << *it;
+    for (++it; it != cols.end(); ++it) {
+      os << ' ' << *it;
+    }
+  };
+
+  oss << ", columns: ";
+  dump(columns, oss);
+
+  oss << ", expected_columns: ";
+  dump(expected_columns, oss);
+
+  return oss.str();
+}
+
 void StressTest::PrintStatistics() {
   if (dbstats) {
     fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
@@ -457,11 +513,14 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   Status s;
   for (auto cfh : column_families_) {
     for (int64_t k = 0; k != number_of_keys; ++k) {
-      std::string key_str = Key(k);
-      Slice key = key_str;
-      size_t sz = GenerateValue(0 /*value_base*/, value, sizeof(value));
-      Slice v(value, sz);
-      shared->Put(cf_idx, k, 0, true /* pending */);
+      const std::string key = Key(k);
+
+      constexpr uint32_t value_base = 0;
+      const size_t sz = GenerateValue(value_base, value, sizeof(value));
+
+      const Slice v(value, sz);
+
+      shared->Put(cf_idx, k, value_base, true /* pending */);
 
       if (FLAGS_use_merge) {
         if (!FLAGS_use_txn) {
@@ -478,13 +537,13 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
           }
 #endif
         }
+      } else if (FLAGS_use_put_entity_one_in > 0) {
+        s = db_->PutEntity(write_opts, cfh, key,
+                           GenerateWideColumns(value_base, v));
       } else {
         if (!FLAGS_use_txn) {
-          std::string ts_str;
-          Slice ts;
           if (FLAGS_user_timestamp_size > 0) {
-            ts_str = GetNowNanos();
-            ts = ts_str;
+            const std::string ts = GetNowNanos();
             s = db_->Put(write_opts, cfh, key, ts, v);
           } else {
             s = db_->Put(write_opts, cfh, key, v);
@@ -503,7 +562,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
         }
       }
 
-      shared->Put(cf_idx, k, 0, false /* pending */);
+      shared->Put(cf_idx, k, value_base, false /* pending */);
       if (!s.ok()) {
         break;
       }
@@ -774,6 +833,15 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       MaybeClearOneColumnFamily(thread);
 
+      if (thread->rand.OneInOpt(FLAGS_manual_wal_flush_one_in)) {
+        bool sync = thread->rand.OneIn(2) ? true : false;
+        Status s = db_->FlushWAL(sync);
+        if (!s.ok()) {
+          fprintf(stderr, "FlushWAL(sync=%s) failed: %s\n",
+                  (sync ? "true" : "false"), s.ToString().c_str());
+        }
+      }
+
       if (thread->rand.OneInOpt(FLAGS_sync_wal_one_in)) {
         Status s = db_->SyncWAL();
         if (!s.ok() && !s.IsNotSupported()) {
@@ -916,15 +984,11 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       // Assign timestamps if necessary.
       std::string read_ts_str;
-      std::string write_ts_str;
       Slice read_ts;
-      Slice write_ts;
       if (FLAGS_user_timestamp_size > 0) {
         read_ts_str = GetNowNanos();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
-        write_ts_str = GetNowNanos();
-        write_ts = write_ts_str;
       }
 
       int prob_op = thread->rand.Uniform(100);
@@ -2290,6 +2354,8 @@ void StressTest::PrintEnv() const {
           FLAGS_read_only ? "true" : "false");
   fprintf(stdout, "Atomic flush              : %s\n",
           FLAGS_atomic_flush ? "true" : "false");
+  fprintf(stdout, "Manual WAL flush          : %s\n",
+          FLAGS_manual_wal_flush_one_in > 0 ? "true" : "false");
   fprintf(stdout, "Column families           : %d\n", FLAGS_column_families);
   if (!FLAGS_test_batches_snapshots) {
     fprintf(stdout, "Clear CFs one in          : %d\n",
@@ -2798,7 +2864,9 @@ void StressTest::Reopen(ThreadState* thread) {
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open(thread->shared);
 
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal ||
+       FLAGS_manual_wal_flush_one_in > 0) &&
+      IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -2808,17 +2876,17 @@ void StressTest::Reopen(ThreadState* thread) {
   }
 }
 
-void StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+bool StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
                                                       std::string& ts_str,
                                                       Slice& ts_slice,
                                                       ReadOptions& read_opts) {
   if (FLAGS_user_timestamp_size == 0) {
-    return;
+    return false;
   }
 
   assert(thread);
   if (!thread->rand.OneInOpt(3)) {
-    return;
+    return false;
   }
 
   const SharedState* const shared = thread->shared;
@@ -2834,6 +2902,7 @@ void StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
   PutFixed64(&ts_str, ts);
   ts_slice = ts_str;
   read_opts.timestamp = &ts_slice;
+  return true;
 }
 
 void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
@@ -2889,10 +2958,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
   }
   if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
     fprintf(stderr, "Merge does not support timestamp yet.\n");
-    exit(1);
-  }
-  if (FLAGS_delrangepercent > 0) {
-    fprintf(stderr, "DeleteRange does not support timestamp yet.\n");
     exit(1);
   }
   if (FLAGS_use_txn) {
@@ -3028,6 +3093,7 @@ void InitializeOptionsFromFlags(
       static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style);
   options.compaction_pri =
       static_cast<ROCKSDB_NAMESPACE::CompactionPri>(FLAGS_compaction_pri);
+  options.num_levels = FLAGS_num_levels;
   if (FLAGS_prefix_size >= 0) {
     options.prefix_extractor.reset(NewFixedPrefixTransform(FLAGS_prefix_size));
   }
@@ -3078,6 +3144,8 @@ void InitializeOptionsFromFlags(
   options.experimental_mempurge_threshold =
       FLAGS_experimental_mempurge_threshold;
   options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
+  options.stats_dump_period_sec =
+      static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
   options.ttl = FLAGS_compaction_ttl;
   options.enable_pipelined_write = FLAGS_enable_pipelined_write;
   options.enable_write_thread_adaptive_yield =
@@ -3090,6 +3158,7 @@ void InitializeOptionsFromFlags(
   options.compaction_options_universal.max_size_amplification_percent =
       FLAGS_universal_max_size_amplification_percent;
   options.atomic_flush = FLAGS_atomic_flush;
+  options.manual_wal_flush = FLAGS_manual_wal_flush_one_in > 0 ? true : false;
   options.avoid_unnecessary_blocking_io = FLAGS_avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
   options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;

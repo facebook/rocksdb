@@ -94,6 +94,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       sample_for_compression(options.sample_for_compression),
       preclude_last_level_data_seconds(
           options.preclude_last_level_data_seconds),
+      preserve_internal_time_seconds(options.preserve_internal_time_seconds),
       enable_blob_files(options.enable_blob_files),
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
@@ -403,6 +404,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      periodic_compaction_seconds);
     ROCKS_LOG_HEADER(log, " Options.preclude_last_level_data_seconds: %" PRIu64,
                      preclude_last_level_data_seconds);
+    ROCKS_LOG_HEADER(log, "   Options.preserve_internal_time_seconds: %" PRIu64,
+                     preserve_internal_time_seconds);
     ROCKS_LOG_HEADER(log, "                      Options.enable_blob_files: %s",
                      enable_blob_files ? "true" : "false");
     ROCKS_LOG_HEADER(

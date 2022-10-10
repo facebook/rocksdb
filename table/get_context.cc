@@ -250,6 +250,20 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     if (ts_sz > 0 && timestamp_ != nullptr) {
       if (!timestamp_->empty()) {
         assert(ts_sz == timestamp_->size());
+        // `timestamp` can be set before `SaveValue` is ever called
+        // when max_covering_tombstone_seq_ was set.
+        // If this key has a higher sequence number than range tombstone,
+        // then timestamp should be updated. `ts_from_rangetombstone_` is
+        // set to false afterwards so that only the key with highest seqno
+        // updates the timestamp.
+        if (ts_from_rangetombstone_) {
+          assert(max_covering_tombstone_seq_);
+          if (parsed_key.sequence > *max_covering_tombstone_seq_) {
+            Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+            timestamp_->assign(ts.data(), ts.size());
+            ts_from_rangetombstone_ = false;
+          }
+        }
       }
       // TODO optimize for small size ts
       const std::string kMaxTs(ts_sz, '\xff');
@@ -263,9 +277,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     auto type = parsed_key.type;
     // Key matches. Process it
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
-         type == kTypeWideColumnEntity) &&
+         type == kTypeWideColumnEntity || type == kTypeDeletion ||
+         type == kTypeDeletionWithTimestamp || type == kTypeSingleDeletion) &&
         max_covering_tombstone_seq_ != nullptr &&
         *max_covering_tombstone_seq_ > parsed_key.sequence) {
+      // Note that deletion types are also considered, this is for the case
+      // when we need to return timestamp to user. If a range tombstone has a
+      // higher seqno than point tombstone, its timestamp should be returned.
       type = kTypeRangeDeletion;
     }
     switch (type) {

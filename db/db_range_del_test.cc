@@ -13,6 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO(cbi): parameterize the test to cover user-defined timestamp cases
 class DBRangeDelTest : public DBTestBase {
  public:
   DBRangeDelTest() : DBTestBase("db_range_del_test", /*env_do_fsync=*/false) {}
@@ -1029,7 +1030,11 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
   options.level0_file_num_compaction_trigger = kNumFilesPerLevel;
   options.memtable_factory.reset(
       test::NewSpecialSkipListFactory(2 /* num_entries_flush */));
-  options.target_file_size_base = kValueBytes;
+  // max file size could be 2x of target file size, so set it to half of that
+  options.target_file_size_base = kValueBytes / 2;
+  // disable dynamic_file_size, as it will cut L1 files into more files (than
+  // kNumFilesPerLevel).
+  options.level_compaction_dynamic_file_size = false;
   options.max_compaction_bytes = 1500;
   // i == 0: CompactFiles
   // i == 1: CompactRange
@@ -1100,6 +1105,12 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
       test::NewSpecialSkipListFactory(2 /* num_entries_flush */));
   options.target_file_size_base = kValueBytes;
   options.disable_auto_compactions = true;
+  // disable it for now, otherwise the L1 files are going be cut before data 1:
+  // L1: [0]   [1,4]
+  // L2: [0,0]
+  // because the grandparent file is between [0]->[1] and it's size is more than
+  // 1/8 of target size (4k).
+  options.level_compaction_dynamic_file_size = false;
 
   DestroyAndReopen(options);
 
@@ -1723,9 +1734,8 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
 
   ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));
-  ASSERT_EQ(
-      3, NumTableFilesAtLevel(
-             2));  // L1->L2 compaction size is limited to max_compaction_bytes
+  // L1->L2 compaction size is limited to max_compaction_bytes
+  ASSERT_EQ(3, NumTableFilesAtLevel(2));
   ASSERT_EQ(0, NumTableFilesAtLevel(1));
 }
 
@@ -1974,6 +1984,40 @@ TEST_F(DBRangeDelTest, TombstoneFromCurrentLevel) {
   delete iter;
 }
 
+class TombstoneTestSstPartitioner : public SstPartitioner {
+ public:
+  const char* Name() const override { return "SingleKeySstPartitioner"; }
+
+  PartitionerResult ShouldPartition(
+      const PartitionerRequest& request) override {
+    if (cmp->Compare(*request.current_user_key, DBTestBase::Key(5)) == 0) {
+      return kRequired;
+    } else {
+      return kNotRequired;
+    }
+  }
+
+  bool CanDoTrivialMove(const Slice& /*smallest_user_key*/,
+                        const Slice& /*largest_user_key*/) override {
+    return false;
+  }
+
+  const Comparator* cmp = BytewiseComparator();
+};
+
+class TombstoneTestSstPartitionerFactory : public SstPartitionerFactory {
+ public:
+  static const char* kClassName() {
+    return "TombstoneTestSstPartitionerFactory";
+  }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<SstPartitioner> CreatePartitioner(
+      const SstPartitioner::Context& /* context */) const override {
+    return std::unique_ptr<SstPartitioner>(new TombstoneTestSstPartitioner());
+  }
+};
+
 TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
   // Verify that a range tombstone across file boundary covers keys from older
   // levels. Test set up:
@@ -1987,11 +2031,17 @@ TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
   options.target_file_size_base = 2 * 1024;
   options.max_compaction_bytes = 2 * 1024;
 
+  // Make sure L1 files are split before "5"
+  auto factory = std::make_shared<TombstoneTestSstPartitionerFactory>();
+  options.sst_partitioner_factory = factory;
+
   DestroyAndReopen(options);
 
   Random rnd(301);
   // L2
-  ASSERT_OK(db_->Put(WriteOptions(), Key(5), rnd.RandomString(1 << 10)));
+  // the file should be smaller than max_compaction_bytes, otherwise the file
+  // will be cut before 7.
+  ASSERT_OK(db_->Put(WriteOptions(), Key(5), rnd.RandomString(1 << 9)));
   ASSERT_OK(db_->Flush(FlushOptions()));
   MoveFilesToLevel(2);
   ASSERT_EQ(1, NumTableFilesAtLevel(2));

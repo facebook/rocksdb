@@ -25,22 +25,36 @@ class CfConsistencyStressTest : public StressTest {
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys,
                  char (&value)[100]) override {
-    std::string key_str = Key(rand_keys[0]);
-    Slice key = key_str;
-    uint64_t value_base = batch_id_.fetch_add(1);
-    size_t sz =
-        GenerateValue(static_cast<uint32_t>(value_base), value, sizeof(value));
-    Slice v(value, sz);
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    const std::string k = Key(rand_keys[0]);
+
+    const uint32_t value_base = batch_id_.fetch_add(1);
+    const size_t sz = GenerateValue(value_base, value, sizeof(value));
+    const Slice v(value, sz);
+
     WriteBatch batch;
+
+    const bool use_put_entity = !FLAGS_use_merge &&
+                                FLAGS_use_put_entity_one_in > 0 &&
+                                (value_base % FLAGS_use_put_entity_one_in) == 0;
+
     for (auto cf : rand_column_families) {
-      ColumnFamilyHandle* cfh = column_families_[cf];
+      ColumnFamilyHandle* const cfh = column_families_[cf];
+      assert(cfh);
+
       if (FLAGS_use_merge) {
-        batch.Merge(cfh, key, v);
-      } else { /* !FLAGS_use_merge */
-        batch.Put(cfh, key, v);
+        batch.Merge(cfh, k, v);
+      } else if (use_put_entity) {
+        batch.PutEntity(cfh, k, GenerateWideColumns(value_base, v));
+      } else {
+        batch.Put(cfh, k, v);
       }
     }
+
     Status s = db_->Write(write_opts, &batch);
+
     if (!s.ok()) {
       fprintf(stderr, "multi put or merge error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
@@ -240,42 +254,69 @@ class CfConsistencyStressTest : public StressTest {
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {
-    size_t prefix_to_use =
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    const std::string key = Key(rand_keys[0]);
+
+    const size_t prefix_to_use =
         (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
 
-    std::string key_str = Key(rand_keys[0]);
-    Slice key = key_str;
-    Slice prefix = Slice(key.data(), prefix_to_use);
+    const Slice prefix(key.data(), prefix_to_use);
 
     std::string upper_bound;
     Slice ub_slice;
+
     ReadOptions ro_copy = readoptions;
+
     // Get the next prefix first and then see if we want to set upper bound.
     // We'll use the next prefix in an assertion later on
     if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
     }
-    auto cfh =
-        column_families_[rand_column_families[thread->rand.Next() %
-                                              rand_column_families.size()]];
-    Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    unsigned long count = 0;
+
+    ColumnFamilyHandle* const cfh =
+        column_families_[rand_column_families[thread->rand.Uniform(
+            static_cast<int>(rand_column_families.size()))]];
+    assert(cfh);
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
+
+    uint64_t count = 0;
+    Status s;
+
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
+
+      const WideColumns expected_columns = GenerateExpectedWideColumns(
+          GetValueBase(iter->value()), iter->value());
+      if (iter->columns() != expected_columns) {
+        s = Status::Corruption(
+            "Value and columns inconsistent",
+            DebugString(iter->value(), iter->columns(), expected_columns));
+        break;
+      }
     }
+
     assert(prefix_to_use == 0 ||
            count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
-    Status s = iter->status();
+
     if (s.ok()) {
-      thread->stats.AddPrefixes(1, count);
-    } else {
+      s = iter->status();
+    }
+
+    if (!s.ok()) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
+
+      return s;
     }
-    delete iter;
-    return s;
+
+    thread->stats.AddPrefixes(1, count);
+
+    return Status::OK();
   }
 
   ColumnFamilyHandle* GetControlCfh(ThreadState* thread,
@@ -538,7 +579,7 @@ class CfConsistencyStressTest : public StressTest {
   }
 
  private:
-  std::atomic<int64_t> batch_id_;
+  std::atomic<uint32_t> batch_id_;
 };
 
 StressTest* CreateCfConsistencyStressTest() {

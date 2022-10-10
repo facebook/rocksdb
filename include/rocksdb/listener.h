@@ -148,6 +148,9 @@ enum class CompactionReason : int {
   kChangeTemperature,
   // Compaction scheduled to force garbage collection of blob files
   kForcedBlobGC,
+  // A special TTL compaction for RoundRobin policy, which basically the same as
+  // kLevelMaxLevelSize, but the goal is to compact TTLed files.
+  kRoundRobinTtl,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };

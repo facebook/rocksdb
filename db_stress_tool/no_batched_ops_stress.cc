@@ -57,10 +57,14 @@ class NonBatchedOpsStressTest : public StressTest {
         kNumberOfMethods
       };
 
-      const int num_methods =
+      constexpr int num_methods =
           static_cast<int>(VerificationMethod::kNumberOfMethods);
+
+      // Note: Merge/GetMergeOperands is currently not supported for wide-column
+      // entities
       const VerificationMethod method =
-          static_cast<VerificationMethod>(thread->rand.Uniform(num_methods));
+          static_cast<VerificationMethod>(thread->rand.Uniform(
+              FLAGS_use_put_entity_one_in > 0 ? num_methods - 1 : num_methods));
 
       if (method == VerificationMethod::kIterator) {
         std::unique_ptr<Iterator> iter(
@@ -88,17 +92,24 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           Status s = iter->status();
-          Slice iter_key;
+
           std::string from_db;
 
           if (iter->Valid()) {
-            iter_key = iter->key();
-
-            const int diff = iter_key.compare(k);
+            const int diff = iter->key().compare(k);
 
             if (diff > 0) {
               s = Status::NotFound();
             } else if (diff == 0) {
+              const WideColumns expected_columns = GenerateExpectedWideColumns(
+                  GetValueBase(iter->value()), iter->value());
+              if (iter->columns() != expected_columns) {
+                VerificationAbort(shared, static_cast<int>(cf), i,
+                                  iter->value(), iter->columns(),
+                                  expected_columns);
+                break;
+              }
+
               from_db = iter->value().ToString();
               iter->Next();
             } else {
@@ -388,8 +399,8 @@ class NonBatchedOpsStressTest : public StressTest {
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
     Slice read_ts_slice;
-    MaybeUseOlderTimestampForPointLookup(thread, read_ts_str, read_ts_slice,
-                                         read_opts_copy);
+    bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
+        thread, read_ts_str, read_ts_slice, read_opts_copy);
 
     Status s = db_->Get(read_opts_copy, cfh, key, &from_db);
     if (fault_fs_guard) {
@@ -422,7 +433,7 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       // not found case
       thread->stats.AddGets(1, 0);
-      if (!FLAGS_skip_verifydb && !read_opts_copy.timestamp) {
+      if (!FLAGS_skip_verifydb && !read_older_ts) {
         auto expected =
             thread->shared->Get(rand_column_families[0], rand_keys[0]);
         if (expected != SharedState::DELETION_SENTINEL &&
@@ -614,7 +625,8 @@ class NonBatchedOpsStressTest : public StressTest {
                   keys[i].ToString(true).c_str());
           fprintf(stderr, "MultiGet returned value %s\n",
                   values[i].ToString(true).c_str());
-          fprintf(stderr, "Get returned value %s\n", value.c_str());
+          fprintf(stderr, "Get returned value %s\n",
+                  Slice(value).ToString(true /* hex */).c_str());
           is_consistent = false;
         }
       }
@@ -659,14 +671,19 @@ class NonBatchedOpsStressTest : public StressTest {
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {
-    auto cfh = column_families_[rand_column_families[0]];
-    std::string key_str = Key(rand_keys[0]);
-    Slice key = key_str;
-    Slice prefix = Slice(key.data(), FLAGS_prefix_size);
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    const std::string key = Key(rand_keys[0]);
+    const Slice prefix(key.data(), FLAGS_prefix_size);
 
     std::string upper_bound;
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
+
     // Get the next prefix first and then see if we want to set upper bound.
     // We'll use the next prefix in an assertion later on
     if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
@@ -680,26 +697,43 @@ class NonBatchedOpsStressTest : public StressTest {
     MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
                                        ro_copy);
 
-    Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    unsigned long count = 0;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
+
+    uint64_t count = 0;
+    Status s;
+
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
+
+      const WideColumns expected_columns = GenerateExpectedWideColumns(
+          GetValueBase(iter->value()), iter->value());
+      if (iter->columns() != expected_columns) {
+        s = Status::Corruption(
+            "Value and columns inconsistent",
+            DebugString(iter->value(), iter->columns(), expected_columns));
+        break;
+      }
     }
 
     if (ro_copy.iter_start_ts == nullptr) {
       assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
     }
 
-    Status s = iter->status();
-    if (iter->status().ok()) {
-      thread->stats.AddPrefixes(1, count);
-    } else {
+    if (s.ok()) {
+      s = iter->status();
+    }
+
+    if (!s.ok()) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
+
+      return s;
     }
-    delete iter;
-    return s;
+
+    thread->stats.AddPrefixes(1, count);
+
+    return Status::OK();
   }
 
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
@@ -707,38 +741,44 @@ class NonBatchedOpsStressTest : public StressTest {
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys,
                  char (&value)[100]) override {
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
     auto shared = thread->shared;
-    int64_t max_key = shared->GetMaxKey();
+    assert(shared);
+
+    const int64_t max_key = shared->GetMaxKey();
+
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
-    std::string write_ts_str;
-    Slice write_ts;
+    std::string write_ts;
+
     std::unique_ptr<MutexLock> lock(
         new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
     while (!shared->AllowsOverwrite(rand_key) &&
            (FLAGS_use_merge || shared->Exists(rand_column_family, rand_key))) {
       lock.reset();
+
       rand_key = thread->rand.Next() % max_key;
       rand_column_family = thread->rand.Next() % FLAGS_column_families;
+
       lock.reset(
           new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
       if (FLAGS_user_timestamp_size > 0) {
-        write_ts_str = GetNowNanos();
-        write_ts = write_ts_str;
+        write_ts = GetNowNanos();
       }
     }
-    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
-      write_ts_str = GetNowNanos();
-      write_ts = write_ts_str;
+
+    if (write_ts.empty() && FLAGS_user_timestamp_size) {
+      write_ts = GetNowNanos();
     }
 
-    std::string key_str = Key(rand_key);
-    Slice key = key_str;
-    ColumnFamilyHandle* cfh = column_families_[rand_column_family];
+    const std::string k = Key(rand_key);
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_family];
+    assert(cfh);
 
     if (FLAGS_verify_before_write) {
-      std::string key_str2 = Key(rand_key);
-      Slice k = key_str2;
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
       if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
@@ -746,39 +786,47 @@ class NonBatchedOpsStressTest : public StressTest {
         return s;
       }
     }
-    uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
-    size_t sz = GenerateValue(value_base, value, sizeof(value));
-    Slice v(value, sz);
+
+    const uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
+    const size_t sz = GenerateValue(value_base, value, sizeof(value));
+    const Slice v(value, sz);
+
     shared->Put(rand_column_family, rand_key, value_base, true /* pending */);
+
     Status s;
+
     if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
-        s = db_->Merge(write_opts, cfh, key, v);
+        s = db_->Merge(write_opts, cfh, k, v);
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
         s = NewTxn(write_opts, &txn);
         if (s.ok()) {
-          s = txn->Merge(cfh, key, v);
+          s = txn->Merge(cfh, k, v);
           if (s.ok()) {
             s = CommitTxn(txn, thread);
           }
         }
 #endif
       }
+    } else if (FLAGS_use_put_entity_one_in > 0 &&
+               (value_base % FLAGS_use_put_entity_one_in) == 0) {
+      s = db_->PutEntity(write_opts, cfh, k,
+                         GenerateWideColumns(value_base, v));
     } else {
       if (!FLAGS_use_txn) {
         if (FLAGS_user_timestamp_size == 0) {
-          s = db_->Put(write_opts, cfh, key, v);
+          s = db_->Put(write_opts, cfh, k, v);
         } else {
-          s = db_->Put(write_opts, cfh, key, write_ts, v);
+          s = db_->Put(write_opts, cfh, k, write_ts, v);
         }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
         s = NewTxn(write_opts, &txn);
         if (s.ok()) {
-          s = txn->Put(cfh, key, v);
+          s = txn->Put(cfh, k, v);
           if (s.ok()) {
             s = CommitTxn(txn, thread);
           }
@@ -786,7 +834,9 @@ class NonBatchedOpsStressTest : public StressTest {
 #endif
       }
     }
+
     shared->Put(rand_column_family, rand_key, value_base, false /* pending */);
+
     if (!s.ok()) {
       if (FLAGS_injest_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
@@ -801,6 +851,7 @@ class NonBatchedOpsStressTest : public StressTest {
         std::terminate();
       }
     }
+
     thread->stats.AddBytesForWrites(1, sz);
     PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
                   sz);
@@ -939,7 +990,16 @@ class NonBatchedOpsStressTest : public StressTest {
     auto cfh = column_families_[rand_column_family];
     std::string end_keystr = Key(rand_key + FLAGS_range_deletion_width);
     Slice end_key = end_keystr;
-    Status s = db_->DeleteRange(write_opts, cfh, key, end_key);
+    std::string write_ts_str;
+    Slice write_ts;
+    Status s;
+    if (FLAGS_user_timestamp_size) {
+      write_ts_str = GetNowNanos();
+      write_ts = write_ts_str;
+      s = db_->DeleteRange(write_opts, cfh, key, end_key, write_ts);
+    } else {
+      s = db_->DeleteRange(write_opts, cfh, key, end_key);
+    }
     if (!s.ok()) {
       if (FLAGS_injest_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
@@ -1026,6 +1086,10 @@ class NonBatchedOpsStressTest : public StressTest {
       size_t value_len = GenerateValue(value_base, value, sizeof(value));
       auto key_str = Key(key);
       s = sst_file_writer.Put(Slice(key_str), Slice(value, value_len));
+    }
+
+    if (s.ok() && keys.empty()) {
+      return;
     }
 
     if (s.ok()) {
@@ -1191,6 +1255,11 @@ class NonBatchedOpsStressTest : public StressTest {
       op_logs += "P";
     }
 
+    if (thread->rand.OneIn(2)) {
+      // Refresh after forward/backward scan to allow higher chance of SV
+      // change. It is safe to refresh since the testing key range is locked.
+      iter->Refresh();
+    }
     // start from middle of [lb, ub) otherwise it is easy to iterate out of
     // locked range
     int64_t mid = lb + static_cast<int64_t>(FLAGS_num_iterations / 2);

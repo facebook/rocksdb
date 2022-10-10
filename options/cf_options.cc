@@ -550,6 +550,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    level_compaction_dynamic_level_bytes),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"level_compaction_dynamic_file_size",
+         {offsetof(struct ImmutableCFOptions,
+                   level_compaction_dynamic_file_size),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"optimize_filters_for_hits",
          {offsetof(struct ImmutableCFOptions, optimize_filters_for_hits),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -560,6 +565,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"preclude_last_level_data_seconds",
          {offsetof(struct ImmutableCFOptions, preclude_last_level_data_seconds),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"preserve_internal_time_seconds",
+         {offsetof(struct ImmutableCFOptions, preserve_internal_time_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         // Need to keep this around to be able to read old OPTIONS files.
@@ -892,11 +901,14 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       bloom_locality(cf_options.bloom_locality),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
+      level_compaction_dynamic_file_size(
+          cf_options.level_compaction_dynamic_file_size),
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
       preclude_last_level_data_seconds(
           cf_options.preclude_last_level_data_seconds),
+      preserve_internal_time_seconds(cf_options.preserve_internal_time_seconds),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor),
       cf_paths(cf_options.cf_paths),

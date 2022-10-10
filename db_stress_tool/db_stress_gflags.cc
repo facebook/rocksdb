@@ -85,6 +85,13 @@ DEFINE_bool(test_batches_snapshots, false,
 DEFINE_bool(atomic_flush, false,
             "If set, enables atomic flush in the options.\n");
 
+DEFINE_int32(
+    manual_wal_flush_one_in, 0,
+    "If non-zero, then `FlushWAL(bool sync)`, where `bool sync` is randomly "
+    "decided, will be explictly called in db stress once for every N ops "
+    "on average. Setting `manual_wal_flush_one_in` to be greater than 0 "
+    "implies `Options::manual_wal_flush = true` is set.");
+
 DEFINE_bool(test_cf_consistency, false,
             "If set, runs the stress test dedicated to verifying writes to "
             "multiple column families are consistent. Setting this implies "
@@ -858,6 +865,10 @@ DEFINE_bool(use_merge, false,
             "On true, replaces all writes with a Merge "
             "that behaves like a Put");
 
+DEFINE_uint32(use_put_entity_one_in, 0,
+              "If greater than zero, PutEntity will be used once per every N "
+              "write ops on average.");
+
 DEFINE_bool(use_full_merge_v1, false,
             "On true, use a merge operator that implement the deprecated "
             "version of FullMerge");
@@ -1051,5 +1062,9 @@ DEFINE_bool(
     "first verification succeeds. Expected state files from the last run will "
     "be preserved similarly under `FLAGS_expected_values_dir/unverified` when "
     "`--expected_values_dir` is nonempty.");
+
+DEFINE_uint64(stats_dump_period_sec,
+              ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
+              "Gap between printing stats to log in seconds");
 
 #endif  // GFLAGS

@@ -64,6 +64,8 @@ struct ImmutableCFOptions {
 
   bool level_compaction_dynamic_level_bytes;
 
+  bool level_compaction_dynamic_file_size;
+
   int num_levels;
 
   bool optimize_filters_for_hits;
@@ -71,6 +73,8 @@ struct ImmutableCFOptions {
   bool force_consistency_checks;
 
   uint64_t preclude_last_level_data_seconds;
+
+  uint64_t preserve_internal_time_seconds;
 
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor;

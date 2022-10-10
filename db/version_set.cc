@@ -1632,6 +1632,7 @@ Status Version::TablesRangeTombstoneSummary(int max_entries_to_print,
       if (tombstone_iter) {
         tombstone_iter->SeekToFirst();
 
+        // TODO: print timestamp
         while (tombstone_iter->Valid() && num_entries_left > 0) {
           ss << "start: " << tombstone_iter->start_key().ToString(true)
              << " end: " << tombstone_iter->end_key().ToString(true)
@@ -2914,7 +2915,9 @@ void VersionStorageInfo::PrepareForVersionAppend(
   GenerateFileIndexer();
   GenerateLevelFilesBrief();
   GenerateLevel0NonOverlapping();
-  GenerateBottommostFiles();
+  if (!immutable_options.allow_ingest_behind) {
+    GenerateBottommostFiles();
+  }
   GenerateFileLocationIndex();
 }
 
@@ -3354,7 +3357,9 @@ void VersionStorageInfo::ComputeCompactionScore(
     }
   }
   ComputeFilesMarkedForCompaction();
-  ComputeBottommostFilesMarkedForCompaction();
+  if (!immutable_options.allow_ingest_behind) {
+    ComputeBottommostFilesMarkedForCompaction();
+  }
   if (mutable_cf_options.ttl > 0) {
     ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   }
@@ -4560,6 +4565,10 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
     AppendNumberTo(&r, level);
     r.append(" --- version# ");
     AppendNumberTo(&r, version_number_);
+    if (storage_info_.compact_cursor_[level].Valid()) {
+      r.append(" --- compact_cursor: ");
+      r.append(storage_info_.compact_cursor_[level].DebugString(hex));
+    }
     r.append(" ---\n");
     const std::vector<FileMetaData*>& files = storage_info_.files_[level];
     for (size_t i = 0; i < files.size(); i++) {

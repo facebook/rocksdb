@@ -56,7 +56,7 @@ TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
       db_->SingleDelete(WriteOptions(), "key", dummy_ts).IsInvalidArgument());
   ASSERT_TRUE(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                "begin_key", "end_key", dummy_ts)
-                  .IsNotSupported());
+                  .IsInvalidArgument());
 
   // Perform non-timestamp operations on "data" cf.
   ASSERT_TRUE(
@@ -85,6 +85,11 @@ TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
     ASSERT_OK(wb.SingleDelete(handle, "key"));
     ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsInvalidArgument());
   }
+  {
+    WriteBatch wb;
+    ASSERT_OK(wb.DeleteRange(handle, "begin_key", "end_key"));
+    ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsInvalidArgument());
+  }
 
   // Perform timestamp operations with timestamps of incorrect size.
   const std::string wrong_ts(sizeof(uint32_t), '\0');
@@ -98,7 +103,7 @@ TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
                   .IsInvalidArgument());
   ASSERT_TRUE(
       db_->DeleteRange(WriteOptions(), handle, "begin_key", "end_key", wrong_ts)
-          .IsNotSupported());
+          .IsInvalidArgument());
 
   delete handle;
 }
@@ -215,6 +220,10 @@ TEST_F(DBBasicTestWithTimestamp, GcPreserveLatestVersionBelowFullHistoryLow) {
   ts_str = Timestamp(4, 0);
   ASSERT_OK(db_->Put(wopts, "k1", ts_str, "v5"));
 
+  ts_str = Timestamp(5, 0);
+  ASSERT_OK(
+      db_->DeleteRange(wopts, db_->DefaultColumnFamily(), "k0", "k9", ts_str));
+
   ts_str = Timestamp(3, 0);
   Slice ts = ts_str;
   CompactRangeOptions cro;
@@ -233,6 +242,13 @@ TEST_F(DBBasicTestWithTimestamp, GcPreserveLatestVersionBelowFullHistoryLow) {
   std::string key_ts;
   ASSERT_TRUE(db_->Get(ropts, "k3", &value, &key_ts).IsNotFound());
   ASSERT_EQ(Timestamp(2, 0), key_ts);
+
+  ts_str = Timestamp(5, 0);
+  ts = ts_str;
+  ropts.timestamp = &ts;
+  ASSERT_TRUE(db_->Get(ropts, "k2", &value, &key_ts).IsNotFound());
+  ASSERT_EQ(Timestamp(5, 0), key_ts);
+  ASSERT_TRUE(db_->Get(ropts, "k2", &value).IsNotFound());
 
   Close();
 }
@@ -588,6 +604,19 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
                                    &handles_, &db_, Timestamp(4, 0)));
   check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v2",
+                    Timestamp(4, 0));
+  Close();
+
+  Reopen(options);
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "k1",
+                             "k3", Timestamp(7, 0)));
+  check_value_by_ts(db_, "k1", Timestamp(8, 0), Status::NotFound(), "",
+                    Timestamp(7, 0));
+  Close();
+  // Trim data whose timestamp > Timestamp(6, 0), read(k1, ts(8)) <- v2
+  ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
+                                   &handles_, &db_, Timestamp(6, 0)));
+  check_value_by_ts(db_, "k1", Timestamp(8, 0), Status::OK(), "v2",
                     Timestamp(4, 0));
   Close();
 }
@@ -2014,7 +2043,7 @@ constexpr int DataVisibilityTest::kTestDataSize;
 //                               seq'=11
 //                               write finishes
 //         GetImpl(ts,seq)
-// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1. If ts>=1t1 but seq<s1,
+// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1. If ts>=t1 but seq<s1,
 // the key should not be returned.
 TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot1) {
   Options options = CurrentOptions();
@@ -3249,6 +3278,418 @@ TEST_F(UpdateFullHistoryTsLowTest, ConcurrentUpdate) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp,
+       GCPreserveRangeTombstoneWhenNoOrSmallFullHistoryLow) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  std::string ts_str = Timestamp(1, 0);
+  WriteOptions wopts;
+  ASSERT_OK(db_->Put(wopts, "k1", ts_str, "v1"));
+  ASSERT_OK(db_->Put(wopts, "k2", ts_str, "v2"));
+  ASSERT_OK(db_->Put(wopts, "k3", ts_str, "v3"));
+  ts_str = Timestamp(2, 0);
+  ASSERT_OK(
+      db_->DeleteRange(wopts, db_->DefaultColumnFamily(), "k1", "k3", ts_str));
+
+  ts_str = Timestamp(3, 0);
+  Slice ts = ts_str;
+  ReadOptions ropts;
+  ropts.timestamp = &ts;
+  CompactRangeOptions cro;
+  cro.full_history_ts_low = nullptr;
+  std::string value, key_ts;
+  Status s;
+  auto verify = [&] {
+    s = db_->Get(ropts, "k1", &value);
+    ASSERT_TRUE(s.IsNotFound());
+
+    s = db_->Get(ropts, "k2", &value, &key_ts);
+    ASSERT_TRUE(s.IsNotFound());
+    ASSERT_EQ(key_ts, Timestamp(2, 0));
+
+    ASSERT_OK(db_->Get(ropts, "k3", &value, &key_ts));
+    ASSERT_EQ(value, "v3");
+    ASSERT_EQ(Timestamp(1, 0), key_ts);
+
+    size_t batch_size = 3;
+    std::vector<std::string> key_strs = {"k1", "k2", "k3"};
+    std::vector<Slice> keys{key_strs.begin(), key_strs.end()};
+    std::vector<PinnableSlice> values(batch_size);
+    std::vector<Status> statuses(batch_size);
+    db_->MultiGet(ropts, db_->DefaultColumnFamily(), batch_size, keys.data(),
+                  values.data(), statuses.data(), true /* sorted_input */);
+    ASSERT_TRUE(statuses[0].IsNotFound());
+    ASSERT_TRUE(statuses[1].IsNotFound());
+    ASSERT_OK(statuses[2]);
+    ;
+    ASSERT_EQ(values[2], "v3");
+  };
+  verify();
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  verify();
+  std::string lb = Timestamp(0, 0);
+  Slice lb_slice = lb;
+  cro.full_history_ts_low = &lb_slice;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  verify();
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp,
+       GCRangeTombstonesAndCoveredKeysRespectingTslow) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.cache_index_and_filter_blocks = true;
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.num_levels = 2;
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  ASSERT_OK(db_->Put(wopts, "k1", Timestamp(1, 0), "v1"));
+  ASSERT_OK(db_->Delete(wopts, "k2", Timestamp(2, 0)));
+  ASSERT_OK(db_->DeleteRange(wopts, db_->DefaultColumnFamily(), "k1", "k3",
+                             Timestamp(3, 0)));
+  ASSERT_OK(db_->Put(wopts, "k3", Timestamp(4, 0), "v3"));
+
+  ReadOptions ropts;
+  std::string read_ts = Timestamp(5, 0);
+  Slice read_ts_slice = read_ts;
+  ropts.timestamp = &read_ts_slice;
+  size_t batch_size = 3;
+  std::vector<std::string> key_strs = {"k1", "k2", "k3"};
+  std::vector<Slice> keys = {key_strs.begin(), key_strs.end()};
+  std::vector<PinnableSlice> values(batch_size);
+  std::vector<Status> statuses(batch_size);
+  std::vector<std::string> timestamps(batch_size);
+  db_->MultiGet(ropts, db_->DefaultColumnFamily(), batch_size, keys.data(),
+                values.data(), timestamps.data(), statuses.data(),
+                true /* sorted_input */);
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_EQ(timestamps[0], Timestamp(3, 0));
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  // DeleteRange has a higher timestamp than Delete for "k2"
+  ASSERT_EQ(timestamps[1], Timestamp(3, 0));
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], "v3");
+  ASSERT_EQ(timestamps[2], Timestamp(4, 0));
+
+  CompactRangeOptions cro;
+  // Range tombstone has timestamp >= full_history_ts_low, covered keys
+  // are not dropped.
+  std::string compaction_ts_str = Timestamp(2, 0);
+  Slice compaction_ts = compaction_ts_str;
+  cro.full_history_ts_low = &compaction_ts;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ropts.timestamp = &compaction_ts;
+  std::string value, ts;
+  ASSERT_OK(db_->Get(ropts, "k1", &value, &ts));
+  ASSERT_EQ(value, "v1");
+  // timestamp is below full_history_ts_low, zeroed out as the key goes into
+  // bottommost level
+  ASSERT_EQ(ts, Timestamp(0, 0));
+  ASSERT_TRUE(db_->Get(ropts, "k2", &value, &ts).IsNotFound());
+  ASSERT_EQ(ts, Timestamp(2, 0));
+
+  compaction_ts_str = Timestamp(4, 0);
+  compaction_ts = compaction_ts_str;
+  cro.full_history_ts_low = &compaction_ts;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ropts.timestamp = &read_ts_slice;
+  // k1, k2 and the range tombstone should be dropped
+  // k3 should still exist
+  db_->MultiGet(ropts, db_->DefaultColumnFamily(), batch_size, keys.data(),
+                values.data(), timestamps.data(), statuses.data(),
+                true /* sorted_input */);
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_TRUE(timestamps[0].empty());
+  ASSERT_TRUE(statuses[1].IsNotFound());
+  ASSERT_TRUE(timestamps[1].empty());
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], "v3");
+  ASSERT_EQ(timestamps[2], Timestamp(4, 0));
+
+  Close();
+}
+
+TEST_P(DBBasicTestWithTimestampTableOptions, DeleteRangeBaiscReadAndIterate) {
+  const int kNum = 200, kRangeBegin = 50, kRangeEnd = 150, kNumPerFile = 25;
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.compression = kNoCompression;
+  BlockBasedTableOptions bbto;
+  bbto.index_type = GetParam();
+  bbto.block_size = 100;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
+  DestroyAndReopen(options);
+
+  // Write half of the keys before the tombstone and half after the tombstone.
+  // Only covered keys (i.e., within the range and older than the tombstone)
+  // should be deleted.
+  for (int i = 0; i < kNum; ++i) {
+    if (i == kNum / 2) {
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                 Key1(kRangeBegin), Key1(kRangeEnd),
+                                 Timestamp(i, 0)));
+    }
+    ASSERT_OK(db_->Put(WriteOptions(), Key1(i), Timestamp(i, 0),
+                       "val" + std::to_string(i)));
+    if (i == kNum - kNumPerFile) {
+      ASSERT_OK(Flush());
+    }
+  }
+
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  std::string read_ts = Timestamp(kNum, 0);
+  Slice read_ts_slice = read_ts;
+  read_opts.timestamp = &read_ts_slice;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    ASSERT_OK(iter->status());
+
+    int expected = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(Key1(expected), iter->key());
+      if (expected == kRangeBegin - 1) {
+        expected = kNum / 2;
+      } else {
+        ++expected;
+      }
+    }
+    ASSERT_EQ(kNum, expected);
+
+    expected = kNum / 2;
+    for (iter->Seek(Key1(kNum / 2)); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(Key1(expected), iter->key());
+      ++expected;
+    }
+    ASSERT_EQ(kNum, expected);
+
+    expected = kRangeBegin - 1;
+    for (iter->SeekForPrev(Key1(kNum / 2 - 1)); iter->Valid(); iter->Prev()) {
+      ASSERT_EQ(Key1(expected), iter->key());
+      --expected;
+    }
+    ASSERT_EQ(-1, expected);
+
+    read_ts = Timestamp(0, 0);
+    read_ts_slice = read_ts;
+    read_opts.timestamp = &read_ts_slice;
+    iter.reset(db_->NewIterator(read_opts));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), Key1(0));
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  read_ts = Timestamp(kNum, 0);
+  read_ts_slice = read_ts;
+  read_opts.timestamp = &read_ts_slice;
+  std::string value, timestamp;
+  Status s;
+  for (int i = 0; i < kNum; ++i) {
+    s = db_->Get(read_opts, Key1(i), &value, &timestamp);
+    if (i >= kRangeBegin && i < kNum / 2) {
+      ASSERT_TRUE(s.IsNotFound());
+      ASSERT_EQ(timestamp, Timestamp(kNum / 2, 0));
+    } else {
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "val" + std::to_string(i));
+      ASSERT_EQ(timestamp, Timestamp(i, 0));
+    }
+  }
+
+  size_t batch_size = kNum;
+  std::vector<std::string> key_strs(batch_size);
+  std::vector<Slice> keys(batch_size);
+  std::vector<PinnableSlice> values(batch_size);
+  std::vector<Status> statuses(batch_size);
+  std::vector<std::string> timestamps(batch_size);
+  for (int i = 0; i < kNum; ++i) {
+    key_strs[i] = Key1(i);
+    keys[i] = key_strs[i];
+  }
+  db_->MultiGet(read_opts, db_->DefaultColumnFamily(), batch_size, keys.data(),
+                values.data(), timestamps.data(), statuses.data(),
+                true /* sorted_input */);
+  for (int i = 0; i < kNum; ++i) {
+    if (i >= kRangeBegin && i < kNum / 2) {
+      ASSERT_TRUE(statuses[i].IsNotFound());
+      ASSERT_EQ(timestamps[i], Timestamp(kNum / 2, 0));
+    } else {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(values[i], "val" + std::to_string(i));
+      ASSERT_EQ(timestamps[i], Timestamp(i, 0));
+    }
+  }
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, DeleteRangeGetIteratorWithSnapshot) {
+  // 4 keys 0, 1, 2, 3 at timestamps 0, 1, 2, 3 respectively.
+  // A range tombstone [1, 3) at timestamp 1 and has a sequence number between
+  // key 1 and 2.
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  std::string put_ts = Timestamp(0, 0);
+  const int kNum = 4, kNumPerFile = 1, kRangeBegin = 1, kRangeEnd = 3;
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
+  const Snapshot* before_tombstone = nullptr;
+  const Snapshot* after_tombstone = nullptr;
+  for (int i = 0; i < kNum; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), Key1(i), Timestamp(i, 0),
+                       "val" + std::to_string(i)));
+    if (i == kRangeBegin) {
+      before_tombstone = db_->GetSnapshot();
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                 Key1(kRangeBegin), Key1(kRangeEnd),
+                                 Timestamp(kRangeBegin, 0)));
+    }
+    if (i == kNum / 2) {
+      ASSERT_OK(Flush());
+    }
+  }
+  assert(before_tombstone);
+  after_tombstone = db_->GetSnapshot();
+  // snapshot and ts before tombstone
+  std::string read_ts_str = Timestamp(kRangeBegin - 1, 0);  // (0, 0)
+  Slice read_ts = read_ts_str;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts;
+  read_opts.snapshot = before_tombstone;
+  std::vector<Status> expected_status = {
+      Status::OK(), Status::NotFound(), Status::NotFound(), Status::NotFound()};
+  std::vector<std::string> expected_values(kNum);
+  expected_values[0] = "val" + std::to_string(0);
+  std::vector<std::string> expected_timestamps(kNum);
+  expected_timestamps[0] = Timestamp(0, 0);
+
+  size_t batch_size = kNum;
+  std::vector<std::string> key_strs(batch_size);
+  std::vector<Slice> keys(batch_size);
+  std::vector<PinnableSlice> values(batch_size);
+  std::vector<Status> statuses(batch_size);
+  std::vector<std::string> timestamps(batch_size);
+  for (int i = 0; i < kNum; ++i) {
+    key_strs[i] = Key1(i);
+    keys[i] = key_strs[i];
+  }
+
+  auto verify = [&] {
+    db_->MultiGet(read_opts, db_->DefaultColumnFamily(), batch_size,
+                  keys.data(), values.data(), timestamps.data(),
+                  statuses.data(), true /* sorted_input */);
+    std::string value, timestamp;
+    Status s;
+    for (int i = 0; i < kNum; ++i) {
+      s = db_->Get(read_opts, Key1(i), &value, &timestamp);
+      ASSERT_EQ(s, expected_status[i]);
+      ASSERT_EQ(statuses[i], expected_status[i]);
+      if (s.ok()) {
+        ASSERT_EQ(value, expected_values[i]);
+        ASSERT_EQ(values[i], expected_values[i]);
+      }
+      if (!timestamp.empty()) {
+        ASSERT_EQ(timestamp, expected_timestamps[i]);
+        ASSERT_EQ(timestamps[i], expected_timestamps[i]);
+      } else {
+        ASSERT_TRUE(timestamps[i].empty());
+      }
+    }
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    std::unique_ptr<Iterator> iter_for_seek(db_->NewIterator(read_opts));
+    iter->SeekToFirst();
+    for (int i = 0; i < kNum; ++i) {
+      if (expected_status[i].ok()) {
+        auto verify_iter = [&](Iterator* iter_ptr) {
+          ASSERT_TRUE(iter_ptr->Valid());
+          ASSERT_EQ(iter_ptr->key(), keys[i]);
+          ASSERT_EQ(iter_ptr->value(), expected_values[i]);
+          ASSERT_EQ(iter_ptr->timestamp(), expected_timestamps[i]);
+        };
+        verify_iter(iter.get());
+        iter->Next();
+
+        iter_for_seek->Seek(keys[i]);
+        verify_iter(iter_for_seek.get());
+
+        iter_for_seek->SeekForPrev(keys[i]);
+        verify_iter(iter_for_seek.get());
+      }
+    }
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  };
+
+  verify();
+
+  // snapshot before tombstone and ts after tombstone
+  read_ts_str = Timestamp(kNum, 0);  // (4, 0)
+  read_ts = read_ts_str;
+  read_opts.timestamp = &read_ts;
+  read_opts.snapshot = before_tombstone;
+  expected_status[1] = Status::OK();
+  expected_timestamps[1] = Timestamp(1, 0);
+  expected_values[1] = "val" + std::to_string(1);
+  verify();
+
+  // snapshot after tombstone and ts before tombstone
+  read_ts_str = Timestamp(kRangeBegin - 1, 0);  // (0, 0)
+  read_ts = read_ts_str;
+  read_opts.timestamp = &read_ts;
+  read_opts.snapshot = after_tombstone;
+  expected_status[1] = Status::NotFound();
+  expected_timestamps[1].clear();
+  expected_values[1].clear();
+  verify();
+
+  // snapshot and ts after tombstone
+  read_ts_str = Timestamp(kNum, 0);  // (4, 0)
+  read_ts = read_ts_str;
+  read_opts.timestamp = &read_ts;
+  read_opts.snapshot = after_tombstone;
+  for (int i = 0; i < kNum; ++i) {
+    if (i == kRangeBegin) {
+      expected_status[i] = Status::NotFound();
+      expected_values[i].clear();
+    } else {
+      expected_status[i] = Status::OK();
+      expected_values[i] = "val" + std::to_string(i);
+    }
+    expected_timestamps[i] = Timestamp(i, 0);
+  }
+  verify();
+
+  db_->ReleaseSnapshot(before_tombstone);
+  db_->ReleaseSnapshot(after_tombstone);
+  Close();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

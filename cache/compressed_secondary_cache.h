@@ -15,6 +15,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/compression.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -22,7 +23,7 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
  public:
   CompressedSecondaryCacheResultHandle(void* value, size_t size)
       : value_(value), size_(size) {}
-  virtual ~CompressedSecondaryCacheResultHandle() override = default;
+  ~CompressedSecondaryCacheResultHandle() override = default;
 
   CompressedSecondaryCacheResultHandle(
       const CompressedSecondaryCacheResultHandle&) = delete;
@@ -78,7 +79,7 @@ class CompressedSecondaryCache : public SecondaryCache {
       CompressionType compression_type = CompressionType::kLZ4Compression,
       uint32_t compress_format_version = 2,
       bool enable_custom_split_merge = false);
-  virtual ~CompressedSecondaryCache() override;
+  ~CompressedSecondaryCache() override;
 
   const char* Name() const override { return "CompressedSecondaryCache"; }
 
@@ -94,6 +95,10 @@ class CompressedSecondaryCache : public SecondaryCache {
   void Erase(const Slice& key) override;
 
   void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
+
+  Status SetCapacity(size_t capacity) override;
+
+  Status GetCapacity(size_t& capacity) override;
 
   std::string GetPrintableOptions() const override;
 
@@ -116,7 +121,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   // are stored in CacheValueChunk and extra charge is needed for each chunk,
   // so the cache charge is recalculated here.
   CacheValueChunk* SplitValueIntoChunks(const Slice& value,
-                                        const CompressionType compression_type,
+                                        CompressionType compression_type,
                                         size_t& charge);
 
   // After merging chunks, the extra charge for each chunk is removed, so
@@ -128,6 +133,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   static Cache::DeleterFn GetDeletionCallback(bool enable_custom_split_merge);
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
+  mutable port::Mutex capacity_mutex_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

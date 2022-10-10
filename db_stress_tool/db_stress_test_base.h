@@ -9,6 +9,7 @@
 
 #ifdef GFLAGS
 #pragma once
+
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 
@@ -231,6 +232,13 @@ class StressTest {
                          int64_t key, Slice value_from_db,
                          Slice value_from_expected) const;
 
+  void VerificationAbort(SharedState* shared, int cf, int64_t key,
+                         const Slice& value, const WideColumns& columns,
+                         const WideColumns& expected_columns) const;
+
+  static std::string DebugString(const Slice& value, const WideColumns& columns,
+                                 const WideColumns& expected_columns);
+
   void PrintEnv() const;
 
   void Open(SharedState* shared);
@@ -244,7 +252,8 @@ class StressTest {
                                    TransactionDBOptions& /*txn_db_opts*/) {}
 #endif
 
-  void MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+  // Returns whether the timestamp of read_opts is updated.
+  bool MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
                                             std::string& ts_str,
                                             Slice& ts_slice,
                                             ReadOptions& read_opts);

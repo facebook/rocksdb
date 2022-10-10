@@ -221,7 +221,7 @@ Compaction::Compaction(
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
       output_level_(_output_level),
-      max_output_file_size_(_target_file_size),
+      target_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
       max_subcompactions_(_max_subcompactions),
       immutable_options_(_immutable_options),
@@ -267,6 +267,14 @@ Compaction::Compaction(
   if (max_subcompactions_ == 0) {
     max_subcompactions_ = _mutable_db_options.max_subcompactions;
   }
+
+  // for the non-bottommost levels, it tries to build files match the target
+  // file size, but not guaranteed. It could be 2x the size of the target size.
+  max_output_file_size_ =
+      bottommost_level_ || grandparents_.empty() ||
+              !_immutable_options.level_compaction_dynamic_file_size
+          ? target_output_file_size_
+          : 2 * target_output_file_size_;
 
 #ifndef NDEBUG
   for (size_t i = 1; i < inputs_.size(); ++i) {
@@ -334,6 +342,8 @@ bool Compaction::SupportsPerKeyPlacement() const {
 
 int Compaction::GetPenultimateLevel() const { return penultimate_level_; }
 
+// smallest_key and largest_key include timestamps if user-defined timestamp is
+// enabled.
 bool Compaction::OverlapPenultimateLevelOutputRange(
     const Slice& smallest_key, const Slice& largest_key) const {
   if (!SupportsPerKeyPlacement()) {
@@ -342,11 +352,13 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
   const Comparator* ucmp =
       input_vstorage_->InternalComparator()->user_comparator();
 
-  return ucmp->Compare(smallest_key, penultimate_level_largest_user_key_) <=
-             0 &&
-         ucmp->Compare(largest_key, penultimate_level_smallest_user_key_) >= 0;
+  return ucmp->CompareWithoutTimestamp(
+             smallest_key, penultimate_level_largest_user_key_) <= 0 &&
+         ucmp->CompareWithoutTimestamp(
+             largest_key, penultimate_level_smallest_user_key_) >= 0;
 }
 
+// key includes timestamp if user-defined timestamp is enabled.
 bool Compaction::WithinPenultimateLevelOutputRange(const Slice& key) const {
   if (!SupportsPerKeyPlacement()) {
     return false;
@@ -355,8 +367,10 @@ bool Compaction::WithinPenultimateLevelOutputRange(const Slice& key) const {
   const Comparator* ucmp =
       input_vstorage_->InternalComparator()->user_comparator();
 
-  return ucmp->Compare(key, penultimate_level_smallest_user_key_) >= 0 &&
-         ucmp->Compare(key, penultimate_level_largest_user_key_) <= 0;
+  return ucmp->CompareWithoutTimestamp(
+             key, penultimate_level_smallest_user_key_) >= 0 &&
+         ucmp->CompareWithoutTimestamp(
+             key, penultimate_level_largest_user_key_) <= 0;
 }
 
 bool Compaction::InputCompressionMatchesOutput() const {

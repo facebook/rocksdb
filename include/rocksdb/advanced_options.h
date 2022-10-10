@@ -271,7 +271,10 @@ struct AdvancedColumnFamilyOptions {
   // read amplification because a get request has to check in all of these
   // files. Also, an in-memory merge may result in writing lesser
   // data to storage if there are duplicate records in each of these
-  // individual write buffers.  Default: 1
+  // individual write buffers.
+  // If atomic flush is enabled (options.atomic_flush == true), then this
+  // option will be sanitized to 1.
+  // Default: 1
   int min_write_buffer_number_to_merge = 1;
 
   // DEPRECATED
@@ -648,6 +651,15 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool level_compaction_dynamic_level_bytes = false;
 
+  // Allows RocksDB to generate files that are not exactly the target_file_size
+  // only for the non-bottommost files. Which can reduce the write-amplification
+  // from compaction. The file size could be from 0 to 2x target_file_size.
+  // Once enabled, non-bottommost compaction will try to cut the files align
+  // with the next level file boundaries (grandparent level).
+  //
+  // Default: true
+  bool level_compaction_dynamic_file_size = true;
+
   // Default: 10.
   //
   // Dynamically changeable through SetOptions() API
@@ -899,7 +911,32 @@ struct AdvancedColumnFamilyOptions {
   //  size constrained, the size amp is going to be only for non-last levels.
   //
   // Default: 0 (disable the feature)
+  //
+  // Not dynamically changeable, change it requires db restart.
   uint64_t preclude_last_level_data_seconds = 0;
+
+  // EXPERIMENTAL
+  // If this option is set, it will preserve the internal time information about
+  // the data until it's older than the specified time here.
+  // Internally the time information is a map between sequence number and time,
+  // which is the same as `preclude_last_level_data_seconds`. But it won't
+  // preclude the data from the last level and the data in the last level won't
+  // have the sequence number zeroed out.
+  // Internally, rocksdb would sample the sequence number to time pair and store
+  // that in SST property "rocksdb.seqno.time.map". The information is currently
+  // only used for tiered storage compaction (option
+  // `preclude_last_level_data_seconds`).
+  //
+  // Note: if both `preclude_last_level_data_seconds` and this option is set, it
+  //  will preserve the max time of the 2 options and compaction still preclude
+  //  the data based on `preclude_last_level_data_seconds`.
+  //  The higher the preserve_time is, the less the sampling frequency will be (
+  //  which means less accuracy of the time estimation).
+  //
+  // Default: 0 (disable the feature)
+  //
+  // Not dynamically changeable, change it requires db restart.
+  uint64_t preserve_internal_time_seconds = 0;
 
   // When set, large values (blobs) are written to separate blob files, and
   // only pointers to them are stored in SST files. This can reduce write
