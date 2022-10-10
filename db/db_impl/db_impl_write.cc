@@ -1796,7 +1796,8 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     // might wait here indefinitely as the background compaction may never
     // finish successfully, resulting in the stall condition lasting
     // indefinitely
-    while (error_handler_.GetBGError().ok() && write_controller_.IsStopped()) {
+    while (error_handler_.GetBGError().ok() && write_controller_.IsStopped() &&
+           !shutting_down_.load(std::memory_order_relaxed)) {
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
       }
@@ -1822,9 +1823,13 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
   // proceed
   Status s;
   if (write_controller_.IsStopped()) {
-    // If writes are still stopped, it means we bailed due to a background
-    // error
-    s = Status::Incomplete(error_handler_.GetBGError().ToString());
+    if (!shutting_down_.load(std::memory_order_relaxed)) {
+      // If writes are still stopped and db not shutdown, it means we bailed
+      // due to a background error
+      s = Status::Incomplete(error_handler_.GetBGError().ToString());
+    } else {
+      s = Status::ShutdownInProgress("stalled writes");
+    }
   }
   if (error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();
