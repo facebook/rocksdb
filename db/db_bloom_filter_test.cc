@@ -2528,7 +2528,9 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
 
   // Now we have three sorted run, L0, L5 and L6 with most files in L6 have
   // no bloom filter. Most keys be checked bloom filters twice.
-  ASSERT_GT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 65000 * 2);
+  // But L5 SSTs may only cover small range of keys, so only L0 filter is
+  // guaranteed to be hit (USEFUL).
+  ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 100000);
   ASSERT_LT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 120000 * 2);
   uint64_t bloom_filter_useful_all_levels = 0;
   for (auto& kv : (*(get_perf_context()->level_to_perf_context))) {
