@@ -7217,24 +7217,25 @@ TEST_F(DBTest, ShuttingDownNotBlockStalledWrites) {
   Reopen(options);
   Random rnd(403);
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:1",
-      [&](void* /* arg */) { env_->SleepForMicroseconds(2 * 1000 * 1000); });
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::DelayWrite:Wait",
-        "DBTest::ShuttingDownNotBlockStalledWrites"}});
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
   for (int i = 0; i < 20; i++) {
-    for (int j = 0; j < 100; j++) {
-      std::string value = rnd.RandomString(1000);
-      ASSERT_OK(Put("key_" + std::to_string(j), value));
-    }
-    Flush();
+    ASSERT_OK(Put("key_" + std::to_string(i), rnd.RandomString(10)));
+    ASSERT_OK(Flush());
   }
   ASSERT_EQ(GetSstFileCount(dbname_), 20);
+
+  // We need !disable_auto_compactions for writes to stall but also want to
+  // delay compaction so stalled writes unblocked due to kShutdownInProgress. BG
+  // compaction will first wait for the sync point
+  // DBTest::ShuttingDownNotBlockStalledWrites. Then it waits extra 2 sec to
+  // allow CancelAllBackgroundWork() to set shutting_down_.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0",
+      [&](void* /* arg */) { env_->SleepForMicroseconds(2 * 1000 * 1000); });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::DelayWrite:Wait", "DBTest::ShuttingDownNotBlockStalledWrites"},
+       {"DBTest::ShuttingDownNotBlockStalledWrites",
+        "BackgroundCallCompaction:0"}});
+  SyncPoint::GetInstance()->EnableProcessing();
 
   options.level0_stop_writes_trigger = 20;
   options.disable_auto_compactions = false;
@@ -7247,7 +7248,6 @@ TEST_F(DBTest, ShuttingDownNotBlockStalledWrites) {
 
   TEST_SYNC_POINT("DBTest::ShuttingDownNotBlockStalledWrites");
   CancelAllBackgroundWork(db_, true);
-  LogFlush(options.info_log);
 
   thd.join();
 }
