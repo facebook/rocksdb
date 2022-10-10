@@ -108,6 +108,7 @@ class MergeHelper {
   // in the constructor. Returns the decision that the filter made.
   // Uses compaction_filter_value_ and compaction_filter_skip_until_ for the
   // optional outputs of compaction filter.
+  // user_key includes timestamp if user-defined timestamp is enabled.
   CompactionFilter::Decision FilterMerge(const Slice& user_key,
                                          const Slice& value_slice);
 

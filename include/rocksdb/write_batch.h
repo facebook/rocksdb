@@ -172,10 +172,7 @@ class WriteBatch : public WriteBatchBase {
     return Merge(nullptr, key, value);
   }
   Status Merge(ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
-               const Slice& /*ts*/, const Slice& /*value*/) override {
-    return Status::NotSupported(
-        "Merge does not support user-defined timestamp");
-  }
+               const Slice& /*ts*/, const Slice& /*value*/) override;
 
   // variant that takes SliceParts
   Status Merge(ColumnFamilyHandle* column_family, const SliceParts& key,

@@ -18,6 +18,7 @@
 #endif
 #include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace ROCKSDB_NAMESPACE {
 class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
@@ -3688,6 +3689,25 @@ TEST_F(DBBasicTestWithTimestamp, DeleteRangeGetIteratorWithSnapshot) {
 
   db_->ReleaseSnapshot(before_tombstone);
   db_->ReleaseSnapshot(after_tombstone);
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, MergeBasic) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.merge_operator = std::make_shared<StringAppendTESTOperator>('.');
+  DestroyAndReopen(options);
+
+  Status s = db_->Put(WriteOptions(), "foo", Timestamp(1, 0), "v0");
+  ASSERT_OK(s);
+
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+  s = db_->Merge(WriteOptions(), default_cf, "foo", Timestamp(2, 0), "1");
+  ASSERT_OK(s);
+
   Close();
 }
 }  // namespace ROCKSDB_NAMESPACE
