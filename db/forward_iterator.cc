@@ -461,6 +461,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       }
 
       if (l0_iters_[i]->status().IsTryAgain()) {
+        assert(!seek_after_async_io);
         continue;
       } else if (!l0_iters_[i]->status().ok()) {
         immutable_status_ = l0_iters_[i]->status();
@@ -504,6 +505,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
                       : level_iters_[level - 1]->Seek(internal_key);
 
         if (level_iters_[level - 1]->status().IsTryAgain()) {
+          assert(!seek_after_async_io);
           continue;
         } else if (!level_iters_[level - 1]->status().ok()) {
           immutable_status_ = level_iters_[level - 1]->status();
