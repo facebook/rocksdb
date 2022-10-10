@@ -189,10 +189,8 @@ public class RocksDBTest {
          final WriteOptions opt = new WriteOptions(); final ReadOptions optr = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put(opt, "key2".getBytes(), "12345678".getBytes());
-      assertThat(db.get("key1".getBytes())).isEqualTo(
-          "value".getBytes());
-      assertThat(db.get("key2".getBytes())).isEqualTo(
-          "12345678".getBytes());
+      assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("12345678".getBytes());
 
       ByteBuffer key = ByteBuffer.allocateDirect(12);
       ByteBuffer value = ByteBuffer.allocateDirect(12);
@@ -247,6 +245,83 @@ public class RocksDBTest {
       // compare
       Assert.assertTrue(value0.isSamePayload(db.get(key3.data, key3.offset, key3.len)));
       Assert.assertTrue(value1.isSamePayload(db.get(key4.data, key4.offset, key4.len)));
+    }
+  }
+
+  @Test
+  public void putCF() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteOptions opt = new WriteOptions(); final ReadOptions optr = new ReadOptions()) {
+      final List<ColumnFamilyHandle> cfHandles;
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor("cf1".getBytes()));
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor("cf2".getBytes()));
+      cfHandles = db.createColumnFamilies(columnFamilyDescriptors);
+      ColumnFamilyHandle cf0 = cfHandles.get(0);
+      ColumnFamilyHandle cf1 = cfHandles.get(1);
+
+      db.put(cf0, "key1".getBytes(), "value".getBytes());
+      db.put(cf0, opt, "key2".getBytes(), "12345678".getBytes());
+      assertThat(db.get(cf0, "key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get(cf0, "key2".getBytes())).isEqualTo("12345678".getBytes());
+
+      ByteBuffer key = ByteBuffer.allocateDirect(12);
+      ByteBuffer value = ByteBuffer.allocateDirect(12);
+      key.position(4);
+      key.put("key3".getBytes());
+      key.position(4).limit(8);
+      value.position(4);
+      value.put("val3".getBytes());
+      value.position(4).limit(8);
+
+      db.put(cf0, opt, key, value);
+
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+
+      assertThat(value.position()).isEqualTo(8);
+      assertThat(value.limit()).isEqualTo(8);
+
+      key.position(4);
+
+      ByteBuffer result = ByteBuffer.allocateDirect(12);
+      assertThat(db.get(cf0, optr, key, result)).isEqualTo(4);
+      assertThat(result.position()).isEqualTo(0);
+      assertThat(result.limit()).isEqualTo(4);
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+
+      byte[] tmp = new byte[4];
+      result.get(tmp);
+      assertThat(tmp).isEqualTo("val3".getBytes());
+
+      key.position(4);
+
+      result.clear().position(9);
+      assertThat(db.get(cf0, optr, key, result)).isEqualTo(4);
+      assertThat(db.get(cf1, optr, key, result)).isEqualTo(RocksDB.NOT_FOUND);
+      assertThat(db.get(optr, key, result)).isEqualTo(RocksDB.NOT_FOUND);
+      assertThat(result.position()).isEqualTo(9);
+      assertThat(result.limit()).isEqualTo(12);
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+      byte[] tmp2 = new byte[3];
+      result.get(tmp2);
+      assertThat(tmp2).isEqualTo("val".getBytes());
+
+      // put
+      Segment key3 = sliceSegment("key3");
+      Segment key4 = sliceSegment("key4");
+      Segment value0 = sliceSegment("value 0");
+      Segment value1 = sliceSegment("value 1");
+      db.put(cf0, key3.data, key3.offset, key3.len, value0.data, value0.offset, value0.len);
+      db.put(cf0, opt, key4.data, key4.offset, key4.len, value1.data, value1.offset, value1.len);
+
+      // compare
+      Assert.assertTrue(value0.isSamePayload(db.get(cf0, key3.data, key3.offset, key3.len)));
+      Assert.assertNull(db.get(cf1, key3.data, key3.offset, key3.len));
+      Assert.assertTrue(value1.isSamePayload(db.get(cf0, key4.data, key4.offset, key4.len)));
+      Assert.assertNull(db.get(cf1, key4.data, key4.offset, key4.len));
     }
   }
 
