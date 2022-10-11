@@ -261,11 +261,20 @@ class CompactionOutputs {
           Status s =
               close_file_func(*this, status, range_tombstone_limit_->Encode());
           if (!s.ok()) {
-            return s;
+            if (status.ok()) {
+              status = s;
+            }
+            break;
           }
           range_tombstone_lower_bound_ = *range_tombstone_limit_;
           UpdateRangeTombstoneLimit(icmp, range_tombstone_limit_->Encode());
           s = open_file_func(*this);
+          if (!s.ok()) {
+            if (status.ok()) {
+              status = s;
+            }
+            break;
+          }
         }
       }
       assert(HasBuilder());
