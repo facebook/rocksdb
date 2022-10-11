@@ -347,8 +347,14 @@ Status CompactionOutputs::AddToOutput(
     const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func) {
   Status s;
+  bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
+  if (is_range_del && compaction_->bottommost_level()) {
+    // We don't consider range tombstone for bottommost level since:
+    // 1. there is no grandparent and hence no overlap to consider
+    // 2. range tombstone may be dropped at bottommost level.
+    return s;
+  }
   const Slice& key = c_iter.key();
-
   if (ShouldStopBefore(c_iter) && HasBuilder()) {
     s = close_file_func(*this, c_iter.InputStatus(), key);
     if (!s.ok()) {
@@ -358,6 +364,13 @@ Status CompactionOutputs::AddToOutput(
     grandparent_boundary_switched_num_ = 0;
     grandparent_overlapped_bytes_ =
         GetCurrentKeyGrandparentOverlappedBytes(key);
+    if (UNLIKELY(is_range_del)) {
+      // lower bound for this new output file, this is needed as the lower bound
+      // does not come from the smallest point key in this case.
+      range_tombstone_lower_bound_.DecodeFrom(key);
+    } else {
+      range_tombstone_lower_bound_.Clear();
+    }
   }
 
   // Open output file if necessary
@@ -366,6 +379,17 @@ Status CompactionOutputs::AddToOutput(
     if (!s.ok()) {
       return s;
     }
+  }
+
+  // c_iter may emit range deletion keys, so update `last_key_for_partitioner_`
+  // here before returning below when `is_range_del` is true
+  if (partitioner_) {
+    last_key_for_partitioner_.assign(c_iter.user_key().data_,
+                                     c_iter.user_key().size_);
+  }
+
+  if (UNLIKELY(is_range_del)) {
+    return s;
   }
 
   assert(builder_ != nullptr);
@@ -391,13 +415,31 @@ Status CompactionOutputs::AddToOutput(
   s = current_output().meta.UpdateBoundaries(key, value, ikey.sequence,
                                              ikey.type);
 
-  if (partitioner_) {
-    last_key_for_partitioner_.assign(c_iter.user_key().data_,
-                                     c_iter.user_key().size_);
-  }
-
   return s;
 }
+
+namespace {
+    void SetMaxSeqAndTs(InternalKey &internal_key, const Slice &user_key, const size_t ts_sz) {
+      // next_table_min_key as upper bound
+        if (ts_sz) {
+          // TODO: unit test for this case
+          static constexpr char kTsMax[] =
+              "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+          if (ts_sz <= strlen(kTsMax)) {
+            internal_key = InternalKey(
+                user_key, kMaxSequenceNumber,
+                kTypeRangeDeletion, Slice(kTsMax, ts_sz));
+          } else {
+            internal_key = InternalKey(
+                user_key, kMaxSequenceNumber,
+                kTypeRangeDeletion, std::string(ts_sz, '\xff'));
+          }
+        } else {
+          internal_key.Set(user_key, kMaxSequenceNumber, kTypeRangeDeletion);
+        }
+    }
+}
+
 
 Status CompactionOutputs::AddRangeDels(
     const Slice* comp_start_user_key, const Slice* comp_end_user_key,
@@ -407,7 +449,6 @@ Status CompactionOutputs::AddRangeDels(
   assert(HasRangeDel());
   FileMetaData& meta = current_output().meta;
   const Comparator* ucmp = icmp.user_comparator();
-
   InternalKey lower_bound_buf, upper_bound_buf;
   Slice lower_bound_guard, upper_bound_guard;
   std::string smallest_user_key;
@@ -461,8 +502,14 @@ Status CompactionOutputs::AddRangeDels(
     //
     // If this compaction output is range tombstone only, then output size
     // should be 1, and it would not enter this else branch.
-    assert(meta.smallest.size() > 0);
-    lower_bound_guard = meta.smallest.Encode();
+    if (range_tombstone_lower_bound_.size() > 0) {
+      assert(meta.smallest.size() == 0 ||
+             icmp.Compare(range_tombstone_lower_bound_, meta.smallest) < 0);
+      lower_bound_guard = range_tombstone_lower_bound_.Encode();
+    } else {
+      assert(meta.smallest.size() > 0);
+      lower_bound_guard = meta.smallest.Encode();
+    }
     lower_bound = &lower_bound_guard;
   }
 
@@ -484,31 +531,28 @@ Status CompactionOutputs::AddRangeDels(
     ParsedInternalKey next_table_min_key_parsed;
     ParseInternalKey(next_table_min_key, &next_table_min_key_parsed, false /* log_err_key */).PermitUncheckedError();
     assert(next_table_min_key_parsed.sequence < kMaxSequenceNumber);
-    // This compaction output is not range tombstone only.
-    assert(meta.largest.size() > 0 && icmp.Compare(meta.largest.Encode(), next_table_min_key) < 0);
-    if (ucmp->EqualWithoutTimestamp(meta.largest.user_key(), next_table_min_key_parsed.user_key)) {
-      upper_bound_guard = meta.largest.Encode();
-      upper_bound = &upper_bound_guard;
+    assert(meta.largest.size() == 0 || icmp.Compare(meta.largest.Encode(), next_table_min_key) < 0);
+    if (meta.largest.size() > 0 && ucmp->EqualWithoutTimestamp(meta.largest.user_key(),
+                                      next_table_min_key_parsed.user_key)) {
+        // TODO: this assumes meta.largest.Encode() lives longer than
+        // upper_bound
+        //  This is only true if meta.largest is never updated.
+        upper_bound_guard = meta.largest.Encode();
+    } else if (lower_bound && ucmp->CompareWithoutTimestamp(
+                                  ExtractUserKey(*lower_bound),
+                                  next_table_min_key_parsed.user_key)) {
+      // There are no in-bounds user keys preceding `next_table_min_key`, and no
+      // point keys in this file either. Leave the file empty.
+      return Status::OK();
     } else {
-      if (ts_sz) {
-        // TODO: unit test for this case
-        static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
-        if (ts_sz <= strlen(kTsMax)) {
-          upper_bound_buf = InternalKey(next_table_min_key_parsed.user_key,
-                                        kMaxSequenceNumber, kTypeRangeDeletion,
-                                        Slice(kTsMax, ts_sz));
-        } else {
-          upper_bound_buf = InternalKey(next_table_min_key_parsed.user_key,
-                                        kMaxSequenceNumber, kTypeRangeDeletion,
-                                        std::string(ts_sz, '\xff'));
-        }
-      } else {
-        upper_bound_buf.Set(next_table_min_key_parsed.user_key,
-                            kMaxSequenceNumber, kTypeRangeDeletion);
-      }
+      // meta.largest.size() > 0 and meta.largest.user_key < next_table_min_key.user_key, OR
+      // meta.largest.size() == 0 and (!lower_bound or lower_bound.user_key < next_table_min_key.user_key)
+      //
+      // TODO: unit test for this case, with/without timestamp
+      SetMaxSeqAndTs(upper_bound_buf, next_table_min_key_parsed.user_key, ts_sz);
       upper_bound_guard = upper_bound_buf.Encode();
-      upper_bound = &upper_bound_guard;
     }
+    upper_bound = &upper_bound_guard;
   }
 
   // The end key of the subcompaction must be bigger or equal to the upper
@@ -524,7 +568,6 @@ Status CompactionOutputs::AddRangeDels(
     auto tombstone = it->Tombstone();
     auto kv = tombstone.Serialize();
     InternalKey tombstone_end = tombstone.SerializeEndKey();
-
     // TODO: the underlying iterator should support clamping the bounds.
     if (!reached_lower_bound && lower_bound && icmp.Compare(tombstone_end.Encode(), *lower_bound) < 0) {
       continue;
