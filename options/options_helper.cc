@@ -314,6 +314,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->blob_cache = ioptions.blob_cache;
   cf_opts->preclude_last_level_data_seconds =
       ioptions.preclude_last_level_data_seconds;
+  cf_opts->preserve_internal_time_seconds =
+      ioptions.preserve_internal_time_seconds;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size

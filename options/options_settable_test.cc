@@ -403,6 +403,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
       {offsetof(struct ColumnFamilyOptions, preclude_last_level_data_seconds),
        sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, preserve_internal_time_seconds),
+       sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, blob_cache),
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
@@ -532,6 +534,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
       "preclude_last_level_data_seconds=86400;"
+      "preserve_internal_time_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;age_for_warm=1;};"
       "blob_cache=1M;"

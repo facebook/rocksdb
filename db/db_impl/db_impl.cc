@@ -847,11 +847,13 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
     InstrumentedMutexLock l(&mutex_);
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      uint64_t preclude_last_option =
-          cfd->ioptions()->preclude_last_level_data_seconds;
-      if (!cfd->IsDropped() && preclude_last_option > 0) {
-        min_time_duration = std::min(preclude_last_option, min_time_duration);
-        max_time_duration = std::max(preclude_last_option, max_time_duration);
+      // preserve time is the max of 2 options.
+      uint64_t preserve_time_duration =
+          std::max(cfd->ioptions()->preserve_internal_time_seconds,
+                   cfd->ioptions()->preclude_last_level_data_seconds);
+      if (!cfd->IsDropped() && preserve_time_duration > 0) {
+        min_time_duration = std::min(preserve_time_duration, min_time_duration);
+        max_time_duration = std::max(preserve_time_duration, max_time_duration);
       }
     }
     if (min_time_duration == std::numeric_limits<uint64_t>::max()) {
@@ -3103,7 +3105,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
-  if (cf_options.preclude_last_level_data_seconds > 0) {
+  if (cf_options.preserve_internal_time_seconds > 0 ||
+      cf_options.preclude_last_level_data_seconds > 0) {
     s = RegisterRecordSeqnoTimeWorker();
   }
   sv_context.Clean();
@@ -3194,7 +3197,8 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     bg_cv_.SignalAll();
   }
 
-  if (cfd->ioptions()->preclude_last_level_data_seconds > 0) {
+  if (cfd->ioptions()->preserve_internal_time_seconds > 0 ||
+      cfd->ioptions()->preclude_last_level_data_seconds > 0) {
     s = RegisterRecordSeqnoTimeWorker();
   }
 

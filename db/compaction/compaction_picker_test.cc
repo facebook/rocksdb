@@ -3656,6 +3656,63 @@ TEST_P(PerKeyPlacementCompactionPickerTest, NormalCompactionOverlapUniversal) {
                 input_files, 5));
 }
 
+TEST_P(PerKeyPlacementCompactionPickerTest, PenultimateOverlapUniversal) {
+  // This test is make sure the Tiered compaction would lock whole range of
+  // both output level and penultimate level
+  if (enable_per_key_placement_) {
+    ioptions_.preclude_last_level_data_seconds = 10000;
+  }
+
+  int num_levels = ioptions_.num_levels;
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  NewVersionStorage(num_levels, kCompactionStyleUniversal);
+
+  // L4:   [200, 220]  [230, 250]       [360, 380]
+  // L5:
+  // L6: [101,                    351]
+  Add(4, 40U, "200", "220", 60000000U);
+  Add(4, 41U, "230", "250", 60000000U);
+  Add(4, 42U, "360", "380", 60000000U);
+  Add(6, 50U, "101", "351", 60000000U);
+  UpdateVersionStorageInfo();
+
+  // the existing compaction is the 1st L4 file + L6 file
+  // then compaction of the 2nd L4 file to L5 (penultimate level) is overlapped
+  // when the tiered compaction feature is on.
+  CompactionOptions comp_options;
+  std::unordered_set<uint64_t> input_set;
+  input_set.insert(40);
+  input_set.insert(50);
+  std::vector<CompactionInputFiles> input_files;
+  ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
+      &input_files, &input_set, vstorage_.get(), comp_options));
+
+  std::unique_ptr<Compaction> comp1(universal_compaction_picker.CompactFiles(
+      comp_options, input_files, 6, vstorage_.get(), mutable_cf_options_,
+      mutable_db_options_, 0));
+
+  input_set.clear();
+  input_files.clear();
+  input_set.insert(41);
+  ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
+      &input_files, &input_set, vstorage_.get(), comp_options));
+
+  ASSERT_EQ(enable_per_key_placement_,
+            universal_compaction_picker.FilesRangeOverlapWithCompaction(
+                input_files, 5));
+
+  // compacting the 3rd L4 file is always safe:
+  input_set.clear();
+  input_files.clear();
+  input_set.insert(42);
+  ASSERT_OK(universal_compaction_picker.GetCompactionInputsFromFileNumbers(
+      &input_files, &input_set, vstorage_.get(), comp_options));
+
+  ASSERT_FALSE(universal_compaction_picker.FilesRangeOverlapWithCompaction(
+      input_files, 5));
+}
+
 INSTANTIATE_TEST_CASE_P(PerKeyPlacementCompactionPickerTest,
                         PerKeyPlacementCompactionPickerTest, ::testing::Bool());
 

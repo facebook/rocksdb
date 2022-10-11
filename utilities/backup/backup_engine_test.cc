@@ -4150,13 +4150,19 @@ TEST_F(BackupEngineTest, FileTemperatures) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
     // Verify requested temperatures against manifest temperatures (before
-    // backup finds out current temperatures in FileSystem)
+    // retry with kUnknown if needed, and before backup finds out current
+    // temperatures in FileSystem)
     std::vector<std::pair<uint64_t, Temperature>> requested_temps;
     my_db_fs->PopRequestedSstFileTemperatures(&requested_temps);
     std::set<uint64_t> distinct_requests;
     for (const auto& requested_temp : requested_temps) {
-      // Matching manifest temperatures
-      ASSERT_EQ(manifest_temps.at(requested_temp.first), requested_temp.second);
+      // Matching manifest temperatures, except allow retry request with
+      // kUnknown
+      auto manifest_temp = manifest_temps.at(requested_temp.first);
+      if (manifest_temp == Temperature::kUnknown ||
+          requested_temp.second != Temperature::kUnknown) {
+        ASSERT_EQ(manifest_temp, requested_temp.second);
+      }
       distinct_requests.insert(requested_temp.first);
     }
     // Two distinct requests

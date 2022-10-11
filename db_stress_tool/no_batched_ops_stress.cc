@@ -706,6 +706,17 @@ class NonBatchedOpsStressTest : public StressTest {
          iter->Next()) {
       ++count;
 
+      // When iter_start_ts is set, iterator exposes internal keys, including
+      // tombstones; however, we want to perform column validation only for
+      // value-like types.
+      if (ro_copy.iter_start_ts) {
+        const ValueType value_type = ExtractValueType(iter->key());
+        if (value_type != kTypeValue && value_type != kTypeBlobIndex &&
+            value_type != kTypeWideColumnEntity) {
+          continue;
+        }
+      }
+
       const WideColumns expected_columns = GenerateExpectedWideColumns(
           GetValueBase(iter->value()), iter->value());
       if (iter->columns() != expected_columns) {
