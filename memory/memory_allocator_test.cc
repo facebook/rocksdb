@@ -212,6 +212,18 @@ TEST_F(CreateMemoryAllocatorTest, NewJemallocNodumpAllocator) {
   ASSERT_EQ(opts->limit_tcache_size, jopts.limit_tcache_size);
 }
 
+#ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
+TEST(JemallocNodumpAllocatorTest, LimitCacheSize) {
+  std::shared_ptr<MemoryAllocator> allocator;
+  JemallocAllocatorOptions options;
+  options.limit_tcache_size = true;
+  ASSERT_OK(NewJemallocNodumpAllocator(options, &allocator));
+  auto ptr = allocator->Allocate(1024);
+  EXPECT_GE(allocator->UsableSize(ptr, 1024), 1024);
+  allocator->Deallocate(ptr);
+}
+#endif
+
 INSTANTIATE_TEST_CASE_P(DefaultMemoryAllocator, MemoryAllocatorTest,
                         ::testing::Values(std::make_tuple(
                             DefaultMemoryAllocator::kClassName(), true)));

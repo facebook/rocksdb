@@ -69,7 +69,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
 
   // Get or create tcache. Return flag suitable to use with `mallocx`:
   // either MALLOCX_TCACHE_NONE or MALLOCX_TCACHE(tc).
-  int GetThreadSpecificCache(size_t size);
+  int GetThreadSpecificCache(size_t size) const;
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
   JemallocAllocatorOptions options_;
 
@@ -85,7 +85,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   std::unique_ptr<extent_hooks_t> arena_hooks_;
 
   // Hold thread-local tcache index.
-  ThreadLocalPtr tcache_;
+  mutable ThreadLocalPtr tcache_;
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
   // Arena index.

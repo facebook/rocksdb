@@ -85,9 +85,10 @@ JemallocNodumpAllocator::~JemallocNodumpAllocator() {
   }
 }
 
-size_t JemallocNodumpAllocator::UsableSize(void* p,
-                                           size_t /*allocation_size*/) const {
-  return malloc_usable_size(static_cast<void*>(p));
+size_t JemallocNodumpAllocator::UsableSize(void* /*p*/,
+                                           size_t allocation_size) const {
+  int tcache_flag = GetThreadSpecificCache(allocation_size);
+  return nallocx(allocation_size, MALLOCX_ARENA(arena_index_) | tcache_flag);
 }
 
 void* JemallocNodumpAllocator::Allocate(size_t size) {
@@ -99,7 +100,8 @@ void JemallocNodumpAllocator::Deallocate(void* p) {
   // Obtain tcache.
   size_t size = 0;
   if (options_.limit_tcache_size) {
-    size = malloc_usable_size(p);
+    // flags are not used in sallocx, so passing 0 value here
+    size = sallocx(p, 0 /* flags */);
   }
   int tcache_flag = GetThreadSpecificCache(size);
   // No need to pass arena index to dallocx(). Jemalloc will find arena index
@@ -178,7 +180,7 @@ Status JemallocNodumpAllocator::PrepareOptions(
 }
 
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
-int JemallocNodumpAllocator::GetThreadSpecificCache(size_t size) {
+int JemallocNodumpAllocator::GetThreadSpecificCache(size_t size) const {
   // We always enable tcache. The only corner case is when there are a ton of
   // threads accessing with low frequency, then it could consume a lot of
   // memory (may reach # threads * ~1MB) without bringing too much benefit.
