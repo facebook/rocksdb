@@ -96,7 +96,7 @@ class CompactionMergingIterator : public InternalIterator {
 
   void SeekToFirst() override;
 
-  void Seek(const rocksdb::Slice& target) override;
+  void Seek(const Slice& target) override;
 
   void Next() override;
 
@@ -136,17 +136,29 @@ class CompactionMergingIterator : public InternalIterator {
   // Compaction uses a subset of InternalIterator interface.
   void SeekToLast() override { assert(false); }
 
-  void SeekForPrev(const rocksdb::Slice&) override { assert(false); }
+  void SeekForPrev(const Slice&) override { assert(false); }
 
   void Prev() override { assert(false); }
 
-  bool NextAndGetResult(IterateResult*) override { assert(false); }
+  bool NextAndGetResult(IterateResult*) override {
+    assert(false);
+    return false;
+  }
 
-  bool IsKeyPinned() const override { assert(false); }
+  bool IsKeyPinned() const override {
+    assert(false);
+    return false;
+  }
 
-  bool IsValuePinned() const override { assert(false); }
+  bool IsValuePinned() const override {
+    assert(false);
+    return false;
+  }
 
-  bool PrepareValue() override { assert(false); }
+  bool PrepareValue() override {
+    assert(false);
+    return false;
+  }
 
  private:
   bool is_arena_mode_;

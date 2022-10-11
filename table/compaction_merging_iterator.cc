@@ -28,7 +28,7 @@ void CompactionMergingIterator::SeekToFirst() {
   current_ = CurrentForward();
 }
 
-void CompactionMergingIterator::Seek(const rocksdb::Slice& target) {
+void CompactionMergingIterator::Seek(const Slice& target) {
   minHeap_.clear();
 
   FindNextVisibleKey();
