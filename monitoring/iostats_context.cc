@@ -10,12 +10,12 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+photon::thread_local_ptr<IOStatsContext> iostats_context;
 #endif
 
 IOStatsContext* get_iostats_context() {
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-  static ThreadLocal<IOStatsContext> iostats_context;
-  return &iostats_context;
+  return iostats_context.operator->();
 #else
   return nullptr;
 #endif

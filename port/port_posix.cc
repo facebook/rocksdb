@@ -131,7 +131,8 @@ void RWMutex::WriteUnlock() { mu_.unlock(); }
 
 // Begins from 1
 int PhysicalCoreID() {
-  return photon::get_vcpu()->id;
+  // return photon::get_vcpu()->id;
+  return 0;
 }
 
 void Crash(const std::string& srcfile, int srcline) {

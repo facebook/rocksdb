@@ -13,27 +13,27 @@ namespace rocksdb {
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
 
-ThreadLocal<ThreadStatusData*> ThreadStatusUpdater::thread_status_data_(nullptr);
+photon::thread_local_ptr<ThreadStatusData*> ThreadStatusUpdater::thread_status_data_;
 
 void ThreadStatusUpdater::RegisterThread(ThreadStatus::ThreadType ttype,
                                          uint64_t thread_id) {
-  if (UNLIKELY((*get_thread_status_data()) == nullptr)) {
-    (*get_thread_status_data()) = new ThreadStatusData();
-    (*get_thread_status_data())->thread_type = ttype;
-    (*get_thread_status_data())->thread_id = thread_id;
+  if (UNLIKELY((*thread_status_data_) == nullptr)) {
+    (*thread_status_data_) = new ThreadStatusData();
+    (*thread_status_data_)->thread_type = ttype;
+    (*thread_status_data_)->thread_id = thread_id;
     std::lock_guard<std::mutex> lck(thread_list_mutex_);
-    thread_data_set_.insert((*get_thread_status_data()));
+    thread_data_set_.insert((*thread_status_data_));
   }
 
   ClearThreadOperationProperties();
 }
 
 void ThreadStatusUpdater::UnregisterThread() {
-  if ((*get_thread_status_data()) != nullptr) {
+  if ((*thread_status_data_) != nullptr) {
     std::lock_guard<std::mutex> lck(thread_list_mutex_);
-    thread_data_set_.erase((*get_thread_status_data()));
-    delete (*get_thread_status_data());
-    (*get_thread_status_data()) = nullptr;
+    thread_data_set_.erase((*thread_status_data_));
+    delete (*thread_status_data_);
+    (*thread_status_data_) = nullptr;
   }
 }
 
@@ -204,15 +204,15 @@ Status ThreadStatusUpdater::GetThreadList(
 }
 
 ThreadStatusData* ThreadStatusUpdater::GetLocalThreadStatus() {
-  if ((*get_thread_status_data()) == nullptr) {
+  if ((*thread_status_data_) == nullptr) {
     return nullptr;
   }
-  if (!(*get_thread_status_data())->enable_tracking) {
-    assert((*get_thread_status_data())->cf_key.load(std::memory_order_relaxed) ==
+  if (!(*thread_status_data_)->enable_tracking) {
+    assert((*thread_status_data_)->cf_key.load(std::memory_order_relaxed) ==
            nullptr);
     return nullptr;
   }
-  return (*get_thread_status_data());
+  return (*thread_status_data_);
 }
 
 void ThreadStatusUpdater::NewColumnFamilyInfo(const void* db_key,

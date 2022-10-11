@@ -15,6 +15,7 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+photon::thread_local_ptr<size_t> ConcurrentArena::tls_cpuid;
 #endif
 
 namespace {
@@ -38,7 +39,7 @@ ConcurrentArena::Shard* ConcurrentArena::Repick() {
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
   // even if we are cpu 0, use a non-zero tls_cpuid so we can tell we
   // have repicked
-  *get_tls_cpuid() = shard_and_index.second | shards_.Size();
+  *tls_cpuid = shard_and_index.second | shards_.Size();
 #endif
   return shard_and_index.first;
 }

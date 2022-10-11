@@ -299,7 +299,7 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
 ThreadLocalPtr::StaticMeta::StaticMeta()
   : next_instance_id_(0),
     head_(this),
-    thread_key_(-1U) {
+    thread_key_(0) {
   if (photon::thread_key_create(&thread_key_, &OnThreadExit) != 0) {
     abort();
   }
