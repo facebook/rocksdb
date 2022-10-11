@@ -322,9 +322,13 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
     return;
   }
 
+  int exclude_level =
+      immutable_options_.compaction_style == kCompactionStyleUniversal
+          ? kInvalidLevel
+          : number_levels_ - 1;
   GetBoundaryKeys(input_vstorage_, inputs_,
                   &penultimate_level_smallest_user_key_,
-                  &penultimate_level_largest_user_key_, number_levels_ - 1);
+                  &penultimate_level_largest_user_key_, exclude_level);
 }
 
 Compaction::~Compaction() {
