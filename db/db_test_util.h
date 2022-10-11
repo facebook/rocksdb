@@ -714,6 +714,16 @@ class FileTemperatureTestFS : public FileSystemWrapper {
       MutexLock lock(&mu_);
       requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
       if (s.ok()) {
+        if (opts.temperature != Temperature::kUnknown) {
+          // Be extra picky and don't open if a wrong non-unknown temperature is
+          // provided
+          auto e = current_sst_file_temperatures_.find(number);
+          if (e != current_sst_file_temperatures_.end() &&
+              e->second != opts.temperature) {
+            result->reset();
+            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+          }
+        }
         *result = WrapWithTemperature<FSSequentialFileOwnerWrapper>(
             number, std::move(*result));
       }
@@ -733,6 +743,16 @@ class FileTemperatureTestFS : public FileSystemWrapper {
       MutexLock lock(&mu_);
       requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
       if (s.ok()) {
+        if (opts.temperature != Temperature::kUnknown) {
+          // Be extra picky and don't open if a wrong non-unknown temperature is
+          // provided
+          auto e = current_sst_file_temperatures_.find(number);
+          if (e != current_sst_file_temperatures_.end() &&
+              e->second != opts.temperature) {
+            result->reset();
+            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+          }
+        }
         *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(
             number, std::move(*result));
       }
