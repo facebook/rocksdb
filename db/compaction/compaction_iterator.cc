@@ -396,7 +396,10 @@ void CompactionIterator::NextFromInput() {
       break;
     }
     TEST_SYNC_POINT_CALLBACK("CompactionIterator:ProcessKV", &ikey_);
-
+    if (ikey_.type == kTypeRangeDeletion) {
+      validity_info_.SetValid(kRangeDeletion);
+      break;
+    }
     // Update input statistics
     if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion ||
         ikey_.type == kTypeDeletionWithTimestamp) {
@@ -624,7 +627,12 @@ void CompactionIterator::NextFromInput() {
       if (input_.Valid() &&
           ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
-          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
+          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
+          ikey_.type != kTypeRangeDeletion) {
+        // In the unlikely scenario that range tombstone comes right after a
+        // single delete with the same user key, we output the single delete
+        // directly. This is still correct, with the cost of not going through
+        // the following optimization.
 #ifndef NDEBUG
         const Compaction* c =
             compaction_ ? compaction_->real_compaction() : nullptr;
@@ -1105,10 +1113,12 @@ void CompactionIterator::DecideOutputLevel() {
   TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
                            &context);
   output_to_penultimate_level_ = context.output_to_penultimate_level;
-#else
-  output_to_penultimate_level_ = false;
-#endif  // NDEBUG
-
+#endif /* !NDEBUG */
+  if (ikey_.type == kTypeRangeDeletion) {
+    // range tombstones are in penultimate level only
+    output_to_penultimate_level_ = true;
+    return;
+  }
   // if the key is newer than the cutoff sequence or within the earliest
   // snapshot, it should output to the penultimate level.
   if (ikey_.sequence > preclude_last_level_min_seqno_ ||
@@ -1173,7 +1183,8 @@ void CompactionIterator::PrepareOutput() {
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ &&
         !output_to_penultimate_level_ &&
-        ikey_.sequence < preserve_time_min_seqno_) {
+        ikey_.sequence < preserve_time_min_seqno_ &&
+        ikey_.type != kTypeRangeDeletion) {
       if (ikey_.type == kTypeDeletion ||
           (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
         ROCKS_LOG_FATAL(
