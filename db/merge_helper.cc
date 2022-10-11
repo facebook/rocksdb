@@ -63,7 +63,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                                    bool update_num_ops_stats) {
   assert(merge_operator != nullptr);
 
-  if (operands.size() == 0) {
+  if (operands.empty()) {
     assert(value != nullptr && result != nullptr);
     result->assign(value->data(), value->size());
     return Status::OK();
@@ -74,7 +74,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                       static_cast<uint64_t>(operands.size()));
   }
 
-  bool success;
+  bool success = false;
   Slice tmp_result_operand(nullptr, 0);
   const MergeOperator::MergeOperationInput merge_in(key, value, operands,
                                                     logger);
@@ -202,6 +202,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       }
       break;
     } else if (first_key) {
+      // If user-defined timestamp is enabled, we expect both user key and
+      // timestamps are equal, as a sanity check.
       assert(user_comparator_->Equal(ikey.user_key, orig_ikey.user_key));
       first_key = false;
     } else if (!user_comparator_->Equal(ikey.user_key, orig_ikey.user_key)) {
@@ -353,7 +355,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         if (filter == CompactionFilter::Decision::kKeep) {
           merge_context_.PushOperand(
               value_slice, iter->IsValuePinned() /* operand_pinned */);
-        } else {  // kChangeValue
+        } else {
+          assert(filter == CompactionFilter::Decision::kChangeValue);
           // Compaction filter asked us to change the operand from value_slice
           // to compaction_filter_value_.
           merge_context_.PushOperand(compaction_filter_value_, false);

@@ -65,7 +65,7 @@ class MergeHelper {
                                Slice* result_operand = nullptr,
                                bool update_num_ops_stats = false);
 
-  // Merge entries until we hit
+  // During compaction, merge entries until we hit
   //     - a corrupted key
   //     - a Put/Delete,
   //     - a different user key,

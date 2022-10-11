@@ -2055,6 +2055,7 @@ class MemTableInserter : public WriteBatch::Handler {
           if (cf_handle == nullptr) {
             cf_handle = db_->DefaultColumnFamily();
           }
+          // TODO (yanqin): fix when user-defined timestamp is enabled.
           get_status = db_->Get(ropts, cf_handle, key, &prev_value);
         }
         // Intentionally overwrites the `NotFound` in `ret_status`.
