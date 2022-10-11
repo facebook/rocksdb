@@ -12,7 +12,7 @@
 #include <cassert>
 #include <functional>
 
-#include "cache_key.h"
+#include "cache/cache_key.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/lang.h"

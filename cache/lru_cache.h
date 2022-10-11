@@ -265,7 +265,7 @@ struct LRUHandle {
 // 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
-  LRUHandleTable(int max_upper_hash_bits);
+  explicit LRUHandleTable(int max_upper_hash_bits);
   ~LRUHandleTable();
 
   LRUHandle* Lookup(const Slice& key, uint32_t hash);

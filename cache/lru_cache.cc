@@ -17,7 +17,6 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/lang.h"
-#include "sharded_cache.h"
 #include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
