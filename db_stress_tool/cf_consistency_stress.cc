@@ -343,10 +343,10 @@ class CfConsistencyStressTest : public StressTest {
     ManagedSnapshot snapshot_guard(db_);
     options.snapshot = snapshot_guard.snapshot();
 
-    std::vector<std::unique_ptr<Iterator>> iters;
-    iters.reserve(column_families_.size());
-
     const size_t num = column_families_.size();
+
+    std::vector<std::unique_ptr<Iterator>> iters;
+    iters.reserve(num);
 
     for (size_t i = 0; i < num; ++i) {
       iters.emplace_back(db_->NewIterator(options, column_families_[i]));
