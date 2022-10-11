@@ -28,7 +28,9 @@ class OfflineManifestWriter {
                   /*db_id*/ "", /*db_session_id*/ "") {}
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families) {
-    return versions_.Recover(column_families);
+    return versions_.Recover(column_families, /*read_only*/ false,
+                             /*db_id*/ nullptr,
+                             /*no_error_if_files_missing*/ true);
   }
 
   Status LogAndApply(ColumnFamilyData* cfd, VersionEdit* edit,
