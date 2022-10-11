@@ -11,6 +11,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/utilities/debug.h"
 #include "test_util/mock_time_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1357,6 +1358,79 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
 
   // close explicitly, because the env is local variable which will be released
   // first.
+  Close();
+}
+
+TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kKeyPerSec = 10;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preserve_internal_time_seconds = 2000;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
+
+  int sst_num = 0;
+  // Write files that are overlap and enough to trigger compaction
+  for (; sst_num < kNumTrigger; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+        mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
+      });
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  // all data is pushed to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  std::vector<KeyVersion> key_versions;
+  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
+
+  // make sure there're more than 300 keys and first 100 keys are having seqno
+  // zeroed out, the last 100 key seqno not zeroed out
+  ASSERT_GT(key_versions.size(), 300);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_EQ(key_versions[i].sequence, 0);
+  }
+  auto rit = key_versions.rbegin();
+  for (int i = 0; i < 100; i++) {
+    ASSERT_GT(rit->sequence, 0);
+    rit++;
+  }
+
+  // enable preclude feature
+  options.preclude_last_level_data_seconds = 2000;
+  options.last_level_temperature = Temperature::kCold;
+  Reopen(options);
+
+  // Generate a sstable and trigger manual compaction
+  ASSERT_OK(Put(Key(10), "value"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // some data are moved up, some are not
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+
   Close();
 }
 
