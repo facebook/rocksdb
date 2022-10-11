@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.7.3 (10/11/2022)
 ### Bug Fixes
 * Fixed a memory safety bug in experimental HyperClockCache (#10768)
 
