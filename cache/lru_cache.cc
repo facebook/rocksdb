@@ -792,16 +792,17 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    std::shared_ptr<MemoryAllocator> allocator,
                    bool use_adaptive_mutex,
                    CacheMetadataChargePolicy metadata_charge_policy,
-                   std::shared_ptr<SecondaryCache> secondary_cache)
+                   std::shared_ptr<SecondaryCache> _secondary_cache)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
                    std::move(allocator)),
-      secondary_cache_(std::move(secondary_cache)) {
+      secondary_cache_(std::move(_secondary_cache)) {
   size_t per_shard = GetPerShardCapacity();
+  SecondaryCache* secondary_cache = secondary_cache_.get();
   InitShards([=](LRUCacheShard* cs) {
     new (cs) LRUCacheShard(
         per_shard, strict_capacity_limit, high_pri_pool_ratio,
         low_pri_pool_ratio, use_adaptive_mutex, metadata_charge_policy,
-        /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache_.get());
+        /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache);
   });
 }
 

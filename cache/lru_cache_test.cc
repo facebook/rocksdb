@@ -1363,7 +1363,7 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_EQ(secondary_cache->num_inserts(), 0);
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
                           &LRUCacheSecondaryCacheTest::helper_fail_,
                           str2.length()));
