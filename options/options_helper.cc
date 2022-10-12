@@ -188,6 +188,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.lowest_used_cache_tier = immutable_db_options.lowest_used_cache_tier;
   options.enforce_single_del_contracts =
       immutable_db_options.enforce_single_del_contracts;
+  options.disable_delete_obsolete_files_on_open =
+      immutable_db_options.disable_delete_obsolete_files_on_open;
   return options;
 }
 

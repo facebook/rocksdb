@@ -1438,6 +1438,12 @@ struct DBOptions {
   // of the contract leads to undefined behaviors with high possibility of data
   // inconsistency, e.g. deleted old data become visible again, etc.
   bool enforce_single_del_contracts = true;
+
+  // If set to true, obsolete file deletion will be disabled when db is opened
+  // (i.e., `delete_obsolete_files_on_open` will be initialized as 1).
+  //
+  // Default: false
+  bool disable_delete_obsolete_files_on_open = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

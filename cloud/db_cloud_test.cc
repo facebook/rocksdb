@@ -367,6 +367,12 @@ class CloudTest : public testing::Test {
     }
   }
 
+  std::vector<Env::FileAttributes> GetAllLocalFiles() {
+    std::vector<Env::FileAttributes> local_files;
+    assert(base_env_->GetChildrenFileAttributes(dbname_, &local_files).ok());
+    return local_files;
+  }
+
   std::string test_id_;
   Env* base_env_;
   Options options_;
@@ -1295,6 +1301,7 @@ TEST_F(CloudTest, TwoConcurrentWritersCookieEmpty) {
 
   std::string v;
   ASSERT_TRUE(db1->Get(ReadOptions(), "ShouldNotBeApplied", &v).IsNotFound());
+  closeDB1();
 }
 
 // Creates a pure RocksDB database and makes sure we can migrate to RocksDB
@@ -2474,6 +2481,61 @@ TEST_F(CloudTest, DisableInvisibleFileDeletionOnOpenTest) {
   CloseDB();
 }
 
+TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
+  // Generate a few obsolete files first
+  options_.num_levels = 3;
+  options_.level0_file_num_compaction_trigger = 3;
+  options_.write_buffer_size = 110 << 10;  // 110KB
+  options_.arena_block_size = 4 << 10;
+  options_.keep_log_file_num = 1;
+  options_.use_options_file = false;
+  // put wal files into one directory so that we don't need to count number of local
+  // wal files
+  options_.wal_dir = dbname_ + "/wal";
+  cloud_env_options_.keep_local_sst_files = true;
+  // disable cm roll so that no new manifest files generated
+  cloud_env_options_.roll_cloud_manifest_on_open = false;
+
+  WriteOptions wo;
+  wo.disableWAL = true;
+  OpenDB();
+  db_->DisableFileDeletions();
+
+  std::vector<LiveFileMetaData> files;
+
+  ASSERT_OK(db_->Put(wo, "k1", "v1"));
+  ASSERT_OK(db_->Flush({}));
+  ASSERT_OK(db_->Put(wo, "k1", "v2"));
+  ASSERT_OK(db_->Flush({}));
+  db_->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(files.size(), 2);
+
+  auto local_files = GetAllLocalFiles();
+  // CM, MANIFEST, CURRENT, IDENTITY, 2 sst files, wal directory
+  EXPECT_EQ(local_files.size(), 7);
+
+  ASSERT_OK(GetDBImpl()->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+
+  files.clear();
+  db_->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(files.size(), 1);
+
+  local_files = GetAllLocalFiles();
+  // obsolete files are not deleted, also one extra sst files generated after compaction
+  EXPECT_EQ(local_files.size(), 8);
+
+  CloseDB();
+
+  options_.disable_delete_obsolete_files_on_open = true;
+  OpenDB();
+  // obsolete files are not deleted
+  EXPECT_EQ(GetAllLocalFiles().size(), 8);
+  // obsolete files are deleted!
+  db_->EnableFileDeletions(false /* force */);
+  EXPECT_EQ(GetAllLocalFiles().size(), 6);
+  CloseDB();
+}
+
 // Verify invisible CLOUDMANIFEST file deleteion
 TEST_F(CloudTest, CloudManifestFileDeletionTest) {
 
@@ -2825,19 +2887,13 @@ TEST_F(CloudTest, ReopenEphemeralAfterFileDeletion) {
 }
 
 TEST_F(CloudTest, SanitizeDirectoryTest) {
-  auto get_all_local_files = [&]() -> std::vector<Env::FileAttributes> {
-    std::vector<Env::FileAttributes> local_files;
-    assert(base_env_->GetChildrenFileAttributes(dbname_, &local_files).ok());
-    return local_files;
-  };
-
   cloud_env_options_.keep_local_sst_files = true;
   OpenDB();
   ASSERT_OK(db_->Put({}, "k1", "v1"));
   ASSERT_OK(db_->Flush({}));
   CloseDB();
 
-  auto local_files = get_all_local_files();
+  auto local_files = GetAllLocalFiles();
   // Files exist locally: cm/m, sst, options-xxx, xxx.log, identity, current
   EXPECT_EQ(local_files.size(), 7);
 
@@ -2845,7 +2901,7 @@ TEST_F(CloudTest, SanitizeDirectoryTest) {
     options_, dbname_, false));
   
   // cleaning up during sanitization not triggered
-  EXPECT_EQ(local_files.size(), get_all_local_files().size());
+  EXPECT_EQ(local_files.size(), GetAllLocalFiles().size());
 
   // Delete the local CLOUDMANIFEST file to force cleaning up
   ASSERT_OK(
@@ -2854,15 +2910,15 @@ TEST_F(CloudTest, SanitizeDirectoryTest) {
   EXPECT_OK(GetCloudEnvImpl()->SanitizeDirectory(
     options_, dbname_, false));
   
-  local_files = get_all_local_files();
+  local_files = GetAllLocalFiles();
   // IDENTITY file is downloaded after cleaning up, which is the only file that
   // exists locally
-  EXPECT_EQ(get_all_local_files().size(), 1);
+  EXPECT_EQ(GetAllLocalFiles().size(), 1);
 
   // reinitialize local directory
   OpenDB();
   CloseDB();
-  local_files = get_all_local_files();
+  local_files = GetAllLocalFiles();
   // we have two local MANIFEST files after opening second time.
   EXPECT_EQ(local_files.size(), 8);
 
@@ -2876,7 +2932,7 @@ TEST_F(CloudTest, SanitizeDirectoryTest) {
   ASSERT_OK(GetCloudEnvImpl()->SanitizeDirectory(options_, dbname_, false));
 
   // IDENTITY file + the random directory we created
-  EXPECT_EQ(get_all_local_files().size(), 2);
+  EXPECT_EQ(GetAllLocalFiles().size(), 2);
 
   // reinitialize local directory
   OpenDB();
