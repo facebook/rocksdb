@@ -32,6 +32,7 @@ max_background_jobs=${MAX_BACKGROUND_JOBS:-8}
 stats_interval_seconds=${STATS_INTERVAL_SECONDS:-20}
 cache_index_and_filter_blocks=${CACHE_INDEX_AND_FILTER_BLOCKS:-0}
 # USE_O_DIRECT doesn't need a default
+bytes_per_sync=${BYTES_PER_SYNC:-$(( 1 * M ))}
 # CACHE_SIZE_MB doesn't need a default
 min_level_to_compress=${MIN_LEVEL_TO_COMPRESS:-"-1"}
 
@@ -86,6 +87,7 @@ base_args+=( MAX_BACKGROUND_JOBS="$max_background_jobs" )
 base_args+=( STATS_INTERVAL_SECONDS="$stats_interval_seconds" )
 base_args+=( CACHE_INDEX_AND_FILTER_BLOCKS="$cache_index_and_filter_blocks" )
 base_args+=( COMPACTION_STYLE="$compaction_style" )
+base_args+=( BYTES_PER_SYNC="$bytes_per_sync" )
 
 if [ -n "$USE_O_DIRECT" ]; then
   base_args+=( USE_O_DIRECT=1 )
@@ -131,7 +133,7 @@ else
 fi
 
 function usage {
-  echo "usage: benchmark_wrapper.sh db_dir output_dir version+"
+  echo "usage: benchmark_compare.sh db_dir output_dir version+"
   echo -e "\tdb_dir\t\tcreate RocksDB database in this directory"
   echo -e "\toutput_dir\twrite output from performance tests in this directory"
   echo -e "\tversion+\tspace separated sequence of RocksDB versions to test."
@@ -155,6 +157,7 @@ function usage {
   echo -e "\tMAX_BACKGROUND_JOBS\t\tvalue for max_background_jobs"
   echo -e "\tCACHE_INDEX_AND_FILTER_BLOCKS\tvalue for cache_index_and_filter_blocks"
   echo -e "\tUSE_O_DIRECT\t\t\tUse O_DIRECT for user reads and compaction"
+  echo -e "\tBYTES_PER_SYNC\t\t\tValue for bytes_per_sync"
   echo -e "\tSTATS_INTERVAL_SECONDS\t\tvalue for stats_interval_seconds"
   echo -e "\tSUBCOMPACTIONS\t\t\tvalue for subcompactions"
   echo -e "\tCOMPACTION_STYLE\t\tCompaction style to use, one of: leveled, universal, blob"
@@ -258,18 +261,19 @@ for v in "$@" ; do
   # Read-only tests. The LSM tree shape is in a deterministic state if trivial move
   # was used during the load.
 
+  # Add revrange with a fixed duration and hardwired number of keys and threads to give
+  # compaction debt leftover from fillseq a chance at being removed. Not using waitforcompaction
+  # here because it isn't supported on older db_bench versions.
+  env -i "${args_nolim[@]}" DURATION=300 NUM_KEYS=100 NUM_THREADS=1 bash ./benchmark.sh revrange
   env -i "${args_nolim[@]}" DURATION="$duration_ro" bash ./benchmark.sh readrandom
 
   # Skipped for CI - a single essentail readrandom is enough to set up for other tests
   if [ "$ci_tests_only" != "true" ]; then
     env -i "${args_nolim[@]}" DURATION="$duration_ro" bash ./benchmark.sh fwdrange
-    env -i "${args_lim[@]}"   DURATION="$duration_ro" bash ./benchmark.sh multireadrandom
+    env -i "${args_lim[@]}"   DURATION="$duration_ro" bash ./benchmark.sh multireadrandom --multiread_batched
   else
     echo "CI_TESTS_ONLY is set, skipping optional read steps."
   fi
-
-  # Skipping --multiread_batched for now because it isn't supported on older 6.X releases
-  # env "${args_lim[@]}" DURATION=$duration_ro bash ./benchmark.sh multireadrandom --multiread_batched
 
   # Write 10% of the keys. The goal is to randomize keys prior to Lmax
   p10=$( echo "$num_keys" "$num_threads" | awk '{ printf "%.0f", $1 / $2 / 10.0 }' )
@@ -301,7 +305,13 @@ for v in "$@" ; do
   # This creates much compaction debt which will be a problem for tests added after it.
   # Also, the compaction stats measured at test end can underestimate write-amp depending
   # on how much compaction debt is allowed.
-  env -i "${args_nolim[@]}" DURATION="$duration_rw" bash ./benchmark.sh overwrite
+  if [ "$compaction_style" == "leveled" ] && ./db_bench --benchmarks=waitforcompaction ; then
+    # Use waitforcompaction to get more accurate write-amp measurement
+    env -i "${args_nolim[@]}" DURATION="$duration_rw" bash ./benchmark.sh overwriteandwait
+  else
+    # waitforcompaction hangs with universal, see https://github.com/facebook/rocksdb/issues/9275
+    env -i "${args_nolim[@]}" DURATION="$duration_rw" bash ./benchmark.sh overwrite
+  fi
 
   cp "$dbdir"/LOG* "$my_odir"
   gzip -9 "$my_odir"/LOG*
