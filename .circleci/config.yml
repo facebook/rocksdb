@@ -885,6 +885,9 @@ workflows:
   jobs-linux-run-tests19:
     jobs:
       - build-linux-clang10-mini-tsan
+  jobs-linux-run-tests20:
+    jobs:
+      - build-linux-clang10-mini-tsan
 
 #  jobs-linux-run-tests:
 #    jobs:
