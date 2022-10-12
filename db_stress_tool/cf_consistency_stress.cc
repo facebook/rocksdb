@@ -340,22 +340,13 @@ class CfConsistencyStressTest : public StressTest {
     // contains the most up-to-date key-values.
     options.total_order_seek = true;
 
-    const auto ss_deleter = [this](const Snapshot* ss) {
-      db_->ReleaseSnapshot(ss);
-    };
-    std::unique_ptr<const Snapshot, decltype(ss_deleter)> snapshot_guard(
-        db_->GetSnapshot(), ss_deleter);
-    options.snapshot = snapshot_guard.get();
-
-    assert(thread);
-
-    auto shared = thread->shared;
-    assert(shared);
-
-    std::vector<std::unique_ptr<Iterator>> iters;
-    iters.reserve(column_families_.size());
+    ManagedSnapshot snapshot_guard(db_);
+    options.snapshot = snapshot_guard.snapshot();
 
     const size_t num = column_families_.size();
+
+    std::vector<std::unique_ptr<Iterator>> iters;
+    iters.reserve(num);
 
     for (size_t i = 0; i < num; ++i) {
       iters.emplace_back(db_->NewIterator(options, column_families_[i]));
@@ -363,6 +354,11 @@ class CfConsistencyStressTest : public StressTest {
     }
 
     std::vector<Status> statuses(num, Status::OK());
+
+    assert(thread);
+
+    auto shared = thread->shared;
+    assert(shared);
 
     do {
       if (shared->HasVerificationFailedYet()) {
