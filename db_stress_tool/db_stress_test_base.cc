@@ -1133,9 +1133,10 @@ Status StressTest::TestIterate(ThreadState* thread,
                                const ReadOptions& read_opts,
                                const std::vector<int>& rand_column_families,
                                const std::vector<int64_t>& rand_keys) {
-  const Snapshot* snapshot = db_->GetSnapshot();
+  ManagedSnapshot snapshot_guard(db_);
+
   ReadOptions readoptionscopy = read_opts;
-  readoptionscopy.snapshot = snapshot;
+  readoptionscopy.snapshot = snapshot_guard.snapshot();
 
   std::string read_ts_str;
   Slice read_ts_slice;
@@ -1245,7 +1246,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     ReadOptions cmp_ro;
     cmp_ro.timestamp = readoptionscopy.timestamp;
     cmp_ro.iter_start_ts = readoptionscopy.iter_start_ts;
-    cmp_ro.snapshot = snapshot;
+    cmp_ro.snapshot = snapshot_guard.snapshot();
     cmp_ro.total_order_seek = true;
     ColumnFamilyHandle* cmp_cfh =
         GetControlCfh(thread, rand_column_families[0]);
@@ -1306,8 +1307,6 @@ Status StressTest::TestIterate(ThreadState* thread,
 
     op_logs += "; ";
   }
-
-  db_->ReleaseSnapshot(snapshot);
 
   return Status::OK();
 }
