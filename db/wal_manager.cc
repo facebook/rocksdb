@@ -334,8 +334,8 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
         return s;
       }
 
-      log_files.push_back(std::unique_ptr<LogFile>(
-          new LogFileImpl(number, log_type, sequence, size_bytes)));
+      log_files.emplace_back(
+          new LogFileImpl(number, log_type, sequence, size_bytes));
     }
   }
   std::sort(
