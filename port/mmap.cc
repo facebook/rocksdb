@@ -6,8 +6,9 @@
 #include "port/mmap.h"
 
 #ifdef OS_WIN
-#include <memoryapi.h>
 #include <windows.h>
+// ^^^ Must come first
+#include <memoryapi.h>
 #else
 #include <sys/mman.h>
 #endif  // OS_WIN
@@ -69,7 +70,7 @@ MemMapping MemMapping::AllocateAnonymous(size_t length, bool huge) {
       Upper32of64(length), Lower32of64(length), nullptr);
   if (mm.page_file_handle_ == NULL) {
     // Failure
-    return;
+    return mm;
   }
   mm.addr_ = ::MapViewOfFile(mm.page_file_handle_,
                              FILE_MAP_WRITE | (huge ? FILE_MAP_LARGE_PAGES : 0),
