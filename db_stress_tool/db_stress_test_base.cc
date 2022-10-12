@@ -1135,22 +1135,21 @@ Status StressTest::TestIterate(ThreadState* thread,
                                const std::vector<int64_t>& rand_keys) {
   ManagedSnapshot snapshot_guard(db_);
 
-  ReadOptions readoptionscopy = read_opts;
-  readoptionscopy.snapshot = snapshot_guard.snapshot();
+  ReadOptions ro = read_opts;
+  ro.snapshot = snapshot_guard.snapshot();
 
   std::string read_ts_str;
   Slice read_ts_slice;
-  MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
-                                     readoptionscopy);
+  MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice, ro);
 
   bool expect_total_order = false;
   if (thread->rand.OneIn(16)) {
     // When prefix extractor is used, it's useful to cover total order seek.
-    readoptionscopy.total_order_seek = true;
+    ro.total_order_seek = true;
     expect_total_order = true;
   } else if (thread->rand.OneIn(4)) {
-    readoptionscopy.total_order_seek = false;
-    readoptionscopy.auto_prefix_mode = true;
+    ro.total_order_seek = false;
+    ro.auto_prefix_mode = true;
     expect_total_order = true;
   } else if (options_.prefix_extractor.get() == nullptr) {
     expect_total_order = true;
@@ -1165,7 +1164,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     upper_bound = Slice(upper_bound_str);
     // uppder_bound can be smaller than seek key, but the query itself
     // should not crash either.
-    readoptionscopy.iterate_upper_bound = &upper_bound;
+    ro.iterate_upper_bound = &upper_bound;
   }
   std::string lower_bound_str;
   Slice lower_bound;
@@ -1176,11 +1175,11 @@ Status StressTest::TestIterate(ThreadState* thread,
     lower_bound = Slice(lower_bound_str);
     // uppder_bound can be smaller than seek key, but the query itself
     // should not crash either.
-    readoptionscopy.iterate_lower_bound = &lower_bound;
+    ro.iterate_lower_bound = &lower_bound;
   }
 
   auto cfh = column_families_[rand_column_families[0]];
-  std::unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, cfh));
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ro, cfh));
 
   std::vector<std::string> key_str;
   if (thread->rand.OneIn(16)) {
@@ -1206,16 +1205,14 @@ Status StressTest::TestIterate(ThreadState* thread,
 
     Slice key = skey;
 
-    if (readoptionscopy.iterate_upper_bound != nullptr &&
-        thread->rand.OneIn(2)) {
+    if (ro.iterate_upper_bound != nullptr && thread->rand.OneIn(2)) {
       // 1/2 chance, change the upper bound.
       // It is possible that it is changed without first use, but there is no
       // problem with that.
       int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
       upper_bound_str = Key(rand_upper_key);
       upper_bound = Slice(upper_bound_str);
-    } else if (readoptionscopy.iterate_lower_bound != nullptr &&
-               thread->rand.OneIn(4)) {
+    } else if (ro.iterate_lower_bound != nullptr && thread->rand.OneIn(4)) {
       // 1/4 chance, change the lower bound.
       // It is possible that it is changed without first use, but there is no
       // problem with that.
@@ -1226,13 +1223,13 @@ Status StressTest::TestIterate(ThreadState* thread,
 
     // Record some options to op_logs;
     op_logs += "total_order_seek: ";
-    op_logs += (readoptionscopy.total_order_seek ? "1 " : "0 ");
+    op_logs += (ro.total_order_seek ? "1 " : "0 ");
     op_logs += "auto_prefix_mode: ";
-    op_logs += (readoptionscopy.auto_prefix_mode ? "1 " : "0 ");
-    if (readoptionscopy.iterate_upper_bound != nullptr) {
+    op_logs += (ro.auto_prefix_mode ? "1 " : "0 ");
+    if (ro.iterate_upper_bound != nullptr) {
       op_logs += "ub: " + upper_bound.ToString(true) + " ";
     }
-    if (readoptionscopy.iterate_lower_bound != nullptr) {
+    if (ro.iterate_lower_bound != nullptr) {
       op_logs += "lb: " + lower_bound.ToString(true) + " ";
     }
 
@@ -1244,8 +1241,8 @@ Status StressTest::TestIterate(ThreadState* thread,
     // This `ReadOptions` is for validation purposes. Ignore
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions cmp_ro;
-    cmp_ro.timestamp = readoptionscopy.timestamp;
-    cmp_ro.iter_start_ts = readoptionscopy.iter_start_ts;
+    cmp_ro.timestamp = ro.timestamp;
+    cmp_ro.iter_start_ts = ro.iter_start_ts;
     cmp_ro.snapshot = snapshot_guard.snapshot();
     cmp_ro.total_order_seek = true;
     ColumnFamilyHandle* cmp_cfh =
@@ -1277,8 +1274,8 @@ Status StressTest::TestIterate(ThreadState* thread,
       last_op = kLastOpSeek;
       op_logs += "S " + key.ToString(true) + " ";
     }
-    VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(), cmp_iter.get(),
-                   last_op, key, op_logs, &diverged);
+    VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
+                   key, op_logs, &diverged);
 
     bool no_reverse =
         (FLAGS_memtablerep == "prefix_hash" && !expect_total_order);
@@ -1299,8 +1296,8 @@ Status StressTest::TestIterate(ThreadState* thread,
         op_logs += "P";
       }
       last_op = kLastOpNextOrPrev;
-      VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
-                     cmp_iter.get(), last_op, key, op_logs, &diverged);
+      VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
+                     key, op_logs, &diverged);
     }
 
     thread->stats.AddIterations(1);
