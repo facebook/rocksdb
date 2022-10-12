@@ -1133,6 +1133,9 @@ Status StressTest::TestIterate(ThreadState* thread,
                                const ReadOptions& read_opts,
                                const std::vector<int>& rand_column_families,
                                const std::vector<int64_t>& rand_keys) {
+  assert(!rand_column_families.empty());
+  assert(!rand_keys.empty());
+
   ManagedSnapshot snapshot_guard(db_);
 
   ReadOptions ro = read_opts;
