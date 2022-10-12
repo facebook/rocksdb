@@ -614,7 +614,7 @@ Compaction* CompactionPicker::CompactRange(
     const CompactRangeOptions& compact_range_options, const InternalKey* begin,
     const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
     uint64_t max_file_num_to_ignore, const std::string& trim_ts,
-    const SequenceNumber /*earliest_mem_seqno*/) {
+    const SequenceNumber earliest_mem_seqno) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
@@ -656,7 +656,9 @@ Compaction* CompactionPicker::CompactRange(
       inputs[level - start_level].level = level;
       auto& files = inputs[level - start_level].files;
       for (FileMetaData* f : vstorage->LevelFiles(level)) {
-        files.push_back(f);
+        if (output_level > 0 || f->fd.largest_seqno <= earliest_mem_seqno) {
+          files.push_back(f);
+        }
       }
       if (AreFilesInCompaction(files)) {
         *manual_conflict = true;
@@ -707,8 +709,11 @@ Compaction* CompactionPicker::CompactRange(
     begin = nullptr;
     end = nullptr;
   }
-
-  vstorage->GetOverlappingInputs(input_level, begin, end, &inputs.files);
+  vstorage->GetOverlappingInputs(
+      input_level, begin, end, &inputs.files, -1 /* hint_index */,
+      nullptr /* file_index */, true /* expand_range */,
+      nullptr /* next_smallest */,
+      output_level == 0 ? earliest_mem_seqno : kMaxSequenceNumber);
   if (inputs.empty()) {
     return nullptr;
   }

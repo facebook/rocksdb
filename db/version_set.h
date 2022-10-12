@@ -257,8 +257,14 @@ class VersionStorageInfo {
       bool expand_range = true,   // if set, returns files which overlap the
                                   // range and overlap each other. If false,
                                   // then just files intersecting the range
-      InternalKey** next_smallest = nullptr)  // if non-null, returns the
-      const;  // smallest key of next file not included
+      InternalKey** next_smallest =
+          nullptr,  // if non-null, returns the
+                    // smallest key of next file not included
+      const SequenceNumber earliest_mem_seqno =
+          kMaxSequenceNumber  // `earliest_mem_seqno` is the earliest seqno of
+                              // unflushed memtables. For more, see see
+                              // CompactionPicker::PickCompaction() API
+  ) const;
   void GetCleanInputsWithinInterval(
       int level, const InternalKey* begin,  // nullptr means before all keys
       const InternalKey* end,               // nullptr means after all keys

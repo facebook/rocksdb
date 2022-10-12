@@ -37,7 +37,8 @@ class UniversalCompactionBuilder {
       const ImmutableOptions& ioptions, const InternalKeyComparator* icmp,
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-      UniversalCompactionPicker* picker, LogBuffer* log_buffer)
+      UniversalCompactionPicker* picker, LogBuffer* log_buffer,
+      const SequenceNumber earliest_mem_seqno)
       : ioptions_(ioptions),
         icmp_(icmp),
         cf_name_(cf_name),
@@ -45,7 +46,8 @@ class UniversalCompactionBuilder {
         mutable_db_options_(mutable_db_options),
         vstorage_(vstorage),
         picker_(picker),
-        log_buffer_(log_buffer) {}
+        log_buffer_(log_buffer),
+        earliest_mem_seqno_(earliest_mem_seqno) {}
 
   // Form and return the compaction object. The caller owns return object.
   Compaction* PickCompaction();
@@ -133,9 +135,12 @@ class UniversalCompactionBuilder {
   VersionStorageInfo* vstorage_;
   UniversalCompactionPicker* picker_;
   LogBuffer* log_buffer_;
+  const SequenceNumber earliest_mem_seqno_;
 
+  // `earliest_mem_seqno`: see CompactionPicker::PickCompaction() API
   static std::vector<SortedRun> CalculateSortedRuns(
-      const VersionStorageInfo& vstorage);
+      const VersionStorageInfo& vstorage,
+      const SequenceNumber earliest_mem_seqno);
 
   // Pick a path ID to place a newly generated file, with its estimated file
   // size.
@@ -293,10 +298,10 @@ bool UniversalCompactionPicker::NeedsCompaction(
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, const SequenceNumber /* earliest_mem_seqno */) {
-  UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
-                                     mutable_cf_options, mutable_db_options,
-                                     vstorage, this, log_buffer);
+    LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) {
+  UniversalCompactionBuilder builder(
+      ioptions_, icmp_, cf_name, mutable_cf_options, mutable_db_options,
+      vstorage, this, log_buffer, earliest_mem_seqno);
   return builder.PickCompaction();
 }
 
@@ -340,9 +345,13 @@ void UniversalCompactionBuilder::SortedRun::DumpSizeInfo(
 
 std::vector<UniversalCompactionBuilder::SortedRun>
 UniversalCompactionBuilder::CalculateSortedRuns(
-    const VersionStorageInfo& vstorage) {
+    const VersionStorageInfo& vstorage,
+    const SequenceNumber earliest_mem_seqno) {
   std::vector<UniversalCompactionBuilder::SortedRun> ret;
   for (FileMetaData* f : vstorage.LevelFiles(0)) {
+    if (f->fd.largest_seqno > earliest_mem_seqno) {
+      continue;
+    }
     ret.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
                      f->being_compacted);
   }
@@ -375,7 +384,7 @@ UniversalCompactionBuilder::CalculateSortedRuns(
 Compaction* UniversalCompactionBuilder::PickCompaction() {
   const int kLevel0 = 0;
   score_ = vstorage_->CompactionScore(kLevel0);
-  sorted_runs_ = CalculateSortedRuns(*vstorage_);
+  sorted_runs_ = CalculateSortedRuns(*vstorage_, earliest_mem_seqno_);
 
   if (sorted_runs_.size() == 0 ||
       (vstorage_->FilesMarkedForPeriodicCompaction().empty() &&

@@ -4011,7 +4011,8 @@ bool VersionStorageInfo::OverlapInLevel(int level,
 void VersionStorageInfo::GetOverlappingInputs(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool expand_range, InternalKey** next_smallest) const {
+    bool expand_range, InternalKey** next_smallest,
+    const SequenceNumber earliest_mem_seqno) const {
   if (level >= num_non_empty_levels_) {
     // this level is empty, no overlapping inputs
     return;
@@ -4062,6 +4063,8 @@ void VersionStorageInfo::GetOverlappingInputs(
       } else if (end != nullptr &&
                  user_cmp->CompareWithoutTimestamp(file_start, user_end) > 0) {
         // "f" is completely after specified range; skip it
+        iter++;
+      } else if (files_[level][*iter]->fd.largest_seqno > earliest_mem_seqno) {
         iter++;
       } else {
         // if overlap
