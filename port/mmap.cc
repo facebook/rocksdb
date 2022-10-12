@@ -76,11 +76,11 @@ void AnonymousMmap(MemMapping& mm, bool huge) {
                             0, 0, mm.length);
 #else
   int huge_flag = 0;
-#ifdef MAP_HUGETLB
   if (huge) {
+#ifdef MAP_HUGETLB
     huge_flag = MAP_HUGETLB;
-  }
 #endif  // MAP_HUGE_TLB
+  }
   mm.addr = mmap(nullptr, mm.length, (PROT_READ | PROT_WRITE),
                  (MAP_PRIVATE | MAP_ANONYMOUS | huge_flag), -1, 0);
   if (mm.addr == MAP_FAILED) {

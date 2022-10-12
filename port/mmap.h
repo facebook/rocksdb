@@ -5,7 +5,9 @@
 
 #pragma once
 
-#ifndef OS_WIN
+#ifdef OS_WIN
+#include <windef.h>
+#else
 #include <sys/mman.h>
 #endif
 #include <cstdint>
