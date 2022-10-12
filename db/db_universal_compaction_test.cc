@@ -1872,6 +1872,11 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
 
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ASSERT_EQ(2, TotalLiveFiles(1));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+
   // Full compaction to DB path 0
   compact_options.target_path_id = 0;
   compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;

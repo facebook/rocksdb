@@ -462,6 +462,21 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     if (last_seq != kMaxSequenceNumber &&
         last_seq > version_set_->last_sequence_.load()) {
       version_set_->last_sequence_.store(last_seq);
+      // The earliest sequence number of the memtable of each `version_set_`'s
+      // column family is set with `version_set_->last_sequence_` at the time
+      // such memtable is created, which is prior to this update
+      // `version_set_->last_sequence_.store(last_seq);`. Therefore, we need to
+      // update their earliest sequence number after this update.
+      for (uint32_t i = 0;
+           i <
+           static_cast<uint32_t>(
+               version_set_->GetColumnFamilySet()->NumberOfColumnFamilies());
+           ++i) {
+        ColumnFamilyData* cfd =
+            version_set_->GetColumnFamilySet()->GetColumnFamily(i);
+        assert(cfd->mem() != nullptr);
+        cfd->mem()->SetEarliestSequenceNumber(last_seq);
+      }
     }
     if (last_seq != kMaxSequenceNumber &&
         last_seq > version_set_->descriptor_last_sequence_) {
