@@ -1261,6 +1261,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       };
 
   Status status;
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing",
+      reinterpret_cast<void*>(
+          const_cast<Compaction*>(sub_compact->compaction)));
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
@@ -1997,6 +2001,15 @@ void CompactionJob::LogCompaction() {
            << (existing_snapshots_.empty()
                    ? int64_t{-1}  // Use -1 for "none"
                    : static_cast<int64_t>(existing_snapshots_[0]));
+    if (compaction->SupportsPerKeyPlacement()) {
+      stream << "preclude_last_level_min_seqno"
+             << preclude_last_level_min_seqno_;
+      stream << "penultimate_output_level" << compaction->GetPenultimateLevel();
+      stream << "penultimate_level_smallest"
+             << compaction->GetPenultimateLevelSmallestUserKey().ToString(true);
+      stream << "penultimate_level_largest"
+             << compaction->GetPenultimateLevelLargestUserKey().ToString(true);
+    }
   }
 }
 

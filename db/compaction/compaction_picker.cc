@@ -294,13 +294,12 @@ bool CompactionPicker::RangeOverlapWithCompaction(
 }
 
 bool CompactionPicker::FilesRangeOverlapWithCompaction(
-    const std::vector<CompactionInputFiles>& inputs, int level) const {
+    const std::vector<CompactionInputFiles>& inputs, int level,
+    int penultimate_level) const {
   bool is_empty = true;
-  int start_level = -1;
   for (auto& in : inputs) {
     if (!in.empty()) {
       is_empty = false;
-      start_level = in.level;  // inputs are sorted by level
       break;
     }
   }
@@ -309,10 +308,10 @@ bool CompactionPicker::FilesRangeOverlapWithCompaction(
     return false;
   }
 
+  // TODO: Intra L0 compactions can have the ranges overlapped, but the input
+  //  files cannot be overlapped in the order of L0 files.
   InternalKey smallest, largest;
   GetRange(inputs, &smallest, &largest, Compaction::kInvalidLevel);
-  int penultimate_level =
-      Compaction::EvaluatePenultimateLevel(ioptions_, start_level, level);
   if (penultimate_level != Compaction::kInvalidLevel) {
     if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       if (RangeOverlapWithCompaction(smallest.user_key(), largest.user_key(),
@@ -350,11 +349,25 @@ Compaction* CompactionPicker::CompactFiles(
     const std::vector<CompactionInputFiles>& input_files, int output_level,
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, uint32_t output_path_id) {
+#ifndef NDEBUG
   assert(input_files.size());
   // This compaction output should not overlap with a running compaction as
   // `SanitizeCompactionInputFiles` should've checked earlier and db mutex
   // shouldn't have been released since.
-  assert(!FilesRangeOverlapWithCompaction(input_files, output_level));
+  int start_level = Compaction::kInvalidLevel;
+  for (const auto& in : input_files) {
+    // input_files should already be sorted by level
+    if (!in.empty()) {
+      start_level = in.level;
+      break;
+    }
+  }
+  assert(output_level == 0 ||
+         !FilesRangeOverlapWithCompaction(
+             input_files, output_level,
+             Compaction::EvaluatePenultimateLevel(vstorage, ioptions_,
+                                                  start_level, output_level)));
+#endif /* !NDEBUG */
 
   CompressionType compression_type;
   if (compact_options.compression == kDisableCompressionOption) {
@@ -652,7 +665,10 @@ Compaction* CompactionPicker::CompactRange(
 
     // 2 non-exclusive manual compactions could run at the same time producing
     // overlaping outputs in the same level.
-    if (FilesRangeOverlapWithCompaction(inputs, output_level)) {
+    if (FilesRangeOverlapWithCompaction(
+            inputs, output_level,
+            Compaction::EvaluatePenultimateLevel(vstorage, ioptions_,
+                                                 start_level, output_level))) {
       // This compaction output could potentially conflict with the output
       // of a currently running compaction, we cannot run it.
       *manual_conflict = true;
@@ -831,7 +847,10 @@ Compaction* CompactionPicker::CompactRange(
 
   // 2 non-exclusive manual compactions could run at the same time producing
   // overlaping outputs in the same level.
-  if (FilesRangeOverlapWithCompaction(compaction_inputs, output_level)) {
+  if (FilesRangeOverlapWithCompaction(
+          compaction_inputs, output_level,
+          Compaction::EvaluatePenultimateLevel(vstorage, ioptions_, input_level,
+                                               output_level))) {
     // This compaction output could potentially conflict with the output
     // of a currently running compaction, we cannot run it.
     *manual_conflict = true;
@@ -1116,7 +1135,8 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
   }
   assert(ioptions_.compaction_style != kCompactionStyleLevel ||
          c->output_level() == 0 ||
-         !FilesRangeOverlapWithCompaction(*c->inputs(), c->output_level()));
+         !FilesRangeOverlapWithCompaction(*c->inputs(), c->output_level(),
+                                          c->GetPenultimateLevel()));
   if (c->start_level() == 0 ||
       ioptions_.compaction_style == kCompactionStyleUniversal) {
     level0_compactions_in_progress_.insert(c);

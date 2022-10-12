@@ -310,6 +310,14 @@ class Compaction {
 
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
+  Slice GetPenultimateLevelSmallestUserKey() const {
+    return penultimate_level_smallest_user_key_;
+  }
+
+  Slice GetPenultimateLevelLargestUserKey() const {
+    return penultimate_level_largest_user_key_;
+  }
+
   // Return true if the compaction supports per_key_placement
   bool SupportsPerKeyPlacement() const;
 
@@ -373,7 +381,8 @@ class Compaction {
   // per_key_placement feature, it returns the penultimate level number.
   // Otherwise, it's set to kInvalidLevel (-1), which means
   // output_to_penultimate_level is not supported.
-  static int EvaluatePenultimateLevel(const ImmutableOptions& immutable_options,
+  static int EvaluatePenultimateLevel(const VersionStorageInfo* vstorage,
+                                      const ImmutableOptions& immutable_options,
                                       const int start_level,
                                       const int output_level);
 
@@ -390,11 +399,6 @@ class Compaction {
   // populate penultimate level output range, which will be used to determine if
   // a key is safe to output to the penultimate level (details see
   // `Compaction::WithinPenultimateLevelOutputRange()`.
-  // TODO: Currently the penultimate level output range is the min/max keys of
-  //  non-last-level input files. Which is only good if there's no key moved
-  //  from the last level to the penultimate level. For a more complicated per
-  //  key placement which may move data from the last level to the penultimate
-  //  level, it needs extra check.
   void PopulatePenultimateLevelOutputRange();
 
   // Get the atomic file boundaries for all files in the compaction. Necessary
