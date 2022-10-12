@@ -13,7 +13,7 @@ namespace rocksdb {
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
 
-photon::thread_local_ptr<ThreadStatusData*> ThreadStatusUpdater::thread_status_data_;
+photon::thread_local_ptr<ThreadStatusData*, ThreadStatusData*> ThreadStatusUpdater::thread_status_data_(nullptr);
 
 void ThreadStatusUpdater::RegisterThread(ThreadStatus::ThreadType ttype,
                                          uint64_t thread_id) {

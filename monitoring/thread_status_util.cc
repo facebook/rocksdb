@@ -11,9 +11,8 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
-
-photon::thread_local_ptr<bool> ThreadStatusUtil::thread_updater_initialized_;
-photon::thread_local_ptr<ThreadStatusUpdater*> ThreadStatusUtil::thread_updater_local_cache_;
+photon::thread_local_ptr<ThreadStatusUpdater*, ThreadStatusUpdater*> ThreadStatusUtil::thread_updater_local_cache_(nullptr);
+photon::thread_local_ptr<bool, bool> ThreadStatusUtil::thread_updater_initialized_(false);
 
 void ThreadStatusUtil::RegisterThread(const Env* env,
                                       ThreadStatus::ThreadType thread_type) {

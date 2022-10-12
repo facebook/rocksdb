@@ -15,7 +15,7 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-photon::thread_local_ptr<size_t> ConcurrentArena::tls_cpuid;
+photon::thread_local_ptr<size_t, size_t> ConcurrentArena::tls_cpuid(0);
 #endif
 
 namespace {

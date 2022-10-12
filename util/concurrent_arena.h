@@ -95,7 +95,7 @@ class ConcurrentArena : public Allocator {
   };
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-  static photon::thread_local_ptr<size_t> tls_cpuid;
+  static photon::thread_local_ptr<size_t, size_t> tls_cpuid;
 #else
   enum ZeroFirstEnum : size_t { tls_cpuid = 0 };
 #endif
