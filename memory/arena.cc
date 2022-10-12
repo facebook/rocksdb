@@ -94,7 +94,7 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
 
 char* Arena::AllocateFromHugePage(size_t bytes) {
   MemMapping mm = MemMapping::AllocateHuge(bytes);
-  void* addr = mm.addr;
+  auto addr = static_cast<char*>(mm.Get());
   if (addr) {
     huge_blocks_.push_back(std::move(mm));
     blocks_memory_ += bytes;
@@ -102,7 +102,7 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
       tracker_->Allocate(bytes);
     }
   }
-  return reinterpret_cast<char*>(addr);
+  return addr;
 }
 
 char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,

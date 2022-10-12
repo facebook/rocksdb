@@ -5,11 +5,11 @@
 
 #include "port/mmap.h"
 
-#include <sys/mman.h>
-
 #ifdef OS_WIN
 #include <memoryapi.h>
 #include <windows.h>
+#else
+#include <sys/mman.h>
 #endif  // OS_WIN
 
 #include <cassert>
@@ -24,15 +24,15 @@ namespace ROCKSDB_NAMESPACE {
 
 MemMapping::~MemMapping() {
 #ifdef OS_WIN
-  if (addr != nullptr) {
-    (void)::UnmapViewOfFile(addr);
+  if (addr_ != nullptr) {
+    (void)::UnmapViewOfFile(addr_);
   }
-  if (page_file_handle != NULL) {
-    (void)::CloseHandle(page_file_handle);
+  if (page_file_handle_ != NULL) {
+    (void)::CloseHandle(page_file_handle_);
   }
 #else
-  if (addr != nullptr) {
-    auto status = munmap(addr, length);
+  if (addr_ != nullptr) {
+    auto status = munmap(addr_, length_);
     assert(status == 0);
     if (status != 0) {
       // TODO: handle error?
@@ -55,25 +55,25 @@ MemMapping& MemMapping::operator=(MemMapping&& other) noexcept {
   return *this;
 }
 
-namespace {
-
-void AnonymousMmap(MemMapping& mm, bool huge) {
-  assert(mm.addr == nullptr);
-  if (mm.length == 0) {
+MemMapping MemMapping::AllocateAnonymous(size_t length, bool huge) {
+  MemMapping mm;
+  mm.length_ = length;
+  assert(mm.addr_ == nullptr);
+  if (length == 0) {
     // OK to leave addr as nullptr
-    return;
+    return mm;
   }
 #ifdef OS_WIN
-  mm.page_file_handle = ::CreateFileMapping(
+  mm.page_file_handle_ = ::CreateFileMapping(
       INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE | SEC_COMMIT,
-      Upper32of64(mm.length), Lower32of64(mm.length), nullptr);
-  if (mm.page_file_handle == NULL) {
+      Upper32of64(length), Lower32of64(length), nullptr);
+  if (mm.page_file_handle_ == NULL) {
     // Failure
     return;
   }
-  mm.addr = ::MapViewOfFile(mm.page_file_handle,
-                            FILE_MAP_WRITE | (huge ? FILE_MAP_LARGE_PAGES : 0),
-                            0, 0, mm.length);
+  mm.addr_ = ::MapViewOfFile(mm.page_file_handle_,
+                             FILE_MAP_WRITE | (huge ? FILE_MAP_LARGE_PAGES : 0),
+                             0, 0, length);
 #else
   int huge_flag = 0;
   if (huge) {
@@ -81,28 +81,21 @@ void AnonymousMmap(MemMapping& mm, bool huge) {
     huge_flag = MAP_HUGETLB;
 #endif  // MAP_HUGE_TLB
   }
-  mm.addr = mmap(nullptr, mm.length, (PROT_READ | PROT_WRITE),
-                 (MAP_PRIVATE | MAP_ANONYMOUS | huge_flag), -1, 0);
-  if (mm.addr == MAP_FAILED) {
-    mm.addr = nullptr;
+  mm.addr_ = mmap(nullptr, length, (PROT_READ | PROT_WRITE),
+                  (MAP_PRIVATE | MAP_ANONYMOUS | huge_flag), -1, 0);
+  if (mm.addr_ == MAP_FAILED) {
+    mm.addr_ = nullptr;
   }
 #endif  // OS_WIN
+  return mm;
 }
 
-}  // namespace
-
 MemMapping MemMapping::AllocateHuge(size_t length) {
-  MemMapping rv;
-  rv.length = length;
-  AnonymousMmap(rv, /*huge*/ true);
-  return rv;
+  return AllocateAnonymous(length, /*huge*/ true);
 }
 
 MemMapping MemMapping::AllocateLazyZeroed(size_t length) {
-  MemMapping rv;
-  rv.length = length;
-  AnonymousMmap(rv, /*huge*/ false);
-  return rv;
+  return AllocateAnonymous(length, /*huge*/ false);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

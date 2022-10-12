@@ -5,9 +5,7 @@
 
 #pragma once
 
-#ifdef OS_WIN
-#include <windef.h>
-#else
+#ifndef OS_WIN
 #include <sys/mman.h>
 #endif
 #include <cstdint>
@@ -17,26 +15,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 // An RAII wrapper for mmaped memory
-struct MemMapping {
-  // The mapped memory, or nullptr on failure / not supported
-  void* addr = nullptr;
-  // The known usable number of bytes starting at that address
-  size_t length = 0;
-
-#ifdef OS_WIN
-  HANDLE page_file_handle = 0;
-#endif  // OS_WIN
-
-  // No copies
-  MemMapping(const MemMapping&) = delete;
-  MemMapping& operator=(const MemMapping&) = delete;
-  // Move
-  MemMapping(MemMapping&&) noexcept;
-  MemMapping& operator=(MemMapping&&) noexcept;
-
-  // Releases the mapping
-  ~MemMapping();
-
+class MemMapping {
+ public:
   static constexpr bool kHugePageSupported =
 #if defined(MAP_HUGETLB) || defined(OS_WIN)
       true;
@@ -54,8 +34,32 @@ struct MemMapping {
   // back the full mapping.
   static MemMapping AllocateLazyZeroed(size_t length);
 
+  // No copies
+  MemMapping(const MemMapping&) = delete;
+  MemMapping& operator=(const MemMapping&) = delete;
+  // Move
+  MemMapping(MemMapping&&) noexcept;
+  MemMapping& operator=(MemMapping&&) noexcept;
+
+  // Releases the mapping
+  ~MemMapping();
+
+  inline void* Get() const { return addr_; }
+  inline size_t Length() const { return length_; }
+
  private:
   MemMapping() {}
+
+  // The mapped memory, or nullptr on failure / not supported
+  void* addr_ = nullptr;
+  // The known usable number of bytes starting at that address
+  size_t length_ = 0;
+
+#ifdef OS_WIN
+  /*HANDLE*/ void* page_file_handle_ = nullptr;
+#endif  // OS_WIN
+
+  static MemMapping AllocateAnonymous(size_t length, bool huge);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

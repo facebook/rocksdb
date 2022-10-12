@@ -221,7 +221,7 @@ TEST(MmapTest, AllocateLazyZeroed) {
   // Doesn't have to be page aligned
   constexpr size_t len = 1234567;
   MemMapping m = MemMapping::AllocateLazyZeroed(len);
-  auto arr = reinterpret_cast<char*>(m.addr);
+  auto arr = static_cast<char*>(m.Get());
 
   // Should generally work
   ASSERT_NE(arr, nullptr);
