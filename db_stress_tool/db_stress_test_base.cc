@@ -1133,7 +1133,6 @@ Status StressTest::TestIterate(ThreadState* thread,
                                const ReadOptions& read_opts,
                                const std::vector<int>& rand_column_families,
                                const std::vector<int64_t>& rand_keys) {
-  Status s;
   const Snapshot* snapshot = db_->GetSnapshot();
   ReadOptions readoptionscopy = read_opts;
   readoptionscopy.snapshot = snapshot;
@@ -1303,20 +1302,14 @@ Status StressTest::TestIterate(ThreadState* thread,
                      cmp_iter.get(), last_op, key, op_logs, &diverged);
     }
 
-    if (s.ok()) {
-      thread->stats.AddIterations(1);
-    } else {
-      fprintf(stderr, "TestIterate error: %s\n", s.ToString().c_str());
-      thread->stats.AddErrors(1);
-      break;
-    }
+    thread->stats.AddIterations(1);
 
     op_logs += "; ";
   }
 
   db_->ReleaseSnapshot(snapshot);
 
-  return s;
+  return Status::OK();
 }
 
 #ifndef ROCKSDB_LITE
