@@ -325,6 +325,8 @@ int64_t GetProcessID();
 // true on success or false on failure.
 bool GenerateRfcUuid(std::string* output);
 
+extern void BlockTerminationSignals();
+
 }  // namespace port
 
 

@@ -297,6 +297,8 @@ bool GenerateRfcUuid(std::string* output) {
   return true;
 }
 
+void BlockTerminationSignals() {}
+
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -289,6 +289,16 @@ bool GenerateRfcUuid(std::string* output) {
   }
 }
 
+void BlockTerminationSignals() {
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGQUIT);
+  sigaddset(&set, SIGTERM);
+  sigaddset(&set, SIGABRT);
+  sigaddset(&set, SIGINT);
+  pthread_sigmask(SIG_BLOCK, &set, NULL);
+}
+
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 
