@@ -1133,24 +1133,26 @@ Status StressTest::TestIterate(ThreadState* thread,
                                const ReadOptions& read_opts,
                                const std::vector<int>& rand_column_families,
                                const std::vector<int64_t>& rand_keys) {
-  Status s;
-  const Snapshot* snapshot = db_->GetSnapshot();
-  ReadOptions readoptionscopy = read_opts;
-  readoptionscopy.snapshot = snapshot;
+  assert(!rand_column_families.empty());
+  assert(!rand_keys.empty());
+
+  ManagedSnapshot snapshot_guard(db_);
+
+  ReadOptions ro = read_opts;
+  ro.snapshot = snapshot_guard.snapshot();
 
   std::string read_ts_str;
   Slice read_ts_slice;
-  MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
-                                     readoptionscopy);
+  MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice, ro);
 
   bool expect_total_order = false;
   if (thread->rand.OneIn(16)) {
     // When prefix extractor is used, it's useful to cover total order seek.
-    readoptionscopy.total_order_seek = true;
+    ro.total_order_seek = true;
     expect_total_order = true;
   } else if (thread->rand.OneIn(4)) {
-    readoptionscopy.total_order_seek = false;
-    readoptionscopy.auto_prefix_mode = true;
+    ro.total_order_seek = false;
+    ro.auto_prefix_mode = true;
     expect_total_order = true;
   } else if (options_.prefix_extractor.get() == nullptr) {
     expect_total_order = true;
@@ -1159,101 +1161,106 @@ Status StressTest::TestIterate(ThreadState* thread,
   std::string upper_bound_str;
   Slice upper_bound;
   if (thread->rand.OneIn(16)) {
-    // in 1/16 chance, set a iterator upper bound
-    int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+    // With a 1/16 chance, set an iterator upper bound.
+    // Note: upper_bound can be smaller than the seek key.
+    const int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
     upper_bound_str = Key(rand_upper_key);
     upper_bound = Slice(upper_bound_str);
-    // uppder_bound can be smaller than seek key, but the query itself
-    // should not crash either.
-    readoptionscopy.iterate_upper_bound = &upper_bound;
+    ro.iterate_upper_bound = &upper_bound;
   }
   std::string lower_bound_str;
   Slice lower_bound;
   if (thread->rand.OneIn(16)) {
-    // in 1/16 chance, enable iterator lower bound
-    int64_t rand_lower_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+    // With a 1/16 chance, enable iterator lower bound.
+    // Note: lower_bound can be greater than the seek key.
+    const int64_t rand_lower_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
     lower_bound_str = Key(rand_lower_key);
     lower_bound = Slice(lower_bound_str);
-    // uppder_bound can be smaller than seek key, but the query itself
-    // should not crash either.
-    readoptionscopy.iterate_lower_bound = &lower_bound;
+    ro.iterate_lower_bound = &lower_bound;
   }
 
-  auto cfh = column_families_[rand_column_families[0]];
-  std::unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, cfh));
+  ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+  assert(cfh);
 
-  std::vector<std::string> key_str;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ro, cfh));
+
+  std::vector<std::string> key_strs;
   if (thread->rand.OneIn(16)) {
     // Generate keys close to lower or upper bound of SST files.
-    key_str = GetWhiteBoxKeys(thread, db_, cfh, rand_keys.size());
+    key_strs = GetWhiteBoxKeys(thread, db_, cfh, rand_keys.size());
   }
-  if (key_str.empty()) {
-    // If key string is not geneerated using white block keys,
-    // Use randomized key passe in.
+  if (key_strs.empty()) {
+    // Use the random keys passed in.
     for (int64_t rkey : rand_keys) {
-      key_str.push_back(Key(rkey));
+      key_strs.push_back(Key(rkey));
     }
   }
 
   std::string op_logs;
-  const size_t kOpLogsLimit = 10000;
+  constexpr size_t kOpLogsLimit = 10000;
 
-  for (const std::string& skey : key_str) {
+  for (const std::string& key_str : key_strs) {
     if (op_logs.size() > kOpLogsLimit) {
       // Shouldn't take too much memory for the history log. Clear it.
       op_logs = "(cleared...)\n";
     }
 
-    Slice key = skey;
-
-    if (readoptionscopy.iterate_upper_bound != nullptr &&
-        thread->rand.OneIn(2)) {
-      // 1/2 chance, change the upper bound.
-      // It is possible that it is changed without first use, but there is no
+    if (ro.iterate_upper_bound != nullptr && thread->rand.OneIn(2)) {
+      // With a 1/2 chance, change the upper bound.
+      // It is possible that it is changed before first use, but there is no
       // problem with that.
-      int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+      const int64_t rand_upper_key =
+          GenerateOneKey(thread, FLAGS_ops_per_thread);
       upper_bound_str = Key(rand_upper_key);
       upper_bound = Slice(upper_bound_str);
-    } else if (readoptionscopy.iterate_lower_bound != nullptr &&
-               thread->rand.OneIn(4)) {
-      // 1/4 chance, change the lower bound.
-      // It is possible that it is changed without first use, but there is no
+    }
+    if (ro.iterate_lower_bound != nullptr && thread->rand.OneIn(4)) {
+      // With a 1/4 chance, change the lower bound.
+      // It is possible that it is changed before first use, but there is no
       // problem with that.
-      int64_t rand_lower_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+      const int64_t rand_lower_key =
+          GenerateOneKey(thread, FLAGS_ops_per_thread);
       lower_bound_str = Key(rand_lower_key);
       lower_bound = Slice(lower_bound_str);
     }
 
-    // Record some options to op_logs;
+    // Record some options to op_logs
     op_logs += "total_order_seek: ";
-    op_logs += (readoptionscopy.total_order_seek ? "1 " : "0 ");
+    op_logs += (ro.total_order_seek ? "1 " : "0 ");
     op_logs += "auto_prefix_mode: ";
-    op_logs += (readoptionscopy.auto_prefix_mode ? "1 " : "0 ");
-    if (readoptionscopy.iterate_upper_bound != nullptr) {
+    op_logs += (ro.auto_prefix_mode ? "1 " : "0 ");
+    if (ro.iterate_upper_bound != nullptr) {
       op_logs += "ub: " + upper_bound.ToString(true) + " ";
     }
-    if (readoptionscopy.iterate_lower_bound != nullptr) {
+    if (ro.iterate_lower_bound != nullptr) {
       op_logs += "lb: " + lower_bound.ToString(true) + " ";
     }
 
-    // Set up an iterator and does the same without bounds and with total
-    // order seek and compare the results. This is to identify bugs related
-    // to bounds, prefix extractor or reseeking. Sometimes we are comparing
-    // iterators with the same set-up, and it doesn't hurt to check them
-    // to be equal.
+    // Set up an iterator, perform the same operations without bounds and with
+    // total order seek, and compare the results. This is to identify bugs
+    // related to bounds, prefix extractor, or reseeking. Sometimes we are
+    // comparing iterators with the same set-up, and it doesn't hurt to check
+    // them to be equal.
+    //
     // This `ReadOptions` is for validation purposes. Ignore
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions cmp_ro;
-    cmp_ro.timestamp = readoptionscopy.timestamp;
-    cmp_ro.iter_start_ts = readoptionscopy.iter_start_ts;
-    cmp_ro.snapshot = snapshot;
+    cmp_ro.timestamp = ro.timestamp;
+    cmp_ro.iter_start_ts = ro.iter_start_ts;
+    cmp_ro.snapshot = snapshot_guard.snapshot();
     cmp_ro.total_order_seek = true;
-    ColumnFamilyHandle* cmp_cfh =
+
+    ColumnFamilyHandle* const cmp_cfh =
         GetControlCfh(thread, rand_column_families[0]);
+    assert(cmp_cfh);
+
     std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
+
     bool diverged = false;
 
-    bool support_seek_first_or_last = expect_total_order;
+    Slice key(key_str);
+
+    const bool support_seek_first_or_last = expect_total_order;
 
     LastIterateOp last_op;
     if (support_seek_first_or_last && thread->rand.OneIn(100)) {
@@ -1277,12 +1284,13 @@ Status StressTest::TestIterate(ThreadState* thread,
       last_op = kLastOpSeek;
       op_logs += "S " + key.ToString(true) + " ";
     }
-    VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(), cmp_iter.get(),
-                   last_op, key, op_logs, &diverged);
 
-    bool no_reverse =
+    VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
+                   key, op_logs, &diverged);
+
+    const bool no_reverse =
         (FLAGS_memtablerep == "prefix_hash" && !expect_total_order);
-    for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
+    for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); ++i) {
       if (no_reverse || thread->rand.OneIn(2)) {
         iter->Next();
         if (!diverged) {
@@ -1298,25 +1306,19 @@ Status StressTest::TestIterate(ThreadState* thread,
         }
         op_logs += "P";
       }
+
       last_op = kLastOpNextOrPrev;
-      VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
-                     cmp_iter.get(), last_op, key, op_logs, &diverged);
+
+      VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
+                     key, op_logs, &diverged);
     }
 
-    if (s.ok()) {
-      thread->stats.AddIterations(1);
-    } else {
-      fprintf(stderr, "TestIterate error: %s\n", s.ToString().c_str());
-      thread->stats.AddErrors(1);
-      break;
-    }
+    thread->stats.AddIterations(1);
 
     op_logs += "; ";
   }
 
-  db_->ReleaseSnapshot(snapshot);
-
-  return s;
+  return Status::OK();
 }
 
 #ifndef ROCKSDB_LITE
@@ -1352,6 +1354,8 @@ void StressTest::VerifyIterator(ThreadState* thread,
                                 Iterator* cmp_iter, LastIterateOp op,
                                 const Slice& seek_key,
                                 const std::string& op_logs, bool* diverged) {
+  assert(diverged);
+
   if (*diverged) {
     return;
   }
@@ -1481,6 +1485,21 @@ void StressTest::VerifyIterator(ThreadState* thread,
       }
     }
   }
+
+  if (!*diverged && iter->Valid()) {
+    const Slice value_base_slice = GetValueBaseSlice(iter->value());
+
+    const WideColumns expected_columns = GenerateExpectedWideColumns(
+        GetValueBase(value_base_slice), iter->value());
+    if (iter->columns() != expected_columns) {
+      fprintf(stderr, "Value and columns inconsistent for iterator: %s\n",
+              DebugString(iter->value(), iter->columns(), expected_columns)
+                  .c_str());
+
+      *diverged = true;
+    }
+  }
+
   if (*diverged) {
     fprintf(stderr, "Control CF %s\n", cmp_cfh->GetName().c_str());
     thread->stats.AddErrors(1);
