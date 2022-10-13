@@ -1224,7 +1224,7 @@ Status StressTest::TestIterate(ThreadState* thread,
       lower_bound = Slice(lower_bound_str);
     }
 
-    // Record some options to op_logs;
+    // Record some options to op_logs
     op_logs += "total_order_seek: ";
     op_logs += (ro.total_order_seek ? "1 " : "0 ");
     op_logs += "auto_prefix_mode: ";
