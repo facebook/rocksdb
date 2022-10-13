@@ -5,14 +5,6 @@
 
 #include "port/mmap.h"
 
-#ifdef OS_WIN
-#include <windows.h>
-// ^^^ Must come first
-#include <memoryapi.h>
-#else
-#include <sys/mman.h>
-#endif  // OS_WIN
-
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -64,7 +56,13 @@ MemMapping MemMapping::AllocateAnonymous(size_t length, bool huge) {
     // OK to leave addr as nullptr
     return mm;
   }
+  int huge_flag = 0;
 #ifdef OS_WIN
+  if (huge) {
+#ifdef FILE_MAP_LARGE_PAGES
+    huge_flag = FILE_MAP_LARGE_PAGES;
+#endif  // FILE_MAP_LARGE_PAGES
+  }
   mm.page_file_handle_ = ::CreateFileMapping(
       INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE | SEC_COMMIT,
       Upper32of64(length), Lower32of64(length), nullptr);
@@ -72,18 +70,16 @@ MemMapping MemMapping::AllocateAnonymous(size_t length, bool huge) {
     // Failure
     return mm;
   }
-  mm.addr_ = ::MapViewOfFile(mm.page_file_handle_,
-                             FILE_MAP_WRITE | (huge ? FILE_MAP_LARGE_PAGES : 0),
+  mm.addr_ = ::MapViewOfFile(mm.page_file_handle_, FILE_MAP_WRITE | huge_flag,
                              0, 0, length);
 #else
-  int huge_flag = 0;
   if (huge) {
 #ifdef MAP_HUGETLB
     huge_flag = MAP_HUGETLB;
 #endif  // MAP_HUGE_TLB
   }
-  mm.addr_ = mmap(nullptr, length, (PROT_READ | PROT_WRITE),
-                  (MAP_PRIVATE | MAP_ANONYMOUS | huge_flag), -1, 0);
+  mm.addr_ = mmap(nullptr, length, PROT_READ | PROT_WRITE,
+                  MAP_PRIVATE | MAP_ANONYMOUS | huge_flag, -1, 0);
   if (mm.addr_ == MAP_FAILED) {
     mm.addr_ = nullptr;
   }

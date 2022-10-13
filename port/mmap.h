@@ -5,9 +5,14 @@
 
 #pragma once
 
-#ifndef OS_WIN
+#ifdef OS_WIN
+#include <windows.h>
+// ^^^ Must come first
+#include <memoryapi.h>
+#else
 #include <sys/mman.h>
-#endif
+#endif  // OS_WIN
+
 #include <cstdint>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -18,7 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 class MemMapping {
  public:
   static constexpr bool kHugePageSupported =
-#if defined(MAP_HUGETLB) || defined(OS_WIN)
+#if defined(MAP_HUGETLB) || defined(FILE_MAP_LARGE_PAGES)
       true;
 #else
       false;
@@ -56,7 +61,7 @@ class MemMapping {
   size_t length_ = 0;
 
 #ifdef OS_WIN
-  /*HANDLE*/ void* page_file_handle_ = nullptr;
+  HANDLE page_file_handle_ = NULL;
 #endif  // OS_WIN
 
   static MemMapping AllocateAnonymous(size_t length, bool huge);
