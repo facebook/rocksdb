@@ -277,8 +277,9 @@ void Java_org_rocksdb_SstFileReaderIterator_seekDirect0(
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->Seek(target_slice);
+    return it->status();
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_direct(seek, env, jtarget, jtarget_off,
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_with_status_check(seek, env, jtarget, jtarget_off,
                                           jtarget_len);
 }
 
@@ -293,8 +294,9 @@ void Java_org_rocksdb_SstFileReaderIterator_seekForPrevDirect0(
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   auto seekPrev = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->SeekForPrev(target_slice);
+    return it->status();
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_direct(seekPrev, env, jtarget, jtarget_off,
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_with_status_check(seekPrev, env, jtarget, jtarget_off,
                                           jtarget_len);
 }
 

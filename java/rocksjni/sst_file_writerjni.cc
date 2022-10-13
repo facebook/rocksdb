@@ -158,16 +158,12 @@ void Java_org_rocksdb_SstFileWriter_putDirect(JNIEnv *env, jobject /*jdb*/,
                                               jint jval_len) {
   auto *writer =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileWriter *>(jdb_handle);
-  auto put = [&env, &writer](ROCKSDB_NAMESPACE::Slice &key,
-                             ROCKSDB_NAMESPACE::Slice &value) {
-    ROCKSDB_NAMESPACE::Status s = writer->Put(key, value);
-    if (s.ok()) {
-      return;
-    }
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  auto put = [&writer](ROCKSDB_NAMESPACE::Slice &key,
+                       ROCKSDB_NAMESPACE::Slice &value) {
+    return writer->Put(key, value);
   };
-  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct(put, env, jkey, jkey_off, jkey_len,
-                                           jval, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_with_status_check(
+      put, env, jkey, jkey_off, jkey_len, jval, jval_off, jval_len);
 }
 
 /*
