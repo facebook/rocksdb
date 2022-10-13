@@ -1354,6 +1354,8 @@ void StressTest::VerifyIterator(ThreadState* thread,
                                 Iterator* cmp_iter, LastIterateOp op,
                                 const Slice& seek_key,
                                 const std::string& op_logs, bool* diverged) {
+  assert(diverged);
+
   if (*diverged) {
     return;
   }
@@ -1483,6 +1485,21 @@ void StressTest::VerifyIterator(ThreadState* thread,
       }
     }
   }
+
+  if (!*diverged && iter->Valid()) {
+    const Slice value_base_slice = GetValueBaseSlice(iter->value());
+
+    const WideColumns expected_columns = GenerateExpectedWideColumns(
+        GetValueBase(value_base_slice), iter->value());
+    if (iter->columns() != expected_columns) {
+      fprintf(stderr, "Value and columns inconsistent for iterator: %s\n",
+              DebugString(iter->value(), iter->columns(), expected_columns)
+                  .c_str());
+
+      *diverged = true;
+    }
+  }
+
   if (*diverged) {
     fprintf(stderr, "Control CF %s\n", cmp_cfh->GetName().c_str());
     thread->stats.AddErrors(1);
