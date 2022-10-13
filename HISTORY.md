@@ -27,6 +27,10 @@
 ### Behavior Changes
 * Sanitize min_write_buffer_number_to_merge to 1 if atomic flush is enabled to prevent unexpected data loss when WAL is disabled in a multi-column-family setting (#10773).
 
+### Public API changes
+* CompactRange C APIs now requires an error pointer (`char** errptr`) for receiving any error.
+* Add v2 C APIs for WriteBatch, WriteBatchWithIndex which accepts an error pointer (`char** errptr`) for receiving any error.
+
 ## 7.7.0 (09/18/2022)
 ### Bug Fixes
 * Fixed a hang when an operation such as `GetLiveFiles` or `CreateNewBackup` is asked to trigger and wait for memtable flush on a read-only DB. Such indirect requests for memtable flush are now ignored on a read-only DB.
