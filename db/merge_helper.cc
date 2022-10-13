@@ -155,6 +155,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                                const bool at_bottom,
                                const bool allow_data_in_errors,
                                const BlobFetcher* blob_fetcher,
+                               const std::string* const full_history_ts_low,
                                PrefetchBufferCollection* prefetch_buffers,
                                CompactionIterationStats* c_iter_stats) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
@@ -164,6 +165,12 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   merge_context_.Clear();
   has_compaction_filter_skip_until_ = false;
   assert(user_merge_operator_);
+  assert(user_comparator_);
+  const size_t ts_sz = user_comparator_->timestamp_size();
+  if (full_history_ts_low) {
+    assert(ts_sz > 0);
+    assert(ts_sz == full_history_ts_low->size());
+  }
   bool first_key = true;
 
   // We need to parse the internal key again as the parsed key is
@@ -184,6 +191,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   if (!s.ok()) return s;
 
   bool hit_the_next_user_key = false;
+  int cmp_with_full_history_ts_low = 0;
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
     if (IsShuttingDown()) {
       s = Status::ShutdownInProgress();
@@ -195,6 +203,14 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
     Status pik_status =
         ParseInternalKey(iter->key(), &ikey, allow_data_in_errors);
+    Slice ts;
+    if (pik_status.ok()) {
+      ts = ExtractTimestampFromUserKey(ikey.user_key, ts_sz);
+      if (full_history_ts_low) {
+        cmp_with_full_history_ts_low =
+            user_comparator_->CompareTimestamp(ts, *full_history_ts_low);
+      }
+    }
     if (!pik_status.ok()) {
       // stop at corrupted key
       if (assert_valid_internal_key_) {
@@ -206,8 +222,14 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // timestamps are equal, as a sanity check.
       assert(user_comparator_->Equal(ikey.user_key, orig_ikey.user_key));
       first_key = false;
-    } else if (!user_comparator_->Equal(ikey.user_key, orig_ikey.user_key)) {
-      // hit a different user key, stop right here
+    } else if (!user_comparator_->EqualWithoutTimestamp(ikey.user_key,
+                                                        orig_ikey.user_key) ||
+               (ts_sz > 0 &&
+                !user_comparator_->Equal(ikey.user_key, orig_ikey.user_key) &&
+                cmp_with_full_history_ts_low >= 0)) {
+      // 1) hit a different user key, or
+      // 2) hit a version of user key NOT eligible for GC,
+      // then stop right here.
       hit_the_next_user_key = true;
       break;
     } else if (stop_before > 0 && ikey.sequence <= stop_before &&
@@ -372,6 +394,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     }
   }
 
+  if (cmp_with_full_history_ts_low >= 0) {
+    assert(ts_sz == 0 || merge_context_.GetNumOperands() == 1);
+  }
+
   if (merge_context_.GetNumOperands() == 0) {
     // we filtered out all the merge operands
     return s;
@@ -394,7 +420,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // sure that all merge-operands on the same level get compacted together,
   // this will simply lead to these merge operands moving to the next level.
   bool surely_seen_the_beginning =
-      (hit_the_next_user_key || !iter->Valid()) && at_bottom;
+      (hit_the_next_user_key || !iter->Valid()) && at_bottom &&
+      (ts_sz == 0 || cmp_with_full_history_ts_low < 0);
   if (surely_seen_the_beginning) {
     // do a final merge with nullptr as the existing value and say
     // bye to the merge type (it's now converted to a Put)

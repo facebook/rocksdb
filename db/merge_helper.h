@@ -101,6 +101,7 @@ class MergeHelper {
                     const SequenceNumber stop_before, const bool at_bottom,
                     const bool allow_data_in_errors,
                     const BlobFetcher* blob_fetcher,
+                    const std::string* const full_history_ts_low,
                     PrefetchBufferCollection* prefetch_buffers,
                     CompactionIterationStats* c_iter_stats);
 
