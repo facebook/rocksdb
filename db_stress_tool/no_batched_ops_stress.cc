@@ -1180,6 +1180,32 @@ class NonBatchedOpsStressTest : public StressTest {
 
     std::string op_logs;
 
+    auto check_columns = [&]() {
+      assert(iter);
+      assert(iter->Valid());
+
+      const WideColumns expected_columns = GenerateExpectedWideColumns(
+          GetValueBase(iter->value()), iter->value());
+      if (iter->columns() != expected_columns) {
+        shared->SetVerificationFailure();
+
+        fprintf(stderr,
+                "Verification failed for key %s: "
+                "Value and columns inconsistent: %s\n",
+                Slice(iter->key()).ToString(/* hex */ true).c_str(),
+                DebugString(iter->value(), iter->columns(), expected_columns)
+                    .c_str());
+        fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                cfh->GetName().c_str(), op_logs.c_str());
+
+        thread->stats.AddErrors(1);
+
+        return false;
+      }
+
+      return true;
+    };
+
     auto check_no_key_in_range = [&](int64_t start, int64_t end) {
       for (auto j = std::max(start, lb); j < std::min(end, ub); ++j) {
         auto expected_value =
@@ -1229,11 +1255,15 @@ class NonBatchedOpsStressTest : public StressTest {
           return iter->status();
         }
         if (!check_no_key_in_range(last_key + 1, ub)) {
-          // error reported in check_no_key_in_range()
           return Status::OK();
         }
         break;
       }
+
+      if (!check_columns()) {
+        return Status::OK();
+      }
+
       // iter is valid, the range (last_key, current key) was skipped
       GetIntVal(iter->key().ToString(), &curr);
       if (!check_no_key_in_range(last_key + 1, static_cast<int64_t>(curr))) {
@@ -1273,6 +1303,11 @@ class NonBatchedOpsStressTest : public StressTest {
         }
         break;
       }
+
+      if (!check_columns()) {
+        return Status::OK();
+      }
+
       // the range (current key, last key) was skipped
       GetIntVal(iter->key().ToString(), &curr);
       if (!check_no_key_in_range(static_cast<int64_t>(curr + 1), last_key)) {
@@ -1322,6 +1357,10 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     for (int64_t i = 0; i < num_iter && iter->Valid(); ++i) {
+      if (!check_columns()) {
+        return Status::OK();
+      }
+
       GetIntVal(iter->key().ToString(), &curr);
       if (static_cast<int64_t>(curr) < lb) {
         iter->Next();
@@ -1370,6 +1409,7 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
     }
+
     if (!iter->status().ok()) {
       thread->shared->SetVerificationFailure();
       fprintf(stderr, "TestIterate against expected state error: %s\n",
@@ -1379,7 +1419,9 @@ class NonBatchedOpsStressTest : public StressTest {
       thread->stats.AddErrors(1);
       return iter->status();
     }
+
     thread->stats.AddIterations(1);
+
     return Status::OK();
   }
 
