@@ -113,6 +113,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   SequenceNumber current_last_seq_;  // last sequence in the current batch
   // Reads from transaction log only if the writebatch record has been written
   bool RestrictedRead(Slice* record);
+  bool RestrictedRead(Slice* record, SequenceNumber* last_seq);
   // Seeks to starting_sequence_number_ reading from start_file_index in files_.
   // If strict is set, then must get a batch starting with
   // starting_sequence_number_.
