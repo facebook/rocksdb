@@ -4942,7 +4942,13 @@ class Benchmark {
       }
 #endif  // ROCKSDB_LITE
     } else {
-      s = DB::Open(options, db_name, &db->db);
+      std::vector<ColumnFamilyDescriptor> column_families;
+      column_families.push_back(ColumnFamilyDescriptor(
+          kDefaultColumnFamilyName, ColumnFamilyOptions(options)));
+      s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
+      db->cfh.resize(1);
+      db->num_created = 1;
+      db->num_hot = 1;
     }
     if (FLAGS_report_open_timing) {
       std::cout << "OpenDb:     "
@@ -6715,6 +6721,7 @@ class Benchmark {
     int64_t found = 0;
     int64_t bytes = 0;
     ReadOptions options = read_options_;
+    int64_t key_rand = 0;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -6746,7 +6753,9 @@ class Benchmark {
     Duration duration(FLAGS_duration, reads_);
     char value_buffer[256];
     while (!duration.Done(1)) {
-      int64_t seek_pos = thread->rand.Next() % FLAGS_num;
+      key_rand = GetRandomKey(&thread->rand);
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(key_rand);
+      int64_t seek_pos = key_rand;
       GenerateKeyFromIntForSeek(static_cast<uint64_t>(seek_pos), FLAGS_num,
                                 &key);
       if (FLAGS_max_scan_distance != 0) {
@@ -6776,18 +6785,15 @@ class Benchmark {
       // Pick a Iterator to use
       uint64_t db_idx_to_use =
           (db_.db == nullptr)
-              ? (uint64_t{thread->rand.Next()} % multi_dbs_.size())
+              ? (static_cast<uint64_t>(key_rand) % multi_dbs_.size())
               : 0;
       std::unique_ptr<Iterator> single_iter;
       Iterator* iter_to_use;
       if (FLAGS_use_tailing_iterator) {
         iter_to_use = tailing_iters[db_idx_to_use];
       } else {
-        if (db_.db != nullptr) {
-          single_iter.reset(db_.db->NewIterator(options));
-        } else {
-          single_iter.reset(multi_dbs_[db_idx_to_use].db->NewIterator(options));
-        }
+        single_iter.reset(db_with_cfh->db->NewIterator(
+            options, db_with_cfh->GetCfh(key_rand)));
         iter_to_use = single_iter.get();
       }
 
@@ -7289,6 +7295,7 @@ class Benchmark {
     ReadOptions options = read_options_;
     RandomGenerator gen;
     std::string value;
+    int64_t key_rand = 0;
     int64_t found = 0;
     int get_weight = 0;
     int put_weight = 0;
@@ -7306,8 +7313,10 @@ class Benchmark {
 
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
-      DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      key_rand = GetRandomKey(&thread->rand);
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(key_rand);
+      DB* db = db_with_cfh->db;
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       if (get_weight == 0 && put_weight == 0) {
         // one batch completed, reinitialize for next batch
         get_weight = FLAGS_readwritepercent;
@@ -7321,7 +7330,7 @@ class Benchmark {
                                                     ts_guard.get());
           options.timestamp = &ts;
         }
-        Status s = db->Get(options, key, &value);
+        Status s = db->Get(options, db_with_cfh->GetCfh(key_rand), key, &value);
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
           // we continue after error rather than exiting so that we can
@@ -7331,16 +7340,18 @@ class Benchmark {
         }
         get_weight--;
         reads_done++;
-        thread->stats.FinishedOps(nullptr, db, 1, kRead);
+        thread->stats.FinishedOps(db_with_cfh, db, 1, kRead);
       } else  if (put_weight > 0) {
         // then do all the corresponding number of puts
         // for all the gets we have done earlier
         Status s;
         if (user_timestamp_size_ > 0) {
           Slice ts = mock_app_clock_->Allocate(ts_guard.get());
-          s = db->Put(write_options_, key, ts, gen.Generate());
+          s = db->Put(write_options_, db_with_cfh->GetCfh(key_rand), key, ts,
+                      gen.Generate());
         } else {
-          s = db->Put(write_options_, key, gen.Generate());
+          s = db->Put(write_options_, db_with_cfh->GetCfh(key_rand), key,
+                      gen.Generate());
         }
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
@@ -7348,7 +7359,7 @@ class Benchmark {
         }
         put_weight--;
         writes_done++;
-        thread->stats.FinishedOps(nullptr, db, 1, kWrite);
+        thread->stats.FinishedOps(db_with_cfh, db, 1, kWrite);
       }
     }
     char msg[100];
