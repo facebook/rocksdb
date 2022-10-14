@@ -278,6 +278,10 @@ class PosixFileSystem : public FileSystem {
           ,
           !IsIOUringEnabled() ? nullptr : thread_local_io_urings_.get()
 #endif
+#if defined(ROCKSDB_LIBAIO_PRESENT)
+          ,
+          thread_local_io_context_.get()
+#endif
               ));
     }
     return s;
@@ -1204,6 +1208,11 @@ class PosixFileSystem : public FileSystem {
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
 #endif
 
+#if defined(ROCKSDB_LIBAIO_PRESENT)
+  // io_context_t instance
+  std::unique_ptr<ThreadLocalPtr> thread_local_io_context_;
+#endif
+
   size_t page_size_;
 
   // If true, allow non owner read access for db files. Otherwise, non-owner
@@ -1264,6 +1273,9 @@ PosixFileSystem::PosixFileSystem()
     thread_local_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
     delete new_io_uring;
   }
+#endif
+#if defined(ROCKSDB_LIBAIO_PRESENT)
+  thread_local_io_context_.reset(new ThreadLocalPtr(DeleteIOContext));
 #endif
 }
 

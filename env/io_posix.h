@@ -12,6 +12,9 @@
 #include <liburing.h>
 #include <sys/uio.h>
 #endif
+#if defined(ROCKSDB_LIBAIO_PRESENT)
+#include "env/libaio.h"
+#endif
 #include <unistd.h>
 
 #include <atomic>
@@ -272,6 +275,30 @@ inline struct io_uring* CreateIOUring() {
 }
 #endif  // defined(ROCKSDB_IOURING_PRESENT)
 
+#if defined(ROCKSDB_LIBAIO_PRESENT)
+// libaio max req num
+const unsigned int kLibAioMaxNum = 256;
+class LibAioContext {
+public:
+  LibAioContext();
+  virtual ~LibAioContext();
+  io_context_t ctx_;
+  struct iocb** submit_list_;
+  struct iocb* iocb_list_;
+  struct io_event* io_event_list_;
+};
+
+inline void DeleteIOContext(void* p) {
+  LibAioContext* ctx = static_cast<LibAioContext*>(p);
+  delete ctx;
+}
+
+inline LibAioContext* CreateIOContext() {
+  LibAioContext* ctx = new LibAioContext;
+  return ctx;
+}
+#endif  // defined(ROCKSDB_LIBAIO_PRESENT)
+
 class PosixRandomAccessFile : public FSRandomAccessFile {
  protected:
   std::string filename_;
@@ -282,6 +309,10 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   ThreadLocalPtr* thread_local_io_urings_;
 #endif
 
+#if defined(ROCKSDB_LIBAIO_PRESENT)
+  ThreadLocalPtr* thread_local_io_context_;
+#endif
+
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
                         size_t logical_block_size,
@@ -289,6 +320,10 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
                         ThreadLocalPtr* thread_local_io_urings
+#endif
+#if defined(ROCKSDB_LIBAIO_PRESENT)
+                        ,
+                        ThreadLocalPtr* thread_local_io_ctx
 #endif
   );
   virtual ~PosixRandomAccessFile();
