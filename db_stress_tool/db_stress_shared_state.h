@@ -215,6 +215,32 @@ class SharedState {
     }
   }
 
+  // Returns a collection of mutex locks covering the key range [start, end) in
+  // `cf`.
+  std::vector<std::unique_ptr<MutexLock>> GetLocksForKeyRange(int cf,
+                                                              int64_t start,
+                                                              int64_t end) {
+    std::vector<std::unique_ptr<MutexLock>> range_locks;
+
+    if (start >= end) {
+      return range_locks;
+    }
+
+    const int64_t start_idx = start >> log2_keys_per_lock_;
+
+    int64_t end_idx = end >> log2_keys_per_lock_;
+    if ((end & ((1 << log2_keys_per_lock_) - 1)) == 0) {
+      --end_idx;
+    }
+
+    for (int64_t idx = start_idx; idx <= end_idx; ++idx) {
+      range_locks.emplace_back(
+          std::make_unique<MutexLock>(&key_locks_[cf][idx]));
+    }
+
+    return range_locks;
+  }
+
   Status SaveAtAndAfter(DB* db) {
     return expected_state_manager_->SaveAtAndAfter(db);
   }
