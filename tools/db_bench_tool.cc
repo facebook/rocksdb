@@ -1353,6 +1353,9 @@ DEFINE_int64(
     preclude_last_level_data_seconds, 0,
     "Preclude the latest data from the last level. (Used for tiered storage)");
 
+DEFINE_int64(preserve_internal_time_seconds, 0,
+             "Preserve the internal time information which stores with SST.");
+
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
 static ROCKSDB_NAMESPACE::Env* FLAGS_env = ROCKSDB_NAMESPACE::Env::Default();
@@ -4530,6 +4533,8 @@ class Benchmark {
     }
     options.preclude_last_level_data_seconds =
         FLAGS_preclude_last_level_data_seconds;
+    options.preserve_internal_time_seconds =
+        FLAGS_preserve_internal_time_seconds;
     options.sample_for_compression = FLAGS_sample_for_compression;
     options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
     options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
