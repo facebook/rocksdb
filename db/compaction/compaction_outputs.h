@@ -211,6 +211,8 @@ class CompactionOutputs {
 
   // Returns true iff we should stop building the current output
   // before processing the current key in compaction iterator.
+  // @param is_range_del whether current key from c_iter is a range tombstone
+  // start key.
   bool ShouldStopBefore(const CompactionIterator& c_iter, bool is_range_del);
 
   void Cleanup() {
@@ -248,37 +250,8 @@ class CompactionOutputs {
     if (status.ok() && !HasBuilder() && !HasOutput() && HasRangeDel()) {
       status = open_file_func(*this);
     }
-    const InternalKeyComparator* icmp =
-        &compaction_->column_family_data()->internal_comparator();
     if (HasBuilder()) {
       const Slice empty_key{};
-      if (range_tombstone_limit_) {
-        assert(max_tombstone_end_.size() > 0);
-        // Cut the range tombstones at the end of this compaction output.
-        while (range_tombstone_limit_ &&
-               icmp->Compare(max_tombstone_end_, *range_tombstone_limit_) >=
-                   0) {
-          Status s =
-              close_file_func(*this, status, range_tombstone_limit_->Encode());
-          if (!s.ok()) {
-            if (status.ok()) {
-              status = s;
-            }
-            break;
-          }
-          range_tombstone_lower_bound_ = *range_tombstone_limit_;
-          UpdateRangeTombstoneLimit(icmp, range_tombstone_limit_->Encode());
-          s = open_file_func(*this);
-          if (!s.ok()) {
-            if (status.ok()) {
-              status = s;
-            }
-            break;
-          }
-        }
-      }
-      assert(HasBuilder());
-      // This may not be necessary anymore by the loop exit condition above.
       Status s = close_file_func(*this, status, empty_key);
       if (!s.ok() && status.ok()) {
         status = s;
@@ -308,15 +281,6 @@ class CompactionOutputs {
     assert(range_del_agg_ == nullptr);
     range_del_agg_ = std::move(range_del_agg);
   }
-
-  // Update range_tombstone_limit_ of compaction output given a new range
-  // tombstone start key or a new output file start key. range_tombstone_limit_
-  // is set to the smallest key of a grandparent file such that the grandparent
-  // files overlapping with range [start_ikey, range_tombstone_limit_) is just
-  // above max_compaction_bytes. Assumes start_ikey passed in is in increasing
-  // order.
-  void UpdateRangeTombstoneLimit(const InternalKeyComparator* icmp,
-                                 const Slice& start_ikey);
 
   const Compaction* compaction_;
 
@@ -377,24 +341,9 @@ class CompactionOutputs {
   // basically number of files overlapped * 2
   size_t grandparent_boundary_switched_num_ = 0;
 
-  // Upper bound for range tombstone of the current output file.
-  // This is used only for cutting output file due to large range tombstones.
-  InternalKey* range_tombstone_limit_ = nullptr;
-  // Reused index in UpdateRangeTombstoneLimit(), see
-  // UpdateRangeTombstoneLimit() for more detail.
-  size_t last_index_ = 0;
-
-  // Remembers the lower bound of an output file when a range tombstone is cut
-  // in the middle. This is used to determine the smallest internal key of an
-  // output file in AddRangeDels().
+  // The smallest key of the current output file, this is set when current
+  // output file's smallst key is a range tombstone start key.
   InternalKey range_tombstone_lower_bound_;
-
-  // largest end key of range tombstones seen so far
-  InternalKey max_tombstone_end_;
-
-  // cached result of icmp(max_tombstone_end_, range_tombstone_lower_bound_) >=
-  // 0
-  bool tombstone_after_limit_ = false;
 };
 
 // helper struct to concatenate the last level and penultimate level outputs

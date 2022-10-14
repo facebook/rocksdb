@@ -1738,7 +1738,7 @@ TEST_F(DBRangeDelTest, OversizeCompactionGapBetweenTombstone) {
   ASSERT_EQ(2, NumTableFilesAtLevel(1));
 }
 
-TEST_F(DBRangeDelTest, OversizeCompactionPointKeyWithinLargeRangetombstone) {
+TEST_F(DBRangeDelTest, OversizeCompactionPointKeyWithinRangetombstone) {
   // L2 has two files
   // L2_0: 0, 1, 2, 3, 4. L2_1: 6, 7, 8
   // L0 has [0, 9) and point key 5
@@ -1801,9 +1801,9 @@ TEST_F(DBRangeDelTest, OverlappedTombstones) {
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));
 
-  // The tombstone range is broken up into multiple SSTs.
-  // This is L0 -> L1 compaction
-  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+  // The tombstone range is not broken up into multiple SSTs which may incur a
+  // large compaction with L2.
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
   std::vector<std::vector<FileMetaData>> files;
   ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));

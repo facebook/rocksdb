@@ -330,57 +330,13 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter,
   return false;
 }
 
-// Range tombstones could cause oversize compactions if they are not considered
-// in AddToOutput(). Two examples:
-// 1. a large range tombstone: [a, z)
-// 2. range tombstone and point keys are far apart [a, b), ..., y, z
-// To consider range tombstones we use CompactionMergingIterator which emits
-// range tombstones. To deal with 1, we use range tombstone's start key and
-// output file start key to compute a limit for the current output file and cut
-// at the limit when c_iter passes it and there is an active range tombstone. To
-// deal with 2, we pass range tombstone start key to `ShouldStopBefore()`.
 Status CompactionOutputs::AddToOutput(
     const CompactionIterator& c_iter,
     const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func) {
   Status s;
   const Slice& key = c_iter.key();
-  const InternalKeyComparator* icmp =
-      &compaction_->column_family_data()->internal_comparator();
-  if (range_tombstone_limit_) {
-    // there is a limit for output imposed by range tombstone.
-    assert(max_tombstone_end_.size() > 0);
-    if (!HasBuilder()) {
-      s = open_file_func(*this);
-      if (!s.ok()) {
-        return s;
-      }
-    }
-    // - c_iter.key() needs to be after the cutting point
-    // range_tombstone_limit_, otherwise we would cut a compaction output file
-    // at a key larger than the current key from compaction iterator.
-    // - max_tombstone_end_ needs to be after the cut point so that we know
-    // there is a range tombstone covering the cutting point
-    // range_tombstone_limit_.
-    while (range_tombstone_limit_ && tombstone_after_limit_ &&
-           icmp->Compare(key, range_tombstone_limit_->Encode()) >= 0) {
-      s = close_file_func(*this, c_iter.InputStatus(),
-                          range_tombstone_limit_->Encode());
-      if (!s.ok()) {
-        return s;
-      }
-      range_tombstone_lower_bound_ = *range_tombstone_limit_;
-      grandparent_boundary_switched_num_ = 0;
-      grandparent_overlapped_bytes_ = GetCurrentKeyGrandparentOverlappedBytes(
-          range_tombstone_limit_->Encode());
-      UpdateRangeTombstoneLimit(icmp, range_tombstone_limit_->Encode());
-      s = open_file_func(*this);
-      if (!s.ok()) {
-        return s;
-      }
-    }
-  }
-  bool is_range_del = GetInternalKeyOpType(key) == kTypeRangeDeletion;
+  bool is_range_del = ExtractValueType(key) == kTypeRangeDeletion;
   if (ShouldStopBefore(c_iter, is_range_del) && HasBuilder()) {
     s = close_file_func(*this, c_iter.InputStatus(), key);
     if (!s.ok()) {
@@ -390,11 +346,8 @@ Status CompactionOutputs::AddToOutput(
     grandparent_boundary_switched_num_ = 0;
     grandparent_overlapped_bytes_ =
         GetCurrentKeyGrandparentOverlappedBytes(key);
-    if (range_tombstone_limit_) {
-      // extend the limit for new output file
-      UpdateRangeTombstoneLimit(icmp, key);
-    }
     if (UNLIKELY(is_range_del)) {
+      // lower bound is used as the minimal key for this new output file
       range_tombstone_lower_bound_.DecodeFrom(key);
     } else {
       range_tombstone_lower_bound_.Clear();
@@ -410,14 +363,6 @@ Status CompactionOutputs::AddToOutput(
   }
 
   if (UNLIKELY(is_range_del)) {
-    if (max_tombstone_end_.size() == 0 ||
-        icmp->Compare(max_tombstone_end_.Encode(), c_iter.value()) < 0) {
-      max_tombstone_end_.DecodeFrom(c_iter.value());
-    }
-    UpdateRangeTombstoneLimit(icmp, key);
-    // range tombstones are added to output through AddRangeDels() (called in
-    // close_file_func()). So we should return without adding to
-    // current_output() here.
     return s;
   }
 
@@ -606,14 +551,6 @@ Status CompactionOutputs::AddRangeDels(
               InternalKey(*lower_bound, tombstone.seq_, kTypeRangeDeletion);
         }
       } else if (lower_bound_from_range_tombstone) {
-        // This lower bound is the smallest key from a file in an older level.
-        // It should be fine to use it as the smallest key here too
-        // to truncate range tombstones. The previous file of the compaction
-        // output is guaranteed not to end with a user key that is the same as
-        // range_tombstone_lower_bound_ (see details in
-        // UpdateRangeTombstoneLimit() that it skips atomic compaction unit). So
-        // no keys from older level with same user key as this lower bound will
-        // become incorrectly visible.
         smallest_candidate = range_tombstone_lower_bound_;
       } else {
         smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
@@ -710,62 +647,6 @@ void CompactionOutputs::FillFilesToCutForTtl() {
         file->fd.GetFileSize() >
             compaction_->mutable_cf_options()->target_file_size_base / 2) {
       files_to_cut_for_ttl_.push_back(file);
-    }
-  }
-}
-
-void CompactionOutputs::UpdateRangeTombstoneLimit(
-    const InternalKeyComparator* icmp, const Slice& start_ikey) {
-  auto grandparents = compaction_->grandparents();
-  if (grandparents.empty()) {
-    range_tombstone_limit_ = nullptr;
-  } else {
-    if (!range_tombstone_limit_ && last_index_ > 0) {
-      // we previously entered this function and determined no limit.
-      return;
-    }
-    size_t index = last_index_;
-    for (; index < grandparents.size(); ++index) {
-      // This can underestimate overlapping size due to atomic compaction
-      // unit. The consequence is slightly looser limits when cutting
-      // compaction output due to range tombstones. This should be acceptable.
-      // It makes reasoning about progress of range_tombstone_limit_ easier.
-      if (icmp->Compare(start_ikey, grandparents[index]->largest.Encode()) <=
-          0) {
-        break;
-      }
-    }
-    last_index_ = index;
-    size_t overlapping_size = 0;
-    while (overlapping_size <= compaction_->max_compaction_bytes() &&
-           index < grandparents.size()) {
-      overlapping_size += grandparents[index]->fd.GetFileSize();
-      index++;
-    }
-    // Avoid cutting within an atomic compaction unit: smallest key of a
-    // grandparent file may be used to truncate range tombstones of compaction
-    // output (see AddRangeDels()). If the grandparent file is within an
-    // atomic compaction unit, truncating compaction at its smallest key may
-    // expose keys from lower level. For example, consider the following LSM
-    // tree: L1 has a range tombstone [b, g)@5. L3 has two files, L3_0: c@3,
-    // L3_1: c@2. During compaction, if we cut output at c@2, then we may have
-    // L2_0 with the largest key c@kMaxSequenceNumber, L2_1 with the smallest
-    // key c@2. So c@3 becomes visible which is incorrect.
-    for (; index < grandparents.size() - 1; ++index) {
-      if (sstableKeyCompare(icmp->user_comparator(),
-                            grandparents[index]->largest,
-                            grandparents[index + 1]->smallest) < 0) {
-        break;
-      }
-    }
-    assert(index >= grandparents.size() || index > last_index_);
-    if (index >= grandparents.size()) {
-      range_tombstone_limit_ = nullptr;
-    } else {
-      range_tombstone_limit_ = &grandparents[index]->smallest;
-      assert(max_tombstone_end_.size() > 0);
-      tombstone_after_limit_ =
-          icmp->Compare(max_tombstone_end_, *range_tombstone_limit_) >= 0;
     }
   }
 }

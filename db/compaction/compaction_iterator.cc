@@ -628,7 +628,7 @@ void CompactionIterator::NextFromInput() {
           ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
           cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
-          ikey_.type != kTypeRangeDeletion) {
+          next_ikey.type != kTypeRangeDeletion) {
         // In the unlikely scenario that range tombstone comes right after a
         // single delete with the same user key, we output the single delete
         // directly. This is still correct, with the cost of not going through

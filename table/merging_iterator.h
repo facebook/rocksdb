@@ -129,20 +129,19 @@ struct HeapItem {
     // This is used only in CompactionMergingIterator for determining output
     // file cutting, so there is no need to set op_type to kTypeMaxValid as done
     // in `SetTombstoneKey()` to force range tombstone start key to be always
-    // before point key with same user key and sequence number in minHeap_.
+    // before point keys that have the same user key and sequence number in
+    // minHeap_.
     pinned_key.clear();
     ParsedInternalKey pik = range_del_iter->start_key();
-    pik.type = kTypeRangeDeletion;
+    assert(pik.type == kTypeRangeDeletion);
     // TruncatedRangeDelIterator sets max sequence number of untruncated range
     // tombstones, setting the sequence to range tombstone's sequence number is
     // still correct, and makes it easier to determine file's boundary in
     // CompactionOutputs::AddRangeDels().
-    pik.sequence = std::min(range_del_iter->seq(), pik.sequence);
+    if (pik.sequence == kMaxSequenceNumber) {
+      pik.sequence = range_del_iter->seq();
+    }
     AppendInternalKey(&pinned_key, pik);
-    pinned_value.clear();
-    pik = range_del_iter->end_key();
-    pik.type = kTypeRangeDeletion;
-    AppendInternalKey(&pinned_value, pik);
   }
 
   Slice key() const {
@@ -174,7 +173,7 @@ struct HeapItem {
 
 class MinHeapItemComparator {
  public:
-  MinHeapItemComparator(const InternalKeyComparator* comparator)
+  explicit MinHeapItemComparator(const InternalKeyComparator* comparator)
       : comparator_(comparator) {}
   bool operator()(HeapItem* a, HeapItem* b) const {
     if (LIKELY(a->type == HeapItem::ITERATOR)) {

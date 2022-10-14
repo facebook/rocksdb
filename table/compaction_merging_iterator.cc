@@ -17,10 +17,7 @@ void CompactionMergingIterator::SeekToFirst() {
   for (size_t i = 0; i < range_tombstone_iters_.size(); ++i) {
     if (range_tombstone_iters_[i]) {
       range_tombstone_iters_[i]->SeekToFirst();
-      if (range_tombstone_iters_[i]->Valid()) {
-        // It is possible to be invalid due to snapshots.
-        InsertRangeTombstoneToMinHeap(i);
-      }
+      InsertRangeTombstoneAtLevel(i);
     }
   }
 
@@ -50,9 +47,7 @@ void CompactionMergingIterator::Seek(const Slice& target) {
                  0) {
         range_tombstone_iters_[i]->Next();
       }
-      if (range_tombstone_iters_[i]->Valid()) {
-        InsertRangeTombstoneToMinHeap(i);
-      }
+      InsertRangeTombstoneAtLevel(i);
     }
   }
 
@@ -85,9 +80,7 @@ void CompactionMergingIterator::Next() {
     size_t level = current_->level;
     assert(range_tombstone_iters_[level]);
     range_tombstone_iters_[level]->Next();
-    if (range_tombstone_iters_[level]->Valid()) {
-      InsertRangeTombstoneToMinHeap(level);
-    }
+    InsertRangeTombstoneAtLevel(level);
   }
   FindNextVisibleKey();
   current_ = CurrentForward();
@@ -105,9 +98,8 @@ void CompactionMergingIterator::FindNextVisibleKey() {
     } else {
       minHeap_.pop();
     }
-    if (range_tombstone_iters_[current->level] &&
-        range_tombstone_iters_[current->level]->Valid()) {
-      InsertRangeTombstoneToMinHeap(current->level);
+    if (range_tombstone_iters_[current->level]) {
+      InsertRangeTombstoneAtLevel(current->level);
     }
   }
 }
