@@ -526,7 +526,8 @@ bool CompactionPicker::SetupOtherInputs(
       try_overlapping_inputs = false;
     }
     if (try_overlapping_inputs && expanded_inputs.size() > inputs->size() &&
-        output_level_inputs_size + expanded_inputs_size < limit &&
+        (mutable_cf_options.ignore_max_compaction_bytes_for_input ||
+         output_level_inputs_size + expanded_inputs_size < limit) &&
         !AreFilesInCompaction(expanded_inputs.files)) {
       InternalKey new_start, new_limit;
       GetRange(expanded_inputs, &new_start, &new_limit);
@@ -549,7 +550,8 @@ bool CompactionPicker::SetupOtherInputs(
                                              base_index, nullptr);
       expanded_inputs_size = TotalFileSize(expanded_inputs.files);
       if (expanded_inputs.size() > inputs->size() &&
-          output_level_inputs_size + expanded_inputs_size < limit &&
+          (mutable_cf_options.ignore_max_compaction_bytes_for_input ||
+           output_level_inputs_size + expanded_inputs_size < limit) &&
           !AreFilesInCompaction(expanded_inputs.files)) {
         expand_inputs = true;
       }
