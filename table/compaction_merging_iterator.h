@@ -56,7 +56,7 @@ class CompactionMergingIterator : public InternalIterator {
     pinned_heap_item_.resize(n);
     for (int i = 0; i < n; ++i) {
       if (range_tombstones[i].second) {
-        // For LevelIterator's
+        // for LevelIterator
         *range_tombstones[i].second = &range_tombstone_iters_[i];
       }
       pinned_heap_item_[i].level = i;
@@ -186,15 +186,8 @@ class CompactionMergingIterator : public InternalIterator {
 
   void InsertRangeTombstoneAtLevel(size_t level) {
     while (range_tombstone_iters_[level]->Valid()) {
-      // kTypeRangeDeletion means untruncated range tombstone start key.
-      // We do not need to emit truncated start key since there is a point key
-      // that truncates the range tombstone which can be used to cut compaction
-      // output already. This also simplfies the file cutting at range tombstone
-      // start key during compaction.
-      if (range_tombstone_iters_[level]->start_key().type ==
-          kTypeRangeDeletion) {
-        pinned_heap_item_[level].SetTombstoneForCompaction(
-            range_tombstone_iters_[level]);
+      if (pinned_heap_item_[level].SetTombstoneForCompaction(
+              range_tombstone_iters_[level], comparator_->user_comparator())) {
         minHeap_.push(&pinned_heap_item_[level]);
         break;
       } else {

@@ -125,23 +125,49 @@ struct HeapItem {
     parsed_ikey.sequence = pik.sequence;
   }
 
-  void SetTombstoneForCompaction(TruncatedRangeDelIterator* range_del_iter) {
+  // Returns whether the given range_del_iter's key is valid to
+  // be emitted from CompactionMergingIterator.
+  bool SetTombstoneForCompaction(TruncatedRangeDelIterator* range_del_iter,
+                                 const Comparator* ucmp) {
     // This is used only in CompactionMergingIterator for determining output
     // file cutting, so there is no need to set op_type to kTypeMaxValid as done
     // in `SetTombstoneKey()` to force range tombstone start key to be always
     // before point keys that have the same user key and sequence number in
     // minHeap_.
+    // kTypeRangeDeletion means untruncated range tombstone start key.
+    // We do not need to emit truncated start key since there is a point key
+    // that truncates the range tombstone which can be used to cut compaction
+    // output already. This also simplifies the file cutting at range tombstone
+    // start key during compaction.
+    // kMaxSequenceNumber means end key is untruncated. This is needed since we
+    // set tombstone's sequence number in SetTombstoneForCompaction() to be
+    // the actual tombstone seqno (range_tombstone_iters_[level]->seq()) in
+    // SetTombstoneForCompaction(). If end key is truncated, this is a change
+    // that the end key's sequence number comes before
+    // range_tombstone_iters_[level]->seq().
     pinned_key.clear();
-    ParsedInternalKey pik = range_del_iter->start_key();
-    assert(pik.type == kTypeRangeDeletion);
-    // TruncatedRangeDelIterator sets max sequence number of untruncated range
-    // tombstones, setting the sequence to range tombstone's sequence number is
-    // still correct, and makes it easier to determine file's boundary in
-    // CompactionOutputs::AddRangeDels().
-    if (pik.sequence == kMaxSequenceNumber) {
-      pik.sequence = range_del_iter->seq();
+    ParsedInternalKey start_key = range_del_iter->start_key();
+    if (start_key.type != kTypeRangeDeletion) {
+      return false;
     }
-    AppendInternalKey(&pinned_key, pik);
+    ParsedInternalKey end_key = range_del_iter->end_key();
+    if (end_key.sequence != kTypeRangeDeletion) {
+      if (ucmp->CompareWithoutTimestamp(start_key.user_key, end_key.user_key) ==
+          0) {
+        return false;
+      }
+    }
+    // TruncatedRangeDelIterator sets max sequence number of untruncated range
+    // tombstones, setting the sequence to range tombstone's sequence number
+    // makes it easier to determine file's boundary in
+    // CompactionOutputs::AddRangeDels().
+    // This is still within the current file's range as we ensure above
+    // start key does not have the same user key as the end key.
+    if (start_key.sequence == kMaxSequenceNumber) {
+      start_key.sequence = range_del_iter->seq();
+    }
+    AppendInternalKey(&pinned_key, start_key);
+    return true;
   }
 
   Slice key() const {

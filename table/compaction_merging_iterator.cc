@@ -88,6 +88,10 @@ void CompactionMergingIterator::Next() {
 
 void CompactionMergingIterator::FindNextVisibleKey() {
   while (!minHeap_.empty() && minHeap_.top()->IsDeleteRangeSentinelKey()) {
+    // range tombstone start keys from the same SSTable should have been
+    // exhausted
+    assert(!range_tombstone_iters_[current_->level] ||
+           !range_tombstone_iters_[current_->level]->Valid());
     HeapItem* current = minHeap_.top();
     // iter is a LevelIterator, and it enters a new SST file in the Next()
     // call here.
