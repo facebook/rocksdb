@@ -3255,6 +3255,7 @@ void InitializeOptionsFromFlags(
   }
   options.preclude_last_level_data_seconds =
       FLAGS_preclude_last_level_data_seconds;
+  options.preserve_internal_time_seconds = FLAGS_preserve_internal_time_seconds;
 
   switch (FLAGS_rep_factory) {
     case kSkipList:
