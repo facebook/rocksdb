@@ -49,7 +49,7 @@ set(FETCHCONTENT_QUIET false)
 FetchContent_Declare(
         photon
         GIT_REPOSITORY git@gitlab.alibaba-inc.com:sbu/photon.git
-        GIT_TAG 46c7283
+        GIT_TAG ba0664ec350918627bb0f6386b1b97d779411f7d
 )
 FetchContent_MakeAvailable(photon)
 set(PHOTON_INCLUDE_DIR ${photon_SOURCE_DIR}/include/)
