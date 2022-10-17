@@ -2496,7 +2496,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   for (int i = 0; i < numkeys; i += 2) {
     keys.push_back(i);
   }
-  RandomShuffle(std::begin(keys), std::end(keys));
+  RandomShuffle(std::begin(keys), std::end(keys), /*seed*/ 42);
   int num_inserted = 0;
   for (int key : keys) {
     ASSERT_OK(Put(1, Key(key), "val"));
@@ -2528,9 +2528,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
 
   // Now we have three sorted run, L0, L5 and L6 with most files in L6 have
   // no bloom filter. Most keys be checked bloom filters twice.
-  // But L5 SSTs may only cover small range of keys, so only L0 filter is
-  // guaranteed to be hit (USEFUL).
-  ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 100000);
+  ASSERT_GT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 65000 * 2);
   ASSERT_LT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 120000 * 2);
   uint64_t bloom_filter_useful_all_levels = 0;
   for (auto& kv : (*(get_perf_context()->level_to_perf_context))) {

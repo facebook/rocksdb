@@ -377,6 +377,11 @@ class BatchedOpsStressTest : public StressTest {
     return Status::OK();
   }
 
+  Slice GetValueBaseSlice(Slice slice) override {
+    slice.remove_prefix(1);
+    return slice;
+  }
+
   void VerifyDb(ThreadState* /* thread */) const override {}
 
   void ContinuouslyVerifyDb(ThreadState* /* thread */) const override {}

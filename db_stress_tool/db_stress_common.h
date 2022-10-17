@@ -314,6 +314,7 @@ DECLARE_bool(allow_data_in_errors);
 // Tiered storage
 DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
 DECLARE_int64(preclude_last_level_data_seconds);
+DECLARE_int64(preserve_internal_time_seconds);
 
 DECLARE_int32(verify_iterator_with_expected_state_one_in);
 DECLARE_bool(preserve_unverified_changes);
