@@ -515,6 +515,11 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["mock_direct_io"] = True
 
+    if dest_params["test_batches_snapshots"] == 1:
+        dest_params["enable_compaction_filter"] = 0
+        if dest_params["prefix_size"] < 0:
+            dest_params["prefix_size"] = 1
+
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
     if (dest_params.get("test_batches_snapshots") == 1 or
@@ -577,11 +582,9 @@ def finalize_and_sanitize(src_params):
         # Give the iterator ops away to reads.
         dest_params["readpercent"] += dest_params.get("iterpercent", 10)
         dest_params["iterpercent"] = 0
-        dest_params["test_batches_snapshots"] = 0
     if dest_params.get("prefix_size") == -1:
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
-        dest_params["test_batches_snapshots"] = 0
     if (
         dest_params.get("prefix_size") == -1
         and dest_params.get("memtable_whole_key_filtering") == 0
