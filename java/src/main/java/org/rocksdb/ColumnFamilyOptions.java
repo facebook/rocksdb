@@ -599,6 +599,10 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
+  void setFetchedTableFormatConfig(final TableFormatConfig tableFormatConfig) {
+    this.tableFormatConfig_ = tableFormatConfig;
+  }
+
   @Override
   public String tableFactoryName() {
     assert(isOwningHandle());
@@ -1512,7 +1516,6 @@ public class ColumnFamilyOptions extends RocksObject
       final long nativeHandle_, final long compactionThreadLimiterHandle);
   private native void setMemtableMaxRangeDeletions(final long handle, final int count);
   private native int memtableMaxRangeDeletions(final long handle);
-
   private native void setEnableBlobFiles(final long nativeHandle_, final boolean enableBlobFiles);
   private native boolean enableBlobFiles(final long nativeHandle_);
   private native void setMinBlobSize(final long nativeHandle_, final long minBlobSize);

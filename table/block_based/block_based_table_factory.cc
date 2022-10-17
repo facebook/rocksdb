@@ -225,7 +225,6 @@ static std::unordered_map<std::string,
         {"kFlushOnly",
          BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
 
-
 static std::unordered_map<std::string, OptionTypeInfo>
     block_based_table_type_info = {
         /* currently not supported
@@ -308,6 +307,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"optimize_filters_for_memory",
          {offsetof(struct BlockBasedTableOptions, optimize_filters_for_memory),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"use_delta_encoding",
+         {offsetof(struct BlockBasedTableOptions, use_delta_encoding),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"filter_policy",
