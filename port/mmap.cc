@@ -23,7 +23,7 @@ MemMapping::~MemMapping() {
   if (page_file_handle_ != NULL) {
     (void)::CloseHandle(page_file_handle_);
   }
-#else
+#else   // OS_WIN -> !OS_WIN
   if (addr_ != nullptr) {
     auto status = munmap(addr_, length_);
     assert(status == 0);
@@ -72,7 +72,7 @@ MemMapping MemMapping::AllocateAnonymous(size_t length, bool huge) {
   }
   mm.addr_ = ::MapViewOfFile(mm.page_file_handle_, FILE_MAP_WRITE | huge_flag,
                              0, 0, length);
-#else
+#else  // OS_WIN -> !OS_WIN
   if (huge) {
 #ifdef MAP_HUGETLB
     huge_flag = MAP_HUGETLB;
