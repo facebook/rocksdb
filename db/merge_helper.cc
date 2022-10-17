@@ -225,7 +225,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       return s;
     }
     // Skip range tombstones emitted by the compaction iterator.
-    if (ExtractValueType(iter->key()) == kTypeRangeDeletion) {
+    if (iter->IsDeleteRangeSentinelKey()) {
       continue;
     }
 

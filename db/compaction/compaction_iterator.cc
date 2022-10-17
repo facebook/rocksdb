@@ -177,6 +177,8 @@ void CompactionIterator::Next() {
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
       validity_info_.SetValid(ValidContext::kMerge1);
+      // merge output is not range del key
+      is_range_del_ = false;
     } else {
       // We consumed all pinned merge operands, release pinned iterators
       pinned_iters_mgr_.ReleasePinnedData();
@@ -377,6 +379,7 @@ void CompactionIterator::NextFromInput() {
     value_ = input_.value();
     blob_value_.Reset();
     iter_stats_.num_input_records++;
+    is_range_del_ = input_.IsDeleteRangeSentinelKey();
 
     Status pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
     if (!pik_status.ok()) {
@@ -396,7 +399,7 @@ void CompactionIterator::NextFromInput() {
       break;
     }
     TEST_SYNC_POINT_CALLBACK("CompactionIterator:ProcessKV", &ikey_);
-    if (ikey_.type == kTypeRangeDeletion) {
+    if (is_range_del_) {
       validity_info_.SetValid(kRangeDeletion);
       break;
     }
@@ -621,18 +624,20 @@ void CompactionIterator::NextFromInput() {
 
       ParsedInternalKey next_ikey;
       AdvanceInputIter();
+      while (input_.Valid() && input_.IsDeleteRangeSentinelKey() &&
+             cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
+        // skip range tombstone start keys with the same user key
+        // since they are not "real" point keys.
+        AdvanceInputIter();
+      }
 
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
       if (input_.Valid() &&
           ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
-          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
-          next_ikey.type != kTypeRangeDeletion) {
-        // In the unlikely scenario that range tombstone comes right after a
-        // single delete with the same user key, we output the single delete
-        // directly. This is still correct, with the cost of not going through
-        // the following optimization.
+          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
+        assert(!input_.IsDeleteRangeSentinelKey());
 #ifndef NDEBUG
         const Compaction* c =
             compaction_ ? compaction_->real_compaction() : nullptr;
@@ -857,12 +862,14 @@ void CompactionIterator::NextFromInput() {
       // Note that a deletion marker of type kTypeDeletionWithTimestamp will be
       // considered to have a different user key unless the timestamp is older
       // than *full_history_ts_low_.
+      //
+      // Range tombstone start keys are skipped as they are not "real" keys.
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
              input_.Valid() &&
              (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                   .ok()) &&
              cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
-             (prev_snapshot == 0 ||
+             (prev_snapshot == 0 || input_.IsDeleteRangeSentinelKey() ||
               DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot))) {
         AdvanceInputIter();
       }
@@ -1114,7 +1121,7 @@ void CompactionIterator::DecideOutputLevel() {
                            &context);
   output_to_penultimate_level_ = context.output_to_penultimate_level;
 #endif /* !NDEBUG */
-  if (ikey_.type == kTypeRangeDeletion) {
+  if (is_range_del_) {
     // range tombstones are in penultimate level only
     output_to_penultimate_level_ = true;
     return;
@@ -1183,8 +1190,7 @@ void CompactionIterator::PrepareOutput() {
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ &&
         !output_to_penultimate_level_ &&
-        ikey_.sequence < preserve_time_min_seqno_ &&
-        ikey_.type != kTypeRangeDeletion) {
+        ikey_.sequence < preserve_time_min_seqno_ && !is_range_del_) {
       if (ikey_.type == kTypeDeletion ||
           (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
         ROCKS_LOG_FATAL(

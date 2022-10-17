@@ -13,6 +13,31 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class CompactionHeapItemComparator {
+ public:
+  explicit CompactionHeapItemComparator(const InternalKeyComparator* comparator)
+      : comparator_(comparator) {}
+  bool operator()(HeapItem* a, HeapItem* b) const {
+    int r = comparator_->Compare(a->key(), b->key());
+    if (r > 0) {
+      return true;
+    } else if (r < 0) {
+      return false;
+    } else {
+      // When range tombstone and point key have the same internal key,
+      // range tombstone comes first. So that when range tombstone and
+      // file's largest key are the same, the file boundary sentinel key
+      // comes after.
+      return a->type == HeapItem::ITERATOR &&
+             b->type == HeapItem::DELETE_RANGE_START;
+    }
+  }
+
+ private:
+  const InternalKeyComparator* comparator_;
+};
+
+using CompactionMinHeap = BinaryHeap<HeapItem*, CompactionHeapItemComparator>;
 /*
  * This is a simplified version of MergingIterator that is specifically used for
  * compaction. It merges the input `children` iterators into a sorted stream of
@@ -40,7 +65,7 @@ class CompactionMergingIterator : public InternalIterator {
       : is_arena_mode_(is_arena_mode),
         comparator_(comparator),
         current_(nullptr),
-        minHeap_(MinHeapItemComparator(comparator_)),
+        minHeap_(CompactionHeapItemComparator(comparator_)),
         pinned_iters_mgr_(nullptr) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
@@ -125,6 +150,11 @@ class CompactionMergingIterator : public InternalIterator {
     }
   }
 
+  bool IsDeleteRangeSentinelKey() const override {
+    assert(Valid());
+    return current_->type == HeapItem::DELETE_RANGE_START;
+  }
+
   // Compaction uses a subset of InternalIterator interface.
   void SeekToLast() override { assert(false); }
 
@@ -174,7 +204,7 @@ class CompactionMergingIterator : public InternalIterator {
   HeapItem* current_;
   // If any of the children have non-ok status, this is one of them.
   Status status_;
-  MergerMinIterHeap minHeap_;
+  CompactionMinHeap minHeap_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   // Process a child that is not in the min heap.
   // If valid, add to the min heap. Otherwise, check status.
@@ -185,14 +215,10 @@ class CompactionMergingIterator : public InternalIterator {
   }
 
   void InsertRangeTombstoneAtLevel(size_t level) {
-    while (range_tombstone_iters_[level]->Valid()) {
-      if (pinned_heap_item_[level].SetTombstoneForCompaction(
-              range_tombstone_iters_[level], comparator_->user_comparator())) {
-        minHeap_.push(&pinned_heap_item_[level]);
-        break;
-      } else {
-        range_tombstone_iters_[level]->Next();
-      }
+    if (range_tombstone_iters_[level]->Valid()) {
+      pinned_heap_item_[level].SetTombstoneForCompaction(
+          range_tombstone_iters_[level]->start_key());
+      minHeap_.push(&pinned_heap_item_[level]);
     }
   }
 };

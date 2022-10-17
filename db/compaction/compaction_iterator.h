@@ -63,6 +63,10 @@ class SequenceIterWrapper : public InternalIterator {
   void SeekToLast() override { assert(false); }
 
   uint64_t num_itered() const { return num_itered_; }
+  bool IsDeleteRangeSentinelKey() const override {
+    assert(Valid());
+    return inner_iter_->IsDeleteRangeSentinelKey();
+  }
 
  private:
   InternalKeyComparator icmp_;
@@ -251,6 +255,8 @@ class CompactionIterator {
     return output_to_penultimate_level_;
   }
   Status InputStatus() const { return input_.status(); }
+
+  bool IsDeleteRangeSentinelKey() const { return is_range_del_; }
 
  private:
   // Processes the input stream to find the next output
@@ -493,6 +499,10 @@ class CompactionIterator {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
     return manual_compaction_canceled_.load(std::memory_order_relaxed);
   }
+
+  // Stores whether the current compaction iterator output
+  // is a range tombstone start key.
+  bool is_range_del_{false};
 };
 
 inline bool CompactionIterator::DefinitelyInSnapshot(SequenceNumber seq,

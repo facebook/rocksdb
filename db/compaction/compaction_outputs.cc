@@ -336,7 +336,7 @@ Status CompactionOutputs::AddToOutput(
     const CompactionFileCloseFunc& close_file_func) {
   Status s;
   const Slice& key = c_iter.key();
-  bool is_range_del = ExtractValueType(key) == kTypeRangeDeletion;
+  bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
   if (ShouldStopBefore(c_iter, is_range_del) && HasBuilder()) {
     s = close_file_func(*this, c_iter.InputStatus(), key);
     if (!s.ok()) {
@@ -551,7 +551,30 @@ Status CompactionOutputs::AddRangeDels(
               InternalKey(*lower_bound, tombstone.seq_, kTypeRangeDeletion);
         }
       } else if (lower_bound_from_range_tombstone) {
-        smallest_candidate = range_tombstone_lower_bound_;
+        // There are two cases depending on whether the lower bound is a
+        // truncated range tombstone start key. If it is not truncated, then the
+        // sequence number would be kMaxSequenceNumber. In that case, the
+        // previous file's largest key could be the same as this lower_bound
+        // (with kMaxSequenceNumber, see the upperbound logic below). So for
+        // this file, we use the range tombstone's sequence number instead. If
+        // this is a truncated range tombstone start key, we use it as the lower
+        // bound directly.
+        if (ExtractInternalKeyFooter(range_tombstone_lower_bound_.Encode()) ==
+            kRangeTombstoneSentinel) {
+          if (ts_sz) {
+            smallest_candidate =
+                InternalKey(range_tombstone_lower_bound_.user_key(),
+                            tombstone.seq_, kTypeRangeDeletion, tombstone.ts_);
+          } else {
+            smallest_candidate =
+                InternalKey(range_tombstone_lower_bound_.user_key(),
+                            tombstone.seq_, kTypeRangeDeletion);
+          }
+        } else {
+          assert(GetInternalKeySeqno(range_tombstone_lower_bound_.Encode()) <
+                 kMaxSequenceNumber);
+          smallest_candidate = range_tombstone_lower_bound_;
+        }
       } else {
         smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
       }
