@@ -112,7 +112,11 @@ const PtraceAllower kPtraceAllower{};
 
 PtraceAllower::PtraceAllower() {
 #ifdef PR_SET_PTRACER_ANY
-  (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+  int i = prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+  fprintf(stderr, "prctl = %d\n", i);
+  if (i == -1) {
+    perror("prctl");
+  }
 #endif
 }
 
