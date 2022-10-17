@@ -1156,6 +1156,8 @@ class VersionSet {
     return next_file_number_.fetch_add(n);
   }
 
+  void SetNextFileNumber(uint64_t n) { next_file_number_.store(n); }
+
   // Return the last sequence number.
   uint64_t LastSequence() const {
     return last_sequence_.load(std::memory_order_acquire);

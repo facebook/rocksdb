@@ -128,8 +128,6 @@ class ReplicationTest : public testing::Test {
     return follower_cfs_;
   }
 
-
-
   ColumnFamilyHandle* leaderCF(const std::string& name) const {
     auto pos = leader_cfs_.find(name);
     assert(pos != leader_cfs_.end());
@@ -490,6 +488,31 @@ TEST_F(ReplicationTest, Simple) {
   leader->GetManifestUpdateSequence(&leaderManifestUpdateSeq);
   EXPECT_EQ(followerManifestUpdateSeq, 14);
   EXPECT_EQ(leaderManifestUpdateSeq, 14);
+}
+
+TEST_F(ReplicationTest, ReproSYS3320) {
+  auto leader = openLeader();
+  auto follower = openFollower();
+
+  leader->SetOptions({{"disable_auto_compactions", "false"}});
+
+  // Insert key1
+  ASSERT_OK(leader->Put(wo(), "key1", "val1"));
+
+  // Flush
+  ASSERT_OK(leader->Flush(FlushOptions()));
+
+  // Catch up follower, expect flush to propagate
+  EXPECT_EQ(catchUpFollower(), 4);
+
+  uint64_t max_file_number = 0;
+  std::vector<LiveFileMetaData> files;
+  follower->GetLiveFilesMetaData(&files);
+  for (auto& f : files) {
+    max_file_number = std::max(max_file_number, TableFileNameToNumber(f.name));
+  }
+
+  ASSERT_LT(max_file_number, follower->GetNextFileNumber());
 }
 
 TEST_F(ReplicationTest, MultiColumnFamily) {

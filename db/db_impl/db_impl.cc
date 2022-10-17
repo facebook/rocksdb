@@ -1264,9 +1264,12 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
             // argue: at least one alive_log_files_ and logs_ always needs to be
             // alive and alive means that its log number is greater or equal to
             // the latest log number.
-            versions_->MarkFileNumberUsed(e.GetLogNumber());
             alive_log_files_.begin()->number = e.GetLogNumber();
             logs_.front().number = e.GetLogNumber();
+          }
+
+          if (e.HasNextFile()) {
+              versions_->SetNextFileNumber(e.GetNextFile());
           }
 
           ColumnFamilyData* cfd{nullptr};
