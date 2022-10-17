@@ -4420,9 +4420,11 @@ Status VersionSet::ProcessManifestWrites(
   }
 
   assert(pending_manifest_file_number_ == 0);
+  auto new_manifest_force =
+      new_manifest_on_next_update_.exchange(false, std::memory_order_relaxed);
   if (!descriptor_log_ ||
       manifest_file_size_ > db_options_->max_manifest_file_size ||
-      new_manifest_on_next_update_.exchange(false, std::memory_order_relaxed)) {
+      new_manifest_force) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
     new_descriptor_log = true;
   } else {
