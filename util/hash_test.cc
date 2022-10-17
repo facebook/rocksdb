@@ -120,6 +120,7 @@ TEST(HashTest, Hash64Misc) {
       for (uint64_t var_seed = 1; var_seed != 0; var_seed <<= 1) {
         EXPECT_NE(here, Hash64(str.data(), size, var_seed));
       }
+      for (;;) { sleep(1); } // FOR TESTING, LINE 123
 
       // Size changes hash value (with high probability)
       size_t max_smaller_by = std::min(size_t{30}, size);
