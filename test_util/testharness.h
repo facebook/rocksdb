@@ -110,6 +110,13 @@ class TestRegex {
 #define EXPECT_MATCHES_REGEX(str, pattern) \
   EXPECT_PRED_FORMAT2(ROCKSDB_NAMESPACE::test::AssertMatchesRegex, str, pattern)
 
+// Set up some things to allow ptrace/gdb/etc. to attach even when running
+// with Yama restrictions on ptrace (Linux-specific at the moment)
+struct PtraceAllower {
+  PtraceAllower();
+};
+extern const PtraceAllower kPtraceAllower;
+
 }  // namespace test
 
 using test::TestRegex;

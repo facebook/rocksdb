@@ -13,6 +13,10 @@
 #include <string>
 #include <thread>
 
+#ifdef OS_LINUX
+#include <sys/prctl.h>
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 namespace test {
 
@@ -102,6 +106,14 @@ bool TestRegex::Matches(const std::string& str) const {
            << "does not match regex" << std::endl
            << pattern.GetPattern() << " (" << pattern_expr << ")";
   }
+}
+
+const PtraceAllower kPtraceAllower{};
+
+PtraceAllower::PtraceAllower() {
+#ifdef PR_SET_PTRACER_ANY
+  (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+#endif
 }
 
 }  // namespace test
