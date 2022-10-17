@@ -611,8 +611,7 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
   return e;
 }
 
-bool LRUCacheShard::Ref(LRUHandle* h) {
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(h);
+bool LRUCacheShard::Ref(LRUHandle* e) {
   DMutexLock l(mutex_);
   // To create another reference - entry must be already externally referenced.
   assert(e->HasRefs());
@@ -636,12 +635,11 @@ void LRUCacheShard::SetLowPriorityPoolRatio(double low_pri_pool_ratio) {
   MaintainPoolSize();
 }
 
-bool LRUCacheShard::Release(LRUHandle* handle, bool /*useful*/,
+bool LRUCacheShard::Release(LRUHandle* e, bool /*useful*/,
                             bool erase_if_last_ref) {
-  if (handle == nullptr) {
+  if (e == nullptr) {
     return false;
   }
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
   bool last_reference = false;
   // Must Wait or WaitAll first on pending handles. Otherwise, would leak
   // a secondary cache handle.
@@ -740,8 +738,7 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
   }
 }
 
-bool LRUCacheShard::IsReady(LRUHandle* handle) {
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
+bool LRUCacheShard::IsReady(LRUHandle* e) {
   bool ready = true;
   if (e->IsPending()) {
     assert(secondary_cache_);

@@ -1076,8 +1076,7 @@ bool ClockCacheShard::Release(ClockHandle* handle, bool useful,
   if (handle == nullptr) {
     return false;
   }
-  return table_.Release(reinterpret_cast<ClockHandle*>(handle), useful,
-                        erase_if_last_ref);
+  return table_.Release(handle, useful, erase_if_last_ref);
 }
 
 void ClockCacheShard::TEST_RefN(ClockHandle* h, size_t n) {
