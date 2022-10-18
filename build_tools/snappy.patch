@@ -1,0 +1,27 @@
+--- snappy.cc.orig	2023-01-13 10:58:55.195720145 +0530
++++ snappy.cc	2023-01-13 10:59:30.055570184 +0530
+@@ -1361,7 +1361,7 @@
+ #if __cplusplus >= 201402L
+ constexpr bool VerifyCalculateNeeded() {
+   for (int i = 0; i < 1; i++) {
+-    if (CalculateNeeded(i) != (char_table[i] >> 11) + 1) return false;
++    if (CalculateNeeded(i) != (uint32_t)(char_table[i] >> 11) + 1) return false;
+   }
+   return true;
+ }
+--- CMakeLists.txt.orig	2021-05-05 04:23:34.000000000 +0530
++++ CMakeLists.txt	2023-01-13 13:41:28.772896373 +0530
+@@ -36,6 +36,13 @@
+   set(CMAKE_CXX_STANDARD_REQUIRED ON)
+   set(CMAKE_CXX_EXTENSIONS OFF)
+ endif(NOT CMAKE_CXX_STANDARD)
++# Despite above, cmake doesn't want to generate -std argument, causing macos build to fail.
++if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
++  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --std=c++11")
++endif(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
++# macos arch or empty, from command line.
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${ARCH_CFLAGS}")
++
+ 
+ # https://github.com/izenecloud/cmake/blob/master/SetCompilerWarningAll.cmake
+ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
