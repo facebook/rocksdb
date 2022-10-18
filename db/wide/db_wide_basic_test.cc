@@ -209,29 +209,74 @@ TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
-TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
+TEST_F(DBWideBasicTest, PutEntityMerge) {
   Options options = GetDefaultOptions();
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   Reopen(options);
 
   constexpr char first_key[] = "first";
-  constexpr char second_key[] = "second";
-  constexpr char merge_operand[] = "bla";
+  WideColumns first_columns{{kDefaultWideColumnName, "a"},
+                            {"attr_name1", "foo"},
+                            {"attr_name2", "bar"}};
+  constexpr char first_merge_operand[] = "bla1";
 
-  // Note: Merge is currently not supported for wide-column entities
+  constexpr char second_key[] = "second";
+  WideColumns second_columns{{kDefaultWideColumnName, "b"},
+                             {"attr_one", "two"},
+                             {"attr_three", "four"}};
+  constexpr char second_merge_operand[] = "bla2";
+
   auto verify = [&]() {
+    assert(!first_columns.empty() &&
+           first_columns[0].name() == kDefaultWideColumnName);
+    const std::string expected_first_default(
+        first_columns[0].value().ToString() + "," + first_merge_operand);
+
     {
       PinnableSlice result;
       ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), first_key,
                          &result));
-      ASSERT_EQ(result, std::string(",") + merge_operand);
+      ASSERT_EQ(result, expected_first_default);
     }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               first_key, &result));
+
+      assert(first_columns.size() == 3);
+      WideColumns expected_columns{
+          {kDefaultWideColumnName, expected_first_default},
+          first_columns[1],
+          first_columns[2]};
+
+      ASSERT_EQ(result.columns(), expected_columns);
+    }
+
+    assert(!second_columns.empty() &&
+           second_columns[0].name() == kDefaultWideColumnName);
+    const std::string expected_second_default(
+        second_columns[0].value().ToString() + "," + second_merge_operand);
 
     {
       PinnableSlice result;
       ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), second_key,
                          &result));
-      ASSERT_EQ(result, std::string(",") + merge_operand);
+      ASSERT_EQ(result, expected_second_default);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               second_key, &result));
+
+      assert(second_columns.size() == 3);
+      WideColumns expected_columns{
+          {kDefaultWideColumnName, expected_second_default},
+          second_columns[1],
+          second_columns[2]};
+
+      ASSERT_EQ(result.columns(), expected_columns);
     }
 
     {
@@ -244,13 +289,15 @@ TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
       db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
                     &keys[0], &values[0], &statuses[0]);
 
-      ASSERT_EQ(values[0], std::string(",") + merge_operand);
+      ASSERT_EQ(values[0], expected_first_default);
       ASSERT_OK(statuses[0]);
 
-      ASSERT_EQ(values[1], std::string(",") + merge_operand);
+      ASSERT_EQ(values[1], expected_second_default);
       ASSERT_OK(statuses[1]);
     }
 
+    // Note: Merge is currently not supported for wide-column entities in
+    // iterator
     {
       std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
 
@@ -265,14 +312,10 @@ TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
   };
 
   // Use the DB::PutEntity API
-  WideColumns first_columns{{"attr_name1", "foo"}, {"attr_name2", "bar"}};
-
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
                            first_key, first_columns));
 
   // Use WriteBatch
-  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
-
   WriteBatch batch;
   ASSERT_OK(
       batch.PutEntity(db_->DefaultColumnFamily(), second_key, second_columns));
@@ -282,9 +325,9 @@ TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
 
   // Add a couple of merge operands
   ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
-                       merge_operand));
+                       first_merge_operand));
   ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
-                       merge_operand));
+                       second_merge_operand));
 
   // Try reading when PutEntity is in storage, Merge is in memtable
   verify();
@@ -299,9 +342,9 @@ TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
                            first_key, first_columns));
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
   ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
-                       merge_operand));
+                       first_merge_operand));
   ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
-                       merge_operand));
+                       second_merge_operand));
 
   verify();
 }
