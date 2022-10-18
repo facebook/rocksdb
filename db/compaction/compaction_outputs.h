@@ -342,7 +342,7 @@ class CompactionOutputs {
   size_t grandparent_boundary_switched_num_ = 0;
 
   // The smallest key of the current output file, this is set when current
-  // output file's smallst key is a range tombstone start key.
+  // output file's smallest key is a range tombstone start key.
   InternalKey range_tombstone_lower_bound_;
 };
 

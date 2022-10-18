@@ -49,8 +49,10 @@ using CompactionMinHeap = BinaryHeap<HeapItem*, CompactionHeapItemComparator>;
  * entire keyspace. We should be able to break it down to allow smaller
  * compactions.
  *
- * CompactionMergingIterator treats range tombstones [start, end)@seqno as a key
- * start@seqno, with value end@kMaxSequenceNumber unless truncated at file
+ * CompactionMergingIterator emits range tombstone start keys from each LSM
+ * level's range tombstone iterator through
+ * TruncatedRangeDelIterator::start_key(). So for a range tombstones start,
+ * end)@seqno, the key is start@kMaxSequenceNumber unless truncated at file
  * boundary.
  *
  */

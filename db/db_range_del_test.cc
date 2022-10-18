@@ -1743,8 +1743,7 @@ TEST_F(DBRangeDelTest, OversizeCompactionPointKeyWithinRangetombstone) {
   // L2_0: 0, 1, 2, 3, 4. L2_1: 6, 7, 8
   // L0 has [0, 9) and point key 5
   // max_compaction_bytes is less than the size of L2_0.
-  // When compacting L0 into L1, range_tombstone_limit_ will be set to 6
-  // initially. The compaction should cut at point key 5, and then not cut at 6.
+  // When compacting L0 into L1, the compaction should cut at point key 5.
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.target_file_size_base = 9 * 1024;

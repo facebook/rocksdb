@@ -347,7 +347,8 @@ Status CompactionOutputs::AddToOutput(
     grandparent_overlapped_bytes_ =
         GetCurrentKeyGrandparentOverlappedBytes(key);
     if (UNLIKELY(is_range_del)) {
-      // lower bound is used as the minimal key for this new output file
+      // lower bound for this new output file, this is needed as the lower bound
+      // does not come from the smallest point key in this case.
       range_tombstone_lower_bound_.DecodeFrom(key);
     } else {
       range_tombstone_lower_bound_.Clear();
