@@ -625,6 +625,8 @@ void CompactionIterator::NextFromInput() {
       ParsedInternalKey next_ikey;
       AdvanceInputIter();
       while (input_.Valid() && input_.IsDeleteRangeSentinelKey() &&
+             ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
+                 .ok() &&
              cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
         // skip range tombstone start keys with the same user key
         // since they are not "real" point keys.
