@@ -99,4 +99,16 @@ public class CompactRangeOptionsTest {
       assertThat(opt.maxSubcompactions()).isEqualTo(value);
     }
   }
+
+  @Test
+  public void fullHistoryTSLow() {
+    CompactRangeOptions opt = new CompactRangeOptions();
+    CompactRangeOptions.Timestamp timestamp = new CompactRangeOptions.Timestamp(18, 1);
+    opt.setFullHistoryTSLow(timestamp);
+
+    CompactRangeOptions.Timestamp timestampResult = opt.fullHistoryTSLow();
+    assertThat(timestamp.start).isEqualTo(timestampResult.start);
+    assertThat(timestamp.duration).isEqualTo(timestampResult.duration);
+    assertThat(timestamp).isEqualTo(timestampResult);
+  }
 }

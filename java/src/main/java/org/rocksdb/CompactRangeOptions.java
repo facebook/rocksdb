@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 /**
  * CompactRangeOptions is used by CompactRange() call. In the documentation of the methods "the compaction" refers to
  * any compaction that is using this CompactRangeOptions.
@@ -66,6 +68,36 @@ public class CompactRangeOptions extends RocksObject {
           return kForceOptimized;
         default: return null;
       }
+    }
+  }
+
+  public static class Timestamp {
+    public final long start;
+    public final long duration;
+
+    public Timestamp(final long start, final long duration) {
+      this.start = start;
+      this.duration = duration;
+    }
+
+    public Timestamp() {
+      this.start = 0;
+      this.duration = 0;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o)
+        return true;
+      if (o == null || getClass() != o.getClass())
+        return false;
+      Timestamp timestamp = (Timestamp) o;
+      return start == timestamp.start && duration == timestamp.duration;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(start, duration);
     }
   }
 
@@ -218,6 +250,17 @@ public class CompactRangeOptions extends RocksObject {
     return this;
   }
 
+  public CompactRangeOptions setFullHistoryTSLow(final Timestamp tsLow) {
+    setFullHistoryTSLow(nativeHandle_, tsLow.start, tsLow.duration);
+    return this;
+  }
+
+  public Timestamp fullHistoryTSLow() {
+    Timestamp timestamp = new Timestamp();
+    fullHistoryTSLow(nativeHandle_, timestamp);
+    return timestamp;
+  }
+
   private static native long newCompactRangeOptions();
   @Override protected final native void disposeInternal(final long handle);
 
@@ -242,4 +285,9 @@ public class CompactRangeOptions extends RocksObject {
   private native void setMaxSubcompactions(final long handle,
       final int maxSubcompactions);
   private native int maxSubcompactions(final long handle);
+
+  private native void setFullHistoryTSLow(
+      final long handle, final long timestampStart, final long timestampRange);
+
+  private native void fullHistoryTSLow(final long handle, final Timestamp result);
 }

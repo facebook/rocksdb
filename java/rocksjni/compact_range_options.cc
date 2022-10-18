@@ -13,6 +13,12 @@
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
+class Java_org_rocksdb_CompactRangeOptions {
+ public:
+  ROCKSDB_NAMESPACE::CompactRangeOptions compactRangeOptions;
+  std::string full_history_ts_low;
+};
+
 /*
  * Class:     org_rocksdb_CompactRangeOptions
  * Method:    newCompactRangeOptions
@@ -20,8 +26,8 @@
  */
 jlong Java_org_rocksdb_CompactRangeOptions_newCompactRangeOptions(
     JNIEnv* /*env*/, jclass /*jclazz*/) {
-  auto* options = new ROCKSDB_NAMESPACE::CompactRangeOptions();
-  return GET_CPLUSPLUS_POINTER(options);
+  auto* options = new Java_org_rocksdb_CompactRangeOptions();
+  return GET_CPLUSPLUS_POINTER(&options->compactRangeOptions);
 }
 
 /*
@@ -32,8 +38,9 @@ jlong Java_org_rocksdb_CompactRangeOptions_newCompactRangeOptions(
 jboolean Java_org_rocksdb_CompactRangeOptions_exclusiveManualCompaction(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
   auto* options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::CompactRangeOptions*>(jhandle);
-  return static_cast<jboolean>(options->exclusive_manual_compaction);
+      reinterpret_cast<Java_org_rocksdb_CompactRangeOptions*>(jhandle);
+  return static_cast<jboolean>(
+      options->compactRangeOptions.exclusive_manual_compaction);
 }
 
 /*
@@ -207,6 +214,32 @@ void Java_org_rocksdb_CompactRangeOptions_setMaxSubcompactions(
       reinterpret_cast<ROCKSDB_NAMESPACE::CompactRangeOptions*>(jhandle);
   options->max_subcompactions = static_cast<uint32_t>(max_subcompactions);
 }
+
+/*
+ * Class:     org_rocksdb_CompactRangeOptions
+ * Method:    setFullHistoryTSLow
+ * Signature: (JJJ)V
+ */
+JNIEXPORT void JNICALL Java_org_rocksdb_CompactRangeOptions_setFullHistoryTSLow(
+    JNIEnv*, jobject, jlong jhandle, jlong start, jlong range) {
+  auto* options =
+      reinterpret_cast<Java_org_rocksdb_CompactRangeOptions*>(jhandle);
+  options->compactRangeOptions.full_history_ts_low.clear();
+  PutFixed64(&options->full_history_ts_low, low);
+  PutFixed64(&options->full_history_ts_low, high);
+  options->compactRangeOptions.full_history_ts_low =
+      options->full_history_ts_low;
+}
+
+/*
+ * Class:     org_rocksdb_CompactRangeOptions
+ * Method:    fullHistoryTSLow
+ * Signature: (JLorg/rocksdb/CompactRangeOptions/Timestamp;)V
+ */
+JNIEXPORT void JNICALL Java_org_rocksdb_CompactRangeOptions_fullHistoryTSLow(
+    JNIEnv* env, jobject, jlong jhandle, jobject jtimestamp) {
+      
+    }
 
 /*
  * Class:     org_rocksdb_CompactRangeOptions
