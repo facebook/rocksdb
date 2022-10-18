@@ -8,6 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memory/arena.h"
+
+#ifndef OS_WIN
+#include <sys/resource.h>
+#endif
+#include "port/port.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
 
@@ -196,6 +201,61 @@ TEST_F(ArenaTest, Simple) {
   SimpleTest(0);
   SimpleTest(kHugePageSize);
 }
+
+// Number of minor page faults since last call
+size_t PopMinorPageFaultCount() {
+#ifdef RUSAGE_SELF
+  static long prev = 0;
+  struct rusage usage;
+  EXPECT_EQ(getrusage(RUSAGE_SELF, &usage), 0);
+  size_t rv = usage.ru_minflt - prev;
+  prev = usage.ru_minflt;
+  return rv;
+#else
+  // Conservative
+  return SIZE_MAX;
+#endif  // RUSAGE_SELF
+}
+
+TEST(MmapTest, AllocateLazyZeroed) {
+  // Doesn't have to be page aligned
+  constexpr size_t len = 1234567;
+  MemMapping m = MemMapping::AllocateLazyZeroed(len);
+  auto arr = static_cast<char*>(m.Get());
+
+  // Should generally work
+  ASSERT_NE(arr, nullptr);
+
+  // Start counting page faults
+  PopMinorPageFaultCount();
+
+  // Access half of the allocation
+  size_t i = 0;
+  for (; i < len / 2; ++i) {
+    ASSERT_EQ(arr[i], 0);
+    arr[i] = static_cast<char>(i & 255);
+  }
+
+  // Appropriate page faults (maybe more)
+  size_t faults = PopMinorPageFaultCount();
+  ASSERT_GE(faults, len / 2 / port::kPageSize);
+
+  // Access rest of the allocation
+  for (; i < len; ++i) {
+    ASSERT_EQ(arr[i], 0);
+    arr[i] = static_cast<char>(i & 255);
+  }
+
+  // Appropriate page faults (maybe more)
+  faults = PopMinorPageFaultCount();
+  ASSERT_GE(faults, len / 2 / port::kPageSize);
+
+  // Verify data
+  for (i = 0; i < len; ++i) {
+    ASSERT_EQ(arr[i], static_cast<char>(i & 255));
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
