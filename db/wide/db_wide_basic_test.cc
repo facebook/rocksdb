@@ -216,21 +216,22 @@ TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
 
   constexpr char first_key[] = "first";
   constexpr char second_key[] = "second";
+  constexpr char merge_operand[] = "bla";
 
   // Note: Merge is currently not supported for wide-column entities
   auto verify = [&]() {
     {
       PinnableSlice result;
-      ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), first_key,
-                           &result)
-                      .IsNotSupported());
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), first_key,
+                         &result));
+      ASSERT_EQ(result, std::string(",") + merge_operand);
     }
 
     {
       PinnableSlice result;
-      ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(),
-                           second_key, &result)
-                      .IsNotSupported());
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), second_key,
+                         &result));
+      ASSERT_EQ(result, std::string(",") + merge_operand);
     }
 
     {
@@ -243,11 +244,11 @@ TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
       db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
                     &keys[0], &values[0], &statuses[0]);
 
-      ASSERT_TRUE(values[0].empty());
-      ASSERT_TRUE(statuses[0].IsNotSupported());
+      ASSERT_EQ(values[0], std::string(",") + merge_operand);
+      ASSERT_OK(statuses[0]);
 
-      ASSERT_TRUE(values[1].empty());
-      ASSERT_TRUE(statuses[1].IsNotSupported());
+      ASSERT_EQ(values[1], std::string(",") + merge_operand);
+      ASSERT_OK(statuses[1]);
     }
 
     {
@@ -280,8 +281,6 @@ TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
   ASSERT_OK(Flush());
 
   // Add a couple of merge operands
-  constexpr char merge_operand[] = "bla";
-
   ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
                        merge_operand));
   ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,

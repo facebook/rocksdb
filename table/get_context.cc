@@ -351,9 +351,17 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               Slice blob_value(pin_val);
               push_operand(blob_value, nullptr);
             } else if (type == kTypeWideColumnEntity) {
-              // TODO: support wide-column entities
-              state_ = kUnexpectedWideColumnEntity;
-              return false;
+              Slice value_copy = value;
+              Slice value_of_default;
+
+              if (!WideColumnSerialization::GetValueOfDefaultColumn(
+                       value_copy, value_of_default)
+                       .ok()) {
+                state_ = kCorrupt;
+                return false;
+              }
+
+              push_operand(value_of_default, value_pinner);
             } else {
               assert(type == kTypeValue);
               push_operand(value, value_pinner);
@@ -377,9 +385,26 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               push_operand(blob_value, nullptr);
             }
           } else if (type == kTypeWideColumnEntity) {
-            // TODO: support wide-column entities
-            state_ = kUnexpectedWideColumnEntity;
-            return false;
+            Slice value_copy = value;
+            WideColumns columns;
+
+            if (!WideColumnSerialization::Deserialize(value_copy, columns)
+                     .ok()) {
+              state_ = kCorrupt;
+              return false;
+            }
+
+            Slice value_of_default;
+
+            state_ = kFound;
+            if (do_merge_) {
+              Merge(columns);
+            } else {
+              // It means this function is called as part of DB GetMergeOperands
+              // API and the current value should be part of
+              // merge_context_->operand_list
+              push_operand(value_of_default, value_pinner);
+            }
           } else {
             assert(type == kTypeValue);
 
@@ -407,7 +432,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kDeleted;
         } else if (kMerge == state_) {
           state_ = kFound;
-          Merge(nullptr);
+          if (do_merge_) {
+            Merge(nullptr);
+          }
           // If do_merge_ = false then the current value shouldn't be part of
           // merge_context_->operand_list
         }
@@ -438,15 +465,62 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 }
 
 void GetContext::Merge(const Slice* value) {
+  assert(do_merge_);
+
+  std::string result;
+  const Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key_, value, merge_context_->GetOperands(), &result,
+      logger_, statistics_, clock_);
+  if (!s.ok()) {
+    state_ = kCorrupt;
+    return;
+  }
+
   if (LIKELY(pinnable_val_ != nullptr)) {
-    if (do_merge_) {
-      Status merge_status = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key_, value, merge_context_->GetOperands(),
-          pinnable_val_->GetSelf(), logger_, statistics_, clock_);
-      pinnable_val_->PinSelf();
-      if (!merge_status.ok()) {
-        state_ = kCorrupt;
-      }
+    *pinnable_val_->GetSelf() = std::move(result);
+    pinnable_val_->PinSelf();
+  } else if (columns_ != nullptr) {
+    columns_->SetPlainValue(result);
+  }
+}
+
+void GetContext::Merge(WideColumns& columns) {
+  assert(do_merge_);
+
+  Slice value_of_default;
+  if (!columns.empty() && columns[0].name() == kDefaultWideColumnName) {
+    value_of_default = columns[0].value();
+  }
+
+  std::string result;
+  const Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key_, &value_of_default,
+      merge_context_->GetOperands(), &result, logger_, statistics_, clock_);
+  if (!s.ok()) {
+    state_ = kCorrupt;
+    return;
+  }
+
+  if (LIKELY(pinnable_val_ != nullptr)) {
+    *pinnable_val_->GetSelf() = std::move(result);
+    pinnable_val_->PinSelf();
+  } else if (columns_ != nullptr) {
+    if (!columns.empty() && columns[0].name() == kDefaultWideColumnName) {
+      columns[0].value() = result;
+    } else {
+      columns.insert(columns.begin(),
+                     WideColumn{kDefaultWideColumnName, result});
+    }
+
+    std::string output;
+    if (!WideColumnSerialization::Serialize(columns, output).ok()) {
+      state_ = kCorrupt;
+      return;
+    }
+
+    if (!columns_->SetWideColumnValue(output).ok()) {
+      state_ = kCorrupt;
+      return;
     }
   }
 }

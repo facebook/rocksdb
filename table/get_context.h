@@ -8,6 +8,7 @@
 
 #include "db/read_callback.h"
 #include "rocksdb/types.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFetcher;
@@ -185,6 +186,7 @@ class GetContext {
 
  private:
   void Merge(const Slice* value);
+  void Merge(WideColumns& columns);
   bool GetBlobValue(const Slice& blob_index, PinnableSlice* blob_value);
 
   const Comparator* ucmp_;
