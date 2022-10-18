@@ -134,6 +134,12 @@ class BlobCountingIterator : public InternalIterator {
     if (!iter_->Valid()) {
       status_ = iter_->status();
       return;
+    } else if (iter_->IsDeleteRangeSentinelKey()) {
+      // CompactionMergingIterator emits range tombstones
+      // that may have start key with type kTypeBlobIndex if truncated.
+      // This could crash the ProcessInFlow() call below since
+      // value is empty for these keys.
+      return;
     }
 
     TEST_SYNC_POINT(

@@ -1166,10 +1166,12 @@ void CompactionIterator::DecideOutputLevel() {
 
 void CompactionIterator::PrepareOutput() {
   if (Valid()) {
-    if (ikey_.type == kTypeValue) {
-      ExtractLargeValueIfNeeded();
-    } else if (ikey_.type == kTypeBlobIndex) {
-      GarbageCollectBlobIfNeeded();
+    if (LIKELY(!is_range_del_)) {
+      if (ikey_.type == kTypeValue) {
+        ExtractLargeValueIfNeeded();
+      } else if (ikey_.type == kTypeBlobIndex) {
+        GarbageCollectBlobIfNeeded();
+      }
     }
 
     if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
