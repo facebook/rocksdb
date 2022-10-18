@@ -1708,6 +1708,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
         });
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
     for (size_t bi = 0; bi < txn_cnt; bi++) {
       // get the bi-th digit in number system based on type_cnt
       size_t d = (n % base[bi + 1]) / base[bi];
