@@ -165,6 +165,7 @@ else()
   if(WITH_LZ4)
     find_package(lz4 REQUIRED)
     add_definitions(-DLZ4)
+    include_directories(${lz4_INCLUDE_DIRS})
     list(APPEND THIRDPARTY_LIBS lz4::lz4)
   endif()
 
