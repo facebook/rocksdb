@@ -217,14 +217,14 @@ class PhotonEnv {
     if (ret != 0) {
       LOG_FATAL("photon init failed");
     }
-    // ret = photon::std::work_pool_init(7, photon::INIT_EVENT_IOURING, 0);
-    // if (ret != 0) {
-    //   LOG_FATAL("std work pool init failed");
-    // }
+    ret = photon::std::work_pool_init(3, photon::INIT_EVENT_IOURING, 0);
+    if (ret != 0) {
+      LOG_FATAL("std work pool init failed");
+    }
   }
   ~PhotonEnv() {
     LOG_INFO("Photon finish");
-    // photon::std::work_pool_fini();
+    photon::std::work_pool_fini();
     photon::fini();
   }
 };
