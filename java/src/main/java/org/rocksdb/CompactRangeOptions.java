@@ -257,8 +257,19 @@ public class CompactRangeOptions extends RocksObject {
 
   public Timestamp fullHistoryTSLow() {
     Timestamp timestamp = new Timestamp();
-    fullHistoryTSLow(nativeHandle_, timestamp);
-    return timestamp;
+    if (fullHistoryTSLow(nativeHandle_, timestamp)) {
+      return timestamp;
+    }
+    return null;
+  }
+
+  public CompactRangeOptions setCanceled(final boolean canceled) {
+    setCanceled(nativeHandle_, canceled);
+    return this;
+  }
+
+  public boolean canceled() {
+    return canceled(nativeHandle_);
   }
 
   private static native long newCompactRangeOptions();
@@ -289,5 +300,9 @@ public class CompactRangeOptions extends RocksObject {
   private native void setFullHistoryTSLow(
       final long handle, final long timestampStart, final long timestampRange);
 
-  private native void fullHistoryTSLow(final long handle, final Timestamp result);
+  private native boolean fullHistoryTSLow(final long handle, final Timestamp result);
+
+  private native void setCanceled(final long handle, final boolean canceled);
+
+  private native boolean canceled(final long handle);
 }

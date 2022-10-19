@@ -114,4 +114,25 @@ public class CompactRangeOptionsTest {
       assertThat(timestamp).isEqualTo(timestampResult);
     }
   }
+
+  @Test
+  public void fullHistoryTSLowDefault() {
+    CompactRangeOptions opt = new CompactRangeOptions();
+    CompactRangeOptions.Timestamp timestampResult = opt.fullHistoryTSLow();
+    assertThat(timestampResult).isNull();
+  }
+
+  @Test
+  public void canceled() {
+    CompactRangeOptions opt = new CompactRangeOptions();
+    assertThat(opt.canceled()).isEqualTo(false);
+    opt.setCanceled(true);
+    assertThat(opt.canceled()).isEqualTo(true);
+    opt.setCanceled(false);
+    assertThat(opt.canceled()).isEqualTo(false);
+    opt.setCanceled(true);
+    assertThat(opt.canceled()).isEqualTo(true);
+    opt.setCanceled(true);
+    assertThat(opt.canceled()).isEqualTo(true);
+  }
 }

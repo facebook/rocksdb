@@ -17,8 +17,12 @@
 class Java_org_rocksdb_CompactRangeOptions {
  public:
   ROCKSDB_NAMESPACE::CompactRangeOptions compactRangeOptions;
-  std::string full_history_ts_low;
 
+ private:
+  std::string full_history_ts_low;
+  std::atomic<bool> canceled;
+
+ public:
   void set_full_history_ts_low(uint64_t start, uint64_t range) {
     full_history_ts_low = "";
     ROCKSDB_NAMESPACE::PutFixed64(&full_history_ts_low, start);
@@ -27,11 +31,26 @@ class Java_org_rocksdb_CompactRangeOptions {
         new ROCKSDB_NAMESPACE::Slice(full_history_ts_low);
   }
 
-  void read_full_history_ts_low(uint64_t* start, uint64_t* range) {
+  bool read_full_history_ts_low(uint64_t* start, uint64_t* range) {
+    if (compactRangeOptions.full_history_ts_low == nullptr) return false;
     ROCKSDB_NAMESPACE::Slice read_slice(
         compactRangeOptions.full_history_ts_low->ToStringView());
-    ROCKSDB_NAMESPACE::GetFixed64(&read_slice, start);
-    ROCKSDB_NAMESPACE::GetFixed64(&read_slice, range);
+    if (!ROCKSDB_NAMESPACE::GetFixed64(&read_slice, start)) return false;
+    return ROCKSDB_NAMESPACE::GetFixed64(&read_slice, range);
+  }
+
+  void set_canceled(bool value) {
+    if (compactRangeOptions.canceled == nullptr) {
+      canceled.store(value, std::memory_order_seq_cst);
+      compactRangeOptions.canceled = &canceled;
+    } else {
+      compactRangeOptions.canceled->store(value, std::memory_order_seq_cst);
+    }
+  }
+
+  bool get_canceled() {
+    return compactRangeOptions.canceled &&
+           compactRangeOptions.canceled->load(std::memory_order_seq_cst);
   }
 };
 
@@ -236,8 +255,10 @@ void Java_org_rocksdb_CompactRangeOptions_setMaxSubcompactions(
  * Method:    setFullHistoryTSLow
  * Signature: (JJJ)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_CompactRangeOptions_setFullHistoryTSLow(
-    JNIEnv*, jobject, jlong jhandle, jlong start, jlong range) {
+void Java_org_rocksdb_CompactRangeOptions_setFullHistoryTSLow(JNIEnv*, jobject,
+                                                              jlong jhandle,
+                                                              jlong start,
+                                                              jlong range) {
   auto* options =
       reinterpret_cast<Java_org_rocksdb_CompactRangeOptions*>(jhandle);
   options->set_full_history_ts_low(start, range);
@@ -248,17 +269,44 @@ JNIEXPORT void JNICALL Java_org_rocksdb_CompactRangeOptions_setFullHistoryTSLow(
  * Method:    fullHistoryTSLow
  * Signature: (JLorg/rocksdb/CompactRangeOptions/Timestamp;)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_CompactRangeOptions_fullHistoryTSLow(
+jboolean Java_org_rocksdb_CompactRangeOptions_fullHistoryTSLow(
     JNIEnv* env, jobject, jlong jhandle, jobject jtimestamp) {
   auto* options =
       reinterpret_cast<Java_org_rocksdb_CompactRangeOptions*>(jhandle);
   uint64_t start;
   uint64_t duration;
-  options->read_full_history_ts_low(&start, &duration);
+  if (!options->read_full_history_ts_low(&start, &duration)) return false;
   std::unique_ptr<ROCKSDB_NAMESPACE::ObjectFieldAccessorJni> timestamp(
       new ROCKSDB_NAMESPACE::ObjectFieldAccessorJni(env, jtimestamp));
   timestamp->set_long("start", start);
   timestamp->set_long("duration", duration);
+
+  return true;
+}
+
+/*
+ * Class:     org_rocksdb_CompactRangeOptions
+ * Method:    setCanceled
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_CompactRangeOptions_setCanceled(JNIEnv*, jobject,
+                                                      jlong jhandle,
+                                                      jboolean jcanceled) {
+  auto* options =
+      reinterpret_cast<Java_org_rocksdb_CompactRangeOptions*>(jhandle);
+  options->set_canceled(jcanceled);
+}
+
+/*
+ * Class:     org_rocksdb_CompactRangeOptions
+ * Method:    canceled
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_CompactRangeOptions_canceled(JNIEnv*, jobject,
+                                                       jlong jhandle) {
+  auto* options =
+      reinterpret_cast<Java_org_rocksdb_CompactRangeOptions*>(jhandle);
+  return options->get_canceled();
 }
 
 /*
