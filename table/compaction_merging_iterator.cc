@@ -27,8 +27,6 @@ void CompactionMergingIterator::SeekToFirst() {
 
 void CompactionMergingIterator::Seek(const Slice& target) {
   minHeap_.clear();
-
-  FindNextVisibleKey();
   status_ = Status::OK();
   for (auto& child : children_) {
     child.iter.Seek(target);
@@ -88,9 +86,9 @@ void CompactionMergingIterator::Next() {
 
 void CompactionMergingIterator::FindNextVisibleKey() {
   while (!minHeap_.empty() && minHeap_.top()->IsDeleteRangeSentinelKey()) {
+    HeapItem* current = minHeap_.top();
     // range tombstone start keys from the same SSTable should have been
     // exhausted
-    HeapItem* current = minHeap_.top();
     assert(!range_tombstone_iters_[current->level] ||
            !range_tombstone_iters_[current->level]->Valid());
     // iter is a LevelIterator, and it enters a new SST file in the Next()

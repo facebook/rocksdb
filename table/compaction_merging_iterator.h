@@ -45,15 +45,12 @@ using CompactionMinHeap = BinaryHeap<HeapItem*, CompactionHeapItemComparator>;
  * by them. For example, consider an L1 file with content [a, b), y, z, where
  * [a, b) is a range tombstone and y and z are point keys. This could cause an
  * oversize compaction as it can overlap with a wide range of key space in L2.
- * Another example is just a large range tombstone, say [a, z), that covers the
- * entire keyspace. We should be able to break it down to allow smaller
- * compactions.
  *
  * CompactionMergingIterator emits range tombstone start keys from each LSM
  * level's range tombstone iterator through
- * TruncatedRangeDelIterator::start_key(). So for a range tombstones start,
- * end)@seqno, the key is start@kMaxSequenceNumber unless truncated at file
- * boundary.
+ * TruncatedRangeDelIterator::start_key(). So for a range tombstones
+ * [start,end)@seqno, the key is start@kMaxSequenceNumber unless truncated at
+ * file boundary.
  *
  */
 class CompactionMergingIterator : public InternalIterator {
@@ -157,7 +154,7 @@ class CompactionMergingIterator : public InternalIterator {
     return current_->type == HeapItem::DELETE_RANGE_START;
   }
 
-  // Compaction uses a subset of InternalIterator interface.
+  // Compaction uses the above subset of InternalIterator interface.
   void SeekToLast() override { assert(false); }
 
   void SeekForPrev(const Slice&) override { assert(false); }
