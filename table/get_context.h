@@ -8,7 +8,6 @@
 
 #include "db/read_callback.h"
 #include "rocksdb/types.h"
-#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFetcher;
