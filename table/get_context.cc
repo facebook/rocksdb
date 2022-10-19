@@ -394,15 +394,21 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               return false;
             }
 
-            Slice value_of_default;
-
             state_ = kFound;
+
             if (do_merge_) {
               Merge(columns);
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
               // merge_context_->operand_list
+
+              Slice value_of_default;
+              if (!columns.empty() &&
+                  columns[0].name() == kDefaultWideColumnName) {
+                value_of_default = columns[0].value();
+              }
+
               push_operand(value_of_default, value_pinner);
             }
           } else {
