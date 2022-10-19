@@ -466,6 +466,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
 void GetContext::Merge(const Slice* value) {
   assert(do_merge_);
+  assert(!pinnable_val_ || !columns_);
 
   std::string result;
   const Status s = MergeHelper::TimedFullMerge(
@@ -479,13 +480,17 @@ void GetContext::Merge(const Slice* value) {
   if (LIKELY(pinnable_val_ != nullptr)) {
     *pinnable_val_->GetSelf() = std::move(result);
     pinnable_val_->PinSelf();
-  } else if (columns_ != nullptr) {
+    return;
+  }
+
+  if (columns_ != nullptr) {
     columns_->SetPlainValue(result);
   }
 }
 
 void GetContext::Merge(WideColumns& columns) {
   assert(do_merge_);
+  assert(!pinnable_val_ || !columns_);
 
   Slice value_of_default;
   if (!columns.empty() && columns[0].name() == kDefaultWideColumnName) {
@@ -504,7 +509,10 @@ void GetContext::Merge(WideColumns& columns) {
   if (LIKELY(pinnable_val_ != nullptr)) {
     *pinnable_val_->GetSelf() = std::move(result);
     pinnable_val_->PinSelf();
-  } else if (columns_ != nullptr) {
+    return;
+  }
+
+  if (columns_ != nullptr) {
     if (!columns.empty() && columns[0].name() == kDefaultWideColumnName) {
       columns[0].value() = result;
     } else {
