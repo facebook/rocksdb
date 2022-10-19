@@ -4,6 +4,7 @@
 * `DeleteRange()` now supports user-defined timestamp.
 * Provide support for async_io with tailing iterators when ReadOptions.tailing is enabled during scans.
 * Tiered Storage: allow data moving up from the last level to the penultimate level if the input level is penultimate level or above.
+* Added `DB::Properties::kFastBlockCacheEntryStats`, which is similar to `DB::Properties::kBlockCacheEntryStats`, except returns cached (stale) values in more cases to reduce overhead.
 
 ### Bug Fixes
 * Fix a bug in io_uring_prep_cancel in AbortIO API for posix which expects sqe->addr to match with read request submitted and wrong paramter was being passed.
