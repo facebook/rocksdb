@@ -211,9 +211,14 @@ TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
 
 TEST_F(DBWideBasicTest, PutEntityMerge) {
   Options options = GetDefaultOptions();
-  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+  const std::string delim("|");
+  options.merge_operator = MergeOperators::CreateStringAppendOperator(delim);
+
   Reopen(options);
 
+  // Test Merge with two entities: one that has the default column and one that
+  // doesn't
   constexpr char first_key[] = "first";
   WideColumns first_columns{{kDefaultWideColumnName, "a"},
                             {"attr_name1", "foo"},
@@ -221,27 +226,18 @@ TEST_F(DBWideBasicTest, PutEntityMerge) {
   constexpr char first_merge_operand[] = "bla1";
 
   constexpr char second_key[] = "second";
-  WideColumns second_columns{{kDefaultWideColumnName, "b"},
-                             {"attr_one", "two"},
-                             {"attr_three", "four"}};
+  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
   constexpr char second_merge_operand[] = "bla2";
 
   auto verify = [&]() {
-    constexpr size_t num_merge_operands = 2;
-
-    GetMergeOperandsOptions get_merge_opts;
-    get_merge_opts.expected_max_number_of_operands = num_merge_operands;
-
-    assert(!first_columns.empty() &&
-           first_columns[0].name() == kDefaultWideColumnName);
-    const std::string expected_first_default(
-        first_columns[0].value().ToString() + "," + first_merge_operand);
+    const std::string first_expected_default(
+        first_columns[0].value().ToString() + delim + first_merge_operand);
 
     {
       PinnableSlice result;
       ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), first_key,
                          &result));
-      ASSERT_EQ(result, expected_first_default);
+      ASSERT_EQ(result, first_expected_default);
     }
 
     {
@@ -249,9 +245,8 @@ TEST_F(DBWideBasicTest, PutEntityMerge) {
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                first_key, &result));
 
-      assert(first_columns.size() == 3);
       WideColumns expected_columns{
-          {kDefaultWideColumnName, expected_first_default},
+          {kDefaultWideColumnName, first_expected_default},
           first_columns[1],
           first_columns[2]};
 
@@ -259,8 +254,15 @@ TEST_F(DBWideBasicTest, PutEntityMerge) {
     }
 
     {
+      constexpr size_t num_merge_operands = 2;
+
       std::array<PinnableSlice, num_merge_operands> merge_operands;
+
+      GetMergeOperandsOptions get_merge_opts;
+      get_merge_opts.expected_max_number_of_operands = num_merge_operands;
+
       int number_of_operands = 0;
+
       ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
                                       first_key, &merge_operands[0],
                                       &get_merge_opts, &number_of_operands));
@@ -269,16 +271,13 @@ TEST_F(DBWideBasicTest, PutEntityMerge) {
       ASSERT_EQ(merge_operands[1], first_merge_operand);
     }
 
-    assert(!second_columns.empty() &&
-           second_columns[0].name() == kDefaultWideColumnName);
-    const std::string expected_second_default(
-        second_columns[0].value().ToString() + "," + second_merge_operand);
+    const std::string second_expected_default(delim + second_merge_operand);
 
     {
       PinnableSlice result;
       ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), second_key,
                          &result));
-      ASSERT_EQ(result, expected_second_default);
+      ASSERT_EQ(result, second_expected_default);
     }
 
     {
@@ -286,23 +285,29 @@ TEST_F(DBWideBasicTest, PutEntityMerge) {
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                second_key, &result));
 
-      assert(second_columns.size() == 3);
       WideColumns expected_columns{
-          {kDefaultWideColumnName, expected_second_default},
-          second_columns[1],
-          second_columns[2]};
+          {kDefaultWideColumnName, second_expected_default},
+          second_columns[0],
+          second_columns[1]};
 
       ASSERT_EQ(result.columns(), expected_columns);
     }
 
     {
+      constexpr size_t num_merge_operands = 2;
+
       std::array<PinnableSlice, num_merge_operands> merge_operands;
+
+      GetMergeOperandsOptions get_merge_opts;
+      get_merge_opts.expected_max_number_of_operands = num_merge_operands;
+
       int number_of_operands = 0;
+
       ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
                                       second_key, &merge_operands[0],
                                       &get_merge_opts, &number_of_operands));
       ASSERT_EQ(number_of_operands, num_merge_operands);
-      ASSERT_EQ(merge_operands[0], second_columns[0].value());
+      ASSERT_TRUE(merge_operands[0].empty());
       ASSERT_EQ(merge_operands[1], second_merge_operand);
     }
 
@@ -316,10 +321,10 @@ TEST_F(DBWideBasicTest, PutEntityMerge) {
       db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
                     &keys[0], &values[0], &statuses[0]);
 
-      ASSERT_EQ(values[0], expected_first_default);
+      ASSERT_EQ(values[0], first_expected_default);
       ASSERT_OK(statuses[0]);
 
-      ASSERT_EQ(values[1], expected_second_default);
+      ASSERT_EQ(values[1], second_expected_default);
       ASSERT_OK(statuses[1]);
     }
 
