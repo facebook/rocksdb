@@ -12,11 +12,27 @@
 #include "rocksdb/options.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
+#include "util/coding.h"
 
 class Java_org_rocksdb_CompactRangeOptions {
  public:
   ROCKSDB_NAMESPACE::CompactRangeOptions compactRangeOptions;
   std::string full_history_ts_low;
+
+  void set_full_history_ts_low(uint64_t start, uint64_t range) {
+    full_history_ts_low = "";
+    ROCKSDB_NAMESPACE::PutFixed64(&full_history_ts_low, start);
+    ROCKSDB_NAMESPACE::PutFixed64(&full_history_ts_low, range);
+    compactRangeOptions.full_history_ts_low =
+        new ROCKSDB_NAMESPACE::Slice(full_history_ts_low);
+  }
+
+  void read_full_history_ts_low(uint64_t* start, uint64_t* range) {
+    ROCKSDB_NAMESPACE::Slice read_slice(
+        compactRangeOptions.full_history_ts_low->ToStringView());
+    ROCKSDB_NAMESPACE::GetFixed64(&read_slice, start);
+    ROCKSDB_NAMESPACE::GetFixed64(&read_slice, range);
+  }
 };
 
 /*
@@ -224,11 +240,7 @@ JNIEXPORT void JNICALL Java_org_rocksdb_CompactRangeOptions_setFullHistoryTSLow(
     JNIEnv*, jobject, jlong jhandle, jlong start, jlong range) {
   auto* options =
       reinterpret_cast<Java_org_rocksdb_CompactRangeOptions*>(jhandle);
-  options->compactRangeOptions.full_history_ts_low.clear();
-  PutFixed64(&options->full_history_ts_low, low);
-  PutFixed64(&options->full_history_ts_low, high);
-  options->compactRangeOptions.full_history_ts_low =
-      options->full_history_ts_low;
+  options->set_full_history_ts_low(start, range);
 }
 
 /*
@@ -238,8 +250,16 @@ JNIEXPORT void JNICALL Java_org_rocksdb_CompactRangeOptions_setFullHistoryTSLow(
  */
 JNIEXPORT void JNICALL Java_org_rocksdb_CompactRangeOptions_fullHistoryTSLow(
     JNIEnv* env, jobject, jlong jhandle, jobject jtimestamp) {
-      
-    }
+  auto* options =
+      reinterpret_cast<Java_org_rocksdb_CompactRangeOptions*>(jhandle);
+  uint64_t start;
+  uint64_t duration;
+  options->read_full_history_ts_low(&start, &duration);
+  std::unique_ptr<ROCKSDB_NAMESPACE::ObjectFieldAccessorJni> timestamp(
+      new ROCKSDB_NAMESPACE::ObjectFieldAccessorJni(env, jtimestamp));
+  timestamp->set_long("start", start);
+  timestamp->set_long("duration", duration);
+}
 
 /*
  * Class:     org_rocksdb_CompactRangeOptions

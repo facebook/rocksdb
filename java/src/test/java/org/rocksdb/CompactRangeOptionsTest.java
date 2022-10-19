@@ -106,9 +106,12 @@ public class CompactRangeOptionsTest {
     CompactRangeOptions.Timestamp timestamp = new CompactRangeOptions.Timestamp(18, 1);
     opt.setFullHistoryTSLow(timestamp);
 
-    CompactRangeOptions.Timestamp timestampResult = opt.fullHistoryTSLow();
-    assertThat(timestamp.start).isEqualTo(timestampResult.start);
-    assertThat(timestamp.duration).isEqualTo(timestampResult.duration);
-    assertThat(timestamp).isEqualTo(timestampResult);
+    for (int times = 1; times <= 2; times++) {
+      // worried slightly about destructive reads, so read it twice
+      CompactRangeOptions.Timestamp timestampResult = opt.fullHistoryTSLow();
+      assertThat(timestamp.start).isEqualTo(timestampResult.start);
+      assertThat(timestamp.duration).isEqualTo(timestampResult.duration);
+      assertThat(timestamp).isEqualTo(timestampResult);
+    }
   }
 }
