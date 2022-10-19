@@ -184,7 +184,7 @@ class GetContext {
 
  private:
   void Merge(const Slice* value);
-  void Merge(WideColumns& columns);
+  void MergeWithEntity(Slice wide_column_entity);
   bool GetBlobValue(const Slice& blob_index, PinnableSlice* blob_value);
 
   const Comparator* ucmp_;

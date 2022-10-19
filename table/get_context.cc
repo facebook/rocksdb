@@ -385,28 +385,22 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               push_operand(blob_value, nullptr);
             }
           } else if (type == kTypeWideColumnEntity) {
-            Slice value_copy = value;
-            WideColumns columns;
-
-            if (!WideColumnSerialization::Deserialize(value_copy, columns)
-                     .ok()) {
-              state_ = kCorrupt;
-              return false;
-            }
-
             state_ = kFound;
 
             if (do_merge_) {
-              Merge(columns);
+              MergeWithEntity(value);
             } else {
               // It means this function is called as part of DB GetMergeOperands
               // API and the current value should be part of
               // merge_context_->operand_list
-
+              Slice value_copy = value;
               Slice value_of_default;
-              if (!columns.empty() &&
-                  columns[0].name() == kDefaultWideColumnName) {
-                value_of_default = columns[0].value();
+
+              if (!WideColumnSerialization::GetValueOfDefaultColumn(
+                       value_copy, value_of_default)
+                       .ok()) {
+                state_ = kCorrupt;
+                return false;
               }
 
               push_operand(value_of_default, value_pinner);
@@ -494,9 +488,15 @@ void GetContext::Merge(const Slice* value) {
   }
 }
 
-void GetContext::Merge(WideColumns& columns) {
+void GetContext::MergeWithEntity(Slice wide_column_entity) {
   assert(do_merge_);
   assert(!pinnable_val_ || !columns_);
+
+  WideColumns columns;
+  if (!WideColumnSerialization::Deserialize(wide_column_entity, columns).ok()) {
+    state_ = kCorrupt;
+    return;
+  }
 
   Slice value_of_default;
   if (!columns.empty() && columns[0].name() == kDefaultWideColumnName) {
