@@ -21,7 +21,6 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
-#include "cache/sharded_cache.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"

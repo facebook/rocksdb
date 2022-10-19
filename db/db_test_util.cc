@@ -963,6 +963,25 @@ std::string DBTestBase::Contents(int cf) {
   return result;
 }
 
+void DBTestBase::CheckAllEntriesWithFifoReopen(
+    const std::string& expected_value, const Slice& user_key, int cf,
+    const std::vector<std::string>& cfs, const Options& options) {
+  ASSERT_EQ(AllEntriesFor(user_key, cf), expected_value);
+
+  std::vector<std::string> cfs_plus_default = cfs;
+  cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
+
+  Options fifo_options(options);
+  fifo_options.compaction_style = kCompactionStyleFIFO;
+  fifo_options.max_open_files = -1;
+  fifo_options.disable_auto_compactions = true;
+  ASSERT_OK(TryReopenWithColumnFamilies(cfs_plus_default, fifo_options));
+  ASSERT_EQ(AllEntriesFor(user_key, cf), expected_value);
+
+  ASSERT_OK(TryReopenWithColumnFamilies(cfs_plus_default, options));
+  ASSERT_EQ(AllEntriesFor(user_key, cf), expected_value);
+}
+
 std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   Arena arena;
   auto options = CurrentOptions();

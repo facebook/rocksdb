@@ -141,6 +141,9 @@ struct LRUHandle {
 
   Slice key() const { return Slice(key_data.data(), kCacheKeySize); }
 
+  // For HandleImpl concept
+  uint32_t GetHash() const { return hash; }
+
   // Increase the reference count by 1.
   void Ref() { refs++; }
 
@@ -260,8 +263,8 @@ class LRUHandleTable {
   void Assign(int slot, LRUHandle* h);
 
   template <typename T>
-  void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end) {
-    for (uint32_t i = index_begin; i < index_end; i++) {
+  void ApplyToEntriesRange(T func, size_t index_begin, size_t index_end) {
+    for (size_t i = index_begin; i < index_end; i++) {
       LRUHandle* h = &array_[i];
       if (h->IsVisible()) {
         func(h);
@@ -316,20 +319,30 @@ class LRUHandleTable {
 };
 
 // A single shard of sharded cache.
-class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
+class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
  public:
   LRUCacheShard(size_t capacity, size_t estimated_value_size,
                 bool strict_capacity_limit,
                 CacheMetadataChargePolicy metadata_charge_policy);
-  ~LRUCacheShard() override = default;
+
+  // For CacheShard concept
+  using HandleImpl = LRUHandle;
+
+  // Keep 32-bit hashing for now (FIXME: upgrade to 64-bit)
+  using HashVal = uint32_t;
+  using HashCref = uint32_t;
+  static inline HashVal ComputeHash(const Slice& key) {
+    return Lower32of64(GetSliceNPHash64(key));
+  }
+  static inline uint32_t HashPieceForSharding(HashCref hash) { return hash; }
 
   // Separate from constructor so caller can easily make an array of LRUCache
   // if current usage is more than new capacity, the function will attempt to
   // free the needed space.
-  void SetCapacity(size_t capacity) override;
+  void SetCapacity(size_t capacity);
 
   // Set the flag to reject insertion if cache if full.
-  void SetStrictCapacityLimit(bool strict_capacity_limit) override;
+  void SetStrictCapacityLimit(bool strict_capacity_limit);
 
   // Like Cache methods, but with an extra "hash" parameter.
   // Insert an item into the hash table and, if handle is null, insert into
@@ -337,48 +350,45 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // and free_handle_on_fail is true, the item is deleted and handle is set to
   // nullptr.
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
-                Cache::DeleterFn deleter, Cache::Handle** handle,
-                Cache::Priority priority) override;
+                Cache::DeleterFn deleter, LRUHandle** handle,
+                Cache::Priority priority);
 
   Status Insert(const Slice& key, uint32_t hash, void* value,
                 const Cache::CacheItemHelper* helper, size_t charge,
-                Cache::Handle** handle, Cache::Priority priority) override {
+                LRUHandle** handle, Cache::Priority priority) {
     return Insert(key, hash, value, charge, helper->del_cb, handle, priority);
   }
 
-  Cache::Handle* Lookup(const Slice& key, uint32_t hash,
-                        const Cache::CacheItemHelper* /*helper*/,
-                        const Cache::CreateCallback& /*create_cb*/,
-                        Cache::Priority /*priority*/, bool /*wait*/,
-                        Statistics* /*stats*/) override {
+  LRUHandle* Lookup(const Slice& key, uint32_t hash,
+                    const Cache::CacheItemHelper* /*helper*/,
+                    const Cache::CreateCallback& /*create_cb*/,
+                    Cache::Priority /*priority*/, bool /*wait*/,
+                    Statistics* /*stats*/) {
     return Lookup(key, hash);
   }
-  Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
+  LRUHandle* Lookup(const Slice& key, uint32_t hash);
 
-  bool Release(Cache::Handle* handle, bool /*useful*/,
-               bool erase_if_last_ref) override {
+  bool Release(LRUHandle* handle, bool /*useful*/, bool erase_if_last_ref) {
     return Release(handle, erase_if_last_ref);
   }
-  bool IsReady(Cache::Handle* /*handle*/) override { return true; }
-  void Wait(Cache::Handle* /*handle*/) override {}
+  bool IsReady(LRUHandle* /*handle*/) { return true; }
+  void Wait(LRUHandle* /*handle*/) {}
 
-  bool Ref(Cache::Handle* handle) override;
-  bool Release(Cache::Handle* handle, bool erase_if_last_ref = false) override;
-  void Erase(const Slice& key, uint32_t hash) override;
+  bool Ref(LRUHandle* handle);
+  bool Release(LRUHandle* handle, bool erase_if_last_ref = false);
+  void Erase(const Slice& key, uint32_t hash);
 
-  size_t GetUsage() const override;
-  size_t GetPinnedUsage() const override;
-  size_t GetOccupancyCount() const override;
-  size_t GetTableAddressCount() const override;
+  size_t GetUsage() const;
+  size_t GetPinnedUsage() const;
+  size_t GetOccupancyCount() const;
+  size_t GetTableAddressCount() const;
 
   void ApplyToSomeEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
                                DeleterFn deleter)>& callback,
-      uint32_t average_entries_per_lock, uint32_t* state) override;
+      size_t average_entries_per_lock, size_t* state);
 
-  void EraseUnRefEntries() override;
-
-  std::string GetPrintableOptions() const override;
+  void EraseUnRefEntries();
 
  private:
   friend class LRUCache;
@@ -446,25 +456,16 @@ class LRUCache
 #ifdef NDEBUG
     final
 #endif
-    : public ShardedCache {
+    : public ShardedCache<LRUCacheShard> {
  public:
   LRUCache(size_t capacity, size_t estimated_value_size, int num_shard_bits,
            bool strict_capacity_limit,
            CacheMetadataChargePolicy metadata_charge_policy =
                kDontChargeCacheMetadata);
-  ~LRUCache() override;
   const char* Name() const override { return "LRUCache"; }
-  CacheShard* GetShard(uint32_t shard) override;
-  const CacheShard* GetShard(uint32_t shard) const override;
   void* Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;
-  uint32_t GetHash(Handle* handle) const override;
   DeleterFn GetDeleter(Handle* handle) const override;
-  void DisownData() override;
-
- private:
-  LRUCacheShard* shards_ = nullptr;
-  int num_shards_ = 0;
 };
 }  // namespace fast_lru_cache
 
