@@ -170,13 +170,16 @@ class DBBlockCacheTest : public DBTestBase {
 #ifndef ROCKSDB_LITE
   const std::array<size_t, kNumCacheEntryRoles> GetCacheEntryRoleCountsBg() {
     // Verify in cache entry role stats
-    ColumnFamilyHandleImpl* cfh =
-        static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
-    InternalStats* internal_stats_ptr = cfh->cfd()->internal_stats();
-    InternalStats::CacheEntryRoleStats stats;
-    internal_stats_ptr->TEST_GetCacheEntryRoleStats(&stats,
-                                                    /*foreground=*/false);
-    return stats.entry_counts;
+    std::array<size_t, kNumCacheEntryRoles> cache_entry_role_counts;
+    std::map<std::string, std::string> values;
+    EXPECT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                    &values));
+    for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
+      auto role = static_cast<CacheEntryRole>(i);
+      cache_entry_role_counts[i] =
+          ParseSizeT(values[BlockCacheEntryStatsMapKeys::EntryCount(role)]);
+    }
+    return cache_entry_role_counts;
   }
 #endif  // ROCKSDB_LITE
 };
