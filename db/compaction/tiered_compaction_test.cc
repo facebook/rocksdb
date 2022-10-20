@@ -1442,6 +1442,7 @@ TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.preclude_last_level_data_seconds = 60;
+  options.preserve_internal_time_seconds = 0;
   options.env = mock_env_.get();
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
