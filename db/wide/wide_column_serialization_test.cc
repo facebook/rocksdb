@@ -124,12 +124,41 @@ TEST(WideColumnSerializationTest, SerializeDeserialize) {
   }
 }
 
+TEST(WideColumnSerializationTest, SerializeWithPrepend) {
+  Slice value_of_default("baz");
+  WideColumns other_columns{{"foo", "bar"}, {"hello", "world"}};
+
+  std::string output;
+  ASSERT_OK(WideColumnSerialization::Serialize(value_of_default, other_columns,
+                                               output));
+
+  Slice input(output);
+
+  WideColumns deserialized_columns;
+  ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized_columns));
+
+  WideColumns expected_columns{{kDefaultWideColumnName, value_of_default},
+                               other_columns[0],
+                               other_columns[1]};
+  ASSERT_EQ(deserialized_columns, expected_columns);
+}
+
 TEST(WideColumnSerializationTest, SerializeDuplicateError) {
   WideColumns columns{{"foo", "bar"}, {"foo", "baz"}};
   std::string output;
 
   ASSERT_TRUE(
       WideColumnSerialization::Serialize(columns, output).IsCorruption());
+}
+
+TEST(WideColumnSerializationTest, SerializeWithPrependDuplicateError) {
+  Slice value_of_default("baz");
+  WideColumns other_columns{{kDefaultWideColumnName, "dup"}, {"foo", "bar"}};
+
+  std::string output;
+  ASSERT_TRUE(WideColumnSerialization::Serialize(value_of_default,
+                                                 other_columns, output)
+                  .IsCorruption());
 }
 
 TEST(WideColumnSerializationTest, SerializeOutOfOrderError) {
