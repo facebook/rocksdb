@@ -275,6 +275,10 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/UInt64AddOperator.java
+
+  ## From filesystem
+  src/main/java/org/rocksdb/AbstractComparatorJniBridge.java
+
 )
 
 set(JAVA_TEST_CLASSES
@@ -289,6 +293,109 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
   src/test/java/org/rocksdb/test/TestableEventListener.java
+)
+
+set(JAVA_ALL_TEST_CLASSES
+  ## From Makefile
+  src/test/java/org/rocksdb/BackupEngineOptionsTest.java
+  src/test/java/org/rocksdb/BlobOptionsTest.java
+  src/test/java/org/rocksdb/BlockBasedTableConfigTest.java
+  src/test/java/org/rocksdb/BuiltinComparatorTest.java
+  src/test/java/org/rocksdb/BytewiseComparatorRegressionTest.java
+  src/test/java/org/rocksdb/CheckPointTest.java
+  src/test/java/org/rocksdb/ClockCacheTest.java
+  src/test/java/org/rocksdb/ColumnFamilyOptionsTest.java
+  src/test/java/org/rocksdb/ColumnFamilyTest.java
+  src/test/java/org/rocksdb/CompactionFilterFactoryTest.java
+  src/test/java/org/rocksdb/CompactionJobInfoTest.java
+  src/test/java/org/rocksdb/CompactionJobStatsTest.java
+  src/test/java/org/rocksdb/CompactionOptionsFIFOTest.java
+  src/test/java/org/rocksdb/CompactionOptionsTest.java
+  src/test/java/org/rocksdb/CompactionOptionsUniversalTest.java
+  src/test/java/org/rocksdb/CompactionPriorityTest.java
+  src/test/java/org/rocksdb/CompactionStopStyleTest.java
+  src/test/java/org/rocksdb/ComparatorOptionsTest.java
+  src/test/java/org/rocksdb/CompressionOptionsTest.java
+  src/test/java/org/rocksdb/CompressionTypesTest.java
+  src/test/java/org/rocksdb/ConcurrentTaskLimiterTest.java
+  src/test/java/org/rocksdb/DBOptionsTest.java
+  src/test/java/org/rocksdb/DefaultEnvTest.java
+  src/test/java/org/rocksdb/DirectSliceTest.java
+  src/test/java/org/rocksdb/EnvOptionsTest.java
+  src/test/java/org/rocksdb/EventListenerTest.java
+  src/test/java/org/rocksdb/FilterTest.java
+  src/test/java/org/rocksdb/FlushTest.java
+  src/test/java/org/rocksdb/InfoLogLevelTest.java
+  src/test/java/org/rocksdb/KeyMayExistTest.java
+  src/test/java/org/rocksdb/LRUCacheTest.java
+  src/test/java/org/rocksdb/LoggerTest.java
+  src/test/java/org/rocksdb/MemTableTest.java
+  src/test/java/org/rocksdb/MemoryUtilTest.java
+  src/test/java/org/rocksdb/MergeTest.java
+  src/test/java/org/rocksdb/MixedOptionsTest.java
+  src/test/java/org/rocksdb/MultiGetManyKeysTest.java
+  src/test/java/org/rocksdb/MultiGetTest.java
+  src/test/java/org/rocksdb/MutableColumnFamilyOptionsTest.java
+  src/test/java/org/rocksdb/MutableDBOptionsTest.java
+  src/test/java/org/rocksdb/MutableOptionsGetSetTest.java
+  src/test/java/org/rocksdb/NativeLibraryLoaderTest.java
+  src/test/java/org/rocksdb/OptimisticTransactionDBTest.java
+  src/test/java/org/rocksdb/OptimisticTransactionOptionsTest.java
+  src/test/java/org/rocksdb/OptimisticTransactionTest.java
+  src/test/java/org/rocksdb/OptionsTest.java
+  src/test/java/org/rocksdb/OptionsUtilTest.java
+  src/test/java/org/rocksdb/PlainTableConfigTest.java
+  src/test/java/org/rocksdb/RateLimiterTest.java
+  src/test/java/org/rocksdb/ReadOnlyTest.java
+  src/test/java/org/rocksdb/ReadOptionsTest.java
+  src/test/java/org/rocksdb/RocksDBTest.java
+  src/test/java/org/rocksdb/RocksIteratorTest.java
+  src/test/java/org/rocksdb/RocksMemEnvTest.java
+  src/test/java/org/rocksdb/SecondaryDBTest.java
+  src/test/java/org/rocksdb/SliceTest.java
+  src/test/java/org/rocksdb/SstFileManagerTest.java
+  src/test/java/org/rocksdb/SstFileReaderTest.java
+  src/test/java/org/rocksdb/SstFileWriterTest.java
+  src/test/java/org/rocksdb/SstPartitionerTest.java
+  src/test/java/org/rocksdb/StatisticsCollectorTest.java
+  src/test/java/org/rocksdb/StatisticsTest.java
+  src/test/java/org/rocksdb/TableFilterTest.java
+  src/test/java/org/rocksdb/TimedEnvTest.java
+  src/test/java/org/rocksdb/TransactionDBOptionsTest.java
+  src/test/java/org/rocksdb/TransactionDBTest.java
+  src/test/java/org/rocksdb/TransactionLogIteratorTest.java
+  src/test/java/org/rocksdb/TransactionOptionsTest.java
+  src/test/java/org/rocksdb/TransactionTest.java
+  src/test/java/org/rocksdb/TtlDBTest.java
+  src/test/java/org/rocksdb/VerifyChecksumsTest.java
+  src/test/java/org/rocksdb/WALRecoveryModeTest.java
+  src/test/java/org/rocksdb/WalFilterTest.java
+  src/test/java/org/rocksdb/WriteBatchHandlerTest.java
+  src/test/java/org/rocksdb/WriteBatchThreadedTest.java
+  src/test/java/org/rocksdb/WriteBatchWithIndexTest.java
+  src/test/java/org/rocksdb/WriteOptionsTest.java
+  src/test/java/org/rocksdb/util/BytewiseComparatorIntTest.java
+  src/test/java/org/rocksdb/util/BytewiseComparatorTest.java
+  src/test/java/org/rocksdb/util/EnvironmentTest.java
+  src/test/java/org/rocksdb/util/IntComparatorTest.java
+  src/test/java/org/rocksdb/util/JNIComparatorTest.java
+  src/test/java/org/rocksdb/util/ReverseBytewiseComparatorIntTest.java
+  src/test/java/org/rocksdb/util/SizeUnitTest.java
+
+  ## From file system:
+  src/test/java/org/rocksdb/AbstractTransactionTest.java
+  src/test/java/org/rocksdb/CompactRangeOptionsTest.java
+  src/test/java/org/rocksdb/FlushOptionsTest.java
+  src/test/java/org/rocksdb/StatsCallbackMock.java
+  src/test/java/org/rocksdb/Types.java
+  src/test/java/org/rocksdb/test/RemoveEmptyValueCompactionFilterFactory.java
+  src/test/java/org/rocksdb/test/RocksJunitRunner.java
+  src/test/java/org/rocksdb/test/SMRocksJunitRunner.java
+  src/test/java/org/rocksdb/util/ByteBufferAllocator.java
+  src/test/java/org/rocksdb/util/DirectByteBufferAllocator.java
+  src/test/java/org/rocksdb/util/HeapByteBufferAllocator.java
+  src/test/java/org/rocksdb/util/TestUtil.java
+
 )
 
 include(FindJava)
@@ -329,6 +436,13 @@ elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4")
       INCLUDE_JARS ${JAVA_TESTCLASSPATH}
   )
 
+  add_jar(
+      rocksdbjni_test_classes
+      SOURCES
+      ${JAVA_ALL_TEST_CLASSES}
+      INCLUDE_JARS ${JAVA_TESTCLASSPATH} rocksdbjni_classes
+  )
+
 else ()
   # Java 1.8 or newer prepare the JAR...
   message("Preparing Jar for JDK ${Java_VERSION_STRING}")
@@ -339,6 +453,12 @@ else ()
       ${JAVA_TEST_CLASSES}
       INCLUDE_JARS ${JAVA_TESTCLASSPATH}
       GENERATE_NATIVE_HEADERS rocksdbjni_headers DESTINATION ${JNI_OUTPUT_DIR}
+  )
+  add_jar(
+      rocksdbjni_test_classes
+      SOURCES
+      ${JAVA_ALL_TEST_CLASSES}
+      INCLUDE_JARS ${JAVA_TESTCLASSPATH} rocksdbjni_classes
   )
 
 endif()
@@ -531,14 +651,15 @@ endif()
 
 set(ROCKSDBJNI_STATIC_LIB rocksdbjni${ARTIFACT_SUFFIX})
 add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
-add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers)
+add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers rocksdbjni_test_classes)
 target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
 if(NOT MINGW)
   set(ROCKSDBJNI_SHARED_LIB rocksdbjni-shared${ARTIFACT_SUFFIX})
   add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
-  add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers)
-  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
+  add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers rocksdbjni_test_classes)
+  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB}
+     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
   set_target_properties(
     ${ROCKSDBJNI_SHARED_LIB}
@@ -547,3 +668,20 @@ if(NOT MINGW)
     COMPILE_PDB_NAME ${ROCKSDBJNI_STATIC_LIB}.pdb
   )
 endif()
+
+if(WITH_LZ4)
+#  find_package(lz4 REQUIRED)
+#  add_definitions(-DLZ4)
+  include_directories(${lz4_INCLUDE_DIRS})
+#  list(APPEND THIRDPARTY_LIBS lz4::lz4)
+endif()
+
+
+
+#list( TRANSFORM JAVA_TEST_CLASSES REPLACE  "src/test/java/([^ ]*).java" "\\1" OUTPUT_VARIABLE testfilebase )
+#list( TRANSFORM testfilebase REPLACE "/" "." OUTPUT_VARIABLE testclass )
+#get_property(jniclass TARGET rocksdbjni_classes PROPERTY JAR_FILE)
+#string(REPLACE ";" ":" classpath "${JAVA_TESTCLASSPATH}" )
+#
+#include(CTest)
+#add_test(NAME javaTests COMMAND ${Java_JAVA_EXECUTABLE} -cp "${jniclass}:${classpath}" org.rocksdb.test.RocksJunitRunner ${testclass})

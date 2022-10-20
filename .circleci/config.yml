@@ -1,0 +1,294 @@
+version: 2.1
+
+orbs:
+  win: circleci/windows@4.1
+
+executors:
+  linux-build:
+      docker:
+        - image: zjay437/rocksdb:0.6
+  linux-test:
+      docker:
+        - image: cimg/openjdk:18.0.2
+  windows-machine:
+    machine:
+      image: 'windows-server-2019-vs2019:stable'
+      resource_class: windows.medium
+      shell: bash.exe
+
+
+jobs:
+  build-windows-cmake:
+    executor: windows-machine
+    steps:
+      - checkout
+      - run: |
+          set -ex
+          mkdir -p ../deps/
+          (cd ../deps
+          curl --fail --silent --show-error --output cmake-3.16.4-win64-x64.zip --location https://github.com/Kitware/CMake/releases/download/v3.16.4/cmake-3.16.4-win64-x64.zip
+          unzip -q cmake-3.16.4-win64-x64.zip
+          mv cmake-3.16.4-win64-x64 cmake )
+      - run: |
+          run -xe
+          PATH=$(cd ../deps/cmake/bin;pwd):$PATH
+          ./build_tools/install_dependencies.sh ../deps jni lz4
+          export --  $(cat ../deps/cmake-flags | sed 's/-D//g')
+          TOOLS="-DWITH_TOOLS=OFF -DWITH_TRACE_TOOLS=OFF -WITH_CORE_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF"
+          EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
+          cmake  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags)
+          grep ^WITH build/CMakeCache.txt
+          cmake --build  build -v -t  rocksdbjni-shared  --config Release -j 12
+      - run: mkdir jars && cp build/java/Release/rocksdbjni-shared.dll jars/librocksdbjni-win64.dll
+      - persist_to_workspace:
+          root: .
+          paths:
+            - "jars"
+
+  build-macos-cmake-x86_64:
+    macos:
+      xcode: 12.5.1
+    resource_class: medium
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
+      ARCH: x86_64
+    steps:
+      - checkout
+      - run: HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
+      - run: HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+      # sudo sysctl -w kern.maxfiles=1048576
+      # sudo sysctl -w kern.maxfilesperproc=1048576
+      # sudo launchctl limit maxfiles 1048576
+      - run: |
+          set -xe
+          env ARCH=$ARCH  ./build_tools/install_dependencies.sh ../deps jni lz4
+          TOOLS="-DWITH_TOOLS=OFF -DWITH_TRACE_TOOLS=OFF -WITH_CORE_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF"
+          EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
+          ${CMAKE_BIN-cmake}  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags) -DCMAKE_OSX_ARCHITECTURES=$ARCH -DPORTABLE=1
+          grep ^WITH build/CMakeCache.txt
+          ${CMAKE_BIN-cmake} --build  build -v -t  rocksdbjni-shared  --config Release -j 12
+      - run: mkdir -p jars && cp build/java/librocksdbjni-shared.dylib jars/librocksdbjni-osx-$ARCH.jnilib
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - "jars"
+
+  build-macos-cmake-arm64:
+    macos:
+      xcode: 12.5.1
+    resource_class: medium
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
+      ARCH: arm64
+    steps:
+      - checkout
+      - run: HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
+      - run: HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+      # sudo sysctl -w kern.maxfiles=1048576
+      # sudo sysctl -w kern.maxfilesperproc=1048576
+      # sudo launchctl limit maxfiles 1048576
+      - run: |
+          set -xe
+          env ARCH=$ARCH  ./build_tools/install_dependencies.sh ../deps jni lz4
+          TOOLS="-DWITH_TOOLS=OFF -DWITH_TRACE_TOOLS=OFF -WITH_CORE_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF"
+          EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
+          ${CMAKE_BIN-cmake}  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags) -DCMAKE_OSX_ARCHITECTURES=$ARCH -DPORTABLE=1 -DHAS_ARMV8_CRC=1
+          grep ^WITH build/CMakeCache.txt
+          ${CMAKE_BIN-cmake} --build  build -v -t  rocksdbjni-shared  --config Release -j 12
+      - run: mkdir -p jars && cp build/java/librocksdbjni-shared.dylib jars/librocksdbjni-osx-$ARCH.jnilib
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - "jars"
+
+
+  build-linux-cmake:
+    executor: linux-build
+    steps:
+      - checkout
+      - run: |
+          set -xe
+          ./build_tools/install_dependencies.sh ../deps jni uring lz4
+          TOOLS="-DWITH_TOOLS=OFF -DWITH_TRACE_TOOLS=OFF -WITH_CORE_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF"
+          EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
+          ${CMAKE_BIN-cmake}  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags)
+          grep ^WITH build/CMakeCache.txt
+          ${CMAKE_BIN-cmake} --build  build -v -t  rocksdbjni-shared  --config Release -j 12
+      - run: |
+          set -xe
+          mkdir jars
+          cp build/java/librocksdbjni-shared.so jars/librocksdbjni-linux64.so
+          cp build/java/rocksdbjni_classes.jar jars/
+          mkdir test-jars/
+          cp java/test-libs/*.jar test-jars/
+          cp build/java/rocksdbjni_test_classes.jar test-jars/
+      - run: |
+          set -xe
+          ## We do it here, so that we don't need to checkout the whole repository in make-jar step.
+          tag=$(git tag --points-at HEAD | sed -rne 's/^sm-v([0-9]+.[0-9]+.[0-9]+)$/\1/p' | tail -1)
+          if [ -z "$tag" ] ;
+          then
+            v1=$(cat include/rocksdb/version.h  | sed -rne 's/#define\s+ROCKSDB_MAJOR\s+([0-9]+).*/\1/p')
+            v2=$(cat include/rocksdb/version.h  | sed -rne 's/#define\s+ROCKSDB_MINOR\s+([0-9]+).*/\1/p')
+            v3=$(cat include/rocksdb/version.h  | sed -rne 's/#define\s+ROCKSDB_PATCH\s+([0-9]+).*/\1/p')
+            VERSION=$v1.$v2.$v3-SNAPSHOT
+          else
+            VERSION=$tag
+          fi
+          mkdir properties
+          echo "sm-rocksdb" > properties/GROUPID
+          echo "sm-rocksdbjni" > properties/ARTIFACTID
+          echo "$VERSION" > properties/VERSION
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - "jars"
+            - "test-jars"
+            - "properties"
+
+  ## make-jar runs on macos because of lipo
+  make-jar:
+    macos:
+      xcode: 12.5.1
+    resource_class: medium
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - run: HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+      - run: |
+          set -xe
+          GROUPID=$(cat /tmp/workspace/properties/GROUPID)
+          ARTIFACTID=$(cat /tmp/workspace/properties/ARTIFACTID)
+          VERSION=$(cat /tmp/workspace/properties/VERSION)
+
+          POM=${ARTIFACTID}-${VERSION}.pom
+          JAR=${ARTIFACTID}-${VERSION}.jar
+
+          lipo -create -output /tmp/workspace/jars/librocksdbjni-osx.jnilib /tmp/workspace/jars/librocksdbjni-osx-x86_64.jnilib /tmp/workspace/jars/librocksdbjni-osx-arm64.jnilib
+
+          mkdir release
+          cd release
+          cp /tmp/workspace/jars/rocksdbjni_classes.jar $JAR
+          $JAVA_HOME/bin/jar vuf $JAR -C /tmp/workspace/jars/ librocksdbjni-linux64.so
+          $JAVA_HOME/bin/jar vuf $JAR -C /tmp/workspace/jars/ librocksdbjni-osx-x86_64.jnilib
+          $JAVA_HOME/bin/jar vuf $JAR -C /tmp/workspace/jars/ librocksdbjni-osx-arm64.jnilib
+          $JAVA_HOME/bin/jar vuf $JAR -C /tmp/workspace/jars/ librocksdbjni-osx.jnilib
+          $JAVA_HOME/bin/jar vuf $JAR -C /tmp/workspace/jars/ librocksdbjni-win64.dll
+
+          cat \<<EOF > $POM
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+          <modelVersion>4.0.0</modelVersion>
+          <groupId>sm-rocksdb</groupId>
+          <artifactId>sm-rocksdbjni</artifactId>
+          <version>$VERSION</version>
+          </project>
+          EOF
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - "release"
+
+
+  test-linux:
+    executor: linux-test
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - run: |
+          set -xe
+          /usr/bin/find /tmp/workspace
+          ## junit includes hamrest so need some deterministic jar order
+          CP=$(find /tmp/workspace/test-jars /tmp/workspace/release -name '*.jar' | sort  | tr '\n' ':')
+          $JAVA_HOME/bin/java -ea -Xcheck:jni -cp $CP org.rocksdb.test.SMRocksJunitRunner
+
+
+  test-macos:
+    macos:
+      xcode: 12.5.1
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+    steps:
+      - run: HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+      - attach_workspace:
+          at: /tmp/workspace
+      - run: |
+          set -xe
+          /usr/bin/find /tmp/workspace
+          ## junit includes hamrest so need some deterministic jar order
+          CP=$(find /tmp/workspace/test-jars /tmp/workspace/release -name '*.jar' | sort  | tr '\n' ':')
+          $JAVA_HOME/bin/java -ea -Xcheck:jni -cp $CP org.rocksdb.test.SMRocksJunitRunner
+
+
+  test-windows:
+    executor: windows-machine
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - run: |
+          set -xe
+          /usr/bin/find tmp/workspace
+          ## junit includes hamrest so need some deterministic jar order
+          CP=$(/usr/bin/find tmp/workspace/test-jars tmp/workspace/release -name '*.jar' | sort  | tr '\r\n' ';')
+          java -ea -Xcheck:jni -cp $CP org.rocksdb.test.SMRocksJunitRunner
+
+  upload:
+    executor: linux-test
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - run: |
+          set -xe
+          GROUPID=$(cat /tmp/workspace/properties/GROUPID)
+          ARTIFACTID=$(cat /tmp/workspace/properties/ARTIFACTID)
+          VERSION=$(cat /tmp/workspace/properties/VERSION)
+
+          POM_NAME=${ARTIFACTID}-${VERSION}.pom
+          JAR_NAME=${ARTIFACTID}-${VERSION}.jar
+
+          POM_FILE=/tmp/workspace/release/$POM_NAME
+          JAR_FILE=/tmp/workspace/release/$JAR_NAME
+
+          REPOPATH=$(echo $GROUPID| sed 's@\.@/@g')/$ARTIFACTID/$VERSION
+          BASEURL=https://sightmachine.jfrog.io/sightmachine/jvm-dependencies-local
+
+          curl -sSf -u"${ARTIFACTORY_UPLOADER_USERNAME}:${ARTIFACTORY_UPLOADER_PASSWORD}" -T $JAR_FILE $BASEURL/$REPOPATH/$JAR_NAME
+          curl -sSf -u"${ARTIFACTORY_UPLOADER_USERNAME}:${ARTIFACTORY_UPLOADER_PASSWORD}" -T $POM_FILE $BASEURL/$REPOPATH/$POM_NAME
+
+workflows:
+  my-workflow:
+    jobs:
+      - upload:
+          context: org-sightmachine
+          requires:
+            - test-macos
+            - test-windows
+            - test-linux
+      - test-macos:
+          requires:
+            - make-jar
+      - test-windows:
+          requires:
+            - make-jar
+      - test-linux:
+          requires:
+            - make-jar
+      - make-jar:
+          requires:
+            - build-macos-cmake-arm64
+            - build-macos-cmake-x86_64
+            - build-windows-cmake
+            - build-linux-cmake
+      - build-macos-cmake-x86_64
+      - build-macos-cmake-arm64
+      - build-windows-cmake
+      - build-linux-cmake
