@@ -568,6 +568,10 @@ class DBImpl : public DB {
 
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
+      const TraceOptions& trace_options,
+      std::unique_ptr<TraceWriter>&& trace_writer) override;
+
+  Status StartBlockCacheTrace(
       const BlockCacheTraceOptions& options,
       std::unique_ptr<BlockCacheTraceWriter>&& trace_writer) override;
 
