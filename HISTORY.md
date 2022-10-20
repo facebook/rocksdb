@@ -4,6 +4,7 @@
 * `DeleteRange()` now supports user-defined timestamp.
 * Provide support for async_io with tailing iterators when ReadOptions.tailing is enabled during scans.
 * Tiered Storage: allow data moving up from the last level to the penultimate level if the input level is penultimate level or above.
+* Added `DB::Properties::kFastBlockCacheEntryStats`, which is similar to `DB::Properties::kBlockCacheEntryStats`, except returns cached (stale) values in more cases to reduce overhead.
 * FIFO compaction now supports migrating from a multi-level DB via DB::Open(). During the migration phase, FIFO compaction picker will:
  * picks the sst file with the smallest starting key in the bottom-most non-empty level.
  * Note that during the migration phase, the file purge order will only be an approximation of "FIFO" as files in lower-level might sometime contain newer keys than files in upper-level.
