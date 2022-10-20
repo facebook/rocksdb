@@ -999,24 +999,98 @@ static bool SaveValue(void* arg, const char* entry) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
-      case kTypeBlobIndex:
+      case kTypeBlobIndex: {
         if (!s->do_merge) {
-          *(s->status) = Status::NotSupported("GetMergeOperands not supported");
-        } else if (*(s->merge_in_progress)) {
-          *(s->status) = Status::NotSupported("Merge operator not supported");
-        } else if (s->is_blob_index == nullptr) {
-          ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
           *(s->status) = Status::NotSupported(
-              "Encounter unsupported blob value. Please open DB with "
-              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        }
-
-        if (!s->status->ok()) {
+              "GetMergeOperands not supported by stacked BlobDB");
+          *(s->found_final_value) = true;
+          return false;
+        } else if (*(s->merge_in_progress)) {
+          *(s->status) = Status::NotSupported(
+              "Merge operator not supported by stacked BlobDB");
+          *(s->found_final_value) = true;
+          return false;
+        } else if (s->is_blob_index == nullptr) {
+          ROCKS_LOG_ERROR(s->logger, "Encountered unexpected blob index.");
+          *(s->status) = Status::NotSupported(
+              "Encountered unexpected blob index. Please open DB with "
+              "ROCKSDB_NAMESPACE::blob_db::BlobDB.");
           *(s->found_final_value) = true;
           return false;
         }
-        FALLTHROUGH_INTENDED;
-      case kTypeValue:
+
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->ReadLock();
+        }
+
+        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+
+        *(s->status) = Status::OK();
+
+        if (s->value) {
+          s->value->assign(v.data(), v.size());
+        } else if (s->columns) {
+          s->columns->SetPlainValue(v);
+        }
+
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->ReadUnlock();
+        }
+
+        *(s->found_final_value) = true;
+        *(s->is_blob_index) = true;
+
+        return false;
+      }
+      case kTypeValue: {
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->ReadLock();
+        }
+
+        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+
+        *(s->status) = Status::OK();
+
+        if (!s->do_merge) {
+          // Preserve the value with the goal of returning it as part of
+          // raw merge operands to the user
+
+          merge_context->PushOperand(
+              v, s->inplace_update_support == false /* operand_pinned */);
+        } else if (*(s->merge_in_progress)) {
+          assert(s->do_merge);
+
+          std::string result;
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), &v,
+              merge_context->GetOperands(), &result, s->logger, s->statistics,
+              s->clock, nullptr /* result_operand */, true);
+
+          if (s->status->ok()) {
+            if (s->value) {
+              *(s->value) = std::move(result);
+            } else if (s->columns) {
+              s->columns->SetPlainValue(result);
+            }
+          }
+        } else if (s->value) {
+          s->value->assign(v.data(), v.size());
+        } else if (s->columns) {
+          s->columns->SetPlainValue(v);
+        }
+
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->ReadUnlock();
+        }
+
+        *(s->found_final_value) = true;
+
+        if (s->is_blob_index != nullptr) {
+          *(s->is_blob_index) = false;
+        }
+
+        return false;
+      }
       case kTypeWideColumnEntity: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
@@ -1030,11 +1104,9 @@ static bool SaveValue(void* arg, const char* entry) {
           // Preserve the value with the goal of returning it as part of
           // raw merge operands to the user
 
-          Slice value_of_default = v;
-          if (type == kTypeWideColumnEntity) {
-            *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
-                v, value_of_default);
-          }
+          Slice value_of_default;
+          *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
+              v, value_of_default);
 
           if (s->status->ok()) {
             merge_context->PushOperand(
@@ -1044,21 +1116,15 @@ static bool SaveValue(void* arg, const char* entry) {
         } else if (*(s->merge_in_progress)) {
           assert(s->do_merge);
 
-          Slice value_of_default = v;
           WideColumns columns;
-          if (type == kTypeWideColumnEntity) {
-            *(s->status) = WideColumnSerialization::Deserialize(v, columns);
-            if (s->status->ok()) {
-              if (!columns.empty() &&
-                  columns[0].name() == kDefaultWideColumnName) {
-                value_of_default = columns[0].value();
-              } else {
-                value_of_default.clear();
-              }
-            }
-          }
-
+          *(s->status) = WideColumnSerialization::Deserialize(v, columns);
           if (s->status->ok()) {
+            Slice value_of_default;
+            if (!columns.empty() &&
+                columns[0].name() == kDefaultWideColumnName) {
+              value_of_default = columns[0].value();
+            }
+
             std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &value_of_default,
@@ -1069,54 +1135,43 @@ static bool SaveValue(void* arg, const char* entry) {
               if (s->value) {
                 *(s->value) = std::move(result);
               } else if (s->columns) {
-                if (type != kTypeWideColumnEntity) {
-                  s->columns->SetPlainValue(result);
+                std::string output;
+
+                if (!columns.empty() &&
+                    columns[0].name() == kDefaultWideColumnName) {
+                  columns[0].value() = result;
+                  *(s->status) =
+                      WideColumnSerialization::Serialize(columns, output);
                 } else {
-                  std::string output;
+                  *(s->status) = WideColumnSerialization::Serialize(
+                      result, columns, output);
+                }
 
-                  if (!columns.empty() &&
-                      columns[0].name() == kDefaultWideColumnName) {
-                    columns[0].value() = result;
-                    *(s->status) =
-                        WideColumnSerialization::Serialize(columns, output);
-                  } else {
-                    *(s->status) = WideColumnSerialization::Serialize(
-                        result, columns, output);
-                  }
-
-                  if (s->status->ok()) {
-                    *(s->status) = s->columns->SetWideColumnValue(output);
-                  }
+                if (s->status->ok()) {
+                  *(s->status) = s->columns->SetWideColumnValue(output);
                 }
               }
             }
           }
         } else if (s->value) {
-          if (type != kTypeWideColumnEntity) {
-            assert(type == kTypeValue || type == kTypeBlobIndex);
-            s->value->assign(v.data(), v.size());
-          } else {
-            Slice value;
-            *(s->status) =
-                WideColumnSerialization::GetValueOfDefaultColumn(v, value);
-            if (s->status->ok()) {
-              s->value->assign(value.data(), value.size());
-            }
+          Slice value;
+          *(s->status) =
+              WideColumnSerialization::GetValueOfDefaultColumn(v, value);
+          if (s->status->ok()) {
+            s->value->assign(value.data(), value.size());
           }
         } else if (s->columns) {
-          if (type != kTypeWideColumnEntity) {
-            s->columns->SetPlainValue(v);
-          } else {
-            *(s->status) = s->columns->SetWideColumnValue(v);
-          }
+          *(s->status) = s->columns->SetWideColumnValue(v);
         }
 
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
+
         *(s->found_final_value) = true;
+
         if (s->is_blob_index != nullptr) {
-          *(s->is_blob_index) = (type == kTypeBlobIndex);
+          *(s->is_blob_index) = false;
         }
 
         return false;
