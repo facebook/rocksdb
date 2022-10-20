@@ -1944,18 +1944,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      if (cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-        auto* vstorage = cfd->current()->storage_info();
-        for (int i = 1; i < vstorage->num_levels(); ++i) {
-          int num_files = vstorage->NumLevelFiles(i);
-          if (num_files > 0) {
-            s = Status::InvalidArgument(
-                "Not all files are at level 0. Cannot "
-                "open with FIFO compaction style.");
-            break;
-          }
-        }
-      }
       if (!cfd->mem()->IsSnapshotSupported()) {
         impl->is_snapshot_supported_ = false;
       }

@@ -1023,21 +1023,21 @@ TEST_P(CacheTest, DefaultShardBits) {
       (GetParam() == kHyperClock ? 32U * 1024U : 512U) * 1024U;
 
   std::shared_ptr<Cache> cache = NewCache(32U * min_shard_size);
-  ShardedCache* sc = dynamic_cast<ShardedCache*>(cache.get());
+  ShardedCacheBase* sc = dynamic_cast<ShardedCacheBase*>(cache.get());
   ASSERT_EQ(5, sc->GetNumShardBits());
 
   cache = NewCache(min_shard_size / 1000U * 999U);
-  sc = dynamic_cast<ShardedCache*>(cache.get());
+  sc = dynamic_cast<ShardedCacheBase*>(cache.get());
   ASSERT_EQ(0, sc->GetNumShardBits());
 
   cache = NewCache(3U * 1024U * 1024U * 1024U);
-  sc = dynamic_cast<ShardedCache*>(cache.get());
+  sc = dynamic_cast<ShardedCacheBase*>(cache.get());
   // current maximum of 6
   ASSERT_EQ(6, sc->GetNumShardBits());
 
   if constexpr (sizeof(size_t) > 4) {
     cache = NewCache(128U * min_shard_size);
-    sc = dynamic_cast<ShardedCache*>(cache.get());
+    sc = dynamic_cast<ShardedCacheBase*>(cache.get());
     // current maximum of 6
     ASSERT_EQ(6, sc->GetNumShardBits());
   }

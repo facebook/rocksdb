@@ -4,6 +4,9 @@
 * `DeleteRange()` now supports user-defined timestamp.
 * Provide support for async_io with tailing iterators when ReadOptions.tailing is enabled during scans.
 * Tiered Storage: allow data moving up from the last level to the penultimate level if the input level is penultimate level or above.
+* FIFO compaction now supports migrating from a multi-level DB via DB::Open(). During the migration phase, FIFO compaction picker will:
+ * picks the sst file with the smallest starting key in the bottom-most non-empty level.
+ * Note that during the migration phase, the file purge order will only be an approximation of "FIFO" as files in lower-level might sometime contain newer keys than files in upper-level.
 
 ### Bug Fixes
 * Fix a bug in io_uring_prep_cancel in AbortIO API for posix which expects sqe->addr to match with read request submitted and wrong paramter was being passed.

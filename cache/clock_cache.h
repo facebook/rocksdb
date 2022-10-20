@@ -303,30 +303,24 @@ constexpr double kLoadFactor = 0.7;
 // strict upper bound on the load factor.
 constexpr double kStrictLoadFactor = 0.84;
 
-using CacheKeyBytes = std::array<char, kCacheKeySize>;
-
 struct ClockHandleBasicData {
   void* value = nullptr;
   Cache::DeleterFn deleter = nullptr;
-  CacheKeyBytes key = {};
+  // A lossless, reversible hash of the fixed-size (16 byte) cache key. This
+  // eliminates the need to store a hash separately.
+  UniqueId64x2 hashed_key = kNullUniqueId64x2;
   size_t total_charge = 0;
 
-  Slice KeySlice() const { return Slice(key.data(), kCacheKeySize); }
+  // Calls deleter (if non-null) on cache key and value
+  void FreeData() const;
 
-  void FreeData() const {
-    if (deleter) {
-      (*deleter)(KeySlice(), value);
-    }
-  }
-};
-
-struct ClockHandleMoreData : public ClockHandleBasicData {
-  uint32_t hash = 0;
+  // Required by concept HandleImpl
+  const UniqueId64x2& GetHash() const { return hashed_key; }
 };
 
 // Target size to be exactly a common cache line size (see static_assert in
 // clock_cache.cc)
-struct ALIGN_AS(64U) ClockHandle : public ClockHandleMoreData {
+struct ALIGN_AS(64U) ClockHandle : public ClockHandleBasicData {
   // Constants for handling the atomic `meta` word, which tracks most of the
   // state of the handle. The meta word looks like this:
   // low bits                                                     high bits
@@ -391,31 +385,31 @@ class ClockHandleTable {
   explicit ClockHandleTable(int hash_bits, bool initial_charge_metadata);
   ~ClockHandleTable();
 
-  Status Insert(const ClockHandleMoreData& proto, ClockHandle** handle,
+  Status Insert(const ClockHandleBasicData& proto, ClockHandle** handle,
                 Cache::Priority priority, size_t capacity,
                 bool strict_capacity_limit);
 
-  ClockHandle* Lookup(const CacheKeyBytes& key, uint32_t hash);
+  ClockHandle* Lookup(const UniqueId64x2& hashed_key);
 
   bool Release(ClockHandle* handle, bool useful, bool erase_if_last_ref);
 
   void Ref(ClockHandle& handle);
 
-  void Erase(const CacheKeyBytes& key, uint32_t hash);
+  void Erase(const UniqueId64x2& hashed_key);
 
   void ConstApplyToEntriesRange(std::function<void(const ClockHandle&)> func,
-                                uint32_t index_begin, uint32_t index_end,
+                                size_t index_begin, size_t index_end,
                                 bool apply_if_will_be_deleted) const;
 
   void EraseUnRefEntries();
 
-  uint32_t GetTableSize() const { return uint32_t{1} << length_bits_; }
+  size_t GetTableSize() const { return size_t{1} << length_bits_; }
 
   int GetLengthBits() const { return length_bits_; }
 
-  uint32_t GetOccupancyLimit() const { return occupancy_limit_; }
+  size_t GetOccupancyLimit() const { return occupancy_limit_; }
 
-  uint32_t GetOccupancy() const {
+  size_t GetOccupancy() const {
     return occupancy_.load(std::memory_order_relaxed);
   }
 
@@ -431,13 +425,15 @@ class ClockHandleTable {
 
  private:  // functions
   // Returns x mod 2^{length_bits_}.
-  uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
+  inline size_t ModTableSize(uint64_t x) {
+    return static_cast<size_t>(x) & length_bits_mask_;
+  }
 
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
   void Evict(size_t requested_charge, size_t* freed_charge,
-             uint32_t* freed_count);
+             size_t* freed_count);
 
   // Returns the first slot in the probe sequence, starting from the given
   // probe number, with a handle e such that match(e) is true. At every
@@ -450,15 +446,15 @@ class ClockHandleTable {
   // value of probe is one more than the last non-aborting probe during the
   // call. This is so that that the variable can be used to keep track of
   // progress across consecutive calls to FindSlot.
-  inline ClockHandle* FindSlot(uint32_t hash,
+  inline ClockHandle* FindSlot(const UniqueId64x2& hashed_key,
                                std::function<bool(ClockHandle*)> match,
                                std::function<bool(ClockHandle*)> stop,
                                std::function<void(ClockHandle*)> update,
-                               uint32_t& probe);
+                               size_t& probe);
 
   // Re-decrement all displacements in probe path starting from beginning
   // until (not including) the given handle
-  void Rollback(uint32_t hash, const ClockHandle* h);
+  void Rollback(const UniqueId64x2& hashed_key, const ClockHandle* h);
 
  private:  // data
   // Number of hash bits used for table index.
@@ -466,10 +462,10 @@ class ClockHandleTable {
   const int length_bits_;
 
   // For faster computation of ModTableSize.
-  const uint32_t length_bits_mask_;
+  const size_t length_bits_mask_;
 
   // Maximum number of elements the user can store in the table.
-  const uint32_t occupancy_limit_;
+  const size_t occupancy_limit_;
 
   // Array of slots comprising the hash table.
   const std::unique_ptr<ClockHandle[]> array_;
@@ -484,7 +480,7 @@ class ClockHandleTable {
 
   ALIGN_AS(CACHE_LINE_SIZE)
   // Number of elements in the table.
-  std::atomic<uint32_t> occupancy_{};
+  std::atomic<size_t> occupancy_{};
 
   // Memory usage by entries tracked by the cache (including detached)
   std::atomic<size_t> usage_{};
@@ -494,78 +490,107 @@ class ClockHandleTable {
 };  // class ClockHandleTable
 
 // A single shard of sharded cache.
-class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
+class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
  public:
   ClockCacheShard(size_t capacity, size_t estimated_value_size,
                   bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy);
-  ~ClockCacheShard() override = default;
 
-  // TODO: document limitations
-  void SetCapacity(size_t capacity) override;
+  // For CacheShard concept
+  using HandleImpl = ClockHandle;
+  // Hash is lossless hash of 128-bit key
+  using HashVal = UniqueId64x2;
+  using HashCref = const HashVal&;
+  static inline uint32_t HashPieceForSharding(HashCref hash) {
+    return Upper32of64(hash[0]);
+  }
+  static inline HashVal ComputeHash(const Slice& key) {
+    assert(key.size() == kCacheKeySize);
+    HashVal in;
+    HashVal out;
+    // NOTE: endian dependence
+    // TODO: use GetUnaligned?
+    std::memcpy(&in, key.data(), kCacheKeySize);
+    BijectiveHash2x64(in[1], in[0], &out[1], &out[0]);
+    return out;
+  }
 
-  void SetStrictCapacityLimit(bool strict_capacity_limit) override;
+  // For reconstructing key from hashed_key. Requires the caller to provide
+  // backing storage for the Slice in `unhashed`
+  static inline Slice ReverseHash(const UniqueId64x2& hashed,
+                                  UniqueId64x2* unhashed) {
+    BijectiveUnhash2x64(hashed[1], hashed[0], &(*unhashed)[1], &(*unhashed)[0]);
+    // NOTE: endian dependence
+    return Slice(reinterpret_cast<const char*>(unhashed), kCacheKeySize);
+  }
 
-  Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
-                Cache::DeleterFn deleter, Cache::Handle** handle,
-                Cache::Priority priority) override;
+  // Although capacity is dynamically changeable, the number of table slots is
+  // not, so growing capacity substantially could lead to hitting occupancy
+  // limit.
+  void SetCapacity(size_t capacity);
 
-  Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
+  void SetStrictCapacityLimit(bool strict_capacity_limit);
 
-  bool Release(Cache::Handle* handle, bool useful,
-               bool erase_if_last_ref) override;
+  Status Insert(const Slice& key, const UniqueId64x2& hashed_key, void* value,
+                size_t charge, Cache::DeleterFn deleter, ClockHandle** handle,
+                Cache::Priority priority);
 
-  bool Release(Cache::Handle* handle, bool erase_if_last_ref = false) override;
+  ClockHandle* Lookup(const Slice& key, const UniqueId64x2& hashed_key);
 
-  bool Ref(Cache::Handle* handle) override;
+  bool Release(ClockHandle* handle, bool useful, bool erase_if_last_ref);
 
-  void Erase(const Slice& key, uint32_t hash) override;
+  bool Release(ClockHandle* handle, bool erase_if_last_ref = false);
 
-  size_t GetUsage() const override;
+  bool Ref(ClockHandle* handle);
 
-  size_t GetPinnedUsage() const override;
+  void Erase(const Slice& key, const UniqueId64x2& hashed_key);
 
-  size_t GetOccupancyCount() const override;
+  size_t GetUsage() const;
 
-  size_t GetTableAddressCount() const override;
+  size_t GetPinnedUsage() const;
+
+  size_t GetOccupancyCount() const;
+
+  size_t GetTableAddressCount() const;
 
   void ApplyToSomeEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
                                DeleterFn deleter)>& callback,
-      uint32_t average_entries_per_lock, uint32_t* state) override;
+      size_t average_entries_per_lock, size_t* state);
 
-  void EraseUnRefEntries() override;
+  void EraseUnRefEntries();
 
-  std::string GetPrintableOptions() const override { return std::string{}; }
+  std::string GetPrintableOptions() const { return std::string{}; }
 
   // SecondaryCache not yet supported
-  Status Insert(const Slice& key, uint32_t hash, void* value,
+  Status Insert(const Slice& key, const UniqueId64x2& hashed_key, void* value,
                 const Cache::CacheItemHelper* helper, size_t charge,
-                Cache::Handle** handle, Cache::Priority priority) override {
-    return Insert(key, hash, value, charge, helper->del_cb, handle, priority);
+                ClockHandle** handle, Cache::Priority priority) {
+    return Insert(key, hashed_key, value, charge, helper->del_cb, handle,
+                  priority);
   }
 
-  Cache::Handle* Lookup(const Slice& key, uint32_t hash,
-                        const Cache::CacheItemHelper* /*helper*/,
-                        const Cache::CreateCallback& /*create_cb*/,
-                        Cache::Priority /*priority*/, bool /*wait*/,
-                        Statistics* /*stats*/) override {
-    return Lookup(key, hash);
+  ClockHandle* Lookup(const Slice& key, const UniqueId64x2& hashed_key,
+                      const Cache::CacheItemHelper* /*helper*/,
+                      const Cache::CreateCallback& /*create_cb*/,
+                      Cache::Priority /*priority*/, bool /*wait*/,
+                      Statistics* /*stats*/) {
+    return Lookup(key, hashed_key);
   }
 
-  bool IsReady(Cache::Handle* /*handle*/) override { return true; }
+  bool IsReady(ClockHandle* /*handle*/) { return true; }
 
-  void Wait(Cache::Handle* /*handle*/) override {}
+  void Wait(ClockHandle* /*handle*/) {}
 
   // Acquire/release N references
-  void TEST_RefN(Cache::Handle* handle, size_t n);
-  void TEST_ReleaseN(Cache::Handle* handle, size_t n);
+  void TEST_RefN(ClockHandle* handle, size_t n);
+  void TEST_ReleaseN(ClockHandle* handle, size_t n);
 
  private:  // functions
   friend class ClockCache;
   friend class ClockCacheTest;
 
-  ClockHandle* DetachedInsert(const ClockHandleMoreData& h);
+  ClockHandle* DetachedInsert(const ClockHandleBasicData& h);
 
   // Returns the number of bits used to hash an element in the hash
   // table.
@@ -586,35 +611,20 @@ class HyperClockCache
 #ifdef NDEBUG
     final
 #endif
-    : public ShardedCache {
+    : public ShardedCache<ClockCacheShard> {
  public:
   HyperClockCache(size_t capacity, size_t estimated_value_size,
                   int num_shard_bits, bool strict_capacity_limit,
-                  CacheMetadataChargePolicy metadata_charge_policy =
-                      kDontChargeCacheMetadata);
-
-  ~HyperClockCache() override;
+                  CacheMetadataChargePolicy metadata_charge_policy,
+                  std::shared_ptr<MemoryAllocator> memory_allocator);
 
   const char* Name() const override { return "HyperClockCache"; }
-
-  CacheShard* GetShard(uint32_t shard) override;
-
-  const CacheShard* GetShard(uint32_t shard) const override;
 
   void* Value(Handle* handle) override;
 
   size_t GetCharge(Handle* handle) const override;
 
-  uint32_t GetHash(Handle* handle) const override;
-
   DeleterFn GetDeleter(Handle* handle) const override;
-
-  void DisownData() override;
-
- private:
-  ClockCacheShard* shards_ = nullptr;
-
-  int num_shards_;
 };  // class HyperClockCache
 
 }  // namespace hyper_clock_cache
