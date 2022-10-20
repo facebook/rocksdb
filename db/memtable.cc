@@ -1165,11 +1165,11 @@ static bool SaveValue(void* arg, const char* entry) {
             }
           }
         } else if (s->value) {
-          Slice value;
-          *(s->status) =
-              WideColumnSerialization::GetValueOfDefaultColumn(v, value);
+          Slice value_of_default;
+          *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
+              v, value_of_default);
           if (s->status->ok()) {
-            s->value->assign(value.data(), value.size());
+            s->value->assign(value_of_default.data(), value_of_default.size());
           }
         } else if (s->columns) {
           *(s->status) = s->columns->SetWideColumnValue(v);
