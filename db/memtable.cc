@@ -1005,12 +1005,16 @@ static bool SaveValue(void* arg, const char* entry) {
               "GetMergeOperands not supported by stacked BlobDB");
           *(s->found_final_value) = true;
           return false;
-        } else if (*(s->merge_in_progress)) {
+        }
+
+        if (*(s->merge_in_progress)) {
           *(s->status) = Status::NotSupported(
               "Merge operator not supported by stacked BlobDB");
           *(s->found_final_value) = true;
           return false;
-        } else if (s->is_blob_index == nullptr) {
+        }
+
+        if (s->is_blob_index == nullptr) {
           ROCKS_LOG_ERROR(s->logger, "Encountered unexpected blob index.");
           *(s->status) = Status::NotSupported(
               "Encountered unexpected blob index. Please open DB with "
@@ -1097,7 +1101,9 @@ static bool SaveValue(void* arg, const char* entry) {
               "GetMergeOperands not supported for wide-column entities");
           *(s->found_final_value) = true;
           return false;
-        } else if (*(s->merge_in_progress)) {
+        }
+
+        if (*(s->merge_in_progress)) {
           *(s->status) = Status::NotSupported(
               "Merge not supported for wide-column entities");
           *(s->found_final_value) = true;
