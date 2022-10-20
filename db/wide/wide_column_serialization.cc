@@ -31,6 +31,11 @@ Status WideColumnSerialization::SerializeImpl(const Slice* value_of_default,
 
   const Slice* prev_name = nullptr;
   if (value_of_default) {
+    if (value_of_default->size() >
+        static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+      return Status::InvalidArgument("Wide column value too long");
+    }
+
     PutLengthPrefixedSlice(&output, kDefaultWideColumnName);
     PutVarint32(&output, static_cast<uint32_t>(value_of_default->size()));
 
