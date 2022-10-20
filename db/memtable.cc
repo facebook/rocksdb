@@ -1005,12 +1005,16 @@ static bool SaveValue(void* arg, const char* entry) {
               "GetMergeOperands not supported by stacked BlobDB");
           *(s->found_final_value) = true;
           return false;
-        } else if (*(s->merge_in_progress)) {
+        }
+
+        if (*(s->merge_in_progress)) {
           *(s->status) = Status::NotSupported(
               "Merge operator not supported by stacked BlobDB");
           *(s->found_final_value) = true;
           return false;
-        } else if (s->is_blob_index == nullptr) {
+        }
+
+        if (s->is_blob_index == nullptr) {
           ROCKS_LOG_ERROR(s->logger, "Encountered unexpected blob index.");
           *(s->status) = Status::NotSupported(
               "Encountered unexpected blob index. Please open DB with "
@@ -1060,17 +1064,20 @@ static bool SaveValue(void* arg, const char* entry) {
         } else if (*(s->merge_in_progress)) {
           assert(s->do_merge);
 
-          std::string result;
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), &v,
-              merge_context->GetOperands(), &result, s->logger, s->statistics,
-              s->clock, nullptr /* result_operand */, true);
+          if (s->value || s->columns) {
+            std::string result;
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), &v,
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, nullptr /* result_operand */, true);
 
-          if (s->status->ok()) {
-            if (s->value) {
-              *(s->value) = std::move(result);
-            } else if (s->columns) {
-              s->columns->SetPlainValue(result);
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(result);
+              }
             }
           }
         } else if (s->value) {
@@ -1116,39 +1123,43 @@ static bool SaveValue(void* arg, const char* entry) {
         } else if (*(s->merge_in_progress)) {
           assert(s->do_merge);
 
-          WideColumns columns;
-          *(s->status) = WideColumnSerialization::Deserialize(v, columns);
-          if (s->status->ok()) {
-            Slice value_of_default;
-            if (!columns.empty() &&
-                columns[0].name() == kDefaultWideColumnName) {
-              value_of_default = columns[0].value();
-            }
-
-            std::string result;
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), &value_of_default,
-                merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, nullptr /* result_operand */, true);
-
+          if (s->value || s->columns) {
+            WideColumns columns;
+            *(s->status) = WideColumnSerialization::Deserialize(v, columns);
             if (s->status->ok()) {
-              if (s->value) {
-                *(s->value) = std::move(result);
-              } else if (s->columns) {
-                std::string output;
+              Slice value_of_default;
+              if (!columns.empty() &&
+                  columns[0].name() == kDefaultWideColumnName) {
+                value_of_default = columns[0].value();
+              }
 
-                if (!columns.empty() &&
-                    columns[0].name() == kDefaultWideColumnName) {
-                  columns[0].value() = result;
-                  *(s->status) =
-                      WideColumnSerialization::Serialize(columns, output);
+              std::string result;
+              *(s->status) = MergeHelper::TimedFullMerge(
+                  merge_operator, s->key->user_key(), &value_of_default,
+                  merge_context->GetOperands(), &result, s->logger,
+                  s->statistics, s->clock, nullptr /* result_operand */, true);
+
+              if (s->status->ok()) {
+                if (s->value) {
+                  *(s->value) = std::move(result);
                 } else {
-                  *(s->status) = WideColumnSerialization::Serialize(
-                      result, columns, output);
-                }
+                  assert(s->columns);
 
-                if (s->status->ok()) {
-                  *(s->status) = s->columns->SetWideColumnValue(output);
+                  std::string output;
+
+                  if (!columns.empty() &&
+                      columns[0].name() == kDefaultWideColumnName) {
+                    columns[0].value() = result;
+                    *(s->status) =
+                        WideColumnSerialization::Serialize(columns, output);
+                  } else {
+                    *(s->status) = WideColumnSerialization::Serialize(
+                        result, columns, output);
+                  }
+
+                  if (s->status->ok()) {
+                    *(s->status) = s->columns->SetWideColumnValue(output);
+                  }
                 }
               }
             }
