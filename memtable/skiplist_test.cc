@@ -385,7 +385,7 @@ TEST_F(SkipTest, Concurrent5) { RunConcurrent(5); }
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  rocksdb::port::PhotonEnv::Singleton();
+  rocksdb::PhotonEnv::Singleton();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -129,10 +129,27 @@ void RWMutex::ReadUnlock() { mu_.unlock(); }
 
 void RWMutex::WriteUnlock() { mu_.unlock(); }
 
-// Begins from 1
 int PhysicalCoreID() {
-  // return photon::get_vcpu()->id;
-  return 0;
+#if defined(ROCKSDB_SCHED_GETCPU_PRESENT) && defined(__x86_64__) && \
+    (__GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 22))
+  // sched_getcpu uses VDSO getcpu() syscall since 2.22. I believe Linux offers VDSO
+  // support only on x86_64. This is the fastest/preferred method if available.
+  int cpuno = sched_getcpu();
+  if (cpuno < 0) {
+    return -1;
+  }
+  return cpuno;
+#elif defined(__x86_64__) || defined(__i386__)
+  // clang/gcc both provide cpuid.h, which defines __get_cpuid(), for x86_64 and i386.
+  unsigned eax, ebx = 0, ecx, edx;
+  if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+    return -1;
+  }
+  return ebx >> 24;
+#else
+  // give up, the caller can generate a random number or something.
+  return -1;
+#endif
 }
 
 void Crash(const std::string& srcfile, int srcline) {

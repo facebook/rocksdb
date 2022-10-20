@@ -1454,4 +1454,21 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
 // This is a factory method for TimedEnv defined in utilities/env_timed.cc.
 Env* NewTimedEnv(Env* base_env);
 
+class PhotonEnv {
+ public:
+  static PhotonEnv& Singleton() {
+    static PhotonEnv instance;
+    return instance;
+  }
+
+  PhotonEnv(PhotonEnv const&) = delete;
+  PhotonEnv(PhotonEnv&&) = delete;
+  PhotonEnv& operator=(PhotonEnv const&) = delete;
+  PhotonEnv& operator=(PhotonEnv&&) = delete;
+
+ private:
+  PhotonEnv();
+  ~PhotonEnv();
+};
+
 }  // namespace rocksdb

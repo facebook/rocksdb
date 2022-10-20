@@ -6089,7 +6089,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 };
 
 int db_bench_tool(int argc, char** argv) {
-  rocksdb::port::PhotonEnv::Singleton();
+  rocksdb::PhotonEnv::Singleton();
   rocksdb::port::InstallStackTraceHandler();
   static bool initialized = false;
   if (!initialized) {

@@ -202,7 +202,7 @@ TEST_F(FormatTest, RangeTombstoneSerializeEndKey) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  rocksdb::port::PhotonEnv::Singleton();
+  rocksdb::PhotonEnv::Singleton();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

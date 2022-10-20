@@ -25,6 +25,7 @@
 //
 
 #include "util/timer_queue.h"
+#include "rocksdb/env.h"
 #include <future>
 
 namespace Timing {
@@ -39,7 +40,7 @@ double now() {
 }  // namespace Timing
 
 int main() {
-  rocksdb::port::PhotonEnv::Singleton();
+  rocksdb::PhotonEnv::Singleton();
   TimerQueue q;
 
   double tnow = Timing::now();

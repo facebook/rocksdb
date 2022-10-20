@@ -1092,6 +1092,25 @@ std::string Env::GenerateUniqueId() {
   return uuid2;
 }
 
+int photon_vcpu_num = 4;
+
+PhotonEnv::PhotonEnv() {
+  int ret = photon::init(photon::INIT_EVENT_IOURING | photon::INIT_EVENT_SIGNAL, 0);
+  if (ret != 0) {
+    LOG_FATAL("photon init failed");
+  }
+  ret = photon::std::work_pool_init(photon_vcpu_num, photon::INIT_EVENT_IOURING, 0);
+  if (ret != 0) {
+    LOG_FATAL("work pool init failed");
+  }
+}
+
+PhotonEnv::~PhotonEnv() {
+  photon::std::work_pool_fini();
+  photon::fini();
+  LOG_INFO("PhotonEnv finished");
+}
+
 //
 // Default Posix Env
 //
@@ -1106,7 +1125,7 @@ Env* Env::Default() {
   // of their construction, having this call here guarantees that
   // the destructor of static PosixEnv will go first, then the
   // the singletons of ThreadLocalPtr.
-  port::PhotonEnv::Singleton();
+  PhotonEnv::Singleton();
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();

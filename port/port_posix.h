@@ -199,35 +199,5 @@ extern void Crash(const std::string& srcfile, int srcline);
 
 extern int GetMaxOpenFiles();
 
-class PhotonEnv {
- public:
-  static PhotonEnv& Singleton() {
-    static PhotonEnv instance;
-    return instance;
-  }
-
-  PhotonEnv(PhotonEnv const&) = delete;
-  PhotonEnv(PhotonEnv&&) = delete;
-  PhotonEnv& operator=(PhotonEnv const&) = delete;
-  PhotonEnv& operator=(PhotonEnv&&) = delete;
-
- private:
-  PhotonEnv() {
-    int ret = photon::init(photon::INIT_EVENT_IOURING, 0);
-    if (ret != 0) {
-      LOG_FATAL("photon init failed");
-    }
-    ret = photon::std::work_pool_init(3, photon::INIT_EVENT_IOURING, 0);
-    if (ret != 0) {
-      LOG_FATAL("std work pool init failed");
-    }
-  }
-  ~PhotonEnv() {
-    LOG_INFO("Photon finish");
-    photon::std::work_pool_fini();
-    photon::fini();
-  }
-};
-
 } // namespace port
 } // namespace rocksdb
