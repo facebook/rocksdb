@@ -523,8 +523,7 @@ bool DBIter::MergeValuesNewToOld() {
       return false;
     }
 
-    if (!user_comparator_.user_comparator()->Equal(ikey.user_key,
-                                                   saved_key_.GetUserKey())) {
+    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       // hit the next user key, stop right here
       break;
     }
@@ -1160,8 +1159,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (!ParseKey(&ikey)) {
       return false;
     }
-    if (!user_comparator_.user_comparator()->Equal(ikey.user_key,
-                                                   saved_key_.GetUserKey())) {
+    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       break;
     }
     if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {

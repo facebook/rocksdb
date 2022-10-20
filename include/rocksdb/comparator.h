@@ -33,35 +33,6 @@ class CompareInterface {
   virtual int Compare(const Slice& a, const Slice& b) const = 0;
 };
 
-// The general interface for comparing two Slices that are related to
-// timestamps.
-// They are defined for both Comparator and some internal data structures.
-class CompareWithTimestampInterface {
- public:
-  virtual ~CompareWithTimestampInterface() {}
-  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
-    return CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
-  }
-
-  // For two events e1 and e2 whose timestamps are t1 and t2 respectively,
-  // Returns value:
-  // < 0  iff t1 < t2
-  // == 0 iff t1 == t2
-  // > 0  iff t1 > t2
-  // Note that an all-zero byte array will be the smallest (oldest) timestamp
-  // of the same length, and a byte array with all bits 1 will be the largest.
-  // In the future, we can extend Comparator so that subclasses can specify
-  // both largest and smallest timestamps.
-  virtual int CompareTimestamp(const Slice& /*ts1*/,
-                               const Slice& /*ts2*/) const = 0;
-
-  virtual int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/,
-                                      const Slice& b,
-                                      bool /*b_has_ts*/) const = 0;
-
-  virtual bool EqualWithoutTimestamp(const Slice& a, const Slice& b) const = 0;
-};
-
 // A Comparator object provides a total order across slices that are
 // used as keys in an sstable or a database.  A Comparator implementation
 // must be thread-safe since rocksdb may invoke its methods concurrently
@@ -70,9 +41,7 @@ class CompareWithTimestampInterface {
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
-class Comparator : public Customizable,
-                   public CompareInterface,
-                   public CompareWithTimestampInterface {
+class Comparator : public Customizable, public CompareInterface {
  public:
   Comparator() : timestamp_size_(0) {}
 
@@ -151,7 +120,10 @@ class Comparator : public Customizable,
 
   inline size_t timestamp_size() const { return timestamp_size_; }
 
-  using CompareWithTimestampInterface::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
+    return CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
+  }
+
   // For two events e1 and e2 whose timestamps are t1 and t2 respectively,
   // Returns value:
   // < 0  iff t1 < t2
@@ -162,18 +134,16 @@ class Comparator : public Customizable,
   // In the future, we can extend Comparator so that subclasses can specify
   // both largest and smallest timestamps.
   virtual int CompareTimestamp(const Slice& /*ts1*/,
-                               const Slice& /*ts2*/) const override {
+                               const Slice& /*ts2*/) const {
     return 0;
   }
 
   virtual int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/,
-                                      const Slice& b,
-                                      bool /*b_has_ts*/) const override {
+                                      const Slice& b, bool /*b_has_ts*/) const {
     return Compare(a, b);
   }
 
-  virtual bool EqualWithoutTimestamp(const Slice& a,
-                                     const Slice& b) const override {
+  virtual bool EqualWithoutTimestamp(const Slice& a, const Slice& b) const {
     return 0 ==
            CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
   }
