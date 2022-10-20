@@ -5783,7 +5783,6 @@ Status DBImpl::StartBlockCacheTrace(
     const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
   BlockCacheTraceOptions block_trace_opts;
-  block_trace_opts.filter = trace_options.filter;
   block_trace_opts.sampling_frequency = trace_options.sampling_frequency;
 
   BlockCacheTraceWriterOptions trace_writer_opt;

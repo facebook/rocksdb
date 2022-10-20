@@ -114,8 +114,6 @@ struct BlockCacheTraceOptions {
   // Specify trace sampling option, i.e. capture one per how many requests.
   // Default to 1 (capture every request).
   uint64_t sampling_frequency = 1;
-  // Note: The filtering happens before sampling.
-  uint64_t filter = kTraceFilterNone;
 };
 
 // Options for the built-in implementation of BlockCacheTraceWriter
