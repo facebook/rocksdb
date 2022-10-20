@@ -1072,17 +1072,18 @@ static bool SaveValue(void* arg, const char* entry) {
                 if (type != kTypeWideColumnEntity) {
                   s->columns->SetPlainValue(result);
                 } else {
+                  std::string output;
+
                   if (!columns.empty() &&
                       columns[0].name() == kDefaultWideColumnName) {
                     columns[0].value() = result;
+                    *(s->status) =
+                        WideColumnSerialization::Serialize(columns, output);
                   } else {
-                    columns.insert(columns.begin(),
-                                   WideColumn{kDefaultWideColumnName, result});
+                    *(s->status) = WideColumnSerialization::Serialize(
+                        result, columns, output);
                   }
 
-                  std::string output;
-                  *(s->status) =
-                      WideColumnSerialization::Serialize(columns, output);
                   if (s->status->ok()) {
                     *(s->status) = s->columns->SetWideColumnValue(output);
                   }

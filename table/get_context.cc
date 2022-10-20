@@ -519,17 +519,20 @@ void GetContext::MergeWithEntity(Slice wide_column_entity) {
   }
 
   if (columns_ != nullptr) {
+    std::string output;
+
     if (!columns.empty() && columns[0].name() == kDefaultWideColumnName) {
       columns[0].value() = result;
-    } else {
-      columns.insert(columns.begin(),
-                     WideColumn{kDefaultWideColumnName, result});
-    }
 
-    std::string output;
-    if (!WideColumnSerialization::Serialize(columns, output).ok()) {
-      state_ = kCorrupt;
-      return;
+      if (!WideColumnSerialization::Serialize(columns, output).ok()) {
+        state_ = kCorrupt;
+        return;
+      }
+    } else {
+      if (!WideColumnSerialization::Serialize(result, columns, output).ok()) {
+        state_ = kCorrupt;
+        return;
+      }
     }
 
     if (!columns_->SetWideColumnValue(output).ok()) {
