@@ -524,32 +524,32 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
 
   // More complex test of shared key space, in case the instances are wrappers
   // for some shared underlying cache.
-  std::string sentinel_key(size_t{1}, '\0');
+  CacheKey sentinel_key = CacheKey::CreateUniqueForProcessLifetime();
   static char kRegularBlockCacheMarker = 'b';
   static char kCompressedBlockCacheMarker = 'c';
   static char kPersistentCacheMarker = 'p';
   if (bbto.block_cache) {
     bbto.block_cache
-        ->Insert(Slice(sentinel_key), &kRegularBlockCacheMarker, 1,
+        ->Insert(sentinel_key.AsSlice(), &kRegularBlockCacheMarker, 1,
                  GetNoopDeleterForRole<CacheEntryRole::kMisc>())
         .PermitUncheckedError();
   }
   if (bbto.block_cache_compressed) {
     bbto.block_cache_compressed
-        ->Insert(Slice(sentinel_key), &kCompressedBlockCacheMarker, 1,
+        ->Insert(sentinel_key.AsSlice(), &kCompressedBlockCacheMarker, 1,
                  GetNoopDeleterForRole<CacheEntryRole::kMisc>())
         .PermitUncheckedError();
   }
   if (bbto.persistent_cache) {
     // Note: persistent cache copies the data, not keeping the pointer
     bbto.persistent_cache
-        ->Insert(Slice(sentinel_key), &kPersistentCacheMarker, 1)
+        ->Insert(sentinel_key.AsSlice(), &kPersistentCacheMarker, 1)
         .PermitUncheckedError();
   }
   // If we get something different from what we inserted, that indicates
   // dangerously overlapping key spaces.
   if (bbto.block_cache) {
-    auto handle = bbto.block_cache->Lookup(Slice(sentinel_key));
+    auto handle = bbto.block_cache->Lookup(sentinel_key.AsSlice());
     if (handle) {
       auto v = static_cast<char*>(bbto.block_cache->Value(handle));
       char c = *v;
@@ -568,7 +568,7 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
     }
   }
   if (bbto.block_cache_compressed) {
-    auto handle = bbto.block_cache_compressed->Lookup(Slice(sentinel_key));
+    auto handle = bbto.block_cache_compressed->Lookup(sentinel_key.AsSlice());
     if (handle) {
       auto v = static_cast<char*>(bbto.block_cache_compressed->Value(handle));
       char c = *v;
@@ -591,7 +591,7 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
   if (bbto.persistent_cache) {
     std::unique_ptr<char[]> data;
     size_t size = 0;
-    bbto.persistent_cache->Lookup(Slice(sentinel_key), &data, &size)
+    bbto.persistent_cache->Lookup(sentinel_key.AsSlice(), &data, &size)
         .PermitUncheckedError();
     if (data && size > 0) {
       if (data[0] == kRegularBlockCacheMarker) {

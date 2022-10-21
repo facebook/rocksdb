@@ -1024,6 +1024,42 @@ TEST_F(LdbCmdTest, UnsafeRemoveSstFile) {
   ASSERT_OK(db->Get(ReadOptions(), handles[0], "0", &val));
   ASSERT_EQ(val, "0");
 
+  // Determine which is the "first" one (most likely to be opened in recovery)
+  sst_files.clear();
+  db->GetLiveFilesMetaData(&sst_files);
+
+  numbers.clear();
+  for (auto& f : sst_files) {
+    numbers.push_back(f.file_number);
+  }
+  ASSERT_EQ(numbers.size(), 3);
+  std::sort(numbers.begin(), numbers.end());
+  to_remove = numbers.front();
+
+  // This time physically delete the file before unsafe_remove
+  {
+    std::string f = dbname + "/" + MakeTableFileName(to_remove);
+    ASSERT_OK(Env::Default()->DeleteFile(f));
+  }
+
+  // Close for unsafe_remove_sst_file
+  for (auto& h : handles) {
+    delete h;
+  }
+  delete db;
+  db = nullptr;
+
+  snprintf(arg4, sizeof(arg4), "%" PRIu64, to_remove);
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+
+  ASSERT_OK(DB::Open(opts, dbname, cfds, &handles, &db));
+
+  ASSERT_OK(db->Get(ReadOptions(), handles[1], "3", &val));
+  ASSERT_EQ(val, "3");
+
+  ASSERT_TRUE(db->Get(ReadOptions(), handles[0], "0", &val).IsNotFound());
+
   for (auto& h : handles) {
     delete h;
   }

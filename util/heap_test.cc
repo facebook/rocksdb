@@ -3,15 +3,16 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "util/heap.h"
+
 #include <gtest/gtest.h>
 
 #include <climits>
-
 #include <queue>
 #include <random>
 #include <utility>
 
-#include "util/heap.h"
+#include "port/stack_trace.h"
 
 #ifndef GFLAGS
 const int64_t FLAGS_iters = 100000;
@@ -131,6 +132,7 @@ INSTANTIATE_TEST_CASE_P(
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
   GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);

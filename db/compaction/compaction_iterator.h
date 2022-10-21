@@ -88,6 +88,7 @@ class CompactionIterator {
 
     virtual int number_levels() const = 0;
 
+    // Result includes timestamp if user-defined timestamp is enabled.
     virtual Slice GetLargestUserKey() const = 0;
 
     virtual bool allow_ingest_behind() const = 0;
@@ -108,6 +109,7 @@ class CompactionIterator {
 
     virtual bool SupportsPerKeyPlacement() const = 0;
 
+    // `key` includes timestamp if user-defined timestamp is enabled.
     virtual bool WithinPenultimateLevelOutputRange(const Slice& key) const = 0;
   };
 
@@ -133,6 +135,7 @@ class CompactionIterator {
 
     int number_levels() const override { return compaction_->number_levels(); }
 
+    // Result includes timestamp if user-defined timestamp is enabled.
     Slice GetLargestUserKey() const override {
       return compaction_->GetLargestUserKey();
     }
@@ -173,6 +176,7 @@ class CompactionIterator {
 
     // Check if key is within penultimate level output range, to see if it's
     // safe to output to the penultimate level for per_key_placement feature.
+    // `key` includes timestamp if user-defined timestamp is enabled.
     bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
       return compaction_->WithinPenultimateLevelOutputRange(key);
     }
@@ -196,7 +200,8 @@ class CompactionIterator {
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
       const std::string* full_history_ts_low = nullptr,
-      const SequenceNumber penultimate_level_cutoff_seqno = kMaxSequenceNumber);
+      const SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber,
+      const SequenceNumber preclude_last_level_min_seqno = kMaxSequenceNumber);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(
@@ -214,7 +219,8 @@ class CompactionIterator {
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
       const std::string* full_history_ts_low = nullptr,
-      const SequenceNumber penultimate_level_cutoff_seqno = kMaxSequenceNumber);
+      const SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber,
+      const SequenceNumber preclude_last_level_min_seqno = kMaxSequenceNumber);
 
   ~CompactionIterator();
 
@@ -466,9 +472,12 @@ class CompactionIterator {
   // output to.
   bool output_to_penultimate_level_{false};
 
-  // any key later than this sequence number should have
-  // output_to_penultimate_level_ set to true
-  const SequenceNumber penultimate_level_cutoff_seqno_ = kMaxSequenceNumber;
+  // min seqno for preserving the time information.
+  const SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
+
+  // min seqno to preclude the data from the last level, if the key seqno larger
+  // than this, it will be output to penultimate level
+  const SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
 
   void AdvanceInputIter() { input_.Next(); }
 

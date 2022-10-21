@@ -15,20 +15,32 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const Slice kDefaultWideColumnName;
+Status WideColumnSerialization::SerializeImpl(const Slice* value_of_default,
+                                              const WideColumns& columns,
+                                              std::string& output) {
+  const size_t num_columns =
+      value_of_default ? columns.size() + 1 : columns.size();
 
-const WideColumns kNoWideColumns;
-
-Status WideColumnSerialization::Serialize(const WideColumns& columns,
-                                          std::string& output) {
-  if (columns.size() >
-      static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+  if (num_columns > static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
     return Status::InvalidArgument("Too many wide columns");
   }
 
   PutVarint32(&output, kCurrentVersion);
 
-  PutVarint32(&output, static_cast<uint32_t>(columns.size()));
+  PutVarint32(&output, static_cast<uint32_t>(num_columns));
+
+  const Slice* prev_name = nullptr;
+  if (value_of_default) {
+    if (value_of_default->size() >
+        static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
+      return Status::InvalidArgument("Wide column value too long");
+    }
+
+    PutLengthPrefixedSlice(&output, kDefaultWideColumnName);
+    PutVarint32(&output, static_cast<uint32_t>(value_of_default->size()));
+
+    prev_name = &kDefaultWideColumnName;
+  }
 
   for (size_t i = 0; i < columns.size(); ++i) {
     const WideColumn& column = columns[i];
@@ -38,7 +50,8 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
         static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
       return Status::InvalidArgument("Wide column name too long");
     }
-    if (i > 0 && columns[i - 1].name().compare(name) >= 0) {
+
+    if (prev_name && prev_name->compare(name) >= 0) {
       return Status::Corruption("Wide columns out of order");
     }
 
@@ -50,6 +63,12 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
 
     PutLengthPrefixedSlice(&output, name);
     PutVarint32(&output, static_cast<uint32_t>(value.size()));
+
+    prev_name = &name;
+  }
+
+  if (value_of_default) {
+    output.append(value_of_default->data(), value_of_default->size());
   }
 
   for (const auto& column : columns) {

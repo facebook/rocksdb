@@ -34,16 +34,19 @@ The new test coverage assumes all writes use the same options related to bufferi
 For example, we do not cover the case of alternating writes with WAL disabled and WAL enabled (`WriteOptions::disableWAL`).
 It also assumes the crash does not have any unexpected consequences like corrupting persisted data.
 
-Testing there are no holes in the recovery is challenging because it allows for many valid recovery outcomes.
+Testing for holes in the recovery is challenging because there are many valid recovery outcomes.
 Our solution involves tracing all the writes and then verifying the recovery matches a prefix of the trace.
 This proves there are no holes in the recovery.
+See "Extensions for lost buffered writes" subsection below for more details.
 
 Testing actual system crashes would be operationally difficult.
 Our solution simulates system crash by buffering written but unsynced data in process memory such that it is lost in a process crash.
+See "Simulating system crash" subsection below for more details.
 
 ## Scenarios covered
 
 We began testing recovery has no hole in the following new scenarios.
+This coverage is included in our internal CI that periodically runs against the latest commit on the main branch.
 
 1. **Process crash with WAL disabled** (`WriteOptions::disableWAL=1`), which loses writes since the last memtable flush.
 2. **System crash with WAL enabled** (`WriteOptions::disableWAL=0`), which loses writes since the last memtable flush or WAL sync (`WriteOptions::sync=1`, `SyncWAL()`, or `FlushWAL(true /* sync */)`).
@@ -52,9 +55,9 @@ We began testing recovery has no hole in the following new scenarios.
 
 ## Issues found
 
-* <https://github.com/facebook/rocksdb/pull/10185>
-* <https://github.com/facebook/rocksdb/pull/10560>
-* <https://github.com/facebook/rocksdb/pull/10573>
+* [False detection of corruption after system crash due to race condition with WAL sync and `track_and_verify_wals_in_manifest](https://github.com/facebook/rocksdb/pull/10185)
+* [Undetected hole in recovery after system crash due to race condition in WAL sync](https://github.com/facebook/rocksdb/pull/10560)
+* [Recovery failure after system crash due to missing directory sync for critical metadata file](https://github.com/facebook/rocksdb/pull/10573)
 
 ## Solution details
 

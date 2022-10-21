@@ -233,6 +233,21 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.min_write_buffer_number_to_merge = 1;
   }
 
+  if (db_options.atomic_flush && result.min_write_buffer_number_to_merge > 1) {
+    ROCKS_LOG_WARN(
+        db_options.logger,
+        "Currently, if atomic_flush is true, then triggering flush for any "
+        "column family internally (non-manual flush) will trigger flushing "
+        "all column families even if the number of memtables is smaller "
+        "min_write_buffer_number_to_merge. Therefore, configuring "
+        "min_write_buffer_number_to_merge > 1 is not compatible and should "
+        "be satinized to 1. Not doing so will lead to data loss and "
+        "inconsistent state across multiple column families when WAL is "
+        "disabled, which is a common setting for atomic flush");
+
+    result.min_write_buffer_number_to_merge = 1;
+  }
+
   if (result.num_levels < 1) {
     result.num_levels = 1;
   }
@@ -276,7 +291,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.compaction_style == kCompactionStyleFIFO) {
-    result.num_levels = 1;
     // since we delete level0 files in FIFO compaction when there are too many
     // of them, these options don't really mean anything
     result.level0_slowdown_writes_trigger = std::numeric_limits<int>::max();

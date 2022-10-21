@@ -227,6 +227,11 @@ class CompactionOutputs {
   // It returns how many boundaries it crosses by including current key.
   size_t UpdateGrandparentBoundaryInfo(const Slice& internal_key);
 
+  // helper function to get the overlapped grandparent files size, it's only
+  // used for calculating the first key's overlap.
+  uint64_t GetCurrentKeyGrandparentOverlappedBytes(
+      const Slice& internal_key) const;
+
   // Add current key from compaction_iterator to the output file. If needed
   // close and open new compaction output with the functions provided.
   Status AddToOutput(const CompactionIterator& c_iter,

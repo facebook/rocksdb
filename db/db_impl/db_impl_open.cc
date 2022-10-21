@@ -1944,18 +1944,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      if (cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-        auto* vstorage = cfd->current()->storage_info();
-        for (int i = 1; i < vstorage->num_levels(); ++i) {
-          int num_files = vstorage->NumLevelFiles(i);
-          if (num_files > 0) {
-            s = Status::InvalidArgument(
-                "Not all files are at level 0. Cannot "
-                "open with FIFO compaction style.");
-            break;
-          }
-        }
-      }
       if (!cfd->mem()->IsSnapshotSupported()) {
         impl->is_snapshot_supported_ = false;
       }
@@ -2080,9 +2068,15 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                      impl);
     LogFlush(impl->immutable_db_options_.info_log);
     if (!impl->WALBufferIsEmpty()) {
-      impl->FlushWAL(true /* sync */);
+      s = impl->FlushWAL(false);
+      if (s.ok()) {
+        // Sync is needed otherwise WAL buffered data might get lost after a
+        // power reset.
+        log::Writer* log_writer = impl->logs_.back().writer;
+        s = log_writer->file()->Sync(impl->immutable_db_options_.use_fsync);
+      }
     }
-    if (!persist_options_status.ok()) {
+    if (s.ok() && !persist_options_status.ok()) {
       s = Status::IOError(
           "DB::Open() failed --- Unable to persist Options file",
           persist_options_status.ToString());

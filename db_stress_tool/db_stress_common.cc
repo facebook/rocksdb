@@ -263,6 +263,11 @@ WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
 
 WideColumns GenerateExpectedWideColumns(uint32_t value_base,
                                         const Slice& slice) {
+  if (FLAGS_use_put_entity_one_in == 0 ||
+      (value_base % FLAGS_use_put_entity_one_in) != 0) {
+    return WideColumns{{kDefaultWideColumnName, slice}};
+  }
+
   WideColumns columns = GenerateWideColumns(value_base, slice);
 
   std::sort(columns.begin(), columns.end(),
