@@ -1065,20 +1065,10 @@ static bool SaveValue(void* arg, const char* entry) {
           assert(s->do_merge);
 
           if (s->value || s->columns) {
-            std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
-                merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, nullptr /* result_operand */, true);
-
-            if (s->status->ok()) {
-              if (s->value) {
-                *(s->value) = std::move(result);
-              } else {
-                assert(s->columns);
-                s->columns->SetPlainValue(result);
-              }
-            }
+                merge_context->GetOperands(), s->value, s->columns, s->logger,
+                s->statistics, s->clock, nullptr /* result_operand */, true);
           }
         } else if (s->value) {
           s->value->assign(v.data(), v.size());
@@ -1124,45 +1114,10 @@ static bool SaveValue(void* arg, const char* entry) {
           assert(s->do_merge);
 
           if (s->value || s->columns) {
-            WideColumns columns;
-            *(s->status) = WideColumnSerialization::Deserialize(v, columns);
-            if (s->status->ok()) {
-              Slice value_of_default;
-              if (!columns.empty() &&
-                  columns[0].name() == kDefaultWideColumnName) {
-                value_of_default = columns[0].value();
-              }
-
-              std::string result;
-              *(s->status) = MergeHelper::TimedFullMerge(
-                  merge_operator, s->key->user_key(), &value_of_default,
-                  merge_context->GetOperands(), &result, s->logger,
-                  s->statistics, s->clock, nullptr /* result_operand */, true);
-
-              if (s->status->ok()) {
-                if (s->value) {
-                  *(s->value) = std::move(result);
-                } else {
-                  assert(s->columns);
-
-                  std::string output;
-
-                  if (!columns.empty() &&
-                      columns[0].name() == kDefaultWideColumnName) {
-                    columns[0].value() = result;
-                    *(s->status) =
-                        WideColumnSerialization::Serialize(columns, output);
-                  } else {
-                    *(s->status) = WideColumnSerialization::Serialize(
-                        result, columns, output);
-                  }
-
-                  if (s->status->ok()) {
-                    *(s->status) = s->columns->SetWideColumnValue(output);
-                  }
-                }
-              }
-            }
+            *(s->status) = MergeHelper::TimedFullMergeWithEntity(
+                merge_operator, s->key->user_key(), v,
+                merge_context->GetOperands(), s->value, s->columns, s->logger,
+                s->statistics, s->clock, nullptr /* result_operand */, true);
           }
         } else if (s->value) {
           Slice value_of_default;
@@ -1192,10 +1147,10 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          if (s->value != nullptr) {
+          if (s->value || s->columns) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), s->value, s->logger,
+                merge_context->GetOperands(), s->value, s->columns, s->logger,
                 s->statistics, s->clock, nullptr /* result_operand */, true);
           }
         } else {
@@ -1221,10 +1176,13 @@ static bool SaveValue(void* arg, const char* entry) {
             v, s->inplace_update_support == false /* operand_pinned */);
         if (s->do_merge && merge_operator->ShouldMerge(
                                merge_context->GetOperandsDirectionBackward())) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), nullptr,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->clock, nullptr /* result_operand */, true);
+          if (s->value || s->columns) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), nullptr,
+                merge_context->GetOperands(), s->value, s->columns, s->logger,
+                s->statistics, s->clock, nullptr /* result_operand */, true);
+          }
+
           *(s->found_final_value) = true;
           return false;
         }

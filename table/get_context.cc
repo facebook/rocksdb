@@ -468,77 +468,35 @@ void GetContext::Merge(const Slice* value) {
   assert(do_merge_);
   assert(!pinnable_val_ || !columns_);
 
-  std::string result;
   const Status s = MergeHelper::TimedFullMerge(
-      merge_operator_, user_key_, value, merge_context_->GetOperands(), &result,
-      logger_, statistics_, clock_);
+      merge_operator_, user_key_, value, merge_context_->GetOperands(),
+      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_, logger_,
+      statistics_, clock_);
   if (!s.ok()) {
     state_ = kCorrupt;
     return;
   }
 
   if (LIKELY(pinnable_val_ != nullptr)) {
-    *pinnable_val_->GetSelf() = std::move(result);
     pinnable_val_->PinSelf();
-    return;
-  }
-
-  if (columns_ != nullptr) {
-    columns_->SetPlainValue(result);
   }
 }
 
-void GetContext::MergeWithEntity(Slice wide_column_entity) {
+void GetContext::MergeWithEntity(Slice entity) {
   assert(do_merge_);
   assert(!pinnable_val_ || !columns_);
 
-  WideColumns columns;
-  if (!WideColumnSerialization::Deserialize(wide_column_entity, columns).ok()) {
-    state_ = kCorrupt;
-    return;
-  }
-
-  Slice value_of_default;
-  if (!columns.empty() && columns[0].name() == kDefaultWideColumnName) {
-    value_of_default = columns[0].value();
-  }
-
-  std::string result;
-  const Status s = MergeHelper::TimedFullMerge(
-      merge_operator_, user_key_, &value_of_default,
-      merge_context_->GetOperands(), &result, logger_, statistics_, clock_);
+  const Status s = MergeHelper::TimedFullMergeWithEntity(
+      merge_operator_, user_key_, entity, merge_context_->GetOperands(),
+      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_, logger_,
+      statistics_, clock_);
   if (!s.ok()) {
     state_ = kCorrupt;
     return;
   }
 
   if (LIKELY(pinnable_val_ != nullptr)) {
-    *pinnable_val_->GetSelf() = std::move(result);
     pinnable_val_->PinSelf();
-    return;
-  }
-
-  if (columns_ != nullptr) {
-    std::string output;
-
-    if (!columns.empty() && columns[0].name() == kDefaultWideColumnName) {
-      columns[0].value() = result;
-
-      if (!WideColumnSerialization::Serialize(columns, output).ok()) {
-        state_ = kCorrupt;
-        return;
-      }
-    } else {
-      if (!WideColumnSerialization::Serialize(result, columns, output).ok()) {
-        state_ = kCorrupt;
-        return;
-      }
-    }
-
-    if (!columns_->SetWideColumnValue(output).ok()) {
-      state_ = kCorrupt;
-      return;
-    }
   }
 }
 
