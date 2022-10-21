@@ -25,6 +25,7 @@
 #include "table/table_reader.h"
 #include "table/unique_id_impl.h"
 #include "util/autovector.h"
+#include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -335,11 +336,21 @@ struct FdWithKeyRange {
 struct LevelFilesBrief {
   size_t num_files;
   FdWithKeyRange* files;
+  uint64_t* prefix_cache = nullptr;
   LevelFilesBrief() {
     num_files = 0;
     files = nullptr;
   }
 };
+inline uint64_t HostPrefixCache(const Slice& ikey) {
+  assert(ikey.size_ >= 8);
+  uint64_t data = 0;
+  memcpy(&data, ikey.data_, std::min<size_t>(ikey.size_ - 8, 8));
+  if (port::kLittleEndian)
+    return EndianSwapValue(data);
+  else
+    return data;
+}
 
 // The state of a DB at any given time is referred to as a Version.
 // Any modification to the Version is considered a Version Edit. A Version is

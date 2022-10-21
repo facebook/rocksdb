@@ -933,6 +933,8 @@ class FindLevelFileTest : public testing::Test {
     char* mem = arena_.AllocateAligned(num * sizeof(FdWithKeyRange));
     file_level_.files = new (mem)FdWithKeyRange[num];
     file_level_.num_files = 0;
+    file_level_.prefix_cache =
+        (uint64_t*)arena_.AllocateAligned(num * sizeof(uint64_t));
   }
 
   void Add(const char* smallest, const char* largest,
@@ -957,6 +959,7 @@ class FindLevelFileTest : public testing::Test {
     file.smallest_key = Slice(mem, smallest_slice.size());
     file.largest_key = Slice(mem + smallest_slice.size(),
         largest_slice.size());
+    file_level_.prefix_cache[num] = HostPrefixCache(largest_slice);
     file_level_.num_files++;
   }
 

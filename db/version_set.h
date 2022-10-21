@@ -1366,7 +1366,7 @@ class VersionSet {
   // The caller should delete the iterator when no longer needed.
   // @param read_options Must outlive the returned iterator.
   // @param start, end indicates compaction range
-  InternalIterator* MakeInputIterator(
+  static InternalIterator* MakeInputIterator(
       const ReadOptions& read_options, const Compaction* c,
       RangeDelAggregator* range_del_agg,
       const FileOptions& file_options_compactions,
