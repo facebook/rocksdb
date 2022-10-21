@@ -362,9 +362,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
           filter == CompactionFilter::Decision::kChangeValue) {
         if (original_key_is_iter) {
           // this is just an optimization that saves us one memcpy
-          keys_.push_front(std::move(original_key));
+          keys_.emplace_front(original_key);
         } else {
-          keys_.push_front(iter->key().ToString());
+          keys_.emplace_front(iter->key().ToString());
         }
         if (keys_.size() == 1) {
           // we need to re-anchor the orig_ikey because it was anchored by
