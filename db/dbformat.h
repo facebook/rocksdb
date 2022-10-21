@@ -129,6 +129,12 @@ struct ParsedInternalKey {
     const char* addr = user_key.data() + user_key.size() - ts.size();
     memcpy(const_cast<char*>(addr), ts.data(), ts.size());
   }
+
+  Slice GetTimestamp(size_t ts_sz) {
+    assert(ts_sz <= user_key.size());
+    const char* addr = user_key.data() + user_key.size() - ts_sz;
+    return Slice(const_cast<char*>(addr), ts_sz);
+  }
 };
 
 // Return the length of the encoding of "key".

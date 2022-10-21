@@ -168,7 +168,12 @@ void CompactionIterator::Next() {
       }
 
       // Keep current_key_ in sync.
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      if (0 == timestamp_size_) {
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      } else {
+        Slice ts = ikey_.GetTimestamp(timestamp_size_);
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type, &ts);
+      }
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
       validity_info_.SetValid(ValidContext::kMerge1);
