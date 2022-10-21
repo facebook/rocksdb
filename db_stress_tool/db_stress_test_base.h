@@ -10,8 +10,6 @@
 #ifdef GFLAGS
 #pragma once
 
-#include <ostream>
-
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 
@@ -140,6 +138,8 @@ class StressTest {
                                             int column_family_id) {
     return column_families_[column_family_id];
   }
+
+  virtual Slice GetValueBaseSlice(Slice slice) { return slice; }
 
 #ifndef ROCKSDB_LITE
   // Generated a list of keys that close to boundaries of SST keys.

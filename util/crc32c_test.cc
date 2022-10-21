@@ -204,6 +204,7 @@ inline uint64_t fnv64_buf(const void* buf,
 }
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 
   // Populate a buffer with a deterministic pattern

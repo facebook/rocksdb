@@ -319,6 +319,8 @@ class Compaction {
 
   // Return true if the given range is overlap with penultimate level output
   // range.
+  // Both smallest_key and largest_key include timestamps if user-defined
+  // timestamp is enabled.
   bool OverlapPenultimateLevelOutputRange(const Slice& smallest_key,
                                           const Slice& largest_key) const;
 
@@ -328,6 +330,7 @@ class Compaction {
   // If per_key_placement is not supported, always return false.
   // TODO: currently it doesn't support moving data from the last level to the
   //  penultimate level
+  //  key includes timestamp if user-defined timestamp is enabled.
   bool WithinPenultimateLevelOutputRange(const Slice& key) const;
 
   CompactionReason compaction_reason() const { return compaction_reason_; }
@@ -474,9 +477,11 @@ class Compaction {
   TablePropertiesCollection output_table_properties_;
 
   // smallest user keys in compaction
+  // includes timestamp if user-defined timestamp is enabled.
   Slice smallest_user_key_;
 
   // largest user keys in compaction
+  // includes timestamp if user-defined timestamp is enabled.
   Slice largest_user_key_;
 
   // Reason for compaction
@@ -497,6 +502,7 @@ class Compaction {
   const int penultimate_level_;
 
   // Key range for penultimate level output
+  // includes timestamp if user-defined timestamp is enabled.
   Slice penultimate_level_smallest_user_key_;
   Slice penultimate_level_largest_user_key_;
 };

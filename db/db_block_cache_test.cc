@@ -170,13 +170,16 @@ class DBBlockCacheTest : public DBTestBase {
 #ifndef ROCKSDB_LITE
   const std::array<size_t, kNumCacheEntryRoles> GetCacheEntryRoleCountsBg() {
     // Verify in cache entry role stats
-    ColumnFamilyHandleImpl* cfh =
-        static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
-    InternalStats* internal_stats_ptr = cfh->cfd()->internal_stats();
-    InternalStats::CacheEntryRoleStats stats;
-    internal_stats_ptr->TEST_GetCacheEntryRoleStats(&stats,
-                                                    /*foreground=*/false);
-    return stats.entry_counts;
+    std::array<size_t, kNumCacheEntryRoles> cache_entry_role_counts;
+    std::map<std::string, std::string> values;
+    EXPECT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                    &values));
+    for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
+      auto role = static_cast<CacheEntryRole>(i);
+      cache_entry_role_counts[i] =
+          ParseSizeT(values[BlockCacheEntryStatsMapKeys::EntryCount(role)]);
+    }
+    return cache_entry_role_counts;
   }
 #endif  // ROCKSDB_LITE
 };
@@ -1500,23 +1503,38 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       dbfull()->DumpStats();
       ASSERT_EQ(scan_count, 1);
 
-      env_->MockSleepForSeconds(10000);
+      env_->MockSleepForSeconds(60);
+      ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                      &values));
+      ASSERT_EQ(scan_count, 1);
       ASSERT_TRUE(
           db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
       ASSERT_EQ(scan_count, 2);
 
       env_->MockSleepForSeconds(10000);
-      std::string value_str;
-      ASSERT_TRUE(
-          db_->GetProperty(DB::Properties::kBlockCacheEntryStats, &value_str));
+      ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                      &values));
       ASSERT_EQ(scan_count, 3);
 
+      env_->MockSleepForSeconds(60);
+      std::string value_str;
+      ASSERT_TRUE(db_->GetProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                   &value_str));
+      ASSERT_EQ(scan_count, 3);
+      ASSERT_TRUE(
+          db_->GetProperty(DB::Properties::kBlockCacheEntryStats, &value_str));
+      ASSERT_EQ(scan_count, 4);
+
       env_->MockSleepForSeconds(10000);
+      ASSERT_TRUE(db_->GetProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                   &value_str));
+      ASSERT_EQ(scan_count, 5);
+
       ASSERT_TRUE(db_->GetProperty(DB::Properties::kCFStats, &value_str));
       // To match historical speed, querying this property no longer triggers
       // a scan, even if results are old. But periodic dump stats should keep
       // things reasonably updated.
-      ASSERT_EQ(scan_count, /*unchanged*/ 3);
+      ASSERT_EQ(scan_count, /*unchanged*/ 5);
 
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();

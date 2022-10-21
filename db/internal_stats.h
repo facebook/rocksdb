@@ -793,9 +793,15 @@ class InternalStats {
   bool HandleBlockCacheUsage(uint64_t* value, DBImpl* db, Version* version);
   bool HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* db,
                                    Version* version);
+  bool HandleBlockCacheEntryStatsInternal(std::string* value, bool fast);
+  bool HandleBlockCacheEntryStatsMapInternal(
+      std::map<std::string, std::string>* values, bool fast);
   bool HandleBlockCacheEntryStats(std::string* value, Slice suffix);
   bool HandleBlockCacheEntryStatsMap(std::map<std::string, std::string>* values,
                                      Slice suffix);
+  bool HandleFastBlockCacheEntryStats(std::string* value, Slice suffix);
+  bool HandleFastBlockCacheEntryStatsMap(
+      std::map<std::string, std::string>* values, Slice suffix);
   bool HandleLiveSstFilesSizeAtTemperature(std::string* value, Slice suffix);
   bool HandleNumBlobFiles(uint64_t* value, DBImpl* db, Version* version);
   bool HandleBlobStats(std::string* value, Slice suffix);
