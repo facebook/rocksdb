@@ -2403,10 +2403,12 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
     std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
-    *status = MergeHelper::TimedFullMerge(
-        merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-        str_value, info_log_, db_statistics_, clock_,
-        nullptr /* result_operand */, true);
+    if (str_value || columns) {
+      *status = MergeHelper::TimedFullMerge(
+          merge_operator_, user_key, nullptr, merge_context->GetOperands(),
+          str_value, columns, info_log_, db_statistics_, clock_,
+          nullptr /* result_operand */, true);
+    }
     if (LIKELY(value != nullptr)) {
       value->PinSelf();
     }
