@@ -1340,6 +1340,7 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping4) {
   ioptions_.compaction_pri = kMinOverlappingRatio;
   mutable_cf_options_.max_bytes_for_level_base = 10000000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  mutable_cf_options_.ignore_max_compaction_bytes_for_input = false;
 
   // file 7 and 8 over lap with the same file, but file 8 is smaller so
   // it will be picked.
@@ -2358,6 +2359,7 @@ TEST_F(CompactionPickerTest, IsBottommostLevelTest) {
 TEST_F(CompactionPickerTest, MaxCompactionBytesHit) {
   mutable_cf_options_.max_bytes_for_level_base = 1000000u;
   mutable_cf_options_.max_compaction_bytes = 800000u;
+  mutable_cf_options_.ignore_max_compaction_bytes_for_input = false;
   ioptions_.level_compaction_dynamic_level_bytes = false;
   NewVersionStorage(6, kCompactionStyleLevel);
   // A compaction should be triggered and pick file 2 and 5.
@@ -2384,6 +2386,7 @@ TEST_F(CompactionPickerTest, MaxCompactionBytesHit) {
 TEST_F(CompactionPickerTest, MaxCompactionBytesNotHit) {
   mutable_cf_options_.max_bytes_for_level_base = 800000u;
   mutable_cf_options_.max_compaction_bytes = 1000000u;
+  mutable_cf_options_.ignore_max_compaction_bytes_for_input = false;
   ioptions_.level_compaction_dynamic_level_bytes = false;
   NewVersionStorage(6, kCompactionStyleLevel);
   // A compaction should be triggered and pick file 2 and 5.
