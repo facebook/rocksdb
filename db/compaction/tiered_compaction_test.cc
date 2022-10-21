@@ -1434,6 +1434,60 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
   Close();
 }
 
+TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preclude_last_level_data_seconds = 60;
+  options.preserve_internal_time_seconds = 0;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  options.last_level_temperature = Temperature::kCold;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  dbfull()->TEST_WaitForPeridicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(10) + 1));
+  });
+
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    dbfull()->TEST_WaitForPeridicTaskRun([&] {
+      mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(2)));
+    });
+  }
+  ASSERT_OK(Flush());
+
+  TablePropertiesCollection tables_props;
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
+  ASSERT_EQ(tables_props.size(), 1);
+  ASSERT_FALSE(tables_props.begin()->second->seqno_to_time_mapping.empty());
+  SeqnoToTimeMapping tp_mapping;
+  ASSERT_OK(
+      tp_mapping.Add(tables_props.begin()->second->seqno_to_time_mapping));
+  ASSERT_OK(tp_mapping.Sort());
+  ASSERT_FALSE(tp_mapping.Empty());
+  auto seqs = tp_mapping.TEST_GetInternalMapping();
+  ASSERT_FALSE(seqs.empty());
+
+  // Wait more than preclude_last_level time, then make sure all the data is
+  // compacted to the last level even there's no write (no seqno -> time
+  // information was flushed to any SST).
+  mock_clock_->MockSleepForSeconds(100);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  Close();
+}
+
 #endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE

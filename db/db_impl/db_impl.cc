@@ -865,8 +865,11 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
 
   uint64_t seqno_time_cadence = 0;
   if (min_time_duration != std::numeric_limits<uint64_t>::max()) {
+    // round up to 1 when the time_duration is smaller than
+    // kMaxSeqnoTimePairsPerCF
     seqno_time_cadence =
-        min_time_duration / SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+        (min_time_duration + SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
+        SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
   }
 
   Status s;
