@@ -603,7 +603,7 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
       delete h;
       detached_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     } else {
-      UniqueId64x2 hashed_key = h->hashed_key;
+      Rollback(h->hashed_key, h);
 #ifndef NDEBUG
       // Mark slot as empty, with assertion
       old_meta = h->meta.exchange(0, std::memory_order_release);
@@ -614,7 +614,6 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
       h->meta.store(0, std::memory_order_release);
 #endif
       occupancy_.fetch_sub(1U, std::memory_order_release);
-      Rollback(hashed_key, h);
     }
     usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
@@ -699,6 +698,7 @@ void ClockHandleTable::Erase(const UniqueId64x2& hashed_key) {
                              std::memory_order_acq_rel)) {
                 // Took ownership
                 assert(hashed_key == h->hashed_key);
+                Rollback(hashed_key, h);
                 // TODO? Delay freeing?
                 h->FreeData();
                 usage_.fetch_sub(h->total_charge, std::memory_order_relaxed);
@@ -713,7 +713,6 @@ void ClockHandleTable::Erase(const UniqueId64x2& hashed_key) {
                 h->meta.store(0, std::memory_order_release);
 #endif
                 occupancy_.fetch_sub(1U, std::memory_order_release);
-                Rollback(hashed_key, h);
                 break;
               }
             }
@@ -795,7 +794,7 @@ void ClockHandleTable::EraseUnRefEntries() {
                                            << ClockHandle::kStateShift,
                                        std::memory_order_acquire)) {
       // Took ownership
-      UniqueId64x2 hashed_key = h.hashed_key;
+      Rollback(h.hashed_key, &h);
       h.FreeData();
       usage_.fetch_sub(h.total_charge, std::memory_order_relaxed);
 #ifndef NDEBUG
@@ -808,7 +807,6 @@ void ClockHandleTable::EraseUnRefEntries() {
       h.meta.store(0, std::memory_order_release);
 #endif
       occupancy_.fetch_sub(1U, std::memory_order_release);
-      Rollback(hashed_key, &h);
     }
   }
 }
@@ -920,7 +918,7 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
                   << ClockHandle::kStateShift,
               std::memory_order_acquire)) {
         // Took ownership
-        const UniqueId64x2& hashed_key = h.hashed_key;
+        Rollback(h.hashed_key, &h);
         // TODO? Delay freeing?
         h.FreeData();
         *freed_charge += h.total_charge;
@@ -934,7 +932,6 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
         h.meta.store(0, std::memory_order_release);
 #endif
         *freed_count += 1;
-        Rollback(hashed_key, &h);
       }
     }
 
