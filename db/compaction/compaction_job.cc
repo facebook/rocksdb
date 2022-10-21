@@ -793,6 +793,14 @@ Status CompactionJob::Run() {
 Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   assert(compact_);
 
+  if (compact_->compaction->penultimate_output_range_type ==
+      Compaction::PenultimateOutputRangeType::kError) {
+    fprintf(stdout, "JJJ8: fail");
+    ROCKS_LOG_INFO(db_options_.info_log, "JJJ9: failing the compaction");
+    LogFlush(db_options_.info_log);
+    assert(false);
+  }
+
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_INSTALL);
   db_mutex_->AssertHeld();
@@ -1980,8 +1988,20 @@ void CompactionJob::LogCompaction() {
         compaction->InputLevelSummary(&inputs_summary), compaction->score());
     char scratch[2345];
     compaction->Summary(scratch, sizeof(scratch));
-    ROCKS_LOG_INFO(db_options_.info_log, "[%s] Compaction start summary: %s\n",
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "[%s] JJJ4: Compaction start summary: %s\n",
                    cfd->GetName().c_str(), scratch);
+    if (compaction->penultimate_output_range_type ==
+        Compaction::PenultimateOutputRangeType::kError) {
+      fprintf(stdout, "JJJ1: %s\n",
+              compaction->penultimate_output_msg.str().c_str());
+      ROCKS_LOG_INFO(db_options_.info_log, "[%s] [JOB %d] JJJ2: %s\n",
+                     cfd->GetName().c_str(), job_id_,
+                     compaction->penultimate_output_msg.str().c_str());
+      LogFlush(db_options_.info_log);
+    } else {
+      fprintf(stdout, "JJJ3: just log\n");
+    }
     // build event logger report
     auto stream = event_logger_->Log();
     stream << "job" << job_id_ << "event"

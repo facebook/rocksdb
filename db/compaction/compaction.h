@@ -87,6 +87,13 @@ class Compaction {
                  BlobGarbageCollectionPolicy::kUseDefault,
              double blob_garbage_collection_age_cutoff = -1);
 
+  enum class PenultimateOutputRangeType : int {
+    kDisable,
+    kAllRange,
+    kLimited,
+    kError,
+  };
+
   // No copying allowed
   Compaction(const Compaction&) = delete;
   void operator=(const Compaction&) = delete;
@@ -377,14 +384,24 @@ class Compaction {
   }
 
   static constexpr int kInvalidLevel = -1;
+
   // Evaluate penultimate output level. If the compaction supports
   // per_key_placement feature, it returns the penultimate level number.
   // Otherwise, it's set to kInvalidLevel (-1), which means
   // output_to_penultimate_level is not supported.
+  // Note: even the penultimate level output is supported (PenultimateLevel !=
+  //  kInvalidLevel), some key range maybe unsafe to be outputted to the
+  //  penultimate level. The safe key range is populated by
+  //  `PopulatePenultimateLevelOutputRange()`.
   static int EvaluatePenultimateLevel(const VersionStorageInfo* vstorage,
                                       const ImmutableOptions& immutable_options,
                                       const int start_level,
                                       const int output_level);
+
+  PenultimateOutputRangeType penultimate_output_range_type =
+      PenultimateOutputRangeType::kAllRange;
+
+  std::stringstream penultimate_output_msg;
 
  private:
   // mark (or clear) all files that are being compacted

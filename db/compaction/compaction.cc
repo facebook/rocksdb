@@ -350,7 +350,6 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
                   &penultimate_level_smallest_user_key_,
                   &penultimate_level_largest_user_key_, exclude_level);
 
-#ifndef NDEBUG
   // ensure all files within the penultimate output range is included in the
   // compaction.
   // For example, there should not be like: S1,S3@L5 + S4@L6 are picked, but
@@ -375,12 +374,25 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
     // if the penultimate file is not included in the compaction, it should not
     // overlap with the penultimate output range
     if (penultimate_inputs.find(file->fd.GetNumber()) ==
-        penultimate_inputs.end()) {
-      assert(!OverlapPenultimateLevelOutputRange(file->smallest.user_key(),
-                                                 file->largest.user_key()));
+            penultimate_inputs.end() &&
+        OverlapPenultimateLevelOutputRange(file->smallest.user_key(),
+                                           file->largest.user_key())) {
+      penultimate_output_range_type = PenultimateOutputRangeType::kError;
+      penultimate_output_msg
+          << "comp reason: " << static_cast<int>(compaction_reason_)
+          << ". overlap file: " << file->fd.GetNumber()
+          << ". Penultimate range: "
+          << penultimate_level_smallest_user_key_.ToString(true) << "->"
+          << penultimate_level_largest_user_key_.ToString(true)
+          << ". Input files: ";
+      for (const auto& input : inputs_) {
+        penultimate_output_msg << "lvl: " << input.level << ". ";
+        for (const auto& f : input.files) {
+          penultimate_output_msg << f->fd.GetNumber() << ", ";
+        }
+      }
     }
   }
-#endif  // NDEBUG
 }
 
 Compaction::~Compaction() {
@@ -823,6 +835,9 @@ int Compaction::EvaluatePenultimateLevel(
   // If the penultimate level is not within input level -> output level range
   // check if the penultimate output level is empty, if it's empty, it could
   // also be locked for the penultimate output.
+  // TODO: ideally, it only needs to check if there's a file within the
+  //  compaction output key range. For simplicity, it just check if there's any
+  //  file on the penultimate level.
   if (start_level == immutable_options.num_levels - 1 &&
       (immutable_options.compaction_style != kCompactionStyleUniversal ||
        !vstorage->LevelFiles(penultimate_level).empty())) {
