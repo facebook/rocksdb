@@ -228,8 +228,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                 !user_comparator_->Equal(ikey.user_key, orig_ikey.user_key) &&
                 cmp_with_full_history_ts_low >= 0)) {
       // 1) hit a different user key, or
-      // 2) hit a version of user key NOT eligible for GC,
-      // then stop right here.
+      // 2) user-defined timestamp is enabled, and hit a version of user key NOT
+      // eligible for GC, then stop right here.
       hit_the_next_user_key = true;
       break;
     } else if (stop_before > 0 && ikey.sequence <= stop_before &&
@@ -395,6 +395,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   }
 
   if (cmp_with_full_history_ts_low >= 0) {
+    // If we reach here, and ts_sz == 0, it means compaction cannot perform
+    // merge with an earlier internal key, thus merge_context_.GetNumOperands()
+    // is 1.
     assert(ts_sz == 0 || merge_context_.GetNumOperands() == 1);
   }
 
@@ -411,6 +414,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // AND
   // we have either encountered another key or end of key history on this
   // layer.
+  // Note that if user-defined timestamp is enabled, we need some extra caution
+  // here: if full_history_ts_low is nullptr, or it's not null but the key's
+  // timestamp is greater than or equal to full_history_ts_low, it means this
+  // key cannot be dropped. We may not have seen the beginning of the key.
   //
   // When these conditions are true we are able to merge all the keys
   // using full merge.
