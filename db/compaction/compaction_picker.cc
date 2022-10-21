@@ -1050,12 +1050,6 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
                 " that has overlapping key range with one of the compaction "
                 " input file is currently being compacted.");
           }
-          if (output_level == 0 &&
-              next_lv_file.largest_seqno > earliest_mem_seqno) {
-            return Status::Aborted(
-                "File " + next_lv_file.name +
-                " has overlapping seqnos with earliest memtable seqnos.");
-          }
           input_files->insert(TableFileNameToNumber(next_lv_file.name));
         }
       }

@@ -1349,7 +1349,7 @@ Status DBImpl::CompactFilesImpl(
     earliest_mem_seqno =
         std::min(cfd->mem()->GetEarliestSequenceNumber(), earliest_mem_seqno);
   }
-  if (cfd->imm() != nullptr) {
+  if (cfd->imm() != nullptr && cfd->imm()->current() != nullptr) {
     earliest_mem_seqno =
         std::min(cfd->imm()->current()->GetEarliestSequenceNumber(false),
                  earliest_mem_seqno);

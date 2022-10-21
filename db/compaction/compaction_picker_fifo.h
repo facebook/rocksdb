@@ -22,13 +22,12 @@ class FIFOCompactionPicker : public CompactionPicker {
   virtual Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* version,
-      LogBuffer* log_buffer,
-      const SequenceNumber earliest_mem_seqno = kMaxSequenceNumber) override;
+      LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) override;
 
   // `earliest_mem_seqno`: see PickCompaction() API for more. In FIFO's
   // implementation of CompactRange(), different from others, we will not return
-  // `nullptr` when intput files of compaction to L0 has seqnos potentially
-  // overlapping with memtable's but exlucde those files.
+  // `nullptr` right away when intput files of compaction to L0 has seqnos
+  // potentially overlapping with memtable's but exlucde those files.
   virtual Compaction* CompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
@@ -37,7 +36,7 @@ class FIFOCompactionPicker : public CompactionPicker {
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
       uint64_t max_file_num_to_ignore, const std::string& trim_ts,
-      const SequenceNumber earliest_mem_seqno = kMaxSequenceNumber) override;
+      const SequenceNumber earliest_mem_seqno) override;
 
   // The maximum allowed output level.  Always returns 0.
   virtual int MaxOutputLevel() const override { return 0; }

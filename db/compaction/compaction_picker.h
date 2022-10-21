@@ -66,8 +66,7 @@ class CompactionPicker {
   virtual Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-      LogBuffer* log_buffer,
-      const SequenceNumber earliest_mem_seqno = kMaxSequenceNumber) = 0;
+      LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) = 0;
 
   // `earliest_mem_seqno`: see PickCompaction() API
   // Return a compaction object for compacting the range [begin,end] in
@@ -89,7 +88,7 @@ class CompactionPicker {
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
       uint64_t max_file_num_to_ignore, const std::string& trim_ts,
-      const SequenceNumber earliest_mem_seqno = kMaxSequenceNumber);
+      const SequenceNumber earliest_mem_seqno);
 
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
   virtual int MaxOutputLevel() const { return NumberLevels() - 1; }
@@ -104,7 +103,7 @@ class CompactionPicker {
 // non-ok status with specific reason.
 //
 // Cases of returning non-ok status include but not limited to:
-// - When output_level == 1 and input_files contains sst files
+// - When output_level == 0 and input_files contains sst files
 // of largest seqno greater than `earliest_mem_seqno`. This will
 // avoid creating a SST files in L0 newer than a unflushed memtable.
 // Such SST file can exist in the first place when it's ingested or
@@ -113,7 +112,7 @@ class CompactionPicker {
   Status SanitizeCompactionInputFiles(
       std::unordered_set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta, const int output_level,
-      const SequenceNumber earliest_mem_seqno = kMaxSequenceNumber) const;
+      const SequenceNumber earliest_mem_seqno) const;
 #endif  // ROCKSDB_LITE
 
   // Free up the files that participated in a compaction
@@ -250,7 +249,7 @@ class CompactionPicker {
   virtual Status SanitizeCompactionInputFilesForAllLevels(
       std::unordered_set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta, const int output_level,
-      const SequenceNumber earliest_mem_seqno = kMaxSequenceNumber) const;
+      const SequenceNumber earliest_mem_seqno) const;
 #endif  // ROCKSDB_LITE
 
   // Keeps track of all compactions that are running on Level0.
@@ -324,11 +323,12 @@ class NullCompactionPicker : public CompactionPicker {
 //
 // @param earliest_mem_seqno              See PickCompaction() API
 // @return                                true iff compaction was found.
-bool FindIntraL0Compaction(
-    const std::vector<FileMetaData*>& level_files, size_t min_files_to_compact,
-    uint64_t max_compact_bytes_per_del_file, uint64_t max_compaction_bytes,
-    CompactionInputFiles* comp_inputs,
-    const SequenceNumber earliest_mem_seqno = kMaxSequenceNumber);
+bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
+                           size_t min_files_to_compact,
+                           uint64_t max_compact_bytes_per_del_file,
+                           uint64_t max_compaction_bytes,
+                           CompactionInputFiles* comp_inputs,
+                           const SequenceNumber earliest_mem_seqno);
 
 CompressionType GetCompressionType(const VersionStorageInfo* vstorage,
                                    const MutableCFOptions& mutable_cf_options,
