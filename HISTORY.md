@@ -1,4 +1,6 @@
 # Rocksdb Change Log
+## Unreleased
+
 ## 7.8.0 (10/22/2022)
 ### New Features
 * `DeleteRange()` now supports user-defined timestamp.
