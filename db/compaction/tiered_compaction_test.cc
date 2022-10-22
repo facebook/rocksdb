@@ -1861,7 +1861,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
 struct TestPropertiesCollector : public TablePropertiesCollector {
   Status AddUserKey(const Slice& key, const Slice& /*value*/,
                     EntryType /*type*/, SequenceNumber /*seq*/,
-                    uint64_t file_size) override {
+                    uint64_t /*file_size*/) override {
     if (cmp->Compare(key, DBTestBase::Key(100)) == 0) {
       has_key_100 = true;
     }
@@ -1889,7 +1889,7 @@ struct TestPropertiesCollector : public TablePropertiesCollector {
     return ret;
   }
 
-  Status Finish(UserCollectedProperties* properties) override {
+  Status Finish(UserCollectedProperties* /*properties*/) override {
     return Status::OK();
   }
 
