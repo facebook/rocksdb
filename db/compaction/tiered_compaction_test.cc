@@ -1869,16 +1869,6 @@ struct TestPropertiesCollector : public TablePropertiesCollector {
       has_key_200 = true;
     }
 
-    // The LSM tree would be like:
-    // L5: [0,19] [20,39] [40,299]
-    // L6: [0,                299]
-    // the 3rd file @L5 has both 100 and 200, which will be marked for
-    // compaction
-    // Also avoid marking flushed SST for compaction, which won't have both 100
-    // and 200
-    if (has_key_100 && has_key_200) {
-      need_compact_ = true;
-    }
     return Status::OK();
   }
 
@@ -1890,6 +1880,20 @@ struct TestPropertiesCollector : public TablePropertiesCollector {
   }
 
   Status Finish(UserCollectedProperties* /*properties*/) override {
+    // The LSM tree would be like:
+    // L5: [0,19] [20,39] [40,299]
+    // L6: [0,                299]
+    // the 3rd file @L5 has both 100 and 200, which will be marked for
+    // compaction
+    // Also avoid marking flushed SST for compaction, which won't have both 100
+    // and 200
+    if (has_key_100 && has_key_200) {
+      need_compact_ = true;
+    } else {
+      need_compact_ = false;
+    }
+    has_key_100 = false;
+    has_key_200 = false;
     return Status::OK();
   }
 
@@ -1926,6 +1930,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompactionWithRangeDel) {
   options.num_levels = kNumLevels;
   // set a small max_compaction_bytes to avoid input level expansion
   options.max_compaction_bytes = 30000;
+  options.ignore_max_compaction_bytes_for_input = false;
   DestroyAndReopen(options);
 
   // pass some time first, otherwise the first a few keys write time are going
