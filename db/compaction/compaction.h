@@ -87,11 +87,13 @@ class Compaction {
                  BlobGarbageCollectionPolicy::kUseDefault,
              double blob_garbage_collection_age_cutoff = -1);
 
+  // The type of the penultimate level output range
   enum class PenultimateOutputRangeType : int {
-    kNotSupported,
-    kFullRange,
-    kNonLastRange,
-    kDisabled,
+    kNotSupported,  // it cannot output to the penultimate level
+    kFullRange,     // any data could be output to the penultimate level
+    kNonLastRange,  // only the keys within non_last_level compaction inputs can
+                    // be outputted to the penultimate level
+    kDisabled,      // no data can be outputted to the penultimate level
   };
 
   // No copying allowed
@@ -524,9 +526,9 @@ class Compaction {
 
   // Key range for penultimate level output
   // includes timestamp if user-defined timestamp is enabled.
+  // penultimate_output_range_type_ shows the range type
   Slice penultimate_level_smallest_user_key_;
   Slice penultimate_level_largest_user_key_;
-
   PenultimateOutputRangeType penultimate_output_range_type_ =
       PenultimateOutputRangeType::kNotSupported;
 };

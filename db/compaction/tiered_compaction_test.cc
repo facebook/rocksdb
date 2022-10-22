@@ -1858,8 +1858,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
   Close();
 }
 
-struct TestPropertiesCollector
-    : public TablePropertiesCollector {
+struct TestPropertiesCollector : public TablePropertiesCollector {
   Status AddUserKey(const Slice& key, const Slice& /*value*/,
                     EntryType /*type*/, SequenceNumber /*seq*/,
                     uint64_t file_size) override {
@@ -1885,8 +1884,7 @@ struct TestPropertiesCollector
 
   const char* Name() const override { return "TestTablePropertiesCollector"; }
 
-  UserCollectedProperties GetReadableProperties()
-      const override {
+  UserCollectedProperties GetReadableProperties() const override {
     UserCollectedProperties ret;
     return ret;
   }
@@ -1898,6 +1896,7 @@ struct TestPropertiesCollector
   bool NeedCompact() const override { return need_compact_; }
 
   const Comparator* cmp = BytewiseComparator();
+
  private:
   bool has_key_100 = false;
   bool has_key_200 = false;
@@ -1955,8 +1954,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompactionWithRangeDel) {
   options.sst_partitioner_factory = factory;
 
   // the user defined properties_collector will mark the 3rd file for compaction
-  auto collector_factory =
-      std::make_shared<TestPropertiesCollectorFactory>();
+  auto collector_factory = std::make_shared<TestPropertiesCollectorFactory>();
   options.table_properties_collector_factories.resize(1);
   options.table_properties_collector_factories[0] = collector_factory;
   // enable tiered storage feature

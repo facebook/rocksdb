@@ -355,7 +355,7 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
                   &penultimate_level_smallest_user_key_,
                   &penultimate_level_largest_user_key_, exclude_level);
 
-  // If there's cases that the penultimate level output range is overlapping
+  // If there's a case that the penultimate level output range is overlapping
   // with the existing files, disable the penultimate level output by setting
   // the range to empty. One example is the range delete could have overlap
   // boundary with the next file. (which is actually a false overlap)
@@ -376,8 +376,8 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
             penultimate_inputs.end() &&
         OverlapPenultimateLevelOutputRange(file->smallest.user_key(),
                                            file->largest.user_key())) {
-      // basically disable the penultimate range output. it should be improved
-      // later to reduce such case.
+      // basically disable the penultimate range output. which should be rare
+      // or a false overlap caused by range del
       penultimate_level_smallest_user_key_ = "";
       penultimate_level_largest_user_key_ = "";
       penultimate_output_range_type_ = PenultimateOutputRangeType::kDisabled;
