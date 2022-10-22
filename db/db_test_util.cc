@@ -487,8 +487,10 @@ Options DBTestBase::GetOptions(
     case kInfiniteMaxOpenFiles:
       options.max_open_files = -1;
       break;
-    case kXXH3Checksum: {
-      table_options.checksum = kXXH3;
+    case kCRC32cChecksum: {
+      // Old default was CRC32c, but XXH3 (new default) is faster on common
+      // hardware
+      table_options.checksum = kCRC32c;
       // Thrown in here for basic coverage:
       options.DisableExtraChecks();
       break;
