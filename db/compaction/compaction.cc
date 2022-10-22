@@ -325,7 +325,11 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
   // exclude the last level, the range of all input levels is the safe range
   // of keys that can be moved up.
   int exclude_level = number_levels_ - 1;
+  penultimate_output_range_type_ = PenultimateOutputRangeType::kNonLastRange;
 
+  // For universal compaction, the penultimate_output_range could be extended if
+  // all penultimate level files are included in the compaction (which includes
+  // the case that the penultimate level is empty).
   if (immutable_options_.compaction_style == kCompactionStyleUniversal) {
     exclude_level = kInvalidLevel;
     std::set<uint64_t> penultimate_inputs;
@@ -341,6 +345,7 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
       if (penultimate_inputs.find(file->fd.GetNumber()) ==
           penultimate_inputs.end()) {
         exclude_level = number_levels_ - 1;
+        penultimate_output_range_type_ = PenultimateOutputRangeType::kFullRange;
         break;
       }
     }
@@ -350,16 +355,12 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
                   &penultimate_level_smallest_user_key_,
                   &penultimate_level_largest_user_key_, exclude_level);
 
-  // ensure all files within the penultimate output range is included in the
-  // compaction.
-  // For example, there should not be like: S1,S3@L5 + S4@L6 are picked, but
-  // without S2.
-  // S2 should be auto included like in:
-  // `SanitizeCompactionInputFilesForAllLevels()`.
-  //  L5:   S1[10, 20]  S2[30, 40]  S3[50, 60]
-  //  L6:  S4[0,                             100]
-  // To support such case, multiple ranges of penultimate_level_output are
-  // needed.
+  // If there's cases that the penultimate level output range is overlapping
+  // with the existing files, disable the penultimate level output by setting
+  // the range to empty. One example is the range delete could have overlap
+  // boundary with the next file. (which is actually a false overlap)
+  // TODO: Exclude such false overlap, so it won't disable the penultimate
+  //  output.
   std::set<uint64_t> penultimate_inputs;
   for (const auto& input_lvl : inputs_) {
     if (input_lvl.level == penultimate_level_) {
@@ -371,26 +372,15 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
 
   auto penultimate_files = input_vstorage_->LevelFiles(penultimate_level_);
   for (const auto& file : penultimate_files) {
-    // if the penultimate file is not included in the compaction, it should not
-    // overlap with the penultimate output range
     if (penultimate_inputs.find(file->fd.GetNumber()) ==
             penultimate_inputs.end() &&
         OverlapPenultimateLevelOutputRange(file->smallest.user_key(),
                                            file->largest.user_key())) {
-      penultimate_output_range_type = PenultimateOutputRangeType::kError;
-      penultimate_output_msg
-          << "comp reason: " << static_cast<int>(compaction_reason_)
-          << ". overlap file: " << file->fd.GetNumber()
-          << ". Penultimate range: "
-          << penultimate_level_smallest_user_key_.ToString(true) << "->"
-          << penultimate_level_largest_user_key_.ToString(true)
-          << ". Input files: ";
-      for (const auto& input : inputs_) {
-        penultimate_output_msg << "lvl: " << input.level << ". ";
-        for (const auto& f : input.files) {
-          penultimate_output_msg << f->fd.GetNumber() << ", ";
-        }
-      }
+      // basically disable the penultimate range output. it should be improved
+      // later to reduce such case.
+      penultimate_level_smallest_user_key_ = "";
+      penultimate_level_largest_user_key_ = "";
+      penultimate_output_range_type_ = PenultimateOutputRangeType::kDisabled;
     }
   }
 }
@@ -429,6 +419,11 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
 // key includes timestamp if user-defined timestamp is enabled.
 bool Compaction::WithinPenultimateLevelOutputRange(const Slice& key) const {
   if (!SupportsPerKeyPlacement()) {
+    return false;
+  }
+
+  if (penultimate_level_smallest_user_key_.empty() ||
+      penultimate_level_largest_user_key_.empty()) {
     return false;
   }
 

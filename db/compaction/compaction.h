@@ -88,10 +88,10 @@ class Compaction {
              double blob_garbage_collection_age_cutoff = -1);
 
   enum class PenultimateOutputRangeType : int {
-    kDisable,
-    kAllRange,
-    kNonLastLevelRange,
-    kNone,
+    kNotSupported,
+    kFullRange,
+    kNonLastRange,
+    kDisabled,
   };
 
   // No copying allowed
@@ -325,6 +325,10 @@ class Compaction {
     return penultimate_level_largest_user_key_;
   }
 
+  PenultimateOutputRangeType GetPenultimateOutputRangeType() const {
+    return penultimate_output_range_type_;
+  }
+
   // Return true if the compaction supports per_key_placement
   bool SupportsPerKeyPlacement() const;
 
@@ -390,9 +394,10 @@ class Compaction {
   // Otherwise, it's set to kInvalidLevel (-1), which means
   // output_to_penultimate_level is not supported.
   // Note: even the penultimate level output is supported (PenultimateLevel !=
-  //  kInvalidLevel), some key range maybe unsafe to be outputted to the
-  //  penultimate level. The safe key range is populated by
-  //  `PopulatePenultimateLevelOutputRange()`.
+  // kInvalidLevel), some key range maybe unsafe to be outputted to the
+  // penultimate level. The safe key range is populated by
+  // `PopulatePenultimateLevelOutputRange()`.
+  // Which could potentially disable all penultimate level output.
   static int EvaluatePenultimateLevel(const VersionStorageInfo* vstorage,
                                       const ImmutableOptions& immutable_options,
                                       const int start_level,
@@ -523,7 +528,7 @@ class Compaction {
   Slice penultimate_level_largest_user_key_;
 
   PenultimateOutputRangeType penultimate_output_range_type_ =
-      PenultimateOutputRangeType::kAllRange;
+      PenultimateOutputRangeType::kNotSupported;
 };
 
 #ifndef NDEBUG

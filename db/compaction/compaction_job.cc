@@ -107,6 +107,23 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
   }
 }
 
+const char* GetCompactionPenultimateOutputRangeTypeString(
+    Compaction::PenultimateOutputRangeType range_type) {
+  switch (range_type) {
+    case Compaction::PenultimateOutputRangeType::kNotSupported:
+      return "NotSupported";
+    case Compaction::PenultimateOutputRangeType::kFullRange:
+      return "FullRange";
+    case Compaction::PenultimateOutputRangeType::kNonLastRange:
+      return "NonLastRange";
+    case Compaction::PenultimateOutputRangeType::kDisabled:
+      return "Disabled";
+    default:
+      assert(false);
+      return "Invalid";
+  }
+}
+
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const MutableDBOptions& mutable_db_options, const FileOptions& file_options,
@@ -792,14 +809,6 @@ Status CompactionJob::Run() {
 
 Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   assert(compact_);
-
-  if (compact_->compaction->penultimate_output_range_type ==
-      Compaction::PenultimateOutputRangeType::kError) {
-    fprintf(stdout, "JJJ8: fail");
-    ROCKS_LOG_INFO(db_options_.info_log, "JJJ9: failing the compaction");
-    LogFlush(db_options_.info_log);
-    assert(false);
-  }
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_INSTALL);
@@ -1988,20 +1997,8 @@ void CompactionJob::LogCompaction() {
         compaction->InputLevelSummary(&inputs_summary), compaction->score());
     char scratch[2345];
     compaction->Summary(scratch, sizeof(scratch));
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "[%s] JJJ4: Compaction start summary: %s\n",
+    ROCKS_LOG_INFO(db_options_.info_log, "[%s]: Compaction start summary: %s\n",
                    cfd->GetName().c_str(), scratch);
-    if (compaction->penultimate_output_range_type ==
-        Compaction::PenultimateOutputRangeType::kError) {
-      fprintf(stdout, "JJJ1: %s\n",
-              compaction->penultimate_output_msg.str().c_str());
-      ROCKS_LOG_INFO(db_options_.info_log, "[%s] [JOB %d] JJJ2: %s\n",
-                     cfd->GetName().c_str(), job_id_,
-                     compaction->penultimate_output_msg.str().c_str());
-      LogFlush(db_options_.info_log);
-    } else {
-      fprintf(stdout, "JJJ3: just log\n");
-    }
     // build event logger report
     auto stream = event_logger_->Log();
     stream << "job" << job_id_ << "event"
@@ -2025,10 +2022,18 @@ void CompactionJob::LogCompaction() {
       stream << "preclude_last_level_min_seqno"
              << preclude_last_level_min_seqno_;
       stream << "penultimate_output_level" << compaction->GetPenultimateLevel();
-      stream << "penultimate_level_smallest"
-             << compaction->GetPenultimateLevelSmallestUserKey().ToString(true);
-      stream << "penultimate_level_largest"
-             << compaction->GetPenultimateLevelLargestUserKey().ToString(true);
+      stream << "penultimate_output_range"
+             << GetCompactionPenultimateOutputRangeTypeString(
+                    compaction->GetPenultimateOutputRangeType());
+
+      if (compaction->GetPenultimateOutputRangeType() ==
+          Compaction::PenultimateOutputRangeType::kDisabled) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "[%s] [JOB %d] Penultimate level output is disabled, likely "
+            "because of the range conflict in the penultimate level",
+            cfd->GetName().c_str(), job_id_);
+      }
     }
   }
 }

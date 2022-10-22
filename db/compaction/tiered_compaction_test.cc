@@ -1863,7 +1863,21 @@ struct TestPropertiesCollector
   Status AddUserKey(const Slice& key, const Slice& /*value*/,
                     EntryType /*type*/, SequenceNumber /*seq*/,
                     uint64_t file_size) override {
-    if (file_size > 0) {
+    if (cmp->Compare(key, DBTestBase::Key(100)) == 0) {
+      has_key_100 = true;
+    }
+    if (cmp->Compare(key, DBTestBase::Key(200)) == 0) {
+      has_key_200 = true;
+    }
+
+    // The LSM tree would be like:
+    // L5: [0,19] [20,39] [40,299]
+    // L6: [0,                299]
+    // the 3rd file @L5 has both 100 and 200, which will be marked for
+    // compaction
+    // Also avoid marking flushed SST for compaction, which won't have both 100
+    // and 200
+    if (has_key_100 && has_key_200) {
       need_compact_ = true;
     }
     return Status::OK();
@@ -1885,6 +1899,9 @@ struct TestPropertiesCollector
 
   const Comparator* cmp = BytewiseComparator();
  private:
+  bool has_key_100 = false;
+  bool has_key_200 = false;
+
   bool need_compact_ = false;
 };
 
@@ -1908,7 +1925,8 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompactionWithRangeDel) {
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.preserve_internal_time_seconds = 10000;
   options.num_levels = kNumLevels;
-  options.max_compaction_bytes = 40000;
+  // set a small max_compaction_bytes to avoid input level expansion
+  options.max_compaction_bytes = 30000;
   DestroyAndReopen(options);
 
   // pass some time first, otherwise the first a few keys write time are going
@@ -1936,6 +1954,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompactionWithRangeDel) {
   auto factory = std::make_shared<ThreeRangesPartitionerFactory>();
   options.sst_partitioner_factory = factory;
 
+  // the user defined properties_collector will mark the 3rd file for compaction
   auto collector_factory =
       std::make_shared<TestPropertiesCollectorFactory>();
   options.table_properties_collector_factories.resize(1);
@@ -1952,63 +1971,39 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompactionWithRangeDel) {
     ASSERT_OK(Flush());
   }
 
+  // make sure there is one and only one compaction supports per-key placement
+  // but has the penultimate level output disabled.
+  std::atomic_int per_key_comp_num = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        auto compaction = static_cast<Compaction*>(arg);
+        if (compaction->SupportsPerKeyPlacement()) {
+          ASSERT_EQ(compaction->GetPenultimateOutputRangeType(),
+                    Compaction::PenultimateOutputRangeType::kDisabled);
+          per_key_comp_num++;
+        }
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
   for (int j = 0; j < 100; j++) {
     ASSERT_OK(Put(Key(200 + j), rnd.RandomString(10)));
   }
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
-                             Key(10), Key(20)));
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                              Key(32), Key(40)));
   ASSERT_OK(Flush());
 
+  // Before the per-key placement compaction, the LSM tress should be like:
+  // L5: [0,19] [20,40] [40,299]
+  // L6: [0,                299]
+  // The 2nd file @L5 has the largest key 40 because of range del
+
   ASSERT_OK(dbfull()->WaitForCompact(true));
 
-  // L5: [0,19] [20,39] [40,299]
-  // L6: [0,                299]
-  ASSERT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
+  ASSERT_EQ(per_key_comp_num, 1);
 
-
-
-  ColumnFamilyMetaData meta;
-  db_->GetColumnFamilyMetaData(&meta);
-  ASSERT_EQ(meta.levels[5].files.size(), 3);
-  ASSERT_EQ(meta.levels[6].files.size(), 1);
-  ASSERT_EQ(meta.levels[6].files[0].smallestkey, Key(0));
-  ASSERT_EQ(meta.levels[6].files[0].largestkey, Key(299));
-
-  std::string file_path = meta.levels[5].files[1].db_path;
-  std::vector<std::string> files;
-  // pick 3rd file @L5 + file@L6 for compaction
-  files.push_back(file_path + "/" + meta.levels[5].files[1].name);
-  files.push_back(file_path + "/" + meta.levels[6].files[0].name);
-  ASSERT_OK(db_->CompactFiles(CompactionOptions(), files, 6));
-
-  // The compaction only moved partial of the hot data to hot tier, range[0,39]
-  // is unsafe to move up, otherwise, they will be overlapped with the existing
-  // files@L5.
-  // The output should be:
-  //  L5: [0,19] [20,39] [40,299]    <-- Temperature::kUnknown
-  //  L6: [0,19] [20,39]             <-- Temperature::kCold
-  // L6 file is split because of the customized partitioner
-  ASSERT_EQ("0,0,0,0,0,3,2", FilesPerLevel());
-
-  // even all the data is hot, but not all data are moved to the hot tier
-  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
-
-  db_->GetColumnFamilyMetaData(&meta);
-  ASSERT_EQ(meta.levels[5].files.size(), 3);
-  ASSERT_EQ(meta.levels[6].files.size(), 2);
-  for (const auto& file : meta.levels[5].files) {
-    ASSERT_EQ(file.temperature, Temperature::kUnknown);
-  }
-  for (const auto& file : meta.levels[6].files) {
-    ASSERT_EQ(file.temperature, Temperature::kCold);
-  }
-  ASSERT_EQ(meta.levels[6].files[0].smallestkey, Key(0));
-  ASSERT_EQ(meta.levels[6].files[0].largestkey, Key(19));
-  ASSERT_EQ(meta.levels[6].files[1].smallestkey, Key(20));
-  ASSERT_EQ(meta.levels[6].files[1].largestkey, Key(39));
+  // the compaction won't move any data to the penultimate level
+  ASSERT_EQ("0,0,0,0,0,2,3", FilesPerLevel());
 
   Close();
 }
