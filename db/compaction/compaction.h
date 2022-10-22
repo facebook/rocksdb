@@ -90,8 +90,8 @@ class Compaction {
   enum class PenultimateOutputRangeType : int {
     kDisable,
     kAllRange,
-    kLimited,
-    kError,
+    kNonLastLevelRange,
+    kNone,
   };
 
   // No copying allowed
@@ -398,11 +398,6 @@ class Compaction {
                                       const int start_level,
                                       const int output_level);
 
-  PenultimateOutputRangeType penultimate_output_range_type =
-      PenultimateOutputRangeType::kAllRange;
-
-  std::stringstream penultimate_output_msg;
-
  private:
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
@@ -526,6 +521,9 @@ class Compaction {
   // includes timestamp if user-defined timestamp is enabled.
   Slice penultimate_level_smallest_user_key_;
   Slice penultimate_level_largest_user_key_;
+
+  PenultimateOutputRangeType penultimate_output_range_type_ =
+      PenultimateOutputRangeType::kAllRange;
 };
 
 #ifndef NDEBUG

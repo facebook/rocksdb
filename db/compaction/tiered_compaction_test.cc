@@ -1720,8 +1720,14 @@ class ThreeRangesPartitioner : public SstPartitioner {
 
   PartitionerResult ShouldPartition(
       const PartitionerRequest& request) override {
-    if (cmp->Compare(*request.current_user_key, DBTestBase::Key(20)) == 0 ||
-        cmp->Compare(*request.current_user_key, DBTestBase::Key(40)) == 0) {
+    if ((cmp->CompareWithoutTimestamp(*request.current_user_key,
+                                      DBTestBase::Key(20)) >= 0 &&
+         cmp->CompareWithoutTimestamp(*request.prev_user_key,
+                                      DBTestBase::Key(20)) < 0) ||
+        (cmp->CompareWithoutTimestamp(*request.current_user_key,
+                                      DBTestBase::Key(40)) >= 0 &&
+         cmp->CompareWithoutTimestamp(*request.prev_user_key,
+                                      DBTestBase::Key(40)) < 0)) {
       return kRequired;
     } else {
       return kNotRequired;
@@ -1819,6 +1825,161 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
   std::vector<std::string> files;
   // pick 3rd file @L5 + file@L6 for compaction
   files.push_back(file_path + "/" + meta.levels[5].files[2].name);
+  files.push_back(file_path + "/" + meta.levels[6].files[0].name);
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(), files, 6));
+
+  // The compaction only moved partial of the hot data to hot tier, range[0,39]
+  // is unsafe to move up, otherwise, they will be overlapped with the existing
+  // files@L5.
+  // The output should be:
+  //  L5: [0,19] [20,39] [40,299]    <-- Temperature::kUnknown
+  //  L6: [0,19] [20,39]             <-- Temperature::kCold
+  // L6 file is split because of the customized partitioner
+  ASSERT_EQ("0,0,0,0,0,3,2", FilesPerLevel());
+
+  // even all the data is hot, but not all data are moved to the hot tier
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  db_->GetColumnFamilyMetaData(&meta);
+  ASSERT_EQ(meta.levels[5].files.size(), 3);
+  ASSERT_EQ(meta.levels[6].files.size(), 2);
+  for (const auto& file : meta.levels[5].files) {
+    ASSERT_EQ(file.temperature, Temperature::kUnknown);
+  }
+  for (const auto& file : meta.levels[6].files) {
+    ASSERT_EQ(file.temperature, Temperature::kCold);
+  }
+  ASSERT_EQ(meta.levels[6].files[0].smallestkey, Key(0));
+  ASSERT_EQ(meta.levels[6].files[0].largestkey, Key(19));
+  ASSERT_EQ(meta.levels[6].files[1].smallestkey, Key(20));
+  ASSERT_EQ(meta.levels[6].files[1].largestkey, Key(39));
+
+  Close();
+}
+
+struct TestPropertiesCollector
+    : public TablePropertiesCollector {
+  Status AddUserKey(const Slice& key, const Slice& /*value*/,
+                    EntryType /*type*/, SequenceNumber /*seq*/,
+                    uint64_t file_size) override {
+    if (file_size > 0) {
+      need_compact_ = true;
+    }
+    return Status::OK();
+  }
+
+  const char* Name() const override { return "TestTablePropertiesCollector"; }
+
+  UserCollectedProperties GetReadableProperties()
+      const override {
+    UserCollectedProperties ret;
+    return ret;
+  }
+
+  Status Finish(UserCollectedProperties* properties) override {
+    return Status::OK();
+  }
+
+  bool NeedCompact() const override { return need_compact_; }
+
+  const Comparator* cmp = BytewiseComparator();
+ private:
+  bool need_compact_ = false;
+};
+
+class TestPropertiesCollectorFactory : public TablePropertiesCollectorFactory {
+ public:
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /*context*/) override {
+    return new TestPropertiesCollector;
+  }
+  const char* Name() const override { return "TestTablePropertiesCollector"; }
+};
+
+TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompactionWithRangeDel) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kKeyPerSec = 10;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.preserve_internal_time_seconds = 10000;
+  options.num_levels = kNumLevels;
+  options.max_compaction_bytes = 40000;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+
+  Random rnd(301);
+
+  for (int i = 0; i < 300; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    dbfull()->TEST_WaitForPeridicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
+  }
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // make sure all data is compacted to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  // Create 3 L5 files
+  auto factory = std::make_shared<ThreeRangesPartitionerFactory>();
+  options.sst_partitioner_factory = factory;
+
+  auto collector_factory =
+      std::make_shared<TestPropertiesCollectorFactory>();
+  options.table_properties_collector_factories.resize(1);
+  options.table_properties_collector_factories[0] = collector_factory;
+  // enable tiered storage feature
+  options.preclude_last_level_data_seconds = 10000;
+  options.last_level_temperature = Temperature::kCold;
+  Reopen(options);
+
+  for (int i = 0; i < kNumTrigger - 2; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 100 + j), rnd.RandomString(10)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  for (int j = 0; j < 100; j++) {
+    ASSERT_OK(Put(Key(200 + j), rnd.RandomString(10)));
+  }
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(10), Key(20)));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(32), Key(40)));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  // L5: [0,19] [20,39] [40,299]
+  // L6: [0,                299]
+  ASSERT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
+
+
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  ASSERT_EQ(meta.levels[5].files.size(), 3);
+  ASSERT_EQ(meta.levels[6].files.size(), 1);
+  ASSERT_EQ(meta.levels[6].files[0].smallestkey, Key(0));
+  ASSERT_EQ(meta.levels[6].files[0].largestkey, Key(299));
+
+  std::string file_path = meta.levels[5].files[1].db_path;
+  std::vector<std::string> files;
+  // pick 3rd file @L5 + file@L6 for compaction
+  files.push_back(file_path + "/" + meta.levels[5].files[1].name);
   files.push_back(file_path + "/" + meta.levels[6].files[0].name);
   ASSERT_OK(db_->CompactFiles(CompactionOptions(), files, 6));
 
