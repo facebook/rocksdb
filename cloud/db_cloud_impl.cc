@@ -188,7 +188,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     st = DB::Open(options, local_dbname, column_families, handles, &db);
   }
 
-  if (new_db && st.ok() && cenv->HasDestBucket()) {
+  if (new_db && st.ok() && cenv->HasDestBucket() &&
+      cenv->GetCloudEnvOptions().roll_cloud_manifest_on_open) {
     // This is a new database, upload the CLOUDMANIFEST after all MANIFEST file
     // was already uploaded. It is at this point we consider the database
     // committed in the cloud.

@@ -2499,6 +2499,7 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
   WriteOptions wo;
   wo.disableWAL = true;
   OpenDB();
+  SwitchToNewCookie("");
   db_->DisableFileDeletions();
 
   std::vector<LiveFileMetaData> files;
@@ -2511,8 +2512,8 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
   ASSERT_EQ(files.size(), 2);
 
   auto local_files = GetAllLocalFiles();
-  // CM, MANIFEST, CURRENT, IDENTITY, 2 sst files, wal directory
-  EXPECT_EQ(local_files.size(), 7);
+  // CM, MANIFEST1, MANIFEST2, CURRENT, IDENTITY, 2 sst files, wal directory
+  EXPECT_EQ(local_files.size(), 8);
 
   ASSERT_OK(GetDBImpl()->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
 
@@ -2522,7 +2523,7 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
 
   local_files = GetAllLocalFiles();
   // obsolete files are not deleted, also one extra sst files generated after compaction
-  EXPECT_EQ(local_files.size(), 8);
+  EXPECT_EQ(local_files.size(), 9);
 
   CloseDB();
 
