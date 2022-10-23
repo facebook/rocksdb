@@ -448,8 +448,8 @@ static bool isPCLMULQDQ() {
   __cpuidex(info, 0x00000001, 0);
   return (info[2] & ((int)1 << 1)) != 0;
 #elif defined(HAVE_SSE42)
-  // in build_detect_platform we set this macro when both SSE42 and PCLMULQDQ are
-  // supported by compiler
+  // in build_detect_platform we set this macro when both SSE42 and PCLMULQDQ
+  // are supported by compiler
   return true;
 #else
   return false;
@@ -571,7 +571,8 @@ std::string IsFastCrc32Supported() {
  * This version is from the folly library, created by Dave Watson <davejwatson@fb.com>
  *
 */
-#if (defined HAVE_SSE42 && defined HAVE_PCLMUL) || (defined ROCKSDB_PORTABLE && defined _MSC_VER)
+#if (defined HAVE_SSE42 && defined HAVE_PCLMUL) || \
+    (defined ROCKSDB_PORTABLE && defined _MSC_VER)
 
 #define CRCtriplet(crc, buf, offset)                  \
   crc##0 = _mm_crc32_u64(crc##0, *(buf##0 + offset)); \
