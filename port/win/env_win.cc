@@ -90,9 +90,8 @@ WinClock::WinClock()
 
   HMODULE module = GetModuleHandle("kernel32.dll");
   if (module != NULL) {
-    GetSystemTimePreciseAsFileTime_ =
-        (FnGetSystemTimePreciseAsFileTime)(void*)GetProcAddress(
-            module, "GetSystemTimePreciseAsFileTime");
+    GetSystemTimePreciseAsFileTime_ = (FnGetSystemTimePreciseAsFileTime)(
+        void*)GetProcAddress(module, "GetSystemTimePreciseAsFileTime");
   }
 }
 
