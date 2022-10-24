@@ -386,9 +386,9 @@ IOStatus TestFSRandomRWFile::Sync(const IOOptions& options,
   return target_->Sync(options, dbg);
 }
 
-TestFSRandomAccessFile::TestFSRandomAccessFile(const std::string& /*fname*/,
-                                       std::unique_ptr<FSRandomAccessFile>&& f,
-                                       FaultInjectionTestFS* fs)
+TestFSRandomAccessFile::TestFSRandomAccessFile(
+    const std::string& /*fname*/, std::unique_ptr<FSRandomAccessFile>&& f,
+    FaultInjectionTestFS* fs)
     : target_(std::move(f)), fs_(fs) {
   assert(target_ != nullptr);
 }
@@ -912,8 +912,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
   bool dummy_bool;
   bool& ret_fault_injected = fault_injected ? *fault_injected : dummy_bool;
   ret_fault_injected = false;
-  ErrorContext* ctx =
-        static_cast<ErrorContext*>(thread_local_error_->Get());
+  ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
     return IOStatus::OK();
   }
@@ -1019,8 +1018,7 @@ IOStatus FaultInjectionTestFS::InjectMetadataWriteError() {
 
 void FaultInjectionTestFS::PrintFaultBacktrace() {
 #if defined(OS_LINUX)
-  ErrorContext* ctx =
-        static_cast<ErrorContext*>(thread_local_error_->Get());
+  ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr) {
     return;
   }

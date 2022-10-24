@@ -7,8 +7,6 @@
 #include "table/block_based/block_based_table_reader.h"
 #ifndef ROCKSDB_LITE
 
-#include "utilities/cache_dump_load_impl.h"
-
 #include "cache/cache_entry_roles.h"
 #include "file/writable_file_writer.h"
 #include "port/lang.h"
@@ -17,6 +15,7 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "table/format.h"
 #include "util/crc32c.h"
+#include "utilities/cache_dump_load_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
