@@ -223,14 +223,16 @@ int main(int argc, char** argv) {
             ROCKSDB_NAMESPACE::PersistentRangeTombstone(
                 ROCKSDB_NAMESPACE::Key(start), ROCKSDB_NAMESPACE::Key(end), j);
       }
-      auto iter = ROCKSDB_NAMESPACE::MakeRangeDelIterator(
-                  persistent_range_tombstones);
+      auto iter =
+          ROCKSDB_NAMESPACE::MakeRangeDelIterator(persistent_range_tombstones);
       ROCKSDB_NAMESPACE::StopWatchNano stop_watch_fragment_tombstones(
           clock, true /* auto_start */);
       fragmented_range_tombstone_lists.emplace_back(
           new ROCKSDB_NAMESPACE::FragmentedRangeTombstoneList(
-              std::move(iter), icmp, true, snapshots));
-      stats.time_fragment_tombstones += stop_watch_fragment_tombstones.ElapsedNanos();
+              std::move(iter), icmp, FLAGS_use_compaction_range_del_aggregator,
+              snapshots));
+      stats.time_fragment_tombstones +=
+          stop_watch_fragment_tombstones.ElapsedNanos();
       std::unique_ptr<ROCKSDB_NAMESPACE::FragmentedRangeTombstoneIterator>
           fragmented_range_del_iter(
               new ROCKSDB_NAMESPACE::FragmentedRangeTombstoneIterator(

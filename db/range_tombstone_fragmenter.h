@@ -85,7 +85,7 @@ struct FragmentedRangeTombstoneList {
   // Returns true if the stored tombstones contain with one with a sequence
   // number in [lower, upper].
   // This method is not const as it internally lazy initialize a set of
-  // sequence numbers.
+  // sequence numbers (`seq_set_`).
   bool ContainsRange(SequenceNumber lower, SequenceNumber upper);
 
   uint64_t num_unfragmented_tombstones() const {
