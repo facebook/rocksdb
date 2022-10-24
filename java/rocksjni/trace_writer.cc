@@ -17,8 +17,8 @@
  * Method:    createNewTraceWriter
  * Signature: ()J
  */
-jlong Java_org_rocksdb_AbstractTraceWriter_createNewTraceWriter(
-    JNIEnv* env, jobject jobj) {
+jlong Java_org_rocksdb_AbstractTraceWriter_createNewTraceWriter(JNIEnv* env,
+                                                                jobject jobj) {
   auto* trace_writer = new ROCKSDB_NAMESPACE::TraceWriterJniCallback(env, jobj);
   return GET_CPLUSPLUS_POINTER(trace_writer);
 }
