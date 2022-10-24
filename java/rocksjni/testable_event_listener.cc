@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include <climits>
 #include <cstdint>
+#include <iostream>
 #include <utility>
 
 #include "include/org_rocksdb_test_TestableEventListener.h"
@@ -184,21 +185,23 @@ void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
   write_stall_info.condition.prev = WriteStallCondition::kStopped;
   el->OnStallConditionsChanged(write_stall_info);
 
-  FileOperationInfo op_info = FileOperationInfo(
-      FileOperationType::kRead, "/file/path",
+  const std::string file_path = "/file/path";
+  const auto start_timestamp =
       std::make_pair(std::chrono::time_point<std::chrono::system_clock,
                                              std::chrono::nanoseconds>(
                          std::chrono::nanoseconds(1600699420000000000ll)),
                      std::chrono::time_point<std::chrono::steady_clock,
                                              std::chrono::nanoseconds>(
-                         std::chrono::nanoseconds(1600699420000000000ll))),
+                         std::chrono::nanoseconds(1600699420000000000ll)));
+  const auto finish_timestamp =
       std::chrono::time_point<std::chrono::steady_clock,
                               std::chrono::nanoseconds>(
-          std::chrono::nanoseconds(1600699425000000000ll)),
-      status);
+          std::chrono::nanoseconds(1600699425000000000ll));
+  FileOperationInfo op_info =
+      FileOperationInfo(FileOperationType::kRead, file_path, start_timestamp,
+                        finish_timestamp, status);
   op_info.offset = UINT64_MAX;
   op_info.length = SIZE_MAX;
-  op_info.status = status;
 
   el->OnFileReadFinish(op_info);
   el->OnFileWriteFinish(op_info);

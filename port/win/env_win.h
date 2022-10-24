@@ -57,6 +57,10 @@ class WinEnvThreads {
 
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const;
 
+  int ReserveThreads(int threads_to_be_reserved, Env::Priority pri);
+
+  int ReleaseThreads(int threads_to_be_released, Env::Priority pri);
+
   static uint64_t gettid();
 
   uint64_t GetThreadID() const;
@@ -80,8 +84,8 @@ class WinClock : public SystemClock {
   virtual ~WinClock() {}
 
   static const char* kClassName() { return "WindowsClock"; }
-  const char* Name() const override { return kClassName(); }
-  const char* NickName() const override { return kDefaultName(); }
+  const char* Name() const override { return kDefaultName(); }
+  const char* NickName() const override { return kClassName(); }
 
   uint64_t NowMicros() override;
 
@@ -278,6 +282,10 @@ class WinEnv : public CompositeEnv {
   void WaitForJoin() override;
 
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const override;
+
+  int ReserveThreads(int threads_to_be_reserved, Env::Priority pri) override;
+
+  int ReleaseThreads(int threads_to_be_released, Env::Priority pri) override;
 
   uint64_t GetThreadID() const override;
 

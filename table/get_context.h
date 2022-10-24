@@ -15,6 +15,7 @@ class Comparator;
 class Logger;
 class MergeContext;
 class MergeOperator;
+class PinnableWideColumns;
 class PinnedIteratorsManager;
 class Statistics;
 class SystemClock;
@@ -53,7 +54,6 @@ struct GetContextStats {
   // MultiGet stats.
   uint64_t num_filter_read = 0;
   uint64_t num_index_read = 0;
-  uint64_t num_data_read = 0;
   uint64_t num_sst_read = 0;
 };
 
@@ -75,6 +75,8 @@ class GetContext {
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
     kUnexpectedBlobIndex,
+    // TODO: remove once wide-column entities are supported by Get/MultiGet
+    kUnexpectedWideColumnEntity,
   };
   GetContextStats get_context_stats_;
 
@@ -100,7 +102,8 @@ class GetContext {
   // merge_context and they are never merged. The value pointer is untouched.
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, PinnableSlice* value, bool* value_found,
+             const Slice& user_key, PinnableSlice* value,
+             PinnableWideColumns* columns, bool* value_found,
              MergeContext* merge_context, bool do_merge,
              SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
              SequenceNumber* seq = nullptr,
@@ -110,8 +113,8 @@ class GetContext {
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value,
-             std::string* timestamp, bool* value_found,
-             MergeContext* merge_context, bool do_merge,
+             PinnableWideColumns* columns, std::string* timestamp,
+             bool* value_found, MergeContext* merge_context, bool do_merge,
              SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
@@ -143,6 +146,14 @@ class GetContext {
 
   SequenceNumber* max_covering_tombstone_seq() {
     return max_covering_tombstone_seq_;
+  }
+
+  bool NeedTimestamp() { return timestamp_ != nullptr; }
+
+  void SetTimestampFromRangeTombstone(const Slice& timestamp) {
+    assert(timestamp_);
+    timestamp_->assign(timestamp.data(), timestamp.size());
+    ts_from_rangetombstone_ = true;
   }
 
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
@@ -185,7 +196,9 @@ class GetContext {
   GetState state_;
   Slice user_key_;
   PinnableSlice* pinnable_val_;
+  PinnableWideColumns* columns_;
   std::string* timestamp_;
+  bool ts_from_rangetombstone_{false};
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   SequenceNumber* max_covering_tombstone_seq_;

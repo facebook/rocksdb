@@ -37,16 +37,19 @@ class SanityTest {
     Options options = GetOptions();
     options.create_if_missing = true;
     std::string dbname = path_ + Name();
-    DestroyDB(dbname, options);
+    Status s = DestroyDB(dbname, options);
+    if (!s.ok()) {
+      return s;
+    }
     DB* db = nullptr;
-    Status s = DB::Open(options, dbname, &db);
+    s = DB::Open(options, dbname, &db);
     std::unique_ptr<DB> db_guard(db);
     if (!s.ok()) {
       return s;
     }
     for (int i = 0; i < 1000000; ++i) {
-      std::string k = "key" + ToString(i);
-      std::string v = "value" + ToString(i);
+      std::string k = "key" + std::to_string(i);
+      std::string v = "value" + std::to_string(i);
       s = db->Put(WriteOptions(), Slice(k), Slice(v));
       if (!s.ok()) {
         return s;
@@ -63,8 +66,8 @@ class SanityTest {
       return s;
     }
     for (int i = 0; i < 1000000; ++i) {
-      std::string k = "key" + ToString(i);
-      std::string v = "value" + ToString(i);
+      std::string k = "key" + std::to_string(i);
+      std::string v = "value" + std::to_string(i);
       std::string result;
       s = db->Get(ReadOptions(), Slice(k), &result);
       if (!s.ok()) {

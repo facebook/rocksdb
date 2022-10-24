@@ -23,13 +23,6 @@
 
 #define __declspec(S)
 
-#define ROCKSDB_NOEXCEPT noexcept
-
-// thread_local is part of C++11 and later (TODO: clean up this define)
-#ifndef __thread
-#define __thread thread_local
-#endif
-
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
   #include <machine/endian.h>
@@ -95,16 +88,6 @@ namespace ROCKSDB_NAMESPACE {
 extern const bool kDefaultToAdaptiveMutex;
 
 namespace port {
-
-// For use at db/file_indexer.h kLevelMaxIndex
-const uint32_t kMaxUint32 = std::numeric_limits<uint32_t>::max();
-const int kMaxInt32 = std::numeric_limits<int32_t>::max();
-const int kMinInt32 = std::numeric_limits<int32_t>::min();
-const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
-const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
-const int64_t kMinInt64 = std::numeric_limits<int64_t>::min();
-const size_t kMaxSizet = std::numeric_limits<size_t>::max();
-
 constexpr bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
 #undef PLATFORM_IS_LITTLE_ENDIAN
 
@@ -112,6 +95,8 @@ class CondVar;
 
 class Mutex {
  public:
+  static const char* kName() { return "pthread_mutex_t"; }
+
   explicit Mutex(bool adaptive = kDefaultToAdaptiveMutex);
   // No copying
   Mutex(const Mutex&) = delete;
@@ -127,6 +112,11 @@ class Mutex {
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
   void AssertHeld();
+
+  // Also implement std Lockable
+  inline void lock() { Lock(); }
+  inline void unlock() { Unlock(); }
+  inline bool try_lock() { return TryLock(); }
 
  private:
   friend class CondVar;
@@ -175,7 +165,7 @@ static inline void AsmVolatilePause() {
 #if defined(__i386__) || defined(__x86_64__)
   asm volatile("pause");
 #elif defined(__aarch64__)
-  asm volatile("yield");
+  asm volatile("isb");
 #elif defined(__powerpc64__)
   asm volatile("or 27,27,27");
 #endif
@@ -219,7 +209,16 @@ extern void *cacheline_aligned_alloc(size_t size);
 
 extern void cacheline_aligned_free(void *memblock);
 
+#if defined(__aarch64__)
+//  __builtin_prefetch(..., 1) turns into a prefetch into prfm pldl3keep. On
+// arm64 we want this as close to the core as possible to turn it into a
+// L1 prefetech unless locality == 0 in which case it will be turned into a
+// non-temporal prefetch
+#define PREFETCH(addr, rw, locality) \
+  __builtin_prefetch(addr, rw, locality >= 1 ? 3 : locality)
+#else
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
+#endif
 
 extern void Crash(const std::string& srcfile, int srcline);
 

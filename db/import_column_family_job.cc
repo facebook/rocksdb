@@ -1,3 +1,9 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 #ifndef ROCKSDB_LITE
 
 #include "db/import_column_family_job.h"
@@ -15,6 +21,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
+#include "table/unique_id_impl.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -97,11 +104,15 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
         hardlink_files = false;
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "Try to link file %s but it's not supported : %s",
+                       f.internal_file_path.c_str(), status.ToString().c_str());
       }
     }
     if (!hardlink_files) {
-      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync, io_tracer_);
+      status =
+          CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                   db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
     }
     if (!status.ok()) {
       break;
@@ -155,7 +166,7 @@ Status ImportColumnFamilyJob::Run() {
                   file_metadata.largest_seqno, false, file_metadata.temperature,
                   kInvalidBlobFileNumber, oldest_ancester_time, current_time,
                   kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                  kDisableUserTimestamp, kDisableUserTimestamp);
+                  f.unique_id);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
@@ -283,6 +294,15 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   file_to_import->cf_id = static_cast<uint32_t>(props->column_family_id);
 
   file_to_import->table_properties = *props;
+
+  auto s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                                  props->orig_file_number,
+                                  &(file_to_import->unique_id));
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get SST unique id for file %s",
+                   file_to_import->internal_file_path.c_str());
+  }
 
   return status;
 }

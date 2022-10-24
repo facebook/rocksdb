@@ -13,12 +13,17 @@
 #include <string>
 
 #include "db/db_test_util.h"
+#include "options/cf_options.h"
 #include "port/stack_trace.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/perf_level.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block.h"
+#include "table/format.h"
+#include "table/meta_blocks.h"
+#include "table/table_builder.h"
 #include "test_util/mock_time_env.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -588,9 +593,9 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     ResetTableProperties(&sum_tp);
     for (int level = 0; level < kMaxLevel; ++level) {
-      db_->GetProperty(
-          DB::Properties::kAggregatedTablePropertiesAtLevel + ToString(level),
-          &level_tp_strings[level]);
+      db_->GetProperty(DB::Properties::kAggregatedTablePropertiesAtLevel +
+                           std::to_string(level),
+                       &level_tp_strings[level]);
       ParseTablePropertiesString(level_tp_strings[level], &level_tps[level]);
       sum_tp.data_size += level_tps[level].data_size;
       sum_tp.index_size += level_tps[level].index_size;
@@ -1067,10 +1072,16 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   const int kNumEntriesPerFile = 1000;
 
   Options options = CurrentOptions();
-  options.compression_per_level = {kNoCompression, kSnappyCompression};
   options.disable_auto_compactions = true;
-  options.num_levels = 2;
+  options.num_levels = 3;
   Reopen(options);
+
+  ASSERT_OK(db_->SetOptions(
+      {{"compression_per_level", "kNoCompression:kSnappyCompression"}}));
+  auto opts = db_->GetOptions();
+  ASSERT_EQ(opts.compression_per_level.size(), 2);
+  ASSERT_EQ(opts.compression_per_level[0], kNoCompression);
+  ASSERT_EQ(opts.compression_per_level[1], kSnappyCompression);
 
   // compression ratio is -1.0 when no open files at level
   ASSERT_EQ(CompressionRatioAtLevel(0), -1.0);
@@ -1080,7 +1091,7 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
     for (int j = 0; j < kNumEntriesPerFile; ++j) {
       // Put common data ("key") at end to prevent delta encoding from
       // compressing the key effectively
-      std::string key = ToString(i) + ToString(j) + "key";
+      std::string key = std::to_string(i) + std::to_string(j) + "key";
       ASSERT_OK(dbfull()->Put(WriteOptions(), key, kVal));
     }
     ASSERT_OK(Flush());
@@ -1174,7 +1185,7 @@ class CountingDeleteTabPropCollector : public TablePropertiesCollector {
 
   Status Finish(UserCollectedProperties* properties) override {
     *properties =
-        UserCollectedProperties{{"num_delete", ToString(num_deletes_)}};
+        UserCollectedProperties{{"num_delete", std::to_string(num_deletes_)}};
     return Status::OK();
   }
 
@@ -1204,7 +1215,7 @@ class BlockCountingTablePropertiesCollector : public TablePropertiesCollector {
 
   Status Finish(UserCollectedProperties* properties) override {
     (*properties)[kNumSampledBlocksPropertyName] =
-        ToString(num_sampled_blocks_);
+        std::to_string(num_sampled_blocks_);
     return Status::OK();
   }
 
@@ -1214,7 +1225,7 @@ class BlockCountingTablePropertiesCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  void BlockAdd(uint64_t /* block_raw_bytes */,
+  void BlockAdd(uint64_t /* block_uncomp_bytes */,
                 uint64_t block_compressed_bytes_fast,
                 uint64_t block_compressed_bytes_slow) override {
     if (block_compressed_bytes_fast > 0 || block_compressed_bytes_slow > 0) {
@@ -1224,7 +1235,7 @@ class BlockCountingTablePropertiesCollector : public TablePropertiesCollector {
 
   UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{
-        {kNumSampledBlocksPropertyName, ToString(num_sampled_blocks_)},
+        {kNumSampledBlocksPropertyName, std::to_string(num_sampled_blocks_)},
     };
   }
 
@@ -1261,7 +1272,8 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(db_->Put(WriteOptions(), ToString(table * 100 + i), "val"));
+      ASSERT_OK(
+          db_->Put(WriteOptions(), std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(db_->Flush(FlushOptions()));
   }
@@ -1301,7 +1313,7 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Create 2 files
   for (int table = 0; table < 2; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(1, ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(1, std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush(1));
   }
@@ -1311,7 +1323,7 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Trigger automatic compactions.
   for (int table = 0; table < 3; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(1, ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(1, std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush(1));
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -1328,7 +1340,7 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Create 4 tables in default column family
   for (int table = 0; table < 2; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush());
   }
@@ -1338,7 +1350,7 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Trigger automatic compactions.
   for (int table = 0; table < 3; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -1534,7 +1546,7 @@ TEST_F(DBPropertiesTest, BlockAddForCompressionSampling) {
                   user_props.end());
       ASSERT_EQ(user_props.at(BlockCountingTablePropertiesCollector::
                                   kNumSampledBlocksPropertyName),
-                ToString(sample_for_compression ? 1 : 0));
+                std::to_string(sample_for_compression ? 1 : 0));
     }
   }
 }
@@ -1731,11 +1743,11 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   Reopen(options);
 
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put("key" + ToString(i), std::string(1000, 'v')));
+    ASSERT_OK(Put("key" + std::to_string(i), std::string(1000, 'v')));
   }
   ASSERT_OK(Flush());
   for (int i = 0; i < 5; i++) {
-    ASSERT_OK(Delete("key" + ToString(i)));
+    ASSERT_OK(Delete("key" + std::to_string(i)));
   }
   ASSERT_OK(Flush());
   uint64_t sst_size;
@@ -1804,6 +1816,85 @@ TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(listener->Validated());
+}
+
+TEST_F(DBPropertiesTest, BlobCacheProperties) {
+  Options options;
+  uint64_t value;
+
+  options.env = CurrentOptions().env;
+
+  // Test with empty blob cache.
+  constexpr size_t kCapacity = 100;
+  LRUCacheOptions co;
+  co.capacity = kCapacity;
+  co.num_shard_bits = 0;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto blob_cache = NewLRUCache(co);
+  options.blob_cache = blob_cache;
+
+  Reopen(options);
+
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  ASSERT_EQ(0, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
+
+  // Insert unpinned blob to the cache and check size.
+  constexpr size_t kSize1 = 70;
+  ASSERT_OK(blob_cache->Insert("blob1", nullptr /*value*/, kSize1,
+                               nullptr /*deleter*/));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  ASSERT_EQ(kSize1, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
+
+  // Insert pinned blob to the cache and check size.
+  constexpr size_t kSize2 = 60;
+  Cache::Handle* blob2 = nullptr;
+  ASSERT_OK(blob_cache->Insert("blob2", nullptr /*value*/, kSize2,
+                               nullptr /*deleter*/, &blob2));
+  ASSERT_NE(nullptr, blob2);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  // blob1 is evicted.
+  ASSERT_EQ(kSize2, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(kSize2, value);
+
+  // Insert another pinned blob to make the cache over-sized.
+  constexpr size_t kSize3 = 80;
+  Cache::Handle* blob3 = nullptr;
+  ASSERT_OK(blob_cache->Insert("blob3", nullptr /*value*/, kSize3,
+                               nullptr /*deleter*/, &blob3));
+  ASSERT_NE(nullptr, blob3);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  ASSERT_EQ(kSize2 + kSize3, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(kSize2 + kSize3, value);
+
+  // Check size after release.
+  blob_cache->Release(blob2);
+  blob_cache->Release(blob3);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  // blob2 will be evicted, while blob3 remain in cache after release.
+  ASSERT_EQ(kSize3, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
 }
 
 TEST_F(DBPropertiesTest, BlockCacheProperties) {
@@ -1984,6 +2075,121 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
   }
 
   Close();
+}
+
+TEST_F(DBPropertiesTest, GetMapPropertyBlockCacheEntryStats) {
+  // Currently only verifies the expected properties are present
+  std::map<std::string, std::string> values;
+  ASSERT_TRUE(
+      db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
+
+  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::CacheId()) !=
+              values.end());
+  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::CacheCapacityBytes()) !=
+              values.end());
+  ASSERT_TRUE(
+      values.find(
+          BlockCacheEntryStatsMapKeys::LastCollectionDurationSeconds()) !=
+      values.end());
+  ASSERT_TRUE(
+      values.find(BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds()) !=
+      values.end());
+  for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
+    CacheEntryRole role = static_cast<CacheEntryRole>(i);
+    ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::EntryCount(role)) !=
+                values.end());
+    ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::UsedBytes(role)) !=
+                values.end());
+    ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::UsedPercent(role)) !=
+                values.end());
+  }
+
+  // There should be no extra values in the map.
+  ASSERT_EQ(3 * kNumCacheEntryRoles + 4, values.size());
+}
+
+namespace {
+std::string PopMetaIndexKey(InternalIterator* meta_iter) {
+  Status s = meta_iter->status();
+  if (!s.ok()) {
+    return s.ToString();
+  } else if (meta_iter->Valid()) {
+    std::string rv = meta_iter->key().ToString();
+    meta_iter->Next();
+    return rv;
+  } else {
+    return "NOT_FOUND";
+  }
+}
+
+}  // namespace
+
+TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
+  // This is to detect unexpected churn in metaindex block keys. This is more
+  // of a "table test" but table_test.cc doesn't depend on db_test_util.h and
+  // we need ChangeOptions() for broad coverage.
+  constexpr int kKeyCount = 100;
+  do {
+    Options options;
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    // Create an SST file
+    for (int key = 0; key < kKeyCount; key++) {
+      ASSERT_OK(Put(Key(key), "val"));
+    }
+    ASSERT_OK(Flush());
+
+    // Find its file number
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    // 1 SST file
+    ASSERT_EQ(1, files.size());
+
+    // Open it for inspection
+    std::string sst_file =
+        files[0].directory + "/" + files[0].relative_filename;
+    std::unique_ptr<FSRandomAccessFile> f;
+    ASSERT_OK(env_->GetFileSystem()->NewRandomAccessFile(
+        sst_file, FileOptions(), &f, nullptr));
+    std::unique_ptr<RandomAccessFileReader> r;
+    r.reset(new RandomAccessFileReader(std::move(f), sst_file));
+    uint64_t file_size = 0;
+    ASSERT_OK(env_->GetFileSize(sst_file, &file_size));
+
+    // Read metaindex
+    BlockContents bc;
+    ASSERT_OK(ReadMetaIndexBlockInFile(r.get(), file_size, 0U,
+                                       ImmutableOptions(options), &bc));
+    Block metaindex_block(std::move(bc));
+    std::unique_ptr<InternalIterator> meta_iter;
+    meta_iter.reset(metaindex_block.NewMetaIterator());
+    meta_iter->SeekToFirst();
+
+    if (strcmp(options.table_factory->Name(),
+               TableFactory::kBlockBasedTableName()) == 0) {
+      auto bbto = options.table_factory->GetOptions<BlockBasedTableOptions>();
+      if (bbto->filter_policy) {
+        if (bbto->partition_filters) {
+          // The key names are intentionally hard-coded here to detect
+          // accidental regression on compatibility.
+          EXPECT_EQ("partitionedfilter.rocksdb.BuiltinBloomFilter",
+                    PopMetaIndexKey(meta_iter.get()));
+        } else {
+          EXPECT_EQ("fullfilter.rocksdb.BuiltinBloomFilter",
+                    PopMetaIndexKey(meta_iter.get()));
+        }
+      }
+      if (bbto->index_type == BlockBasedTableOptions::kHashSearch) {
+        EXPECT_EQ("rocksdb.hashindex.metadata",
+                  PopMetaIndexKey(meta_iter.get()));
+        EXPECT_EQ("rocksdb.hashindex.prefixes",
+                  PopMetaIndexKey(meta_iter.get()));
+      }
+    }
+    EXPECT_EQ("rocksdb.properties", PopMetaIndexKey(meta_iter.get()));
+    EXPECT_EQ("NOT_FOUND", PopMetaIndexKey(meta_iter.get()));
+  } while (ChangeOptions());
 }
 
 #endif  // ROCKSDB_LITE

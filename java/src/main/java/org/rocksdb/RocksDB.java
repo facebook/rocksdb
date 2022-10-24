@@ -5,11 +5,12 @@
 
 package org.rocksdb;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -22,7 +23,7 @@ import org.rocksdb.util.Environment;
  * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
-  public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes();
+  public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes(UTF_8);
   public static final int NOT_FOUND = -1;
 
   private enum LibraryState {
@@ -1041,23 +1042,6 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Remove the database entry (if any) for "key".  Returns OK on
-   * success, and a non-OK status on error.  It is not an error if "key"
-   * did not exist in the database.
-   *
-   * @param key Key to delete within database
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #delete(byte[])}
-   */
-  @Deprecated
-  public void remove(final byte[] key) throws RocksDBException {
-    delete(key);
-  }
-
-  /**
    * Delete the database entry (if any) for "key".  Returns OK on
    * success, and a non-OK status on error.  It is not an error if "key"
    * did not exist in the database.
@@ -1088,26 +1072,6 @@ public class RocksDB extends RocksObject {
   public void delete(final byte[] key, final int offset, final int len)
       throws RocksDBException {
     delete(nativeHandle_, key, offset, len);
-  }
-
-  /**
-   * Remove the database entry (if any) for "key".  Returns OK on
-   * success, and a non-OK status on error.  It is not an error if "key"
-   * did not exist in the database.
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance
-   * @param key Key to delete within database
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #delete(ColumnFamilyHandle, byte[])}
-   */
-  @Deprecated
-  public void remove(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key) throws RocksDBException {
-    delete(columnFamilyHandle, key);
   }
 
   /**
@@ -1150,25 +1114,6 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Remove the database entry (if any) for "key".  Returns OK on
-   * success, and a non-OK status on error.  It is not an error if "key"
-   * did not exist in the database.
-   *
-   * @param writeOpt WriteOptions to be used with delete operation
-   * @param key Key to delete within database
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #delete(WriteOptions, byte[])}
-   */
-  @Deprecated
-  public void remove(final WriteOptions writeOpt, final byte[] key)
-      throws RocksDBException {
-    delete(writeOpt, key);
-  }
-
-  /**
    * Delete the database entry (if any) for "key".  Returns OK on
    * success, and a non-OK status on error.  It is not an error if "key"
    * did not exist in the database.
@@ -1202,27 +1147,6 @@ public class RocksDB extends RocksObject {
   public void delete(final WriteOptions writeOpt, final byte[] key,
       final int offset, final int len) throws RocksDBException {
     delete(nativeHandle_, writeOpt.nativeHandle_, key, offset, len);
-  }
-
-  /**
-   * Remove the database entry (if any) for "key".  Returns OK on
-   * success, and a non-OK status on error.  It is not an error if "key"
-   * did not exist in the database.
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance
-   * @param writeOpt WriteOptions to be used with delete operation
-   * @param key Key to delete within database
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #delete(ColumnFamilyHandle, WriteOptions, byte[])}
-   */
-  @Deprecated
-  public void remove(final ColumnFamilyHandle columnFamilyHandle,
-      final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
-    delete(columnFamilyHandle, writeOpt, key);
   }
 
   /**
@@ -2201,205 +2125,6 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Returns a map of keys for which values were found in DB.
-   *
-   * @param keys List of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   * entry is the corresponding value in DB.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Consider {@link #multiGetAsList(List)} instead.
-   */
-  @Deprecated
-  public Map<byte[], byte[]> multiGet(final List<byte[]> keys)
-      throws RocksDBException {
-    assert(keys.size() != 0);
-
-    final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int[] keyOffsets = new int[keysArray.length];
-    final int[] keyLengths = new int[keysArray.length];
-    for(int i = 0; i < keyLengths.length; i++) {
-      keyLengths[i] = keysArray[i].length;
-    }
-
-    final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
-        keyLengths);
-
-    final Map<byte[], byte[]> keyValueMap =
-        new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if(values[i] == null) {
-        continue;
-      }
-
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-
-    return keyValueMap;
-  }
-
-  /**
-   * Returns a map of keys for which values were found in DB.
-   * <p>
-   * Note: Every key needs to have a related column family name in
-   * {@code columnFamilyHandleList}.
-   * </p>
-   *
-   * @param columnFamilyHandleList {@link java.util.List} containing
-   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
-   * @param keys List of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   *     entry is the corresponding value in DB.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   * @throws IllegalArgumentException thrown if the size of passed keys is not
-   *    equal to the amount of passed column family handles.
-   *
-   * @deprecated Consider {@link #multiGetAsList(List, List)} instead.
-   */
-  @Deprecated
-  public Map<byte[], byte[]> multiGet(
-      final List<ColumnFamilyHandle> columnFamilyHandleList,
-      final List<byte[]> keys) throws RocksDBException,
-      IllegalArgumentException {
-    assert(keys.size() != 0);
-    // Check if key size equals cfList size. If not a exception must be
-    // thrown. If not a Segmentation fault happens.
-    if (keys.size() != columnFamilyHandleList.size()) {
-      throw new IllegalArgumentException(
-          "For each key there must be a ColumnFamilyHandle.");
-    }
-    final long[] cfHandles = new long[columnFamilyHandleList.size()];
-    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
-      cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
-    }
-
-    final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int[] keyOffsets = new int[keysArray.length];
-    final int[] keyLengths = new int[keysArray.length];
-    for(int i = 0; i < keyLengths.length; i++) {
-      keyLengths[i] = keysArray[i].length;
-    }
-
-    final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
-        keyLengths, cfHandles);
-
-    final Map<byte[], byte[]> keyValueMap =
-        new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if (values[i] == null) {
-        continue;
-      }
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-    return keyValueMap;
-  }
-
-  /**
-   * Returns a map of keys for which values were found in DB.
-   *
-   * @param opt Read options.
-   * @param keys of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   *     entry is the corresponding value in DB.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Consider {@link #multiGetAsList(ReadOptions, List)} instead.
-   */
-  @Deprecated
-  public Map<byte[], byte[]> multiGet(final ReadOptions opt,
-      final List<byte[]> keys) throws RocksDBException {
-    assert(keys.size() != 0);
-
-    final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int[] keyOffsets = new int[keysArray.length];
-    final int[] keyLengths = new int[keysArray.length];
-    for(int i = 0; i < keyLengths.length; i++) {
-      keyLengths[i] = keysArray[i].length;
-    }
-
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
-        keysArray, keyOffsets, keyLengths);
-
-    final Map<byte[], byte[]> keyValueMap =
-        new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if(values[i] == null) {
-        continue;
-      }
-
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-
-    return keyValueMap;
-  }
-
-  /**
-   * Returns a map of keys for which values were found in DB.
-   * <p>
-   * Note: Every key needs to have a related column family name in
-   * {@code columnFamilyHandleList}.
-   * </p>
-   *
-   * @param opt Read options.
-   * @param columnFamilyHandleList {@link java.util.List} containing
-   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
-   * @param keys of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   *     entry is the corresponding value in DB.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   * @throws IllegalArgumentException thrown if the size of passed keys is not
-   *    equal to the amount of passed column family handles.
-   *
-   * @deprecated Consider {@link #multiGetAsList(ReadOptions, List, List)}
-   *     instead.
-   */
-  @Deprecated
-  public Map<byte[], byte[]> multiGet(final ReadOptions opt,
-      final List<ColumnFamilyHandle> columnFamilyHandleList,
-      final List<byte[]> keys) throws RocksDBException {
-    assert(keys.size() != 0);
-    // Check if key size equals cfList size. If not a exception must be
-    // thrown. If not a Segmentation fault happens.
-    if (keys.size()!=columnFamilyHandleList.size()){
-      throw new IllegalArgumentException(
-          "For each key there must be a ColumnFamilyHandle.");
-    }
-    final long[] cfHandles = new long[columnFamilyHandleList.size()];
-    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
-      cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
-    }
-
-    final byte[][] keysArray = keys.toArray(new byte[0][]);
-    final int[] keyOffsets = new int[keysArray.length];
-    final int[] keyLengths = new int[keysArray.length];
-    for(int i = 0; i < keyLengths.length; i++) {
-      keyLengths[i] = keysArray[i].length;
-    }
-
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
-        keysArray, keyOffsets, keyLengths, cfHandles);
-
-    final Map<byte[], byte[]> keyValueMap
-        = new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if(values[i] == null) {
-        continue;
-      }
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-
-    return keyValueMap;
-  }
-
-  /**
    * Takes a list of keys, and returns a list of values for the given list of
    * keys. List will contain null for keys which could not be found.
    *
@@ -2573,6 +2298,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if error happens in underlying native library.
    * @throws IllegalArgumentException thrown if the number of passed keys and passed values
    * do not match.
+   * @return the list of values for the given list of keys
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
       final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
@@ -2595,6 +2321,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if error happens in underlying native library.
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
+   * @return the list of values for the given list of keys
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
@@ -2618,6 +2345,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if error happens in underlying native library.
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
+   * @return the list of values for the given list of keys
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
@@ -3581,9 +3309,7 @@ public class RocksDB extends RocksObject {
    *
    * <p><strong>See also</strong></p>
    * <ul>
-   * <li>{@link #compactRange(boolean, int, int)}</li>
    * <li>{@link #compactRange(byte[], byte[])}</li>
-   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
    * </ul>
    *
    * @throws RocksDBException thrown if an error occurs within the native
@@ -3602,14 +3328,7 @@ public class RocksDB extends RocksObject {
    * <p><strong>See also</strong></p>
    * <ul>
    * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
-   * </li>
-   * <li>
    *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
-   *   boolean, int, int)}
    * </li>
    * </ul>
    *
@@ -3635,8 +3354,6 @@ public class RocksDB extends RocksObject {
    * <p><strong>See also</strong></p>
    * <ul>
    * <li>{@link #compactRange()}</li>
-   * <li>{@link #compactRange(boolean, int, int)}</li>
-   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
    * </ul>
    *
    * @param begin start of key range (included in range)
@@ -3659,13 +3376,6 @@ public class RocksDB extends RocksObject {
    * <p><strong>See also</strong></p>
    * <ul>
    * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
-   *   boolean, int, int)}
-   * </li>
    * </ul>
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
@@ -3683,174 +3393,6 @@ public class RocksDB extends RocksObject {
         begin, begin == null ? -1 : begin.length,
         end, end == null ? -1 : end.length,
         0, columnFamilyHandle == null ? 0: columnFamilyHandle.nativeHandle_);
-  }
-
-  /**
-   * <p>Range compaction of database.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange()}</li>
-   * <li>{@link #compactRange(byte[], byte[])}</li>
-   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
-   *
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(final boolean changeLevel, final int targetLevel,
-      final int targetPathId) throws RocksDBException {
-    compactRange(null, changeLevel, targetLevel, targetPathId);
-  }
-
-  /**
-   * <p>Range compaction of column family.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
-   *   boolean, int, int)}
-   * </li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance, or null for the default column family.
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(
-    /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-    final boolean changeLevel, final int targetLevel, final int targetPathId)
-      throws RocksDBException {
-    final CompactRangeOptions options = new CompactRangeOptions();
-    options.setChangeLevel(changeLevel);
-    options.setTargetLevel(targetLevel);
-    options.setTargetPathId(targetPathId);
-    compactRange(nativeHandle_,
-        null, -1,
-        null, -1,
-        options.nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
-  }
-
-  /**
-   * <p>Range compaction of database.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange()}</li>
-   * <li>{@link #compactRange(boolean, int, int)}</li>
-   * <li>{@link #compactRange(byte[], byte[])}</li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)}
-   *     instead
-   *
-   * @param begin start of key range (included in range)
-   * @param end end of key range (excluded from range)
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(final byte[] begin, final byte[] end,
-      final boolean changeLevel, final int targetLevel,
-      final int targetPathId) throws RocksDBException {
-    compactRange(null, begin, end, changeLevel, targetLevel, targetPathId);
-  }
-
-  /**
-   * <p>Range compaction of column family.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
-   * </li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance.
-   * @param begin start of key range (included in range)
-   * @param end end of key range (excluded from range)
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] begin, final byte[] end, final boolean changeLevel,
-      final int targetLevel, final int targetPathId)
-      throws RocksDBException {
-    final CompactRangeOptions options = new CompactRangeOptions();
-    options.setChangeLevel(changeLevel);
-    options.setTargetLevel(targetLevel);
-    options.setTargetPathId(targetPathId);
-    compactRange(nativeHandle_,
-        begin, begin == null ? -1 : begin.length,
-        end, end == null ? -1 : end.length,
-        options.nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**

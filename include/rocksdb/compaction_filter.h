@@ -43,6 +43,7 @@ class CompactionFilter : public Customizable {
     kRemoveAndSkipUntil,
     kChangeBlobIndex,  // used internally by BlobDB.
     kIOError,          // used internally by BlobDB.
+    kPurge,            // used for keys that can only be SingleDelete'ed
     kUndetermined,
   };
 

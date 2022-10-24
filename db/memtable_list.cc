@@ -105,21 +105,23 @@ int MemTableList::NumFlushed() const {
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
+                              PinnableWideColumns* columns,
                               std::string* timestamp, Status* s,
                               MergeContext* merge_context,
                               SequenceNumber* max_covering_tombstone_seq,
                               SequenceNumber* seq, const ReadOptions& read_opts,
                               ReadCallback* callback, bool* is_blob_index) {
-  return GetFromList(&memlist_, key, value, timestamp, s, merge_context,
-                     max_covering_tombstone_seq, seq, read_opts, callback,
-                     is_blob_index);
+  return GetFromList(&memlist_, key, value, columns, timestamp, s,
+                     merge_context, max_covering_tombstone_seq, seq, read_opts,
+                     callback, is_blob_index);
 }
 
 void MemTableListVersion::MultiGet(const ReadOptions& read_options,
                                    MultiGetRange* range,
                                    ReadCallback* callback) {
   for (auto memtable : memlist_) {
-    memtable->MultiGet(read_options, range, callback);
+    memtable->MultiGet(read_options, range, callback,
+                       true /* immutable_memtable */);
     if (range->empty()) {
       return;
     }
@@ -130,9 +132,10 @@ bool MemTableListVersion::GetMergeOperands(
     const LookupKey& key, Status* s, MergeContext* merge_context,
     SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {
   for (MemTable* memtable : memlist_) {
-    bool done = memtable->Get(key, /*value*/ nullptr, /*timestamp*/ nullptr, s,
-                              merge_context, max_covering_tombstone_seq,
-                              read_opts, nullptr, nullptr, false);
+    bool done = memtable->Get(
+        key, /*value=*/nullptr, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
+        merge_context, max_covering_tombstone_seq, read_opts,
+        true /* immutable_memtable */, nullptr, nullptr, false);
     if (done) {
       return true;
     }
@@ -141,27 +144,31 @@ bool MemTableListVersion::GetMergeOperands(
 }
 
 bool MemTableListVersion::GetFromHistory(
-    const LookupKey& key, std::string* value, std::string* timestamp, Status* s,
-    MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
-    SequenceNumber* seq, const ReadOptions& read_opts, bool* is_blob_index) {
-  return GetFromList(&memlist_history_, key, value, timestamp, s, merge_context,
-                     max_covering_tombstone_seq, seq, read_opts,
+    const LookupKey& key, std::string* value, PinnableWideColumns* columns,
+    std::string* timestamp, Status* s, MergeContext* merge_context,
+    SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
+    const ReadOptions& read_opts, bool* is_blob_index) {
+  return GetFromList(&memlist_history_, key, value, columns, timestamp, s,
+                     merge_context, max_covering_tombstone_seq, seq, read_opts,
                      nullptr /*read_callback*/, is_blob_index);
 }
 
 bool MemTableListVersion::GetFromList(
     std::list<MemTable*>* list, const LookupKey& key, std::string* value,
-    std::string* timestamp, Status* s, MergeContext* merge_context,
-    SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
-    const ReadOptions& read_opts, ReadCallback* callback, bool* is_blob_index) {
+    PinnableWideColumns* columns, std::string* timestamp, Status* s,
+    MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
+    SequenceNumber* seq, const ReadOptions& read_opts, ReadCallback* callback,
+    bool* is_blob_index) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
+    assert(memtable->IsFragmentedRangeTombstonesConstructed());
     SequenceNumber current_seq = kMaxSequenceNumber;
 
-    bool done = memtable->Get(key, value, timestamp, s, merge_context,
-                              max_covering_tombstone_seq, &current_seq,
-                              read_opts, callback, is_blob_index);
+    bool done =
+        memtable->Get(key, value, columns, timestamp, s, merge_context,
+                      max_covering_tombstone_seq, &current_seq, read_opts,
+                      true /* immutable_memtable */, callback, is_blob_index);
     if (*seq == kMaxSequenceNumber) {
       // Store the most recent sequence number of any operation on this key.
       // Since we only care about the most recent change, we only need to
@@ -194,8 +201,10 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
                                 ? read_opts.snapshot->GetSequenceNumber()
                                 : kMaxSequenceNumber;
   for (auto& m : memlist_) {
+    assert(m->IsFragmentedRangeTombstonesConstructed());
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-        m->NewRangeTombstoneIterator(read_opts, read_seq));
+        m->NewRangeTombstoneIterator(read_opts, read_seq,
+                                     true /* immutable_memtable */));
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }
   return Status::OK();
@@ -209,11 +218,33 @@ void MemTableListVersion::AddIterators(
   }
 }
 
-void MemTableListVersion::AddIterators(
-    const ReadOptions& options, MergeIteratorBuilder* merge_iter_builder) {
+void MemTableListVersion::AddIterators(const ReadOptions& options,
+                                       MergeIteratorBuilder* merge_iter_builder,
+                                       bool add_range_tombstone_iter) {
   for (auto& m : memlist_) {
-    merge_iter_builder->AddIterator(
-        m->NewIterator(options, merge_iter_builder->GetArena()));
+    auto mem_iter = m->NewIterator(options, merge_iter_builder->GetArena());
+    if (!add_range_tombstone_iter || options.ignore_range_deletions) {
+      merge_iter_builder->AddIterator(mem_iter);
+    } else {
+      // Except for snapshot read, using kMaxSequenceNumber is OK because these
+      // are immutable memtables.
+      SequenceNumber read_seq = options.snapshot != nullptr
+                                    ? options.snapshot->GetSequenceNumber()
+                                    : kMaxSequenceNumber;
+      TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
+      auto range_del_iter = m->NewRangeTombstoneIterator(
+          options, read_seq, true /* immutale_memtable */);
+      if (range_del_iter == nullptr || range_del_iter->empty()) {
+        delete range_del_iter;
+      } else {
+        mem_tombstone_iter = new TruncatedRangeDelIterator(
+            std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
+            &m->GetInternalKeyComparator(), nullptr /* smallest */,
+            nullptr /* largest */);
+      }
+      merge_iter_builder->AddPointAndTombstoneIterator(mem_iter,
+                                                       mem_tombstone_iter);
+    }
   }
 }
 
@@ -253,6 +284,15 @@ SequenceNumber MemTableListVersion::GetEarliestSequenceNumber(
   } else {
     return kMaxSequenceNumber;
   }
+}
+
+SequenceNumber MemTableListVersion::GetFirstSequenceNumber() const {
+  SequenceNumber min_first_seqno = kMaxSequenceNumber;
+  // The first memtable in the list might not be the oldest one with mempurge
+  for (const auto& m : memlist_) {
+    min_first_seqno = std::min(m->GetFirstSequenceNumber(), min_first_seqno);
+  }
+  return min_first_seqno;
 }
 
 // caller is responsible for referencing m
@@ -336,9 +376,18 @@ bool MemTableList::IsFlushPending() const {
   return false;
 }
 
+bool MemTableList::IsFlushPendingOrRunning() const {
+  if (current_->memlist_.size() - num_flush_not_started_ > 0) {
+    // Flush is already running on at least one memtable
+    return true;
+  }
+  return IsFlushPending();
+}
+
 // Returns the memtables that need to be flushed.
 void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
-                                        autovector<MemTable*>* ret) {
+                                        autovector<MemTable*>* ret,
+                                        uint64_t* max_next_log_number) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
@@ -349,8 +398,7 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
   // iterating through the memlist starting at the end, the vector<MemTable*>
   // ret is filled with memtables already sorted in increasing MemTable ID.
   // However, when the mempurge feature is activated, new memtables with older
-  // IDs will be added to the memlist. Therefore we std::sort(ret) at the end to
-  // return a vector of memtables sorted by increasing memtable ID.
+  // IDs will be added to the memlist.
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
     if (!atomic_flush && m->atomic_flush_seqno_ != kMaxSequenceNumber) {
@@ -366,21 +414,16 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
         imm_flush_needed.store(false, std::memory_order_release);
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
+      if (max_next_log_number) {
+        *max_next_log_number =
+            std::max(m->GetNextLogNumber(), *max_next_log_number);
+      }
       ret->push_back(m);
     }
   }
   if (!atomic_flush || num_flush_not_started_ == 0) {
     flush_requested_ = false;  // start-flush request is complete
   }
-
-  // Sort the list of memtables by increasing memtable ID.
-  // This is useful when the mempurge feature is activated
-  // and the memtables are not guaranteed to be sorted in
-  // the memlist vector.
-  std::sort(ret->begin(), ret->end(),
-            [](const MemTable* m1, const MemTable* m2) -> bool {
-              return m1->GetID() < m2->GetID();
-            });
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
@@ -412,7 +455,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer,
     std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
-    IOStatus* io_s, bool write_edits) {
+    bool write_edits) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -494,8 +537,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
     // TODO(myabandeh): Not sure how batch_count could be 0 here.
     if (batch_count > 0) {
       uint64_t min_wal_number_to_keep = 0;
+      assert(edit_list.size() > 0);
       if (vset->db_options()->allow_2pc) {
-        assert(edit_list.size() > 0);
         // Note that if mempurge is successful, the edit_list will
         // not be applicable (contains info of new min_log number to keep,
         // and level 0 file path of SST file created during normal flush,
@@ -504,24 +547,26 @@ Status MemTableList::TryInstallMemtableFlushResults(
         min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
 
-        // We piggyback the information of  earliest log file to keep in the
+        // We piggyback the information of earliest log file to keep in the
         // manifest entry for the last file flushed.
-        edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
+      } else {
+        min_wal_number_to_keep =
+            PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
       }
 
-      std::unique_ptr<VersionEdit> wal_deletion;
+      VersionEdit wal_deletion;
+      wal_deletion.SetMinLogNumberToKeep(min_wal_number_to_keep);
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
-        if (!vset->db_options()->allow_2pc) {
-          min_wal_number_to_keep =
-              PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
-        }
         if (min_wal_number_to_keep >
             vset->GetWalSet().GetMinWalNumberToKeep()) {
-          wal_deletion.reset(new VersionEdit);
-          wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
-          edit_list.push_back(wal_deletion.get());
+          wal_deletion.DeleteWalsBefore(min_wal_number_to_keep);
         }
+        TEST_SYNC_POINT_CALLBACK(
+            "MemTableList::TryInstallMemtableFlushResults:"
+            "AfterComputeMinWalToKeep",
+            nullptr);
       }
+      edit_list.push_back(&wal_deletion);
 
       const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,
                                       to_delete, mu](const Status& status) {
@@ -534,7 +579,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
                               db_directory, /*new_descriptor_log=*/false,
                               /*column_family_options=*/nullptr,
                               manifest_write_cb);
-        *io_s = vset->io_status();
       } else {
         // If write_edit is false (e.g: successful mempurge),
         // then remove old memtables, wake up manifest write queue threads,
@@ -550,7 +594,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // TODO(bjlemaire): explain full reason WakeUpWaitingManifestWriters
         // needed or investigate more.
         vset->WakeUpWaitingManifestWriters();
-        *io_s = IOStatus::OK();
       }
     }
   }
@@ -805,22 +848,19 @@ Status InstallMemtableAtomicFlushResults(
   if (vset->db_options()->allow_2pc) {
     min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
         vset, cfds, edit_lists, mems_list, prep_tracker);
-    edit_lists.back().back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
+  } else {
+    min_wal_number_to_keep =
+        PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
   }
 
-  std::unique_ptr<VersionEdit> wal_deletion;
-  if (vset->db_options()->track_and_verify_wals_in_manifest) {
-    if (!vset->db_options()->allow_2pc) {
-      min_wal_number_to_keep =
-          PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
-    }
-    if (min_wal_number_to_keep > vset->GetWalSet().GetMinWalNumberToKeep()) {
-      wal_deletion.reset(new VersionEdit);
-      wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
-      edit_lists.back().push_back(wal_deletion.get());
-      ++num_entries;
-    }
+  VersionEdit wal_deletion;
+  wal_deletion.SetMinLogNumberToKeep(min_wal_number_to_keep);
+  if (vset->db_options()->track_and_verify_wals_in_manifest &&
+      min_wal_number_to_keep > vset->GetWalSet().GetMinWalNumberToKeep()) {
+    wal_deletion.DeleteWalsBefore(min_wal_number_to_keep);
   }
+  edit_lists.back().push_back(&wal_deletion);
+  ++num_entries;
 
   // Mark the version edits as an atomic group if the number of version edits
   // exceeds 1.

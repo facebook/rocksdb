@@ -766,7 +766,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
       for (size_t k = 0; k < 200; ++k) {
-        internal_iter->AddPut("c", ToString(k));
+        internal_iter->AddPut("c", std::to_string(k));
       }
       internal_iter->Finish();
 
@@ -780,7 +780,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       ASSERT_TRUE(db_iter->Valid());
 
       ASSERT_EQ(db_iter->key().ToString(), "c");
-      ASSERT_EQ(db_iter->value().ToString(), ToString(i));
+      ASSERT_EQ(db_iter->value().ToString(), std::to_string(i));
       db_iter->Prev();
       ASSERT_TRUE(db_iter->Valid());
 
@@ -925,11 +925,11 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
       for (size_t k = 0; k < 200; ++k) {
-        internal_iter->AddPut("d", ToString(k));
+        internal_iter->AddPut("d", std::to_string(k));
       }
 
       for (size_t k = 0; k < 200; ++k) {
-        internal_iter->AddPut("c", ToString(k));
+        internal_iter->AddPut("c", std::to_string(k));
       }
       internal_iter->Finish();
 
@@ -942,7 +942,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       ASSERT_TRUE(db_iter->Valid());
 
       ASSERT_EQ(db_iter->key().ToString(), "d");
-      ASSERT_EQ(db_iter->value().ToString(), ToString(i));
+      ASSERT_EQ(db_iter->value().ToString(), std::to_string(i));
       db_iter->Prev();
       ASSERT_TRUE(db_iter->Valid());
 
@@ -966,7 +966,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       internal_iter->AddMerge("b", "b");
       internal_iter->AddMerge("a", "a");
       for (size_t k = 0; k < 200; ++k) {
-        internal_iter->AddMerge("c", ToString(k));
+        internal_iter->AddMerge("c", std::to_string(k));
       }
       internal_iter->Finish();
 
@@ -981,7 +981,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       ASSERT_EQ(db_iter->key().ToString(), "c");
       std::string merge_result = "0";
       for (size_t j = 1; j <= i; ++j) {
-        merge_result += "," + ToString(j);
+        merge_result += "," + std::to_string(j);
       }
       ASSERT_EQ(db_iter->value().ToString(), merge_result);
 
@@ -3156,7 +3156,7 @@ TEST_F(DBIteratorTest, ReverseToForwardWithDisappearingKeys) {
   internal_iter->AddPut("a", "A");
   internal_iter->AddPut("b", "B");
   for (int i = 0; i < 100; ++i) {
-    internal_iter->AddPut("c" + ToString(i), "");
+    internal_iter->AddPut("c" + std::to_string(i), "");
   }
   internal_iter->Finish();
 
@@ -3187,6 +3187,7 @@ TEST_F(DBIteratorTest, ReverseToForwardWithDisappearingKeys) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

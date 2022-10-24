@@ -44,6 +44,7 @@
 #include "env/unique_id_gen.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
+#include "options/options_helper.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -84,6 +85,8 @@ struct Deleter {
 
   void (*fn_)(void*);
 };
+
+extern "C" bool RocksDbIOUringEnable() { return true; }
 
 std::unique_ptr<char, Deleter> NewAligned(const size_t size, const char ch) {
   char* ptr = nullptr;
@@ -836,11 +839,136 @@ TEST_P(EnvPosixTestWithParam, DecreaseNumBgThreads) {
   WaitThreadPoolsEmpty();
 }
 
-#if (defined OS_LINUX || defined OS_WIN)
-// Travis doesn't support fallocate or getting unique ID from files for whatever
-// reason.
-#ifndef TRAVIS
+TEST_P(EnvPosixTestWithParam, ReserveThreads) {
+  // Initialize the background thread to 1 in case other threads exist
+  // from the last unit test
+  env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+  ASSERT_EQ(env_->GetBackgroundThreads(Env::HIGH), 1);
+  constexpr int kWaitMicros = 10000000;  // 10seconds
+  std::vector<test::SleepingBackgroundTask> tasks(4);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // Set the sync point to ensure thread 0 can terminate
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"ThreadPoolImpl::BGThread::Termination:th0",
+        "EnvTest::ReserveThreads:0"}});
+  // Empty the thread pool to ensure all the threads can start later
+  env_->SetBackgroundThreads(0, Env::Priority::HIGH);
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:0");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  // Set the sync point to ensure threads start and pass the sync point
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"ThreadPoolImpl::BGThread::Start:th0", "EnvTest::ReserveThreads:1"},
+       {"ThreadPoolImpl::BGThread::Start:th1", "EnvTest::ReserveThreads:2"},
+       {"ThreadPoolImpl::BGThread::Start:th2", "EnvTest::ReserveThreads:3"},
+       {"ThreadPoolImpl::BGThread::Start:th3", "EnvTest::ReserveThreads:4"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  // Set number of thread to 3 first.
+  env_->SetBackgroundThreads(3, Env::Priority::HIGH);
+  ASSERT_EQ(env_->GetBackgroundThreads(Env::HIGH), 3);
+  // Add sync points to ensure all 3 threads start
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:1");
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:2");
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:3");
+  // Reserve 2 threads
+  ASSERT_EQ(2, env_->ReserveThreads(2, Env::Priority::HIGH));
+
+  // Schedule 3 tasks. Task 0 running (in this context, doing
+  // SleepingBackgroundTask); Task 1, 2 waiting; 3 reserved threads.
+  for (size_t i = 0; i < 3; i++) {
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &tasks[i],
+                   Env::Priority::HIGH);
+  }
+  ASSERT_FALSE(tasks[0].TimedWaitUntilSleeping(kWaitMicros));
+  ASSERT_EQ(2U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[0].IsSleeping());
+  ASSERT_TRUE(!tasks[1].IsSleeping());
+  ASSERT_TRUE(!tasks[2].IsSleeping());
+
+  // Release 2 threads. Task 0, 1, 2 running; 0 reserved thread.
+  ASSERT_EQ(2, env_->ReleaseThreads(2, Env::Priority::HIGH));
+  ASSERT_FALSE(tasks[1].TimedWaitUntilSleeping(kWaitMicros));
+  ASSERT_FALSE(tasks[2].TimedWaitUntilSleeping(kWaitMicros));
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[1].IsSleeping());
+  ASSERT_TRUE(tasks[2].IsSleeping());
+  // No more threads can be reserved
+  ASSERT_EQ(0, env_->ReserveThreads(3, Env::Priority::HIGH));
+  // Expand the number of background threads so that the last thread
+  // is waiting
+  env_->SetBackgroundThreads(4, Env::Priority::HIGH);
+  // Add sync point to ensure the 4th thread starts
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:4");
+  // As the thread pool is expanded, we can reserve one more thread
+  ASSERT_EQ(1, env_->ReserveThreads(3, Env::Priority::HIGH));
+  // No more threads can be reserved
+  ASSERT_EQ(0, env_->ReserveThreads(3, Env::Priority::HIGH));
+
+  // Reset the sync points for the next iteration in BGThread or the
+  // next time Submit() is called
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"ThreadPoolImpl::BGThread::WaitingThreadsInc",
+        "EnvTest::ReserveThreads:5"},
+       {"ThreadPoolImpl::BGThread::Termination", "EnvTest::ReserveThreads:6"},
+       {"ThreadPoolImpl::Submit::Enqueue", "EnvTest::ReserveThreads:7"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  tasks[0].WakeUp();
+  ASSERT_FALSE(tasks[0].TimedWaitUntilDone(kWaitMicros));
+  // Add sync point to ensure the number of waiting threads increases
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:5");
+  // 1 more thread can be reserved
+  ASSERT_EQ(1, env_->ReserveThreads(3, Env::Priority::HIGH));
+  // 2 reserved threads now
+
+  // Currently, two threads are blocked since the number of waiting
+  // threads is equal to the number of reserved threads (i.e., 2).
+  // If we reduce the number of background thread to 1, at least one thread
+  // will be the last excessive thread (here we have no control over the
+  // number of excessive threads because thread order does not
+  // necessarily follows the schedule order, but we ensure that the last thread
+  // shall not run any task by expanding the thread pool after we schedule
+  // the tasks), and thus they(it) become(s) unblocked, the number of waiting
+  // threads decreases to 0 or 1, but the number of reserved threads is still 2
+  env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+
+  // Task 1,2 running; 2 reserved threads, however, in fact, we only have
+  // 0 or 1 waiting thread in the thread pool, proved by the
+  // following test, we CANNOT reserve 2 threads even though we just
+  // release 2
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:6");
+  ASSERT_EQ(2, env_->ReleaseThreads(2, Env::Priority::HIGH));
+  ASSERT_GT(2, env_->ReserveThreads(2, Env::Priority::HIGH));
+
+  // Every new task will be put into the queue at this point
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &tasks[3],
+                 Env::Priority::HIGH);
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:7");
+  ASSERT_EQ(1U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(!tasks[3].IsSleeping());
+
+  // Set the number of threads to 3 so that Task 3 can dequeue
+  env_->SetBackgroundThreads(3, Env::Priority::HIGH);
+  // Wakup Task 1
+  tasks[1].WakeUp();
+  ASSERT_FALSE(tasks[1].TimedWaitUntilDone(kWaitMicros));
+  // Task 2, 3 running (Task 3 dequeue); 0 or 1 reserved thread
+  ASSERT_FALSE(tasks[3].TimedWaitUntilSleeping(kWaitMicros));
+  ASSERT_TRUE(tasks[3].IsSleeping());
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+
+  // At most 1 thread can be released
+  ASSERT_GT(2, env_->ReleaseThreads(3, Env::Priority::HIGH));
+  tasks[2].WakeUp();
+  ASSERT_FALSE(tasks[2].TimedWaitUntilDone(kWaitMicros));
+  tasks[3].WakeUp();
+  ASSERT_FALSE(tasks[3].TimedWaitUntilDone(kWaitMicros));
+  WaitThreadPoolsEmpty();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+#if (defined OS_LINUX || defined OS_WIN)
 namespace {
 bool IsSingleVarint(const std::string& s) {
   Slice slice(s);
@@ -950,11 +1078,20 @@ class IoctlFriendlyTmpdir {
       }
     }
 
+    // check if it's running test within a docker container, in which case, the
+    // file system inside `overlayfs` may not support FS_IOC_GETVERSION
+    // skip the tests
+    struct stat buffer;
+    if (stat("/.dockerenv", &buffer) == 0) {
+      is_supported_ = false;
+      return;
+    }
+
     fprintf(stderr, "failed to find an ioctl-friendly temporary directory;"
             " specify one via the TEST_IOCTL_FRIENDLY_TMPDIR envvar\n");
     std::abort();
 #endif
-}
+  }
 
   ~IoctlFriendlyTmpdir() {
     rmdir(dir_.c_str());
@@ -964,8 +1101,12 @@ class IoctlFriendlyTmpdir {
     return dir_;
   }
 
+  bool is_supported() const { return is_supported_; }
+
  private:
   std::string dir_;
+
+  bool is_supported_ = true;
 };
 
 #ifndef ROCKSDB_LITE
@@ -974,8 +1115,10 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   EnvOptions options;
   options.use_direct_writes = true;
   options.use_mmap_writes = false;
-  IoctlFriendlyTmpdir ift;
-  ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
+  std::string fname = test::PerThreadDBPath(env_, "positioned_append");
+  SetupSyncPointsToMockDirectIO();
+
+  ASSERT_OK(env_->NewWritableFile(fname, &writable_file, options));
   const size_t kBlockSize = 4096;
   const size_t kDataSize = kPageSize;
   // Write a page worth of 'a'
@@ -991,7 +1134,7 @@ TEST_F(EnvPosixTest, PositionedAppend) {
 
   // Verify the above
   std::unique_ptr<SequentialFile> seq_file;
-  ASSERT_OK(env_->NewSequentialFile(ift.name() + "/f", &seq_file, options));
+  ASSERT_OK(env_->NewSequentialFile(fname, &seq_file, options));
   size_t scratch_len = kPageSize * 2;
   std::unique_ptr<char[]> scratch(new char[scratch_len]);
   Slice result;
@@ -1011,6 +1154,11 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
     IoctlFriendlyTmpdir ift;
+    if (!ift.is_supported()) {
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
+      return;
+    }
     std::string fname = ift.name() + "/testfile";
     std::unique_ptr<WritableFile> wfile;
     ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
@@ -1053,13 +1201,13 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 TEST_P(EnvPosixTestWithParam, AllocateTest) {
   if (env_ == Env::Default()) {
-    IoctlFriendlyTmpdir ift;
-    std::string fname = ift.name() + "/preallocate_testfile";
-
+    SetupSyncPointsToMockDirectIO();
+    std::string fname = test::PerThreadDBPath(env_, "preallocate_testfile");
     // Try fallocate in a file to see whether the target file system supports
     // it.
     // Skip the test if fallocate is not supported.
-    std::string fname_test_fallocate = ift.name() + "/preallocate_testfile_2";
+    std::string fname_test_fallocate =
+        test::PerThreadDBPath(env_, "preallocate_testfile_2");
     int fd = -1;
     do {
       fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
@@ -1149,9 +1297,14 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
 
     // Create the files
     IoctlFriendlyTmpdir ift;
+    if (!ift.is_supported()) {
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
+      return;
+    }
     std::vector<std::string> fnames;
     for (int i = 0; i < 1000; ++i) {
-      fnames.push_back(ift.name() + "/" + "testfile" + ToString(i));
+      fnames.push_back(ift.name() + "/" + "testfile" + std::to_string(i));
 
       // Create file.
       std::unique_ptr<WritableFile> wfile;
@@ -1190,6 +1343,11 @@ TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
 
     IoctlFriendlyTmpdir ift;
+    if (!ift.is_supported()) {
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
+      return;
+    }
     std::string fname = ift.name() + "/" + "testfile";
 
     // Check that after file is deleted we don't get same ID again in a new
@@ -1256,7 +1414,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     // Random Read
     Random rnd(301 + attempt);
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "PosixRandomAccessFile::MultiRead:io_uring_result", [&](void* arg) {
+        "UpdateResults::io_uring_result", [&](void* arg) {
           if (attempt > 0) {
             // No failure in the first attempt.
             size_t& bytes_read = *static_cast<size_t*>(arg);
@@ -1268,8 +1426,8 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
             }
           }
         });
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     std::unique_ptr<RandomAccessFile> file;
     std::vector<ReadRequest> reqs(3);
     std::vector<std::unique_ptr<char, Deleter>> data;
@@ -1326,7 +1484,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     const int num_reads = rnd.Uniform(512) + 1;
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "PosixRandomAccessFile::MultiRead:io_uring_result", [&](void* arg) {
+        "UpdateResults::io_uring_result", [&](void* arg) {
           if (attempt > 5) {
             // Improve partial result rates in second half of the run to
             // cover the case of repeated partial results.
@@ -1389,6 +1547,79 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
+  EnvOptions soptions;
+  soptions.use_direct_reads = true;
+  soptions.use_direct_writes = false;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  Random rnd(301);
+  std::unique_ptr<WritableFile> wfile;
+  size_t alignment = 0;
+  // Create file.
+  {
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    auto data_ptr = NewAligned(4095, 'b');
+    Slice data_b(data_ptr.get(), 4095);
+    ASSERT_OK(wfile->PositionedAppend(data_b, 0U));
+    ASSERT_OK(wfile->Close());
+  }
+
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
+  if (soptions.use_direct_reads) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+          int* val = static_cast<int*>(arg);
+          *val &= ~O_DIRECT;
+        });
+  }
+#endif
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const int num_reads = 2;
+  // Create requests
+  std::vector<std::string> scratches;
+  scratches.reserve(num_reads);
+  std::vector<ReadRequest> reqs(num_reads);
+
+  std::unique_ptr<RandomAccessFile> file;
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+  alignment = file->GetRequiredBufferAlignment();
+  ASSERT_EQ(num_reads, reqs.size());
+
+  std::vector<std::unique_ptr<char, Deleter>> data;
+
+  std::vector<size_t> offsets = {0, 2047};
+  std::vector<size_t> lens = {2047, 4096 - 2047};
+
+  for (size_t i = 0; i < num_reads; i++) {
+    // Do alignment
+    reqs[i].offset = static_cast<uint64_t>(TruncateToPageBoundary(
+        alignment, static_cast<size_t>(/*offset=*/offsets[i])));
+    reqs[i].len =
+        Roundup(static_cast<size_t>(/*offset=*/offsets[i]) + /*length=*/lens[i],
+                alignment) -
+        reqs[i].offset;
+
+    size_t new_capacity = Roundup(reqs[i].len, alignment);
+    data.emplace_back(NewAligned(new_capacity, 0));
+    reqs[i].scratch = data.back().get();
+  }
+
+  // Query the data
+  ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
+
+  // Validate results
+  for (size_t i = 0; i < num_reads; ++i) {
+    ASSERT_OK(reqs[i].status);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+#endif  // ROCKSDB_LITE
 
 #if defined(ROCKSDB_IOURING_PRESENT)
 void GenerateFilesAndRequest(Env* env, const std::string& fname,
@@ -1575,7 +1806,6 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     ASSERT_OK(env_->DeleteFile(fname));
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
-#endif  // not TRAVIS
 #endif  // OS_LINUX || OS_WIN
 
 class TestLogger : public Logger {
@@ -1601,9 +1831,9 @@ class TestLogger : public Logger {
 
       if (new_format[0] == '[') {
         // "[DEBUG] "
-        ASSERT_TRUE(n <= 56 + (512 - static_cast<int>(sizeof(struct timeval))));
+        ASSERT_TRUE(n <= 56 + (512 - static_cast<int>(sizeof(port::TimeVal))));
       } else {
-        ASSERT_TRUE(n <= 48 + (512 - static_cast<int>(sizeof(struct timeval))));
+        ASSERT_TRUE(n <= 48 + (512 - static_cast<int>(sizeof(port::TimeVal))));
       }
       va_end(backup_ap);
     }
@@ -1671,9 +1901,9 @@ class TestLogger2 : public Logger {
       va_copy(backup_ap, ap);
       int n = vsnprintf(new_format, sizeof(new_format) - 1, format, backup_ap);
       // 48 bytes for extra information + bytes allocated
-      ASSERT_TRUE(
-          n <= 48 + static_cast<int>(max_log_size_ - sizeof(struct timeval)));
-      ASSERT_TRUE(n > static_cast<int>(max_log_size_ - sizeof(struct timeval)));
+      ASSERT_TRUE(n <=
+                  48 + static_cast<int>(max_log_size_ - sizeof(port::TimeVal)));
+      ASSERT_TRUE(n > static_cast<int>(max_log_size_ - sizeof(port::TimeVal)));
       va_end(backup_ap);
     }
   }
@@ -1977,7 +2207,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
   // Cannot open non-existing file.
   ASSERT_NOK(env_->NewRandomRWFile(path, &file, EnvOptions()));
 
-  // Create the file using WriteableFile
+  // Create the file using WritableFile
   {
     std::unique_ptr<WritableFile> wf;
     ASSERT_OK(env_->NewWritableFile(path, &wf, EnvOptions()));
@@ -2106,7 +2336,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
   ASSERT_NOK(env_->NewRandomRWFile(path, &file, EnvOptions()));
 #endif
 
-  // Create the file using WriteableFile
+  // Create the file using WritableFile
   {
     std::unique_ptr<WritableFile> wf;
     ASSERT_OK(env_->NewWritableFile(path, &wf, EnvOptions()));
@@ -2935,7 +3165,7 @@ TEST_F(EnvTest, FailureToCreateLockFile) {
   ASSERT_OK(DestroyDir(env, dir));
 }
 
-TEST_F(EnvTest, CreateDefaultEnv) {
+TEST_F(CreateEnvTest, CreateDefaultEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
 
@@ -2987,7 +3217,7 @@ class WrappedEnv : public EnvWrapper {
   }
 };
 }  // namespace
-TEST_F(EnvTest, CreateMockEnv) {
+TEST_F(CreateEnvTest, CreateMockEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
   WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
@@ -3015,7 +3245,7 @@ TEST_F(EnvTest, CreateMockEnv) {
   opt_str = copy->ToString(options);
 }
 
-TEST_F(EnvTest, CreateWrappedEnv) {
+TEST_F(CreateEnvTest, CreateWrappedEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
   WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
@@ -3052,7 +3282,7 @@ TEST_F(EnvTest, CreateWrappedEnv) {
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
 }
 
-TEST_F(EnvTest, CreateCompositeEnv) {
+TEST_F(CreateEnvTest, CreateCompositeEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
   std::shared_ptr<Env> guard, copy;
@@ -3107,9 +3337,219 @@ TEST_F(EnvTest, CreateCompositeEnv) {
   ASSERT_NE(env, nullptr);
   ASSERT_NE(env, Env::Default());
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+
+  guard.reset(new CompositeEnvWrapper(nullptr, timed_fs, clock));
+  ColumnFamilyOptions cf_opts;
+  DBOptions db_opts;
+  db_opts.env = guard.get();
+  auto comp = db_opts.env->CheckedCast<CompositeEnvWrapper>();
+  ASSERT_NE(comp, nullptr);
+  ASSERT_EQ(comp->Inner(), nullptr);
+  ASSERT_NOK(ValidateOptions(db_opts, cf_opts));
+  ASSERT_OK(db_opts.env->PrepareOptions(options));
+  ASSERT_NE(comp->Inner(), nullptr);
+  ASSERT_OK(ValidateOptions(db_opts, cf_opts));
 }
 #endif  // ROCKSDB_LITE
 
+// Forward declaration
+class ReadAsyncFS;
+
+struct MockIOHandle {
+  std::function<void(const FSReadRequest&, void*)> cb;
+  void* cb_arg;
+  bool create_io_error;
+};
+
+// ReadAsyncFS and ReadAsyncRandomAccessFile mocks the FS doing asynchronous
+// reads by creating threads that submit read requests and then calling Poll API
+// to obtain those results.
+class ReadAsyncRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  ReadAsyncRandomAccessFile(ReadAsyncFS& fs,
+                            std::unique_ptr<FSRandomAccessFile>& file)
+      : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(const FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override;
+
+ private:
+  ReadAsyncFS& fs_;
+  std::unique_ptr<FSRandomAccessFile> file_;
+  int counter = 0;
+};
+
+class ReadAsyncFS : public FileSystemWrapper {
+ public:
+  explicit ReadAsyncFS(const std::shared_ptr<FileSystem>& wrapped)
+      : FileSystemWrapper(wrapped) {}
+
+  static const char* kClassName() { return "ReadAsyncFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    EXPECT_OK(s);
+    result->reset(new ReadAsyncRandomAccessFile(*this, file));
+    return s;
+  }
+
+  IOStatus Poll(std::vector<void*>& io_handles,
+                size_t /*min_completions*/) override {
+    // Wait for the threads completion.
+    for (auto& t : workers) {
+      t.join();
+    }
+
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      MockIOHandle* handle = static_cast<MockIOHandle*>(io_handles[i]);
+      if (handle->create_io_error) {
+        FSReadRequest req;
+        req.status = IOStatus::IOError();
+        handle->cb(req, handle->cb_arg);
+      }
+    }
+    return IOStatus::OK();
+  }
+
+  std::vector<std::thread> workers;
+};
+
+IOStatus ReadAsyncRandomAccessFile::ReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
+  IOHandleDeleter deletefn = [](void* args) -> void {
+    delete (static_cast<MockIOHandle*>(args));
+    args = nullptr;
+  };
+  *del_fn = deletefn;
+
+  // Allocate and populate io_handle.
+  MockIOHandle* mock_handle = new MockIOHandle();
+  bool create_io_error = false;
+  if (counter % 2) {
+    create_io_error = true;
+  }
+  mock_handle->create_io_error = create_io_error;
+  mock_handle->cb = cb;
+  mock_handle->cb_arg = cb_arg;
+  *io_handle = static_cast<void*>(mock_handle);
+  counter++;
+
+  // Submit read request asynchronously.
+  std::function<void(FSReadRequest)> submit_request =
+      [&opts, cb, cb_arg, dbg, create_io_error, this](FSReadRequest _req) {
+        if (!create_io_error) {
+          _req.status = target()->Read(_req.offset, _req.len, opts,
+                                       &(_req.result), _req.scratch, dbg);
+          cb(_req, cb_arg);
+        }
+      };
+
+  fs_.workers.emplace_back(submit_request, req);
+  return IOStatus::OK();
+}
+
+class TestAsyncRead : public testing::Test {
+ public:
+  TestAsyncRead() { env_ = Env::Default(); }
+  Env* env_;
+};
+
+// Tests the default implementation of ReadAsync API.
+TEST_F(TestAsyncRead, ReadAsync) {
+  EnvOptions soptions;
+  std::shared_ptr<ReadAsyncFS> fs =
+      std::make_shared<ReadAsyncFS>(env_->GetFileSystem());
+
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  const size_t kSectorSize = 4096;
+  const size_t kNumSectors = 8;
+
+  // 1. create & write to a file.
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    ASSERT_OK(
+        fs->NewWritableFile(fname, FileOptions(), &wfile, nullptr /*dbg*/));
+
+    for (size_t i = 0; i < kNumSectors; ++i) {
+      auto data = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
+      Slice slice(data.get(), kSectorSize);
+      ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    }
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+  // 2. Read file
+  {
+    std::unique_ptr<FSRandomAccessFile> file;
+    ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
+
+    IOOptions opts;
+    std::vector<void*> io_handles(kNumSectors);
+    std::vector<FSReadRequest> reqs(kNumSectors);
+    std::vector<std::unique_ptr<char, Deleter>> data;
+    std::vector<size_t> vals;
+    IOHandleDeleter del_fn;
+    uint64_t offset = 0;
+
+    // Initialize read requests
+    for (size_t i = 0; i < kNumSectors; i++) {
+      reqs[i].offset = offset;
+      reqs[i].len = kSectorSize;
+      data.emplace_back(NewAligned(kSectorSize, 0));
+      reqs[i].scratch = data.back().get();
+      vals.push_back(i);
+      offset += kSectorSize;
+    }
+
+    // callback function passed to async read.
+    std::function<void(const FSReadRequest&, void*)> callback =
+        [&](const FSReadRequest& req, void* cb_arg) {
+          assert(cb_arg != nullptr);
+          size_t i = *(reinterpret_cast<size_t*>(cb_arg));
+          reqs[i].offset = req.offset;
+          reqs[i].result = req.result;
+          reqs[i].status = req.status;
+        };
+
+    // Submit asynchronous read requests.
+    for (size_t i = 0; i < kNumSectors; i++) {
+      void* cb_arg = static_cast<void*>(&(vals[i]));
+      ASSERT_OK(file->ReadAsync(reqs[i], opts, callback, cb_arg,
+                                &(io_handles[i]), &del_fn, nullptr));
+    }
+
+    // Poll for the submitted requests.
+    fs->Poll(io_handles, kNumSectors);
+
+    // Check the status of read requests.
+    for (size_t i = 0; i < kNumSectors; i++) {
+      if (i % 2) {
+        ASSERT_EQ(reqs[i].status, IOStatus::IOError());
+      } else {
+        auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
+        Slice expected_data(buf.get(), kSectorSize);
+
+        ASSERT_EQ(reqs[i].offset, i * kSectorSize);
+        ASSERT_OK(reqs[i].status);
+        ASSERT_EQ(expected_data.ToString(), reqs[i].result.ToString());
+      }
+    }
+
+    // Delete io_handles.
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      del_fn(io_handles[i]);
+    }
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

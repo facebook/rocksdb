@@ -5,6 +5,8 @@
 
 #include "rocksdb/table_properties.h"
 
+#include "db/seqno_to_time_mapping.h"
+#include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/unique_id.h"
@@ -16,7 +18,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 const uint32_t TablePropertiesCollectorFactory::Context::kUnknownColumnFamily =
-    port::kMaxInt32;
+    std::numeric_limits<int32_t>::max();
 
 namespace {
   void AppendProperty(
@@ -38,9 +40,7 @@ namespace {
       const TValue& value,
       const std::string& prop_delim,
       const std::string& kv_delim) {
-    AppendProperty(
-        props, key, ToString(value), prop_delim, kv_delim
-    );
+    AppendProperty(props, key, std::to_string(value), prop_delim, kv_delim);
   }
 }
 
@@ -106,7 +106,7 @@ std::string TableProperties::ToString(
                          ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory::
                              Context::kUnknownColumnFamily
                      ? std::string("N/A")
-                     : ROCKSDB_NAMESPACE::ToString(column_family_id),
+                     : std::to_string(column_family_id),
                  prop_delim, kv_delim);
   AppendProperty(
       result, "column family name",
@@ -165,6 +165,12 @@ std::string TableProperties::ToString(
                  s.ok() ? UniqueIdToHumanString(id) : "N/A", prop_delim,
                  kv_delim);
 
+  SeqnoToTimeMapping seq_time_mapping;
+  s = seq_time_mapping.Add(seqno_to_time_mapping);
+  AppendProperty(result, "Sequence number to time mapping",
+                 s.ok() ? seq_time_mapping.ToHumanString() : "N/A", prop_delim,
+                 kv_delim);
+
   return result;
 }
 
@@ -211,6 +217,36 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
   rv["fast_compression_estimated_data_size"] =
       fast_compression_estimated_data_size;
   return rv;
+}
+
+// WARNING: manual update to this function is needed
+// whenever a new string property is added to TableProperties
+// to reduce approximation error.
+//
+// TODO: eliminate the need of manually updating this function
+// for new string properties
+std::size_t TableProperties::ApproximateMemoryUsage() const {
+  std::size_t usage = 0;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size((void*)this);
+#else
+  usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+
+  std::size_t string_props_mem_usage =
+      db_id.size() + db_session_id.size() + db_host_id.size() +
+      column_family_name.size() + filter_policy_name.size() +
+      comparator_name.size() + merge_operator_name.size() +
+      prefix_extractor_name.size() + property_collectors_names.size() +
+      compression_name.size() + compression_options.size();
+  usage += string_props_mem_usage;
+
+  for (auto iter = user_collected_properties.begin();
+       iter != user_collected_properties.end(); ++iter) {
+    usage += (iter->first.size() + iter->second.size());
+  }
+
+  return usage;
 }
 
 const std::string TablePropertiesNames::kDbId = "rocksdb.creating.db.identity";
@@ -278,25 +314,46 @@ const std::string TablePropertiesNames::kSlowCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.slow.data.size";
 const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.fast.data.size";
+const std::string TablePropertiesNames::kSequenceNumberTimeMapping =
+    "rocksdb.seqno.time.map";
 
 #ifndef NDEBUG
+// WARNING: TEST_SetRandomTableProperties assumes the following layout of
+// TableProperties
+//
+// struct TableProperties {
+//    int64_t orig_file_number = 0;
+//    ...
+//    ... int64_t properties only
+//    ...
+//    std::string db_id;
+//    ...
+//    ... std::string properties only
+//    ...
+//    std::string compression_options;
+//    UserCollectedProperties user_collected_properties;
+//    ...
+//    ... Other extra properties: non-int64_t/non-std::string properties only
+//    ...
+// }
 void TEST_SetRandomTableProperties(TableProperties* props) {
   Random* r = Random::GetTLSInstance();
-  // For now, TableProperties is composed of a number of uint64_t followed by
-  // a number of std::string, followed by some extras starting with
-  // user_collected_properties.
   uint64_t* pu = &props->orig_file_number;
   assert(static_cast<void*>(pu) == static_cast<void*>(props));
   std::string* ps = &props->db_id;
   const uint64_t* const pu_end = reinterpret_cast<const uint64_t*>(ps);
-  const std::string* const ps_end =
-      reinterpret_cast<const std::string*>(&props->user_collected_properties);
+  // Use the last string property's address instead of
+  // the first extra property (e.g `user_collected_properties`)'s address
+  // in the for-loop to avoid advancing pointer to pointing to
+  // potential non-zero padding bytes between these two addresses due to
+  // user_collected_properties's alignment requirement
+  const std::string* const ps_end_inclusive = &props->compression_options;
 
   for (; pu < pu_end; ++pu) {
     *pu = r->Next64();
   }
   assert(static_cast<void*>(pu) == static_cast<void*>(ps));
-  for (; ps < ps_end; ++ps) {
+  for (; ps <= ps_end_inclusive; ++ps) {
     *ps = r->RandomBinaryString(13);
   }
 }

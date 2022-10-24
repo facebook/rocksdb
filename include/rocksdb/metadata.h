@@ -72,10 +72,10 @@ struct LiveFileStorageInfo : public FileStorageInfo {
 // The metadata that describes an SST file. (Does not need to extend
 // LiveFileStorageInfo because SST files are always immutable.)
 struct SstFileMetaData : public FileStorageInfo {
-  SstFileMetaData() {}
+  SstFileMetaData() { file_type = kTableFile; }
 
   SstFileMetaData(const std::string& _file_name, uint64_t _file_number,
-                  const std::string& _directory, size_t _size,
+                  const std::string& _directory, uint64_t _size,
                   SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno,
                   const std::string& _smallestkey,
                   const std::string& _largestkey, uint64_t _num_reads_sampled,
@@ -232,7 +232,7 @@ struct ColumnFamilyMetaData {
   uint64_t blob_file_size = 0;
   // The number of blob files in this column family.
   size_t blob_file_count = 0;
-  // The metadata of the blobs in this column family
+  // The metadata of the blobs in this column family.
   std::vector<BlobMetaData> blob_files;
 };
 

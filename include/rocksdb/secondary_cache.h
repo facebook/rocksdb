@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 // handle successfullly read the item.
 class SecondaryCacheResultHandle {
  public:
-  virtual ~SecondaryCacheResultHandle() {}
+  virtual ~SecondaryCacheResultHandle() = default;
 
   // Returns whether the handle is ready or not
   virtual bool IsReady() = 0;
@@ -49,7 +49,7 @@ class SecondaryCacheResultHandle {
 // including data loss, unreported corruption, deadlocks, and more.
 class SecondaryCache : public Customizable {
  public:
-  virtual ~SecondaryCache() {}
+  ~SecondaryCache() override = default;
 
   static const char* Type() { return "SecondaryCache"; }
   static Status CreateFromString(const ConfigOptions& config_options,
@@ -68,18 +68,44 @@ class SecondaryCache : public Customizable {
   // Lookup the data for the given key in this cache. The create_cb
   // will be used to create the object. The handle returned may not be
   // ready yet, unless wait=true, in which case Lookup() will block until
-  // the handle is ready
+  // the handle is ready.
+  //
+  // advise_erase is a hint from the primary cache indicating that the handle
+  // will be cached there, so the secondary cache is advised to drop it from
+  // the cache as an optimization. To use this feature, SupportForceErase()
+  // needs to return true.
+  // This hint can also be safely ignored.
+  //
+  // is_in_sec_cache is to indicate whether the handle is possibly erased
+  // from the secondary cache after the Lookup.
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
-      const Slice& key, const Cache::CreateCallback& create_cb, bool wait) = 0;
+      const Slice& key, const Cache::CreateCallback& create_cb, bool wait,
+      bool advise_erase, bool& is_in_sec_cache) = 0;
+
+  // Indicate whether a handle can be erased in this secondary cache.
+  [[nodiscard]] virtual bool SupportForceErase() const = 0;
 
   // At the discretion of the implementation, erase the data associated
-  // with key
+  // with key.
   virtual void Erase(const Slice& key) = 0;
 
-  // Wait for a collection of handles to become ready
+  // Wait for a collection of handles to become ready.
   virtual void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) = 0;
 
-  virtual std::string GetPrintableOptions() const override = 0;
+  // Set the maximum configured capacity of the cache.
+  // When the new capacity is less than the old capacity and the existing usage
+  // is greater than new capacity, the implementation will do its best job to
+  // purge the released entries from the cache in order to lower the usage.
+  //
+  // The derived class can make this function no-op and return NotSupported().
+  virtual Status SetCapacity(size_t /* capacity */) {
+    return Status::NotSupported();
+  }
+
+  // The derived class can make this function no-op and return NotSupported().
+  virtual Status GetCapacity(size_t& /* capacity */) {
+    return Status::NotSupported();
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

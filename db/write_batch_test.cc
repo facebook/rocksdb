@@ -60,7 +60,8 @@ static std::string PrintContents(WriteBatch* b,
       arena_iter_guard.set(iter);
     } else {
       iter = mem->NewRangeTombstoneIterator(ReadOptions(),
-                                            kMaxSequenceNumber /* read_seq */);
+                                            kMaxSequenceNumber /* read_seq */,
+                                            false /* immutable_memtable */);
       iter_guard.reset(iter);
     }
     if (iter == nullptr) {
@@ -118,7 +119,7 @@ static std::string PrintContents(WriteBatch* b,
           break;
       }
       state.append("@");
-      state.append(ToString(ikey.sequence));
+      state.append(std::to_string(ikey.sequence));
     }
     EXPECT_OK(iter->status());
   }
@@ -253,7 +254,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
-        seen += "PutCF(" + ToString(column_family_id) + ", " +
+        seen += "PutCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
       return Status::OK();
@@ -262,7 +263,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "Delete(" + key.ToString() + ")";
       } else {
-        seen += "DeleteCF(" + ToString(column_family_id) + ", " +
+        seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ")";
       }
       return Status::OK();
@@ -272,7 +273,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "SingleDelete(" + key.ToString() + ")";
       } else {
-        seen += "SingleDeleteCF(" + ToString(column_family_id) + ", " +
+        seen += "SingleDeleteCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ")";
       }
       return Status::OK();
@@ -283,7 +284,7 @@ namespace {
         seen += "DeleteRange(" + begin_key.ToString() + ", " +
                 end_key.ToString() + ")";
       } else {
-        seen += "DeleteRangeCF(" + ToString(column_family_id) + ", " +
+        seen += "DeleteRangeCF(" + std::to_string(column_family_id) + ", " +
                 begin_key.ToString() + ", " + end_key.ToString() + ")";
       }
       return Status::OK();
@@ -293,7 +294,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
-        seen += "MergeCF(" + ToString(column_family_id) + ", " +
+        seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
       return Status::OK();
@@ -961,15 +962,15 @@ TEST_F(WriteBatchTest, SanityChecks) {
   ASSERT_TRUE(wb.Delete(nullptr, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(nullptr, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsNotSupported());
-  ASSERT_TRUE(
-      wb.DeleteRange(nullptr, "begin_key", "end_key", "ts").IsNotSupported());
+  ASSERT_TRUE(wb.DeleteRange(nullptr, "begin_key", "end_key", "ts")
+                  .IsInvalidArgument());
 
   ASSERT_TRUE(wb.Put(&cf4, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(wb.Delete(&cf4, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(&cf4, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsNotSupported());
   ASSERT_TRUE(
-      wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsNotSupported());
+      wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsInvalidArgument());
 
   constexpr size_t wrong_ts_sz = 1 + sizeof(uint64_t);
   std::string ts(wrong_ts_sz, '\0');
@@ -979,7 +980,7 @@ TEST_F(WriteBatchTest, SanityChecks) {
   ASSERT_TRUE(wb.SingleDelete(&cf0, "key", ts).IsInvalidArgument());
   ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsNotSupported());
   ASSERT_TRUE(
-      wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsNotSupported());
+      wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsInvalidArgument());
 
   // Sanity checks for the new WriteBatch APIs without extra 'ts' arg.
   WriteBatch wb1(0, 0, 0, wrong_ts_sz);
@@ -1009,6 +1010,29 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
       {4, cf4.GetComparator()},
       {5, cf5.GetComparator()}};
 
+  static constexpr size_t timestamp_size = sizeof(uint64_t);
+
+  {
+    WriteBatch wb1, wb2, wb3, wb4, wb5, wb6, wb7;
+    ASSERT_OK(wb1.Put(&cf0, "key", "value"));
+    ASSERT_FALSE(WriteBatchInternal::HasKeyWithTimestamp(wb1));
+    ASSERT_OK(wb2.Put(&cf4, "key", "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb2));
+    ASSERT_OK(wb3.Put(&cf4, "key", /*ts=*/std::string(timestamp_size, '\xfe'),
+                      "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb3));
+    ASSERT_OK(wb4.Delete(&cf4, "key",
+                         /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb4));
+    ASSERT_OK(wb5.Delete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb5));
+    ASSERT_OK(wb6.SingleDelete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb6));
+    ASSERT_OK(wb7.SingleDelete(&cf4, "key",
+                               /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb7));
+  }
+
   WriteBatch batch;
   // Write to the batch. We will assign timestamps later.
   for (const auto& key_str : key_strs) {
@@ -1017,7 +1041,6 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
     ASSERT_OK(batch.Put(&cf5, key_str, "value"));
   }
 
-  static constexpr size_t timestamp_size = sizeof(uint64_t);
   const auto checker1 = [](uint32_t cf) {
     if (cf == 4 || cf == 5) {
       return timestamp_size;
@@ -1084,6 +1107,7 @@ TEST_F(WriteBatchTest, CommitWithTimestamp) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -68,7 +68,7 @@ TEST_F(AutoVectorTest, EmplaceBack) {
   autovector<ValType, kSize> vec;
 
   for (size_t i = 0; i < 1000 * kSize; ++i) {
-    vec.emplace_back(i, ToString(i + 123));
+    vec.emplace_back(i, std::to_string(i + 123));
     ASSERT_TRUE(!vec.empty());
     if (i < kSize) {
       AssertAutoVectorOnlyInStack(&vec, true);
@@ -78,7 +78,7 @@ TEST_F(AutoVectorTest, EmplaceBack) {
 
     ASSERT_EQ(i + 1, vec.size());
     ASSERT_EQ(i, vec[i].first);
-    ASSERT_EQ(ToString(i + 123), vec[i].second);
+    ASSERT_EQ(std::to_string(i + 123), vec[i].second);
   }
 
   vec.clear();
@@ -146,7 +146,7 @@ TEST_F(AutoVectorTest, CopyAndAssignment) {
 TEST_F(AutoVectorTest, Iterators) {
   autovector<std::string, kSize> vec;
   for (size_t i = 0; i < kSize * 1000; ++i) {
-    vec.push_back(ToString(i));
+    vec.push_back(std::to_string(i));
   }
 
   // basic operator test
@@ -208,7 +208,7 @@ std::vector<std::string> GetTestKeys(size_t size) {
 
   int index = 0;
   for (auto& key : keys) {
-    key = "item-" + ROCKSDB_NAMESPACE::ToString(index++);
+    key = "item-" + std::to_string(index++);
   }
   return keys;
 }
@@ -325,6 +325,7 @@ TEST_F(AutoVectorTest, PerfBench) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

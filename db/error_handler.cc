@@ -272,8 +272,8 @@ STATIC_AVOID_DESTRUCTION(const Status, kOkStatus){Status::OK()};
 // This can also get called as part of a recovery operation. In that case, we
 // also track the error separately in recovery_error_ so we can tell in the
 // end whether recovery succeeded or not
-const Status& ErrorHandler::SetBGError(const Status& bg_err,
-                                       BackgroundErrorReason reason) {
+const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
+                                              BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
   if (bg_err.ok()) {
     return kOkStatus;
@@ -358,6 +358,9 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
       RecoverFromNoSpace();
     }
   }
+  if (bg_error_.severity() >= Status::Severity::kHardError) {
+    is_db_stopped_.store(true, std::memory_order_release);
+  }
   return bg_error_;
 }
 
@@ -382,9 +385,12 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
 //    c) all other errors are mapped to hard error.
 // 3) for other cases, SetBGError(const Status& bg_err, BackgroundErrorReason
 //    reason) will be called to handle other error cases.
-const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
+const Status& ErrorHandler::SetBGError(const Status& bg_status,
                                        BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
+  Status tmp_status = bg_status;
+  IOStatus bg_io_err = status_to_io_status(std::move(tmp_status));
+
   if (bg_io_err.ok()) {
     return kOkStatus;
   }
@@ -483,7 +489,11 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
     }
-    return SetBGError(new_bg_io_err, reason);
+    // HandleKnownErrors() will use recovery_error_, so ignore
+    // recovery_io_error_.
+    // TODO: Do some refactoring and use only one recovery_error_
+    recovery_io_error_.PermitUncheckedError();
+    return HandleKnownErrors(new_bg_io_err, reason);
   }
 }
 
@@ -729,6 +739,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         // the bg_error and notify user.
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverSuccess");
         Status old_bg_error = bg_error_;
+        is_db_stopped_.store(false, std::memory_order_release);
         bg_error_ = Status::OK();
         bg_error_.PermitUncheckedError();
         EventHelpers::NotifyOnErrorRecoveryEnd(
@@ -784,6 +795,9 @@ void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
   }
   if (bg_err.severity() > bg_error_.severity()) {
     bg_error_ = bg_err;
+  }
+  if (bg_error_.severity() >= Status::Severity::kHardError) {
+    is_db_stopped_.store(true, std::memory_order_release);
   }
   return;
 }

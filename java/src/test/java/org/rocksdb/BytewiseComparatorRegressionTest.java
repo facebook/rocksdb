@@ -112,15 +112,15 @@ public class BytewiseComparatorRegressionTest {
 
     final EnvOptions envOpts = new EnvOptions();
     final Options opts = new Options();
-    final SstFileWriter writer =
-        new SstFileWriter(envOpts, opts, new BytewiseComparator(new ComparatorOptions()));
+    opts.setComparator(new BytewiseComparator(new ComparatorOptions()));
+    final SstFileWriter writer = new SstFileWriter(envOpts, opts);
     writer.open(tempSSTFile.getAbsolutePath());
     final byte[] gKey =
         hexToByte("000000293030303030303030303030303030303030303032303736343730696E666F33");
     final byte[] wKey =
         hexToByte("0000008d3030303030303030303030303030303030303030303437363433696e666f34");
-    writer.add(new Slice(gKey), new Slice("dummyV1"));
-    writer.add(new Slice(wKey), new Slice("dummyV2"));
+    writer.put(new Slice(gKey), new Slice("dummyV1"));
+    writer.put(new Slice(wKey), new Slice("dummyV2"));
     writer.finish();
   }
 }

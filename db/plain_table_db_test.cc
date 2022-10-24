@@ -220,8 +220,8 @@ class PlainTableDBTest : public testing::Test,
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
-                                 &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + std::to_string(level), &property));
     return atoi(property.c_str());
   }
 
@@ -889,7 +889,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   };
 
   for (size_t i = 0; i < 7; i++) {
-    ASSERT_OK(Put(key_list[i], ToString(i)));
+    ASSERT_OK(Put(key_list[i], std::to_string(i)));
   }
 
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
@@ -900,7 +900,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   for (size_t i = 0; i < 7; i++) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(key_list[i], iter->key().ToString());
-    ASSERT_EQ(ToString(i), iter->value().ToString());
+    ASSERT_EQ(std::to_string(i), iter->value().ToString());
     iter->Next();
   }
 
@@ -937,7 +937,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
       MakeLongKeyWithPrefix(26, '6')};
 
   for (size_t i = 0; i < 7; i++) {
-    ASSERT_OK(Put(key_list[i], ToString(i)));
+    ASSERT_OK(Put(key_list[i], std::to_string(i)));
   }
 
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
@@ -948,7 +948,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   for (size_t i = 0; i < 7; i++) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(key_list[i], iter->key().ToString());
-    ASSERT_EQ(ToString(i), iter->value().ToString());
+    ASSERT_EQ(std::to_string(i), iter->value().ToString());
     iter->Next();
   }
 
@@ -1352,6 +1352,7 @@ INSTANTIATE_TEST_CASE_P(PlainTableDBTest, PlainTableDBTest, ::testing::Bool());
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

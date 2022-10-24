@@ -126,9 +126,11 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
   const int kLowPriorityThreads = 5;
   const int kSimulatedHighPriThreads = kHighPriorityThreads - 1;
   const int kSimulatedLowPriThreads = kLowPriorityThreads / 3;
+  const int kDelayMicros = 1000000;
   env->SetBackgroundThreads(kHighPriorityThreads, Env::HIGH);
   env->SetBackgroundThreads(kLowPriorityThreads, Env::LOW);
-
+  // Wait 1 second so that threads start
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
   SimulatedBackgroundTask running_task(
       reinterpret_cast<void*>(1234), "running",
       reinterpret_cast<void*>(5678), "pikachu");
@@ -137,13 +139,20 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &running_task, Env::Priority::HIGH);
   }
+
   for (int test = 0; test < kSimulatedLowPriThreads; ++test) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &running_task, Env::Priority::LOW);
   }
   running_task.WaitUntilScheduled(kSimulatedHighPriThreads +
                                   kSimulatedLowPriThreads);
+  // We can only reserve limited number of waiting threads
+  ASSERT_EQ(kHighPriorityThreads - kSimulatedHighPriThreads,
+            env->ReserveThreads(kHighPriorityThreads, Env::Priority::HIGH));
+  ASSERT_EQ(kLowPriorityThreads - kSimulatedLowPriThreads,
+            env->ReserveThreads(kLowPriorityThreads, Env::Priority::LOW));
 
+  // Reservation shall not affect the existing thread list
   std::vector<ThreadStatus> thread_list;
 
   // Verify the number of running threads in each pool.
@@ -155,6 +164,10 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
       running_count[thread_status.thread_type]++;
     }
   }
+  // Cannot reserve more threads
+  ASSERT_EQ(0, env->ReserveThreads(kHighPriorityThreads, Env::Priority::HIGH));
+  ASSERT_EQ(0, env->ReserveThreads(kLowPriorityThreads, Env::Priority::LOW));
+
   ASSERT_EQ(
       running_count[ThreadStatus::HIGH_PRIORITY],
       kSimulatedHighPriThreads);
@@ -167,6 +180,10 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
   running_task.FinishAllTasks();
   running_task.WaitUntilDone();
 
+  ASSERT_EQ(kHighPriorityThreads - kSimulatedHighPriThreads,
+            env->ReleaseThreads(kHighPriorityThreads, Env::Priority::HIGH));
+  ASSERT_EQ(kLowPriorityThreads - kSimulatedLowPriThreads,
+            env->ReleaseThreads(kLowPriorityThreads, Env::Priority::LOW));
   // Verify none of the threads are running
   ASSERT_OK(env->GetThreadList(&thread_list));
 
@@ -340,6 +357,7 @@ TEST_F(ThreadListTest, SimpleEventTest) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

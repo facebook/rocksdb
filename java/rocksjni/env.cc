@@ -17,6 +17,7 @@
 #include "include/org_rocksdb_RocksMemEnv.h"
 #include "include/org_rocksdb_TimedEnv.h"
 #include "portal.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 
 /*
  * Class:     org_rocksdb_Env
@@ -25,7 +26,7 @@
  */
 jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
     JNIEnv*, jclass) {
-  return reinterpret_cast<jlong>(ROCKSDB_NAMESPACE::Env::Default());
+  return GET_CPLUSPLUS_POINTER(ROCKSDB_NAMESPACE::Env::Default());
 }
 
 /*
@@ -162,7 +163,7 @@ jobjectArray Java_org_rocksdb_Env_getThreadList(
 jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(
     JNIEnv*, jclass, jlong jbase_env_handle) {
   auto* base_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jbase_env_handle);
-  return reinterpret_cast<jlong>(ROCKSDB_NAMESPACE::NewMemEnv(base_env));
+  return GET_CPLUSPLUS_POINTER(ROCKSDB_NAMESPACE::NewMemEnv(base_env));
 }
 
 /*
@@ -185,7 +186,7 @@ void Java_org_rocksdb_RocksMemEnv_disposeInternal(
 jlong Java_org_rocksdb_TimedEnv_createTimedEnv(
     JNIEnv*, jclass, jlong jbase_env_handle) {
   auto* base_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jbase_env_handle);
-  return reinterpret_cast<jlong>(ROCKSDB_NAMESPACE::NewTimedEnv(base_env));
+  return GET_CPLUSPLUS_POINTER(ROCKSDB_NAMESPACE::NewTimedEnv(base_env));
 }
 
 /*

@@ -102,7 +102,7 @@ struct SstFileWriter::Rep {
   }
 
   Status Add(const Slice& user_key, const Slice& value, ValueType value_type) {
-    if (internal_comparator.timestamp_size() != 0) {
+    if (internal_comparator.user_comparator()->timestamp_size() != 0) {
       return Status::InvalidArgument("Timestamp size mismatch");
     }
 
@@ -113,7 +113,8 @@ struct SstFileWriter::Rep {
              ValueType value_type) {
     const size_t timestamp_size = timestamp.size();
 
-    if (internal_comparator.timestamp_size() != timestamp_size) {
+    if (internal_comparator.user_comparator()->timestamp_size() !=
+        timestamp_size) {
       return Status::InvalidArgument("Timestamp size mismatch");
     }
 
@@ -132,15 +133,10 @@ struct SstFileWriter::Rep {
     return AddImpl(user_key_with_ts, value, value_type);
   }
 
-  Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
-    if (internal_comparator.timestamp_size() != 0) {
-      return Status::InvalidArgument("Timestamp size mismatch");
-    }
-
+  Status DeleteRangeImpl(const Slice& begin_key, const Slice& end_key) {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
-
     RangeTombstone tombstone(begin_key, end_key, 0 /* Sequence Number */);
     if (file_info.num_range_del_entries == 0) {
       file_info.smallest_range_del_key.assign(tombstone.start_key_.data(),
@@ -168,6 +164,45 @@ struct SstFileWriter::Rep {
 
     InvalidatePageCache(false /* closing */).PermitUncheckedError();
     return Status::OK();
+  }
+
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
+    if (internal_comparator.user_comparator()->timestamp_size() != 0) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+    return DeleteRangeImpl(begin_key, end_key);
+  }
+
+  // begin_key and end_key should be users keys without timestamp.
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key,
+                     const Slice& timestamp) {
+    const size_t timestamp_size = timestamp.size();
+
+    if (internal_comparator.user_comparator()->timestamp_size() !=
+        timestamp_size) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
+    const size_t begin_key_size = begin_key.size();
+    const size_t end_key_size = end_key.size();
+    if (begin_key.data() + begin_key_size == timestamp.data() ||
+        end_key.data() + begin_key_size == timestamp.data()) {
+      assert(memcmp(begin_key.data() + begin_key_size,
+                    end_key.data() + end_key_size, timestamp_size) == 0);
+      Slice begin_key_with_ts(begin_key.data(),
+                              begin_key_size + timestamp_size);
+      Slice end_key_with_ts(end_key.data(), end_key.size() + timestamp_size);
+      return DeleteRangeImpl(begin_key_with_ts, end_key_with_ts);
+    }
+    std::string begin_key_with_ts;
+    begin_key_with_ts.reserve(begin_key_size + timestamp_size);
+    begin_key_with_ts.append(begin_key.data(), begin_key_size);
+    begin_key_with_ts.append(timestamp.data(), timestamp_size);
+    std::string end_key_with_ts;
+    end_key_with_ts.reserve(end_key_size + timestamp_size);
+    end_key_with_ts.append(end_key.data(), end_key_size);
+    end_key_with_ts.append(timestamp.data(), timestamp_size);
+    return DeleteRangeImpl(begin_key_with_ts, end_key_with_ts);
   }
 
   Status InvalidatePageCache(bool closing) {
@@ -246,9 +281,9 @@ Status SstFileWriter::Open(const std::string& file_path) {
     } else {
       compression_opts = r->mutable_cf_options.compression_opts;
     }
-  } else if (!r->ioptions.compression_per_level.empty()) {
+  } else if (!r->mutable_cf_options.compression_per_level.empty()) {
     // Use the compression of the last level if we have per level compression
-    compression_type = *(r->ioptions.compression_per_level.rbegin());
+    compression_type = *(r->mutable_cf_options.compression_per_level.rbegin());
     compression_opts = r->mutable_cf_options.compression_opts;
   } else {
     compression_type = r->mutable_cf_options.compression;
@@ -282,14 +317,16 @@ Status SstFileWriter::Open(const std::string& file_path) {
     r->column_family_name = "";
     cf_id = TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
   }
+
+  // TODO: it would be better to set oldest_key_time to be used for getting the
+  //  approximate time of ingested keys.
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
       &int_tbl_prop_collector_factories, compression_type, compression_opts,
       cf_id, r->column_family_name, unknown_level, false /* is_bottommost */,
-      TableFileCreationReason::kMisc, 0 /* creation_time */,
-      0 /* oldest_key_time */, 0 /* file_creation_time */,
-      "SST Writer" /* db_id */, r->db_session_id, 0 /* target_file_size */,
-      r->next_file_number);
+      TableFileCreationReason::kMisc, 0 /* oldest_key_time */,
+      0 /* file_creation_time */, "SST Writer" /* db_id */, r->db_session_id,
+      0 /* target_file_size */, r->next_file_number);
   // External SST files used to each get a unique session id. Now for
   // slightly better uniqueness probability in constructing cache keys, we
   // assign fake file numbers to each file (into table properties) and keep
@@ -345,6 +382,11 @@ Status SstFileWriter::Delete(const Slice& user_key, const Slice& timestamp) {
 Status SstFileWriter::DeleteRange(const Slice& begin_key,
                                   const Slice& end_key) {
   return rep_->DeleteRange(begin_key, end_key);
+}
+
+Status SstFileWriter::DeleteRange(const Slice& begin_key, const Slice& end_key,
+                                  const Slice& timestamp) {
+  return rep_->DeleteRange(begin_key, end_key, timestamp);
 }
 
 Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {

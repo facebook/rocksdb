@@ -32,11 +32,19 @@ class InstrumentedMutex {
         clock_(clock),
         stats_code_(stats_code) {}
 
+#ifdef COERCE_CONTEXT_SWITCH
+  InstrumentedMutex(Statistics* stats, SystemClock* clock, int stats_code,
+                    InstrumentedCondVar* bg_cv, bool adaptive = false)
+      : mutex_(adaptive),
+        stats_(stats),
+        clock_(clock),
+        stats_code_(stats_code),
+        bg_cv_(bg_cv) {}
+#endif
+
   void Lock();
 
-  void Unlock() {
-    mutex_.Unlock();
-  }
+  void Unlock() { mutex_.Unlock(); }
 
   void AssertHeld() {
     mutex_.AssertHeld();
@@ -49,7 +57,17 @@ class InstrumentedMutex {
   Statistics* stats_;
   SystemClock* clock_;
   int stats_code_;
+#ifdef COERCE_CONTEXT_SWITCH
+  InstrumentedCondVar* bg_cv_ = nullptr;
+#endif
 };
+
+class ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedInstrumentedMutex
+    : public InstrumentedMutex {
+  using InstrumentedMutex::InstrumentedMutex;
+};
+static_assert(alignof(CacheAlignedInstrumentedMutex) != CACHE_LINE_SIZE ||
+              sizeof(CacheAlignedInstrumentedMutex) % CACHE_LINE_SIZE == 0);
 
 // RAII wrapper for InstrumentedMutex
 class InstrumentedMutexLock {

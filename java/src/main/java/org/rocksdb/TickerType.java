@@ -796,6 +796,46 @@ public enum TickerType {
     WARM_FILE_READ_COUNT((byte) -0x28),
     COLD_FILE_READ_COUNT((byte) -0x29),
 
+    /**
+     * (non-)last level read statistics
+     */
+    LAST_LEVEL_READ_BYTES((byte) -0x2A),
+    LAST_LEVEL_READ_COUNT((byte) -0x2B),
+    NON_LAST_LEVEL_READ_BYTES((byte) -0x2C),
+    NON_LAST_LEVEL_READ_COUNT((byte) -0x2D),
+
+    BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x2E),
+
+    /**
+     * # of times cache miss when accessing blob from blob cache.
+     */
+    BLOB_DB_CACHE_MISS((byte) -0x2F),
+
+    /**
+     * # of times cache hit when accessing blob from blob cache.
+     */
+    BLOB_DB_CACHE_HIT((byte) -0x30),
+
+    /**
+     * # of data blocks added to blob cache.
+     */
+    BLOB_DB_CACHE_ADD((byte) -0x31),
+
+    /**
+     * # # of failures when adding blobs to blob cache.
+     */
+    BLOB_DB_CACHE_ADD_FAILURES((byte) -0x32),
+
+    /**
+     * # of bytes read from blob cache.
+     */
+    BLOB_DB_CACHE_BYTES_READ((byte) -0x33),
+
+    /**
+     * # of bytes written into blob cache.
+     */
+    BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

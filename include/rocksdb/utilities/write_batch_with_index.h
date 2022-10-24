@@ -98,7 +98,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   explicit WriteBatchWithIndex(
       const Comparator* backup_index_comparator = BytewiseComparator(),
       size_t reserved_bytes = 0, bool overwrite_key = false,
-      size_t max_bytes = 0);
+      size_t max_bytes = 0, size_t protection_bytes_per_key = 0);
 
   ~WriteBatchWithIndex() override;
   WriteBatchWithIndex(WriteBatchWithIndex&&);
@@ -112,6 +112,17 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& ts, const Slice& value) override;
+
+  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    if (!column_family) {
+      return Status::InvalidArgument(
+          "Cannot call this method without a column family handle");
+    }
+
+    return Status::NotSupported(
+        "PutEntity not supported by WriteBatchWithIndex");
+  }
 
   using WriteBatchBase::Merge;
   Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
@@ -275,6 +286,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   friend class WritePreparedTxn;
   friend class WriteUnpreparedTxn;
   friend class WriteBatchWithIndex_SubBatchCnt_Test;
+  friend class WriteBatchWithIndexInternal;
   // Returns the number of sub-batches inside the write batch. A sub-batch
   // starts right before inserting a key that is a duplicate of a key in the
   // last sub-batch.

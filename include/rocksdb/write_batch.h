@@ -63,7 +63,9 @@ struct SavePoint {
 
 class WriteBatch : public WriteBatchBase {
  public:
-  explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
+  explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0)
+      : WriteBatch(reserved_bytes, max_bytes, 0, 0) {}
+
   // `protection_bytes_per_key` is the number of bytes used to store
   // protection information for each key entry. Currently supported values are
   // zero (disabled) and eight.
@@ -97,6 +99,12 @@ class WriteBatch : public WriteBatchBase {
   Status Put(const SliceParts& key, const SliceParts& value) override {
     return Put(nullptr, key, value);
   }
+
+  // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
+  // column family specified by "column_family".
+  using WriteBatchBase::PutEntity;
+  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns) override;
 
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
@@ -142,12 +150,9 @@ class WriteBatch : public WriteBatchBase {
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) override {
     return DeleteRange(nullptr, begin_key, end_key);
   }
-  Status DeleteRange(ColumnFamilyHandle* /*column_family*/,
-                     const Slice& /*begin_key*/, const Slice& /*end_key*/,
-                     const Slice& /*ts*/) override {
-    return Status::NotSupported(
-        "DeleteRange does not support user-defined timestamp");
-  }
+  // begin_key and end_key should be user keys without timestamp.
+  Status DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key, const Slice& ts) override;
 
   // variant that takes SliceParts
   Status DeleteRange(ColumnFamilyHandle* column_family,
@@ -238,6 +243,12 @@ class WriteBatch : public WriteBatchBase {
     }
     virtual void Put(const Slice& /*key*/, const Slice& /*value*/) {}
 
+    virtual Status PutEntityCF(uint32_t /* column_family_id */,
+                               const Slice& /* key */,
+                               const Slice& /* entity */) {
+      return Status::NotSupported("PutEntityCF not implemented");
+    }
+
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       if (column_family_id == 0) {
         Delete(key);
@@ -318,8 +329,17 @@ class WriteBatch : public WriteBatchBase {
 
    protected:
     friend class WriteBatchInternal;
-    virtual bool WriteAfterCommit() const { return true; }
-    virtual bool WriteBeforePrepare() const { return false; }
+    enum class OptionState {
+      kUnknown,
+      kDisabled,
+      kEnabled,
+    };
+    virtual OptionState WriteAfterCommit() const {
+      return OptionState::kUnknown;
+    }
+    virtual OptionState WriteBeforePrepare() const {
+      return OptionState::kUnknown;
+    }
   };
   Status Iterate(Handler* handler) const;
 
@@ -334,6 +354,9 @@ class WriteBatch : public WriteBatchBase {
 
   // Returns true if PutCF will be called during Iterate
   bool HasPut() const;
+
+  // Returns true if PutEntityCF will be called during Iterate
+  bool HasPutEntity() const;
 
   // Returns true if DeleteCF will be called during Iterate
   bool HasDelete() const;
@@ -374,11 +397,17 @@ class WriteBatch : public WriteBatchBase {
   //
   // in: cf, the column family id.
   // ret: timestamp size of the given column family. Return
-  //      std::numeric_limits<size_t>::max() indicating "dont know or column
+  //      std::numeric_limits<size_t>::max() indicating "don't know or column
   //      family info not found", this will cause UpdateTimestamps() to fail.
   // size_t ts_sz_func(uint32_t cf);
   Status UpdateTimestamps(const Slice& ts,
                           std::function<size_t(uint32_t /*cf*/)> ts_sz_func);
+
+  // Verify the per-key-value checksums of this write batch.
+  // Corruption status will be returned if the verification fails.
+  // If this write batch does not have per-key-value checksum,
+  // OK status will be returned.
+  Status VerifyChecksum() const;
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
@@ -416,24 +445,11 @@ class WriteBatch : public WriteBatchBase {
   // the WAL.
   SavePoint wal_term_point_;
 
-  // For HasXYZ.  Mutable to allow lazy computation of results
-  mutable std::atomic<uint32_t> content_flags_;
-
-  // Performs deferred computation of content_flags if necessary
-  uint32_t ComputeContentFlags() const;
-
-  // Maximum size of rep_.
-  size_t max_bytes_;
-
   // Is the content of the batch the application's latest state that meant only
   // to be used for recovery? Refer to
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery for
   // more details.
   bool is_latest_persistent_state_ = false;
-
-  std::unique_ptr<ProtectionInfo> prot_info_;
-
-  size_t default_cf_ts_sz_ = 0;
 
   // False if all keys are from column families that disable user-defined
   // timestamp OR UpdateTimestamps() has been called at least once.
@@ -443,6 +459,23 @@ class WriteBatch : public WriteBatchBase {
   // to true because the assumption is that these APIs have already set the
   // timestamps to desired values.
   bool needs_in_place_update_ts_ = false;
+
+  // True if the write batch contains at least one key from a column family
+  // that enables user-defined timestamp.
+  bool has_key_with_ts_ = false;
+
+  // For HasXYZ.  Mutable to allow lazy computation of results
+  mutable std::atomic<uint32_t> content_flags_;
+
+  // Performs deferred computation of content_flags if necessary
+  uint32_t ComputeContentFlags() const;
+
+  // Maximum size of rep_.
+  size_t max_bytes_;
+
+  std::unique_ptr<ProtectionInfo> prot_info_;
+
+  size_t default_cf_ts_sz_ = 0;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_

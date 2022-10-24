@@ -26,7 +26,8 @@ HistogramBucketMapper::HistogramBucketMapper() {
   // size of array buckets_ in HistogramImpl
   bucketValues_ = {1, 2};
   double bucket_val = static_cast<double>(bucketValues_.back());
-  while ((bucket_val = 1.5 * bucket_val) <= static_cast<double>(port::kMaxUint64)) {
+  while ((bucket_val = 1.5 * bucket_val) <=
+         static_cast<double>(std::numeric_limits<uint64_t>::max())) {
     bucketValues_.push_back(static_cast<uint64_t>(bucket_val));
     // Extracts two most significant digits to make histogram buckets more
     // human-readable. E.g., 172 becomes 170.
@@ -163,15 +164,18 @@ double HistogramStat::Average() const {
 }
 
 double HistogramStat::StandardDeviation() const {
-  uint64_t cur_num = num();
-  uint64_t cur_sum = sum();
-  uint64_t cur_sum_squares = sum_squares();
-  if (cur_num == 0) return 0;
+  double cur_num =
+      static_cast<double>(num());  // Use double to avoid integer overflow
+  double cur_sum = static_cast<double>(sum());
+  double cur_sum_squares = static_cast<double>(sum_squares());
+  if (cur_num == 0.0) {
+    return 0.0;
+  }
   double variance =
-      static_cast<double>(cur_sum_squares * cur_num - cur_sum * cur_sum) /
-      static_cast<double>(cur_num * cur_num);
-  return std::sqrt(variance);
+      (cur_sum_squares * cur_num - cur_sum * cur_sum) / (cur_num * cur_num);
+  return std::sqrt(std::max(variance, 0.0));
 }
+
 std::string HistogramStat::ToString() const {
   uint64_t cur_num = num();
   std::string r;

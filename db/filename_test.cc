@@ -171,9 +171,73 @@ TEST_F(FileNameTest, Construction) {
   ASSERT_EQ(kMetaDatabase, type);
 }
 
+TEST_F(FileNameTest, NormalizePath) {
+  // No leading slash
+  const std::string sep = std::string(1, kFilePathSeparator);
+
+  std::string expected = "FOLDER" + sep + "filename.ext";
+  std::string given = "FOLDER" + sep + "filename.ext";
+
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // Two chars /a
+
+  expected = sep + "a";
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // Two chars a/
+  expected = "a" + sep;
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // Server only
+  expected = sep + sep + "a";
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // Two slashes after character
+  expected = "a" + sep;
+  given = "a" + sep + sep;
+
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // slash only   /
+  expected = sep;
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // UNC only   //
+  expected = sep;
+  given = sep + sep;
+
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // 3 slashesy   //
+  expected = sep + sep;
+  given = sep + sep + sep;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // 3 slashes   //
+  expected = sep + sep + "a" + sep;
+  given = sep + sep + sep + "a" + sep;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // 2 separators in the middle
+  expected = "a" + sep + "b";
+  given = "a" + sep + sep + "b";
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // UNC with duplicate slashes
+  expected = sep + sep + "SERVER" + sep + "a" + sep + "b" + sep + "c";
+  given = sep + sep + "SERVER" + sep + "a" + sep + sep + "b" + sep + "c";
+  ASSERT_EQ(expected, NormalizePath(given));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

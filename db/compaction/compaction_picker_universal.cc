@@ -106,6 +106,9 @@ class UniversalCompactionBuilder {
   Compaction* PickCompactionToOldest(size_t start_index,
                                      CompactionReason compaction_reason);
 
+  Compaction* PickCompactionWithSortedRunRange(
+      size_t start_index, size_t end_index, CompactionReason compaction_reason);
+
   // Try to pick periodic compaction. The caller should only call it
   // if there is at least one file marked for periodic compaction.
   // null will be returned if no such a compaction can be formed
@@ -161,8 +164,8 @@ struct SmallestKeyHeapComparator {
   explicit SmallestKeyHeapComparator(const Comparator* ucmp) { ucmp_ = ucmp; }
 
   bool operator()(InputFileInfo i1, InputFileInfo i2) const {
-    return (ucmp_->Compare(i1.f->smallest.user_key(),
-                           i2.f->smallest.user_key()) > 0);
+    return (ucmp_->CompareWithoutTimestamp(i1.f->smallest.user_key(),
+                                           i2.f->smallest.user_key()) > 0);
   }
 
  private:
@@ -246,13 +249,13 @@ bool UniversalCompactionBuilder::IsInputFilesNonOverlapping(Compaction* c) {
       prev = curr;
       first_iter = 0;
     } else {
-      if (comparator->Compare(prev.f->largest.user_key(),
-                              curr.f->smallest.user_key()) >= 0) {
+      if (comparator->CompareWithoutTimestamp(
+              prev.f->largest.user_key(), curr.f->smallest.user_key()) >= 0) {
         // found overlapping files, return false
         return false;
       }
-      assert(comparator->Compare(curr.f->largest.user_key(),
-                                 prev.f->largest.user_key()) > 0);
+      assert(comparator->CompareWithoutTimestamp(
+                 curr.f->largest.user_key(), prev.f->largest.user_key()) > 0);
       prev = curr;
     }
 
@@ -740,25 +743,33 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
     grandparents = vstorage_->LevelFiles(sorted_runs_[first_index_after].level);
   }
 
+  if (output_level != 0 &&
+      picker_->FilesRangeOverlapWithCompaction(
+          inputs, output_level,
+          Compaction::EvaluatePenultimateLevel(vstorage_, ioptions_,
+                                               start_level, output_level))) {
+    return nullptr;
+  }
   CompactionReason compaction_reason;
   if (max_number_of_files_to_compact == UINT_MAX) {
     compaction_reason = CompactionReason::kUniversalSizeRatio;
   } else {
     compaction_reason = CompactionReason::kUniversalSortedRunNum;
   }
-  return new Compaction(
-      vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
-      std::move(inputs), output_level,
-      MaxFileSizeForLevel(mutable_cf_options_, output_level,
-                          kCompactionStyleUniversal),
-      GetMaxOverlappingBytes(), path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
-                         1, enable_compression),
-      GetCompressionOptions(mutable_cf_options_, vstorage_, start_level,
-                            enable_compression),
-      Temperature::kUnknown,
-      /* max_subcompactions */ 0, grandparents, /* is manual */ false, score_,
-      false /* deletion_compaction */, compaction_reason);
+  return new Compaction(vstorage_, ioptions_, mutable_cf_options_,
+                        mutable_db_options_, std::move(inputs), output_level,
+                        MaxFileSizeForLevel(mutable_cf_options_, output_level,
+                                            kCompactionStyleUniversal),
+                        GetMaxOverlappingBytes(), path_id,
+                        GetCompressionType(vstorage_, mutable_cf_options_,
+                                           output_level, 1, enable_compression),
+                        GetCompressionOptions(mutable_cf_options_, vstorage_,
+                                              output_level, enable_compression),
+                        Temperature::kUnknown,
+                        /* max_subcompactions */ 0, grandparents,
+                        /* is manual */ false, /* trim_ts */ "", score_,
+                        false /* deletion_compaction */,
+                        /* l0_files_might_overlap */ true, compaction_reason);
 }
 
 // Look at overall size amplification. If size amplification
@@ -810,8 +821,20 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
         cf_name_.c_str(), file_num_buf, start_index, " to reduce size amp.\n");
   }
 
+  // size of the base sorted run for size amp calculation
+  uint64_t base_sr_size = sorted_runs_.back().size;
+  size_t sr_end_idx = sorted_runs_.size() - 1;
+  // If tiered compaction is enabled and the last sorted run is the last level
+  if (ioptions_.preclude_last_level_data_seconds > 0 &&
+      ioptions_.num_levels > 2 &&
+      sorted_runs_.back().level == ioptions_.num_levels - 1 &&
+      sorted_runs_.size() > 1) {
+    sr_end_idx = sorted_runs_.size() - 2;
+    base_sr_size = sorted_runs_[sr_end_idx].size;
+  }
+
   // keep adding up all the remaining files
-  for (size_t loop = start_index; loop + 1 < sorted_runs_.size(); loop++) {
+  for (size_t loop = start_index; loop < sr_end_idx; loop++) {
     sr = &sorted_runs_[loop];
     if (sr->being_compacted) {
       // TODO with incremental compaction is supported, we might want to
@@ -831,23 +854,20 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
     return nullptr;
   }
 
-  // size of earliest file
-  uint64_t earliest_file_size = sorted_runs_.back().size;
-
   // size amplification = percentage of additional size
-  if (candidate_size * 100 < ratio * earliest_file_size) {
+  if (candidate_size * 100 < ratio * base_sr_size) {
     ROCKS_LOG_BUFFER(
         log_buffer_,
         "[%s] Universal: size amp not needed. newer-files-total-size %" PRIu64
         " earliest-file-size %" PRIu64,
-        cf_name_.c_str(), candidate_size, earliest_file_size);
+        cf_name_.c_str(), candidate_size, base_sr_size);
     return nullptr;
   } else {
     ROCKS_LOG_BUFFER(
         log_buffer_,
         "[%s] Universal: size amp needed. newer-files-total-size %" PRIu64
         " earliest-file-size %" PRIu64,
-        cf_name_.c_str(), candidate_size, earliest_file_size);
+        cf_name_.c_str(), candidate_size, base_sr_size);
   }
   // Since incremental compaction can't include more than second last
   // level, it can introduce penalty, compared to full compaction. We
@@ -859,7 +879,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   // This also prevent the case when compaction falls behind and we
   // need to compact more levels for compactions to catch up.
   if (mutable_cf_options_.compaction_options_universal.incremental) {
-    double fanout_threshold = static_cast<double>(earliest_file_size) /
+    double fanout_threshold = static_cast<double>(base_sr_size) /
                               static_cast<double>(candidate_size) * 1.8;
     Compaction* picked = PickIncrementalForReduceSizeAmp(fanout_threshold);
     if (picked != nullptr) {
@@ -868,8 +888,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
       return picked;
     }
   }
-  return PickCompactionToOldest(start_index,
-                                CompactionReason::kUniversalSizeAmplification);
+  return PickCompactionWithSortedRunRange(
+      start_index, sr_end_idx, CompactionReason::kUniversalSizeAmplification);
 }
 
 Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
@@ -1068,6 +1088,24 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   inputs.push_back(second_last_level_inputs);
   inputs.push_back(bottom_level_inputs);
 
+  int start_level = Compaction::kInvalidLevel;
+  for (const auto& in : inputs) {
+    if (!in.empty()) {
+      // inputs should already be sorted by level
+      start_level = in.level;
+      break;
+    }
+  }
+
+  // intra L0 compactions outputs could have overlap
+  if (output_level != 0 &&
+      picker_->FilesRangeOverlapWithCompaction(
+          inputs, output_level,
+          Compaction::EvaluatePenultimateLevel(vstorage_, ioptions_,
+                                               start_level, output_level))) {
+    return nullptr;
+  }
+
   // TODO support multi paths?
   uint32_t path_id = 0;
   return new Compaction(
@@ -1076,13 +1114,14 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       GetMaxOverlappingBytes(), path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level, 1, true /* enable_compression */),
+      GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1,
+                         true /* enable_compression */),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
       Temperature::kUnknown,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score_, false /* deletion_compaction */,
+      /* trim_ts */ "", score_, false /* deletion_compaction */,
+      /* l0_files_might_overlap */ true,
       CompactionReason::kUniversalSizeAmplification);
 }
 
@@ -1196,7 +1235,10 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       if (!output_level_inputs.empty()) {
         inputs.push_back(output_level_inputs);
       }
-      if (picker_->FilesRangeOverlapWithCompaction(inputs, output_level)) {
+      if (picker_->FilesRangeOverlapWithCompaction(
+              inputs, output_level,
+              Compaction::EvaluatePenultimateLevel(
+                  vstorage_, ioptions_, start_level, output_level))) {
         return nullptr;
       }
 
@@ -1220,22 +1262,28 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       /* max_grandparent_overlap_bytes */ GetMaxOverlappingBytes(), path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level, 1),
+      GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
       Temperature::kUnknown,
-      /* max_subcompactions */ 0, grandparents, /* is manual */ false, score_,
-      false /* deletion_compaction */,
+      /* max_subcompactions */ 0, grandparents, /* is manual */ false,
+      /* trim_ts */ "", score_, false /* deletion_compaction */,
+      /* l0_files_might_overlap */ true,
       CompactionReason::kFilesMarkedForCompaction);
 }
 
 Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
     size_t start_index, CompactionReason compaction_reason) {
+  return PickCompactionWithSortedRunRange(start_index, sorted_runs_.size() - 1,
+                                          compaction_reason);
+}
+
+Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
+    size_t start_index, size_t end_index, CompactionReason compaction_reason) {
   assert(start_index < sorted_runs_.size());
 
   // Estimate total file size
   uint64_t estimated_total_size = 0;
-  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
+  for (size_t loop = start_index; loop <= end_index; loop++) {
     estimated_total_size += sorted_runs_[loop].size;
   }
   uint32_t path_id =
@@ -1246,7 +1294,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
   }
-  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
+  for (size_t loop = start_index; loop <= end_index; loop++) {
     auto& picking_sr = sorted_runs_[loop];
     if (picking_sr.level == 0) {
       FileMetaData* f = picking_sr.file;
@@ -1277,12 +1325,28 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
                      file_num_buf);
   }
 
-  // output files at the bottom most level, unless it's reserved
-  int output_level = vstorage_->num_levels() - 1;
-  // last level is reserved for the files ingested behind
-  if (ioptions_.allow_ingest_behind) {
-    assert(output_level > 1);
-    output_level--;
+  int output_level;
+  if (end_index == sorted_runs_.size() - 1) {
+    // output files at the last level, unless it's reserved
+    output_level = vstorage_->num_levels() - 1;
+    // last level is reserved for the files ingested behind
+    if (ioptions_.allow_ingest_behind) {
+      assert(output_level > 1);
+      output_level--;
+    }
+  } else {
+    // if it's not including all sorted_runs, it can only output to the level
+    // above the `end_index + 1` sorted_run.
+    output_level = sorted_runs_[end_index + 1].level - 1;
+  }
+
+  // intra L0 compactions outputs could have overlap
+  if (output_level != 0 &&
+      picker_->FilesRangeOverlapWithCompaction(
+          inputs, output_level,
+          Compaction::EvaluatePenultimateLevel(vstorage_, ioptions_,
+                                               start_level, output_level))) {
+    return nullptr;
   }
 
   // We never check size for
@@ -1294,13 +1358,14 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       GetMaxOverlappingBytes(), path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level, 1, true /* enable_compression */),
+      GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1,
+                         true /* enable_compression */),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
       Temperature::kUnknown,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score_, false /* deletion_compaction */, compaction_reason);
+      /* trim_ts */ "", score_, false /* deletion_compaction */,
+      /* l0_files_might_overlap */ true, compaction_reason);
 }
 
 Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {
@@ -1371,7 +1436,7 @@ Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {
 
 uint64_t UniversalCompactionBuilder::GetMaxOverlappingBytes() const {
   if (!mutable_cf_options_.compaction_options_universal.incremental) {
-    return port::kMaxUint64;
+    return std::numeric_limits<uint64_t>::max();
   } else {
     // Try to align cutting boundary with files at the next level if the
     // file isn't end up with 1/2 of target size, or it would overlap

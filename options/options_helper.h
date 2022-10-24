@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -77,9 +78,12 @@ struct OptionsHelper {
   static std::map<CompactionPri, std::string> compaction_pri_to_string;
   static std::map<CompactionStopStyle, std::string>
       compaction_stop_style_to_string;
+  static std::map<Temperature, std::string> temperature_to_string;
   static std::unordered_map<std::string, ChecksumType> checksum_type_string_map;
   static std::unordered_map<std::string, CompressionType>
       compression_type_string_map;
+  static std::unordered_map<std::string, PrepopulateBlobCache>
+      prepopulate_blob_cache_string_map;
 #ifndef ROCKSDB_LITE
   static std::unordered_map<std::string, CompactionStopStyle>
       compaction_stop_style_string_map;
@@ -98,6 +102,7 @@ static auto& compaction_style_to_string =
 static auto& compaction_pri_to_string = OptionsHelper::compaction_pri_to_string;
 static auto& compaction_stop_style_to_string =
     OptionsHelper::compaction_stop_style_to_string;
+static auto& temperature_to_string = OptionsHelper::temperature_to_string;
 static auto& checksum_type_string_map = OptionsHelper::checksum_type_string_map;
 #ifndef ROCKSDB_LITE
 static auto& compaction_stop_style_string_map =
@@ -110,6 +115,8 @@ static auto& compaction_style_string_map =
 static auto& compaction_pri_string_map =
     OptionsHelper::compaction_pri_string_map;
 static auto& temperature_string_map = OptionsHelper::temperature_string_map;
+static auto& prepopulate_blob_cache_string_map =
+    OptionsHelper::prepopulate_blob_cache_string_map;
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

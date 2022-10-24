@@ -35,6 +35,9 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #if defined(OS_FREEBSD)
 #include <sys/sysctl.h>
 #endif
+#ifdef OS_LINUX
+#include <sys/prctl.h>
+#endif
 
 #include "port/lang.h"
 
@@ -187,6 +190,10 @@ void InstallStackTraceHandler() {
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
+  // Allow ouside debugger to attach, even with Yama security restrictions
+#ifdef PR_SET_PTRACER_ANY
+  (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+#endif
 }
 
 }  // namespace port

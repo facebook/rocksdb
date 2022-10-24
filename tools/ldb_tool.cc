@@ -50,7 +50,10 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              " with 'put','get','scan','dump','query','batchput'"
              " : DB supports ttl and value is internally timestamp-suffixed\n");
   ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
-             " : Try to load option file from DB.\n");
+             " : Try to load option file from DB. Default to true if " +
+             LDBCommand::ARG_DB +
+             " is specified and not creating a new DB and not open as TTL DB. "
+             "Can be set to false explicitly.\n");
   ret.append("  --" + LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS +
              " : Set options.force_consistency_checks = false.\n");
   ret.append("  --" + LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS +
@@ -68,6 +71,20 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_WRITE_BUFFER_SIZE +
              "=<int,e.g.:4194304>\n");
   ret.append("  --" + LDBCommand::ARG_FILE_SIZE + "=<int,e.g.:2097152>\n");
+  ret.append("  --" + LDBCommand::ARG_ENABLE_BLOB_FILES +
+             " : Enable key-value separation using BlobDB\n");
+  ret.append("  --" + LDBCommand::ARG_MIN_BLOB_SIZE + "=<int,e.g.:2097152>\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_FILE_SIZE + "=<int,e.g.:2097152>\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_COMPRESSION_TYPE +
+             "=<no|snappy|zlib|bzip2|lz4|lz4hc|xpress|zstd>\n");
+  ret.append("  --" + LDBCommand::ARG_ENABLE_BLOB_GARBAGE_COLLECTION +
+             " : Enable blob garbage collection\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF +
+             "=<double,e.g.:0.25>\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD +
+             "=<double,e.g.:0.25>\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE +
+             "=<int,e.g.:2097152>\n");
 
   ret.append("\n\n");
   ret.append("Data Access Commands:\n");
@@ -91,6 +108,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DBDumperCommand::Help(ret);
   DBLoaderCommand::Help(ret);
   ManifestDumpCommand::Help(ret);
+  UpdateManifestCommand::Help(ret);
   FileChecksumDumpCommand::Help(ret);
   GetPropertyCommand::Help(ret);
   ListColumnFamiliesCommand::Help(ret);

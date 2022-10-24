@@ -39,7 +39,7 @@ class RangeLockingTest : public ::testing::Test {
     options.create_if_missing = true;
     dbname = test::PerThreadDBPath("range_locking_testdb");
 
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
 
     range_lock_mgr.reset(NewRangeLockManager(nullptr));
     txn_db_options.lock_mgr_handle = range_lock_mgr;
@@ -55,7 +55,7 @@ class RangeLockingTest : public ::testing::Test {
     // seems to be a bug in btrfs that the makes readdir return recently
     // unlink-ed files. By using the default fs we simply ignore errors resulted
     // from attempting to delete such files in DestroyDB.
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
   }
 
   PessimisticTransaction* NewTxn(
@@ -366,6 +366,46 @@ TEST_F(RangeLockingTest, LockWaitCount) {
   txn1->Rollback();
 
   delete txn0;
+  delete txn1;
+}
+
+TEST_F(RangeLockingTest, LockWaiteeAccess) {
+  TransactionOptions txn_options;
+  auto cf = db->DefaultColumnFamily();
+  txn_options.lock_timeout = 60;
+  Transaction* txn0 = db->BeginTransaction(WriteOptions(), txn_options);
+  Transaction* txn1 = db->BeginTransaction(WriteOptions(), txn_options);
+
+  // Get a range lock
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c")));
+
+  std::atomic<bool> reached(false);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "RangeTreeLockManager::TryRangeLock:EnterWaitingTxn", [&](void* /*arg*/) {
+        reached.store(true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread t([&]() {
+    // Attempt to get a conflicting lock
+    auto s = txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("z"));
+    ASSERT_TRUE(s.ok());
+    txn1->Rollback();
+  });
+
+  while (!reached.load()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Release locks and free the transaction
+  txn0->Rollback();
+  delete txn0;
+
+  t.join();
+
   delete txn1;
 }
 

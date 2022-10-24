@@ -10,6 +10,7 @@
 #include <unordered_set>
 
 #include "file/filename.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -39,7 +40,7 @@ class UniqueIdVerifier {
   std::mutex mutex_;
   // IDs persisted to a hidden file inside DB dir
   std::string path_;
-  std::unique_ptr<FSWritableFile> data_file_writer_;
+  std::unique_ptr<WritableFileWriter> data_file_writer_;
   // Starting byte for which 8 bytes to check in memory within 24 byte ID
   size_t offset_;
   // Working copy of the set of 8 byte pieces

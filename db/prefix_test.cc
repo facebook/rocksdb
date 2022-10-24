@@ -628,7 +628,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       TestKey test_key(prefix, FLAGS_items_per_prefix / 2);
       std::string s;
       Slice key = TestKeyToSlice(s, test_key);
-      std::string value = "v" + ToString(0);
+      std::string value = "v" + std::to_string(0);
 
       get_perf_context()->Reset();
       StopWatchNano timer(SystemClock::Default().get(), true);
@@ -890,6 +890,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();

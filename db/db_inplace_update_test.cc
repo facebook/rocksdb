@@ -65,6 +65,60 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateLargeNewValue) {
   } while (ChangeCompactOptions());
 }
 
+TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntitySmallerNewValue) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+    options.env = env_;
+    options.allow_concurrent_memtable_write = false;
+
+    Reopen(options);
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    // Update key with values of smaller size
+    constexpr int num_values = 10;
+    for (int i = num_values; i > 0; --i) {
+      constexpr char key[] = "key";
+      const std::string value = DummyString(i, 'a');
+      WideColumns wide_columns{{"attr", value}};
+
+      ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[1], key, wide_columns));
+      // TODO: use Get to check entity once it's supported
+    }
+
+    // Only 1 instance for that key.
+    validateNumberOfEntries(1, 1);
+  } while (ChangeCompactOptions());
+}
+
+TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntityLargerNewValue) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+    options.env = env_;
+    options.allow_concurrent_memtable_write = false;
+
+    Reopen(options);
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    // Update key with values of larger size
+    constexpr int num_values = 10;
+    for (int i = 0; i < num_values; ++i) {
+      constexpr char key[] = "key";
+      const std::string value = DummyString(i, 'a');
+      WideColumns wide_columns{{"attr", value}};
+
+      ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[1], key, wide_columns));
+      // TODO: use Get to check entity once it's supported
+    }
+
+    // All 10 updates exist in the internal iterator
+    validateNumberOfEntries(num_values, 1);
+  } while (ChangeCompactOptions());
+}
+
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerSize) {
   do {
     Options options = CurrentOptions();
@@ -169,6 +223,36 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackNoAction) {
     ASSERT_EQ(Get(1, "key"), "NOT_FOUND");
   } while (ChangeCompactOptions());
 }
+
+TEST_F(DBTestInPlaceUpdate, InPlaceUpdateAndSnapshot) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    // Update key with values of smaller size, and
+    // run GetSnapshot and ReleaseSnapshot
+    int numValues = 2;
+    for (int i = numValues; i > 0; i--) {
+      const Snapshot* s = db_->GetSnapshot();
+      ASSERT_EQ(nullptr, s);
+      std::string value = DummyString(i, 'a');
+      ASSERT_OK(Put(1, "key", value));
+      ASSERT_EQ(value, Get(1, "key"));
+      // release s (nullptr)
+      db_->ReleaseSnapshot(s);
+    }
+
+    // Only 1 instance for that key.
+    validateNumberOfEntries(1, 1);
+  } while (ChangeCompactOptions());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

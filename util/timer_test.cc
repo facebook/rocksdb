@@ -273,33 +273,32 @@ TEST_F(TimerTest, AddSameFuncName) {
   ASSERT_TRUE(timer.Start());
 
   int func_counter1 = 0;
-  timer.Add([&] { func_counter1++; }, "duplicated_func", kInitDelayUs,
-            kRepeat1Us);
+  ASSERT_TRUE(timer.Add([&] { func_counter1++; }, "duplicated_func",
+                        kInitDelayUs, kRepeat1Us));
 
   int func2_counter = 0;
-  timer.Add([&] { func2_counter++; }, "func2", kInitDelayUs, kRepeat2Us);
+  ASSERT_TRUE(
+      timer.Add([&] { func2_counter++; }, "func2", kInitDelayUs, kRepeat2Us));
 
-  // New function with the same name should override the existing one
+  // New function with the same name should fail to add
   int func_counter2 = 0;
-  timer.Add([&] { func_counter2++; }, "duplicated_func", kInitDelayUs,
-            kRepeat1Us);
+  ASSERT_FALSE(timer.Add([&] { func_counter2++; }, "duplicated_func",
+                         kInitDelayUs, kRepeat1Us));
 
   ASSERT_EQ(0, func_counter1);
   ASSERT_EQ(0, func2_counter);
-  ASSERT_EQ(0, func_counter2);
 
   timer.TEST_WaitForRun(
       [&] { mock_clock_->SleepForMicroseconds(kInitDelayUs); });
 
-  ASSERT_EQ(0, func_counter1);
+  ASSERT_EQ(1, func_counter1);
   ASSERT_EQ(1, func2_counter);
-  ASSERT_EQ(1, func_counter2);
 
   timer.TEST_WaitForRun([&] { mock_clock_->SleepForMicroseconds(kRepeat1Us); });
 
-  ASSERT_EQ(0, func_counter1);
+  ASSERT_EQ(2, func_counter1);
   ASSERT_EQ(2, func2_counter);
-  ASSERT_EQ(2, func_counter2);
+  ASSERT_EQ(0, func_counter2);
 
   ASSERT_TRUE(timer.Shutdown());
 }
@@ -396,6 +395,7 @@ TEST_F(TimerTest, DestroyTimerWithRunningFunc) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 
   return RUN_ALL_TESTS();

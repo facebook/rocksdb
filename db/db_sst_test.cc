@@ -8,10 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/table.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -276,6 +279,58 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   // This file should have been deleted during last compaction
   ASSERT_EQ(Status::NotFound(), env_->FileExists(dbname_ + file_on_L2));
   listener->VerifyMatchedCount(1);
+}
+
+// Test that producing an empty .sst file does not write it out to
+// disk, and that the DeleteFile() env method is not called for
+// removing the non-existing file later.
+TEST_F(DBSSTTest, DeleteFileNotCalledForNotCreatedSSTFile) {
+  Options options = CurrentOptions();
+  options.env = env_;
+
+  OnFileDeletionListener* listener = new OnFileDeletionListener();
+  options.listeners.emplace_back(listener);
+
+  Reopen(options);
+
+  // Flush the empty database.
+  ASSERT_OK(Flush());
+  ASSERT_EQ("", FilesPerLevel(0));
+
+  // We expect no .sst files.
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(metadata.size(), 0U);
+
+  // We expect no file deletions.
+  listener->VerifyMatchedCount(0);
+}
+
+// Test that producing a non-empty .sst file does write it out to
+// disk, and that the DeleteFile() env method is not called for removing
+// the file later.
+TEST_F(DBSSTTest, DeleteFileNotCalledForCreatedSSTFile) {
+  Options options = CurrentOptions();
+  options.env = env_;
+
+  OnFileDeletionListener* listener = new OnFileDeletionListener();
+  options.listeners.emplace_back(listener);
+
+  Reopen(options);
+
+  ASSERT_OK(Put("pika", "choo"));
+
+  // Flush the non-empty database.
+  ASSERT_OK(Flush());
+  ASSERT_EQ("1", FilesPerLevel(0));
+
+  // We expect 1 .sst files.
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(metadata.size(), 1U);
+
+  // We expect no file deletions.
+  listener->VerifyMatchedCount(0);
 }
 
 TEST_F(DBSSTTest, DBWithSstFileManager) {
@@ -640,10 +695,10 @@ TEST_P(DBSSTTestRateLimit, RateLimitedDelete) {
         *abs_time_us = Env::Default()->NowMicros();
       });
 
-  // Disable PeriodicWorkScheduler as it also has TimedWait, which could update
+  // Disable PeriodicTaskScheduler as it also has TimedWait, which could update
   // the simulated sleep time
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::StartPeriodicWorkScheduler:DisableScheduler", [&](void* arg) {
+      "DBImpl::StartPeriodicTaskScheduler:DisableScheduler", [&](void* arg) {
         bool* disable_scheduler = static_cast<bool*>(arg);
         *disable_scheduler = true;
       });
@@ -907,7 +962,6 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "003.sst.trash"));
 }
 
-
 // Create a DB with 2 db_paths, and generate multiple files in the 2
 // db_paths using CompactRangeOptions, make sure that files that were
 // deleted from first db_path were deleted using DeleteScheduler and
@@ -945,7 +999,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
 
   // Create 4 files in L0
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A'), wo));
+    ASSERT_OK(Put("Key" + std::to_string(i), DummyString(1024, 'A'), wo));
     ASSERT_OK(Flush());
   }
   // We created 4 sst files in L0
@@ -961,7 +1015,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
 
   // Create 4 files in L0
   for (int i = 4; i < 8; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'B'), wo));
+    ASSERT_OK(Put("Key" + std::to_string(i), DummyString(1024, 'B'), wo));
     ASSERT_OK(Flush());
   }
   ASSERT_EQ("4,1", FilesPerLevel(0));
@@ -1007,7 +1061,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
 
   // Create 4 files in L0
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A')));
+    ASSERT_OK(Put("Key" + std::to_string(i), DummyString(1024, 'A')));
     ASSERT_OK(Flush());
   }
   // We created 4 sst files in L0
@@ -1179,7 +1233,9 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   ASSERT_GT(completed_compactions, 0);
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
-  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 0);
+  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                COMPACTION_CANCELLED),
+            0);
   ASSERT_EQ(0,
             dbfull()->immutable_db_options().statistics.get()->getTickerCount(
                 FILES_MARKED_TRASH));
@@ -1393,6 +1449,78 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
   }
 }
 
+TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
+  for (CacheEntryRoleOptions::Decision charge_table_reader :
+       {CacheEntryRoleOptions::Decision::kEnabled,
+        CacheEntryRoleOptions::Decision::kDisabled}) {
+    // Open DB with infinite max open files
+    //  - First iteration use 1 thread to open files
+    //  - Second iteration use 5 threads to open files
+    for (int iter = 0; iter < 2; iter++) {
+      Options options;
+      options.create_if_missing = true;
+      options.write_buffer_size = 100000;
+      options.disable_auto_compactions = true;
+      options.max_open_files = -1;
+
+      BlockBasedTableOptions table_options;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      if (iter == 0) {
+        options.max_file_opening_threads = 1;
+      } else {
+        options.max_file_opening_threads = 5;
+      }
+
+      DestroyAndReopen(options);
+
+      // Create 5 Files in L0 (then move then to L2)
+      for (int i = 0; i < 5; i++) {
+        std::string k = "L2_" + Key(i);
+        ASSERT_OK(Put(k, k + std::string(1000, 'a')));
+        ASSERT_OK(Flush()) << i;
+      }
+      CompactRangeOptions compact_options;
+      compact_options.change_level = true;
+      compact_options.target_level = 2;
+      ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+      // Create 5 Files in L0
+      for (int i = 0; i < 5; i++) {
+        std::string k = "L0_" + Key(i);
+        ASSERT_OK(Put(k, k + std::string(1000, 'a')));
+        ASSERT_OK(Flush());
+      }
+      Close();
+
+      table_options.cache_usage_options.options_overrides.insert(
+          {CacheEntryRole::kBlockBasedTableReader,
+           {/*.charged = */ charge_table_reader}});
+      table_options.block_cache =
+          NewLRUCache(1024 /* capacity */, 0 /* num_shard_bits */,
+                      true /* strict_capacity_limit */);
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+      // Reopening the DB will try to load all existing files, conditionally
+      // subject to memory limit
+      Status s = TryReopen(options);
+
+      if (charge_table_reader == CacheEntryRoleOptions::Decision::kEnabled) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+        EXPECT_TRUE(s.ToString().find(
+                        kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
+                            CacheEntryRole::kBlockBasedTableReader)]) !=
+                    std::string::npos);
+        EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
+                    std::string::npos);
+
+      } else {
+        EXPECT_TRUE(s.ok());
+        ASSERT_EQ("5,0,5", FilesPerLevel(0));
+      }
+    }
+  }
+}
+
 TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // We don't propagate oldest-key-time table property on compaction and
   // just write 0 as default value. This affect the exact table size, since
@@ -1413,7 +1541,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // Generate 5 files in L0
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j < 10; j++) {
-      std::string val = "val_file_" + ToString(i);
+      std::string val = "val_file_" + std::to_string(i);
       ASSERT_OK(Put(Key(j), val));
     }
     ASSERT_OK(Flush());
@@ -1501,6 +1629,45 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   ASSERT_EQ(total_sst_files_size, 0);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
+  Options options = CurrentOptions();
+  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
+  options.env = env.get();
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+  options.enable_blob_files = true;
+  options.blob_file_size = 32;  // create one blob per file
+  options.skip_checking_sst_file_sizes_on_db_open = true;
+
+  DestroyAndReopen(options);
+  // Generate 5 files in L0
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 10; j++) {
+      std::string val = "val_file_" + std::to_string(i);
+      ASSERT_OK(Put(Key(j), val));
+    }
+    ASSERT_OK(Flush());
+  }
+  Close();
+
+  bool is_get_file_size_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "MockFileSystem::GetFileSize:CheckFileType", [&](void* arg) {
+        std::string* filename = reinterpret_cast<std::string*>(arg);
+        if (filename->find(".blob") != std::string::npos) {
+          is_get_file_size_called = true;
+        }
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_FALSE(is_get_file_size_called);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Destroy(options);
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {

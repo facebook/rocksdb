@@ -30,8 +30,7 @@ class FixedPrefixTransform : public SliceTransform {
 
  public:
   explicit FixedPrefixTransform(size_t prefix_len) : prefix_len_(prefix_len) {
-    id_ = std::string(kClassName()) + "." +
-          ROCKSDB_NAMESPACE::ToString(prefix_len_);
+    id_ = std::string(kClassName()) + "." + std::to_string(prefix_len_);
   }
 
   static const char* kClassName() { return "rocksdb.FixedPrefix"; }
@@ -43,8 +42,8 @@ class FixedPrefixTransform : public SliceTransform {
     if (name == id_) {
       return true;
     } else if (StartsWith(name, kNickName())) {
-      std::string alt_id = std::string(kNickName()) + ":" +
-                           ROCKSDB_NAMESPACE::ToString(prefix_len_);
+      std::string alt_id =
+          std::string(kNickName()) + ":" + std::to_string(prefix_len_);
       if (name == alt_id) {
         return true;
       }
@@ -84,8 +83,7 @@ class CappedPrefixTransform : public SliceTransform {
 
  public:
   explicit CappedPrefixTransform(size_t cap_len) : cap_len_(cap_len) {
-    id_ =
-        std::string(kClassName()) + "." + ROCKSDB_NAMESPACE::ToString(cap_len_);
+    id_ = std::string(kClassName()) + "." + std::to_string(cap_len_);
   }
 
   static const char* kClassName() { return "rocksdb.CappedPrefix"; }
@@ -98,8 +96,8 @@ class CappedPrefixTransform : public SliceTransform {
     if (name == id_) {
       return true;
     } else if (StartsWith(name, kNickName())) {
-      std::string alt_id = std::string(kNickName()) + ":" +
-                           ROCKSDB_NAMESPACE::ToString(cap_len_);
+      std::string alt_id =
+          std::string(kNickName()) + ":" + std::to_string(cap_len_);
       if (name == alt_id) {
         return true;
       }
@@ -291,7 +289,8 @@ std::string SliceTransform::AsString() const {
 
 // 2 small internal utility functions, for efficient hex conversions
 // and no need for snprintf, toupper etc...
-// Originally from wdt/util/EncryptionUtils.cpp - for ToString(true)/DecodeHex:
+// Originally from wdt/util/EncryptionUtils.cpp - for
+// std::to_string(true)/DecodeHex:
 char toHex(unsigned char v) {
   if (v <= 9) {
     return '0' + v;

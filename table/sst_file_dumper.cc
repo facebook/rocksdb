@@ -42,11 +42,13 @@ namespace ROCKSDB_NAMESPACE {
 
 SstFileDumper::SstFileDumper(const Options& options,
                              const std::string& file_path,
-                             size_t readahead_size, bool verify_checksum,
-                             bool output_hex, bool decode_blob_index,
-                             const EnvOptions& soptions, bool silent)
+                             Temperature file_temp, size_t readahead_size,
+                             bool verify_checksum, bool output_hex,
+                             bool decode_blob_index, const EnvOptions& soptions,
+                             bool silent)
     : file_name_(file_path),
       read_num_(0),
+      file_temp_(file_temp),
       output_hex_(output_hex),
       decode_blob_index_(decode_blob_index),
       soptions_(soptions),
@@ -82,8 +84,9 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   const auto& fs = options_.env->GetFileSystem();
   std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size = 0;
-  Status s = fs->NewRandomAccessFile(file_path, FileOptions(soptions_), &file,
-                                     nullptr);
+  FileOptions fopts = soptions_;
+  fopts.temperature = file_temp_;
+  Status s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
   if (s.ok()) {
     s = fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   }
@@ -122,8 +125,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
         magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
 
-      fs->NewRandomAccessFile(file_path, FileOptions(soptions_), &file,
-                              nullptr);
+      fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
 
@@ -143,8 +145,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                            &user_comparator);
           if (s.ok()) {
             assert(user_comparator);
-            internal_comparator_ =
-                InternalKeyComparator(user_comparator, /*named=*/true);
+            internal_comparator_ = InternalKeyComparator(user_comparator);
           }
         }
       }
@@ -251,7 +252,7 @@ Status SstFileDumper::ShowAllCompressionSizes(
         compression_types,
     int32_t compress_level_from, int32_t compress_level_to,
     uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
-    uint64_t max_dict_buffer_bytes) {
+    uint64_t max_dict_buffer_bytes, bool use_zstd_dict_trainer) {
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
   for (auto& i : compression_types) {
     if (CompressionTypeSupported(i.first)) {
@@ -260,6 +261,7 @@ Status SstFileDumper::ShowAllCompressionSizes(
       compress_opt.max_dict_bytes = max_dict_bytes;
       compress_opt.zstd_max_train_bytes = zstd_max_train_bytes;
       compress_opt.max_dict_buffer_bytes = max_dict_buffer_bytes;
+      compress_opt.use_zstd_dict_trainer = use_zstd_dict_trainer;
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Compression level: %d", j);
         compress_opt.level = j;

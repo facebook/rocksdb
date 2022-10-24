@@ -129,8 +129,8 @@ TEST_F(LockTest, LockBySameThread) {
   ASSERT_TRUE(s.IsIOError());
 #ifndef OS_WIN
   // Validate that error message contains current thread ID.
-  ASSERT_TRUE(s.ToString().find(ToString(Env::Default()->GetThreadID())) !=
-              std::string::npos);
+  ASSERT_TRUE(s.ToString().find(std::to_string(
+                  Env::Default()->GetThreadID())) != std::string::npos);
 #endif
 
   // check the file is locked
@@ -147,6 +147,7 @@ TEST_F(LockTest, LockBySameThread) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

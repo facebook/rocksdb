@@ -25,7 +25,8 @@ Cache::CreateCallback GetCreateCallback(size_t read_amp_bytes_per_bit,
                                         Statistics* statistics, bool using_zstd,
                                         const FilterPolicy* filter_policy) {
   return [read_amp_bytes_per_bit, statistics, using_zstd, filter_policy](
-             void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
+             const void* buf, size_t size, void** out_obj,
+             size_t* charge) -> Status {
     assert(buf != nullptr);
     std::unique_ptr<char[]> buf_data(new char[size]());
     memcpy(buf_data.get(), buf, size);
@@ -71,15 +72,10 @@ class BlocklikeTraits<BlockContents> {
     return Status::OK();
   }
 
-  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
-    if (block_type == BlockType::kFilter) {
-      return GetCacheItemHelperForRole<
-          BlockContents, CacheEntryRole::kDeprecatedFilterBlock>();
-    } else {
-      // E.g. compressed cache
-      return GetCacheItemHelperForRole<BlockContents,
-                                       CacheEntryRole::kOtherBlock>();
-    }
+  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType /*block_type*/) {
+    // E.g. compressed cache
+    return GetCacheItemHelperForRole<BlockContents,
+                                     CacheEntryRole::kOtherBlock>();
   }
 };
 
@@ -159,7 +155,7 @@ class BlocklikeTraits<Block> {
         return GetCacheItemHelperForRole<Block, CacheEntryRole::kDataBlock>();
       case BlockType::kIndex:
         return GetCacheItemHelperForRole<Block, CacheEntryRole::kIndexBlock>();
-      case BlockType::kFilter:
+      case BlockType::kFilterPartitionIndex:
         return GetCacheItemHelperForRole<Block,
                                          CacheEntryRole::kFilterMetaBlock>();
       default:

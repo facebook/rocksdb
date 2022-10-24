@@ -69,6 +69,7 @@ struct TablePropertiesNames {
   static const std::string kFileCreationTime;
   static const std::string kSlowCompressionEstimatedDataSize;
   static const std::string kFastCompressionEstimatedDataSize;
+  static const std::string kSequenceNumberTimeMapping;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -110,7 +111,7 @@ class TablePropertiesCollector {
   }
 
   // Called after each new block is cut
-  virtual void BlockAdd(uint64_t /* block_raw_bytes */,
+  virtual void BlockAdd(uint64_t /* block_uncomp_bytes */,
                         uint64_t /* block_compressed_bytes_fast */,
                         uint64_t /* block_compressed_bytes_slow */) {
     // Nothing to do here. Callback registers can override.
@@ -192,9 +193,9 @@ struct TableProperties {
   uint64_t index_value_is_delta_encoded = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
-  // total raw key size
+  // total raw (uncompressed, undelineated) key size
   uint64_t raw_key_size = 0;
-  // total raw value size
+  // total raw (uncompressed, undelineated) value size
   uint64_t raw_value_size = 0;
   // the number of blocks in this table
   uint64_t num_data_blocks = 0;
@@ -220,6 +221,7 @@ struct TableProperties {
   // TODO(sagar0): Should be changed to latest_key_time ... but don't know the
   // full implications of backward compatibility. Hence retaining for now.
   uint64_t creation_time = 0;
+
   // Timestamp of the earliest key. 0 means unknown.
   uint64_t oldest_key_time = 0;
   // Actual SST file creation time. 0 means unknown.
@@ -284,6 +286,9 @@ struct TableProperties {
   // Compression options used to compress the SST files.
   std::string compression_options;
 
+  // Sequence number to time mapping, delta encoded.
+  std::string seqno_to_time_mapping;
+
   // user collected properties
   UserCollectedProperties user_collected_properties;
   UserCollectedProperties readable_properties;
@@ -301,6 +306,10 @@ struct TableProperties {
   // between tables. Keys match field names in this class instead
   // of using full property names.
   std::map<std::string, uint64_t> GetAggregatablePropertiesAsMap() const;
+
+  // Return the approximated memory usage of this TableProperties object,
+  // including memory used by the string properties and UserCollectedProperties
+  std::size_t ApproximateMemoryUsage() const;
 };
 
 // Extra properties

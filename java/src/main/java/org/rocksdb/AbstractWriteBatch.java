@@ -44,32 +44,6 @@ public abstract class AbstractWriteBatch extends RocksObject
   }
 
   @Override
-  @Deprecated
-  public void remove(byte[] key) throws RocksDBException {
-    delete(nativeHandle_, key, key.length);
-  }
-
-  @Override
-  @Deprecated
-  public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key)
-      throws RocksDBException {
-    delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
-  }
-
-  @Override
-  @Deprecated
-  public void remove(final ByteBuffer key) throws RocksDBException {
-    this.delete(key);
-  }
-
-  @Override
-  @Deprecated
-  public void remove(ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key)
-      throws RocksDBException {
-    this.delete(columnFamilyHandle, key);
-  }
-
-  @Override
   public void put(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     assert key.isDirect() && value.isDirect();
     putDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),

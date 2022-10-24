@@ -95,8 +95,8 @@ class CuckooTableDBTest : public testing::Test {
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
-                                 &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + std::to_string(level), &property));
     return atoi(property.c_str());
   }
 
@@ -345,6 +345,7 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
 
 int main(int argc, char** argv) {
   if (ROCKSDB_NAMESPACE::port::kLittleEndian) {
+    ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
   } else {

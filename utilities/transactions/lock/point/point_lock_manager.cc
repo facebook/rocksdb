@@ -43,6 +43,7 @@ struct LockInfo {
     txn_ids = lock_info.txn_ids;
     expiration_time = lock_info.expiration_time;
   }
+  DECLARE_DEFAULT_MOVES(LockInfo);
 };
 
 struct LockMapStripe {
@@ -61,7 +62,7 @@ struct LockMapStripe {
 
   // Locked keys mapped to the info about the transactions that locked them.
   // TODO(agiardullo): Explore performance of other data structures.
-  std::unordered_map<std::string, LockInfo> keys;
+  UnorderedMap<std::string, LockInfo> keys;
 };
 
 // Map of #num_stripes LockMapStripes
@@ -98,7 +99,7 @@ namespace {
 void UnrefLockMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
   auto lock_maps_cache =
-      static_cast<std::unordered_map<uint32_t, std::shared_ptr<LockMap>>*>(ptr);
+      static_cast<UnorderedMap<uint32_t, std::shared_ptr<LockMap>>*>(ptr);
   delete lock_maps_cache;
 }
 }  // anonymous namespace
@@ -612,7 +613,7 @@ void PointLockManager::UnLock(PessimisticTransaction* txn,
     }
 
     // Bucket keys by lock_map_ stripe
-    std::unordered_map<size_t, std::vector<const std::string*>> keys_by_stripe(
+    UnorderedMap<size_t, std::vector<const std::string*>> keys_by_stripe(
         lock_map->num_stripes_);
     std::unique_ptr<LockTracker::KeyIterator> key_it(
         tracker.GetKeyIterator(cf));

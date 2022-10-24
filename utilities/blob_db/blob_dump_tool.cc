@@ -134,7 +134,7 @@ Status BlobDumpTool::DumpBlobLogHeader(uint64_t* offset,
   if (!GetStringFromCompressionType(&compression_str, header.compression)
            .ok()) {
     compression_str = "Unrecongnized compression type (" +
-                      ToString((int)header.compression) + ")";
+                      std::to_string((int)header.compression) + ")";
   }
   fprintf(stdout, "  Compression      : %s\n", compression_str.c_str());
   fprintf(stdout, "  Expiration range : %s\n",
@@ -213,7 +213,7 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
     UncompressionContext context(compression);
     UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
                            compression);
-    s = UncompressBlockContentsForCompressionType(
+    s = UncompressBlockData(
         info, slice.data() + key_size, static_cast<size_t>(value_size),
         &contents, 2 /*compress_format_version*/, ImmutableOptions(Options()));
     if (!s.ok()) {
@@ -271,7 +271,7 @@ std::string BlobDumpTool::GetString(std::pair<T, T> p) {
   if (p.first == 0 && p.second == 0) {
     return "nil";
   }
-  return "(" + ToString(p.first) + ", " + ToString(p.second) + ")";
+  return "(" + std::to_string(p.first) + ", " + std::to_string(p.second) + ")";
 }
 
 }  // namespace blob_db

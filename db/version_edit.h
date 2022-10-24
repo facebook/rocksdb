@@ -19,9 +19,11 @@
 #include "db/dbformat.h"
 #include "db/wal_edit.h"
 #include "memory/arena.h"
+#include "port/malloc.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"
+#include "table/unique_id_impl.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -35,7 +37,7 @@ enum Tag : uint32_t {
   kLogNumber = 2,
   kNextFileNumber = 3,
   kLastSequence = 4,
-  kCompactPointer = 5,
+  kCompactCursor = 5,
   kDeletedFile = 6,
   kNewFile = 7,
   // 8 was used for large value refs
@@ -85,6 +87,7 @@ enum NewFileCustomTag : uint32_t {
   kTemperature = 9,
   kMinTimestamp = 10,
   kMaxTimestamp = 11,
+  kUniqueId = 12,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -212,10 +215,9 @@ struct FileMetaData {
 
   // File checksum function name
   std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
-  // Min (oldest) timestamp of keys in this file
-  std::string min_timestamp;
-  // Max (newest) timestamp of keys in this file
-  std::string max_timestamp;
+
+  // SST unique id
+  UniqueId64x2 unique_id{};
 
   FileMetaData() = default;
 
@@ -227,7 +229,7 @@ struct FileMetaData {
                uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
                const std::string& _file_checksum,
                const std::string& _file_checksum_func_name,
-               std::string _min_timestamp, std::string _max_timestamp)
+               UniqueId64x2 _unique_id)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -238,15 +240,14 @@ struct FileMetaData {
         file_creation_time(_file_creation_time),
         file_checksum(_file_checksum),
         file_checksum_func_name(_file_checksum_func_name),
-        min_timestamp(std::move(_min_timestamp)),
-        max_timestamp(std::move(_max_timestamp)) {
+        unique_id(std::move(_unique_id)) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
   // REQUIRED: Keys must be given to the function in sorted order (it expects
   // the last key to be the largest).
-  void UpdateBoundaries(const Slice& key, const Slice& value,
-                        SequenceNumber seqno, ValueType value_type);
+  Status UpdateBoundaries(const Slice& key, const Slice& value,
+                          SequenceNumber seqno, ValueType value_type);
 
   // Unlike UpdateBoundaries, ranges do not need to be presented in any
   // particular order.
@@ -285,10 +286,28 @@ struct FileMetaData {
     }
     return kUnknownFileCreationTime;
   }
+
+  // WARNING: manual update to this function is needed
+  // whenever a new string property is added to FileMetaData
+  // to reduce approximation error.
+  //
+  // TODO: eliminate the need of manually updating this function
+  // for new string properties
+  size_t ApproximateMemoryUsage() const {
+    size_t usage = 0;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    usage += malloc_usable_size(const_cast<FileMetaData*>(this));
+#else
+    usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    usage += smallest.size() + largest.size() + file_checksum.size() +
+             file_checksum_func_name.size();
+    return usage;
+  }
 };
 
 // A compressed copy of file meta data that just contain minimum data needed
-// to server read operations, while still keeping the pointer to full metadata
+// to serve read operations, while still keeping the pointer to full metadata
 // of the file in case it is needed.
 struct FdWithKeyRange {
   FileDescriptor fd;
@@ -407,8 +426,7 @@ class VersionEdit {
                uint64_t oldest_ancester_time, uint64_t file_creation_time,
                const std::string& file_checksum,
                const std::string& file_checksum_func_name,
-               const std::string& min_timestamp,
-               const std::string& max_timestamp) {
+               const UniqueId64x2& unique_id) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
@@ -416,7 +434,7 @@ class VersionEdit {
                      smallest_seqno, largest_seqno, marked_for_compaction,
                      temperature, oldest_blob_file_number, oldest_ancester_time,
                      file_creation_time, file_checksum, file_checksum_func_name,
-                     min_timestamp, max_timestamp));
+                     unique_id));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }
@@ -433,6 +451,24 @@ class VersionEdit {
   // Retrieve the table files added as well as their associated levels.
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
+
+  // Retrieve all the compact cursors
+  using CompactCursors = std::vector<std::pair<int, InternalKey>>;
+  const CompactCursors& GetCompactCursors() const { return compact_cursors_; }
+  void AddCompactCursor(int level, const InternalKey& cursor) {
+    compact_cursors_.push_back(std::make_pair(level, cursor));
+  }
+  void SetCompactCursors(
+      const std::vector<InternalKey>& compact_cursors_by_level) {
+    compact_cursors_.clear();
+    compact_cursors_.reserve(compact_cursors_by_level.size());
+    for (int i = 0; i < (int)compact_cursors_by_level.size(); i++) {
+      if (compact_cursors_by_level[i].Valid()) {
+        compact_cursors_.push_back(
+            std::make_pair(i, compact_cursors_by_level[i]));
+      }
+    }
+  }
 
   // Add a new blob file.
   void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_count,
@@ -605,6 +641,9 @@ class VersionEdit {
   bool has_max_column_family_ = false;
   bool has_min_log_number_to_keep_ = false;
   bool has_last_sequence_ = false;
+
+  // Compaction cursors for round-robin compaction policy
+  CompactCursors compact_cursors_;
 
   DeletedFiles deleted_files_;
   NewFiles new_files_;

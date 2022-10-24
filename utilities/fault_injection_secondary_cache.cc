@@ -87,15 +87,24 @@ Status FaultInjectionSecondaryCache::Insert(
 std::unique_ptr<SecondaryCacheResultHandle>
 FaultInjectionSecondaryCache::Lookup(const Slice& key,
                                      const Cache::CreateCallback& create_cb,
-                                     bool wait) {
-  std::unique_ptr<SecondaryCacheResultHandle> hdl =
-      base_->Lookup(key, create_cb, wait);
+                                     bool wait, bool advise_erase,
+                                     bool& is_in_sec_cache) {
   ErrorContext* ctx = GetErrorContext();
-  if (wait && ctx->rand.OneIn(prob_)) {
-    hdl.reset();
+  if (base_is_compressed_sec_cache_) {
+    if (ctx->rand.OneIn(prob_)) {
+      return nullptr;
+    } else {
+      return base_->Lookup(key, create_cb, wait, advise_erase, is_in_sec_cache);
+    }
+  } else {
+    std::unique_ptr<SecondaryCacheResultHandle> hdl =
+        base_->Lookup(key, create_cb, wait, advise_erase, is_in_sec_cache);
+    if (wait && ctx->rand.OneIn(prob_)) {
+      hdl.reset();
+    }
+    return std::unique_ptr<FaultInjectionSecondaryCache::ResultHandle>(
+        new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl)));
   }
-  return std::unique_ptr<FaultInjectionSecondaryCache::ResultHandle>(
-      new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl)));
 }
 
 void FaultInjectionSecondaryCache::Erase(const Slice& key) {
@@ -104,7 +113,19 @@ void FaultInjectionSecondaryCache::Erase(const Slice& key) {
 
 void FaultInjectionSecondaryCache::WaitAll(
     std::vector<SecondaryCacheResultHandle*> handles) {
-  FaultInjectionSecondaryCache::ResultHandle::WaitAll(this, handles);
+  if (base_is_compressed_sec_cache_) {
+    ErrorContext* ctx = GetErrorContext();
+    std::vector<SecondaryCacheResultHandle*> base_handles;
+    for (SecondaryCacheResultHandle* hdl : handles) {
+      if (ctx->rand.OneIn(prob_)) {
+        continue;
+      }
+      base_handles.push_back(hdl);
+    }
+    base_->WaitAll(base_handles);
+  } else {
+    FaultInjectionSecondaryCache::ResultHandle::WaitAll(this, handles);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -12,8 +12,8 @@
 #include <cinttypes>
 #include <sstream>
 
-#include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_source.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
 
@@ -394,7 +394,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
   if (s->ok()) {
     version_set_->GetColumnFamilySet()->UpdateMaxColumnFamily(
         version_edit_params_.max_column_family_);
-    version_set_->MarkMinLogNumberToKeep2PC(
+    version_set_->MarkMinLogNumberToKeep(
         version_edit_params_.min_log_number_to_keep_);
     version_set_->MarkFileNumberUsed(version_edit_params_.prev_log_number_);
     version_set_->MarkFileNumberUsed(version_edit_params_.log_number_);
@@ -831,11 +831,10 @@ Status VersionEditHandlerPointInTime::VerifyFile(const std::string& fpath,
 Status VersionEditHandlerPointInTime::VerifyBlobFile(
     ColumnFamilyData* cfd, uint64_t blob_file_num,
     const BlobFileAddition& blob_addition) {
-  BlobFileCache* blob_file_cache = cfd->blob_file_cache();
-  assert(blob_file_cache);
+  BlobSource* blob_source = cfd->blob_source();
+  assert(blob_source);
   CacheHandleGuard<BlobFileReader> blob_file_reader;
-  Status s =
-      blob_file_cache->GetBlobFileReader(blob_file_num, &blob_file_reader);
+  Status s = blob_source->GetBlobFileReader(blob_file_num, &blob_file_reader);
   if (!s.ok()) {
     return s;
   }
@@ -970,12 +969,11 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
   fprintf(stdout,
           "next_file_number %" PRIu64 " last_sequence %" PRIu64
           "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
-          " min_log_number_to_keep "
-          "%" PRIu64 "\n",
+          " min_log_number_to_keep %" PRIu64 "\n",
           version_set_->current_next_file_number(),
           version_set_->LastSequence(), version_set_->prev_log_number(),
           version_set_->column_family_set_->GetMaxColumnFamily(),
-          version_set_->min_log_number_to_keep_2pc());
+          version_set_->min_log_number_to_keep());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

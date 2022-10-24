@@ -15,6 +15,7 @@
 
 #include "include/org_rocksdb_RestoreOptions.h"
 #include "rocksdb/utilities/backup_engine.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 /*
  * Class:     org_rocksdb_RestoreOptions
@@ -24,7 +25,7 @@
 jlong Java_org_rocksdb_RestoreOptions_newRestoreOptions(
     JNIEnv* /*env*/, jclass /*jcls*/, jboolean keep_log_files) {
   auto* ropt = new ROCKSDB_NAMESPACE::RestoreOptions(keep_log_files);
-  return reinterpret_cast<jlong>(ropt);
+  return GET_CPLUSPLUS_POINTER(ropt);
 }
 
 /*

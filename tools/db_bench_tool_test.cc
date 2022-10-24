@@ -275,13 +275,14 @@ const std::string options_file_content = R"OPTIONS_FILE(
   blob_garbage_collection_age_cutoff=0.5
   blob_garbage_collection_force_threshold=0.75
   blob_compaction_readahead_size=262144
+  blob_file_starting_level=0
+  prepopulate_blob_cache=kDisable;
 
 [TableOptions/BlockBasedTable "default"]
   format_version=0
   skip_table_builder_flush=false
   cache_index_and_filter_blocks=false
   flush_block_policy_factory=FlushBlockBySizePolicyFactory
-  hash_index_allow_collision=true
   index_type=kBinarySearch
   whole_key_filtering=true
   checksum=kCRC32c
@@ -319,6 +320,7 @@ TEST_F(DBBenchTest, OptionsFileFromFile) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();

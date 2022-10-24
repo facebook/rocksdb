@@ -388,7 +388,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
 
 IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
                         uint64_t descriptor_number,
-                        FSDirectory* directory_to_fsync) {
+                        FSDirectory* dir_contains_current_file) {
   // Remove leading "dbname/" and add newline to manifest file name
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
   Slice contents = manifest;
@@ -404,8 +404,8 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
     TEST_SYNC_POINT_CALLBACK("SetCurrentFile:AfterRename", &s);
   }
   if (s.ok()) {
-    if (directory_to_fsync != nullptr) {
-      s = directory_to_fsync->FsyncWithDirOptions(
+    if (dir_contains_current_file != nullptr) {
+      s = dir_contains_current_file->FsyncWithDirOptions(
           IOOptions(), nullptr, DirFsyncOptions(CurrentFileName(dbname)));
     }
   } else {
@@ -442,6 +442,20 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   if (s.ok()) {
     s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
                                      DirFsyncOptions(identify_file_name));
+  }
+
+  // The default Close() could return "NotSupported" and we bypass it
+  // if it is not impelmented. Detailed explanations can be found in
+  // db/db_impl/db_impl.h
+  if (s.ok()) {
+    Status temp_s = dir_obj->Close(IOOptions(), nullptr);
+    if (!temp_s.ok()) {
+      if (temp_s.IsNotSupported()) {
+        temp_s.PermitUncheckedError();
+      } else {
+        s = temp_s;
+      }
+    }
   }
   if (!s.ok()) {
     env->DeleteFile(tmp).PermitUncheckedError();
@@ -491,6 +505,12 @@ Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
 
 std::string NormalizePath(const std::string& path) {
   std::string dst;
+
+  if (path.length() > 2 && path[0] == kFilePathSeparator &&
+      path[1] == kFilePathSeparator) {  // Handle UNC names
+    dst.append(2, kFilePathSeparator);
+  }
+
   for (auto c : path) {
     if (!dst.empty() && (c == kFilePathSeparator || c == '/') &&
         (dst.back() == kFilePathSeparator || dst.back() == '/')) {
