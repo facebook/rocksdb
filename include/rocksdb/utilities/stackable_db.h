@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+
 #include "rocksdb/db.h"
 
 #ifdef _WIN32
@@ -131,8 +132,8 @@ class StackableDB : public DB {
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
                         const bool sorted_input = false) override {
-    return db_->MultiGet(options, column_family, num_keys, keys,
-                         values, statuses, sorted_input);
+    return db_->MultiGet(options, column_family, num_keys, keys, values,
+                         statuses, sorted_input);
   }
 
   using DB::IngestExternalFile;
@@ -473,8 +474,7 @@ class StackableDB : public DB {
     return db_->GetCurrentWalFile(current_log_file);
   }
 
-  virtual Status GetCreationTimeOfOldestFile(
-      uint64_t* creation_time) override {
+  virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override {
     return db_->GetCreationTimeOfOldestFile(creation_time);
   }
 
