@@ -1,7 +1,7 @@
-// Copyright (c) 2022, Meta, Inc.  All rights reserved.
-//  This source code is licensed under both the GPLv2 (found in the
-//  COPYING file in the root directory) and Apache 2.0 License
-//  (found in the LICENSE.Apache file in the root directory).
+// Copyright (c) 2022, Meta Platforms, Inc. and affiliates.  All rights
+// reserved. This source code is licensed under both the GPLv2 (found in the
+// COPYING file in the root directory) and Apache 2.0 License
+// (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
