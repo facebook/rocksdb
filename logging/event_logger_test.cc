@@ -3,9 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "logging/event_logger.h"
+
 #include <string>
 
-#include "logging/event_logger.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
