@@ -97,8 +97,27 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ChangeTemperature";
     case CompactionReason::kForcedBlobGC:
       return "ForcedBlobGC";
+    case CompactionReason::kRoundRobinTtl:
+      return "RoundRobinTtl";
     case CompactionReason::kNumOfReasons:
       // fall through
+    default:
+      assert(false);
+      return "Invalid";
+  }
+}
+
+const char* GetCompactionPenultimateOutputRangeTypeString(
+    Compaction::PenultimateOutputRangeType range_type) {
+  switch (range_type) {
+    case Compaction::PenultimateOutputRangeType::kNotSupported:
+      return "NotSupported";
+    case Compaction::PenultimateOutputRangeType::kFullRange:
+      return "FullRange";
+    case Compaction::PenultimateOutputRangeType::kNonLastRange:
+      return "NonLastRange";
+    case Compaction::PenultimateOutputRangeType::kDisabled:
+      return "Disabled";
     default:
       assert(false);
       return "Invalid";
@@ -254,7 +273,7 @@ void CompactionJob::Prepare() {
       // timestamp part).
       assert(i == 0 || i == boundaries_.size() ||
              cfd->user_comparator()->CompareWithoutTimestamp(
-                 boundaries_[i - 1], true, boundaries_[i], true) < 0);
+                 boundaries_[i - 1], boundaries_[i]) < 0);
     }
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
@@ -263,11 +282,15 @@ void CompactionJob::Prepare() {
                                               /*sub_job_id*/ 0);
   }
 
-  if (c->immutable_options()->preclude_last_level_data_seconds > 0) {
-    // TODO(zjay): move to a function
-    seqno_time_mapping_.SetMaxTimeDuration(
-        c->immutable_options()->preclude_last_level_data_seconds);
+  // collect all seqno->time information from the input files which will be used
+  // to encode seqno->time to the output files.
+  uint64_t preserve_time_duration =
+      std::max(c->immutable_options()->preserve_internal_time_seconds,
+               c->immutable_options()->preclude_last_level_data_seconds);
+
+  if (preserve_time_duration > 0) {
     // setup seqno_time_mapping_
+    seqno_time_mapping_.SetMaxTimeDuration(preserve_time_duration);
     for (const auto& each_level : *c->inputs()) {
       for (const auto& fmd : each_level.files) {
         std::shared_ptr<const TableProperties> tp;
@@ -293,10 +316,27 @@ void CompactionJob::Prepare() {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Failed to get current time in compaction: Status: %s",
                      status.ToString().c_str());
-      penultimate_level_cutoff_seqno_ = 0;
+      // preserve all time information
+      preserve_time_min_seqno_ = 0;
+      preclude_last_level_min_seqno_ = 0;
     } else {
-      penultimate_level_cutoff_seqno_ =
-          seqno_time_mapping_.TruncateOldEntries(_current_time);
+      seqno_time_mapping_.TruncateOldEntries(_current_time);
+      uint64_t preserve_time =
+          static_cast<uint64_t>(_current_time) > preserve_time_duration
+              ? _current_time - preserve_time_duration
+              : 0;
+      preserve_time_min_seqno_ =
+          seqno_time_mapping_.GetOldestSequenceNum(preserve_time);
+      if (c->immutable_options()->preclude_last_level_data_seconds > 0) {
+        uint64_t preclude_last_level_time =
+            static_cast<uint64_t>(_current_time) >
+                    c->immutable_options()->preclude_last_level_data_seconds
+                ? _current_time -
+                      c->immutable_options()->preclude_last_level_data_seconds
+                : 0;
+        preclude_last_level_min_seqno_ =
+            seqno_time_mapping_.GetOldestSequenceNum(preclude_last_level_time);
+      }
     }
   }
 }
@@ -321,6 +361,7 @@ void CompactionJob::AcquireSubcompactionResources(
               ->write_controller()
               ->NeedSpeedupCompaction())
           .max_compactions;
+  InstrumentedMutexLock l(db_mutex_);
   // Apply min function first since We need to compute the extra subcompaction
   // against compaction limits. And then try to reserve threads for extra
   // subcompactions. The actual number of reserved threads could be less than
@@ -329,7 +370,6 @@ void CompactionJob::AcquireSubcompactionResources(
       std::max(max_db_compactions - *bg_compaction_scheduled_ -
                    *bg_bottom_compaction_scheduled_,
                0);
-  db_mutex_->Lock();
   // Reservation only supports backgrdoun threads of which the priority is
   // between BOTTOM and HIGH. Need to degrade the priority to HIGH if the
   // origin thread_pri_ is higher than that. Similar to ReleaseThreads().
@@ -346,7 +386,6 @@ void CompactionJob::AcquireSubcompactionResources(
   } else {
     *bg_compaction_scheduled_ += extra_num_subcompaction_threads_reserved_;
   }
-  db_mutex_->Unlock();
 }
 
 void CompactionJob::ShrinkSubcompactionResources(uint64_t num_extra_resources) {
@@ -380,17 +419,20 @@ void CompactionJob::ReleaseSubcompactionResources() {
   if (extra_num_subcompaction_threads_reserved_ == 0) {
     return;
   }
-  // The number of reserved threads becomes larger than 0 only if the
-  // compaction prioity is round robin and there is no sufficient
-  // sub-compactions available
+  {
+    InstrumentedMutexLock l(db_mutex_);
+    // The number of reserved threads becomes larger than 0 only if the
+    // compaction prioity is round robin and there is no sufficient
+    // sub-compactions available
 
-  // The scheduled compaction must be no less than 1 + extra number
-  // subcompactions using acquired resources since this compaction job has not
-  // finished yet
-  assert(*bg_bottom_compaction_scheduled_ >=
-             1 + extra_num_subcompaction_threads_reserved_ ||
-         *bg_compaction_scheduled_ >=
-             1 + extra_num_subcompaction_threads_reserved_);
+    // The scheduled compaction must be no less than 1 + extra number
+    // subcompactions using acquired resources since this compaction job has not
+    // finished yet
+    assert(*bg_bottom_compaction_scheduled_ >=
+               1 + extra_num_subcompaction_threads_reserved_ ||
+           *bg_compaction_scheduled_ >=
+               1 + extra_num_subcompaction_threads_reserved_);
+  }
   ShrinkSubcompactionResources(extra_num_subcompaction_threads_reserved_);
 }
 
@@ -462,7 +504,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
         FileMetaData* f = flevel->files[i].file_metadata;
         std::vector<TableReader::Anchor> my_anchors;
         Status s = cfd->table_cache()->ApproximateKeyAnchors(
-            ReadOptions(), icomp, f->fd, my_anchors);
+            ReadOptions(), icomp, *f, my_anchors);
         if (!s.ok() || my_anchors.empty()) {
           my_anchors.emplace_back(f->largest.user_key(), f->fd.GetFileSize());
         }
@@ -484,8 +526,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
   std::sort(
       all_anchors.begin(), all_anchors.end(),
       [cfd_comparator](TableReader::Anchor& a, TableReader::Anchor& b) -> bool {
-        return cfd_comparator->CompareWithoutTimestamp(a.user_key, true,
-                                                       b.user_key, true) < 0;
+        return cfd_comparator->CompareWithoutTimestamp(a.user_key, b.user_key) <
+               0;
       });
 
   // Remove duplicated entries from boundaries.
@@ -494,7 +536,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
                   [cfd_comparator](TableReader::Anchor& a,
                                    TableReader::Anchor& b) -> bool {
                     return cfd_comparator->CompareWithoutTimestamp(
-                               a.user_key, true, b.user_key, true) == 0;
+                               a.user_key, b.user_key) == 0;
                   }),
       all_anchors.end());
 
@@ -1033,7 +1075,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   NotifyOnSubcompactionBegin(sub_compact);
 
   auto range_del_agg = std::make_unique<CompactionRangeDelAggregator>(
-      &cfd->internal_comparator(), existing_snapshots_);
+      &cfd->internal_comparator(), existing_snapshots_, &full_history_ts_low_,
+      &trim_ts_);
 
   // TODO: since we already use C++17, should use
   // std::optional<const Slice> instead.
@@ -1083,13 +1126,34 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Slice start_slice;
   Slice end_slice;
 
+  static constexpr char kMaxTs[] =
+      "\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+  Slice ts_slice;
+  std::string max_ts;
+  if (ts_sz > 0) {
+    if (ts_sz <= strlen(kMaxTs)) {
+      ts_slice = Slice(kMaxTs, ts_sz);
+    } else {
+      max_ts = std::string(ts_sz, '\xff');
+      ts_slice = Slice(max_ts);
+    }
+  }
+
   if (start.has_value()) {
     start_ikey.SetInternalKey(start.value(), kMaxSequenceNumber,
                               kValueTypeForSeek);
+    if (ts_sz > 0) {
+      start_ikey.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeek,
+                                   &ts_slice);
+    }
     start_slice = start_ikey.GetInternalKey();
   }
   if (end.has_value()) {
     end_ikey.SetInternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
+    if (ts_sz > 0) {
+      end_ikey.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeek,
+                                 &ts_slice);
+    }
     end_slice = end_ikey.GetInternalKey();
   }
 
@@ -1110,7 +1174,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   std::unique_ptr<InternalIterator> trim_history_iter;
-  if (cfd->user_comparator()->timestamp_size() > 0 && !trim_ts_.empty()) {
+  if (ts_sz > 0 && !trim_ts_.empty()) {
     trim_history_iter = std::make_unique<HistoryTrimmingIterator>(
         input, cfd->user_comparator(), trim_ts_);
     input = trim_history_iter.get();
@@ -1190,21 +1254,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      db_options_.info_log, full_history_ts_low,
-      penultimate_level_cutoff_seqno_);
+      db_options_.info_log, full_history_ts_low, preserve_time_min_seqno_,
+      preclude_last_level_min_seqno_);
   c_iter->SeekToFirst();
 
   // Assign range delete aggregator to the target output level, which makes sure
   // it only output to single level
   sub_compact->AssignRangeDelAggregator(std::move(range_del_agg));
 
-  if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
-    sub_compact->FillFilesToCutForTtl();
-    // ShouldStopBefore() maintains state based on keys processed so far. The
-    // compaction loop always calls it on the "next" key, thus won't tell it the
-    // first key. So we do that here.
-    sub_compact->ShouldStopBefore(c_iter->key());
-  }
   const auto& c_iter_stats = c_iter->iter_stats();
 
   // define the open and close functions for the compaction files, which will be
@@ -1221,6 +1278,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       };
 
   Status status;
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing",
+      reinterpret_cast<void*>(
+          const_cast<Compaction*>(sub_compact->compaction)));
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
@@ -1252,16 +1313,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     c_iter->Next();
     if (c_iter->status().IsManualCompactionPaused()) {
       break;
-    }
-
-    // TODO: Support earlier file cut for the penultimate level files. Maybe by
-    //  moving `ShouldStopBefore()` to `CompactionOutputs` class. Currently
-    //  the penultimate level output is only cut when it reaches the size limit.
-    if (!sub_compact->Current().IsPendingClose() &&
-        sub_compact->compaction->output_level() != 0 &&
-        !sub_compact->compaction->SupportsPerKeyPlacement() &&
-        sub_compact->ShouldStopBefore(c_iter->key())) {
-      sub_compact->Current().SetPendingClose();
     }
   }
 
@@ -1449,7 +1500,7 @@ Status CompactionJob::FinishCompactionOutputFile(
                                          : nullptr,
           sub_compact->end.has_value() ? &(sub_compact->end.value()) : nullptr,
           range_del_out_stats, bottommost_level_, cfd->internal_comparator(),
-          earliest_snapshot, next_table_min_key);
+          earliest_snapshot, next_table_min_key, full_history_ts_low_);
     }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
     TEST_SYNC_POINT("CompactionJob::FinishCompactionOutputFile1");
@@ -1655,7 +1706,9 @@ Status CompactionJob::InstallCompactionResults(
                              stats.GetBytes());
   }
 
-  if (compaction->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
+  if ((compaction->compaction_reason() ==
+           CompactionReason::kLevelMaxLevelSize ||
+       compaction->compaction_reason() == CompactionReason::kRoundRobinTtl) &&
       compaction->immutable_options()->compaction_pri == kRoundRobin) {
     int start_level = compaction->start_level();
     if (start_level > 0) {
@@ -1944,7 +1997,7 @@ void CompactionJob::LogCompaction() {
         compaction->InputLevelSummary(&inputs_summary), compaction->score());
     char scratch[2345];
     compaction->Summary(scratch, sizeof(scratch));
-    ROCKS_LOG_INFO(db_options_.info_log, "[%s] Compaction start summary: %s\n",
+    ROCKS_LOG_INFO(db_options_.info_log, "[%s]: Compaction start summary: %s\n",
                    cfd->GetName().c_str(), scratch);
     // build event logger report
     auto stream = event_logger_->Log();
@@ -1965,6 +2018,23 @@ void CompactionJob::LogCompaction() {
            << (existing_snapshots_.empty()
                    ? int64_t{-1}  // Use -1 for "none"
                    : static_cast<int64_t>(existing_snapshots_[0]));
+    if (compaction->SupportsPerKeyPlacement()) {
+      stream << "preclude_last_level_min_seqno"
+             << preclude_last_level_min_seqno_;
+      stream << "penultimate_output_level" << compaction->GetPenultimateLevel();
+      stream << "penultimate_output_range"
+             << GetCompactionPenultimateOutputRangeTypeString(
+                    compaction->GetPenultimateOutputRangeType());
+
+      if (compaction->GetPenultimateOutputRangeType() ==
+          Compaction::PenultimateOutputRangeType::kDisabled) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "[%s] [JOB %d] Penultimate level output is disabled, likely "
+            "because of the range conflict in the penultimate level",
+            cfd->GetName().c_str(), job_id_);
+      }
+    }
   }
 }
 

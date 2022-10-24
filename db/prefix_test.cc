@@ -890,6 +890,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();

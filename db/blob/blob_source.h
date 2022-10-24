@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cinttypes>
+#include <memory>
 
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
@@ -22,6 +23,7 @@ struct ImmutableOptions;
 class Status;
 class FilePrefetchBuffer;
 class Slice;
+class BlobContents;
 
 // BlobSource is a class that provides universal access to blobs, regardless of
 // whether they are in the blob cache, secondary cache, or (remote) storage.
@@ -102,19 +104,25 @@ class BlobSource {
   inline Cache* GetBlobCache() const { return blob_cache_.get(); }
 
   bool TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
-                        uint64_t offset) const;
+                        uint64_t offset, size_t* charge = nullptr) const;
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,
-                          CacheHandleGuard<std::string>* blob) const;
+                          CacheHandleGuard<BlobContents>* cached_blob) const;
 
   Status PutBlobIntoCache(const Slice& cache_key,
-                          CacheHandleGuard<std::string>* cached_blob,
-                          PinnableSlice* blob) const;
+                          std::unique_ptr<BlobContents>* blob,
+                          CacheHandleGuard<BlobContents>* cached_blob) const;
+
+  static void PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
+                            PinnableSlice* value);
+
+  static void PinOwnedBlob(std::unique_ptr<BlobContents>* owned_blob,
+                           PinnableSlice* value);
 
   Cache::Handle* GetEntryFromCache(const Slice& key) const;
 
-  Status InsertEntryIntoCache(const Slice& key, std::string* value,
+  Status InsertEntryIntoCache(const Slice& key, BlobContents* value,
                               size_t charge, Cache::Handle** cache_handle,
                               Cache::Priority priority) const;
 
@@ -123,14 +131,6 @@ class BlobSource {
     OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
     return base_cache_key.WithOffset(offset);
   }
-
-  // Callbacks for secondary blob cache
-  static size_t SizeCallback(void* obj);
-
-  static Status SaveToCallback(void* from_obj, size_t from_offset,
-                               size_t length, void* out);
-
-  static Cache::CacheItemHelper* GetCacheItemHelper();
 
   const std::string& db_id_;
   const std::string& db_session_id_;

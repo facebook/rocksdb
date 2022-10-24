@@ -64,6 +64,8 @@ struct ImmutableCFOptions {
 
   bool level_compaction_dynamic_level_bytes;
 
+  bool level_compaction_dynamic_file_size;
+
   int num_levels;
 
   bool optimize_filters_for_hits;
@@ -71,6 +73,8 @@ struct ImmutableCFOptions {
   bool force_consistency_checks;
 
   uint64_t preclude_last_level_data_seconds;
+
+  uint64_t preserve_internal_time_seconds;
 
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor;
@@ -126,6 +130,8 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
         level0_stop_writes_trigger(options.level0_stop_writes_trigger),
         max_compaction_bytes(options.max_compaction_bytes),
+        ignore_max_compaction_bytes_for_input(
+            options.ignore_max_compaction_bytes_for_input),
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
@@ -188,6 +194,7 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(0),
         level0_stop_writes_trigger(0),
         max_compaction_bytes(0),
+        ignore_max_compaction_bytes_for_input(true),
         target_file_size_base(0),
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
@@ -269,6 +276,7 @@ struct MutableCFOptions {
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;
   uint64_t max_compaction_bytes;
+  bool ignore_max_compaction_bytes_for_input;
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;

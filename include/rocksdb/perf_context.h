@@ -69,6 +69,11 @@ struct PerfContext {
   uint64_t block_read_byte;            // total number of bytes from block reads
   uint64_t block_read_time;            // total nanos spent on block reads
   uint64_t block_cache_index_hit_count;   // total number of index block hits
+  // total number of standalone handles lookup from secondary cache
+  uint64_t block_cache_standalone_handle_count;
+  // total number of real handles lookup from secondary cache that are inserted
+  // into primary cache
+  uint64_t block_cache_real_handle_count;
   uint64_t index_block_read_count;        // total number of index block reads
   uint64_t block_cache_filter_hit_count;  // total number of filter block hits
   uint64_t filter_block_read_count;       // total number of filter block reads
@@ -76,6 +81,14 @@ struct PerfContext {
                                                // dictionary block reads
 
   uint64_t secondary_cache_hit_count;  // total number of secondary cache hits
+  // total number of real handles inserted into secondary cache
+  uint64_t compressed_sec_cache_insert_real_count;
+  // total number of dummy handles inserted into secondary cache
+  uint64_t compressed_sec_cache_insert_dummy_count;
+  // bytes for vals before compression in secondary cache
+  uint64_t compressed_sec_cache_uncompressed_bytes;
+  // bytes for vals after compression in secondary cache
+  uint64_t compressed_sec_cache_compressed_bytes;
 
   uint64_t block_checksum_time;    // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
@@ -124,6 +137,10 @@ struct PerfContext {
   // How many values were fed into merge operator by iterators.
   //
   uint64_t internal_merge_count;
+  // Number of times we reseeked inside a merging iterator, specifically to skip
+  // after or before a range of keys covered by a range deletion in a newer LSM
+  // component.
+  uint64_t internal_range_del_reseek_count;
 
   uint64_t get_snapshot_time;        // total nanos spent on getting snapshot
   uint64_t get_from_memtable_time;   // total nanos spent on querying memtables

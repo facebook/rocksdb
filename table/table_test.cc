@@ -407,7 +407,7 @@ class TableConstructor : public Constructor {
     EXPECT_EQ(TEST_GetSink()->contents().size(), builder->FileSize());
 
     // Open the table
-    uniq_id_ = cur_uniq_id_++;
+    file_num_ = cur_file_num_++;
 
     return Reopen(ioptions, moptions);
   }
@@ -438,15 +438,15 @@ class TableConstructor : public Constructor {
   virtual Status Reopen(const ImmutableOptions& ioptions,
                         const MutableCFOptions& moptions) {
     std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
-        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads));
+        TEST_GetSink()->contents(), file_num_, ioptions.allow_mmap_reads));
 
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
                            *last_internal_comparator_, /*skip_filters*/ false,
-                           /*immortal*/ false, false, level_, largest_seqno_,
+                           /*immortal*/ false, false, level_,
                            &block_cache_tracer_, moptions.write_buffer_size, "",
-                           uniq_id_),
+                           file_num_, kNullUniqueId64x2, largest_seqno_),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -469,14 +469,14 @@ class TableConstructor : public Constructor {
 
  private:
   void Reset() {
-    uniq_id_ = 0;
+    file_num_ = 0;
     table_reader_.reset();
     file_writer_.reset();
     file_reader_.reset();
   }
 
   const ReadOptions read_options_;
-  uint64_t uniq_id_;
+  uint64_t file_num_;
   std::unique_ptr<WritableFileWriter> file_writer_;
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   std::unique_ptr<TableReader> table_reader_;
@@ -486,11 +486,11 @@ class TableConstructor : public Constructor {
 
   TableConstructor();
 
-  static uint64_t cur_uniq_id_;
+  static uint64_t cur_file_num_;
   EnvOptions soptions;
   Env* env_;
 };
-uint64_t TableConstructor::cur_uniq_id_ = 1;
+uint64_t TableConstructor::cur_file_num_ = 1;
 
 class MemTableConstructor: public Constructor {
  public:
@@ -1147,15 +1147,21 @@ class BlockBasedTableTest
     test_path_ = test::PerThreadDBPath("block_based_table_tracing_test");
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace_file";
-    TraceOptions trace_opt;
+
+    BlockCacheTraceWriterOptions trace_writer_opt;
+    BlockCacheTraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
                                  &trace_writer));
+    std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+        NewBlockCacheTraceWriter(env_->GetSystemClock().get(), trace_writer_opt,
+                                 std::move(trace_writer));
+    ASSERT_NE(block_cache_trace_writer, nullptr);
     // Always return Status::OK().
     assert(c->block_cache_tracer_
-               .StartTrace(env_->GetSystemClock().get(), trace_opt,
-                           std::move(trace_writer))
+               .StartTrace(trace_opt, std::move(block_cache_trace_writer))
                .ok());
+
     {
       std::string user_key = "k01";
       InternalKey internal_key(user_key, 0, kTypeValue);
@@ -1213,10 +1219,10 @@ class BlockBasedTableTest
         } else {
           EXPECT_EQ(access.referenced_key, "");
           EXPECT_EQ(access.get_id, 0);
-          EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
+          EXPECT_FALSE(access.get_from_user_specified_snapshot);
           EXPECT_EQ(access.referenced_data_size, 0);
           EXPECT_EQ(access.num_keys_in_block, 0);
-          EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+          EXPECT_FALSE(access.referenced_key_exist_in_block);
         }
         index++;
       }
@@ -1310,7 +1316,7 @@ class FileChecksumTestHelper {
   Status CalculateFileChecksum(FileChecksumGenerator* file_checksum_generator,
                                std::string* checksum) {
     assert(file_checksum_generator != nullptr);
-    cur_uniq_id_ = checksum_uniq_id_++;
+    cur_file_num_ = checksum_file_num_++;
     test::StringSink* ss_rw =
         static_cast<test::StringSink*>(file_writer_->writable_file());
     std::unique_ptr<FSRandomAccessFile> source(
@@ -1344,17 +1350,17 @@ class FileChecksumTestHelper {
 
  private:
   bool convert_to_internal_key_;
-  uint64_t cur_uniq_id_;
+  uint64_t cur_file_num_;
   std::unique_ptr<WritableFileWriter> file_writer_;
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   std::unique_ptr<TableBuilder> table_builder_;
   stl_wrappers::KVMap kv_map_;
   test::StringSink* sink_ = nullptr;
 
-  static uint64_t checksum_uniq_id_;
+  static uint64_t checksum_file_num_;
 };
 
-uint64_t FileChecksumTestHelper::checksum_uniq_id_ = 1;
+uint64_t FileChecksumTestHelper::checksum_file_num_ = 1;
 
 INSTANTIATE_TEST_CASE_P(FormatVersions, BlockBasedTableTest,
                         testing::ValuesIn(test::kFooterFormatVersionsToTest));
@@ -2250,7 +2256,8 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
   // Corrupt checksum type (123 is invalid)
   auto& sink = *c.TEST_GetSink();
   size_t len = sink.contents_.size();
-  ASSERT_EQ(sink.contents_[len - Footer::kNewVersionsEncodedLength], kCRC32c);
+  ASSERT_EQ(sink.contents_[len - Footer::kNewVersionsEncodedLength],
+            table_options.checksum);
   sink.contents_[len - Footer::kNewVersionsEncodedLength] = char{123};
 
   // (Re-)Open table file with bad checksum type
@@ -3036,8 +3043,8 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
     PinnableSlice value;
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, user_key, &value, nullptr,
-                           nullptr, true, nullptr, nullptr, nullptr, nullptr,
-                           nullptr, nullptr, /*tracing_get_id=*/i);
+                           nullptr, nullptr, true, nullptr, nullptr, nullptr,
+                           nullptr, nullptr, nullptr, /*tracing_get_id=*/i);
     get_perf_context()->Reset();
     ASSERT_OK(c.GetTableReader()->Get(ReadOptions(), encoded_key, &get_context,
                                       moptions.prefix_extractor.get()));
@@ -3051,8 +3058,8 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
@@ -3061,22 +3068,22 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   record.get_id = 1;
   record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = false;
   record.referenced_key = encoded_key;
-  record.referenced_key_exist_in_block = Boolean::kTrue;
-  record.is_cache_hit = Boolean::kTrue;
+  record.referenced_key_exist_in_block = true;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceIndexBlock;
   expected_records.push_back(record);
-  record.is_cache_hit = Boolean::kFalse;
+  record.is_cache_hit = false;
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
   // The second get should all observe cache hits.
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   record.get_id = 2;
   record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = false;
   record.referenced_key = encoded_key;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceIndexBlock;
@@ -3116,15 +3123,15 @@ TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   // Then we should have two records for only index blocks.
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserApproximateSize;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   expected_records.push_back(record);
   VerifyBlockAccessTrace(&c, expected_records);
@@ -3169,24 +3176,24 @@ TEST_P(BlockBasedTableTest, TracingIterator) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   // Then we should have three records for index and two data block access.
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserIterator;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
-  record.is_cache_hit = Boolean::kFalse;
+  record.is_cache_hit = false;
   expected_records.push_back(record);
   expected_records.push_back(record);
   // When we iterate this file for the second time, we should observe all cache
   // hits.
   record.block_type = TraceType::kBlockTraceIndexBlock;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
@@ -3293,7 +3300,7 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
   {
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, Slice(), nullptr, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
     // a hack that just to trigger BlockBasedTable::GetFilter.
     ASSERT_OK(reader->Get(ReadOptions(), "non-exist-key", &get_context,
                           moptions.prefix_extractor.get()));
@@ -3471,7 +3478,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   PinnableSlice value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, user_key, &value, nullptr,
-                         nullptr, true, nullptr, nullptr);
+                         nullptr, nullptr, true, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), internal_key.Encode(), &get_context,
                         moptions4.prefix_extractor.get()));
   ASSERT_STREQ(value.data(), "hello");
@@ -3558,7 +3565,7 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, true, nullptr, nullptr);
+                               nullptr, nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -3584,7 +3591,7 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, true, nullptr, nullptr);
+                               nullptr, nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -5149,7 +5156,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
         std::string user_key = ExtractUserKey(kv.first).ToString();
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, true, nullptr, nullptr);
+                               nullptr, nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, kv.first, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -5175,7 +5182,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
         PinnableSlice value;
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, true, nullptr, nullptr);
+                               nullptr, nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kNotFound);

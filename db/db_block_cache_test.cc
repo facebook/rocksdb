@@ -13,7 +13,6 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
-#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "db/column_family.h"
@@ -171,13 +170,16 @@ class DBBlockCacheTest : public DBTestBase {
 #ifndef ROCKSDB_LITE
   const std::array<size_t, kNumCacheEntryRoles> GetCacheEntryRoleCountsBg() {
     // Verify in cache entry role stats
-    ColumnFamilyHandleImpl* cfh =
-        static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
-    InternalStats* internal_stats_ptr = cfh->cfd()->internal_stats();
-    InternalStats::CacheEntryRoleStats stats;
-    internal_stats_ptr->TEST_GetCacheEntryRoleStats(&stats,
-                                                    /*foreground=*/false);
-    return stats.entry_counts;
+    std::array<size_t, kNumCacheEntryRoles> cache_entry_role_counts;
+    std::map<std::string, std::string> values;
+    EXPECT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                    &values));
+    for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
+      auto role = static_cast<CacheEntryRole>(i);
+      cache_entry_role_counts[i] =
+          ParseSizeT(values[BlockCacheEntryStatsMapKeys::EntryCount(role)]);
+    }
+    return cache_entry_role_counts;
   }
 #endif  // ROCKSDB_LITE
 };
@@ -678,8 +680,8 @@ INSTANTIATE_TEST_CASE_P(DBBlockCacheTest1, DBBlockCacheTest1,
 TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
+  options.disable_auto_compactions = true;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.max_compaction_bytes = 2000;
 
   BlockBasedTableOptions table_options;
   table_options.block_cache = NewLRUCache(1 << 25, 0, false);
@@ -737,8 +739,10 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   }
 
   // Verify compaction not counted
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
-                              /*end=*/nullptr));
+  CompactRangeOptions cro;
+  // Ensure files are rewritten, not just trivially moved.
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
   EXPECT_EQ(kNumBlocks,
             options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
   // Index and filter blocks are automatically warmed when the new table file
@@ -936,9 +940,11 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        ExperimentalNewClockCache(
-            capacity, 1 /*estimated_value_size*/, num_shard_bits,
-            false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy),
+        HyperClockCacheOptions(
+            capacity,
+            BlockBasedTableOptions().block_size /*estimated_value_size*/,
+            num_shard_bits)
+            .MakeSharedCache(),
         NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
                         false /*strict_capacity_limit*/,
                         kDefaultCacheMetadataChargePolicy)}) {
@@ -1296,10 +1302,10 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   for (bool partition : {false, true}) {
     for (std::shared_ptr<Cache> cache :
          {NewLRUCache(capacity),
-          ExperimentalNewClockCache(capacity, 1 /*estimated_value_size*/,
-                                    -1 /*num_shard_bits*/,
-                                    false /*strict_capacity_limit*/,
-                                    kDefaultCacheMetadataChargePolicy)}) {
+          HyperClockCacheOptions(
+              capacity,
+              BlockBasedTableOptions().block_size /*estimated_value_size*/)
+              .MakeSharedCache()}) {
       if (!cache) {
         // Skip clock cache when not supported
         continue;
@@ -1497,23 +1503,38 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       dbfull()->DumpStats();
       ASSERT_EQ(scan_count, 1);
 
-      env_->MockSleepForSeconds(10000);
+      env_->MockSleepForSeconds(60);
+      ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                      &values));
+      ASSERT_EQ(scan_count, 1);
       ASSERT_TRUE(
           db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
       ASSERT_EQ(scan_count, 2);
 
       env_->MockSleepForSeconds(10000);
-      std::string value_str;
-      ASSERT_TRUE(
-          db_->GetProperty(DB::Properties::kBlockCacheEntryStats, &value_str));
+      ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                      &values));
       ASSERT_EQ(scan_count, 3);
 
+      env_->MockSleepForSeconds(60);
+      std::string value_str;
+      ASSERT_TRUE(db_->GetProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                   &value_str));
+      ASSERT_EQ(scan_count, 3);
+      ASSERT_TRUE(
+          db_->GetProperty(DB::Properties::kBlockCacheEntryStats, &value_str));
+      ASSERT_EQ(scan_count, 4);
+
       env_->MockSleepForSeconds(10000);
+      ASSERT_TRUE(db_->GetProperty(DB::Properties::kFastBlockCacheEntryStats,
+                                   &value_str));
+      ASSERT_EQ(scan_count, 5);
+
       ASSERT_TRUE(db_->GetProperty(DB::Properties::kCFStats, &value_str));
       // To match historical speed, querying this property no longer triggers
       // a scan, even if results are old. But periodic dump stats should keep
       // things reasonably updated.
-      ASSERT_EQ(scan_count, /*unchanged*/ 3);
+      ASSERT_EQ(scan_count, /*unchanged*/ 5);
 
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1567,6 +1588,10 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   options.create_if_missing = true;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.env = test_env.get();
+
+  // Corrupting the table properties corrupts the unique id.
+  // Ignore the unique id recorded in the manifest.
+  options.verify_sst_unique_id_in_manifest = false;
 
   BlockBasedTableOptions table_options;
 

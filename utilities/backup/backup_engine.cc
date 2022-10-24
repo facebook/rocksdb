@@ -2053,6 +2053,12 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     io_s = src_env->GetFileSystem()->NewSequentialFile(src, src_file_options,
                                                        &src_file, nullptr);
   }
+  if (io_s.IsPathNotFound() && *src_temperature != Temperature::kUnknown) {
+    // Retry without temperature hint in case the FileSystem is strict with
+    // non-kUnknown temperature option
+    io_s = src_env->GetFileSystem()->NewSequentialFile(
+        src, FileOptions(src_env_options), &src_file, nullptr);
+  }
   if (!io_s.ok()) {
     return io_s;
   }
@@ -2387,6 +2393,13 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
   RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
   IOStatus io_s = SequentialFileReader::Create(
       src_fs, src, file_options, &src_reader, nullptr /* dbg */, rate_limiter);
+  if (io_s.IsPathNotFound() && src_temperature != Temperature::kUnknown) {
+    // Retry without temperature hint in case the FileSystem is strict with
+    // non-kUnknown temperature option
+    file_options.temperature = Temperature::kUnknown;
+    io_s = SequentialFileReader::Create(src_fs, src, file_options, &src_reader,
+                                        nullptr /* dbg */, rate_limiter);
+  }
   if (!io_s.ok()) {
     return io_s;
   }

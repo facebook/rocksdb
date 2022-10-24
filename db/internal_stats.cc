@@ -247,6 +247,8 @@ static const std::string cf_file_histogram = "cf-file-histogram";
 static const std::string dbstats = "dbstats";
 static const std::string levelstats = "levelstats";
 static const std::string block_cache_entry_stats = "block-cache-entry-stats";
+static const std::string fast_block_cache_entry_stats =
+    "fast-block-cache-entry-stats";
 static const std::string num_immutable_mem_table = "num-immutable-mem-table";
 static const std::string num_immutable_mem_table_flushed =
     "num-immutable-mem-table-flushed";
@@ -326,6 +328,8 @@ const std::string DB::Properties::kDBStats = rocksdb_prefix + dbstats;
 const std::string DB::Properties::kLevelStats = rocksdb_prefix + levelstats;
 const std::string DB::Properties::kBlockCacheEntryStats =
     rocksdb_prefix + block_cache_entry_stats;
+const std::string DB::Properties::kFastBlockCacheEntryStats =
+    rocksdb_prefix + fast_block_cache_entry_stats;
 const std::string DB::Properties::kNumImmutableMemTable =
     rocksdb_prefix + num_immutable_mem_table;
 const std::string DB::Properties::kNumImmutableMemTableFlushed =
@@ -446,6 +450,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kBlockCacheEntryStats,
          {true, &InternalStats::HandleBlockCacheEntryStats, nullptr,
           &InternalStats::HandleBlockCacheEntryStatsMap, nullptr}},
+        {DB::Properties::kFastBlockCacheEntryStats,
+         {true, &InternalStats::HandleFastBlockCacheEntryStats, nullptr,
+          &InternalStats::HandleFastBlockCacheEntryStatsMap, nullptr}},
         {DB::Properties::kSSTables,
          {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
         {DB::Properties::kAggregatedTableProperties,
@@ -671,6 +678,9 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
       << port::GetProcessID();
   cache_id = str.str();
   cache_capacity = cache->GetCapacity();
+  cache_usage = cache->GetUsage();
+  table_size = cache->GetTableAddressCount();
+  occupancy = cache->GetOccupancyCount();
 }
 
 void InternalStats::CacheEntryRoleStats::EndCollection(
@@ -695,6 +705,8 @@ std::string InternalStats::CacheEntryRoleStats::ToString(
   std::ostringstream str;
   str << "Block cache " << cache_id
       << " capacity: " << BytesToHumanString(cache_capacity)
+      << " usage: " << BytesToHumanString(cache_usage)
+      << " table_size: " << table_size << " occupancy: " << occupancy
       << " collections: " << collection_count
       << " last_copies: " << copies_of_last_collection
       << " last_secs: " << (GetLastDurationMicros() / 1000000.0)
@@ -734,28 +746,48 @@ void InternalStats::CacheEntryRoleStats::ToMap(
   }
 }
 
-bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
-                                               Slice /*suffix*/) {
+bool InternalStats::HandleBlockCacheEntryStatsInternal(std::string* value,
+                                                       bool fast) {
   if (!cache_entry_stats_collector_) {
     return false;
   }
-  CollectCacheEntryStats(/*foreground*/ true);
+  CollectCacheEntryStats(!fast /* foreground */);
   CacheEntryRoleStats stats;
   cache_entry_stats_collector_->GetStats(&stats);
   *value = stats.ToString(clock_);
   return true;
 }
 
-bool InternalStats::HandleBlockCacheEntryStatsMap(
-    std::map<std::string, std::string>* values, Slice /*suffix*/) {
+bool InternalStats::HandleBlockCacheEntryStatsMapInternal(
+    std::map<std::string, std::string>* values, bool fast) {
   if (!cache_entry_stats_collector_) {
     return false;
   }
-  CollectCacheEntryStats(/*foreground*/ true);
+  CollectCacheEntryStats(!fast /* foreground */);
   CacheEntryRoleStats stats;
   cache_entry_stats_collector_->GetStats(&stats);
   stats.ToMap(values, clock_);
   return true;
+}
+
+bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
+                                               Slice /*suffix*/) {
+  return HandleBlockCacheEntryStatsInternal(value, false /* fast */);
+}
+
+bool InternalStats::HandleBlockCacheEntryStatsMap(
+    std::map<std::string, std::string>* values, Slice /*suffix*/) {
+  return HandleBlockCacheEntryStatsMapInternal(values, false /* fast */);
+}
+
+bool InternalStats::HandleFastBlockCacheEntryStats(std::string* value,
+                                                   Slice /*suffix*/) {
+  return HandleBlockCacheEntryStatsInternal(value, true /* fast */);
+}
+
+bool InternalStats::HandleFastBlockCacheEntryStatsMap(
+    std::map<std::string, std::string>* values, Slice /*suffix*/) {
+  return HandleBlockCacheEntryStatsMapInternal(values, true /* fast */);
 }
 
 bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
@@ -1592,7 +1624,8 @@ void InternalStats::DumpCFMapStats(
     int files = vstorage->NumLevelFiles(level);
     total_files += files;
     total_files_being_compacted += files_being_compacted[level];
-    if (comp_stats_[level].micros > 0 || files > 0) {
+    if (comp_stats_[level].micros > 0 || comp_stats_[level].cpu_micros > 0 ||
+        files > 0) {
       compaction_stats_sum->Add(comp_stats_[level]);
       total_file_size += vstorage->NumLevelBytes(level);
       uint64_t input_bytes;

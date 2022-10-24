@@ -962,15 +962,15 @@ TEST_F(WriteBatchTest, SanityChecks) {
   ASSERT_TRUE(wb.Delete(nullptr, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(nullptr, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsNotSupported());
-  ASSERT_TRUE(
-      wb.DeleteRange(nullptr, "begin_key", "end_key", "ts").IsNotSupported());
+  ASSERT_TRUE(wb.DeleteRange(nullptr, "begin_key", "end_key", "ts")
+                  .IsInvalidArgument());
 
   ASSERT_TRUE(wb.Put(&cf4, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(wb.Delete(&cf4, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(&cf4, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsNotSupported());
   ASSERT_TRUE(
-      wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsNotSupported());
+      wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsInvalidArgument());
 
   constexpr size_t wrong_ts_sz = 1 + sizeof(uint64_t);
   std::string ts(wrong_ts_sz, '\0');
@@ -980,7 +980,7 @@ TEST_F(WriteBatchTest, SanityChecks) {
   ASSERT_TRUE(wb.SingleDelete(&cf0, "key", ts).IsInvalidArgument());
   ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsNotSupported());
   ASSERT_TRUE(
-      wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsNotSupported());
+      wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsInvalidArgument());
 
   // Sanity checks for the new WriteBatch APIs without extra 'ts' arg.
   WriteBatch wb1(0, 0, 0, wrong_ts_sz);
@@ -1107,6 +1107,7 @@ TEST_F(WriteBatchTest, CommitWithTimestamp) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

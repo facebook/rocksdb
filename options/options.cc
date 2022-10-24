@@ -71,6 +71,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
       max_compaction_bytes(options.max_compaction_bytes),
+      ignore_max_compaction_bytes_for_input(
+          options.ignore_max_compaction_bytes_for_input),
       soft_pending_compaction_bytes_limit(
           options.soft_pending_compaction_bytes_limit),
       hard_pending_compaction_bytes_limit(
@@ -94,6 +96,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       sample_for_compression(options.sample_for_compression),
       preclude_last_level_data_seconds(
           options.preclude_last_level_data_seconds),
+      preserve_internal_time_seconds(options.preserve_internal_time_seconds),
       enable_blob_files(options.enable_blob_files),
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
@@ -280,6 +283,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "                   Options.max_compaction_bytes: %" PRIu64,
         max_compaction_bytes);
+    ROCKS_LOG_HEADER(log, "  Options.ignore_max_compaction_bytes_for_input: %s",
+                     ignore_max_compaction_bytes_for_input ? "true" : "false");
     ROCKS_LOG_HEADER(
         log,
         "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
@@ -403,6 +408,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      periodic_compaction_seconds);
     ROCKS_LOG_HEADER(log, " Options.preclude_last_level_data_seconds: %" PRIu64,
                      preclude_last_level_data_seconds);
+    ROCKS_LOG_HEADER(log, "   Options.preserve_internal_time_seconds: %" PRIu64,
+                     preserve_internal_time_seconds);
     ROCKS_LOG_HEADER(log, "                      Options.enable_blob_files: %s",
                      enable_blob_files ? "true" : "false");
     ROCKS_LOG_HEADER(
@@ -696,7 +703,8 @@ ReadOptions::ReadOptions()
       io_timeout(std::chrono::microseconds::zero()),
       value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
       adaptive_readahead(false),
-      async_io(false) {}
+      async_io(false),
+      optimize_multiget_for_io(true) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -721,6 +729,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       io_timeout(std::chrono::microseconds::zero()),
       value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
       adaptive_readahead(false),
-      async_io(false) {}
+      async_io(false),
+      optimize_multiget_for_io(true) {}
 
 }  // namespace ROCKSDB_NAMESPACE

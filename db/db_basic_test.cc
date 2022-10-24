@@ -253,6 +253,7 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
   ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
   ASSERT_OK(Flush());
+  ASSERT_OK(Put("something_not_flushed", "x"));
   Close();
 
   ASSERT_OK(ReadOnlyReopen(options));
@@ -260,6 +261,20 @@ TEST_F(DBBasicTest, CompactedDB) {
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported operation in read only mode.");
+
+  // TODO: validate that other write ops return NotImplemented
+  // (DBImplReadOnly is missing some overrides)
+
+  // Ensure no deadlock on flush triggered by another API function
+  // (Old deadlock bug depends on something_not_flushed above.)
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  LiveFilesStorageInfoOptions lfsi_opts;
+  lfsi_opts.wal_size_for_flush = 0;  // always
+  std::vector<LiveFileStorageInfo> files2;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files2));
+
   Close();
 
   // Full compaction
@@ -289,6 +304,13 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_EQ(DummyString(kFileSize / 2, 'i'), Get("iii"));
   ASSERT_EQ(DummyString(kFileSize / 2, 'j'), Get("jjj"));
   ASSERT_EQ("NOT_FOUND", Get("kkk"));
+
+  // TODO: validate that other write ops return NotImplemented
+  // (CompactedDB is missing some overrides)
+
+  // Ensure no deadlock on flush triggered by another API function
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files2));
 
   // MultiGet
   std::vector<std::string> values;
@@ -2013,12 +2035,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSize) {
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
-#ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    ROCKSDB_GTEST_BYPASS("This test needs to be fixed for async IO");
     return;
   }
-#endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
     ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
@@ -2131,7 +2151,8 @@ INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
                         testing::Combine(testing::Bool(), testing::Bool()));
 
 #if USE_COROUTINES
-class DBMultiGetAsyncIOTest : public DBBasicTest {
+class DBMultiGetAsyncIOTest : public DBBasicTest,
+                              public ::testing::WithParamInterface<bool> {
  public:
   DBMultiGetAsyncIOTest()
       : DBBasicTest(), statistics_(ROCKSDB_NAMESPACE::CreateDBStatistics()) {
@@ -2210,7 +2231,7 @@ class DBMultiGetAsyncIOTest : public DBBasicTest {
   std::shared_ptr<Statistics> statistics_;
 };
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
   // All 3 keys in L0. The L0 files should be read serially.
   std::vector<std::string> key_strs{Key(0), Key(40), Key(80)};
   std::vector<Slice> keys{key_strs[0], key_strs[1], key_strs[2]};
@@ -2219,6 +2240,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2233,13 +2255,19 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
-  // No async IO in this case since we don't do parallel lookup in L0
-  ASSERT_EQ(multiget_io_batch_size.count, 0);
-  ASSERT_EQ(multiget_io_batch_size.max, 0);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  // With async IO, lookups will happen in parallel for each key
+  if (GetParam()) {
+    ASSERT_EQ(multiget_io_batch_size.count, 1);
+    ASSERT_EQ(multiget_io_batch_size.max, 3);
+    ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  } else {
+    // Without Async IO, MultiGet will call MultiRead 3 times, once for each
+    // L0 file
+    ASSERT_EQ(multiget_io_batch_size.count, 3);
+  }
 }
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2256,6 +2284,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2276,7 +2305,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 }
 
-TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
+TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2294,6 +2323,7 @@ TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2316,7 +2346,7 @@ TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
   ASSERT_EQ(multiget_io_batch_size.max, 2);
 }
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2334,6 +2364,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2348,13 +2379,14 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
-  // There is only one MultiGet key in the bottommost level - 56. Thus
-  // the bottommost level will not use async IO.
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 2);
+  // There are 2 keys in L1 in twp separate files, and 1 in L2. With
+  // optimize_multiget_for_io, all three lookups will happen in parallel.
+  // Otherwise, the L2 lookup will happen after L1.
+  ASSERT_EQ(multiget_io_batch_size.count, GetParam() ? 1 : 2);
+  ASSERT_EQ(multiget_io_batch_size.max, GetParam() ? 3 : 2);
 }
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2370,6 +2402,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 2);
@@ -2382,7 +2415,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
 }
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2398,6 +2431,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 2);
@@ -2408,7 +2442,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
 }
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2426,6 +2460,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), keys.size());
@@ -2437,6 +2472,9 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 }
+
+INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,
+                        testing::Bool());
 #endif  // USE_COROUTINES
 
 TEST_F(DBBasicTest, MultiGetStats) {

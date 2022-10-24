@@ -233,6 +233,21 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.min_write_buffer_number_to_merge = 1;
   }
 
+  if (db_options.atomic_flush && result.min_write_buffer_number_to_merge > 1) {
+    ROCKS_LOG_WARN(
+        db_options.logger,
+        "Currently, if atomic_flush is true, then triggering flush for any "
+        "column family internally (non-manual flush) will trigger flushing "
+        "all column families even if the number of memtables is smaller "
+        "min_write_buffer_number_to_merge. Therefore, configuring "
+        "min_write_buffer_number_to_merge > 1 is not compatible and should "
+        "be satinized to 1. Not doing so will lead to data loss and "
+        "inconsistent state across multiple column families when WAL is "
+        "disabled, which is a common setting for atomic flush");
+
+    result.min_write_buffer_number_to_merge = 1;
+  }
+
   if (result.num_levels < 1) {
     result.num_levels = 1;
   }
@@ -276,7 +291,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.compaction_style == kCompactionStyleFIFO) {
-    result.num_levels = 1;
     // since we delete level0 files in FIFO compaction when there are too many
     // of them, these options don't really mean anything
     result.level0_slowdown_writes_trigger = std::numeric_limits<int>::max();
@@ -1144,7 +1158,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_opts, &arena));
-  super_version->imm->AddIterators(read_opts, &merge_iter_builder);
+  super_version->imm->AddIterators(read_opts, &merge_iter_builder,
+                                   false /* add_range_tombstone_iter */);
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
   auto read_seq = super_version->current->version_set()->LastSequence();
@@ -1415,6 +1430,14 @@ Status ColumnFamilyData::ValidateOptions(
         "FIFO compaction only supported with max_open_files = -1.");
   }
 
+  std::vector<uint32_t> supported{0, 1, 2, 4, 8};
+  if (std::find(supported.begin(), supported.end(),
+                cf_options.memtable_protection_bytes_per_key) ==
+      supported.end()) {
+    return Status::NotSupported(
+        "Memtable per key-value checksum protection only supports 0, 1, 2, 4 "
+        "or 8 bytes per key.");
+  }
   return s;
 }
 

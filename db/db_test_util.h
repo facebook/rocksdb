@@ -49,6 +49,9 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
+// In case defined by Windows headers
+#undef small
+
 namespace ROCKSDB_NAMESPACE {
 class MockEnv;
 
@@ -714,6 +717,16 @@ class FileTemperatureTestFS : public FileSystemWrapper {
       MutexLock lock(&mu_);
       requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
       if (s.ok()) {
+        if (opts.temperature != Temperature::kUnknown) {
+          // Be extra picky and don't open if a wrong non-unknown temperature is
+          // provided
+          auto e = current_sst_file_temperatures_.find(number);
+          if (e != current_sst_file_temperatures_.end() &&
+              e->second != opts.temperature) {
+            result->reset();
+            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+          }
+        }
         *result = WrapWithTemperature<FSSequentialFileOwnerWrapper>(
             number, std::move(*result));
       }
@@ -733,6 +746,16 @@ class FileTemperatureTestFS : public FileSystemWrapper {
       MutexLock lock(&mu_);
       requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
       if (s.ok()) {
+        if (opts.temperature != Temperature::kUnknown) {
+          // Be extra picky and don't open if a wrong non-unknown temperature is
+          // provided
+          auto e = current_sst_file_temperatures_.find(number);
+          if (e != current_sst_file_temperatures_.end() &&
+              e->second != opts.temperature) {
+            result->reset();
+            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+          }
+        }
         *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(
             number, std::move(*result));
       }
@@ -1025,7 +1048,7 @@ class DBTestBase : public testing::Test {
     kUniversalCompactionMultiLevel = 20,
     kCompressedBlockCache = 21,
     kInfiniteMaxOpenFiles = 22,
-    kXXH3Checksum = 23,
+    kCRC32cChecksum = 23,
     kFIFOCompaction = 24,
     kOptimizeFiltersForHits = 25,
     kRowCache = 26,
@@ -1218,6 +1241,15 @@ class DBTestBase : public testing::Test {
   std::string Contents(int cf = 0);
 
   std::string AllEntriesFor(const Slice& user_key, int cf = 0);
+
+  // Similar to AllEntriesFor but this function also covers reopen with fifo.
+  // Note that test cases with snapshots or entries in memtable should simply
+  // use AllEntriesFor instead as snapshots and entries in memtable will
+  // survive after db reopen.
+  void CheckAllEntriesWithFifoReopen(const std::string& expected_value,
+                                     const Slice& user_key, int cf,
+                                     const std::vector<std::string>& cfs,
+                                     const Options& options);
 
 #ifndef ROCKSDB_LITE
   int NumSortedRuns(int cf = 0);

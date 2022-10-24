@@ -4622,6 +4622,8 @@ class CompactionPriorityJni {
         return 0x2;
       case ROCKSDB_NAMESPACE::CompactionPri::kMinOverlappingRatio:
         return 0x3;
+      case ROCKSDB_NAMESPACE::CompactionPri::kRoundRobin:
+        return 0x4;
       default:
         return 0x0;  // undefined
     }
@@ -4640,6 +4642,8 @@ class CompactionPriorityJni {
         return ROCKSDB_NAMESPACE::CompactionPri::kOldestSmallestSeqFirst;
       case 0x3:
         return ROCKSDB_NAMESPACE::CompactionPri::kMinOverlappingRatio;
+      case 0x4:
+        return ROCKSDB_NAMESPACE::CompactionPri::kRoundRobin;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::CompactionPri::kByCompensatedSize;
@@ -5619,6 +5623,10 @@ class HistogramTypeJni {
         return 0x35;
       case ROCKSDB_NAMESPACE::Histograms::MULTIGET_IO_BATCH_SIZE:
         return 0x36;
+      case NUM_LEVEL_READ_PER_MULTIGET:
+        return 0x37;
+      case ASYNC_PREFETCH_ABORT_MICROS:
+        return 0x38;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5744,6 +5752,10 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED;
       case 0x36:
         return ROCKSDB_NAMESPACE::Histograms::MULTIGET_IO_BATCH_SIZE;
+      case 0x37:
+        return ROCKSDB_NAMESPACE::Histograms::NUM_LEVEL_READ_PER_MULTIGET;
+      case 0x38:
+        return ROCKSDB_NAMESPACE::Histograms::ASYNC_PREFETCH_ABORT_MICROS;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;

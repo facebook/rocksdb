@@ -453,6 +453,9 @@ class InternalStats {
   // For use with CacheEntryStatsCollector
   struct CacheEntryRoleStats {
     uint64_t cache_capacity = 0;
+    uint64_t cache_usage = 0;
+    size_t table_size = 0;
+    size_t occupancy = 0;
     std::string cache_id;
     std::array<uint64_t, kNumCacheEntryRoles> total_charges;
     std::array<size_t, kNumCacheEntryRoles> entry_counts;
@@ -790,9 +793,15 @@ class InternalStats {
   bool HandleBlockCacheUsage(uint64_t* value, DBImpl* db, Version* version);
   bool HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* db,
                                    Version* version);
+  bool HandleBlockCacheEntryStatsInternal(std::string* value, bool fast);
+  bool HandleBlockCacheEntryStatsMapInternal(
+      std::map<std::string, std::string>* values, bool fast);
   bool HandleBlockCacheEntryStats(std::string* value, Slice suffix);
   bool HandleBlockCacheEntryStatsMap(std::map<std::string, std::string>* values,
                                      Slice suffix);
+  bool HandleFastBlockCacheEntryStats(std::string* value, Slice suffix);
+  bool HandleFastBlockCacheEntryStatsMap(
+      std::map<std::string, std::string>* values, Slice suffix);
   bool HandleLiveSstFilesSizeAtTemperature(std::string* value, Slice suffix);
   bool HandleNumBlobFiles(uint64_t* value, DBImpl* db, Version* version);
   bool HandleBlobStats(std::string* value, Slice suffix);

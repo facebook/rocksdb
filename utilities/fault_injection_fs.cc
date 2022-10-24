@@ -240,6 +240,7 @@ IOStatus TestFSWritableFile::PositionedAppend(
 
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
                                    IODebugContext* dbg) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -271,6 +272,7 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
 }
 
 IOStatus TestFSWritableFile::Flush(const IOOptions&, IODebugContext*) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -282,6 +284,7 @@ IOStatus TestFSWritableFile::Flush(const IOOptions&, IODebugContext*) {
 
 IOStatus TestFSWritableFile::Sync(const IOOptions& options,
                                   IODebugContext* dbg) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -302,6 +305,7 @@ IOStatus TestFSWritableFile::Sync(const IOOptions& options,
 IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
                                        const IOOptions& options,
                                        IODebugContext* dbg) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }

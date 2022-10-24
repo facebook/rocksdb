@@ -259,32 +259,23 @@ class MemTable {
   // @param immutable_memtable Whether this memtable is immutable. Used
   // internally by NewRangeTombstoneIterator(). See comment above
   // NewRangeTombstoneIterator() for more detail.
-  bool Get(const LookupKey& key, std::string* value, Status* s,
+  bool Get(const LookupKey& key, std::string* value,
+           PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
-           SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
-           const ReadOptions& read_opts, bool immutable_memtable,
-           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true) {
-    return Get(key, value, /*timestamp=*/nullptr, s, merge_context,
-               max_covering_tombstone_seq, seq, read_opts, immutable_memtable,
-               callback, is_blob_index, do_merge);
-  }
-
-  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
-           Status* s, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
            bool do_merge = true);
 
-  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
-           Status* s, MergeContext* merge_context,
+  bool Get(const LookupKey& key, std::string* value,
+           PinnableWideColumns* columns, std::string* timestamp, Status* s,
+           MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
            bool do_merge = true) {
     SequenceNumber seq;
-    return Get(key, value, timestamp, s, merge_context,
+    return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, immutable_memtable,
                callback, is_blob_index, do_merge);
   }
@@ -640,13 +631,16 @@ class MemTable {
   void GetFromTable(const LookupKey& key,
                     SequenceNumber max_covering_tombstone_seq, bool do_merge,
                     ReadCallback* callback, bool* is_blob_index,
-                    std::string* value, std::string* timestamp, Status* s,
+                    std::string* value, PinnableWideColumns* columns,
+                    std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress);
 
   // Always returns non-null and assumes certain pre-checks (e.g.,
   // is_range_del_table_empty_) are done. This is only valid during the lifetime
   // of the underlying memtable.
+  // read_seq and read_options.timestamp will be used as the upper bound
+  // for range tombstones.
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
       const ReadOptions& read_options, SequenceNumber read_seq,
       bool immutable_memtable);
@@ -656,6 +650,11 @@ class MemTable {
   // if !is_range_del_table_empty_.
   std::unique_ptr<FragmentedRangeTombstoneList>
       fragmented_range_tombstone_list_;
+
+  // makes sure there is a single range tombstone writer to invalidate cache
+  std::mutex range_del_mutex_;
+  CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
+      cached_range_tombstone_;
 
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,

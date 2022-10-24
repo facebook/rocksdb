@@ -2083,6 +2083,10 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  // Corrupting the table properties corrupts the unique id.
+  // Ignore the unique id recorded in the manifest.
+  options_.verify_sst_unique_id_in_manifest = false;
+
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
   FillDB(db_.get(), 0, keys_iteration);
   CloseDBAndBackupEngine();
@@ -2984,9 +2988,12 @@ TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {
   DestroyDBWithoutCheck(dbname_, options_);
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  // Also test read-only DB with CreateNewBackup and flush=true (no flush)
+  CloseAndReopenDB(/*read_only*/ true);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), /*flush*/ true));
+  CloseAndReopenDB(/*read_only*/ false);
   FillDB(db_.get(), 100, 200);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), /*flush*/ true));
   CloseDBAndBackupEngine();
   DestroyDBWithoutCheck(dbname_, options_);
 
@@ -4143,13 +4150,19 @@ TEST_F(BackupEngineTest, FileTemperatures) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
     // Verify requested temperatures against manifest temperatures (before
-    // backup finds out current temperatures in FileSystem)
+    // retry with kUnknown if needed, and before backup finds out current
+    // temperatures in FileSystem)
     std::vector<std::pair<uint64_t, Temperature>> requested_temps;
     my_db_fs->PopRequestedSstFileTemperatures(&requested_temps);
     std::set<uint64_t> distinct_requests;
     for (const auto& requested_temp : requested_temps) {
-      // Matching manifest temperatures
-      ASSERT_EQ(manifest_temps.at(requested_temp.first), requested_temp.second);
+      // Matching manifest temperatures, except allow retry request with
+      // kUnknown
+      auto manifest_temp = manifest_temps.at(requested_temp.first);
+      if (manifest_temp == Temperature::kUnknown ||
+          requested_temp.second != Temperature::kUnknown) {
+        ASSERT_EQ(manifest_temp, requested_temp.second);
+      }
       distinct_requests.insert(requested_temp.first);
     }
     // Two distinct requests
