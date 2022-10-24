@@ -7,7 +7,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -30,9 +29,6 @@ class SstFileReader {
   // Most read options provide the same control as we read from DB.
   // If "snapshot" is nullptr, the iterator returns only the latest keys.
   Iterator* NewIterator(const ReadOptions& options);
-
-  FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
-      const ReadOptions& options);
 
   std::shared_ptr<const TableProperties> GetTableProperties() const;
 
