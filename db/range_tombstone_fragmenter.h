@@ -84,7 +84,9 @@ struct FragmentedRangeTombstoneList {
 
   // Returns true if the stored tombstones contain with one with a sequence
   // number in [lower, upper].
-  bool ContainsRange(SequenceNumber lower, SequenceNumber upper) const;
+  // This method is not const as it internally lazy initialize a set of
+  // sequence numbers.
+  bool ContainsRange(SequenceNumber lower, SequenceNumber upper);
 
   uint64_t num_unfragmented_tombstones() const {
     return num_unfragmented_tombstones_;
@@ -131,12 +133,13 @@ struct FragmentedRangeTombstoneList {
 // tombstone collapsing is always O(n log n).
 class FragmentedRangeTombstoneIterator : public InternalIterator {
  public:
+  FragmentedRangeTombstoneIterator(FragmentedRangeTombstoneList* tombstones,
+                                   const InternalKeyComparator& icmp,
+                                   SequenceNumber upper_bound,
+                                   const Slice* ts_upper_bound = nullptr,
+                                   SequenceNumber lower_bound = 0);
   FragmentedRangeTombstoneIterator(
-      const FragmentedRangeTombstoneList* tombstones,
-      const InternalKeyComparator& icmp, SequenceNumber upper_bound,
-      const Slice* ts_upper_bound = nullptr, SequenceNumber lower_bound = 0);
-  FragmentedRangeTombstoneIterator(
-      const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
+      const std::shared_ptr<FragmentedRangeTombstoneList>& tombstones,
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
       const Slice* ts_upper_bound = nullptr, SequenceNumber lower_bound = 0);
   FragmentedRangeTombstoneIterator(
@@ -311,9 +314,9 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   const RangeTombstoneStackEndComparator tombstone_end_cmp_;
   const InternalKeyComparator* icmp_;
   const Comparator* ucmp_;
-  std::shared_ptr<const FragmentedRangeTombstoneList> tombstones_ref_;
+  std::shared_ptr<FragmentedRangeTombstoneList> tombstones_ref_;
   std::shared_ptr<FragmentedRangeTombstoneListCache> tombstones_cache_ref_;
-  const FragmentedRangeTombstoneList* tombstones_;
+  FragmentedRangeTombstoneList* tombstones_;
   SequenceNumber upper_bound_;
   SequenceNumber lower_bound_;
   // Only consider timestamps <= ts_upper_bound_.
