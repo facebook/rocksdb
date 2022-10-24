@@ -6,9 +6,9 @@
 #ifndef ROCKSDB_LITE
 #include "table/adaptive/adaptive_table_factory.h"
 
-#include "table/table_builder.h"
-#include "table/format.h"
 #include "port/port.h"
+#include "table/format.h"
+#include "table/table_builder.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -118,7 +118,8 @@ extern TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> plain_table_factory,
     std::shared_ptr<TableFactory> cuckoo_table_factory) {
   return new AdaptiveTableFactory(table_factory_to_write,
-      block_based_table_factory, plain_table_factory, cuckoo_table_factory);
+                                  block_based_table_factory,
+                                  plain_table_factory, cuckoo_table_factory);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

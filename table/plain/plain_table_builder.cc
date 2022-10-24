@@ -82,8 +82,9 @@ PlainTableBuilder::PlainTableBuilder(
     index_builder_.reset(new PlainTableIndexBuilder(
         &arena_, ioptions, moptions.prefix_extractor.get(), index_sparseness,
         hash_table_ratio, huge_page_tlb_size_));
-    properties_.user_collected_properties
-        [PlainTablePropertyNames::kBloomVersion] = "1";  // For future use
+    properties_
+        .user_collected_properties[PlainTablePropertyNames::kBloomVersion] =
+        "1";  // For future use
   }
 
   properties_.fixed_key_len = user_key_len;
@@ -112,8 +113,8 @@ PlainTableBuilder::PlainTableBuilder(
 
   std::string val;
   PutFixed32(&val, static_cast<uint32_t>(encoder_.GetEncodingType()));
-  properties_.user_collected_properties
-      [PlainTablePropertyNames::kEncodingType] = val;
+  properties_
+      .user_collected_properties[PlainTablePropertyNames::kEncodingType] = val;
 
   assert(int_tbl_prop_collector_factories);
   for (auto& factory : *int_tbl_prop_collector_factories) {
@@ -303,17 +304,13 @@ Status PlainTableBuilder::Finish() {
   return status_;
 }
 
-void PlainTableBuilder::Abandon() {
-  closed_ = true;
-}
+void PlainTableBuilder::Abandon() { closed_ = true; }
 
 uint64_t PlainTableBuilder::NumEntries() const {
   return properties_.num_entries;
 }
 
-uint64_t PlainTableBuilder::FileSize() const {
-  return offset_;
-}
+uint64_t PlainTableBuilder::FileSize() const { return offset_; }
 
 std::string PlainTableBuilder::GetFileChecksum() const {
   if (file_ != nullptr) {

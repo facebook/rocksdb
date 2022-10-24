@@ -133,6 +133,7 @@ class FullFilterBlockReader
                         BlockCacheLookupContext* lookup_context,
                         Env::IOPriority rate_limiter_priority) override;
   size_t ApproximateMemoryUsage() const override;
+
  private:
   bool MayMatch(const Slice& entry, bool no_io, GetContext* get_context,
                 BlockCacheLookupContext* lookup_context,
