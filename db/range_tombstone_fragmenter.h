@@ -115,6 +115,7 @@ struct FragmentedRangeTombstoneList {
   std::vector<RangeTombstoneStack> tombstones_;
   std::vector<SequenceNumber> tombstone_seqs_;
   std::vector<Slice> tombstone_timestamps_;
+  std::once_flag seq_set_init_once_flag_;
   std::set<SequenceNumber> seq_set_;
   std::list<std::string> pinned_slices_;
   PinnedIteratorsManager pinned_iters_mgr_;

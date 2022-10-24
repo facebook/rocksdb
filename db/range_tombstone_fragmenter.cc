@@ -257,11 +257,11 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
 
 bool FragmentedRangeTombstoneList::ContainsRange(SequenceNumber lower,
                                                  SequenceNumber upper) {
-  if (UNLIKELY(seq_set_.empty() && !tombstone_seqs_.empty())) {
+  std::call_once(seq_set_init_once_flag_, [this]() {
     for (auto s : tombstone_seqs_) {
       seq_set_.insert(s);
     }
-  }
+  });
   auto seq_it = seq_set_.lower_bound(lower);
   return seq_it != seq_set_.end() && *seq_it <= upper;
 }
