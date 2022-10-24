@@ -258,7 +258,7 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
 bool FragmentedRangeTombstoneList::ContainsRange(SequenceNumber lower,
                                                  SequenceNumber upper) {
   if (UNLIKELY(seq_set_.empty() && !tombstone_seqs_.empty())) {
-    for (const auto& s : tombstone_seqs_) {
+    for (auto s : tombstone_seqs_) {
       seq_set_.insert(s);
     }
   }
