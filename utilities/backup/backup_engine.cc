@@ -1035,10 +1035,10 @@ IOStatus BackupEngineImpl::Initialize() {
     if (options_.max_valid_backups_to_open !=
         std::numeric_limits<int32_t>::max()) {
       options_.max_valid_backups_to_open = std::numeric_limits<int32_t>::max();
-      ROCKS_LOG_WARN(options_.info_log,
-                     "`max_valid_backups_to_open` is not set to the default "
-                     "value. Ignoring "
-                     "its value since BackupEngine is not read-only.");
+      ROCKS_LOG_WARN(
+          options_.info_log,
+          "`max_valid_backups_to_open` is not set to the default value. "
+          "Ignoring its value since BackupEngine is not read-only.");
     }
 
     // gather the list of directories that we need to create
