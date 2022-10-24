@@ -305,7 +305,7 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
     read += result.size();
   }
   ASSERT_TRUE(write_data == read_data);
-  delete [] scratch;
+  delete[] scratch;
 }
 
 TEST_P(EnvMoreTestWithParam, GetModTime) {
