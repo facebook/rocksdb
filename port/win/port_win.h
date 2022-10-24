@@ -16,20 +16,21 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
-#include <intrin.h>
-#include <malloc.h>
-#include <process.h>
-#include <stdint.h>
-#include <string.h>
 #include <windows.h>
-
-#include <condition_variable>
-#include <limits>
-#include <mutex>
 #include <string>
 #include <thread>
+#include <string.h>
+#include <mutex>
+#include <limits>
+#include <condition_variable>
+#include <malloc.h>
+#include <intrin.h>
+#include <process.h>
+
+#include <stdint.h>
 
 #include "port/win/win_thread.h"
+
 #include "rocksdb/options.h"
 
 #undef min
