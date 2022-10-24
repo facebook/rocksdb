@@ -58,6 +58,7 @@
 #include <chrono>
 #include <memory>
 #include <vector>
+
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 
@@ -70,9 +71,8 @@ enum ColumnTypeMask {
   EXPIRATION_MASK = 0x02,
 };
 
-
 class ColumnBase {
-public:
+ public:
   ColumnBase(int8_t mask, int8_t index);
   virtual ~ColumnBase() = default;
 
@@ -84,15 +84,15 @@ public:
   static std::shared_ptr<ColumnBase> Deserialize(const char* src,
                                                  std::size_t offset);
 
-private:
+ private:
   int8_t mask_;
   int8_t index_;
 };
 
 class Column : public ColumnBase {
-public:
-  Column(int8_t mask, int8_t index, int64_t timestamp,
-    int32_t value_size, const char* value);
+ public:
+  Column(int8_t mask, int8_t index, int64_t timestamp, int32_t value_size,
+         const char* value);
 
   virtual int64_t Timestamp() const override;
   virtual std::size_t Size() const override;
@@ -100,16 +100,16 @@ public:
   static std::shared_ptr<Column> Deserialize(const char* src,
                                              std::size_t offset);
 
-private:
+ private:
   int64_t timestamp_;
   int32_t value_size_;
   const char* value_;
 };
 
 class Tombstone : public ColumnBase {
-public:
-  Tombstone(int8_t mask, int8_t index,
-    int32_t local_deletion_time, int64_t marked_for_delete_at);
+ public:
+  Tombstone(int8_t mask, int8_t index, int32_t local_deletion_time,
+            int64_t marked_for_delete_at);
 
   virtual int64_t Timestamp() const override;
   virtual std::size_t Size() const override;
@@ -118,15 +118,15 @@ public:
   static std::shared_ptr<Tombstone> Deserialize(const char* src,
                                                 std::size_t offset);
 
-private:
+ private:
   int32_t local_deletion_time_;
   int64_t marked_for_delete_at_;
 };
 
 class ExpiringColumn : public Column {
-public:
+ public:
   ExpiringColumn(int8_t mask, int8_t index, int64_t timestamp,
-    int32_t value_size, const char* value, int32_t ttl);
+                 int32_t value_size, const char* value, int32_t ttl);
 
   virtual std::size_t Size() const override;
   virtual void Serialize(std::string* dest) const override;
@@ -136,7 +136,7 @@ public:
   static std::shared_ptr<ExpiringColumn> Deserialize(const char* src,
                                                      std::size_t offset);
 
-private:
+ private:
   int32_t ttl_;
   std::chrono::time_point<std::chrono::system_clock> TimePoint() const;
   std::chrono::seconds Ttl() const;
@@ -145,12 +145,11 @@ private:
 using Columns = std::vector<std::shared_ptr<ColumnBase>>;
 
 class RowValue {
-public:
+ public:
   // Create a Row Tombstone.
   RowValue(int32_t local_deletion_time, int64_t marked_for_delete_at);
   // Create a Row containing columns.
-  RowValue(Columns columns,
-           int64_t last_modified_time);
+  RowValue(Columns columns, int64_t last_modified_time);
   RowValue(const RowValue& /*that*/) = delete;
   RowValue(RowValue&& /*that*/) noexcept = default;
   RowValue& operator=(const RowValue& /*that*/) = delete;
@@ -180,5 +179,5 @@ public:
   int64_t last_modified_time_;
 };
 
-} // namepsace cassandrda
+}  // namespace cassandra
 }  // namespace ROCKSDB_NAMESPACE

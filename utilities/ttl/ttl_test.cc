@@ -28,7 +28,7 @@ namespace {
 using KVMap = std::map<std::string, std::string>;
 
 enum BatchOperation { OP_PUT = 0, OP_DELETE = 1 };
-}
+}  // namespace
 
 class SpecialTimeEnv : public EnvWrapper {
  public:
@@ -81,8 +81,8 @@ class TtlTest : public testing::Test {
   // Open with TestFilter compaction filter
   void OpenTtlWithTestCompaction(int32_t ttl) {
     options_.compaction_filter_factory =
-      std::shared_ptr<CompactionFilterFactory>(
-          new TestFilterFactory(kSampleSize_, kNewValue_));
+        std::shared_ptr<CompactionFilterFactory>(
+            new TestFilterFactory(kSampleSize_, kNewValue_));
     OpenTtl(ttl);
   }
 
@@ -121,7 +121,7 @@ class TtlTest : public testing::Test {
       if (i % 10 == 0) {
         digits_in_i++;
       }
-      for(int j = digits_in_i; j < digits; j++) {
+      for (int j = digits_in_i; j < digits; j++) {
         key.append("0");
         value.append("0");
       }
@@ -210,16 +210,19 @@ class TtlTest : public testing::Test {
     static ReadOptions ropts;
     bool value_found;
     std::string val;
-    for(auto &kv : kvmap_) {
+    for (auto& kv : kvmap_) {
       bool ret = db_ttl_->KeyMayExist(ropts, kv.first, &val, &value_found);
       if (ret == false || value_found == false) {
-        fprintf(stderr, "KeyMayExist could not find key=%s in the database but"
-                        " should have\n", kv.first.c_str());
+        fprintf(stderr,
+                "KeyMayExist could not find key=%s in the database but"
+                " should have\n",
+                kv.first.c_str());
         FAIL();
       } else if (val.compare(kv.second) != 0) {
-        fprintf(stderr, " value for key=%s present in database is %s but"
-                        " should be %s\n", kv.first.c_str(), val.c_str(),
-                        kv.second.c_str());
+        fprintf(stderr,
+                " value for key=%s present in database is %s but"
+                " should be %s\n",
+                kv.first.c_str(), val.c_str(), kv.second.c_str());
         FAIL();
       }
     }
@@ -263,17 +266,19 @@ class TtlTest : public testing::Test {
         }
         FAIL();
       } else if (s.ok()) {
-          if (test_compaction_change && v.compare(kNewValue_) != 0) {
-            fprintf(stderr, " value for key=%s present in database is %s but "
-                            " should be %s\n", kv_it_->first.c_str(), v.c_str(),
-                            kNewValue_.c_str());
-            FAIL();
-          } else if (!test_compaction_change && v.compare(kv_it_->second) !=0) {
-            fprintf(stderr, " value for key=%s present in database is %s but "
-                            " should be %s\n", kv_it_->first.c_str(), v.c_str(),
-                            kv_it_->second.c_str());
-            FAIL();
-          }
+        if (test_compaction_change && v.compare(kNewValue_) != 0) {
+          fprintf(stderr,
+                  " value for key=%s present in database is %s but "
+                  " should be %s\n",
+                  kv_it_->first.c_str(), v.c_str(), kNewValue_.c_str());
+          FAIL();
+        } else if (!test_compaction_change && v.compare(kv_it_->second) != 0) {
+          fprintf(stderr,
+                  " value for key=%s present in database is %s but "
+                  " should be %s\n",
+                  kv_it_->first.c_str(), v.c_str(), kv_it_->second.c_str());
+          FAIL();
+        }
       }
     }
   }
@@ -299,7 +304,7 @@ class TtlTest : public testing::Test {
     env_->Sleep(slp);
     ASSERT_OK(ManualCompact());
     static ReadOptions ropts;
-    Iterator *dbiter = db_ttl_->NewIterator(ropts);
+    Iterator* dbiter = db_ttl_->NewIterator(ropts);
     kv_it_ = kvmap_.begin();
     advance(kv_it_, st_pos);
 
@@ -329,9 +334,7 @@ class TtlTest : public testing::Test {
   class TestFilter : public CompactionFilter {
    public:
     TestFilter(const int64_t kSampleSize, const std::string& kNewValue)
-      : kSampleSize_(kSampleSize),
-        kNewValue_(kNewValue) {
-    }
+        : kSampleSize_(kSampleSize), kNewValue_(kNewValue) {}
 
     // Works on keys of the form "key<number>"
     // Drops key if number at the end of key is in [0, kSampleSize_/3),
@@ -355,7 +358,7 @@ class TtlTest : public testing::Test {
 #endif
 
       } else {
-        return false; // Keep keys not matching the format "key<NUMBER>"
+        return false;  // Keep keys not matching the format "key<NUMBER>"
       }
 
       int64_t partition = kSampleSize_ / 3;
@@ -378,25 +381,22 @@ class TtlTest : public testing::Test {
   };
 
   class TestFilterFactory : public CompactionFilterFactory {
-    public:
-      TestFilterFactory(const int64_t kSampleSize, const std::string& kNewValue)
-        : kSampleSize_(kSampleSize),
-          kNewValue_(kNewValue) {
-      }
+   public:
+    TestFilterFactory(const int64_t kSampleSize, const std::string& kNewValue)
+        : kSampleSize_(kSampleSize), kNewValue_(kNewValue) {}
 
-      std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-          const CompactionFilter::Context& /*context*/) override {
-        return std::unique_ptr<CompactionFilter>(
-            new TestFilter(kSampleSize_, kNewValue_));
-      }
+    std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+        const CompactionFilter::Context& /*context*/) override {
+      return std::unique_ptr<CompactionFilter>(
+          new TestFilter(kSampleSize_, kNewValue_));
+    }
 
-      const char* Name() const override { return "TestFilterFactory"; }
+    const char* Name() const override { return "TestFilterFactory"; }
 
-     private:
-      const int64_t kSampleSize_;
-      const std::string kNewValue_;
+   private:
+    const int64_t kSampleSize_;
+    const std::string kNewValue_;
   };
-
 
   // Choose carefully so that Put, Gets & Compaction complete in 1 second buffer
   static const int64_t kSampleSize_ = 100;
@@ -410,7 +410,7 @@ class TtlTest : public testing::Test {
   KVMap::iterator kv_it_;
   const std::string kNewValue_ = "new_value";
   std::unique_ptr<CompactionFilter> test_comp_filter_;
-}; // class TtlTest
+};  // class TtlTest
 
 // If TTL is non positive or not provided, the behaviour is TTL = infinity
 // This test opens the db 3 times with such default behavior and inserts a
@@ -422,18 +422,18 @@ TEST_F(TtlTest, NoEffect) {
   int64_t boundary2 = 2 * boundary1;
 
   OpenTtl();
-  PutValues(0, boundary1);                       //T=0: Set1 never deleted
-  SleepCompactCheck(1, 0, boundary1);            //T=1: Set1 still there
+  PutValues(0, boundary1);             // T=0: Set1 never deleted
+  SleepCompactCheck(1, 0, boundary1);  // T=1: Set1 still there
   CloseTtl();
 
   OpenTtl(0);
-  PutValues(boundary1, boundary2 - boundary1);   //T=1: Set2 never deleted
-  SleepCompactCheck(1, 0, boundary2);            //T=2: Sets1 & 2 still there
+  PutValues(boundary1, boundary2 - boundary1);  // T=1: Set2 never deleted
+  SleepCompactCheck(1, 0, boundary2);           // T=2: Sets1 & 2 still there
   CloseTtl();
 
   OpenTtl(-1);
-  PutValues(boundary2, kSampleSize_ - boundary2); //T=3: Set3 never deleted
-  SleepCompactCheck(1, 0, kSampleSize_, true);    //T=4: Sets 1,2,3 still there
+  PutValues(boundary2, kSampleSize_ - boundary2);  // T=3: Set3 never deleted
+  SleepCompactCheck(1, 0, kSampleSize_, true);  // T=4: Sets 1,2,3 still there
   CloseTtl();
 }
 
@@ -464,9 +464,10 @@ TEST_F(TtlTest, DestructWithoutClose) {
 TEST_F(TtlTest, PresentDuringTTL) {
   MakeKVMap(kSampleSize_);
 
-  OpenTtl(2);                                 // T=0:Open the db with ttl = 2
-  PutValues(0, kSampleSize_);                  // T=0:Insert Set1. Delete at t=2
-  SleepCompactCheck(1, 0, kSampleSize_, true); // T=1:Set1 should still be there
+  OpenTtl(2);                  // T=0:Open the db with ttl = 2
+  PutValues(0, kSampleSize_);  // T=0:Insert Set1. Delete at t=2
+  SleepCompactCheck(1, 0, kSampleSize_,
+                    true);  // T=1:Set1 should still be there
   CloseTtl();
 }
 
@@ -474,9 +475,9 @@ TEST_F(TtlTest, PresentDuringTTL) {
 TEST_F(TtlTest, AbsentAfterTTL) {
   MakeKVMap(kSampleSize_);
 
-  OpenTtl(1);                                  // T=0:Open the db with ttl = 2
-  PutValues(0, kSampleSize_);                  // T=0:Insert Set1. Delete at t=2
-  SleepCompactCheck(2, 0, kSampleSize_, false); // T=2:Set1 should not be there
+  OpenTtl(1);                  // T=0:Open the db with ttl = 2
+  PutValues(0, kSampleSize_);  // T=0:Insert Set1. Delete at t=2
+  SleepCompactCheck(2, 0, kSampleSize_, false);  // T=2:Set1 should not be there
   CloseTtl();
 }
 
@@ -486,10 +487,10 @@ TEST_F(TtlTest, ResetTimestamp) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(3);
-  PutValues(0, kSampleSize_);            // T=0: Insert Set1. Delete at t=3
-  env_->Sleep(2);                        // T=2
-  PutValues(0, kSampleSize_);            // T=2: Insert Set1. Delete at t=5
-  SleepCompactCheck(2, 0, kSampleSize_); // T=4: Set1 should still be there
+  PutValues(0, kSampleSize_);             // T=0: Insert Set1. Delete at t=3
+  env_->Sleep(2);                         // T=2
+  PutValues(0, kSampleSize_);             // T=2: Insert Set1. Delete at t=5
+  SleepCompactCheck(2, 0, kSampleSize_);  // T=4: Set1 should still be there
   CloseTtl();
 }
 
@@ -508,8 +509,8 @@ TEST_F(TtlTest, IterAbsentAfterTTL) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);
-  PutValues(0, kSampleSize_);                      // T=0: Insert. Delete at t=1
-  SleepCompactCheckIter(2, 0, kSampleSize_, false); // T=2: Should not be there
+  PutValues(0, kSampleSize_);  // T=0: Insert. Delete at t=1
+  SleepCompactCheckIter(2, 0, kSampleSize_, false);  // T=2: Should not be there
   CloseTtl();
 }
 
@@ -519,11 +520,11 @@ TEST_F(TtlTest, MultiOpenSamePresent) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(2);
-  PutValues(0, kSampleSize_);                   // T=0: Insert. Delete at t=2
+  PutValues(0, kSampleSize_);  // T=0: Insert. Delete at t=2
   CloseTtl();
 
-  OpenTtl(2);                                  // T=0. Delete at t=2
-  SleepCompactCheck(1, 0, kSampleSize_);        // T=1: Set should be there
+  OpenTtl(2);                             // T=0. Delete at t=2
+  SleepCompactCheck(1, 0, kSampleSize_);  // T=1: Set should be there
   CloseTtl();
 }
 
@@ -533,11 +534,11 @@ TEST_F(TtlTest, MultiOpenSameAbsent) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);
-  PutValues(0, kSampleSize_);                   // T=0: Insert. Delete at t=1
+  PutValues(0, kSampleSize_);  // T=0: Insert. Delete at t=1
   CloseTtl();
 
-  OpenTtl(1);                                  // T=0.Delete at t=1
-  SleepCompactCheck(2, 0, kSampleSize_, false); // T=2: Set should not be there
+  OpenTtl(1);                                    // T=0.Delete at t=1
+  SleepCompactCheck(2, 0, kSampleSize_, false);  // T=2: Set should not be there
   CloseTtl();
 }
 
@@ -546,11 +547,11 @@ TEST_F(TtlTest, MultiOpenDifferent) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl(1);
-  PutValues(0, kSampleSize_);            // T=0: Insert. Delete at t=1
+  PutValues(0, kSampleSize_);  // T=0: Insert. Delete at t=1
   CloseTtl();
 
-  OpenTtl(3);                           // T=0: Set deleted at t=3
-  SleepCompactCheck(2, 0, kSampleSize_); // T=2: Set should be there
+  OpenTtl(3);                             // T=0: Set deleted at t=3
+  SleepCompactCheck(2, 0, kSampleSize_);  // T=2: Set should be there
   CloseTtl();
 }
 
@@ -558,8 +559,8 @@ TEST_F(TtlTest, MultiOpenDifferent) {
 TEST_F(TtlTest, ReadOnlyPresentForever) {
   MakeKVMap(kSampleSize_);
 
-  OpenTtl(1);                                 // T=0:Open the db normally
-  PutValues(0, kSampleSize_);                 // T=0:Insert Set1. Delete at t=1
+  OpenTtl(1);                  // T=0:Open the db normally
+  PutValues(0, kSampleSize_);  // T=0:Insert Set1. Delete at t=1
   CloseTtl();
 
   OpenReadOnlyTtl(1);
@@ -597,17 +598,17 @@ TEST_F(TtlTest, CompactionFilter) {
   MakeKVMap(kSampleSize_);
 
   OpenTtlWithTestCompaction(1);
-  PutValues(0, kSampleSize_);                  // T=0:Insert Set1. Delete at t=1
+  PutValues(0, kSampleSize_);  // T=0:Insert Set1. Delete at t=1
   // T=2: TTL logic takes precedence over TestFilter:-Set1 should not be there
   SleepCompactCheck(2, 0, kSampleSize_, false);
   CloseTtl();
 
   OpenTtlWithTestCompaction(3);
-  PutValues(0, kSampleSize_);                   // T=0:Insert Set1.
+  PutValues(0, kSampleSize_);  // T=0:Insert Set1.
   int64_t partition = kSampleSize_ / 3;
-  SleepCompactCheck(1, 0, partition, false);                  // Part dropped
-  SleepCompactCheck(0, partition, partition);                 // Part kept
-  SleepCompactCheck(0, 2 * partition, partition, true, true); // Part changed
+  SleepCompactCheck(1, 0, partition, false);                   // Part dropped
+  SleepCompactCheck(0, partition, partition);                  // Part kept
+  SleepCompactCheck(0, 2 * partition, partition, true, true);  // Part changed
   CloseTtl();
 }
 
@@ -696,10 +697,10 @@ TEST_F(TtlTest, ColumnFamiliesTest) {
 TEST_F(TtlTest, ChangeTtlOnOpenDb) {
   MakeKVMap(kSampleSize_);
 
-  OpenTtl(1);                                  // T=0:Open the db with ttl = 2
+  OpenTtl(1);  // T=0:Open the db with ttl = 2
   SetTtl(3);
-  PutValues(0, kSampleSize_);                  // T=0:Insert Set1. Delete at t=2
-  SleepCompactCheck(2, 0, kSampleSize_, true); // T=2:Set1 should be there
+  PutValues(0, kSampleSize_);  // T=0:Insert Set1. Delete at t=2
+  SleepCompactCheck(2, 0, kSampleSize_, true);  // T=2:Set1 should be there
   CloseTtl();
 }
 
