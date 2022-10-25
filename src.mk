@@ -697,6 +697,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/testable_event_listener.cc                    \
   java/rocksjni/wal_filter.cc                                 \
   java/rocksjni/wal_filter_jnicallback.cc                     \
+  java/rocksjni/weakdb.cc                                     \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \

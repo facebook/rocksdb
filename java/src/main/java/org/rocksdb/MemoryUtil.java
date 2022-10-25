@@ -35,7 +35,7 @@ public class MemoryUtil {
     if (dbCount > 0) {
       ListIterator<RocksDB> dbIter = dbs.listIterator();
       while (dbIter.hasNext()) {
-        dbHandles[dbIter.nextIndex()] = dbIter.next().nativeHandle_;
+        dbHandles[dbIter.nextIndex()] = dbIter.next().getNative();
       }
     }
     if (cacheCount > 0) {

@@ -12,9 +12,15 @@
 
 #include <functional>
 
+#include "api_columnfamilyhandle.h"
+#include "api_iterator.h"
+#include "api_rocksdb.h"
+#include "api_transaction.h"
 #include "include/org_rocksdb_Transaction.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
+
+using API_TXN = APITransaction<ROCKSDB_NAMESPACE::StackableDB>;
 
 #if defined(_MSC_VER)
 #pragma warning(push)
@@ -29,8 +35,9 @@
  */
 void Java_org_rocksdb_Transaction_setSnapshot(JNIEnv* /*env*/, jobject /*jobj*/,
                                               jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  txn->SetSnapshot();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+
+  apiTxn->SetSnapshot();
 }
 
 /*
@@ -40,8 +47,8 @@ void Java_org_rocksdb_Transaction_setSnapshot(JNIEnv* /*env*/, jobject /*jobj*/,
  */
 void Java_org_rocksdb_Transaction_setSnapshotOnNextOperation__J(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  txn->SetSnapshotOnNextOperation(nullptr);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  apiTxn->SetSnapshotOnNextOperation(nullptr);
 }
 
 /*
@@ -52,11 +59,11 @@ void Java_org_rocksdb_Transaction_setSnapshotOnNextOperation__J(
 void Java_org_rocksdb_Transaction_setSnapshotOnNextOperation__JJ(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
     jlong jtxn_notifier_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   auto* txn_notifier = reinterpret_cast<
       std::shared_ptr<ROCKSDB_NAMESPACE::TransactionNotifierJniCallback>*>(
       jtxn_notifier_handle);
-  txn->SetSnapshotOnNextOperation(*txn_notifier);
+  apiTxn->SetSnapshotOnNextOperation(*txn_notifier);
 }
 
 /*
@@ -67,8 +74,8 @@ void Java_org_rocksdb_Transaction_setSnapshotOnNextOperation__JJ(
 jlong Java_org_rocksdb_Transaction_getSnapshot(JNIEnv* /*env*/,
                                                jobject /*jobj*/,
                                                jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  const ROCKSDB_NAMESPACE::Snapshot* snapshot = txn->GetSnapshot();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  const ROCKSDB_NAMESPACE::Snapshot* snapshot = apiTxn->GetSnapshot();
   return GET_CPLUSPLUS_POINTER(snapshot);
 }
 
@@ -80,8 +87,8 @@ jlong Java_org_rocksdb_Transaction_getSnapshot(JNIEnv* /*env*/,
 void Java_org_rocksdb_Transaction_clearSnapshot(JNIEnv* /*env*/,
                                                 jobject /*jobj*/,
                                                 jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  txn->ClearSnapshot();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  apiTxn->ClearSnapshot();
 }
 
 /*
@@ -91,8 +98,8 @@ void Java_org_rocksdb_Transaction_clearSnapshot(JNIEnv* /*env*/,
  */
 void Java_org_rocksdb_Transaction_prepare(JNIEnv* env, jobject /*jobj*/,
                                           jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::Status s = txn->Prepare();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  ROCKSDB_NAMESPACE::Status s = apiTxn->Prepare();
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -105,8 +112,8 @@ void Java_org_rocksdb_Transaction_prepare(JNIEnv* env, jobject /*jobj*/,
  */
 void Java_org_rocksdb_Transaction_commit(JNIEnv* env, jobject /*jobj*/,
                                          jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::Status s = txn->Commit();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  ROCKSDB_NAMESPACE::Status s = apiTxn->Commit();
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -119,8 +126,8 @@ void Java_org_rocksdb_Transaction_commit(JNIEnv* env, jobject /*jobj*/,
  */
 void Java_org_rocksdb_Transaction_rollback(JNIEnv* env, jobject /*jobj*/,
                                            jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::Status s = txn->Rollback();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  ROCKSDB_NAMESPACE::Status s = apiTxn->Rollback();
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -134,8 +141,8 @@ void Java_org_rocksdb_Transaction_rollback(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_Transaction_setSavePoint(JNIEnv* /*env*/,
                                                jobject /*jobj*/,
                                                jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  txn->SetSavePoint();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  apiTxn->SetSavePoint();
 }
 
 /*
@@ -146,8 +153,8 @@ void Java_org_rocksdb_Transaction_setSavePoint(JNIEnv* /*env*/,
 void Java_org_rocksdb_Transaction_rollbackToSavePoint(JNIEnv* env,
                                                       jobject /*jobj*/,
                                                       jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::Status s = txn->RollbackToSavePoint();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  ROCKSDB_NAMESPACE::Status s = apiTxn->RollbackToSavePoint();
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -211,17 +218,21 @@ jbyteArray txn_get_helper(JNIEnv* env, const FnGet& fn_get,
 jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BIJ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_part_len, jlong jcolumn_family_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return nullptr;
+  }
   FnGet fn_get =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, std::string*)>(
-          &ROCKSDB_NAMESPACE::Transaction::Get, txn, std::placeholders::_1,
-          column_family_handle, std::placeholders::_2, std::placeholders::_3);
+          &ROCKSDB_NAMESPACE::Transaction::Get, apiTxn.get(),
+          std::placeholders::_1, cfh.get(), std::placeholders::_2,
+          std::placeholders::_3);
   return txn_get_helper(env, fn_get, jread_options_handle, jkey, jkey_part_len);
 }
 
@@ -233,13 +244,13 @@ jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BIJ(
 jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_part_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnGet fn_get =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
           const ROCKSDB_NAMESPACE::Slice&, std::string*)>(
-          &ROCKSDB_NAMESPACE::Transaction::Get, txn, std::placeholders::_1,
-          std::placeholders::_2, std::placeholders::_3);
+          &ROCKSDB_NAMESPACE::Transaction::Get, apiTxn.get(),
+          std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
   return txn_get_helper(env, fn_get, jread_options_handle, jkey, jkey_part_len);
 }
 
@@ -264,9 +275,14 @@ std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> txn_column_families_helper(
         return std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>();
       }
       for (int i = 0; i < len_cols; i++) {
-        auto* cf_handle =
-            reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcfh[i]);
-        cf_handles.push_back(cf_handle);
+        auto cfh =
+            APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(env, jcfh[i]);
+        if (!cfh) {
+          // CFH exception
+          *has_exception = JNI_TRUE;
+          return std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>();
+        }
+        cf_handles.push_back(cfh.get());
       }
       env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
     }
@@ -397,14 +413,15 @@ jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B_3J(
     // exception thrown: OutOfMemoryError
     return nullptr;
   }
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnMultiGet fn_multi_get = std::bind<std::vector<ROCKSDB_NAMESPACE::Status> (
       ROCKSDB_NAMESPACE::Transaction::*)(
       const ROCKSDB_NAMESPACE::ReadOptions&,
       const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>&,
       const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>(
-      &ROCKSDB_NAMESPACE::Transaction::MultiGet, txn, std::placeholders::_1,
-      column_family_handles, std::placeholders::_2, std::placeholders::_3);
+      &ROCKSDB_NAMESPACE::Transaction::MultiGet, apiTxn.get(),
+      std::placeholders::_1, column_family_handles, std::placeholders::_2,
+      std::placeholders::_3);
   return txn_multi_get_helper(env, fn_multi_get, jread_options_handle,
                               jkey_parts);
 }
@@ -417,13 +434,13 @@ jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B_3J(
 jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jobjectArray jkey_parts) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnMultiGet fn_multi_get = std::bind<std::vector<ROCKSDB_NAMESPACE::Status> (
       ROCKSDB_NAMESPACE::Transaction::*)(
       const ROCKSDB_NAMESPACE::ReadOptions&,
       const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>(
-      &ROCKSDB_NAMESPACE::Transaction::MultiGet, txn, std::placeholders::_1,
-      std::placeholders::_2, std::placeholders::_3);
+      &ROCKSDB_NAMESPACE::Transaction::MultiGet, apiTxn.get(),
+      std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
   return txn_multi_get_helper(env, fn_multi_get, jread_options_handle,
                               jkey_parts);
 }
@@ -437,17 +454,20 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_part_len, jlong jcolumn_family_handle,
     jboolean jexclusive, jboolean jdo_validate) {
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return nullptr;
+  }
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnGet fn_get_for_update =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, std::string*, bool, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
-          std::placeholders::_1, column_family_handle, std::placeholders::_2,
+          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, apiTxn.get(),
+          std::placeholders::_1, cfh.get(), std::placeholders::_2,
           std::placeholders::_3, jexclusive, jdo_validate);
   return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
                         jkey_part_len);
@@ -462,12 +482,12 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIZZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_part_len, jboolean jexclusive,
     jboolean jdo_validate) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnGet fn_get_for_update =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
           const ROCKSDB_NAMESPACE::Slice&, std::string*, bool, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
+          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, apiTxn.get(),
           std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
           jexclusive, jdo_validate);
   return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
@@ -490,13 +510,13 @@ jobjectArray Java_org_rocksdb_Transaction_multiGetForUpdate__JJ_3_3B_3J(
     // exception thrown: OutOfMemoryError
     return nullptr;
   }
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnMultiGet fn_multi_get_for_update = std::bind<std::vector<
       ROCKSDB_NAMESPACE::Status> (ROCKSDB_NAMESPACE::Transaction::*)(
       const ROCKSDB_NAMESPACE::ReadOptions&,
       const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>&,
       const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>(
-      &ROCKSDB_NAMESPACE::Transaction::MultiGetForUpdate, txn,
+      &ROCKSDB_NAMESPACE::Transaction::MultiGetForUpdate, apiTxn.get(),
       std::placeholders::_1, column_family_handles, std::placeholders::_2,
       std::placeholders::_3);
   return txn_multi_get_helper(env, fn_multi_get_for_update,
@@ -511,12 +531,12 @@ jobjectArray Java_org_rocksdb_Transaction_multiGetForUpdate__JJ_3_3B_3J(
 jobjectArray Java_org_rocksdb_Transaction_multiGetForUpdate__JJ_3_3B(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jobjectArray jkey_parts) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnMultiGet fn_multi_get_for_update = std::bind<std::vector<
       ROCKSDB_NAMESPACE::Status> (ROCKSDB_NAMESPACE::Transaction::*)(
       const ROCKSDB_NAMESPACE::ReadOptions&,
       const std::vector<ROCKSDB_NAMESPACE::Slice>&, std::vector<std::string>*)>(
-      &ROCKSDB_NAMESPACE::Transaction::MultiGetForUpdate, txn,
+      &ROCKSDB_NAMESPACE::Transaction::MultiGetForUpdate, apiTxn.get(),
       std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
   return txn_multi_get_helper(env, fn_multi_get_for_update,
                               jread_options_handle, jkey_parts);
@@ -531,10 +551,14 @@ jlong Java_org_rocksdb_Transaction_getIterator__JJ(JNIEnv* /*env*/,
                                                    jobject /*jobj*/,
                                                    jlong jhandle,
                                                    jlong jread_options_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  return GET_CPLUSPLUS_POINTER(txn->GetIterator(*read_options));
+  auto* it = apiTxn->GetIterator(*read_options);
+  auto* apiIt = new APIIterator<ROCKSDB_NAMESPACE::StackableDB,
+                                ROCKSDB_NAMESPACE::Iterator>(
+      apiTxn.db, std::unique_ptr<ROCKSDB_NAMESPACE::Iterator>(it));
+  return GET_CPLUSPLUS_POINTER(apiIt);
 }
 
 /*
@@ -543,16 +567,22 @@ jlong Java_org_rocksdb_Transaction_getIterator__JJ(JNIEnv* /*env*/,
  * Signature: (JJJ)J
  */
 jlong Java_org_rocksdb_Transaction_getIterator__JJJ(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jread_options_handle, jlong jcolumn_family_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
+    jlong jcolumn_family_handle) {
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
-  return GET_CPLUSPLUS_POINTER(
-      txn->GetIterator(*read_options, column_family_handle));
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return 0L;
+  }
+  auto* it = apiTxn->GetIterator(*read_options, cfh.get());
+  auto* apiIt = new APIIterator<ROCKSDB_NAMESPACE::StackableDB,
+                                ROCKSDB_NAMESPACE::Iterator>(
+      apiTxn.db, std::unique_ptr<ROCKSDB_NAMESPACE::Iterator>(it), cfh);
+  return GET_CPLUSPLUS_POINTER(apiIt);
 }
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
@@ -602,17 +632,19 @@ void Java_org_rocksdb_Transaction_put__J_3BI_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len,
     jlong jcolumn_family_handle, jboolean jassume_tracked) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteKV fn_put =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&,
-          bool)>(&ROCKSDB_NAMESPACE::Transaction::Put, txn,
-                 column_family_handle, std::placeholders::_1,
-                 std::placeholders::_2, jassume_tracked);
+          bool)>(&ROCKSDB_NAMESPACE::Transaction::Put, apiTxn.get(), cfh.get(),
+                 std::placeholders::_1, std::placeholders::_2, jassume_tracked);
   txn_write_kv_helper(env, fn_put, jkey, jkey_part_len, jval, jval_len);
 }
 
@@ -626,12 +658,12 @@ void Java_org_rocksdb_Transaction_put__J_3BI_3BI(JNIEnv* env, jobject /*jobj*/,
                                                  jint jkey_part_len,
                                                  jbyteArray jval,
                                                  jint jval_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteKV fn_put =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::Put, txn, std::placeholders::_1,
-          std::placeholders::_2);
+          &ROCKSDB_NAMESPACE::Transaction::Put, apiTxn.get(),
+          std::placeholders::_1, std::placeholders::_2);
   txn_write_kv_helper(env, fn_put, jkey, jkey_part_len, jval, jval_len);
 }
 
@@ -749,16 +781,19 @@ void Java_org_rocksdb_Transaction_put__J_3_3BI_3_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
     jint jkey_parts_len, jobjectArray jvalue_parts, jint jvalue_parts_len,
     jlong jcolumn_family_handle, jboolean jassume_tracked) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteKVParts fn_put_parts =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::SliceParts&,
           const ROCKSDB_NAMESPACE::SliceParts&, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::Put, txn, column_family_handle,
+          &ROCKSDB_NAMESPACE::Transaction::Put, apiTxn.get(), cfh.get(),
           std::placeholders::_1, std::placeholders::_2, jassume_tracked);
   txn_write_kv_parts_helper(env, fn_put_parts, jkey_parts, jkey_parts_len,
                             jvalue_parts, jvalue_parts_len);
@@ -772,11 +807,11 @@ void Java_org_rocksdb_Transaction_put__J_3_3BI_3_3BIJZ(
 void Java_org_rocksdb_Transaction_put__J_3_3BI_3_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
     jint jkey_parts_len, jobjectArray jvalue_parts, jint jvalue_parts_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteKVParts fn_put_parts = std::bind<ROCKSDB_NAMESPACE::Status (
       ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::SliceParts&,
                                          const ROCKSDB_NAMESPACE::SliceParts&)>(
-      &ROCKSDB_NAMESPACE::Transaction::Put, txn, std::placeholders::_1,
+      &ROCKSDB_NAMESPACE::Transaction::Put, apiTxn.get(), std::placeholders::_1,
       std::placeholders::_2);
   txn_write_kv_parts_helper(env, fn_put_parts, jkey_parts, jkey_parts_len,
                             jvalue_parts, jvalue_parts_len);
@@ -791,17 +826,20 @@ void Java_org_rocksdb_Transaction_merge__J_3BI_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len,
     jlong jcolumn_family_handle, jboolean jassume_tracked) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteKV fn_merge =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&,
-          bool)>(&ROCKSDB_NAMESPACE::Transaction::Merge, txn,
-                 column_family_handle, std::placeholders::_1,
-                 std::placeholders::_2, jassume_tracked);
+          bool)>(&ROCKSDB_NAMESPACE::Transaction::Merge, apiTxn.get(),
+                 cfh.get(), std::placeholders::_1, std::placeholders::_2,
+                 jassume_tracked);
   txn_write_kv_helper(env, fn_merge, jkey, jkey_part_len, jval, jval_len);
 }
 
@@ -813,12 +851,12 @@ void Java_org_rocksdb_Transaction_merge__J_3BI_3BIJZ(
 void Java_org_rocksdb_Transaction_merge__J_3BI_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteKV fn_merge =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::Merge, txn, std::placeholders::_1,
-          std::placeholders::_2);
+          &ROCKSDB_NAMESPACE::Transaction::Merge, apiTxn.get(),
+          std::placeholders::_1, std::placeholders::_2);
   txn_write_kv_helper(env, fn_merge, jkey, jkey_part_len, jval, jval_len);
 }
 
@@ -858,15 +896,18 @@ void txn_write_k_helper(JNIEnv* env, const FnWriteK& fn_write_k,
 void Java_org_rocksdb_Transaction_delete__J_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jlong jcolumn_family_handle, jboolean jassume_tracked) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteK fn_delete =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::Delete, txn, column_family_handle,
+          &ROCKSDB_NAMESPACE::Transaction::Delete, apiTxn.get(), cfh.get(),
           std::placeholders::_1, jassume_tracked);
   txn_write_k_helper(env, fn_delete, jkey, jkey_part_len);
 }
@@ -879,10 +920,11 @@ void Java_org_rocksdb_Transaction_delete__J_3BIJZ(
 void Java_org_rocksdb_Transaction_delete__J_3BI(JNIEnv* env, jobject /*jobj*/,
                                                 jlong jhandle, jbyteArray jkey,
                                                 jint jkey_part_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteK fn_delete = std::bind<ROCKSDB_NAMESPACE::Status (
       ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::Slice&)>(
-      &ROCKSDB_NAMESPACE::Transaction::Delete, txn, std::placeholders::_1);
+      &ROCKSDB_NAMESPACE::Transaction::Delete, apiTxn.get(),
+      std::placeholders::_1);
   txn_write_k_helper(env, fn_delete, jkey, jkey_part_len);
 }
 
@@ -953,15 +995,18 @@ void Java_org_rocksdb_Transaction_delete__J_3_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
     jint jkey_parts_len, jlong jcolumn_family_handle,
     jboolean jassume_tracked) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteKParts fn_delete_parts =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::SliceParts&, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::Delete, txn, column_family_handle,
+          &ROCKSDB_NAMESPACE::Transaction::Delete, apiTxn.get(), cfh.get(),
           std::placeholders::_1, jassume_tracked);
   txn_write_k_parts_helper(env, fn_delete_parts, jkey_parts, jkey_parts_len);
 }
@@ -975,10 +1020,11 @@ void Java_org_rocksdb_Transaction_delete__J_3_3BI(JNIEnv* env, jobject /*jobj*/,
                                                   jlong jhandle,
                                                   jobjectArray jkey_parts,
                                                   jint jkey_parts_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteKParts fn_delete_parts = std::bind<ROCKSDB_NAMESPACE::Status (
       ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::SliceParts&)>(
-      &ROCKSDB_NAMESPACE::Transaction::Delete, txn, std::placeholders::_1);
+      &ROCKSDB_NAMESPACE::Transaction::Delete, apiTxn.get(),
+      std::placeholders::_1);
   txn_write_k_parts_helper(env, fn_delete_parts, jkey_parts, jkey_parts_len);
 }
 
@@ -990,16 +1036,19 @@ void Java_org_rocksdb_Transaction_delete__J_3_3BI(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_Transaction_singleDelete__J_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jlong jcolumn_family_handle, jboolean jassume_tracked) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteK fn_single_delete =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::SingleDelete, txn,
-          column_family_handle, std::placeholders::_1, jassume_tracked);
+          &ROCKSDB_NAMESPACE::Transaction::SingleDelete, apiTxn.get(),
+          cfh.get(), std::placeholders::_1, jassume_tracked);
   txn_write_k_helper(env, fn_single_delete, jkey, jkey_part_len);
 }
 
@@ -1013,10 +1062,10 @@ void Java_org_rocksdb_Transaction_singleDelete__J_3BI(JNIEnv* env,
                                                       jlong jhandle,
                                                       jbyteArray jkey,
                                                       jint jkey_part_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteK fn_single_delete = std::bind<ROCKSDB_NAMESPACE::Status (
       ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::Slice&)>(
-      &ROCKSDB_NAMESPACE::Transaction::SingleDelete, txn,
+      &ROCKSDB_NAMESPACE::Transaction::SingleDelete, apiTxn.get(),
       std::placeholders::_1);
   txn_write_k_helper(env, fn_single_delete, jkey, jkey_part_len);
 }
@@ -1030,16 +1079,19 @@ void Java_org_rocksdb_Transaction_singleDelete__J_3_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
     jint jkey_parts_len, jlong jcolumn_family_handle,
     jboolean jassume_tracked) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteKParts fn_single_delete_parts =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::SliceParts&, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::SingleDelete, txn,
-          column_family_handle, std::placeholders::_1, jassume_tracked);
+          &ROCKSDB_NAMESPACE::Transaction::SingleDelete, apiTxn.get(),
+          cfh.get(), std::placeholders::_1, jassume_tracked);
   txn_write_k_parts_helper(env, fn_single_delete_parts, jkey_parts,
                            jkey_parts_len);
 }
@@ -1054,10 +1106,10 @@ void Java_org_rocksdb_Transaction_singleDelete__J_3_3BI(JNIEnv* env,
                                                         jlong jhandle,
                                                         jobjectArray jkey_parts,
                                                         jint jkey_parts_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteKParts fn_single_delete_parts = std::bind<ROCKSDB_NAMESPACE::Status (
       ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::SliceParts&)>(
-      &ROCKSDB_NAMESPACE::Transaction::SingleDelete, txn,
+      &ROCKSDB_NAMESPACE::Transaction::SingleDelete, apiTxn.get(),
       std::placeholders::_1);
   txn_write_k_parts_helper(env, fn_single_delete_parts, jkey_parts,
                            jkey_parts_len);
@@ -1072,16 +1124,19 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BIJ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len,
     jlong jcolumn_family_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteKV fn_put_untracked =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::PutUntracked, txn,
-          column_family_handle, std::placeholders::_1, std::placeholders::_2);
+          &ROCKSDB_NAMESPACE::Transaction::PutUntracked, apiTxn.get(),
+          cfh.get(), std::placeholders::_1, std::placeholders::_2);
   txn_write_kv_helper(env, fn_put_untracked, jkey, jkey_part_len, jval,
                       jval_len);
 }
@@ -1094,11 +1149,11 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BIJ(
 void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteKV fn_put_untracked =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::PutUntracked, txn,
+          &ROCKSDB_NAMESPACE::Transaction::PutUntracked, apiTxn.get(),
           std::placeholders::_1, std::placeholders::_2);
   txn_write_kv_helper(env, fn_put_untracked, jkey, jkey_part_len, jval,
                       jval_len);
@@ -1113,15 +1168,18 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3_3BI_3_3BIJ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
     jint jkey_parts_len, jobjectArray jvalue_parts, jint jvalue_parts_len,
     jlong jcolumn_family_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteKVParts fn_put_parts_untracked = std::bind<ROCKSDB_NAMESPACE::Status (
       ROCKSDB_NAMESPACE::Transaction::*)(ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
                                          const ROCKSDB_NAMESPACE::SliceParts&,
                                          const ROCKSDB_NAMESPACE::SliceParts&)>(
-      &ROCKSDB_NAMESPACE::Transaction::PutUntracked, txn, column_family_handle,
+      &ROCKSDB_NAMESPACE::Transaction::PutUntracked, apiTxn.get(), cfh.get(),
       std::placeholders::_1, std::placeholders::_2);
   txn_write_kv_parts_helper(env, fn_put_parts_untracked, jkey_parts,
                             jkey_parts_len, jvalue_parts, jvalue_parts_len);
@@ -1135,12 +1193,12 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3_3BI_3_3BIJ(
 void Java_org_rocksdb_Transaction_putUntracked__J_3_3BI_3_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
     jint jkey_parts_len, jobjectArray jvalue_parts, jint jvalue_parts_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteKVParts fn_put_parts_untracked = std::bind<ROCKSDB_NAMESPACE::Status (
       ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::SliceParts&,
                                          const ROCKSDB_NAMESPACE::SliceParts&)>(
-      &ROCKSDB_NAMESPACE::Transaction::PutUntracked, txn, std::placeholders::_1,
-      std::placeholders::_2);
+      &ROCKSDB_NAMESPACE::Transaction::PutUntracked, apiTxn.get(),
+      std::placeholders::_1, std::placeholders::_2);
   txn_write_kv_parts_helper(env, fn_put_parts_untracked, jkey_parts,
                             jkey_parts_len, jvalue_parts, jvalue_parts_len);
 }
@@ -1154,16 +1212,19 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BIJ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len,
     jlong jcolumn_family_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteKV fn_merge_untracked =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::MergeUntracked, txn,
-          column_family_handle, std::placeholders::_1, std::placeholders::_2);
+          &ROCKSDB_NAMESPACE::Transaction::MergeUntracked, apiTxn.get(),
+          cfh.get(), std::placeholders::_1, std::placeholders::_2);
   txn_write_kv_helper(env, fn_merge_untracked, jkey, jkey_part_len, jval,
                       jval_len);
 }
@@ -1176,11 +1237,11 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BIJ(
 void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteKV fn_merge_untracked =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
-          &ROCKSDB_NAMESPACE::Transaction::MergeUntracked, txn,
+          &ROCKSDB_NAMESPACE::Transaction::MergeUntracked, apiTxn.get(),
           std::placeholders::_1, std::placeholders::_2);
   txn_write_kv_helper(env, fn_merge_untracked, jkey, jkey_part_len, jval,
                       jval_len);
@@ -1194,15 +1255,18 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BI(
 void Java_org_rocksdb_Transaction_deleteUntracked__J_3BIJ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jlong jcolumn_family_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteK fn_delete_untracked = std::bind<ROCKSDB_NAMESPACE::Status (
       ROCKSDB_NAMESPACE::Transaction::*)(ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
                                          const ROCKSDB_NAMESPACE::Slice&)>(
-      &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, txn,
-      column_family_handle, std::placeholders::_1);
+      &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, apiTxn.get(), cfh.get(),
+      std::placeholders::_1);
   txn_write_k_helper(env, fn_delete_untracked, jkey, jkey_part_len);
 }
 
@@ -1216,10 +1280,10 @@ void Java_org_rocksdb_Transaction_deleteUntracked__J_3BI(JNIEnv* env,
                                                          jlong jhandle,
                                                          jbyteArray jkey,
                                                          jint jkey_part_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteK fn_delete_untracked = std::bind<ROCKSDB_NAMESPACE::Status (
       ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::Slice&)>(
-      &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, txn,
+      &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, apiTxn.get(),
       std::placeholders::_1);
   txn_write_k_helper(env, fn_delete_untracked, jkey, jkey_part_len);
 }
@@ -1232,16 +1296,19 @@ void Java_org_rocksdb_Transaction_deleteUntracked__J_3BI(JNIEnv* env,
 void Java_org_rocksdb_Transaction_deleteUntracked__J_3_3BIJ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
     jint jkey_parts_len, jlong jcolumn_family_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   FnWriteKParts fn_delete_untracked_parts =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::SliceParts&)>(
-          &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, txn,
-          column_family_handle, std::placeholders::_1);
+          &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, apiTxn.get(),
+          cfh.get(), std::placeholders::_1);
   txn_write_k_parts_helper(env, fn_delete_untracked_parts, jkey_parts,
                            jkey_parts_len);
 }
@@ -1254,11 +1321,11 @@ void Java_org_rocksdb_Transaction_deleteUntracked__J_3_3BIJ(
 void Java_org_rocksdb_Transaction_deleteUntracked__J_3_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
     jint jkey_parts_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   FnWriteKParts fn_delete_untracked_parts =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::SliceParts&)>(
-          &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, txn,
+          &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, apiTxn.get(),
           std::placeholders::_1);
   txn_write_k_parts_helper(env, fn_delete_untracked_parts, jkey_parts,
                            jkey_parts_len);
@@ -1272,7 +1339,7 @@ void Java_org_rocksdb_Transaction_deleteUntracked__J_3_3BI(
 void Java_org_rocksdb_Transaction_putLogData(JNIEnv* env, jobject /*jobj*/,
                                              jlong jhandle, jbyteArray jkey,
                                              jint jkey_part_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
 
   jbyte* key = env->GetByteArrayElements(jkey, nullptr);
   if (key == nullptr) {
@@ -1282,7 +1349,7 @@ void Java_org_rocksdb_Transaction_putLogData(JNIEnv* env, jobject /*jobj*/,
 
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
                                      jkey_part_len);
-  txn->PutLogData(key_slice);
+  apiTxn->PutLogData(key_slice);
 
   // trigger java unref on key.
   // by passing JNI_ABORT, it will simply release the reference without
@@ -1298,8 +1365,8 @@ void Java_org_rocksdb_Transaction_putLogData(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_Transaction_disableIndexing(JNIEnv* /*env*/,
                                                   jobject /*jobj*/,
                                                   jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  txn->DisableIndexing();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  apiTxn->DisableIndexing();
 }
 
 /*
@@ -1310,8 +1377,8 @@ void Java_org_rocksdb_Transaction_disableIndexing(JNIEnv* /*env*/,
 void Java_org_rocksdb_Transaction_enableIndexing(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  txn->EnableIndexing();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  apiTxn->EnableIndexing();
 }
 
 /*
@@ -1321,8 +1388,8 @@ void Java_org_rocksdb_Transaction_enableIndexing(JNIEnv* /*env*/,
  */
 jlong Java_org_rocksdb_Transaction_getNumKeys(JNIEnv* /*env*/, jobject /*jobj*/,
                                               jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return txn->GetNumKeys();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return apiTxn->GetNumKeys();
 }
 
 /*
@@ -1332,8 +1399,8 @@ jlong Java_org_rocksdb_Transaction_getNumKeys(JNIEnv* /*env*/, jobject /*jobj*/,
  */
 jlong Java_org_rocksdb_Transaction_getNumPuts(JNIEnv* /*env*/, jobject /*jobj*/,
                                               jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return txn->GetNumPuts();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return apiTxn->GetNumPuts();
 }
 
 /*
@@ -1344,8 +1411,8 @@ jlong Java_org_rocksdb_Transaction_getNumPuts(JNIEnv* /*env*/, jobject /*jobj*/,
 jlong Java_org_rocksdb_Transaction_getNumDeletes(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return txn->GetNumDeletes();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return apiTxn->GetNumDeletes();
 }
 
 /*
@@ -1356,8 +1423,8 @@ jlong Java_org_rocksdb_Transaction_getNumDeletes(JNIEnv* /*env*/,
 jlong Java_org_rocksdb_Transaction_getNumMerges(JNIEnv* /*env*/,
                                                 jobject /*jobj*/,
                                                 jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return txn->GetNumMerges();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return apiTxn->GetNumMerges();
 }
 
 /*
@@ -1368,8 +1435,8 @@ jlong Java_org_rocksdb_Transaction_getNumMerges(JNIEnv* /*env*/,
 jlong Java_org_rocksdb_Transaction_getElapsedTime(JNIEnv* /*env*/,
                                                   jobject /*jobj*/,
                                                   jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return txn->GetElapsedTime();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return apiTxn->GetElapsedTime();
 }
 
 /*
@@ -1380,8 +1447,8 @@ jlong Java_org_rocksdb_Transaction_getElapsedTime(JNIEnv* /*env*/,
 jlong Java_org_rocksdb_Transaction_getWriteBatch(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return GET_CPLUSPLUS_POINTER(txn->GetWriteBatch());
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return GET_CPLUSPLUS_POINTER(apiTxn->GetWriteBatch());
 }
 
 /*
@@ -1393,8 +1460,8 @@ void Java_org_rocksdb_Transaction_setLockTimeout(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jhandle,
                                                  jlong jlock_timeout) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  txn->SetLockTimeout(jlock_timeout);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  apiTxn->SetLockTimeout(jlock_timeout);
 }
 
 /*
@@ -1405,8 +1472,8 @@ void Java_org_rocksdb_Transaction_setLockTimeout(JNIEnv* /*env*/,
 jlong Java_org_rocksdb_Transaction_getWriteOptions(JNIEnv* /*env*/,
                                                    jobject /*jobj*/,
                                                    jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return GET_CPLUSPLUS_POINTER(txn->GetWriteOptions());
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return GET_CPLUSPLUS_POINTER(apiTxn->GetWriteOptions());
 }
 
 /*
@@ -1418,10 +1485,10 @@ void Java_org_rocksdb_Transaction_setWriteOptions(JNIEnv* /*env*/,
                                                   jobject /*jobj*/,
                                                   jlong jhandle,
                                                   jlong jwrite_options_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  txn->SetWriteOptions(*write_options);
+  apiTxn->SetWriteOptions(*write_options);
 }
 
 /*
@@ -1432,10 +1499,13 @@ void Java_org_rocksdb_Transaction_setWriteOptions(JNIEnv* /*env*/,
 void Java_org_rocksdb_Transaction_undoGetForUpdate__J_3BIJ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jlong jcolumn_family_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* column_family_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
-          jcolumn_family_handle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  auto cfh = APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(
+      env, jcolumn_family_handle);
+  if (!cfh) {
+    // CFH exception
+    return;
+  }
   jbyte* key = env->GetByteArrayElements(jkey, nullptr);
   if (key == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -1444,7 +1514,7 @@ void Java_org_rocksdb_Transaction_undoGetForUpdate__J_3BIJ(
 
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
                                      jkey_part_len);
-  txn->UndoGetForUpdate(column_family_handle, key_slice);
+  apiTxn->UndoGetForUpdate(cfh.get(), key_slice);
 
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
 }
@@ -1459,7 +1529,7 @@ void Java_org_rocksdb_Transaction_undoGetForUpdate__J_3BI(JNIEnv* env,
                                                           jlong jhandle,
                                                           jbyteArray jkey,
                                                           jint jkey_part_len) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   jbyte* key = env->GetByteArrayElements(jkey, nullptr);
   if (key == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -1468,7 +1538,7 @@ void Java_org_rocksdb_Transaction_undoGetForUpdate__J_3BI(JNIEnv* env,
 
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
                                      jkey_part_len);
-  txn->UndoGetForUpdate(key_slice);
+  apiTxn->UndoGetForUpdate(key_slice);
 
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
 }
@@ -1480,10 +1550,10 @@ void Java_org_rocksdb_Transaction_undoGetForUpdate__J_3BI(JNIEnv* env,
  */
 void Java_org_rocksdb_Transaction_rebuildFromWriteBatch(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jwrite_batch_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   auto* write_batch =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwrite_batch_handle);
-  ROCKSDB_NAMESPACE::Status s = txn->RebuildFromWriteBatch(write_batch);
+  ROCKSDB_NAMESPACE::Status s = apiTxn->RebuildFromWriteBatch(write_batch);
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -1497,8 +1567,8 @@ void Java_org_rocksdb_Transaction_rebuildFromWriteBatch(
 jlong Java_org_rocksdb_Transaction_getCommitTimeWriteBatch(JNIEnv* /*env*/,
                                                            jobject /*jobj*/,
                                                            jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return GET_CPLUSPLUS_POINTER(txn->GetCommitTimeWriteBatch());
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return GET_CPLUSPLUS_POINTER(apiTxn->GetCommitTimeWriteBatch());
 }
 
 /*
@@ -1509,8 +1579,8 @@ jlong Java_org_rocksdb_Transaction_getCommitTimeWriteBatch(JNIEnv* /*env*/,
 void Java_org_rocksdb_Transaction_setLogNumber(JNIEnv* /*env*/,
                                                jobject /*jobj*/, jlong jhandle,
                                                jlong jlog_number) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  txn->SetLogNumber(jlog_number);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  apiTxn->SetLogNumber(jlog_number);
 }
 
 /*
@@ -1521,8 +1591,8 @@ void Java_org_rocksdb_Transaction_setLogNumber(JNIEnv* /*env*/,
 jlong Java_org_rocksdb_Transaction_getLogNumber(JNIEnv* /*env*/,
                                                 jobject /*jobj*/,
                                                 jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return txn->GetLogNumber();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return apiTxn->GetLogNumber();
 }
 
 /*
@@ -1532,14 +1602,14 @@ jlong Java_org_rocksdb_Transaction_getLogNumber(JNIEnv* /*env*/,
  */
 void Java_org_rocksdb_Transaction_setName(JNIEnv* env, jobject /*jobj*/,
                                           jlong jhandle, jstring jname) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   const char* name = env->GetStringUTFChars(jname, nullptr);
   if (name == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
   }
 
-  ROCKSDB_NAMESPACE::Status s = txn->SetName(name);
+  ROCKSDB_NAMESPACE::Status s = apiTxn->SetName(name);
 
   env->ReleaseStringUTFChars(jname, name);
 
@@ -1555,8 +1625,8 @@ void Java_org_rocksdb_Transaction_setName(JNIEnv* env, jobject /*jobj*/,
  */
 jstring Java_org_rocksdb_Transaction_getName(JNIEnv* env, jobject /*jobj*/,
                                              jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::TransactionName name = txn->GetName();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  ROCKSDB_NAMESPACE::TransactionName name = apiTxn->GetName();
   return env->NewStringUTF(name.data());
 }
 
@@ -1567,8 +1637,8 @@ jstring Java_org_rocksdb_Transaction_getName(JNIEnv* env, jobject /*jobj*/,
  */
 jlong Java_org_rocksdb_Transaction_getID(JNIEnv* /*env*/, jobject /*jobj*/,
                                          jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::TransactionID id = txn->GetID();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  ROCKSDB_NAMESPACE::TransactionID id = apiTxn->GetID();
   return static_cast<jlong>(id);
 }
 
@@ -1580,8 +1650,8 @@ jlong Java_org_rocksdb_Transaction_getID(JNIEnv* /*env*/, jobject /*jobj*/,
 jboolean Java_org_rocksdb_Transaction_isDeadlockDetect(JNIEnv* /*env*/,
                                                        jobject /*jobj*/,
                                                        jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return static_cast<jboolean>(txn->IsDeadlockDetect());
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  return static_cast<jboolean>(apiTxn->IsDeadlockDetect());
 }
 
 /*
@@ -1592,11 +1662,11 @@ jboolean Java_org_rocksdb_Transaction_isDeadlockDetect(JNIEnv* /*env*/,
 jobject Java_org_rocksdb_Transaction_getWaitingTxns(JNIEnv* env,
                                                     jobject jtransaction_obj,
                                                     jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
   uint32_t column_family_id;
   std::string key;
   std::vector<ROCKSDB_NAMESPACE::TransactionID> waiting_txns =
-      txn->GetWaitingTxns(&column_family_id, &key);
+      apiTxn->GetWaitingTxns(&column_family_id, &key);
   jobject jwaiting_txns =
       ROCKSDB_NAMESPACE::TransactionJni::newWaitingTransactions(
           env, jtransaction_obj, column_family_id, key, waiting_txns);
@@ -1610,8 +1680,9 @@ jobject Java_org_rocksdb_Transaction_getWaitingTxns(JNIEnv* env,
  */
 jbyte Java_org_rocksdb_Transaction_getState(JNIEnv* /*env*/, jobject /*jobj*/,
                                             jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::Transaction::TransactionState txn_status = txn->GetState();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  ROCKSDB_NAMESPACE::Transaction::TransactionState txn_status =
+      apiTxn->GetState();
   switch (txn_status) {
     case ROCKSDB_NAMESPACE::Transaction::TransactionState::STARTED:
       return 0x0;
@@ -1649,8 +1720,8 @@ jbyte Java_org_rocksdb_Transaction_getState(JNIEnv* /*env*/, jobject /*jobj*/,
  */
 jlong Java_org_rocksdb_Transaction_getId(JNIEnv* /*env*/, jobject /*jobj*/,
                                          jlong jhandle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  uint64_t id = txn->GetId();
+  auto& apiTxn = *reinterpret_cast<API_TXN*>(jhandle);
+  uint64_t id = apiTxn->GetId();
   return static_cast<jlong>(id);
 }
 
@@ -1659,8 +1730,19 @@ jlong Java_org_rocksdb_Transaction_getId(JNIEnv* /*env*/, jobject /*jobj*/,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_Transaction_disposeInternal(JNIEnv* /*env*/,
-                                                  jobject /*jobj*/,
-                                                  jlong jhandle) {
-  delete reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+void Java_org_rocksdb_Transaction_nativeClose(JNIEnv* /*env*/, jobject /*jobj*/,
+                                              jlong jhandle) {
+  std::unique_ptr<API_TXN> txnAPI(reinterpret_cast<API_TXN*>(jhandle));
+  // Now the unique_ptr destructor will delete() referenced shared_ptr contents
+  // in the API object.
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+JNIEXPORT jlongArray JNICALL Java_org_rocksdb_Transaction_getReferenceCounts(
+    JNIEnv* env, jobject, jlong jhandle) {
+  return APIBase::getReferenceCounts<API_TXN>(env, jhandle);
 }

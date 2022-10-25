@@ -7,8 +7,7 @@ package org.rocksdb;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import java.util.*;
 import org.junit.ClassRule;
@@ -202,12 +201,14 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
              columnFamilyHandleList)) {
-      ColumnFamilyHandle tmpColumnFamilyHandle;
-      tmpColumnFamilyHandle = db.createColumnFamily(
+      final ColumnFamilyHandle tmpColumnFamilyHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("tmpCF".getBytes(), new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
+      final long[] cfCounts = tmpColumnFamilyHandle.getReferenceCounts();
+      assertThat(cfCounts[1]).isEqualTo(2); // 1 for the db ref + one for the cf.lock()
       db.dropColumnFamily(tmpColumnFamilyHandle);
-      assertThat(tmpColumnFamilyHandle.isOwningHandle()).isTrue();
+      final long[] cfCounts_dropped = tmpColumnFamilyHandle.getReferenceCounts();
+      assertThat(cfCounts_dropped[1]).isEqualTo(0); // db ref removed, cf.lock() fails, total 0
     }
   }
 
@@ -223,17 +224,36 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
              columnFamilyHandleList)) {
-      ColumnFamilyHandle tmpColumnFamilyHandle = null;
-      ColumnFamilyHandle tmpColumnFamilyHandle2 = null;
-      tmpColumnFamilyHandle = db.createColumnFamily(
+      final ColumnFamilyHandle tmpColumnFamilyHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("tmpCF".getBytes(), new ColumnFamilyOptions()));
-      tmpColumnFamilyHandle2 = db.createColumnFamily(
+      final ColumnFamilyHandle tmpColumnFamilyHandle2 = db.createColumnFamily(
           new ColumnFamilyDescriptor("tmpCF2".getBytes(), new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.put(tmpColumnFamilyHandle2, "key".getBytes(), "value".getBytes());
       db.dropColumnFamilies(Arrays.asList(tmpColumnFamilyHandle, tmpColumnFamilyHandle2));
-      assertThat(tmpColumnFamilyHandle.isOwningHandle()).isTrue();
-      assertThat(tmpColumnFamilyHandle2.isOwningHandle()).isTrue();
+      final long[] cfCounts = tmpColumnFamilyHandle.getReferenceCounts();
+      assertThat(cfCounts[1]).isEqualTo(0);
+      final long[] cfCounts2 = tmpColumnFamilyHandle2.getReferenceCounts();
+      assertThat(cfCounts2[1]).isEqualTo(0);
+    }
+  }
+
+  @Test
+  public void writeBatchSimple() throws RocksDBException {
+    try (final WriteOptions writeOpt = new WriteOptions();
+         final WriteBatch writeBatch = new WriteBatch();
+         final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < 1000; i++) {
+        sb.append("value0123456789");
+      }
+      writeBatch.put("key".getBytes(), sb.toString().getBytes());
+      db.write(writeOpt, writeBatch);
+      db.put("key2".getBytes(), "value2".getBytes());
+      assertThat(db.get("key2".getBytes())).isNotNull();
+      assertThat(new String(db.get("key2".getBytes()))).isEqualTo("value2");
+      assertThat(db.get("key".getBytes())).isNotNull();
+      assertThat(new String(db.get("key".getBytes()))).isEqualTo(sb.toString());
     }
   }
 
@@ -562,6 +582,7 @@ public class ColumnFamilyTest {
 
   @Test
   public void testDestroyColumnFamilyHandle() throws RocksDBException {
+    ColumnFamilyHandle cf2 = null;
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());) {
       final byte[] name1 = "cf1".getBytes();
@@ -569,14 +590,30 @@ public class ColumnFamilyTest {
       final ColumnFamilyDescriptor desc1 = new ColumnFamilyDescriptor(name1);
       final ColumnFamilyDescriptor desc2 = new ColumnFamilyDescriptor(name2);
       final ColumnFamilyHandle cf1 = db.createColumnFamily(desc1);
-      final ColumnFamilyHandle cf2 = db.createColumnFamily(desc2);
-      assertTrue(cf1.isOwningHandle());
-      assertTrue(cf2.isOwningHandle());
-      assertFalse(cf1.isDefaultColumnFamily());
+      cf2 = db.createColumnFamily(desc2);
+      // TODO (AP) RCA
+      final long[] cfCounts1 = cf1.getReferenceCounts();
+      assertThat(cfCounts1[1]).isEqualTo(13);
+      final long[] cfCounts2 = cf2.getReferenceCounts();
+      assertThat(cfCounts2[1]).isEqualTo(13);
+      assertThat(cf1.isDefaultColumnFamily()).isFalse();
       db.destroyColumnFamilyHandle(cf1);
+      final long[] cfCounts1_2 = cf1.getReferenceCounts();
+      assertThat(cfCounts1_2[1]).isEqualTo(13); // destroy was deprecated, and is a no-op
+      cf1.close(); // but we can still close it
       // At this point cf1 should not be used!
-      assertFalse(cf1.isOwningHandle());
-      assertTrue(cf2.isOwningHandle());
+      try {
+        final long[] cfCounts1_3 = cf1.getReferenceCounts();
+        assertThat(cfCounts1_3[1]).isEqualTo(1);
+        fail("cf1 should throw an exception on being closed");
+      } catch (IllegalStateException illegalStateException) {
+        assertThat(illegalStateException.getMessage())
+            .contains("RocksDB native reference was previously closed");
+      }
+      final long[] cfCounts2_3 = cf2.getReferenceCounts();
+      assertThat(cfCounts2_3[1]).isEqualTo(7);
     }
+    final long[] cfCounts2_4 = cf2.getReferenceCounts();
+    assertThat(cfCounts2_4[1]).isEqualTo(1);
   }
 }

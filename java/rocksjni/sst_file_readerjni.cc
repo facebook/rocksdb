@@ -11,6 +11,8 @@
 
 #include <string>
 
+#include "api_iterator.h"
+#include "api_wrapper.h"
 #include "include/org_rocksdb_SstFileReader.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -18,6 +20,10 @@
 #include "rocksdb/sst_file_reader.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
+
+using APISSTFileReader = APIWrapper<ROCKSDB_NAMESPACE::SstFileReader>;
+using APISSTFileReaderIterator =
+    APIIterator<ROCKSDB_NAMESPACE::SstFileReader, ROCKSDB_NAMESPACE::Iterator>;
 
 /*
  * Class:     org_rocksdb_SstFileReader
@@ -29,9 +35,11 @@ jlong Java_org_rocksdb_SstFileReader_newSstFileReader(JNIEnv * /*env*/,
                                                       jlong joptions) {
   auto *options =
       reinterpret_cast<const ROCKSDB_NAMESPACE::Options *>(joptions);
-  ROCKSDB_NAMESPACE::SstFileReader *sst_file_reader =
-      new ROCKSDB_NAMESPACE::SstFileReader(*options);
-  return GET_CPLUSPLUS_POINTER(sst_file_reader);
+
+  std::shared_ptr<ROCKSDB_NAMESPACE::SstFileReader> sst_file_reader(
+      new ROCKSDB_NAMESPACE::SstFileReader(*options));
+  auto apiSSTFileReader = std::make_unique<APISSTFileReader>(sst_file_reader);
+  return GET_CPLUSPLUS_POINTER(apiSSTFileReader.release());
 }
 
 /*
@@ -47,8 +55,7 @@ void Java_org_rocksdb_SstFileReader_open(JNIEnv *env, jobject /*jobj*/,
     return;
   }
   ROCKSDB_NAMESPACE::Status s =
-      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle)->Open(
-          file_path);
+      (*reinterpret_cast<APISSTFileReader *>(jhandle))->Open(file_path);
   env->ReleaseStringUTFChars(jfile_path, file_path);
 
   if (!s.ok()) {
@@ -65,11 +72,15 @@ jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv * /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jhandle,
                                                  jlong jread_options_handle) {
-  auto *sst_file_reader =
-      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
+  auto &sst_file_reader = *reinterpret_cast<APISSTFileReader *>(jhandle);
   auto *read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions *>(jread_options_handle);
-  return GET_CPLUSPLUS_POINTER(sst_file_reader->NewIterator(*read_options));
+  auto *apiIterator = new APIIterator<ROCKSDB_NAMESPACE::SstFileReader,
+                                      ROCKSDB_NAMESPACE::Iterator>(
+      sst_file_reader.wrapped,
+      std::unique_ptr<ROCKSDB_NAMESPACE::Iterator>(
+          sst_file_reader->NewIterator(*read_options)));
+  return GET_CPLUSPLUS_POINTER(apiIterator);
 }
 
 /*
@@ -80,7 +91,10 @@ jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv * /*env*/,
 void Java_org_rocksdb_SstFileReader_disposeInternal(JNIEnv * /*env*/,
                                                     jobject /*jobj*/,
                                                     jlong jhandle) {
-  delete reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
+  std::unique_ptr<APISSTFileReader> apiSSTFileReader(
+      reinterpret_cast<APISSTFileReader *>(jhandle));
+  // Now the unique_ptr destructor will delete() referenced shared_ptr contents
+  // in the API object.
 }
 
 /*
@@ -91,8 +105,7 @@ void Java_org_rocksdb_SstFileReader_disposeInternal(JNIEnv * /*env*/,
 void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env,
                                                    jobject /*jobj*/,
                                                    jlong jhandle) {
-  auto *sst_file_reader =
-      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
+  auto &sst_file_reader = *reinterpret_cast<APISSTFileReader *>(jhandle);
   auto s = sst_file_reader->VerifyChecksum();
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
@@ -107,12 +120,35 @@ void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env,
 jobject Java_org_rocksdb_SstFileReader_getTableProperties(JNIEnv *env,
                                                           jobject /*jobj*/,
                                                           jlong jhandle) {
-  auto *sst_file_reader =
-      reinterpret_cast<ROCKSDB_NAMESPACE::SstFileReader *>(jhandle);
+  auto &sst_file_reader = *reinterpret_cast<APISSTFileReader *>(jhandle);
   std::shared_ptr<const ROCKSDB_NAMESPACE::TableProperties> tp =
       sst_file_reader->GetTableProperties();
   jobject jtable_properties =
       ROCKSDB_NAMESPACE::TablePropertiesJni::fromCppTableProperties(
           env, *(tp.get()));
   return jtable_properties;
+}
+
+/*
+ * Class:     org_rocksdb_SstFileReader
+ * Method:    nativeClose
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_SstFileReader_nativeClose(JNIEnv * /*env*/,
+                                                jobject /*jobj*/,
+                                                jlong handle) {
+  std::unique_ptr<APISSTFileReader> sst_file_reader(
+      reinterpret_cast<APISSTFileReader *>(handle));
+  // Now the unique_ptr destructor will delete() referenced shared_ptr contents
+  // in the API object.
+}
+
+/*
+ * Class:     org_rocksdb_SstFileReader
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+JNIEXPORT jlongArray JNICALL Java_org_rocksdb_SstFileReader_getReferenceCounts(
+    JNIEnv *env, jobject, jlong jhandle) {
+  return APIBase::getReferenceCounts<APISSTFileReader>(env, jhandle);
 }

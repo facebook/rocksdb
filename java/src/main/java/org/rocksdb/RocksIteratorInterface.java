@@ -95,7 +95,7 @@ public interface RocksIteratorInterface {
    *
    * <p>REQUIRES: {@link #isValid()}</p>
    */
-  void next();
+  void next() throws RocksDBException;
 
   /**
    * <p>Moves to the previous entry in the source.  After this call, Valid() is
@@ -103,7 +103,7 @@ public interface RocksIteratorInterface {
    *
    * <p>REQUIRES: {@link #isValid()}</p>
    */
-  void prev();
+  void prev() throws RocksDBException;
 
   /**
    * <p>If an error has occurred, return it.  Else return an ok status.

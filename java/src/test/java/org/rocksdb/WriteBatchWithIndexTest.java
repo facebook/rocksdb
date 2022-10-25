@@ -32,11 +32,10 @@ public class WriteBatchWithIndexTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
+
   public void readYourOwnWrites() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())) {
-
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       final byte[] k1 = "key1".getBytes();
       final byte[] v1 = "value1".getBytes();
       final byte[] k2 = "key2".getBytes();
@@ -103,7 +102,6 @@ public class WriteBatchWithIndexTest {
       }
     }
   }
-
   @Test
   public void readYourOwnWritesCf() throws RocksDBException {
     final List<ColumnFamilyDescriptor> cfNames =
@@ -843,7 +841,8 @@ public class WriteBatchWithIndexTest {
 
       final WriteBatch wb = wbwi.getWriteBatch();
       assertThat(wb).isNotNull();
-      assertThat(wb.isOwningHandle()).isFalse();
+      // TODO (AP) reference counted API -- is there anything to assert here ?
+      // assertThat(wb.isOwningHandle()).isFalse();
     }
   }
 
@@ -972,7 +971,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator baseIter = db.newIterator();
            final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
 
@@ -981,7 +980,7 @@ public class WriteBatchWithIndexTest {
            final ReadOptions readOptions = new ReadOptions();
            final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter, readOptions)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
     }
@@ -999,7 +998,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator wbwiIter =
                wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
 
@@ -1009,7 +1008,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator wbwiIter =
                wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter, readOptions)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
     }
@@ -1023,7 +1022,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator baseIter = db.newIterator();
            final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
 
@@ -1032,7 +1031,7 @@ public class WriteBatchWithIndexTest {
            final ReadOptions readOptions = new ReadOptions();
            final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter, readOptions)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
     }
@@ -1050,7 +1049,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator wbwiIter =
                wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
 
@@ -1060,7 +1059,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator wbwiIter =
                wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter, readOptions)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
     }

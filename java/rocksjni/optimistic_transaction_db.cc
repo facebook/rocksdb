@@ -10,11 +10,20 @@
 
 #include <jni.h>
 
+#include "api_columnfamilyhandle.h"
+#include "api_iterator.h"
+#include "api_rocksdb.h"
+#include "api_transaction.h"
 #include "include/org_rocksdb_OptimisticTransactionDB.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
+
+using API_OTDB = APIRocksDB<ROCKSDB_NAMESPACE::OptimisticTransactionDB>;
+using API_OTCFH =
+    APIColumnFamilyHandle<ROCKSDB_NAMESPACE::OptimisticTransactionDB>;
+using API_OTXN = APITransaction<ROCKSDB_NAMESPACE::OptimisticTransactionDB>;
 
 /*
  * Class:     org_rocksdb_OptimisticTransactionDB
@@ -38,7 +47,10 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2(
   env->ReleaseStringUTFChars(jdb_path, db_path);
 
   if (s.ok()) {
-    return GET_CPLUSPLUS_POINTER(otdb);
+    std::shared_ptr<ROCKSDB_NAMESPACE::OptimisticTransactionDB> dbShared =
+        APIBase::createSharedPtr(otdb, false /*isDefault*/);
+    auto otdbAPI = std::make_unique<API_OTDB>(dbShared);
+    return GET_CPLUSPLUS_POINTER(otdbAPI.release());
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
@@ -119,52 +131,63 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
 
   auto* db_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jdb_options_handle);
-  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> handles;
+  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
   ROCKSDB_NAMESPACE::OptimisticTransactionDB* otdb = nullptr;
   const ROCKSDB_NAMESPACE::Status s =
       ROCKSDB_NAMESPACE::OptimisticTransactionDB::Open(
-          *db_options, db_path, column_families, &handles, &otdb);
+          *db_options, db_path, column_families, &cf_handles, &otdb);
 
   env->ReleaseStringUTFChars(jdb_path, db_path);
 
   // check if open operation was successful
-  if (s.ok()) {
-    const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
-    std::unique_ptr<jlong[]> results =
-        std::unique_ptr<jlong[]>(new jlong[resultsLen]);
-    results[0] = reinterpret_cast<jlong>(otdb);
-    for (int i = 1; i <= len_cols; i++) {
-      results[i] = reinterpret_cast<jlong>(handles[i - 1]);
-    }
-
-    jlongArray jresults = env->NewLongArray(resultsLen);
-    if (jresults == nullptr) {
-      // exception thrown: OutOfMemoryError
-      return nullptr;
-    }
-    env->SetLongArrayRegion(jresults, 0, resultsLen, results.get());
-    if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      return nullptr;
-    }
-    return jresults;
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return nullptr;
   }
 
-  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-  return nullptr;
+  std::shared_ptr<ROCKSDB_NAMESPACE::OptimisticTransactionDB> dbShared(otdb);
+  auto otdbAPI = std::make_unique<API_OTDB>(dbShared);
+
+  const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
+  std::unique_ptr<jlong[]> results =
+      std::unique_ptr<jlong[]>(new jlong[resultsLen]);
+  for (int i = 1; i <= len_cols; i++) {
+    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfShared =
+        APIBase::createSharedPtr(cf_handles[i - 1], false /*isDefault*/);
+    std::unique_ptr<
+        APIColumnFamilyHandle<ROCKSDB_NAMESPACE::OptimisticTransactionDB>>
+        cfhAPI(new APIColumnFamilyHandle<
+               ROCKSDB_NAMESPACE::OptimisticTransactionDB>(dbShared, cfShared));
+    otdbAPI->columnFamilyHandles.push_back(cfShared);
+    results[i] = GET_CPLUSPLUS_POINTER(cfhAPI.release());
+  }
+  results[0] = GET_CPLUSPLUS_POINTER(otdbAPI.release());
+
+  jlongArray jresults = env->NewLongArray(resultsLen);
+  if (jresults == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+
+  env->SetLongArrayRegion(jresults, 0, resultsLen, results.get());
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    return nullptr;
+  }
+
+  return jresults;
 }
 
 /*
  * Class:     org_rocksdb_OptimisticTransactionDB
- * Method:    disposeInternal
+ * Method:    nativeClose
  * Signature: (J)V
  */
-void Java_org_rocksdb_OptimisticTransactionDB_disposeInternal(
-    JNIEnv *, jobject, jlong jhandle) {
-  auto* optimistic_txn_db =
-      reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
-  assert(optimistic_txn_db != nullptr);
-  delete optimistic_txn_db;
+void Java_org_rocksdb_OptimisticTransactionDB_nativeClose(JNIEnv*, jobject,
+                                                          jlong jhandle) {
+  std::unique_ptr<API_OTDB> dbAPI(reinterpret_cast<API_OTDB*>(jhandle));
+  // Now the unique_ptr destructor will delete() referenced shared_ptr contents
+  // in the API object.
 }
 
 /*
@@ -174,10 +197,8 @@ void Java_org_rocksdb_OptimisticTransactionDB_disposeInternal(
  */
 void Java_org_rocksdb_OptimisticTransactionDB_closeDatabase(
     JNIEnv* env, jclass, jlong jhandle) {
-  auto* optimistic_txn_db =
-      reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
-  assert(optimistic_txn_db != nullptr);
-  ROCKSDB_NAMESPACE::Status s = optimistic_txn_db->Close();
+  auto& otdbAPI = *reinterpret_cast<API_OTDB*>(jhandle);
+  ROCKSDB_NAMESPACE::Status s = otdbAPI->Close();
   ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
 }
 
@@ -188,13 +209,16 @@ void Java_org_rocksdb_OptimisticTransactionDB_closeDatabase(
  */
 jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJ(
     JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle) {
-  auto* optimistic_txn_db =
-      reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
+  auto& otdbAPI = *reinterpret_cast<API_OTDB*>(jhandle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
+
   ROCKSDB_NAMESPACE::Transaction* txn =
-      optimistic_txn_db->BeginTransaction(*write_options);
-  return GET_CPLUSPLUS_POINTER(txn);
+      otdbAPI->BeginTransaction(*write_options);
+  auto* apiTxn = new API_OTXN(
+      otdbAPI.db, std::shared_ptr<ROCKSDB_NAMESPACE::Transaction>(txn));
+
+  return GET_CPLUSPLUS_POINTER(apiTxn);
 }
 
 /*
@@ -205,16 +229,18 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJ(
 jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJJ(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
     jlong jwrite_options_handle, jlong joptimistic_txn_options_handle) {
-  auto* optimistic_txn_db =
-      reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
+  auto& otdbAPI = *reinterpret_cast<API_OTDB*>(jhandle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
   auto* optimistic_txn_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionOptions*>(
           joptimistic_txn_options_handle);
-  ROCKSDB_NAMESPACE::Transaction* txn = optimistic_txn_db->BeginTransaction(
-      *write_options, *optimistic_txn_options);
-  return GET_CPLUSPLUS_POINTER(txn);
+  ROCKSDB_NAMESPACE::Transaction* txn =
+      otdbAPI->BeginTransaction(*write_options, *optimistic_txn_options);
+  auto* apiTxn = new API_OTXN(
+      otdbAPI.db, std::shared_ptr<ROCKSDB_NAMESPACE::Transaction>(txn));
+
+  return GET_CPLUSPLUS_POINTER(apiTxn);
 }
 
 /*
@@ -225,22 +251,20 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJJ(
 jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJ(
     JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle,
     jlong jold_txn_handle) {
-  auto* optimistic_txn_db =
-      reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
+  auto& otdbAPI = *reinterpret_cast<API_OTDB*>(jhandle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  auto* old_txn =
-      reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jold_txn_handle);
+  auto& oldTxn = *reinterpret_cast<API_OTXN*>(jold_txn_handle);
   ROCKSDB_NAMESPACE::OptimisticTransactionOptions optimistic_txn_options;
-  ROCKSDB_NAMESPACE::Transaction* txn = optimistic_txn_db->BeginTransaction(
-      *write_options, optimistic_txn_options, old_txn);
+  ROCKSDB_NAMESPACE::Transaction* txn = otdbAPI->BeginTransaction(
+      *write_options, optimistic_txn_options, oldTxn.get());
 
   // RocksJava relies on the assumption that
   // we do not allocate a new Transaction object
   // when providing an old_optimistic_txn
-  assert(txn == old_txn);
+  assert(txn == oldTxn.get());
 
-  return GET_CPLUSPLUS_POINTER(txn);
+  return jold_txn_handle;
 }
 
 /*
@@ -251,24 +275,22 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJ(
 jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
     JNIEnv*, jobject, jlong jhandle, jlong jwrite_options_handle,
     jlong joptimistic_txn_options_handle, jlong jold_txn_handle) {
-  auto* optimistic_txn_db =
-      reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
+  auto& otdbAPI = *reinterpret_cast<API_OTDB*>(jhandle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
   auto* optimistic_txn_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionOptions*>(
           joptimistic_txn_options_handle);
-  auto* old_txn =
-      reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jold_txn_handle);
-  ROCKSDB_NAMESPACE::Transaction* txn = optimistic_txn_db->BeginTransaction(
-      *write_options, *optimistic_txn_options, old_txn);
+  auto& oldTxn = *reinterpret_cast<API_OTXN*>(jold_txn_handle);
+  ROCKSDB_NAMESPACE::Transaction* txn = otdbAPI->BeginTransaction(
+      *write_options, *optimistic_txn_options, oldTxn.get());
 
   // RocksJava relies on the assumption that
   // we do not allocate a new Transaction object
   // when providing an old_optimisic_txn
-  assert(txn == old_txn);
+  assert(txn == oldTxn.get());
 
-  return GET_CPLUSPLUS_POINTER(txn);
+  return jold_txn_handle;
 }
 
 /*
@@ -276,9 +298,15 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
  * Method:    getBaseDB
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* optimistic_txn_db =
-      reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
-  return GET_CPLUSPLUS_POINTER(optimistic_txn_db->GetBaseDB());
+jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(JNIEnv* /*env*/,
+                                                         jobject,
+                                                         jlong jhandle) {
+  auto& otdbAPI = *reinterpret_cast<API_OTDB*>(jhandle);
+  auto* baseDB = otdbAPI->GetBaseDB();
+
+  std::shared_ptr<ROCKSDB_NAMESPACE::DB> baseDBShared =
+      APIBase::createSharedPtr(baseDB, true /*isDefault*/);
+  auto baseDBAPI = std::make_unique<APIRocksDB<ROCKSDB_NAMESPACE::DB>>(
+      baseDBShared, otdbAPI);
+  return GET_CPLUSPLUS_POINTER(baseDBAPI.release());
 }

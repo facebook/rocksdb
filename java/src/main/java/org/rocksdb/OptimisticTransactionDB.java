@@ -6,6 +6,7 @@
 package org.rocksdb;
 
 import java.util.List;
+import org.rocksdb.RocksNative;
 
 /**
  * Database with Transaction support.
@@ -88,72 +89,25 @@ public class OptimisticTransactionDB extends RocksDB
     otdb.storeOptionsInstance(dbOptions);
 
     for (int i = 1; i < handles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(otdb, handles[i]));
+      columnFamilyHandles.add(new ColumnFamilyHandle(handles[i]));
     }
 
     return otdb;
   }
 
-
-  /**
-   * This is similar to {@link #close()} except that it
-   * throws an exception if any error occurs.
-   *
-   * This will not fsync the WAL files.
-   * If syncing is required, the caller must first call {@link #syncWal()}
-   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
-   * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
-   * See also {@link #close()}.
-   *
-   * @throws RocksDBException if an error occurs whilst closing.
-   */
-  public void closeE() throws RocksDBException {
-    if (owningHandle_.compareAndSet(true, false)) {
-      try {
-        closeDatabase(nativeHandle_);
-      } finally {
-        disposeInternal();
-      }
-    }
-  }
-
-  /**
-   * This is similar to {@link #closeE()} except that it
-   * silently ignores any errors.
-   *
-   * This will not fsync the WAL files.
-   * If syncing is required, the caller must first call {@link #syncWal()}
-   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
-   * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
-   * See also {@link #close()}.
-   */
-  @Override
-  public void close() {
-    if (owningHandle_.compareAndSet(true, false)) {
-      try {
-        closeDatabase(nativeHandle_);
-      } catch (final RocksDBException e) {
-        // silently ignore the error report
-      } finally {
-        disposeInternal();
-      }
-    }
-  }
+  @Override protected native void nativeClose(long nativeReference);
 
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions) {
-    return new Transaction(this, beginTransaction(nativeHandle_,
-        writeOptions.nativeHandle_));
+    return new Transaction(this, beginTransaction(getNative(), writeOptions.nativeHandle_));
   }
 
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final OptimisticTransactionOptions optimisticTransactionOptions) {
-    return new Transaction(this, beginTransaction(nativeHandle_,
-        writeOptions.nativeHandle_,
-        optimisticTransactionOptions.nativeHandle_));
+    return new Transaction(this,
+        beginTransaction(
+            getNative(), writeOptions.nativeHandle_, optimisticTransactionOptions.nativeHandle_));
   }
 
   // TODO(AR) consider having beingTransaction(... oldTransaction) set a
@@ -165,13 +119,13 @@ public class OptimisticTransactionDB extends RocksDB
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final Transaction oldTransaction) {
-    final long jtxn_handle = beginTransaction_withOld(nativeHandle_,
-        writeOptions.nativeHandle_, oldTransaction.nativeHandle_);
+    final long jtxn_handle = beginTransaction_withOld(
+        getNative(), writeOptions.nativeHandle_, oldTransaction.getNative());
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
     // when providing an old_txn
-    assert(jtxn_handle == oldTransaction.nativeHandle_);
+    assert (jtxn_handle == oldTransaction.getNative());
 
     return oldTransaction;
   }
@@ -180,14 +134,13 @@ public class OptimisticTransactionDB extends RocksDB
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final OptimisticTransactionOptions optimisticTransactionOptions,
       final Transaction oldTransaction) {
-    final long jtxn_handle = beginTransaction_withOld(nativeHandle_,
-        writeOptions.nativeHandle_, optimisticTransactionOptions.nativeHandle_,
-        oldTransaction.nativeHandle_);
+    final long jtxn_handle = beginTransaction_withOld(getNative(), writeOptions.nativeHandle_,
+        optimisticTransactionOptions.nativeHandle_, oldTransaction.getNative());
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
     // when providing an old_txn
-    assert(jtxn_handle == oldTransaction.nativeHandle_);
+    assert (jtxn_handle == oldTransaction.getNative());
 
     return oldTransaction;
   }
@@ -198,12 +151,8 @@ public class OptimisticTransactionDB extends RocksDB
    * @return The underlying database that was opened.
    */
   public RocksDB getBaseDB() {
-    final RocksDB db = new RocksDB(getBaseDB(nativeHandle_));
-    db.disOwnNativeHandle();
-    return db;
+    return new RocksDB(getBaseDB(getNative()));
   }
-
-  @Override protected final native void disposeInternal(final long handle);
 
   protected static native long open(final long optionsHandle,
       final String path) throws RocksDBException;

@@ -8,6 +8,7 @@ package org.rocksdb;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.rocksdb.RocksNative;
 
 /**
  * Provides BEGIN/COMMIT/ROLLBACK transactions.
@@ -25,8 +26,7 @@ import java.util.List;
  * samples/src/main/java/TransactionSample.java for some simple
  * examples.
  */
-public class Transaction extends RocksObject {
-
+public class Transaction extends RocksNative {
   private final RocksDB parent;
 
   /**
@@ -69,8 +69,7 @@ public class Transaction extends RocksObject {
    * by get(...) methods. See {@link #get} for more details.
    */
   public void setSnapshot() {
-    assert(isOwningHandle());
-    setSnapshot(nativeHandle_);
+    setSnapshot(getNative());
   }
 
   /**
@@ -98,8 +97,7 @@ public class Transaction extends RocksObject {
    *   txn1-&gt;getForUpdate(opts, "A", ...);  * FAIL!
    */
   public void setSnapshotOnNextOperation() {
-    assert(isOwningHandle());
-    setSnapshotOnNextOperation(nativeHandle_);
+    setSnapshotOnNextOperation(getNative());
   }
 
   /**
@@ -133,8 +131,7 @@ public class Transaction extends RocksObject {
    */
   public void setSnapshotOnNextOperation(
       final AbstractTransactionNotifier transactionNotifier) {
-    assert(isOwningHandle());
-    setSnapshotOnNextOperation(nativeHandle_, transactionNotifier.nativeHandle_);
+    setSnapshotOnNextOperation(getNative(), transactionNotifier.nativeHandle_);
   }
 
  /**
@@ -147,8 +144,7 @@ public class Transaction extends RocksObject {
   * @return The snapshot or null if there is no snapshot
   */
   public Snapshot getSnapshot() {
-    assert(isOwningHandle());
-    final long snapshotNativeHandle = getSnapshot(nativeHandle_);
+    final long snapshotNativeHandle = getSnapshot(getNative());
     if(snapshotNativeHandle == 0) {
       return null;
     } else {
@@ -171,8 +167,7 @@ public class Transaction extends RocksObject {
    * {@link #clearSnapshot()}.
    */
   public void clearSnapshot() {
-    assert(isOwningHandle());
-    clearSnapshot(nativeHandle_);
+    clearSnapshot(getNative());
   }
 
   /**
@@ -180,8 +175,7 @@ public class Transaction extends RocksObject {
    */
   public void prepare() throws RocksDBException {
     //TODO(AR) consider a Java'ish version of this function, which returns an AutoCloseable (commit)
-    assert(isOwningHandle());
-    prepare(nativeHandle_);
+    prepare(getNative());
   }
 
   /**
@@ -204,8 +198,7 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException if an error occurs when committing the transaction
    */
   public void commit() throws RocksDBException {
-    assert(isOwningHandle());
-    commit(nativeHandle_);
+    commit(getNative());
   }
 
   /**
@@ -214,8 +207,7 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException if an error occurs when rolling back the transaction
    */
   public void rollback() throws RocksDBException {
-    assert(isOwningHandle());
-    rollback(nativeHandle_);
+    rollback(getNative());
   }
 
   /**
@@ -227,8 +219,7 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException if an error occurs whilst setting a save point
    */
   public void setSavePoint() throws RocksDBException {
-    assert(isOwningHandle());
-    setSavePoint(nativeHandle_);
+    setSavePoint(getNative());
   }
 
   /**
@@ -242,8 +233,7 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException if an error occurs when rolling back to a save point
    */
   public void rollbackToSavePoint() throws RocksDBException {
-    assert(isOwningHandle());
-    rollbackToSavePoint(nativeHandle_);
+    rollbackToSavePoint(getNative());
   }
 
   /**
@@ -272,11 +262,10 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying native
    *     library.
    */
-  public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
-      final ReadOptions readOptions, final byte[] key) throws RocksDBException {
-    assert(isOwningHandle());
-    return get(nativeHandle_, readOptions.nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_);
+  public byte[] get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions readOptions,
+      final byte[] key) throws RocksDBException {
+    return get(
+        getNative(), readOptions.nativeHandle_, key, key.length, columnFamilyHandle.getNative());
   }
 
   /**
@@ -306,8 +295,7 @@ public class Transaction extends RocksObject {
    */
   public byte[] get(final ReadOptions readOptions, final byte[] key)
       throws RocksDBException {
-    assert(isOwningHandle());
-    return get(nativeHandle_, readOptions.nativeHandle_, key, key.length);
+    return get(getNative(), readOptions.nativeHandle_, key, key.length);
   }
 
   /**
@@ -342,7 +330,6 @@ public class Transaction extends RocksObject {
   public byte[][] multiGet(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandles, final byte[][] keys)
       throws RocksDBException {
-    assert(isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.length != columnFamilyHandles.size()) {
@@ -354,11 +341,10 @@ public class Transaction extends RocksObject {
     }
     final long[] cfHandles = new long[columnFamilyHandles.size()];
     for (int i = 0; i < columnFamilyHandles.size(); i++) {
-      cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
+      cfHandles[i] = columnFamilyHandles.get(i).getNative();
     }
 
-    return multiGet(nativeHandle_, readOptions.nativeHandle_,
-       keys, cfHandles);
+    return multiGet(getNative(), readOptions.nativeHandle_, keys, cfHandles);
   }
 
   /**
@@ -393,7 +379,6 @@ public class Transaction extends RocksObject {
   public List<byte[]> multiGetAsList(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandles, final List<byte[]> keys)
       throws RocksDBException {
-    assert (isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.size() != columnFamilyHandles.size()) {
@@ -405,10 +390,10 @@ public class Transaction extends RocksObject {
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
     final long[] cfHandles = new long[columnFamilyHandles.size()];
     for (int i = 0; i < columnFamilyHandles.size(); i++) {
-      cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
+      cfHandles[i] = columnFamilyHandles.get(i).getNative();
     }
 
-    return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_, keysArray, cfHandles));
+    return Arrays.asList(multiGet(getNative(), readOptions.nativeHandle_, keysArray, cfHandles));
   }
 
   /**
@@ -439,13 +424,11 @@ public class Transaction extends RocksObject {
   @Deprecated
   public byte[][] multiGet(final ReadOptions readOptions, final byte[][] keys)
       throws RocksDBException {
-    assert(isOwningHandle());
     if(keys.length == 0) {
       return new byte[0][0];
     }
 
-    return multiGet(nativeHandle_, readOptions.nativeHandle_,
-        keys);
+    return multiGet(getNative(), readOptions.nativeHandle_, keys);
   }
 
   /**
@@ -480,7 +463,7 @@ public class Transaction extends RocksObject {
     }
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
 
-    return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_, keysArray));
+    return Arrays.asList(multiGet(getNative(), readOptions.nativeHandle_, keysArray));
   }
 
   /**
@@ -533,9 +516,8 @@ public class Transaction extends RocksObject {
   public byte[] getForUpdate(final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final boolean exclusive,
       final boolean doValidate) throws RocksDBException {
-    assert (isOwningHandle());
-    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_, exclusive, doValidate);
+    return getForUpdate(getNative(), readOptions.nativeHandle_, key, key.length,
+        columnFamilyHandle.getNative(), exclusive, doValidate);
   }
 
   /**
@@ -559,9 +541,8 @@ public class Transaction extends RocksObject {
   public byte[] getForUpdate(final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final boolean exclusive) throws RocksDBException {
-    assert(isOwningHandle());
-    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_, exclusive, true /*doValidate*/);
+    return getForUpdate(getNative(), readOptions.nativeHandle_, key, key.length,
+        columnFamilyHandle.getNative(), exclusive, true /*doValidate*/);
   }
 
   /**
@@ -610,9 +591,8 @@ public class Transaction extends RocksObject {
    */
   public byte[] getForUpdate(final ReadOptions readOptions, final byte[] key,
       final boolean exclusive) throws RocksDBException {
-    assert(isOwningHandle());
     return getForUpdate(
-        nativeHandle_, readOptions.nativeHandle_, key, key.length, exclusive, true /*doValidate*/);
+        getNative(), readOptions.nativeHandle_, key, key.length, exclusive, true /*doValidate*/);
   }
 
   /**
@@ -634,7 +614,6 @@ public class Transaction extends RocksObject {
   public byte[][] multiGetForUpdate(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandles, final byte[][] keys)
       throws RocksDBException {
-    assert(isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.length != columnFamilyHandles.size()){
@@ -646,10 +625,9 @@ public class Transaction extends RocksObject {
     }
     final long[] cfHandles = new long[columnFamilyHandles.size()];
     for (int i = 0; i < columnFamilyHandles.size(); i++) {
-      cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
+      cfHandles[i] = columnFamilyHandles.get(i).getNative();
     }
-    return multiGetForUpdate(nativeHandle_, readOptions.nativeHandle_,
-        keys, cfHandles);
+    return multiGetForUpdate(getNative(), readOptions.nativeHandle_, keys, cfHandles);
   }
 
   /**
@@ -670,7 +648,6 @@ public class Transaction extends RocksObject {
   public List<byte[]> multiGetForUpdateAsList(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandles, final List<byte[]> keys)
       throws RocksDBException {
-    assert (isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.size() != columnFamilyHandles.size()) {
@@ -683,10 +660,10 @@ public class Transaction extends RocksObject {
 
     final long[] cfHandles = new long[columnFamilyHandles.size()];
     for (int i = 0; i < columnFamilyHandles.size(); i++) {
-      cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
+      cfHandles[i] = columnFamilyHandles.get(i).getNative();
     }
     return Arrays.asList(
-        multiGetForUpdate(nativeHandle_, readOptions.nativeHandle_, keysArray, cfHandles));
+        multiGetForUpdate(getNative(), readOptions.nativeHandle_, keysArray, cfHandles));
   }
 
   /**
@@ -704,13 +681,11 @@ public class Transaction extends RocksObject {
   @Deprecated
   public byte[][] multiGetForUpdate(final ReadOptions readOptions, final byte[][] keys)
       throws RocksDBException {
-    assert(isOwningHandle());
     if(keys.length == 0) {
       return new byte[0][0];
     }
 
-    return multiGetForUpdate(nativeHandle_,
-        readOptions.nativeHandle_, keys);
+    return multiGetForUpdate(getNative(), readOptions.nativeHandle_, keys);
   }
 
   /**
@@ -727,14 +702,13 @@ public class Transaction extends RocksObject {
    */
   public List<byte[]> multiGetForUpdateAsList(
       final ReadOptions readOptions, final List<byte[]> keys) throws RocksDBException {
-    assert (isOwningHandle());
     if (keys.size() == 0) {
       return new ArrayList<>(0);
     }
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
 
-    return Arrays.asList(multiGetForUpdate(nativeHandle_, readOptions.nativeHandle_, keysArray));
+    return Arrays.asList(multiGetForUpdate(getNative(), readOptions.nativeHandle_, keysArray));
   }
 
   /**
@@ -757,9 +731,7 @@ public class Transaction extends RocksObject {
    * @return instance of iterator object.
    */
   public RocksIterator getIterator(final ReadOptions readOptions) {
-    assert(isOwningHandle());
-    return new RocksIterator(parent, getIterator(nativeHandle_,
-        readOptions.nativeHandle_));
+    return new RocksIterator(parent, getIterator(getNative(), readOptions.nativeHandle_));
   }
 
   /**
@@ -784,11 +756,10 @@ public class Transaction extends RocksObject {
    *
    * @return instance of iterator object.
    */
-  public RocksIterator getIterator(final ReadOptions readOptions,
-      final ColumnFamilyHandle columnFamilyHandle) {
-    assert(isOwningHandle());
-    return new RocksIterator(parent, getIterator(nativeHandle_,
-        readOptions.nativeHandle_, columnFamilyHandle.nativeHandle_));
+  public RocksIterator getIterator(
+      final ReadOptions readOptions, final ColumnFamilyHandle columnFamilyHandle) {
+    return new RocksIterator(parent,
+        getIterator(getNative(), readOptions.nativeHandle_, columnFamilyHandle.getNative()));
   }
 
   /**
@@ -821,9 +792,8 @@ public class Transaction extends RocksObject {
    */
   public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value, final boolean assumeTracked) throws RocksDBException {
-    assert (isOwningHandle());
-    put(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_, assumeTracked);
+    put(getNative(), key, key.length, value, value.length, columnFamilyHandle.getNative(),
+        assumeTracked);
   }
 
   /**
@@ -853,9 +823,7 @@ public class Transaction extends RocksObject {
    */
   public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value) throws RocksDBException {
-    assert(isOwningHandle());
-    put(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_, false);
+    put(getNative(), key, key.length, value, value.length, columnFamilyHandle.getNative(), false);
   }
 
   /**
@@ -882,8 +850,7 @@ public class Transaction extends RocksObject {
    */
   public void put(final byte[] key, final byte[] value)
       throws RocksDBException {
-    assert(isOwningHandle());
-    put(nativeHandle_, key, key.length, value, value.length);
+    put(getNative(), key, key.length, value, value.length);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -907,9 +874,8 @@ public class Transaction extends RocksObject {
   public void put(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts, final byte[][] valueParts,
       final boolean assumeTracked) throws RocksDBException {
-    assert (isOwningHandle());
-    put(nativeHandle_, keyParts, keyParts.length, valueParts, valueParts.length,
-        columnFamilyHandle.nativeHandle_, assumeTracked);
+    put(getNative(), keyParts, keyParts.length, valueParts, valueParts.length,
+        columnFamilyHandle.getNative(), assumeTracked);
   }
 
   /**
@@ -929,9 +895,8 @@ public class Transaction extends RocksObject {
   public void put(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts, final byte[][] valueParts)
       throws RocksDBException {
-    assert(isOwningHandle());
-    put(nativeHandle_, keyParts, keyParts.length, valueParts, valueParts.length,
-        columnFamilyHandle.nativeHandle_, false);
+    put(getNative(), keyParts, keyParts.length, valueParts, valueParts.length,
+        columnFamilyHandle.getNative(), false);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -948,9 +913,7 @@ public class Transaction extends RocksObject {
    */
   public void put(final byte[][] keyParts, final byte[][] valueParts)
       throws RocksDBException {
-    assert(isOwningHandle());
-    put(nativeHandle_, keyParts, keyParts.length, valueParts,
-        valueParts.length);
+    put(getNative(), keyParts, keyParts.length, valueParts, valueParts.length);
   }
 
   /**
@@ -984,9 +947,8 @@ public class Transaction extends RocksObject {
   public void merge(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value, final boolean assumeTracked)
       throws RocksDBException {
-    assert (isOwningHandle());
-    merge(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_, assumeTracked);
+    merge(getNative(), key, key.length, value, value.length, columnFamilyHandle.getNative(),
+        assumeTracked);
   }
 
   /**
@@ -1014,11 +976,9 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
-  public void merge(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final byte[] value) throws RocksDBException {
-    assert(isOwningHandle());
-    merge(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_, false);
+  public void merge(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final byte[] value) throws RocksDBException {
+    merge(getNative(), key, key.length, value, value.length, columnFamilyHandle.getNative(), false);
   }
 
   /**
@@ -1045,8 +1005,7 @@ public class Transaction extends RocksObject {
    */
   public void merge(final byte[] key, final byte[] value)
       throws RocksDBException {
-    assert(isOwningHandle());
-    merge(nativeHandle_, key, key.length, value, value.length);
+    merge(getNative(), key, key.length, value, value.length);
   }
 
   /**
@@ -1078,9 +1037,7 @@ public class Transaction extends RocksObject {
    */
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final boolean assumeTracked) throws RocksDBException {
-    assert (isOwningHandle());
-    delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_,
-        assumeTracked);
+    delete(getNative(), key, key.length, columnFamilyHandle.getNative(), assumeTracked);
   }
 
   /**
@@ -1109,8 +1066,7 @@ public class Transaction extends RocksObject {
    */
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key) throws RocksDBException {
-    assert(isOwningHandle());
-    delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_,
+    delete(getNative(), key, key.length, columnFamilyHandle.getNative(),
         /*assumeTracked*/ false);
   }
 
@@ -1136,8 +1092,7 @@ public class Transaction extends RocksObject {
    *     described above occurs, or in the case of an unexpected error
    */
   public void delete(final byte[] key) throws RocksDBException {
-    assert(isOwningHandle());
-    delete(nativeHandle_, key, key.length);
+    delete(getNative(), key, key.length);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -1160,9 +1115,7 @@ public class Transaction extends RocksObject {
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts, final boolean assumeTracked)
       throws RocksDBException {
-    assert (isOwningHandle());
-    delete(nativeHandle_, keyParts, keyParts.length,
-        columnFamilyHandle.nativeHandle_, assumeTracked);
+    delete(getNative(), keyParts, keyParts.length, columnFamilyHandle.getNative(), assumeTracked);
   }
 
   /**
@@ -1180,9 +1133,7 @@ public class Transaction extends RocksObject {
    */
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts) throws RocksDBException {
-    assert(isOwningHandle());
-    delete(nativeHandle_, keyParts, keyParts.length,
-        columnFamilyHandle.nativeHandle_, false);
+    delete(getNative(), keyParts, keyParts.length, columnFamilyHandle.getNative(), false);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -1197,8 +1148,7 @@ public class Transaction extends RocksObject {
    *     described above occurs, or in the case of an unexpected error
    */
   public void delete(final byte[][] keyParts) throws RocksDBException {
-    assert(isOwningHandle());
-    delete(nativeHandle_, keyParts, keyParts.length);
+    delete(getNative(), keyParts, keyParts.length);
   }
 
   /**
@@ -1231,9 +1181,7 @@ public class Transaction extends RocksObject {
   @Experimental("Performance optimization for a very specific workload")
   public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final boolean assumeTracked) throws RocksDBException {
-    assert (isOwningHandle());
-    singleDelete(nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_, assumeTracked);
+    singleDelete(getNative(), key, key.length, columnFamilyHandle.getNative(), assumeTracked);
   }
 
   /**
@@ -1263,9 +1211,7 @@ public class Transaction extends RocksObject {
   @Experimental("Performance optimization for a very specific workload")
   public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key) throws RocksDBException {
-    assert(isOwningHandle());
-    singleDelete(nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_, false);
+    singleDelete(getNative(), key, key.length, columnFamilyHandle.getNative(), false);
   }
 
   /**
@@ -1291,8 +1237,7 @@ public class Transaction extends RocksObject {
    */
   @Experimental("Performance optimization for a very specific workload")
   public void singleDelete(final byte[] key) throws RocksDBException {
-    assert(isOwningHandle());
-    singleDelete(nativeHandle_, key, key.length);
+    singleDelete(getNative(), key, key.length);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -1313,12 +1258,10 @@ public class Transaction extends RocksObject {
    *     described above occurs, or in the case of an unexpected error
    */
   @Experimental("Performance optimization for a very specific workload")
-  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[][] keyParts, final boolean assumeTracked)
-      throws RocksDBException {
-    assert (isOwningHandle());
-    singleDelete(nativeHandle_, keyParts, keyParts.length,
-        columnFamilyHandle.nativeHandle_, assumeTracked);
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[][] keyParts,
+      final boolean assumeTracked) throws RocksDBException {
+    singleDelete(
+        getNative(), keyParts, keyParts.length, columnFamilyHandle.getNative(), assumeTracked);
   }
 
   /**
@@ -1337,9 +1280,7 @@ public class Transaction extends RocksObject {
   @Experimental("Performance optimization for a very specific workload")
   public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts) throws RocksDBException {
-    assert(isOwningHandle());
-    singleDelete(nativeHandle_, keyParts, keyParts.length,
-        columnFamilyHandle.nativeHandle_, false);
+    singleDelete(getNative(), keyParts, keyParts.length, columnFamilyHandle.getNative(), false);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -1355,8 +1296,7 @@ public class Transaction extends RocksObject {
    */
   @Experimental("Performance optimization for a very specific workload")
   public void singleDelete(final byte[][] keyParts) throws RocksDBException {
-    assert(isOwningHandle());
-    singleDelete(nativeHandle_, keyParts, keyParts.length);
+    singleDelete(getNative(), keyParts, keyParts.length);
   }
 
   /**
@@ -1379,11 +1319,9 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
-  public void putUntracked(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final byte[] value) throws RocksDBException {
-    assert(isOwningHandle());
-    putUntracked(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
+  public void putUntracked(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final byte[] value) throws RocksDBException {
+    putUntracked(getNative(), key, key.length, value, value.length, columnFamilyHandle.getNative());
   }
 
   /**
@@ -1407,8 +1345,7 @@ public class Transaction extends RocksObject {
    */
   public void putUntracked(final byte[] key, final byte[] value)
       throws RocksDBException {
-    assert(isOwningHandle());
-    putUntracked(nativeHandle_, key, key.length, value, value.length);
+    putUntracked(getNative(), key, key.length, value, value.length);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -1427,9 +1364,8 @@ public class Transaction extends RocksObject {
   public void putUntracked(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts, final byte[][] valueParts)
       throws RocksDBException {
-    assert(isOwningHandle());
-    putUntracked(nativeHandle_, keyParts, keyParts.length, valueParts,
-        valueParts.length, columnFamilyHandle.nativeHandle_);
+    putUntracked(getNative(), keyParts, keyParts.length, valueParts, valueParts.length,
+        columnFamilyHandle.getNative());
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -1446,9 +1382,7 @@ public class Transaction extends RocksObject {
    */
   public void putUntracked(final byte[][] keyParts, final byte[][] valueParts)
       throws RocksDBException {
-    assert(isOwningHandle());
-    putUntracked(nativeHandle_, keyParts, keyParts.length, valueParts,
-        valueParts.length);
+    putUntracked(getNative(), keyParts, keyParts.length, valueParts, valueParts.length);
   }
 
   /**
@@ -1473,8 +1407,8 @@ public class Transaction extends RocksObject {
    */
   public void mergeUntracked(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value) throws RocksDBException {
-    mergeUntracked(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
+    mergeUntracked(
+        getNative(), key, key.length, value, value.length, columnFamilyHandle.getNative());
   }
 
   /**
@@ -1498,8 +1432,7 @@ public class Transaction extends RocksObject {
    */
   public void mergeUntracked(final byte[] key, final byte[] value)
       throws RocksDBException {
-    assert(isOwningHandle());
-    mergeUntracked(nativeHandle_, key, key.length, value, value.length);
+    mergeUntracked(getNative(), key, key.length, value, value.length);
   }
 
   /**
@@ -1523,9 +1456,7 @@ public class Transaction extends RocksObject {
    */
   public void deleteUntracked(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key) throws RocksDBException {
-    assert(isOwningHandle());
-    deleteUntracked(nativeHandle_, key, key.length,
-        columnFamilyHandle.nativeHandle_);
+    deleteUntracked(getNative(), key, key.length, columnFamilyHandle.getNative());
   }
 
   /**
@@ -1547,8 +1478,7 @@ public class Transaction extends RocksObject {
    *     described above occurs, or in the case of an unexpected error
    */
   public void deleteUntracked(final byte[] key) throws RocksDBException {
-    assert(isOwningHandle());
-    deleteUntracked(nativeHandle_, key, key.length);
+    deleteUntracked(getNative(), key, key.length);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -1565,9 +1495,7 @@ public class Transaction extends RocksObject {
    */
   public void deleteUntracked(final ColumnFamilyHandle columnFamilyHandle,
       final byte[][] keyParts) throws RocksDBException {
-    assert(isOwningHandle());
-    deleteUntracked(nativeHandle_, keyParts, keyParts.length,
-        columnFamilyHandle.nativeHandle_);
+    deleteUntracked(getNative(), keyParts, keyParts.length, columnFamilyHandle.getNative());
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -1582,8 +1510,7 @@ public class Transaction extends RocksObject {
    *     described above occurs, or in the case of an unexpected error
    */
   public void deleteUntracked(final byte[][] keyParts) throws RocksDBException {
-    assert(isOwningHandle());
-    deleteUntracked(nativeHandle_, keyParts, keyParts.length);
+    deleteUntracked(getNative(), keyParts, keyParts.length);
   }
 
   /**
@@ -1592,8 +1519,7 @@ public class Transaction extends RocksObject {
    * @param blob binary object to be inserted
    */
   public void putLogData(final byte[] blob) {
-    assert(isOwningHandle());
-    putLogData(nativeHandle_, blob, blob.length);
+    putLogData(getNative(), blob, blob.length);
   }
 
   /**
@@ -1611,16 +1537,14 @@ public class Transaction extends RocksObject {
    * fetch is undefined.
    */
   public void disableIndexing() {
-    assert(isOwningHandle());
-    disableIndexing(nativeHandle_);
+    disableIndexing(getNative());
   }
 
   /**
    * Re-enables indexing after a previous call to {@link #disableIndexing()}
    */
   public void enableIndexing() {
-    assert(isOwningHandle());
-    enableIndexing(nativeHandle_);
+    enableIndexing(getNative());
   }
 
   /**
@@ -1634,8 +1558,7 @@ public class Transaction extends RocksObject {
    * @return the number of distinct Keys being tracked by this transaction
    */
   public long getNumKeys() {
-    assert(isOwningHandle());
-    return getNumKeys(nativeHandle_);
+    return getNumKeys(getNative());
   }
 
   /**
@@ -1645,8 +1568,7 @@ public class Transaction extends RocksObject {
    * @return the number of puts that have been applied to this transaction
    */
   public long getNumPuts() {
-    assert(isOwningHandle());
-    return getNumPuts(nativeHandle_);
+    return getNumPuts(getNative());
   }
 
   /**
@@ -1656,8 +1578,7 @@ public class Transaction extends RocksObject {
    * @return the number of deletes that have been applied to this transaction
    */
   public long getNumDeletes() {
-    assert(isOwningHandle());
-    return getNumDeletes(nativeHandle_);
+    return getNumDeletes(getNative());
   }
 
   /**
@@ -1667,8 +1588,7 @@ public class Transaction extends RocksObject {
    * @return the number of merges that have been applied to this transaction
    */
   public long getNumMerges() {
-    assert(isOwningHandle());
-    return getNumMerges(nativeHandle_);
+    return getNumMerges(getNative());
   }
 
   /**
@@ -1677,8 +1597,7 @@ public class Transaction extends RocksObject {
    * @return the elapsed time in milliseconds since this transaction began.
    */
   public long getElapsedTime() {
-    assert(isOwningHandle());
-    return getElapsedTime(nativeHandle_);
+    return getElapsedTime(getNative());
   }
 
   /**
@@ -1692,9 +1611,8 @@ public class Transaction extends RocksObject {
    * @return The write batch
    */
   public WriteBatchWithIndex getWriteBatch() {
-    assert(isOwningHandle());
     final WriteBatchWithIndex writeBatchWithIndex =
-        new WriteBatchWithIndex(getWriteBatch(nativeHandle_));
+        new WriteBatchWithIndex(getWriteBatch(getNative()));
     return writeBatchWithIndex;
   }
 
@@ -1708,8 +1626,7 @@ public class Transaction extends RocksObject {
    *     transaction.
    */
   public void setLockTimeout(final long lockTimeout) {
-    assert(isOwningHandle());
-    setLockTimeout(nativeHandle_, lockTimeout);
+    setLockTimeout(getNative(), lockTimeout);
   }
 
   /**
@@ -1718,9 +1635,7 @@ public class Transaction extends RocksObject {
    * @return the WriteOptions that will be used
    */
   public WriteOptions getWriteOptions() {
-    assert(isOwningHandle());
-    final WriteOptions writeOptions =
-        new WriteOptions(getWriteOptions(nativeHandle_));
+    final WriteOptions writeOptions = new WriteOptions(getWriteOptions(getNative()));
     return writeOptions;
   }
 
@@ -1730,8 +1645,7 @@ public class Transaction extends RocksObject {
    * @param writeOptions The new WriteOptions
    */
   public void setWriteOptions(final WriteOptions writeOptions) {
-    assert(isOwningHandle());
-    setWriteOptions(nativeHandle_, writeOptions.nativeHandle_);
+    setWriteOptions(getNative(), writeOptions.nativeHandle_);
   }
 
   /**
@@ -1768,8 +1682,7 @@ public class Transaction extends RocksObject {
    */
   public void undoGetForUpdate(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key) {
-    assert(isOwningHandle());
-    undoGetForUpdate(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
+    undoGetForUpdate(getNative(), key, key.length, columnFamilyHandle.getNative());
   }
 
   /**
@@ -1803,8 +1716,7 @@ public class Transaction extends RocksObject {
    * @param key the key to retrieve the value for.
    */
   public void undoGetForUpdate(final byte[] key) {
-    assert(isOwningHandle());
-    undoGetForUpdate(nativeHandle_, key, key.length);
+    undoGetForUpdate(getNative(), key, key.length);
   }
 
   /**
@@ -1817,8 +1729,7 @@ public class Transaction extends RocksObject {
    */
   public void rebuildFromWriteBatch(final WriteBatch writeBatch)
       throws RocksDBException {
-    assert(isOwningHandle());
-    rebuildFromWriteBatch(nativeHandle_, writeBatch.nativeHandle_);
+    rebuildFromWriteBatch(getNative(), writeBatch.getNative());
   }
 
   /**
@@ -1827,9 +1738,7 @@ public class Transaction extends RocksObject {
    * @return the commit time write batch.
    */
   public WriteBatch getCommitTimeWriteBatch() {
-    assert(isOwningHandle());
-    final WriteBatch writeBatch =
-        new WriteBatch(getCommitTimeWriteBatch(nativeHandle_));
+    final WriteBatch writeBatch = new WriteBatch(getCommitTimeWriteBatch(getNative()));
     return writeBatch;
   }
 
@@ -1839,8 +1748,7 @@ public class Transaction extends RocksObject {
    * @param logNumber the log number
    */
   public void setLogNumber(final long logNumber) {
-    assert(isOwningHandle());
-    setLogNumber(nativeHandle_, logNumber);
+    setLogNumber(getNative(), logNumber);
   }
 
   /**
@@ -1849,8 +1757,7 @@ public class Transaction extends RocksObject {
    * @return the log number
    */
   public long getLogNumber() {
-    assert(isOwningHandle());
-    return getLogNumber(nativeHandle_);
+    return getLogNumber(getNative());
   }
 
   /**
@@ -1862,8 +1769,7 @@ public class Transaction extends RocksObject {
    *     name.
    */
   public void setName(final String transactionName) throws RocksDBException {
-    assert(isOwningHandle());
-    setName(nativeHandle_, transactionName);
+    setName(getNative(), transactionName);
   }
 
   /**
@@ -1872,8 +1778,7 @@ public class Transaction extends RocksObject {
    * @return the name of the transaction
    */
   public String getName() {
-    assert(isOwningHandle());
-    return getName(nativeHandle_);
+    return getName(getNative());
   }
 
   /**
@@ -1882,8 +1787,7 @@ public class Transaction extends RocksObject {
    * @return the ID of the transaction.
    */
   public long getID() {
-    assert(isOwningHandle());
-    return getID(nativeHandle_);
+    return getID(getNative());
   }
 
   /**
@@ -1892,8 +1796,7 @@ public class Transaction extends RocksObject {
    * @return true if a deadlock has been detected.
    */
   public boolean isDeadlockDetect() {
-    assert(isOwningHandle());
-    return isDeadlockDetect(nativeHandle_);
+    return isDeadlockDetect(getNative());
   }
 
   /**
@@ -1902,8 +1805,7 @@ public class Transaction extends RocksObject {
    * @return The list of waiting transactions.
    */
   public WaitingTransactions getWaitingTxns() {
-    assert(isOwningHandle());
-    return getWaitingTxns(nativeHandle_);
+    return getWaitingTxns(getNative());
   }
 
   /**
@@ -1915,9 +1817,7 @@ public class Transaction extends RocksObject {
    * @return The execution status of the transaction
    */
   public TransactionState getState() {
-    assert(isOwningHandle());
-    return TransactionState.getTransactionState(
-        getState(nativeHandle_));
+    return TransactionState.getTransactionState(getState(getNative()));
   }
 
   /**
@@ -1931,8 +1831,7 @@ public class Transaction extends RocksObject {
    */
   @Experimental("NOTE: Experimental feature")
   public long getId() {
-    assert(isOwningHandle());
-    return getId(nativeHandle_);
+    return getId(getNative());
   }
 
   public enum TransactionState {
@@ -2166,5 +2065,6 @@ public class Transaction extends RocksObject {
   private native byte getState(final long handle);
   private native long getId(final long handle);
 
-  @Override protected final native void disposeInternal(final long handle);
+  @Override protected final native void nativeClose(final long handle);
+  @Override protected final native long[] getReferenceCounts(long nativeReference);
 }

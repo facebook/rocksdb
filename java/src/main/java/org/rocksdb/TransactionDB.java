@@ -8,6 +8,7 @@ package org.rocksdb;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.rocksdb.RocksNative;
 
 /**
  * Database with Transaction support
@@ -97,70 +98,27 @@ public class TransactionDB extends RocksDB
     tdb.storeTransactionDbOptions(transactionDbOptions);
 
     for (int i = 1; i < handles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(tdb, handles[i]));
+      columnFamilyHandles.add(new ColumnFamilyHandle(handles[i]));
     }
 
     return tdb;
   }
 
-  /**
-   * This is similar to {@link #close()} except that it
-   * throws an exception if any error occurs.
-   *
-   * This will not fsync the WAL files.
-   * If syncing is required, the caller must first call {@link #syncWal()}
-   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
-   * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
-   * See also {@link #close()}.
-   *
-   * @throws RocksDBException if an error occurs whilst closing.
-   */
-  public void closeE() throws RocksDBException {
-    if (owningHandle_.compareAndSet(true, false)) {
-      try {
-        closeDatabase(nativeHandle_);
-      } finally {
-        disposeInternal();
-      }
-    }
-  }
-
-  /**
-   * This is similar to {@link #closeE()} except that it
-   * silently ignores any errors.
-   *
-   * This will not fsync the WAL files.
-   * If syncing is required, the caller must first call {@link #syncWal()}
-   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
-   * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
-   * See also {@link #close()}.
-   */
-  @Override
-  public void close() {
-    if (owningHandle_.compareAndSet(true, false)) {
-      try {
-        closeDatabase(nativeHandle_);
-      } catch (final RocksDBException e) {
-        // silently ignore the error report
-      } finally {
-        disposeInternal();
-      }
-    }
-  }
+  @Override protected native void nativeClose(long nativeReference);
+  // TODO (AP) in native, duplicate the closeDatabase() functionality and the reference counted API
+  // dance
 
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions) {
-    return new Transaction(this, beginTransaction(nativeHandle_,
-        writeOptions.nativeHandle_));
+    return new Transaction(this, beginTransaction(getNative(), writeOptions.nativeHandle_));
   }
 
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final TransactionOptions transactionOptions) {
-    return new Transaction(this, beginTransaction(nativeHandle_,
-        writeOptions.nativeHandle_, transactionOptions.nativeHandle_));
+    return new Transaction(this,
+        beginTransaction(
+            getNative(), writeOptions.nativeHandle_, transactionOptions.nativeHandle_));
   }
 
   // TODO(AR) consider having beingTransaction(... oldTransaction) set a
@@ -172,13 +130,13 @@ public class TransactionDB extends RocksDB
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final Transaction oldTransaction) {
-    final long jtxnHandle = beginTransaction_withOld(nativeHandle_,
-        writeOptions.nativeHandle_, oldTransaction.nativeHandle_);
+    final long jtxnHandle = beginTransaction_withOld(
+        getNative(), writeOptions.nativeHandle_, oldTransaction.getNative());
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
     // when providing an old_txn
-    assert(jtxnHandle == oldTransaction.nativeHandle_);
+    assert (jtxnHandle == oldTransaction.getNative());
 
     return oldTransaction;
   }
@@ -187,20 +145,19 @@ public class TransactionDB extends RocksDB
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final TransactionOptions transactionOptions,
       final Transaction oldTransaction) {
-    final long jtxn_handle = beginTransaction_withOld(nativeHandle_,
-        writeOptions.nativeHandle_, transactionOptions.nativeHandle_,
-        oldTransaction.nativeHandle_);
+    final long jtxn_handle = beginTransaction_withOld(getNative(), writeOptions.nativeHandle_,
+        transactionOptions.nativeHandle_, oldTransaction.getNative());
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
     // when providing an old_txn
-    assert(jtxn_handle == oldTransaction.nativeHandle_);
+    assert (jtxn_handle == oldTransaction.getNative());
 
     return oldTransaction;
   }
 
   public Transaction getTransactionByName(final String transactionName) {
-    final long jtxnHandle = getTransactionByName(nativeHandle_, transactionName);
+    final long jtxnHandle = getTransactionByName(getNative(), transactionName);
     if(jtxnHandle == 0) {
       return null;
     }
@@ -208,24 +165,26 @@ public class TransactionDB extends RocksDB
     final Transaction txn = new Transaction(this, jtxnHandle);
 
     // this instance doesn't own the underlying C++ object
-    txn.disOwnNativeHandle();
+    // txn.disOwnNativeHandle();
+    throw new UnsupportedOperationException("Not implemented in experimental ref-counting");
 
-    return txn;
+    // return txn;
   }
 
   public List<Transaction> getAllPreparedTransactions() {
-    final long[] jtxnHandles = getAllPreparedTransactions(nativeHandle_);
+    final long[] jtxnHandles = getAllPreparedTransactions(getNative());
 
     final List<Transaction> txns = new ArrayList<>();
     for(final long jtxnHandle : jtxnHandles) {
       final Transaction txn = new Transaction(this, jtxnHandle);
 
       // this instance doesn't own the underlying C++ object
-      txn.disOwnNativeHandle();
+      // txn.disOwnNativeHandle();
 
       txns.add(txn);
     }
-    return txns;
+    throw new UnsupportedOperationException("Not implemented in experimental ref-counting");
+    // return txns;
   }
 
   public static class KeyLockInfo {
@@ -274,7 +233,7 @@ public class TransactionDB extends RocksDB
    * @return a map of all the locks held.
    */
   public Map<Long, KeyLockInfo> getLockStatusData() {
-    return getLockStatusData(nativeHandle_);
+    return getLockStatusData(getNative());
   }
 
   /**
@@ -361,19 +320,17 @@ public class TransactionDB extends RocksDB
   }
 
   public DeadlockPath[] getDeadlockInfoBuffer() {
-    return getDeadlockInfoBuffer(nativeHandle_);
+    return getDeadlockInfoBuffer(getNative());
   }
 
   public void setDeadlockInfoBufferSize(final int targetSize) {
-    setDeadlockInfoBufferSize(nativeHandle_, targetSize);
+    setDeadlockInfoBufferSize(getNative(), targetSize);
   }
 
   private void storeTransactionDbOptions(
       final TransactionDBOptions transactionDbOptions) {
     this.transactionDbOptions_ = transactionDbOptions;
   }
-
-  @Override protected final native void disposeInternal(final long handle);
 
   private static native long open(final long optionsHandle,
       final long transactionDbOptionsHandle, final String path)

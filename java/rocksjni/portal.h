@@ -984,6 +984,26 @@ class RocksDBExceptionJni :
 
     return ROCKSDB_NAMESPACE::StatusJni::toCppStatus(env, jstatus);
   }
+
+  static ROCKSDB_NAMESPACE::Status InvalidColumnFamily() {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "Invalid ColumnFamilyHandle.");
+  }
+
+  static ROCKSDB_NAMESPACE::Status DBIsClosed() {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "The DB associated with an object is already closed.");
+  }
+
+  static ROCKSDB_NAMESPACE::Status MismatchedColumnFamily() {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "Invalid ColumnFamilyHandle. Not from the expected DB.");
+  }
+
+  static ROCKSDB_NAMESPACE::Status OrphanedColumnFamily() {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "Invalid ColumnFamilyHandle. The CF is not open in the current DB.");
+  }
 };
 
 // The portal class for java.util.List
@@ -2263,6 +2283,9 @@ class JniUtil {
      * Creates a Java array of C++ pointer addresses
      *     from a vector of C++ pointers.
      *
+     * TODO (AP) check - is this made obsolete (unused) by the APIHandles
+     * changes ?
+     *
      * @param env (IN) A pointer to the java environment
      * @param pointers (IN) A vector of C++ pointers
      * @param has_exception (OUT) will be set to JNI_TRUE
@@ -2306,6 +2329,9 @@ class JniUtil {
      *
      * TODO(AR) could be extended to cover returning ROCKSDB_NAMESPACE::Status
      * from `op` and used for RocksDB->Put etc.
+     *
+     * TODO (AP) check - is this made obsolete (unused) by the APIHandles
+     * changes ?
      */
     static void kv_op_direct(std::function<void(ROCKSDB_NAMESPACE::Slice&,
                                                 ROCKSDB_NAMESPACE::Slice&)>

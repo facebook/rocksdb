@@ -134,59 +134,12 @@ public class TtlDB extends RocksDB {
 
     final TtlDB ttlDB = new TtlDB(handles[0]);
     for (int i = 1; i < handles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(ttlDB, handles[i]));
+      columnFamilyHandles.add(new ColumnFamilyHandle(handles[i]));
     }
     return ttlDB;
   }
 
-  /**
-   * <p>Close the TtlDB instance and release resource.</p>
-   *
-   * This is similar to {@link #close()} except that it
-   * throws an exception if any error occurs.
-   *
-   * This will not fsync the WAL files.
-   * If syncing is required, the caller must first call {@link #syncWal()}
-   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
-   * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
-   * See also {@link #close()}.
-   *
-   * @throws RocksDBException if an error occurs whilst closing.
-   */
-  public void closeE() throws RocksDBException {
-    if (owningHandle_.compareAndSet(true, false)) {
-      try {
-        closeDatabase(nativeHandle_);
-      } finally {
-        disposeInternal();
-      }
-    }
-  }
-
-  /**
-   * <p>Close the TtlDB instance and release resource.</p>
-   *
-   *
-   * This will not fsync the WAL files.
-   * If syncing is required, the caller must first call {@link #syncWal()}
-   * or {@link #write(WriteOptions, WriteBatch)} using an empty write batch
-   * with {@link WriteOptions#setSync(boolean)} set to true.
-   *
-   * See also {@link #close()}.
-   */
-  @Override
-  public void close() {
-    if (owningHandle_.compareAndSet(true, false)) {
-      try {
-        closeDatabase(nativeHandle_);
-      } catch (final RocksDBException e) {
-        // silently ignore the error report
-      } finally {
-        disposeInternal();
-      }
-    }
-  }
+  @Override protected native void nativeClose(long nativeReference);
 
   /**
    * <p>Creates a new ttl based column family with a name defined
@@ -207,10 +160,8 @@ public class TtlDB extends RocksDB {
   public ColumnFamilyHandle createColumnFamilyWithTtl(
       final ColumnFamilyDescriptor columnFamilyDescriptor,
       final int ttl) throws RocksDBException {
-    return new ColumnFamilyHandle(this,
-        createColumnFamilyWithTtl(nativeHandle_,
-            columnFamilyDescriptor.getName(),
-            columnFamilyDescriptor.getOptions().nativeHandle_, ttl));
+    return new ColumnFamilyHandle(createColumnFamilyWithTtl(getNative(),
+        columnFamilyDescriptor.getName(), columnFamilyDescriptor.getOptions().nativeHandle_, ttl));
   }
 
   /**
@@ -228,8 +179,6 @@ public class TtlDB extends RocksDB {
     super(nativeHandle);
   }
 
-  @Override protected native void disposeInternal(final long handle);
-
   private native static long open(final long optionsHandle,
       final String db_path, final int ttl, final boolean readOnly)
       throws RocksDBException;
@@ -237,9 +186,6 @@ public class TtlDB extends RocksDB {
       final String db_path, final byte[][] columnFamilyNames,
       final long[] columnFamilyOptions, final int[] ttlValues,
       final boolean readOnly) throws RocksDBException;
-  private native long createColumnFamilyWithTtl(final long handle,
-      final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
-      throws RocksDBException;
-  private native static void closeDatabase(final long handle)
-      throws RocksDBException;
+  private native long createColumnFamilyWithTtl(final long handle, final byte[] columnFamilyName,
+      final long columnFamilyOptions, int ttl) throws RocksDBException;
 }

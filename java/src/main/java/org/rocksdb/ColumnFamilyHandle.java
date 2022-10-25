@@ -8,28 +8,7 @@ package org.rocksdb;
 import java.util.Arrays;
 import java.util.Objects;
 
-/**
- * ColumnFamilyHandle class to hold handles to underlying rocksdb
- * ColumnFamily Pointers.
- */
-public class ColumnFamilyHandle extends RocksObject {
-  /**
-   * Constructs column family Java object, which operates on underlying native object.
-   *
-   * @param rocksDB db instance associated with this column family
-   * @param nativeHandle native handle to underlying native ColumnFamily object
-   */
-  ColumnFamilyHandle(final RocksDB rocksDB,
-      final long nativeHandle) {
-    super(nativeHandle);
-    // rocksDB must point to a valid RocksDB instance;
-    assert(rocksDB != null);
-    // ColumnFamilyHandle must hold a reference to the related RocksDB instance
-    // to guarantee that while a GC cycle starts ColumnFamilyHandle instances
-    // are freed prior to RocksDB instances.
-    this.rocksDB_ = rocksDB;
-  }
-
+public class ColumnFamilyHandle extends RocksNative {
   /**
    * Constructor called only from JNI.
    *
@@ -44,12 +23,44 @@ public class ColumnFamilyHandle extends RocksObject {
    * also help us to improve the Java API semantics for Java users. See for example
    * https://github.com/facebook/rocksdb/issues/2687.
    *
-   * @param nativeHandle native handle to the column family.
+   * TODO (AP) - not yet implemented in the new reference counted API world.
+   * I think the right answer now is to create a separate ColumnFamilyHandle java object, and to let
+   * the shared/weak pointers contained in that object (and other ColumnFamilyHandle java objects)
+   *
+   *
+   * @param nativeReference native reference to the column family.
    */
-  ColumnFamilyHandle(final long nativeHandle) {
-    super(nativeHandle);
-    rocksDB_ = null;
-    disOwnNativeHandle();
+  protected ColumnFamilyHandle(final long nativeReference) {
+    super(nativeReference);
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+
+    final ColumnFamilyHandle that = (ColumnFamilyHandle) o;
+    try {
+      return equalsByHandle(getNative(), that.getNative()) && getID() == that.getID()
+          && Arrays.equals(getName(), that.getName());
+    } catch (RocksDBException e) {
+      throw new RuntimeException("Cannot compare column family handles", e);
+    }
+  }
+
+  @Override
+  public int hashCode() {
+    try {
+      int result = Objects.hash(getID(), getNative());
+      result = 31 * result + Arrays.hashCode(getName());
+      return result;
+    } catch (RocksDBException e) {
+      throw new RuntimeException("Cannot calculate hash code of column family handle", e);
+    }
   }
 
   /**
@@ -59,9 +70,8 @@ public class ColumnFamilyHandle extends RocksObject {
    *
    * @throws RocksDBException if an error occurs whilst retrieving the name.
    */
-  public byte[] getName() throws RocksDBException {
-    assert(isOwningHandle() || isDefaultColumnFamily());
-    return getName(nativeHandle_);
+  protected byte[] getName() throws RocksDBException {
+    return getName(getNative());
   }
 
   /**
@@ -69,9 +79,8 @@ public class ColumnFamilyHandle extends RocksObject {
    *
    * @return the ID of the Column Family.
    */
-  public int getID() {
-    assert(isOwningHandle() || isDefaultColumnFamily());
-    return getID(nativeHandle_);
+  protected int getID() throws RocksDBException {
+    return getID(getNative());
   }
 
   /**
@@ -88,64 +97,20 @@ public class ColumnFamilyHandle extends RocksObject {
    * @throws RocksDBException if an error occurs whilst retrieving the
    *     descriptor.
    */
-  public ColumnFamilyDescriptor getDescriptor() throws RocksDBException {
-    assert(isOwningHandle() || isDefaultColumnFamily());
-    return getDescriptor(nativeHandle_);
+  protected ColumnFamilyDescriptor getDescriptor() throws RocksDBException {
+    return getDescriptor(getNative());
   }
 
-  @Override
-  public boolean equals(final Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (o == null || getClass() != o.getClass()) {
-      return false;
-    }
+  @Override protected native void nativeClose(long nativeReference);
+  @Override protected final native long[] getReferenceCounts(long nativeReference);
 
-    final ColumnFamilyHandle that = (ColumnFamilyHandle) o;
-    try {
-      return rocksDB_.nativeHandle_ == that.rocksDB_.nativeHandle_ &&
-          getID() == that.getID() &&
-          Arrays.equals(getName(), that.getName());
-    } catch (RocksDBException e) {
-      throw new RuntimeException("Cannot compare column family handles", e);
-    }
+  protected boolean isDefaultColumnFamily() throws RocksDBException {
+    return isDefaultColumnFamily(getNative());
   }
 
-  @Override
-  public int hashCode() {
-    try {
-      int result = Objects.hash(getID(), rocksDB_.nativeHandle_);
-      result = 31 * result + Arrays.hashCode(getName());
-      return result;
-    } catch (RocksDBException e) {
-      throw new RuntimeException("Cannot calculate hash code of column family handle", e);
-    }
-  }
-
-  protected boolean isDefaultColumnFamily() {
-    return nativeHandle_ == rocksDB_.getDefaultColumnFamily().nativeHandle_;
-  }
-
-  /**
-   * <p>Deletes underlying C++ iterator pointer.</p>
-   *
-   * <p>Note: the underlying handle can only be safely deleted if the RocksDB
-   * instance related to a certain ColumnFamilyHandle is still valid and
-   * initialized. Therefore {@code disposeInternal()} checks if the RocksDB is
-   * initialized before freeing the native handle.</p>
-   */
-  @Override
-  protected void disposeInternal() {
-    if(rocksDB_.isOwningHandle()) {
-      disposeInternal(nativeHandle_);
-    }
-  }
-
-  private native byte[] getName(final long handle) throws RocksDBException;
-  private native int getID(final long handle);
-  private native ColumnFamilyDescriptor getDescriptor(final long handle) throws RocksDBException;
-  @Override protected final native void disposeInternal(final long handle);
-
-  private final RocksDB rocksDB_;
+  protected native boolean equalsByHandle(final long nativeReference, long otherNativeReference);
+  protected native byte[] getName(final long handle) throws RocksDBException;
+  protected native int getID(final long handle);
+  protected native ColumnFamilyDescriptor getDescriptor(final long handle) throws RocksDBException;
+  protected native boolean isDefaultColumnFamily(final long handle) throws RocksDBException;
 }

@@ -25,14 +25,9 @@ public class Checkpoint extends RocksObject {
    */
   public static Checkpoint create(final RocksDB db) {
     if (db == null) {
-      throw new IllegalArgumentException(
-          "RocksDB instance shall not be null.");
-    } else if (!db.isOwningHandle()) {
-      throw new IllegalStateException(
-          "RocksDB instance must be initialized.");
+      throw new IllegalArgumentException("RocksDB instance shall not be null.");
     }
-    Checkpoint checkpoint = new Checkpoint(db);
-    return checkpoint;
+    return new Checkpoint(db);
   }
 
   /**
@@ -52,7 +47,7 @@ public class Checkpoint extends RocksObject {
   }
 
   private Checkpoint(final RocksDB db) {
-    super(newCheckpoint(db.nativeHandle_));
+    super(newCheckpoint(db.getNative()));
     this.db_ = db;
   }
 

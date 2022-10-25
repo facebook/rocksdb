@@ -10,21 +10,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "api_iterator.h"
+#include "api_wrapper.h"
 #include "include/org_rocksdb_SstFileReaderIterator.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksjni/portal.h"
+
+using APISSTFileReader = APIWrapper<ROCKSDB_NAMESPACE::SstFileReader>;
+using APISSTFileReaderIterator =
+    APIIterator<ROCKSDB_NAMESPACE::SstFileReader, ROCKSDB_NAMESPACE::Iterator>;
 
 /*
  * Class:     org_rocksdb_SstFileReaderIterator
- * Method:    disposeInternal
+ * Method:    nativeClose
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileReaderIterator_disposeInternal(JNIEnv* /*env*/,
-                                                            jobject /*jobj*/,
-                                                            jlong handle) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
-  assert(it != nullptr);
-  delete it;
+void Java_org_rocksdb_SstFileReaderIterator_nativeClose(JNIEnv* /*env*/,
+                                                        jobject /*jobj*/,
+                                                        jlong handle) {
+  std::unique_ptr<APISSTFileReaderIterator> apiIterator(
+      reinterpret_cast<APISSTFileReaderIterator*>(handle));
+  // Now the unique_ptr destructor will delete() referenced shared_ptr contents
+  // in the API object.
+}
+
+/*
+ * Class:     org_rocksdb_SstFileReaderIterator
+ * Method:    getReferenceCounts
+ * Signature: (J)[J
+ */
+JNIEXPORT jlongArray JNICALL
+Java_org_rocksdb_SstFileReaderIterator_getReferenceCounts(JNIEnv* env, jobject,
+                                                          jlong jhandle) {
+  return APIBase::getReferenceCounts<APISSTFileReaderIterator>(env, jhandle);
 }
 
 /*
@@ -35,7 +54,7 @@ void Java_org_rocksdb_SstFileReaderIterator_disposeInternal(JNIEnv* /*env*/,
 jboolean Java_org_rocksdb_SstFileReaderIterator_isValid0(JNIEnv* /*env*/,
                                                          jobject /*jobj*/,
                                                          jlong handle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle)->Valid();
+  return (*reinterpret_cast<APISSTFileReaderIterator*>(handle))->Valid();
 }
 
 /*
@@ -46,7 +65,7 @@ jboolean Java_org_rocksdb_SstFileReaderIterator_isValid0(JNIEnv* /*env*/,
 void Java_org_rocksdb_SstFileReaderIterator_seekToFirst0(JNIEnv* /*env*/,
                                                          jobject /*jobj*/,
                                                          jlong handle) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle)->SeekToFirst();
+  (*reinterpret_cast<APISSTFileReaderIterator*>(handle))->SeekToFirst();
 }
 
 /*
@@ -57,7 +76,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seekToFirst0(JNIEnv* /*env*/,
 void Java_org_rocksdb_SstFileReaderIterator_seekToLast0(JNIEnv* /*env*/,
                                                         jobject /*jobj*/,
                                                         jlong handle) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle)->SeekToLast();
+  (*reinterpret_cast<APISSTFileReaderIterator*>(handle))->SeekToLast();
 }
 
 /*
@@ -68,7 +87,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seekToLast0(JNIEnv* /*env*/,
 void Java_org_rocksdb_SstFileReaderIterator_next0(JNIEnv* /*env*/,
                                                   jobject /*jobj*/,
                                                   jlong handle) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle)->Next();
+  (*reinterpret_cast<APISSTFileReaderIterator*>(handle))->Next();
 }
 
 /*
@@ -79,7 +98,7 @@ void Java_org_rocksdb_SstFileReaderIterator_next0(JNIEnv* /*env*/,
 void Java_org_rocksdb_SstFileReaderIterator_prev0(JNIEnv* /*env*/,
                                                   jobject /*jobj*/,
                                                   jlong handle) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle)->Prev();
+  (*reinterpret_cast<APISSTFileReaderIterator*>(handle))->Prev();
 }
 
 /*
@@ -100,7 +119,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seek0(JNIEnv* env, jobject /*jobj*/,
   ROCKSDB_NAMESPACE::Slice target_slice(reinterpret_cast<char*>(target),
                                         jtarget_len);
 
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   it->Seek(target_slice);
 
   env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
@@ -125,7 +144,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seekForPrev0(JNIEnv* env,
   ROCKSDB_NAMESPACE::Slice target_slice(reinterpret_cast<char*>(target),
                                         jtarget_len);
 
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   it->SeekForPrev(target_slice);
 
   env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
@@ -139,7 +158,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seekForPrev0(JNIEnv* env,
 void Java_org_rocksdb_SstFileReaderIterator_status0(JNIEnv* env,
                                                     jobject /*jobj*/,
                                                     jlong handle) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   ROCKSDB_NAMESPACE::Status s = it->status();
 
   if (s.ok()) {
@@ -157,7 +176,7 @@ void Java_org_rocksdb_SstFileReaderIterator_status0(JNIEnv* env,
 jbyteArray Java_org_rocksdb_SstFileReaderIterator_key0(JNIEnv* env,
                                                        jobject /*jobj*/,
                                                        jlong handle) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   ROCKSDB_NAMESPACE::Slice key_slice = it->key();
 
   jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
@@ -178,7 +197,7 @@ jbyteArray Java_org_rocksdb_SstFileReaderIterator_key0(JNIEnv* env,
  */
 jbyteArray Java_org_rocksdb_SstFileReaderIterator_value0(JNIEnv* env, jobject /*jobj*/,
                                                          jlong handle) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
 
   jbyteArray jkeyValue =
@@ -200,7 +219,7 @@ jbyteArray Java_org_rocksdb_SstFileReaderIterator_value0(JNIEnv* env, jobject /*
 jint Java_org_rocksdb_SstFileReaderIterator_keyDirect0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jobject jtarget,
     jint jtarget_off, jint jtarget_len) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   ROCKSDB_NAMESPACE::Slice key_slice = it->key();
   return ROCKSDB_NAMESPACE::JniUtil::copyToDirect(env, key_slice, jtarget,
                                                   jtarget_off, jtarget_len);
@@ -217,7 +236,7 @@ jint Java_org_rocksdb_SstFileReaderIterator_keyDirect0(
 jint Java_org_rocksdb_SstFileReaderIterator_keyByteArray0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jkey, jint jkey_off,
     jint jkey_len) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   ROCKSDB_NAMESPACE::Slice key_slice = it->key();
   auto slice_size = key_slice.size();
   jsize copy_size = std::min(static_cast<uint32_t>(slice_size),
@@ -237,7 +256,7 @@ jint Java_org_rocksdb_SstFileReaderIterator_keyByteArray0(
 jint Java_org_rocksdb_SstFileReaderIterator_valueDirect0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jobject jtarget,
     jint jtarget_off, jint jtarget_len) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
   return ROCKSDB_NAMESPACE::JniUtil::copyToDirect(env, value_slice, jtarget,
                                                   jtarget_off, jtarget_len);
@@ -254,7 +273,7 @@ jint Java_org_rocksdb_SstFileReaderIterator_valueDirect0(
 jint Java_org_rocksdb_SstFileReaderIterator_valueByteArray0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jvalue_target,
     jint jvalue_off, jint jvalue_len) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
   auto slice_size = value_slice.size();
   jsize copy_size = std::min(static_cast<uint32_t>(slice_size),
@@ -274,7 +293,7 @@ jint Java_org_rocksdb_SstFileReaderIterator_valueByteArray0(
 void Java_org_rocksdb_SstFileReaderIterator_seekDirect0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jobject jtarget,
     jint jtarget_off, jint jtarget_len) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->Seek(target_slice);
   };
@@ -290,7 +309,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seekDirect0(
 void Java_org_rocksdb_SstFileReaderIterator_seekForPrevDirect0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jobject jtarget,
     jint jtarget_off, jint jtarget_len) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   auto seekPrev = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->SeekForPrev(target_slice);
   };
@@ -321,7 +340,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seekByteArray0(
 
   ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
 
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   it->Seek(target_slice);
 }
 
@@ -348,7 +367,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seekForPrevByteArray0(
 
   ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
 
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *reinterpret_cast<APISSTFileReaderIterator*>(handle);
   it->SeekForPrev(target_slice);
 }
 
@@ -359,7 +378,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seekForPrevByteArray0(
  */
 void Java_org_rocksdb_SstFileReaderIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
                                             jlong handle) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  auto& it = *(reinterpret_cast<APISSTFileReaderIterator*>(handle));
   ROCKSDB_NAMESPACE::Status s = it->Refresh();
 
   if (s.ok()) {

@@ -81,7 +81,7 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
       final RocksDB db, final boolean flushBeforeBackup)
       throws RocksDBException {
     assert (isOwningHandle());
-    createNewBackup(nativeHandle_, db.nativeHandle_, flushBeforeBackup);
+    createNewBackup(nativeHandle_, db.getNative(), flushBeforeBackup);
   }
 
   /**
@@ -113,7 +113,7 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
   public void createNewBackupWithMetadata(final RocksDB db, final String metadata,
       final boolean flushBeforeBackup) throws RocksDBException {
     assert (isOwningHandle());
-    createNewBackupWithMetadata(nativeHandle_, db.nativeHandle_, metadata, flushBeforeBackup);
+    createNewBackupWithMetadata(nativeHandle_, db.getNative(), metadata, flushBeforeBackup);
   }
 
   /**
