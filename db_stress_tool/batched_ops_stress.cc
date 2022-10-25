@@ -188,8 +188,8 @@ class BatchedOpsStressTest : public StressTest {
       const std::vector<int64_t>& rand_keys) override {
     size_t num_keys = rand_keys.size();
     std::vector<Status> ret_status(num_keys);
-    std::array<std::string, 10> keys = {{"0", "1", "2", "3", "4",
-                                         "5", "6", "7", "8", "9"}};
+    std::array<std::string, 10> keys = {
+        {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}};
     size_t num_prefixes = keys.size();
     for (size_t rand_key = 0; rand_key < num_keys; ++rand_key) {
       std::vector<Slice> key_slices;

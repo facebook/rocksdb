@@ -509,8 +509,8 @@ extern inline std::string Key(int64_t val) {
     if (offset < weight) {
       // Use the bottom 3 bits of offset as the number of trailing 'x's in the
       // key. If the next key is going to be of the next level, then skip the
-      // trailer as it would break ordering. If the key length is already at max,
-      // skip the trailer.
+      // trailer as it would break ordering. If the key length is already at
+      // max, skip the trailer.
       if (offset < weight - 1 && level < levels - 1) {
         size_t trailer_len = offset & 0x7;
         key.append(trailer_len, 'x');
