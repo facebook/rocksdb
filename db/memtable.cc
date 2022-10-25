@@ -587,10 +587,9 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
       auto* unfragmented_iter =
           new MemTableIterator(*this, read_options, nullptr /* arena */,
                                true /* use_range_del_table */);
-      cache->tombstones = std::make_unique<FragmentedRangeTombstoneList>(
-          FragmentedRangeTombstoneList(
-              std::unique_ptr<InternalIterator>(unfragmented_iter),
-              comparator_.comparator));
+      cache->tombstones.reset(new FragmentedRangeTombstoneList(
+          std::unique_ptr<InternalIterator>(unfragmented_iter),
+          comparator_.comparator));
       cache->initialized.store(true, std::memory_order_release);
     }
     cache->reader_mutex.unlock();
