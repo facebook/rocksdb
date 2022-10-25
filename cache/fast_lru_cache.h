@@ -235,7 +235,6 @@ struct LRUHandle {
   }
 };
 
-
 class LRUHandleTable {
  public:
   explicit LRUHandleTable(int hash_bits);
