@@ -1175,7 +1175,8 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
 }
 
 void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
-    const uint64_t reuse_window, bool user_access_only, TraceType block_type) const {
+    const uint64_t reuse_window, bool user_access_only,
+    TraceType block_type) const {
   // A map from block key to an array of bools that states whether a block is
   // accessed in a time window.
   std::map<uint64_t, std::vector<bool>> block_accessed;
@@ -1214,7 +1215,8 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
   TraverseBlocks(block_callback);
 
   // A cell is the number of blocks accessed in a reuse window.
-  std::unique_ptr<uint64_t[]> reuse_table(new uint64_t[reuse_vector_size * reuse_vector_size]);
+  std::unique_ptr<uint64_t[]> reuse_table(
+      new uint64_t[reuse_vector_size * reuse_vector_size]);
   for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
     // Initialize the reuse_table.
     for (uint64_t i = 0; i < reuse_vector_size; i++) {
@@ -1255,8 +1257,9 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
       if (j < start_time) {
         row += "100.0";
       } else {
-        row += std::to_string(percent(reuse_table[start_time * reuse_vector_size + j],
-                                      reuse_table[start_time * reuse_vector_size + start_time]));
+        row += std::to_string(
+            percent(reuse_table[start_time * reuse_vector_size + j],
+                    reuse_table[start_time * reuse_vector_size + start_time]));
       }
     }
     out << row << std::endl;
@@ -1811,9 +1814,10 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
           return;
         }
         // Use four decimal points.
-        uint64_t percent_referenced_for_existing_keys = (uint64_t)(
-            ((double)block.key_num_access_map.size() / (double)block.num_keys) *
-            10000.0);
+        uint64_t percent_referenced_for_existing_keys =
+            (uint64_t)(((double)block.key_num_access_map.size() /
+                        (double)block.num_keys) *
+                       10000.0);
         uint64_t percent_referenced_for_non_existing_keys =
             (uint64_t)(((double)block.non_exist_key_num_access_map.size() /
                         (double)block.num_keys) *
