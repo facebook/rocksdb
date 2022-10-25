@@ -284,8 +284,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
-                        size_t logical_block_size,
-                        const EnvOptions& options
+                        size_t logical_block_size, const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
                         ThreadLocalPtr* thread_local_io_urings
