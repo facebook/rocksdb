@@ -50,7 +50,7 @@ class LevelCompactionBuilder {
  public:
   LevelCompactionBuilder(const std::string& cf_name,
                          VersionStorageInfo* vstorage,
-                         SequenceNumber earliest_mem_seqno,
+                         const SequenceNumber earliest_mem_seqno,
                          CompactionPicker* compaction_picker,
                          LogBuffer* log_buffer,
                          const MutableCFOptions& mutable_cf_options,
@@ -122,7 +122,7 @@ class LevelCompactionBuilder {
 
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
-  SequenceNumber earliest_mem_seqno_;
+  const SequenceNumber earliest_mem_seqno_;
   CompactionPicker* compaction_picker_;
   LogBuffer* log_buffer_;
   int start_level_ = -1;
@@ -832,7 +832,7 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
 Compaction* LevelCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, SequenceNumber earliest_mem_seqno) {
+    LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) {
   LevelCompactionBuilder builder(cf_name, vstorage, earliest_mem_seqno, this,
                                  log_buffer, mutable_cf_options, ioptions_,
                                  mutable_db_options);
