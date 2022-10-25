@@ -1487,10 +1487,8 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (!*diverged && iter->Valid()) {
-    const Slice value_base_slice = GetValueBaseSlice(iter->value());
-
-    const WideColumns expected_columns = GenerateExpectedWideColumns(
-        GetValueBase(value_base_slice), iter->value());
+    const WideColumns expected_columns =
+        GenerateExpectedWideColumns(GetValueBase(iter->value()), iter->value());
     if (iter->columns() != expected_columns) {
       fprintf(stderr, "Value and columns inconsistent for iterator: %s\n",
               DebugString(iter->value(), iter->columns(), expected_columns)
