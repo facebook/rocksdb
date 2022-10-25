@@ -919,11 +919,13 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
               uint64_t{ClockHandle::kStateConstruction}
                   << ClockHandle::kStateShift,
               std::memory_order_acquire)) {
-        // Took ownership
-        const UniqueId64x2& hashed_key = h.hashed_key;
+        // Took ownership.
+        // Save info about h to minimize dependences between atomic updates
+        // (e.g. fully relaxed Rollback after h released by marking empty)
+        const UniqueId64x2 h_hashed_key = h.hashed_key;
+        size_t h_total_charge = h.total_charge;
         // TODO? Delay freeing?
         h.FreeData();
-        *freed_charge += h.total_charge;
 #ifndef NDEBUG
         // Mark slot as empty, with assertion
         meta = h.meta.exchange(0, std::memory_order_release);
@@ -934,7 +936,8 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
         h.meta.store(0, std::memory_order_release);
 #endif
         *freed_count += 1;
-        Rollback(hashed_key, &h);
+        *freed_charge += h_total_charge;
+        Rollback(h_hashed_key, &h);
       }
     }
 

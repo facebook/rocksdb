@@ -1239,7 +1239,7 @@ void LevelIterator::Seek(const Slice& target) {
         prefix_extractor_ != nullptr && !read_options_.total_order_seek &&
         !read_options_.auto_prefix_mode &&
         file_index_ < flevel_->num_files - 1) {
-      size_t ts_sz = user_comparator_.timestamp_size();
+      size_t ts_sz = user_comparator_.user_comparator()->timestamp_size();
       Slice target_user_key_without_ts =
           ExtractUserKeyAndStripTimestamp(target, ts_sz);
       Slice next_file_first_user_key_without_ts =

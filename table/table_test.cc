@@ -1147,15 +1147,21 @@ class BlockBasedTableTest
     test_path_ = test::PerThreadDBPath("block_based_table_tracing_test");
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace_file";
-    TraceOptions trace_opt;
+
+    BlockCacheTraceWriterOptions trace_writer_opt;
+    BlockCacheTraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
                                  &trace_writer));
+    std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+        NewBlockCacheTraceWriter(env_->GetSystemClock().get(), trace_writer_opt,
+                                 std::move(trace_writer));
+    ASSERT_NE(block_cache_trace_writer, nullptr);
     // Always return Status::OK().
     assert(c->block_cache_tracer_
-               .StartTrace(env_->GetSystemClock().get(), trace_opt,
-                           std::move(trace_writer))
+               .StartTrace(trace_opt, std::move(block_cache_trace_writer))
                .ok());
+
     {
       std::string user_key = "k01";
       InternalKey internal_key(user_key, 0, kTypeValue);
@@ -1213,10 +1219,10 @@ class BlockBasedTableTest
         } else {
           EXPECT_EQ(access.referenced_key, "");
           EXPECT_EQ(access.get_id, 0);
-          EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
+          EXPECT_FALSE(access.get_from_user_specified_snapshot);
           EXPECT_EQ(access.referenced_data_size, 0);
           EXPECT_EQ(access.num_keys_in_block, 0);
-          EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+          EXPECT_FALSE(access.referenced_key_exist_in_block);
         }
         index++;
       }
@@ -2250,7 +2256,8 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
   // Corrupt checksum type (123 is invalid)
   auto& sink = *c.TEST_GetSink();
   size_t len = sink.contents_.size();
-  ASSERT_EQ(sink.contents_[len - Footer::kNewVersionsEncodedLength], kCRC32c);
+  ASSERT_EQ(sink.contents_[len - Footer::kNewVersionsEncodedLength],
+            table_options.checksum);
   sink.contents_[len - Footer::kNewVersionsEncodedLength] = char{123};
 
   // (Re-)Open table file with bad checksum type
@@ -3051,8 +3058,8 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
@@ -3061,22 +3068,22 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   record.get_id = 1;
   record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = false;
   record.referenced_key = encoded_key;
-  record.referenced_key_exist_in_block = Boolean::kTrue;
-  record.is_cache_hit = Boolean::kTrue;
+  record.referenced_key_exist_in_block = true;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceIndexBlock;
   expected_records.push_back(record);
-  record.is_cache_hit = Boolean::kFalse;
+  record.is_cache_hit = false;
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
   // The second get should all observe cache hits.
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   record.get_id = 2;
   record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = false;
   record.referenced_key = encoded_key;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceIndexBlock;
@@ -3116,15 +3123,15 @@ TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   // Then we should have two records for only index blocks.
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserApproximateSize;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   expected_records.push_back(record);
   VerifyBlockAccessTrace(&c, expected_records);
@@ -3169,24 +3176,24 @@ TEST_P(BlockBasedTableTest, TracingIterator) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   // Then we should have three records for index and two data block access.
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserIterator;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
-  record.is_cache_hit = Boolean::kFalse;
+  record.is_cache_hit = false;
   expected_records.push_back(record);
   expected_records.push_back(record);
   // When we iterate this file for the second time, we should observe all cache
   // hits.
   record.block_type = TraceType::kBlockTraceIndexBlock;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);

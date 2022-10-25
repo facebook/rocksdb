@@ -30,8 +30,8 @@ class ColumnFamilyData;
 class ThreadStatusUtil {
  public:
   // Register the current thread for tracking.
-  static void RegisterThread(
-      const Env* env, ThreadStatus::ThreadType thread_type);
+  static void RegisterThread(const Env* env,
+                             ThreadStatus::ThreadType thread_type);
 
   // Unregister the current thread.
   static void UnregisterThread();
@@ -62,19 +62,17 @@ class ThreadStatusUtil {
   static ThreadStatus::OperationStage SetThreadOperationStage(
       ThreadStatus::OperationStage stage);
 
-  static void SetThreadOperationProperty(
-      int code, uint64_t value);
+  static void SetThreadOperationProperty(int code, uint64_t value);
 
-  static void IncreaseThreadOperationProperty(
-      int code, uint64_t delta);
+  static void IncreaseThreadOperationProperty(int code, uint64_t delta);
 
   static void SetThreadState(ThreadStatus::StateType type);
 
   static void ResetThreadStatus();
 
 #ifndef NDEBUG
-  static void TEST_SetStateDelay(
-      const ThreadStatus::StateType state, int micro);
+  static void TEST_SetStateDelay(const ThreadStatus::StateType state,
+                                 int micro);
   static void TEST_StateDelay(const ThreadStatus::StateType state);
 #endif
 
@@ -121,8 +119,7 @@ class ThreadStatusUtil {
 // and set the thread state to the previous state in its destructor.
 class AutoThreadOperationStageUpdater {
  public:
-  explicit AutoThreadOperationStageUpdater(
-      ThreadStatus::OperationStage stage);
+  explicit AutoThreadOperationStageUpdater(ThreadStatus::OperationStage stage);
   ~AutoThreadOperationStageUpdater();
 
 #ifdef ROCKSDB_USING_THREAD_STATUS

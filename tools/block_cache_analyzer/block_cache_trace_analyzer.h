@@ -95,7 +95,7 @@ struct BlockAccessInfo {
     if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(access.block_type,
                                                           access.caller)) {
       num_keys = access.num_keys_in_block;
-      if (access.referenced_key_exist_in_block == Boolean::kTrue) {
+      if (access.referenced_key_exist_in_block) {
         if (key_num_access_map.find(access.referenced_key) ==
             key_num_access_map.end()) {
           referenced_data_size += access.referenced_data_size;

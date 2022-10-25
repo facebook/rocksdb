@@ -1048,7 +1048,7 @@ class DBTestBase : public testing::Test {
     kUniversalCompactionMultiLevel = 20,
     kCompressedBlockCache = 21,
     kInfiniteMaxOpenFiles = 22,
-    kXXH3Checksum = 23,
+    kCRC32cChecksum = 23,
     kFIFOCompaction = 24,
     kOptimizeFiltersForHits = 25,
     kRowCache = 26,

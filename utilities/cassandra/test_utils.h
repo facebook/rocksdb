@@ -5,6 +5,7 @@
 
 #pragma once
 #include <memory>
+
 #include "test_util/testharness.h"
 #include "utilities/cassandra/format.h"
 #include "utilities/cassandra/serialize.h"
@@ -18,9 +19,7 @@ extern const int8_t kColumn;
 extern const int8_t kTombstone;
 extern const int8_t kExpiringColumn;
 
-
-std::shared_ptr<ColumnBase> CreateTestColumn(int8_t mask,
-                                             int8_t index,
+std::shared_ptr<ColumnBase> CreateTestColumn(int8_t mask, int8_t index,
                                              int64_t timestamp);
 
 std::tuple<int8_t, int8_t, int64_t> CreateTestColumnSpec(int8_t mask,
@@ -39,5 +38,5 @@ void VerifyRowValueColumns(
 
 int64_t ToMicroSeconds(int64_t seconds);
 int32_t ToSeconds(int64_t microseconds);
-}
+}  // namespace cassandra
 }  // namespace ROCKSDB_NAMESPACE
