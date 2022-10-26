@@ -50,7 +50,7 @@ class LevelCompactionBuilder {
  public:
   LevelCompactionBuilder(const std::string& cf_name,
                          VersionStorageInfo* vstorage,
-                         SequenceNumber earliest_mem_seqno,
+                         const SequenceNumber earliest_mem_seqno,
                          CompactionPicker* compaction_picker,
                          LogBuffer* log_buffer,
                          const MutableCFOptions& mutable_cf_options,
@@ -122,7 +122,7 @@ class LevelCompactionBuilder {
 
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
-  SequenceNumber earliest_mem_seqno_;
+  const SequenceNumber earliest_mem_seqno_;
   CompactionPicker* compaction_picker_;
   LogBuffer* log_buffer_;
   int start_level_ = -1;
@@ -379,7 +379,9 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
     if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
                                                     &tmp_start_level_inputs) ||
         compaction_picker_->FilesRangeOverlapWithCompaction(
-            {tmp_start_level_inputs}, output_level_)) {
+            {tmp_start_level_inputs}, output_level_,
+            Compaction::EvaluatePenultimateLevel(
+                vstorage_, ioptions_, start_level_, output_level_))) {
       // Constraint 1a
       tmp_start_level_inputs.clear();
       return;
@@ -453,7 +455,9 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
       // (2) AddFile ingest a new file into the LSM tree
       // We need to disallow this from happening.
       if (compaction_picker_->FilesRangeOverlapWithCompaction(
-              compaction_inputs_, output_level_)) {
+              compaction_inputs_, output_level_,
+              Compaction::EvaluatePenultimateLevel(
+                  vstorage_, ioptions_, start_level_, output_level_))) {
         // This compaction output could potentially conflict with the output
         // of a currently running compaction, we cannot run it.
         return false;
@@ -755,7 +759,9 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
                                                     &start_level_inputs_) ||
         compaction_picker_->FilesRangeOverlapWithCompaction(
-            {start_level_inputs_}, output_level_)) {
+            {start_level_inputs_}, output_level_,
+            Compaction::EvaluatePenultimateLevel(
+                vstorage_, ioptions_, start_level_, output_level_))) {
       // A locked (pending compaction) input-level file was pulled in due to
       // user-key overlap.
       start_level_inputs_.clear();
@@ -826,7 +832,7 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
 Compaction* LevelCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, SequenceNumber earliest_mem_seqno) {
+    LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) {
   LevelCompactionBuilder builder(cf_name, vstorage, earliest_mem_seqno, this,
                                  log_buffer, mutable_cf_options, ioptions_,
                                  mutable_db_options);

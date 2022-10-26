@@ -11,8 +11,8 @@
 
 #ifndef _POSIX_THREADS
 
-#include <memory>
 #include <functional>
+#include <memory>
 #include <type_traits>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -31,8 +31,8 @@ namespace port {
 class WindowsThread {
   struct Data;
 
-  std::shared_ptr<Data>  data_;
-  unsigned int           th_id_;
+  std::shared_ptr<Data> data_;
+  unsigned int th_id_;
 
   void Init(std::function<void()>&&);
 
@@ -104,7 +104,7 @@ class WindowsThread {
 
   void swap(WindowsThread&);
 };
-} // namespace port
+}  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 
 namespace std {
@@ -112,6 +112,6 @@ inline void swap(ROCKSDB_NAMESPACE::port::WindowsThread& th1,
                  ROCKSDB_NAMESPACE::port::WindowsThread& th2) {
   th1.swap(th2);
 }
-} // namespace std
+}  // namespace std
 
 #endif  // !_POSIX_THREADS

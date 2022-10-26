@@ -203,9 +203,8 @@ class PointLockManager : public LockManager {
                             LockInfo&& lock_info);
 
   Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
-                       const std::string& key, Env* env,
-                       LockInfo&& lock_info, uint64_t* wait_time,
-                       autovector<TransactionID>* txn_ids);
+                       const std::string& key, Env* env, LockInfo&& lock_info,
+                       uint64_t* wait_time, autovector<TransactionID>* txn_ids);
 
   void UnLockKey(PessimisticTransaction* txn, const std::string& key,
                  LockMapStripe* stripe, LockMap* lock_map, Env* env);

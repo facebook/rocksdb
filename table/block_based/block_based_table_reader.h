@@ -597,7 +597,7 @@ struct BlockBasedTable::Rep {
   bool prefix_filtering;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
 
-  std::shared_ptr<const FragmentedRangeTombstoneList> fragmented_range_dels;
+  std::shared_ptr<FragmentedRangeTombstoneList> fragmented_range_dels;
 
   // If global_seqno is used, all Keys in this file will have the same
   // seqno with value `global_seqno`.

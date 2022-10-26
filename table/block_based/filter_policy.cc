@@ -1422,10 +1422,9 @@ FilterBitsBuilder* BloomLikeFilterPolicy::GetFastLocalBloomBuilderWithContext(
         CacheReservationManagerImpl<CacheEntryRole::kFilterConstruction>>(
         context.table_options.block_cache);
   }
-        return new FastLocalBloomBitsBuilder(
-            millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr,
-            cache_res_mgr,
-            context.table_options.detect_filter_construct_corruption);
+  return new FastLocalBloomBitsBuilder(
+      millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr,
+      cache_res_mgr, context.table_options.detect_filter_construct_corruption);
 }
 
 FilterBitsBuilder* BloomLikeFilterPolicy::GetLegacyBloomBuilderWithContext(
@@ -1788,7 +1787,7 @@ FilterBuildingContext::FilterBuildingContext(
     const BlockBasedTableOptions& _table_options)
     : table_options(_table_options) {}
 
-FilterPolicy::~FilterPolicy() { }
+FilterPolicy::~FilterPolicy() {}
 
 std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
     const std::string& name, double bits_per_key) {

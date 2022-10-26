@@ -11,8 +11,9 @@
 
 #pragma once
 #include <stdint.h>
-#include <unordered_map>
+
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "options/db_options.h"
@@ -54,8 +55,7 @@ extern std::string ArchivalDirectory(const std::string& dbname);
 
 //  Return the name of the archived log file with the specified number
 //  in the db named by "dbname". The result will be prefixed with "dbname".
-extern std::string ArchivedLogFileName(const std::string& dbname,
-                                       uint64_t num);
+extern std::string ArchivedLogFileName(const std::string& dbname, uint64_t num);
 
 extern std::string MakeTableFileName(const std::string& name, uint64_t number);
 
@@ -140,8 +140,7 @@ extern std::string TempOptionsFileName(const std::string& dbname,
 
 // Return the name to use for a metadatabase. The result will be prefixed with
 // "dbname".
-extern std::string MetaDatabaseName(const std::string& dbname,
-                                    uint64_t number);
+extern std::string MetaDatabaseName(const std::string& dbname, uint64_t number);
 
 // Return the name of the Identity file which stores a unique number for the db
 // that will get regenerated if the db loses all its data and is recreated fresh

@@ -163,7 +163,7 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
   auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
   auto* index_entry =
       new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
-                                      key.data() - wb_data.data(), key.size());
+                                     key.data() - wb_data.data(), key.size());
   skip_list.Insert(index_entry);
 }
 
@@ -207,8 +207,8 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
     // set offset of current entry for call to AddNewEntry()
     last_entry_offset = input.data() - write_batch.Data().data();
 
-    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
-                                  &value, &blob, &xid);
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
+                                 &blob, &xid);
     if (!s.ok()) {
       break;
     }

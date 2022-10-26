@@ -627,7 +627,7 @@ class Transaction {
     PREPARED = 2,
     AWAITING_COMMIT = 3,
     COMMITTED = 4,
-    COMMITED = COMMITTED, // old misspelled name
+    COMMITED = COMMITTED,  // old misspelled name
     AWAITING_ROLLBACK = 5,
     ROLLEDBACK = 6,
     LOCKS_STOLEN = 7,

@@ -53,7 +53,7 @@ class OptimisticTransactionTest
     Open();
   }
 
-private:
+ private:
   void Open() {
     ColumnFamilyOptions cf_options(options);
     OptimisticTransactionDBOptions occ_opts;
@@ -1426,7 +1426,8 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
   WriteOptions write_options;
   OptimisticTransactionOptions transaction_options;
 
-  Transaction* transaction(txn_db->BeginTransaction(write_options, transaction_options));
+  Transaction* transaction(
+      txn_db->BeginTransaction(write_options, transaction_options));
   Status s = transaction->Put("foo", "val");
   ASSERT_OK(s);
   s = transaction->Put("foo2", "val");
@@ -1472,6 +1473,7 @@ INSTANTIATE_TEST_CASE_P(
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
