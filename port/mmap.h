@@ -6,8 +6,8 @@
 #pragma once
 
 #ifdef OS_WIN
-#include <windows.h>
-// ^^^ Must come first
+#include "port/win/port_win.h"
+// ^^^ For proper/safe inclusion of windows.h. Must come first.
 #include <memoryapi.h>
 #else
 #include <sys/mman.h>
