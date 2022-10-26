@@ -3,10 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "util/defer.h"
+
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
-#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
