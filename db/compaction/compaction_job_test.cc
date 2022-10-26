@@ -40,7 +40,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 
 void VerifyInitializationOfCompactionJobStats(
-      const CompactionJobStats& compaction_job_stats) {
+    const CompactionJobStats& compaction_job_stats) {
 #if !defined(IOS_CROSS_COMPILE)
   ASSERT_EQ(compaction_job_stats.elapsed_micros, 0U);
 
@@ -499,8 +499,7 @@ class CompactionJobTestBase : public testing::Test {
 
         // This is how the key will look like once it's written in bottommost
         // file
-        InternalKey bottommost_internal_key(
-            key, 0, kTypeValue);
+        InternalKey bottommost_internal_key(key, 0, kTypeValue);
 
         if (corrupt_id(k)) {
           test::CorruptKeyType(&internal_key);
@@ -620,7 +619,7 @@ class CompactionJobTestBase : public testing::Test {
       CompactionInputFiles compaction_level;
       compaction_level.level = input_levels[i];
       compaction_level.files.insert(compaction_level.files.end(),
-          level_files.begin(), level_files.end());
+                                    level_files.begin(), level_files.end());
       compaction_input_files.push_back(compaction_level);
       num_input_files += level_files.size();
     }
