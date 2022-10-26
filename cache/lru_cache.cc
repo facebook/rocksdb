@@ -386,7 +386,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, LRUHandle** handle,
         last_reference_list.push_back(e);
       } else {
         if (free_handle_on_fail) {
-          delete[] reinterpret_cast<char*>(e);
+          port::cacheline_aligned_free(e);
           *handle = nullptr;
         }
         s = Status::MemoryLimit("Insert failed due to LRU cache being full.");
@@ -560,7 +560,7 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
                                  is_in_sec_cache);
     if (secondary_handle != nullptr) {
       e = reinterpret_cast<LRUHandle*>(
-          new char[sizeof(LRUHandle) - 1 + key.size()]);
+          port::cacheline_aligned_alloc(sizeof(LRUHandle) - 1 + key.size()));
 
       e->m_flags = 0;
       e->im_flags = 0;
@@ -684,7 +684,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   // If the cache is full, we'll have to release it.
   // It shouldn't happen very often though.
   LRUHandle* e = reinterpret_cast<LRUHandle*>(
-      new char[sizeof(LRUHandle) - 1 + key.size()]);
+      port::cacheline_aligned_alloc(sizeof(LRUHandle) - 1 + key.size()));
 
   e->value = value;
   e->m_flags = 0;
