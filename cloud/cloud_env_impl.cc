@@ -24,13 +24,17 @@
 #include "rocksdb/status.h"
 #include "test_util/sync_point.h"
 #include "util/xxhash.h"
+#include "cloud/cloud_file_deletion_scheduler.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 
 CloudEnvImpl::CloudEnvImpl(const CloudEnvOptions& opts, Env* base,
                            const std::shared_ptr<Logger>& l)
     : CloudEnv(opts, base, l), purger_is_running_(true) {
   scheduler_ = CloudScheduler::Get();
+  cloud_file_deletion_scheduler_ =
+      CloudFileDeletionScheduler::Create(scheduler_);
 }
 
 CloudEnvImpl::~CloudEnvImpl() {
@@ -39,14 +43,6 @@ CloudEnvImpl::~CloudEnvImpl() {
 
   if (cloud_env_options.cloud_log_controller) {
     cloud_env_options.cloud_log_controller->StopTailingStream();
-  }
-  {
-    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
-    using std::swap;
-    for (auto& e : files_to_delete_) {
-      scheduler_->CancelJob(e.second);
-    }
-    files_to_delete_.clear();
   }
   StopPurger();
 }
@@ -766,12 +762,11 @@ Status CloudEnvImpl::DeleteFile(const std::string& logical_fname) {
 }
 
 void CloudEnvImpl::RemoveFileFromDeletionQueue(const std::string& filename) {
-  std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
-  auto itr = files_to_delete_.find(filename);
-  if (itr != files_to_delete_.end()) {
-    scheduler_->CancelJob(itr->second);
-    files_to_delete_.erase(itr);
-  }
+  cloud_file_deletion_scheduler_->UnscheduleFileDeletion(filename);
+}
+
+void CloudEnvImpl::TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
+  cloud_file_deletion_scheduler_->TEST_SetFileDeletionDelay(delay);
 }
 
 Status CloudEnvImpl::CopyLocalFileToDest(const std::string& local_name,
@@ -784,41 +779,28 @@ Status CloudEnvImpl::CopyLocalFileToDest(const std::string& local_name,
 Status CloudEnvImpl::DeleteCloudFileFromDest(const std::string& fname) {
   assert(HasDestBucket());
   auto base = basename(fname);
-  // add the job to delete the file in 1 hour
-  auto doDeleteFile = [this, base](void*) {
-    {
-      std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
-      auto itr = files_to_delete_.find(base);
-      if (itr == files_to_delete_.end()) {
-        // File was removed from files_to_delete_, do not delete!
-        return;
-      }
-      files_to_delete_.erase(itr);
-    }
-    auto path = GetDestObjectPath() + "/" + base;
-    // we are ready to delete the file!
-    auto st =
-        GetStorageProvider()->DeleteCloudObject(GetDestBucketName(), path);
-    if (!st.ok() && !st.IsNotFound()) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[%s] DeleteFile file %s error %s", Name(), path.c_str(),
-          st.ToString().c_str());
-    }
-  };
-  {
-    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
-    if (files_to_delete_.find(base) != files_to_delete_.end()) {
-      // already in the queue
-      return Status::OK();
-    }
-  }
-  {
-    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
-    auto handle = scheduler_->ScheduleJob(file_deletion_delay_,
-                                          std::move(doDeleteFile), nullptr);
-    files_to_delete_.emplace(base, std::move(handle));
-  }
-  return Status::OK();
+  auto path = GetDestObjectPath() + pathsep + base;
+  auto bucket = GetDestBucketName();
+  std::weak_ptr<Logger> info_log_wp = info_log_;
+  std::weak_ptr<CloudStorageProvider> storage_provider_wp = GetStorageProvider();
+  auto file_deletion_runnable =
+      [path = std::move(path), bucket = std::move(bucket),
+       info_log_wp = std::move(info_log_wp),
+       storage_provider_wp = std::move(storage_provider_wp)]() {
+        auto storage_provider = storage_provider_wp.lock();
+        auto info_log = info_log_wp.lock();
+        if (!storage_provider || !info_log) {
+          return;
+        }
+        auto st = storage_provider->DeleteCloudObject(bucket, path);
+        if (!st.ok() && !st.IsNotFound()) {
+          Log(InfoLogLevel::ERROR_LEVEL, info_log,
+              "[CloudEnvImpl] DeleteFile file %s error %s", path.c_str(),
+              st.ToString().c_str());
+        }
+      };
+  return cloud_file_deletion_scheduler_->ScheduleFileDeletion(
+      base, std::move(file_deletion_runnable));
 }
 
 // Copy my IDENTITY file to cloud storage. Update dbid registry.

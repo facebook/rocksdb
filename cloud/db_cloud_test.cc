@@ -12,11 +12,14 @@
 #include <cinttypes>
 
 #include "cloud/cloud_env_impl.h"
+#include "cloud/cloud_file_deletion_scheduler.h"
+#include "cloud/cloud_scheduler.h"
 #include "cloud/cloud_storage_provider_impl.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "rocksdb/cloud/cloud_env_options.h"
@@ -26,6 +29,7 @@
 #include "rocksdb/table.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #ifndef OS_WIN
@@ -371,6 +375,38 @@ class CloudTest : public testing::Test {
     std::vector<Env::FileAttributes> local_files;
     assert(base_env_->GetChildrenFileAttributes(dbname_, &local_files).ok());
     return local_files;
+  }
+
+  // Generate a few obsolete sst files on an empty db
+  static void GenerateObsoleteFilesOnEmptyDB(
+      DBImpl* db, CloudEnv* aenv, std::vector<std::string>* obsolete_files) {
+    ASSERT_OK(db->Put({}, "k1", "v1"));
+    ASSERT_OK(db->Flush({}));
+
+    ASSERT_OK(db->Put({}, "k1", "v2"));
+    ASSERT_OK(db->Flush({}));
+
+    std::vector<LiveFileMetaData> sst_files;
+    db->GetLiveFilesMetaData(&sst_files);
+    ASSERT_EQ(sst_files.size(), 2);
+    for (auto& f: sst_files) {
+      obsolete_files->push_back(
+        aenv->RemapFilename(f.relative_filename));
+    }
+
+    // trigger compaction, so previous 2 sst files will be obsolete
+    ASSERT_OK(
+        db->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+    sst_files.clear();
+    db->GetLiveFilesMetaData(&sst_files);
+    ASSERT_EQ(sst_files.size(), 1);
+  }
+
+  // check that fname existsin in src bucket/object path
+  rocksdb::Status ExistsCloudObject(const std::string& filename) const {
+    return aenv_->GetStorageProvider()->ExistsCloudObject(
+        aenv_->GetSrcBucketName(),
+        aenv_->GetSrcObjectPath() + pathsep + filename);
   }
 
   std::string test_id_;
@@ -2953,6 +2989,160 @@ TEST_F(CloudTest, SanitizeDirectoryTest) {
       base_env_->DeleteFile(MakeCloudManifestFile(dbname_, "" /* cooke */)));
 
   ASSERT_OK(GetCloudEnvImpl()->SanitizeDirectory(options_, dbname_, false));
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(CloudTest, CloudFileDeletionNotTriggeredIfDestBucketNotSet) {
+  std::vector<std::string> files_to_delete;
+
+  // generate invisible MANIFEST file to delete
+  OpenDB();
+  std::string manifest_file = ManifestFileWithEpoch(
+      dbname_, GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch());
+  files_to_delete.push_back(basename(manifest_file));
+  CloseDB();
+
+  // generate obsolete sst files to delete
+  options_.disable_delete_obsolete_files_on_open = true;
+  cloud_env_options_.delete_cloud_invisible_files_on_open = false;
+  OpenDB();
+  GenerateObsoleteFilesOnEmptyDB(GetDBImpl(), aenv_.get(), &files_to_delete);
+  CloseDB();
+
+  options_.disable_delete_obsolete_files_on_open = false;
+  cloud_env_options_.dest_bucket.SetBucketName("");
+  cloud_env_options_.dest_bucket.SetObjectPath("");
+  cloud_env_options_.delete_cloud_invisible_files_on_open = true;
+  OpenDB();
+  WaitUntilNoScheduledJobs();
+  for (auto& fname: files_to_delete) {
+    EXPECT_OK(ExistsCloudObject(fname));
+  }
+  CloseDB();
+
+  cloud_env_options_.dest_bucket = cloud_env_options_.src_bucket;
+  OpenDB();
+  WaitUntilNoScheduledJobs();
+  for (auto& fname: files_to_delete) {
+    EXPECT_NOK(ExistsCloudObject(fname));
+  }
+  CloseDB();
+}
+
+TEST_F(CloudTest, ScheduleFileDeletionTest) {
+  auto scheduler = CloudScheduler::Get();
+  auto deletion_scheduler = CloudFileDeletionScheduler::Create(scheduler);
+  deletion_scheduler->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
+
+  std::atomic_int counter{0};
+  int num_file_deletions = 10;
+  for (int i = 0; i < num_file_deletions; i++) {
+    ASSERT_OK(deletion_scheduler->ScheduleFileDeletion(
+        std::to_string(i) + ".sst", [&counter]() { counter++; }));
+  }
+
+  // wait until no scheduled jobs
+  while (scheduler->TEST_NumScheduledJobs() > 0) {
+    usleep(100);
+  }
+  EXPECT_EQ(counter, num_file_deletions);
+  EXPECT_EQ(deletion_scheduler->TEST_FilesToDelete().size(), 0);
+}
+
+TEST_F(CloudTest, SameFileDeletedMultipleTimesTest) {
+  auto scheduler = CloudScheduler::Get();
+  auto deletion_scheduler = CloudFileDeletionScheduler::Create(scheduler);
+  deletion_scheduler->TEST_SetFileDeletionDelay(std::chrono::hours(1));
+  ASSERT_OK(deletion_scheduler->ScheduleFileDeletion("filename", []() {}));
+  ASSERT_OK(deletion_scheduler->ScheduleFileDeletion("filename", []() {}));
+  EXPECT_EQ(deletion_scheduler->TEST_FilesToDelete().size(), 1);
+}
+
+TEST_F(CloudTest, UnscheduleFileDeletionTest) {
+  auto scheduler = CloudScheduler::Get();
+  auto deletion_scheduler = CloudFileDeletionScheduler::Create(scheduler);
+  deletion_scheduler->TEST_SetFileDeletionDelay(std::chrono::hours(1));
+
+  std::atomic_int counter{0};
+  int num_file_deletions = 10;
+  std::vector<std::string> files_to_delete;
+  for (int i = 0; i < num_file_deletions; i++) {
+    std::string filename = std::to_string(i) + ".sst";
+    files_to_delete.push_back(filename);
+    ASSERT_OK(
+        deletion_scheduler->ScheduleFileDeletion(filename, [&counter]() { counter++; }));
+  }
+  auto actual_files_to_delete = deletion_scheduler->TEST_FilesToDelete();
+  std::sort(actual_files_to_delete.begin(), actual_files_to_delete.end());
+  EXPECT_EQ(actual_files_to_delete, files_to_delete);
+
+  int num_scheduled_jobs = num_file_deletions;
+  for (auto& fname: files_to_delete) {
+    deletion_scheduler->UnscheduleFileDeletion(fname);
+    num_scheduled_jobs -= 1;
+    EXPECT_EQ(scheduler->TEST_NumScheduledJobs(), num_scheduled_jobs);
+  }
+}
+
+TEST_F(CloudTest, UnscheduleUnknownFileTest) {
+  auto scheduler = CloudScheduler::Get();
+  auto deletion_scheduler = CloudFileDeletionScheduler::Create(scheduler);
+  deletion_scheduler->TEST_SetFileDeletionDelay(std::chrono::hours(1));
+  deletion_scheduler->UnscheduleFileDeletion("unknown file");
+}
+
+// Verifies that as long as `CloudFileDeletionScheduler` is destructed, no file
+// deletion job will actually be scheduled
+// This is also a repro of SYS-3456, which is a race between CloudEnvImpl
+// destruction and cloud file deletion
+TEST_F(CloudTest,
+       FileDeletionNotScheduledOnceCloudFileDeletionSchedulerDestructed) {
+  // Generate some invisible files to delete
+  // Disable file deletion to make sure these files are not deleted
+  // automatically
+  options_.disable_delete_obsolete_files_on_open = true;
+  cloud_env_options_.delete_cloud_invisible_files_on_open = false;
+  OpenDB();
+  std::vector<std::string> obsolete_files;
+  GenerateObsoleteFilesOnEmptyDB(GetDBImpl(), aenv_.get(), &obsolete_files);
+  CloseDB();
+
+  // Order of execution:
+  // - scheduled file deletion job starts running (but file not deleted yet)
+  // - destruct CloudFileDeletionScheduler
+  // - file deletion job deletes the file
+  SyncPoint::GetInstance()->LoadDependency({
+    {
+      // `BeforeCancelJobs` happens-after `BeforeFileDeletion`
+      "CloudFileDeletionScheduler::ScheduleFileDeletion:BeforeFileDeletion",
+      "CloudFileDeletionScheduler::~CloudFileDeletionScheduler:BeforeCancelJobs",
+    },
+    {
+      "CloudFileDeletionScheduler::~CloudFileDeletionScheduler:BeforeCancelJobs",
+      "CloudFileDeletionScheduler::ScheduleFileDeletion:AfterFileDeletion"
+    }
+  });
+
+  std::atomic<size_t> num_jobs_finished{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "CloudFileDeletionScheduler::ScheduleFileDeletion:AfterFileDeletion",
+      [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto file_deleted = *reinterpret_cast<bool *>(arg);
+        EXPECT_FALSE(file_deleted);
+        num_jobs_finished++;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  // file not deleted immediately but just scheduled
+  ASSERT_OK(aenv_->DeleteFile(obsolete_files[0]));
+  EXPECT_EQ(GetCloudEnvImpl()->TEST_NumScheduledJobs(), 1);
+  // destruct `CloudEnv`, which will cause `CloudFileDeletionScheduler` to be destructed
+  aenv_.reset();
+  // wait until file deletion job is done
+  while (num_jobs_finished.load() != 1) {
+    usleep(100);
+  }
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
 }
 

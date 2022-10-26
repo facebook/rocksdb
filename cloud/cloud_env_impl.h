@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 class CloudScheduler;
 class CloudStorageReadableFile;
 class ObjectLibrary;
+class CloudFileDeletionScheduler;
 
 //
 // The Cloud environment
@@ -262,10 +263,7 @@ class CloudEnvImpl : public CloudEnv {
 
   void RemoveFileFromDeletionQueue(const std::string& filename);
 
-  void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
-    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
-    file_deletion_delay_ = delay;
-  }
+  void TEST_SetFileDeletionDelay(std::chrono::seconds delay);
 
   Status PrepareOptions(const ConfigOptions& config_options) override;
   Status ValidateOptions(const DBOptions& /*db_opts*/,
@@ -421,9 +419,7 @@ class CloudEnvImpl : public CloudEnv {
 
   // scratch space in local dir
   static constexpr const char* SCRATCH_LOCAL_DIR = "/tmp";
-  std::mutex files_to_delete_mutex_;
-  std::chrono::seconds file_deletion_delay_ = std::chrono::hours(1);
-  std::unordered_map<std::string, int> files_to_delete_;
+  std::shared_ptr<CloudFileDeletionScheduler> cloud_file_deletion_scheduler_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
