@@ -43,7 +43,7 @@ struct HeapItem {
   enum Type { ITERATOR, DELETE_RANGE_START, DELETE_RANGE_END };
   IteratorWrapper iter;
   size_t level = 0;
-  std::string pinned_key;
+  ParsedInternalKey parsed_ikey;
   // Will be overwritten before use, initialize here so compiler does not
   // complain.
   Type type = ITERATOR;
@@ -54,7 +54,6 @@ struct HeapItem {
   }
 
   void SetTombstoneKey(ParsedInternalKey&& pik) {
-    pinned_key.clear();
     // Range tombstone end key is exclusive. If a point internal key has the
     // same user key and sequence number as the start or end key of a range
     // tombstone, the order will be start < end key < internal key with the
@@ -65,15 +64,13 @@ struct HeapItem {
     // TruncatedRangeDelIterator since untruncated tombstone end points always
     // have kMaxSequenceNumber and kTypeRangeDeletion (see
     // TruncatedRangeDelIterator::start_key()/end_key()).
-    ParsedInternalKey p(pik.user_key, pik.sequence, kTypeMaxValid);
-    AppendInternalKey(&pinned_key, p);
+    parsed_ikey.user_key = pik.user_key;
+    parsed_ikey.sequence = pik.sequence;
   }
 
   Slice key() const {
-    if (type == Type::ITERATOR) {
-      return iter.key();
-    }
-    return pinned_key;
+    assert(type == ITERATOR);
+    return iter.key();
   }
 
   bool IsDeleteRangeSentinelKey() const {
@@ -89,7 +86,19 @@ class MinHeapItemComparator {
   MinHeapItemComparator(const InternalKeyComparator* comparator)
       : comparator_(comparator) {}
   bool operator()(HeapItem* a, HeapItem* b) const {
-    return comparator_->Compare(a->key(), b->key()) > 0;
+    if (LIKELY(a->type == HeapItem::ITERATOR)) {
+      if LIKELY (b->type == HeapItem::ITERATOR) {
+        return comparator_->Compare(a->key(), b->key()) > 0;
+      } else {
+        return comparator_->Compare(a->key(), b->parsed_ikey) > 0;
+      }
+    } else {
+      if LIKELY (b->type == HeapItem::ITERATOR) {
+        return comparator_->Compare(a->parsed_ikey, b->key()) > 0;
+      } else {
+        return comparator_->Compare(a->parsed_ikey, b->parsed_ikey) > 0;
+      }
+    }
   }
 
  private:
@@ -101,7 +110,19 @@ class MaxHeapItemComparator {
   MaxHeapItemComparator(const InternalKeyComparator* comparator)
       : comparator_(comparator) {}
   bool operator()(HeapItem* a, HeapItem* b) const {
-    return comparator_->Compare(a->key(), b->key()) < 0;
+    if (LIKELY(a->type == HeapItem::ITERATOR)) {
+      if LIKELY (b->type == HeapItem::ITERATOR) {
+        return comparator_->Compare(a->key(), b->key()) < 0;
+      } else {
+        return comparator_->Compare(a->key(), b->parsed_ikey) < 0;
+      }
+    } else {
+      if LIKELY (b->type == HeapItem::ITERATOR) {
+        return comparator_->Compare(a->parsed_ikey, b->key()) < 0;
+      } else {
+        return comparator_->Compare(a->parsed_ikey, b->parsed_ikey) < 0;
+      }
+    }
   }
 
  private:
@@ -177,6 +198,7 @@ class MergingIterator : public InternalIterator {
       pinned_heap_item_.resize(range_tombstone_iters_.size());
       for (size_t i = 0; i < range_tombstone_iters_.size(); ++i) {
         pinned_heap_item_[i].level = i;
+        pinned_heap_item_[i].parsed_ikey.type = kTypeMaxValid;
       }
     }
   }
