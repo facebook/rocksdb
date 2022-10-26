@@ -200,11 +200,12 @@ class PointLockManager : public LockManager {
   Status AcquireWithTimeout(PessimisticTransaction* txn, LockMap* lock_map,
                             LockMapStripe* stripe, uint32_t column_family_id,
                             const std::string& key, Env* env, int64_t timeout,
-                            LockInfo&& lock_info);
+                            const LockInfo& lock_info);
 
   Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
-                       const std::string& key, Env* env, LockInfo&& lock_info,
-                       uint64_t* wait_time, autovector<TransactionID>* txn_ids);
+                       const std::string& key, Env* env,
+                       const LockInfo& lock_info, uint64_t* wait_time,
+                       autovector<TransactionID>* txn_ids);
 
   void UnLockKey(PessimisticTransaction* txn, const std::string& key,
                  LockMapStripe* stripe, LockMap* lock_map, Env* env);
