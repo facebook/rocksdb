@@ -240,10 +240,10 @@ enum class CacheTier : uint8_t {
   kNonVolatileBlockTier = 0x01,
 };
 
-enum UpdateStatus {    // Return status For inplace update callback
-  UPDATE_FAILED   = 0, // Nothing to update
-  UPDATED_INPLACE = 1, // Value updated inplace
-  UPDATED         = 2, // No inplace update. Merged value set
+enum UpdateStatus {     // Return status For inplace update callback
+  UPDATE_FAILED = 0,    // Nothing to update
+  UPDATED_INPLACE = 1,  // Value updated inplace
+  UPDATED = 2,          // No inplace update. Merged value set
 };
 
 enum class PrepopulateBlobCache : uint8_t {
@@ -683,6 +683,17 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint64_t max_compaction_bytes = 0;
+
+  // When setting up compaction input files, we ignore the
+  // `max_compaction_bytes` limit when pulling in input files that are entirely
+  // within output key range.
+  //
+  // Default: true
+  //
+  // Dynamically changeable through SetOptions() API
+  // We could remove this knob and always ignore the limit once it is proven
+  // safe.
+  bool ignore_max_compaction_bytes_for_input = true;
 
   // All writes will be slowed down to at least delayed_write_rate if estimated
   // bytes needed to be compaction exceed this threshold.

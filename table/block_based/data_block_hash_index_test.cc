@@ -130,7 +130,7 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
 
   ASSERT_EQ(buffer.size(), estimated_size);
 
-  buffer2 = buffer; // test for the correctness of relative offset
+  buffer2 = buffer;  // test for the correctness of relative offset
 
   Slice s(buffer2);
   DataBlockHashIndex index;
@@ -167,7 +167,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
 
   ASSERT_EQ(buffer.size(), estimated_size);
 
-  buffer2 = buffer; // test for the correctness of relative offset
+  buffer2 = buffer;  // test for the correctness of relative offset
 
   Slice s(buffer2);
   DataBlockHashIndex index;
@@ -208,7 +208,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
 
   ASSERT_EQ(buffer.size(), estimated_size);
 
-  buffer2 = buffer; // test for the correctness of relative offset
+  buffer2 = buffer;  // test for the correctness of relative offset
 
   Slice s(buffer2);
   DataBlockHashIndex index;
@@ -711,6 +711,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

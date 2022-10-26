@@ -291,7 +291,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.compaction_style == kCompactionStyleFIFO) {
-    result.num_levels = 1;
     // since we delete level0 files in FIFO compaction when there are too many
     // of them, these options don't really mean anything
     result.level0_slowdown_writes_trigger = std::numeric_limits<int>::max();
@@ -1212,11 +1211,14 @@ Compaction* ColumnFamilyData::CompactRange(
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
     uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
+  SequenceNumber earliest_mem_seqno =
+      std::min(mem_->GetEarliestSequenceNumber(),
+               imm_.current()->GetEarliestSequenceNumber(false));
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, mutable_db_options,
       current_->storage_info(), input_level, output_level,
       compact_range_options, begin, end, compaction_end, conflict,
-      max_file_num_to_ignore, trim_ts);
+      max_file_num_to_ignore, trim_ts, earliest_mem_seqno);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }

@@ -138,9 +138,9 @@ class SyncPoint {
   struct Data;
 
  private:
-   // Singleton
+  // Singleton
   SyncPoint();
-  Data*  impl_;
+  Data* impl_;
 };
 
 // Sets up sync points to mock direct IO instead of actually issuing direct IO

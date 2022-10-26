@@ -865,8 +865,11 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
 
   uint64_t seqno_time_cadence = 0;
   if (min_time_duration != std::numeric_limits<uint64_t>::max()) {
+    // round up to 1 when the time_duration is smaller than
+    // kMaxSeqnoTimePairsPerCF
     seqno_time_cadence =
-        min_time_duration / SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+        (min_time_duration + SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
+        SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
   }
 
   Status s;
@@ -1354,7 +1357,7 @@ Status DBImpl::SetDBOptions(
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
       versions_->ChangeFileOptions(mutable_db_options_);
-      //TODO(xiez): clarify why apply optimize for read to write options
+      // TODO(xiez): clarify why apply optimize for read to write options
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
           file_options_for_compaction_, immutable_db_options_);
       file_options_for_compaction_.compaction_readahead_size =
@@ -2354,8 +2357,8 @@ std::vector<Status> DBImpl::MultiGet(
     std::string* timestamp = timestamps ? &(*timestamps)[keys_read] : nullptr;
 
     LookupKey lkey(keys[keys_read], consistent_seqnum, read_options.timestamp);
-    auto cfh =
-        static_cast_with_check<ColumnFamilyHandleImpl>(column_family[keys_read]);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+        column_family[keys_read]);
     SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
     assert(mgd_iter != multiget_cf_data.end());
@@ -3980,8 +3983,7 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
 void DBImpl::CleanupSuperVersion(SuperVersion* sv) {
   // Release SuperVersion
   if (sv->Unref()) {
-    bool defer_purge =
-            immutable_db_options().avoid_unnecessary_blocking_io;
+    bool defer_purge = immutable_db_options().avoid_unnecessary_blocking_io;
     {
       InstrumentedMutexLock l(&mutex_);
       sv->Cleanup();
@@ -5665,8 +5667,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
     }
   }
 
-  bool defer_purge =
-          immutable_db_options().avoid_unnecessary_blocking_io;
+  bool defer_purge = immutable_db_options().avoid_unnecessary_blocking_io;
   {
     InstrumentedMutexLock l(&mutex_);
     for (auto sv : sv_list) {
@@ -5779,8 +5780,24 @@ Status DBImpl::NewDefaultReplayer(
 Status DBImpl::StartBlockCacheTrace(
     const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
-  return block_cache_tracer_.StartTrace(immutable_db_options_.clock,
-                                        trace_options, std::move(trace_writer));
+  BlockCacheTraceOptions block_trace_opts;
+  block_trace_opts.sampling_frequency = trace_options.sampling_frequency;
+
+  BlockCacheTraceWriterOptions trace_writer_opt;
+  trace_writer_opt.max_trace_file_size = trace_options.max_trace_file_size;
+
+  std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+      NewBlockCacheTraceWriter(env_->GetSystemClock().get(), trace_writer_opt,
+                               std::move(trace_writer));
+
+  return block_cache_tracer_.StartTrace(block_trace_opts,
+                                        std::move(block_cache_trace_writer));
+}
+
+Status DBImpl::StartBlockCacheTrace(
+    const BlockCacheTraceOptions& trace_options,
+    std::unique_ptr<BlockCacheTraceWriter>&& trace_writer) {
+  return block_cache_tracer_.StartTrace(trace_options, std::move(trace_writer));
 }
 
 Status DBImpl::EndBlockCacheTrace() {

@@ -251,7 +251,7 @@ struct BlockBasedTableOptions {
   // Use the specified checksum type. Newly created table files will be
   // protected with this checksum type. Old table files will still be readable,
   // even though they have different checksum type.
-  ChecksumType checksum = kCRC32c;
+  ChecksumType checksum = kXXH3;
 
   // Disable block cache. If this is set to true,
   // then no block cache should be used, and the block_cache should

@@ -5,12 +5,15 @@
 
 /* BEGIN RocksDB customizations */
 #ifndef XXH_STATIC_LINKING_ONLY
-#define XXH_STATIC_LINKING_ONLY 1 /* using xxhash.cc */
-#endif // !defined(XXH_STATIC_LINKING_ONLY)
+// Using compiled xxhash.cc
+#define XXH_STATIC_LINKING_ONLY 1
+#endif  // !defined(XXH_STATIC_LINKING_ONLY)
 #ifndef XXH_NAMESPACE
 #define XXH_NAMESPACE ROCKSDB_
-#endif // !defined(XXH_NAMESPACE)
-#include "port/lang.h" // for FALLTHROUGH_INTENDED, inserted as appropriate
+#endif  // !defined(XXH_NAMESPACE)
+
+// for FALLTHROUGH_INTENDED, inserted as appropriate
+#include "port/lang.h"
 /* END RocksDB customizations */
 
 // clang-format off

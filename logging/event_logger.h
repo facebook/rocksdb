@@ -5,10 +5,10 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <sstream>
 #include <string>
-#include <chrono>
 
 #include "logging/log_buffer.h"
 #include "rocksdb/env.h"
@@ -157,7 +157,8 @@ class EventLoggerStream {
       json_writer_ = new JSONWriter();
       *this << "time_micros"
             << std::chrono::duration_cast<std::chrono::microseconds>(
-                   std::chrono::system_clock::now().time_since_epoch()).count();
+                   std::chrono::system_clock::now().time_since_epoch())
+                   .count();
     }
   }
   friend class EventLogger;
@@ -177,9 +178,7 @@ class EventLoggerStream {
 // "file_size": 1909699}
 class EventLogger {
  public:
-  static const char* Prefix() {
-    return "EVENT_LOG_v1";
-  }
+  static const char* Prefix() { return "EVENT_LOG_v1"; }
 
   explicit EventLogger(Logger* logger) : logger_(logger) {}
   EventLoggerStream Log() { return EventLoggerStream(logger_); }

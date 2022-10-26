@@ -47,13 +47,15 @@
 
 /* BEGIN RocksDB customizations */
 #ifndef XXPH_STATIC_LINKING_ONLY
-#define XXPH_STATIC_LINKING_ONLY 1 /* access experimental APIs like XXPH3 */
+// Access experimental APIs
+#define XXPH_STATIC_LINKING_ONLY 1
 #endif
 #define XXPH_NAMESPACE ROCKSDB_
 #define XXPH_INLINE_ALL
 #include <cstring>
 /* END RocksDB customizations */
 
+// clang-format off
 #if defined (__cplusplus)
 extern "C" {
 #endif

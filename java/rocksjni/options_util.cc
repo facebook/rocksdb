@@ -6,14 +6,15 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling C++ ROCKSDB_NAMESPACE::OptionsUtil methods from Java side.
 
+#include "rocksdb/utilities/options_util.h"
+
 #include <jni.h>
+
 #include <string>
 
 #include "include/org_rocksdb_OptionsUtil.h"
-
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/options_util.h"
 #include "rocksjni/portal.h"
 
 void build_column_family_descriptor_list(

@@ -6923,7 +6923,7 @@ TEST_F(DBTest2, LastLevelTemperatureUniversal) {
   ASSERT_EQ(size, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
-  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_read_count, 0);
   ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);

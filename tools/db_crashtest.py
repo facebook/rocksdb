@@ -140,6 +140,7 @@ default_params = {
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    "fifo_allow_compaction": lambda: random.randint(0, 1),
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
     "max_manifest_file_size": lambda: random.choice(
@@ -515,6 +516,11 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["mock_direct_io"] = True
 
+    if dest_params["test_batches_snapshots"] == 1:
+        dest_params["enable_compaction_filter"] = 0
+        if dest_params["prefix_size"] < 0:
+            dest_params["prefix_size"] = 1
+
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
     if (dest_params.get("test_batches_snapshots") == 1 or
@@ -577,11 +583,9 @@ def finalize_and_sanitize(src_params):
         # Give the iterator ops away to reads.
         dest_params["readpercent"] += dest_params.get("iterpercent", 10)
         dest_params["iterpercent"] = 0
-        dest_params["test_batches_snapshots"] = 0
     if dest_params.get("prefix_size") == -1:
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
-        dest_params["test_batches_snapshots"] = 0
     if (
         dest_params.get("prefix_size") == -1
         and dest_params.get("memtable_whole_key_filtering") == 0

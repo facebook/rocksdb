@@ -203,7 +203,8 @@ class TestSnapshotChecker : public SnapshotChecker {
  public:
   explicit TestSnapshotChecker(
       SequenceNumber last_committed_sequence,
-      const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots = {{}})
+      const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots =
+          {{}})
       : last_committed_sequence_(last_committed_sequence),
         snapshots_(snapshots) {}
 
@@ -1038,7 +1039,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
        NotRemoveDeletionIfValuePresentToEarlierSnapshot) {
-  AddSnapshot(2,1);
+  AddSnapshot(2, 1);
   RunTest({test::KeyStr("a", 4, kTypeDeletion),
            test::KeyStr("a", 1, kTypeValue), test::KeyStr("b", 3, kTypeValue)},
           {"", "", ""},
@@ -1497,6 +1498,7 @@ INSTANTIATE_TEST_CASE_P(CompactionIteratorTsGcTestInstance,
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -8,9 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <stdint.h>
+
 #include <vector>
 
-#include <stdint.h>
 #include "rocksdb/slice.h"
 #include "rocksdb/table.h"
 #include "table/block_based/data_block_hash_index.h"

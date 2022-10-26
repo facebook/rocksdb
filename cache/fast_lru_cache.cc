@@ -173,7 +173,7 @@ inline int LRUHandleTable::FindSlot(const Slice& key,
 LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
                              bool strict_capacity_limit,
                              CacheMetadataChargePolicy metadata_charge_policy)
-    : CacheShard(metadata_charge_policy),
+    : CacheShardBase(metadata_charge_policy),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       table_(
@@ -211,27 +211,27 @@ void LRUCacheShard::EraseUnRefEntries() {
 void LRUCacheShard::ApplyToSomeEntries(
     const std::function<void(const Slice& key, void* value, size_t charge,
                              DeleterFn deleter)>& callback,
-    uint32_t average_entries_per_lock, uint32_t* state) {
+    size_t average_entries_per_lock, size_t* state) {
   // The state is essentially going to be the starting hash, which works
   // nicely even if we resize between calls because we use upper-most
   // hash bits for table indexes.
   DMutexLock l(mutex_);
-  uint32_t length_bits = table_.GetLengthBits();
-  uint32_t length = table_.GetTableSize();
+  size_t length_bits = table_.GetLengthBits();
+  size_t length = table_.GetTableSize();
 
   assert(average_entries_per_lock > 0);
   // Assuming we are called with same average_entries_per_lock repeatedly,
   // this simplifies some logic (index_end will not overflow).
   assert(average_entries_per_lock < length || *state == 0);
 
-  uint32_t index_begin = *state >> (32 - length_bits);
-  uint32_t index_end = index_begin + average_entries_per_lock;
+  size_t index_begin = *state >> (sizeof(size_t) * 8u - length_bits);
+  size_t index_end = index_begin + average_entries_per_lock;
   if (index_end >= length) {
     // Going to end
     index_end = length;
-    *state = UINT32_MAX;
+    *state = SIZE_MAX;
   } else {
-    *state = index_end << (32 - length_bits);
+    *state = index_end << (sizeof(size_t) * 8u - length_bits);
   }
 
   table_.ApplyToEntriesRange(
@@ -322,8 +322,7 @@ void LRUCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
 
 Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                              size_t charge, Cache::DeleterFn deleter,
-                             Cache::Handle** handle,
-                             Cache::Priority /*priority*/) {
+                             LRUHandle** handle, Cache::Priority /*priority*/) {
   if (key.size() != kCacheKeySize) {
     return Status::NotSupported("FastLRUCache only supports key size " +
                                 std::to_string(kCacheKeySize) + "B");
@@ -409,7 +408,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         if (!h->HasRefs()) {
           h->Ref();
         }
-        *handle = reinterpret_cast<Cache::Handle*>(h);
+        *handle = h;
       }
     }
   }
@@ -422,7 +421,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return s;
 }
 
-Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
+LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
   LRUHandle* h = nullptr;
   {
     DMutexLock l(mutex_);
@@ -437,23 +436,21 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
       h->Ref();
     }
   }
-  return reinterpret_cast<Cache::Handle*>(h);
+  return h;
 }
 
-bool LRUCacheShard::Ref(Cache::Handle* h) {
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(h);
+bool LRUCacheShard::Ref(LRUHandle* h) {
   DMutexLock l(mutex_);
   // To create another reference - entry must be already externally referenced.
-  assert(e->HasRefs());
-  e->Ref();
+  assert(h->HasRefs());
+  h->Ref();
   return true;
 }
 
-bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
-  if (handle == nullptr) {
+bool LRUCacheShard::Release(LRUHandle* h, bool erase_if_last_ref) {
+  if (h == nullptr) {
     return false;
   }
-  LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
   LRUHandle copy;
   bool last_reference = false;
   {
@@ -535,41 +532,18 @@ size_t LRUCacheShard::GetTableAddressCount() const {
   return table_.GetTableSize();
 }
 
-std::string LRUCacheShard::GetPrintableOptions() const { return std::string{}; }
-
 LRUCache::LRUCache(size_t capacity, size_t estimated_value_size,
                    int num_shard_bits, bool strict_capacity_limit,
                    CacheMetadataChargePolicy metadata_charge_policy)
-    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
+    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
+                   nullptr /*allocator*/) {
   assert(estimated_value_size > 0 ||
          metadata_charge_policy != kDontChargeCacheMetadata);
-  num_shards_ = 1 << num_shard_bits;
-  shards_ = reinterpret_cast<LRUCacheShard*>(
-      port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
-  size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
-  for (int i = 0; i < num_shards_; i++) {
-    new (&shards_[i])
-        LRUCacheShard(per_shard, estimated_value_size, strict_capacity_limit,
-                      metadata_charge_policy);
-  }
-}
-
-LRUCache::~LRUCache() {
-  if (shards_ != nullptr) {
-    assert(num_shards_ > 0);
-    for (int i = 0; i < num_shards_; i++) {
-      shards_[i].~LRUCacheShard();
-    }
-    port::cacheline_aligned_free(shards_);
-  }
-}
-
-CacheShard* LRUCache::GetShard(uint32_t shard) {
-  return reinterpret_cast<CacheShard*>(&shards_[shard]);
-}
-
-const CacheShard* LRUCache::GetShard(uint32_t shard) const {
-  return reinterpret_cast<CacheShard*>(&shards_[shard]);
+  size_t per_shard = GetPerShardCapacity();
+  InitShards([=](LRUCacheShard* cs) {
+    new (cs) LRUCacheShard(per_shard, estimated_value_size,
+                           strict_capacity_limit, metadata_charge_policy);
+  });
 }
 
 void* LRUCache::Value(Handle* handle) {
@@ -577,29 +551,13 @@ void* LRUCache::Value(Handle* handle) {
 }
 
 size_t LRUCache::GetCharge(Handle* handle) const {
-  CacheMetadataChargePolicy metadata_charge_policy = kDontChargeCacheMetadata;
-  if (num_shards_ > 0) {
-    metadata_charge_policy = shards_[0].metadata_charge_policy_;
-  }
   return reinterpret_cast<const LRUHandle*>(handle)->GetCharge(
-      metadata_charge_policy);
+      GetShard(0).metadata_charge_policy_);
 }
 
 Cache::DeleterFn LRUCache::GetDeleter(Handle* handle) const {
   auto h = reinterpret_cast<const LRUHandle*>(handle);
   return h->deleter;
-}
-
-uint32_t LRUCache::GetHash(Handle* handle) const {
-  return reinterpret_cast<const LRUHandle*>(handle)->hash;
-}
-
-void LRUCache::DisownData() {
-  // Leak data only if that won't generate an ASAN/valgrind warning.
-  if (!kMustFreeHeapAllocations) {
-    shards_ = nullptr;
-    num_shards_ = 0;
-  }
 }
 
 }  // namespace fast_lru_cache

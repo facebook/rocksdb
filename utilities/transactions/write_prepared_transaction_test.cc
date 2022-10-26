@@ -2120,7 +2120,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshot) {
           seq++;
           cur_txn = seq;
           wp_db->AddPrepared(cur_txn);
-        } else {                                     // else commit it
+        } else {  // else commit it
           seq++;
           wp_db->AddCommitted(cur_txn, seq);
           wp_db->RemovePrepared(cur_txn);
@@ -3445,9 +3445,8 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
     auto* txn = db->BeginTransaction(WriteOptions());
 
     for (int i = 0; i < 2; i++) {
-      Iterator* iter = (i == 0)
-          ? db->NewIterator(ReadOptions())
-          : txn->GetIterator(ReadOptions());
+      Iterator* iter = (i == 0) ? db->NewIterator(ReadOptions())
+                                : txn->GetIterator(ReadOptions());
       // Seek
       iter->Seek("foo");
       verify_state(iter, "foo", expected_val);
