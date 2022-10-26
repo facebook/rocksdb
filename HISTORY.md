@@ -1,5 +1,6 @@
 # Rocksdb Change Log
 ## Unreleased
+* Improved iterator performance for delete range users when scanning through a consecutive sequence of range tombstones.
 
 ## 7.8.0 (10/22/2022)
 ### New Features
@@ -31,7 +32,6 @@
 * Try to align the compaction output file boundaries to the next level ones, which can reduce more than 10% compaction load for the default level compaction. The feature is enabled by default, to disable, set `AdvancedColumnFamilyOptions.level_compaction_dynamic_file_size` to false. As a side effect, it can create SSTs larger than the target_file_size (capped at 2x target_file_size) or smaller files.
 * Improve RoundRobin TTL compaction, which is going to be the same as normal RoundRobin compaction to move the compaction cursor.
 * Fix a small CPU regression caused by a change that UserComparatorWrapper was made Customizable, because Customizable itself has small CPU overhead for initialization.
-* Improved iterator performance for delete range users when scanning through a consecutive sequence of range tombstones.
 
 ### Behavior Changes
 * Sanitize min_write_buffer_number_to_merge to 1 if atomic flush is enabled to prevent unexpected data loss when WAL is disabled in a multi-column-family setting (#10773).
