@@ -2833,6 +2833,7 @@ Status Version::MultiGetAsync(
         std::vector<Status> statuses = folly::coro::blockingWait(
             folly::coro::collectAllRange(std::move(mget_tasks))
                 .scheduleOn(&range->context()->executor()));
+        mget_tasks.clear();
         for (Status stat : statuses) {
           if (!stat.ok()) {
             s = stat;
