@@ -1067,8 +1067,7 @@ bool InternalStats::HandleCFStatsPeriodic(std::string* value,
   if (has_change) {
     no_cf_change_period_since_dump_ = 0;
     has_cf_change_since_dump_ = false;
-  }
-  if (no_cf_change_period_since_dump_++ > 0) {
+  } else if (no_cf_change_period_since_dump_++ > 0) {
     // Not ready to sync
     if (no_cf_change_period_since_dump_ == kMaxNoChangePeriodSinceDump) {
       // Next periodic, we need to dump stats even if there is no change.
