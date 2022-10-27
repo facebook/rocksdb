@@ -559,8 +559,7 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
         secondary_cache_->Lookup(key, create_cb, wait, found_dummy_entry,
                                  is_in_sec_cache);
     if (secondary_handle != nullptr) {
-      e = reinterpret_cast<LRUHandle*>(
-          malloc(sizeof(LRUHandle) - 1 + key.size()));
+      e = static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
 
       e->m_flags = 0;
       e->im_flags = 0;
@@ -684,7 +683,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   // If the cache is full, we'll have to release it.
   // It shouldn't happen very often though.
   LRUHandle* e =
-      reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
+      static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
 
   e->value = value;
   e->m_flags = 0;
