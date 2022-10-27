@@ -91,6 +91,24 @@ public class Environment {
 
     final File lib = new File("/lib");
     if (lib.exists() && lib.isDirectory() && lib.canRead()) {
+
+      // attempt the most likely musl libc name first
+      final String possibleMuslcLibName;
+      if (isPowerPC()) {
+        possibleMuslcLibName = "libc.musl-ppc64le.so.1";
+      } else if (isAarch64()) {
+        possibleMuslcLibName = "libc.musl-aarch64.so.1";
+      } else if (isS390x()) {
+        possibleMuslcLibName = "libc.musl-s390x.so.1";
+      } else {
+        possibleMuslcLibName = "libc.musl-x86_64.so.1";
+      }
+      final File possibleMuslcLib = new File(lib, possibleMuslcLibName);
+      if (possibleMuslcLib.exists() && possibleMuslcLib.canRead()) {
+        return true;
+      }
+
+      // fallback to scanning for a musl libc
       final File[] libFiles = lib.listFiles();
       if (libFiles == null) {
         return false;
