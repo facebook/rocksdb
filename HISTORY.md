@@ -1,5 +1,6 @@
 # Rocksdb Change Log
 ## Unreleased
+### Performance Improvements
 * Fixed an iterator performance regression for delete range users when scanning through a consecutive sequence of range tombstones (#10877).
 
 ## 7.8.0 (10/22/2022)
