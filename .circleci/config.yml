@@ -519,21 +519,21 @@ jobs:
       size: 2xlarge
     environment:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
-      CMAKE_HOME: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64
-      CMAKE_BIN: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64/bin/cmake.exe
+      CMAKE_HOME: C:/Program Files/CMake
+      CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
       SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.7
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.7;C:/Users/circleci/thirdparty/snappy-1.1.7/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.7/build/Debug/snappy.lib
+      CMAKE_GENERATOR: "Visual Studio 17 2022"
     steps:
       - checkout
       - run:
           name: "Install thirdparty dependencies"
           command: |
+            echo "Installing CMake..."
+            choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
             mkdir ${THIRDPARTY_HOME}
             cd ${THIRDPARTY_HOME}
-            echo "Installing CMake..."
-            curl --fail --silent --show-error --output cmake-3.16.4-win64-x64.zip --location https://github.com/Kitware/CMake/releases/download/v3.16.4/cmake-3.16.4-win64-x64.zip
-            unzip -q cmake-3.16.4-win64-x64.zip
             echo "Building Snappy dependency..."
             curl --fail --silent --show-error --output snappy-1.1.7.zip --location https://github.com/google/snappy/archive/1.1.7.zip
             unzip -q snappy-1.1.7.zip
@@ -568,7 +568,7 @@ jobs:
         default: "2019"
         type: string
       cmake_generator:
-        default: "Visual Studio 16 2019"
+        default: "Visual Studio 17 2022"
         type: string
     environment:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
