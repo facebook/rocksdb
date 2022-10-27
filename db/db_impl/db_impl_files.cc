@@ -315,6 +315,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
     log_write_mutex_.Unlock();
     mutex_.Unlock();
+    TEST_SYNC_POINT_CALLBACK("FindObsoleteFiles::PostMutexUnlock", nullptr);
     log_write_mutex_.Lock();
     while (!logs_.empty() && logs_.front().number < min_log_number) {
       auto& log = logs_.front();
