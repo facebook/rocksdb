@@ -514,13 +514,16 @@ jobs:
       - post-steps
 
   build-windows-vs2022:
-    executor: win/server-2022
-    THIRDPARTY_HOME: C:/Users/circleci/thirdparty
-    CMAKE_HOME: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64
-    CMAKE_BIN: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64/bin/cmake.exe
-    SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.7
-    SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.7;C:/Users/circleci/thirdparty/snappy-1.1.7/build
-    SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.7/build/Debug/snappy.lib
+    executor:
+      name: win/server-2022
+      size: 2xlarge
+    environment:
+      THIRDPARTY_HOME: C:/Users/circleci/thirdparty
+      CMAKE_HOME: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64
+      CMAKE_BIN: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64/bin/cmake.exe
+      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.7
+      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.7;C:/Users/circleci/thirdparty/snappy-1.1.7/build
+      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.7/build/Debug/snappy.lib
   steps:
     - checkout
     - run:
