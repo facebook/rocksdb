@@ -110,7 +110,7 @@ public class CompactRangeOptionsTest {
       // worried slightly about destructive reads, so read it twice
       CompactRangeOptions.Timestamp timestampResult = opt.fullHistoryTSLow();
       assertThat(timestamp.start).isEqualTo(timestampResult.start);
-      assertThat(timestamp.duration).isEqualTo(timestampResult.duration);
+      assertThat(timestamp.range).isEqualTo(timestampResult.range);
       assertThat(timestamp).isEqualTo(timestampResult);
     }
   }

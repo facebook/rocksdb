@@ -73,16 +73,16 @@ public class CompactRangeOptions extends RocksObject {
 
   public static class Timestamp {
     public final long start;
-    public final long duration;
+    public final long range;
 
     public Timestamp(final long start, final long duration) {
       this.start = start;
-      this.duration = duration;
+      this.range = duration;
     }
 
     public Timestamp() {
       this.start = 0;
-      this.duration = 0;
+      this.range = 0;
     }
 
     @Override
@@ -92,12 +92,12 @@ public class CompactRangeOptions extends RocksObject {
       if (o == null || getClass() != o.getClass())
         return false;
       Timestamp timestamp = (Timestamp) o;
-      return start == timestamp.start && duration == timestamp.duration;
+      return start == timestamp.start && range == timestamp.range;
     }
 
     @Override
     public int hashCode() {
-      return Objects.hash(start, duration);
+      return Objects.hash(start, range);
     }
   }
 
@@ -251,16 +251,12 @@ public class CompactRangeOptions extends RocksObject {
   }
 
   public CompactRangeOptions setFullHistoryTSLow(final Timestamp tsLow) {
-    setFullHistoryTSLow(nativeHandle_, tsLow.start, tsLow.duration);
+    setFullHistoryTSLow(nativeHandle_, tsLow.start, tsLow.range);
     return this;
   }
 
   public Timestamp fullHistoryTSLow() {
-    Timestamp timestamp = new Timestamp();
-    if (fullHistoryTSLow(nativeHandle_, timestamp)) {
-      return timestamp;
-    }
-    return null;
+    return fullHistoryTSLow(nativeHandle_);
   }
 
   public CompactRangeOptions setCanceled(final boolean canceled) {
@@ -300,7 +296,7 @@ public class CompactRangeOptions extends RocksObject {
   private native void setFullHistoryTSLow(
       final long handle, final long timestampStart, final long timestampRange);
 
-  private native boolean fullHistoryTSLow(final long handle, final Timestamp result);
+  private native Timestamp fullHistoryTSLow(final long handle);
 
   private native void setCanceled(final long handle, final boolean canceled);
 

@@ -267,21 +267,23 @@ void Java_org_rocksdb_CompactRangeOptions_setFullHistoryTSLow(JNIEnv*, jobject,
 /*
  * Class:     org_rocksdb_CompactRangeOptions
  * Method:    fullHistoryTSLow
- * Signature: (JLorg/rocksdb/CompactRangeOptions/Timestamp;)V
+ * Signature: (J)Lorg/rocksdb/CompactRangeOptions/Timestamp;
  */
-jboolean Java_org_rocksdb_CompactRangeOptions_fullHistoryTSLow(
-    JNIEnv* env, jobject, jlong jhandle, jobject jtimestamp) {
+jobject Java_org_rocksdb_CompactRangeOptions_fullHistoryTSLow(JNIEnv* env,
+                                                              jobject,
+                                                              jlong jhandle) {
   auto* options =
       reinterpret_cast<Java_org_rocksdb_CompactRangeOptions*>(jhandle);
   uint64_t start;
-  uint64_t duration;
-  if (!options->read_full_history_ts_low(&start, &duration)) return false;
-  std::unique_ptr<ROCKSDB_NAMESPACE::ObjectFieldAccessorJni> timestamp(
-      new ROCKSDB_NAMESPACE::ObjectFieldAccessorJni(env, jtimestamp));
-  timestamp->set_long("start", start);
-  timestamp->set_long("duration", duration);
+  uint64_t range;
+  jobject result = nullptr;
+  if (options->read_full_history_ts_low(&start, &range)) {
+    result =
+        ROCKSDB_NAMESPACE::CompactRangeOptionsTimestampJni::fromCppTimestamp(
+            env, start, range);
+  }
 
-  return true;
+  return result;
 }
 
 /*
