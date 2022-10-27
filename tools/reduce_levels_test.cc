@@ -19,7 +19,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class ReduceLevelTest : public testing::Test {
-public:
+ public:
   ReduceLevelTest() {
     dbname_ = test::PerThreadDBPath("db_reduce_levels_test");
     EXPECT_OK(DestroyDB(dbname_, Options()));
@@ -75,7 +75,7 @@ public:
     return atoi(property.c_str());
   }
 
-private:
+ private:
   std::string dbname_;
   DB* db_;
 };

@@ -293,7 +293,7 @@ bool UniversalCompactionPicker::NeedsCompaction(
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, SequenceNumber /* earliest_memtable_seqno */) {
+    LogBuffer* log_buffer, const SequenceNumber /* earliest_mem_seqno */) {
   UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
                                      mutable_cf_options, mutable_db_options,
                                      vstorage, this, log_buffer);
@@ -308,9 +308,10 @@ void UniversalCompactionBuilder::SortedRun::Dump(char* out_buf,
     if (file->fd.GetPathId() == 0 || !print_path) {
       snprintf(out_buf, out_buf_size, "file %" PRIu64, file->fd.GetNumber());
     } else {
-      snprintf(out_buf, out_buf_size, "file %" PRIu64
-                                      "(path "
-                                      "%" PRIu32 ")",
+      snprintf(out_buf, out_buf_size,
+               "file %" PRIu64
+               "(path "
+               "%" PRIu32 ")",
                file->fd.GetNumber(), file->fd.GetPathId());
     }
   } else {
