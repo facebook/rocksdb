@@ -78,10 +78,6 @@ public class Environment {
       return false;
     }
 
-    if (!isUnix()) {
-      return false; // not unix therefore not musl
-    }
-
     final File lib = new File("/lib");
     if (lib.exists() && lib.isDirectory() && lib.canRead()) {
       final File[] libFiles = lib.listFiles();
