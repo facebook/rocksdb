@@ -846,14 +846,18 @@ bool MergingIterator::SkipNextDeleted() {
     // SetTombstoneKey()).
     assert(ExtractValueType(current->iter.key()) != kTypeRangeDeletion ||
            active_.count(current->level) == 0);
-    // LevelIterator enters a new SST file
-    current->iter.Next();
-    if (current->iter.Valid()) {
-      assert(current->iter.status().ok());
-      minHeap_.replace_top(current);
-    } else {
-      minHeap_.pop();
-    }
+    // When entering a new file, old range tombstone iter is freed,
+    // but the last key from that range tombstone iter may still be in the heap.
+    // We need to ensure the data underlying its corresponding key Slice is
+    // still alive. We do so by popping the range tombstone key from heap before
+    // calling iter->Next(). Technically, this change is not needed: if there is
+    // a range tombstone end key that is after file boundary sentinel key in
+    // minHeap_, the range tombstone end key must have been truncated at file
+    // boundary. The underlying data of the range tombstone end key Slice is the
+    // SST file's largest internal key stored as file metadata in Version.
+    // However, since there are too many implicit assumptions made, it is safer
+    // to just ensure range tombstone iter is still alive.
+    minHeap_.pop();
     // Remove last SST file's range tombstone end key if there is one.
     // This means file boundary is before range tombstone end key,
     // which could happen when a range tombstone and a user key
@@ -863,6 +867,12 @@ bool MergingIterator::SkipNextDeleted() {
         minHeap_.top()->type == HeapItem::DELETE_RANGE_END) {
       minHeap_.pop();
       active_.erase(current->level);
+    }
+    // LevelIterator enters a new SST file
+    current->iter.Next();
+    if (current->iter.Valid()) {
+      assert(current->iter.status().ok());
+      minHeap_.push(current);
     }
     if (range_tombstone_iters_[current->level] &&
         range_tombstone_iters_[current->level]->Valid()) {
@@ -1060,18 +1070,19 @@ bool MergingIterator::SkipPrevDeleted() {
   }
   if (current->iter.IsDeleteRangeSentinelKey()) {
     // LevelIterator enters a new SST file
-    current->iter.Prev();
-    if (current->iter.Valid()) {
-      assert(current->iter.status().ok());
-      maxHeap_->replace_top(current);
-    } else {
-      maxHeap_->pop();
-    }
+    maxHeap_->pop();
+    // Remove last SST file's range tombstone key if there is one.
     if (!maxHeap_->empty() && maxHeap_->top()->level == current->level &&
         maxHeap_->top()->type == HeapItem::DELETE_RANGE_START) {
       maxHeap_->pop();
       active_.erase(current->level);
     }
+    current->iter.Prev();
+    if (current->iter.Valid()) {
+      assert(current->iter.status().ok());
+      maxHeap_->push(current);
+    }
+
     if (range_tombstone_iters_[current->level] &&
         range_tombstone_iters_[current->level]->Valid()) {
       InsertRangeTombstoneToMaxHeap(current->level);
