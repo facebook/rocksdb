@@ -382,7 +382,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
         last_reference_list.push_back(e);
       } else {
         if (free_handle_on_fail) {
-          delete[] reinterpret_cast<char*>(e);
+          free(e);
           *handle = nullptr;
         }
         s = Status::MemoryLimit("Insert failed due to LRU cache being full.");
@@ -561,8 +561,7 @@ Cache::Handle* LRUCacheShard::Lookup(
         secondary_cache_->Lookup(key, create_cb, wait, found_dummy_entry,
                                  is_in_sec_cache);
     if (secondary_handle != nullptr) {
-      e = reinterpret_cast<LRUHandle*>(
-          new char[sizeof(LRUHandle) - 1 + key.size()]);
+      e = static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
 
       e->flags = 0;
       e->SetSecondaryCacheCompatible(true);
@@ -684,8 +683,8 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   // Allocate the memory here outside of the mutex.
   // If the cache is full, we'll have to release it.
   // It shouldn't happen very often though.
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(
-      new char[sizeof(LRUHandle) - 1 + key.size()]);
+  LRUHandle* e =
+      static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
 
   e->value = value;
   e->flags = 0;

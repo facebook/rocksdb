@@ -241,7 +241,8 @@ struct LRUHandle {
         (*info_.helper->del_cb)(key(), value);
       }
     }
-    delete[] reinterpret_cast<char*>(this);
+
+    free(this);
   }
 
   inline size_t CalcuMetaCharge(
