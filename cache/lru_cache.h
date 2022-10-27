@@ -228,7 +228,7 @@ struct LRUHandle {
       }
     }
 
-    port::cacheline_aligned_free(this);
+    free(this);
   }
 
   inline size_t CalcuMetaCharge(
