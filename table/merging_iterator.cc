@@ -197,7 +197,8 @@ class MergingIterator : public InternalIterator {
   // Add range_tombstone_iters_[level] into min heap.
   // Updates active_ if the end key of a range tombstone is inserted.
   // @param start_key specifies which end point of the range tombstone to add.
-  void InsertRangeTombstoneToMinHeap(size_t level, bool start_key = true) {
+  void InsertRangeTombstoneToMinHeap(size_t level, bool start_key = true,
+                                     bool replace_top = false) {
     assert(!range_tombstone_iters_.empty() &&
            range_tombstone_iters_[level]->Valid());
     if (start_key) {
@@ -211,13 +212,18 @@ class MergingIterator : public InternalIterator {
       pinned_heap_item_[level].type = HeapItem::DELETE_RANGE_END;
       active_.insert(level);
     }
-    minHeap_.push(&pinned_heap_item_[level]);
+    if (replace_top) {
+      minHeap_.replace_top(&pinned_heap_item_[level]);
+    } else {
+      minHeap_.push(&pinned_heap_item_[level]);
+    }
   }
 
   // Add range_tombstone_iters_[level] into max heap.
   // Updates active_ if the start key of a range tombstone is inserted.
   // @param end_key specifies which end point of the range tombstone to add.
-  void InsertRangeTombstoneToMaxHeap(size_t level, bool end_key = true) {
+  void InsertRangeTombstoneToMaxHeap(size_t level, bool end_key = true,
+                                     bool replace_top = false) {
     assert(!range_tombstone_iters_.empty() &&
            range_tombstone_iters_[level]->Valid());
     if (end_key) {
@@ -231,7 +237,11 @@ class MergingIterator : public InternalIterator {
       pinned_heap_item_[level].type = HeapItem::DELETE_RANGE_START;
       active_.insert(level);
     }
-    maxHeap_->push(&pinned_heap_item_[level]);
+    if (replace_top) {
+      maxHeap_->replace_top(&pinned_heap_item_[level]);
+    } else {
+      maxHeap_->push(&pinned_heap_item_[level]);
+    }
   }
 
   // Remove HeapItems from top of minHeap_ that are of type DELETE_RANGE_START
@@ -241,10 +251,9 @@ class MergingIterator : public InternalIterator {
   void PopDeleteRangeStart() {
     while (!minHeap_.empty() &&
            minHeap_.top()->type == HeapItem::DELETE_RANGE_START) {
-      auto level = minHeap_.top()->level;
-      minHeap_.pop();
       // insert end key of this range tombstone and updates active_
-      InsertRangeTombstoneToMinHeap(level, false /* start_key */);
+      InsertRangeTombstoneToMinHeap(
+          minHeap_.top()->level, false /* start_key */, true /* replace_top */);
     }
   }
 
@@ -255,10 +264,9 @@ class MergingIterator : public InternalIterator {
   void PopDeleteRangeEnd() {
     while (!maxHeap_->empty() &&
            maxHeap_->top()->type == HeapItem::DELETE_RANGE_END) {
-      auto level = maxHeap_->top()->level;
-      maxHeap_->pop();
       // insert start key of this range tombstone and updates active_
-      InsertRangeTombstoneToMaxHeap(level, false /* end_key */);
+      InsertRangeTombstoneToMaxHeap(maxHeap_->top()->level, false /* end_key */,
+                                    true /* replace_top */);
     }
   }
 
@@ -761,13 +769,15 @@ bool MergingIterator::SkipNextDeleted() {
   // - range deletion end key
   auto current = minHeap_.top();
   if (current->type == HeapItem::DELETE_RANGE_END) {
-    minHeap_.pop();
     active_.erase(current->level);
     assert(range_tombstone_iters_[current->level] &&
            range_tombstone_iters_[current->level]->Valid());
     range_tombstone_iters_[current->level]->Next();
     if (range_tombstone_iters_[current->level]->Valid()) {
-      InsertRangeTombstoneToMinHeap(current->level);
+      InsertRangeTombstoneToMinHeap(current->level, true /* start_key */,
+                                    true /* replace_top */);
+    } else {
+      minHeap_.pop();
     }
     return true /* current key deleted */;
   }
@@ -977,13 +987,15 @@ bool MergingIterator::SkipPrevDeleted() {
   // - range deletion start key
   auto current = maxHeap_->top();
   if (current->type == HeapItem::DELETE_RANGE_START) {
-    maxHeap_->pop();
     active_.erase(current->level);
     assert(range_tombstone_iters_[current->level] &&
            range_tombstone_iters_[current->level]->Valid());
     range_tombstone_iters_[current->level]->Prev();
     if (range_tombstone_iters_[current->level]->Valid()) {
-      InsertRangeTombstoneToMaxHeap(current->level);
+      InsertRangeTombstoneToMaxHeap(current->level, true /* end_key */,
+                                    true /* replace_top */);
+    } else {
+      maxHeap_->pop();
     }
     return true /* current key deleted */;
   }

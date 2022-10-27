@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fixed an iterator performance regression for delete range users when scanning through a consecutive sequence of range tombstones (#10877).
+
 ## 7.7.4 (10/28/2022)
 ### Bug Fixes
 * Fixed a case of calling malloc_usable_size on result of operator new[].
