@@ -2,6 +2,7 @@
 package org.rocksdb.util;
 
 import java.io.File;
+import java.io.IOException;
 
 public class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
@@ -76,6 +77,16 @@ public class Environment {
     }
     if ("false".equalsIgnoreCase(MUSL_ENVIRONMENT)) {
       return false;
+    }
+
+    // check if ldd indicates a muslc lib
+    try {
+      final Process p = new ProcessBuilder("/usr/bin/env", "sh", "-c", "ldd /usr/bin/env | grep -q musl").start();
+      if (p.waitFor() == 0) {
+        return true;
+      }
+    } catch (final IOException | InterruptedException e) {
+      // do nothing, and move on to the next check
     }
 
     final File lib = new File("/lib");
