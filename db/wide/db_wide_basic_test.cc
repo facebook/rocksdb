@@ -209,6 +209,148 @@ TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
+TEST_F(DBWideBasicTest, MergePlainKeyValue) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  // Put + Merge
+  constexpr char first_key[] = "first";
+  constexpr char first_base_value[] = "hello";
+  constexpr char first_merge_op[] = "world";
+
+  // Delete + Merge
+  constexpr char second_key[] = "second";
+  constexpr char second_merge_op[] = "foo";
+
+  // Merge without any preceding KV
+  constexpr char third_key[] = "third";
+  constexpr char third_merge_op[] = "bar";
+
+  auto write_base = [&]() {
+    // Write "base" KVs: a Put for the 1st key and a Delete for the 2nd one;
+    // note there is no "base" KV for the 3rd
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), first_key,
+                       first_base_value));
+    ASSERT_OK(
+        db_->Delete(WriteOptions(), db_->DefaultColumnFamily(), second_key));
+  };
+
+  auto write_merge = [&]() {
+    // Write Merge operands
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
+                         first_merge_op));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
+                         second_merge_op));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), third_key,
+                         third_merge_op));
+  };
+
+  const std::string expected_first_column(std::string(first_base_value) + "," +
+                                          first_merge_op);
+  const WideColumns expected_first_columns{
+      {kDefaultWideColumnName, expected_first_column}};
+  const WideColumns expected_second_columns{
+      {kDefaultWideColumnName, second_merge_op}};
+  const WideColumns expected_third_columns{
+      {kDefaultWideColumnName, third_merge_op}};
+
+  auto verify = [&]() {
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               first_key, &result));
+      ASSERT_EQ(result.columns(), expected_first_columns);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               second_key, &result));
+      ASSERT_EQ(result.columns(), expected_second_columns);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               third_key, &result));
+
+      ASSERT_EQ(result.columns(), expected_third_columns);
+    }
+
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), expected_first_columns[0].value());
+      ASSERT_EQ(iter->columns(), expected_first_columns);
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_EQ(iter->value(), expected_second_columns[0].value());
+      ASSERT_EQ(iter->columns(), expected_second_columns);
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), third_key);
+      ASSERT_EQ(iter->value(), expected_third_columns[0].value());
+      ASSERT_EQ(iter->columns(), expected_third_columns);
+
+      iter->Next();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+
+      iter->SeekToLast();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), third_key);
+      ASSERT_EQ(iter->value(), expected_third_columns[0].value());
+      ASSERT_EQ(iter->columns(), expected_third_columns);
+
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_EQ(iter->value(), expected_second_columns[0].value());
+      ASSERT_EQ(iter->columns(), expected_second_columns);
+
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), expected_first_columns[0].value());
+      ASSERT_EQ(iter->columns(), expected_first_columns);
+
+      iter->Prev();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+    }
+  };
+
+  // Base KVs (if any) and Merge operands both in memtable
+  write_base();
+  write_merge();
+  verify();
+
+  // Base KVs (if any) and Merge operands both in storage
+  ASSERT_OK(Flush());
+  verify();
+
+  // Base KVs (if any) in storage, Merge operands in memtable
+  DestroyAndReopen(options);
+  write_base();
+  ASSERT_OK(Flush());
+  write_merge();
+  verify();
+}
+
 TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
   Options options = GetDefaultOptions();
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
