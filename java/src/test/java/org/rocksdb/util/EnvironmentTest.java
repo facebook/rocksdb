@@ -5,7 +5,6 @@
 package org.rocksdb.util;
 
 import org.junit.AfterClass;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -250,11 +249,11 @@ public class EnvironmentTest {
     assertThat(Environment.isUnix()).isFalse();
 
     // with user input, will resolve to true if set as true. Even on OSs that appear absurd for musl. Users choice
-    assertThat(Environment.resolveIsMuslLibc()).isFalse();
+    assertThat(Environment.initIsMuslLibc()).isFalse();
     setEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME, "true");
-    assertThat(Environment.resolveIsMuslLibc()).isTrue();
+    assertThat(Environment.initIsMuslLibc()).isTrue();
     setEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME, "false");
-    assertThat(Environment.resolveIsMuslLibc()).isFalse();
+    assertThat(Environment.initIsMuslLibc()).isFalse();
 
   }
 

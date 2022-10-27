@@ -2,13 +2,18 @@
 package org.rocksdb.util;
 
 import java.io.File;
-import java.io.IOException;
 
 public class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
   private static String ARCH = System.getProperty("os.arch").toLowerCase();
-  private static String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_ENVIRONMENT_MUSL");
-  private static Boolean MUSL_LIBC;
+  private static String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
+
+  /**
+   * Will be lazily initialised by {@link #isMuslLibc()} instead of the previous static initialisation.
+   * The lazy initialisation prevents Windows from reporting suspicious behaviour
+   * of the JVM attempting IO on Unix paths.
+   */
+  private static Boolean MUSL_LIBC = null;
 
   public static boolean isAarch64() {
     return ARCH.contains("aarch64");
@@ -44,24 +49,52 @@ public class Environment {
   }
 
   /**
-   * lazy evaluation to prevent OS calls when "is this musl?" is not necessary
-   * no need to have a windows box report suspicious behaviour that the jvm attempts IO on unix paths
+   * Determine if the environment has a musl libc.
+   *
+   * @return true if the environment has a musl libc, false otherwise.
    */
   public static boolean isMuslLibc() {
-    if(MUSL_LIBC == null) MUSL_LIBC = resolveIsMuslLibc();
+    if (MUSL_LIBC == null) {
+      MUSL_LIBC = initIsMuslLibc();
+    }
     return MUSL_LIBC;
   }
 
-  static boolean resolveIsMuslLibc() {
-    // explicit user input in case any below calls cause issues in their environment
-    if("true".equalsIgnoreCase(MUSL_ENVIRONMENT)) return true;
-    if("false".equalsIgnoreCase(MUSL_ENVIRONMENT)) return false;
-    if(!isUnix()) return false; // not unix therefore not musl
-    File[] allFilesInLib = new File("/lib/").listFiles();
-    if(allFilesInLib == null) return false;
-    for(File f : allFilesInLib) {
-      if(f.getPath().startsWith("/lib/libc.musl")) return true;
+  /**
+   * Determine if the environment has a musl libc.
+   *
+   * The initialisation counterpart of {@link #isMuslLibc()}.
+   *
+   * Intentionally package-private for testing.
+   *
+   * @return true if the environment has a musl libc, false otherwise.
+   */
+  static boolean initIsMuslLibc() {
+    // consider explicit user setting from environment first
+    if ("true".equalsIgnoreCase(MUSL_ENVIRONMENT)) {
+      return true;
     }
+    if ("false".equalsIgnoreCase(MUSL_ENVIRONMENT)) {
+      return false;
+    }
+
+    if (!isUnix()) {
+      return false; // not unix therefore not musl
+    }
+
+    final File lib = new File("/lib");
+    if (lib.exists() && lib.isDirectory() && lib.canRead()) {
+      final File[] libFiles = lib.listFiles();
+      if (libFiles == null) {
+        return false;
+      }
+      for (final File f : libFiles) {
+        if (f.getName().startsWith("libc.musl")) {
+          return true;
+        }
+      }
+    }
+
     return false;
   }
 
