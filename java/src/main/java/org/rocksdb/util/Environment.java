@@ -10,9 +10,9 @@ public class Environment {
   private static String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
 
   /**
-   * Will be lazily initialised by {@link #isMuslLibc()} instead of the previous static initialisation.
-   * The lazy initialisation prevents Windows from reporting suspicious behaviour
-   * of the JVM attempting IO on Unix paths.
+   * Will be lazily initialised by {@link #isMuslLibc()} instead of the previous static
+   * initialisation. The lazy initialisation prevents Windows from reporting suspicious behaviour of
+   * the JVM attempting IO on Unix paths.
    */
   private static Boolean MUSL_LIBC = null;
 
@@ -81,7 +81,8 @@ public class Environment {
 
     // check if ldd indicates a muslc lib
     try {
-      final Process p = new ProcessBuilder("/usr/bin/env", "sh", "-c", "ldd /usr/bin/env | grep -q musl").start();
+      final Process p =
+          new ProcessBuilder("/usr/bin/env", "sh", "-c", "ldd /usr/bin/env | grep -q musl").start();
       if (p.waitFor() == 0) {
         return true;
       }
@@ -91,7 +92,6 @@ public class Environment {
 
     final File lib = new File("/lib");
     if (lib.exists() && lib.isDirectory() && lib.canRead()) {
-
       // attempt the most likely musl libc name first
       final String possibleMuslcLibName;
       if (isPowerPC()) {

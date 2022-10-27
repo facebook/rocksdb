@@ -4,14 +4,13 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb.util;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.is;
+
+import java.lang.reflect.Field;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import java.lang.reflect.Field;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.is;
 
 public class EnvironmentTest {
   private final static String ARCH_FIELD_NAME = "ARCH";
@@ -19,7 +18,6 @@ public class EnvironmentTest {
 
   private final static String MUSL_ENVIRONMENT_FIELD_NAME = "MUSL_ENVIRONMENT";
   private final static String MUSL_LIBC_FIELD_NAME = "MUSL_LIBC";
-
 
   private static String INITIAL_OS;
   private static String INITIAL_ARCH;
@@ -248,13 +246,13 @@ public class EnvironmentTest {
     setEnvironmentClassFields("win", "anyarch");
     assertThat(Environment.isUnix()).isFalse();
 
-    // with user input, will resolve to true if set as true. Even on OSs that appear absurd for musl. Users choice
+    // with user input, will resolve to true if set as true. Even on OSs that appear absurd for
+    // musl. Users choice
     assertThat(Environment.initIsMuslLibc()).isFalse();
     setEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME, "true");
     assertThat(Environment.initIsMuslLibc()).isTrue();
     setEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME, "false");
     assertThat(Environment.initIsMuslLibc()).isFalse();
-
   }
 
   private void setEnvironmentClassFields(String osName,
