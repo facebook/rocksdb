@@ -252,24 +252,26 @@ class VersionStorageInfo {
       int level, const InternalKey* begin,  // nullptr means before all keys
       const InternalKey* end,               // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      int hint_index = -1,        // index of overlap file
+      const SequenceNumber
+          earliest_mem_seqno,  // `earliest_mem_seqno` is the earliest seqno of
+                               // unflushed memtables
+      int hint_index = -1,     // index of overlap file
       int* file_index = nullptr,  // return index of overlap file
       bool expand_range = true,   // if set, returns files which overlap the
                                   // range and overlap each other. If false,
                                   // then just files intersecting the range
       InternalKey** next_smallest =
-          nullptr,  // if non-null, returns the
-                    // smallest key of next file not included
-      const SequenceNumber earliest_mem_seqno =
-          kMaxSequenceNumber  // `earliest_mem_seqno` is the earliest seqno of
-                              // unflushed memtables. For more, see see
-                              // CompactionPicker::PickCompaction() API
+          nullptr  // if non-null, returns the
+                   // smallest key of next file not included
   ) const;
   void GetCleanInputsWithinInterval(
       int level, const InternalKey* begin,  // nullptr means before all keys
       const InternalKey* end,               // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      int hint_index = -1,        // index of overlap file
+      const SequenceNumber
+          earliest_mem_seqno,  // `earliest_mem_seqno` is the earliest seqno of
+                               // unflushed memtables
+      int hint_index = -1,     // index of overlap file
       int* file_index = nullptr)  // return index of overlap file
       const;
 
@@ -278,8 +280,11 @@ class VersionStorageInfo {
       const InternalKey* begin,  // nullptr means before all keys
       const InternalKey* end,    // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      int hint_index,                // index of overlap file
-      int* file_index,               // return index of overlap file
+      const SequenceNumber
+          earliest_mem_seqno,  // `earliest_mem_seqno` is the earliest seqno of
+                               // unflushed memtables
+      int hint_index,          // index of overlap file
+      int* file_index,         // return index of overlap file
       bool within_interval = false,  // if set, force the inputs within interval
       InternalKey** next_smallest = nullptr)  // if non-null, returns the
       const;  // smallest key of next file not included
@@ -446,6 +451,11 @@ class VersionStorageInfo {
       const {
     assert(finalized_);
     return files_marked_for_compaction_;
+  }
+
+  void TEST_AddFileMarkedForCompaction(int level, FileMetaData* f) {
+    f->marked_for_compaction = true;
+    files_marked_for_compaction_.emplace_back(level, f);
   }
 
   // REQUIRES: ComputeCompactionScore has been called
@@ -620,7 +630,9 @@ class VersionStorageInfo {
   CompactionStyle compaction_style_;
 
   // List of files per level, files in each level are arranged
-  // in increasing order of keys
+  // in increasing order of the largest seqno of the file.
+  // e.g, L1: s0 of largest seqno 5, s2 of largest seqno 3, s3 of largest seqno
+  // 1
   std::vector<FileMetaData*>* files_;
 
   // Map of all table files in version. Maps file number to (level, position on

@@ -1686,8 +1686,9 @@ Status Version::GetPropertiesOfTablesInRange(
       InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
       InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
       std::vector<FileMetaData*> files;
-      storage_info_.GetOverlappingInputs(level, &k1, &k2, &files, -1, nullptr,
-                                         false);
+      storage_info_.GetOverlappingInputs(
+          level, &k1, &k2, &files, kMaxSequenceNumber /* earliest_mem_seqno */,
+          -1, nullptr, false);
       for (const auto& file_meta : files) {
         auto fname =
             TableFileName(cfd_->ioptions()->cf_paths,
@@ -4010,9 +4011,9 @@ bool VersionStorageInfo::OverlapInLevel(int level,
 // The file_index returns a pointer to any file in an overlapping range.
 void VersionStorageInfo::GetOverlappingInputs(
     int level, const InternalKey* begin, const InternalKey* end,
-    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool expand_range, InternalKey** next_smallest,
-    const SequenceNumber earliest_mem_seqno) const {
+    std::vector<FileMetaData*>* inputs, const SequenceNumber earliest_mem_seqno,
+    int hint_index, int* file_index, bool expand_range,
+    InternalKey** next_smallest) const {
   if (level >= num_non_empty_levels_) {
     // this level is empty, no overlapping inputs
     return;
@@ -4024,7 +4025,8 @@ void VersionStorageInfo::GetOverlappingInputs(
   }
   const Comparator* user_cmp = user_comparator_;
   if (level > 0) {
-    GetOverlappingInputsRangeBinarySearch(level, begin, end, inputs, hint_index,
+    GetOverlappingInputsRangeBinarySearch(level, begin, end, inputs,
+                                          earliest_mem_seqno, hint_index,
                                           file_index, false, next_smallest);
     return;
   }
@@ -4056,18 +4058,20 @@ void VersionStorageInfo::GetOverlappingInputs(
       FdWithKeyRange* f = &(level_files_brief_[level].files[*iter]);
       const Slice file_start = ExtractUserKey(f->smallest_key);
       const Slice file_limit = ExtractUserKey(f->largest_key);
-      if (begin != nullptr &&
-          user_cmp->CompareWithoutTimestamp(file_limit, user_begin) < 0) {
+      if (files_[level][*iter]->fd.largest_seqno > earliest_mem_seqno) {
+        // "f" has seqno potentailly overlapping with memtable's;  skip it
+        iter++;
+      } else if (begin != nullptr && user_cmp->CompareWithoutTimestamp(
+                                         file_limit, user_begin) < 0) {
         // "f" is completely before specified range; skip it
         iter++;
       } else if (end != nullptr &&
                  user_cmp->CompareWithoutTimestamp(file_start, user_end) > 0) {
         // "f" is completely after specified range; skip it
         iter++;
-      } else if (files_[level][*iter]->fd.largest_seqno > earliest_mem_seqno) {
-        iter++;
       } else {
-        // if overlap
+        // if overlap and `files_[level][*iter]->fd.largest_seqno <=
+        // earliest_mem_seqno`
         inputs->emplace_back(files_[level][*iter]);
         found_overlapping_file = true;
         // record the first file index.
@@ -4096,6 +4100,9 @@ void VersionStorageInfo::GetOverlappingInputs(
 }
 
 // Store in "*inputs" files in "level" that within range [begin,end]
+// In this process, only files of largest seqno no greater than
+// `earliest_mem_seqno` will be added to prevent potential
+// seqno overlap with memtable
 // Guarantee a "clean cut" boundary between the files in inputs
 // and the surrounding files and the maxinum number of files.
 // This will ensure that no parts of a key are lost during compaction.
@@ -4103,7 +4110,8 @@ void VersionStorageInfo::GetOverlappingInputs(
 // The file_index returns a pointer to any file in an overlapping range.
 void VersionStorageInfo::GetCleanInputsWithinInterval(
     int level, const InternalKey* begin, const InternalKey* end,
-    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) const {
+    std::vector<FileMetaData*>* inputs, const SequenceNumber earliest_mem_seqno,
+    int hint_index, int* file_index) const {
   inputs->clear();
   if (file_index) {
     *file_index = -1;
@@ -4116,21 +4124,26 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
   }
 
   GetOverlappingInputsRangeBinarySearch(level, begin, end, inputs,
-                                        hint_index, file_index,
-                                        true /* within_interval */);
+                                        earliest_mem_seqno, hint_index,
+                                        file_index, true /* within_interval */);
 }
 
-// Store in "*inputs" all files in "level" that overlap [begin,end]
-// Employ binary search to find at least one file that overlaps the
+// Store in "*inputs" all files in "level" that overlap [begin,end].
+// In this process, only files of largest seqno no greater than
+// `earliest_mem_seqno` will be added to prevent potential
+// seqno overlap with memtable. If within_range is set, then only
+// store the maximum clean input within range [begin, end].
+// "clean" means there is a boundary between the files in
+// "*inputs" and the surrounding files
+//
+// Algorithm: employ binary search to find at least one file that overlaps the
 // specified range. From that file, iterate backwards and
 // forwards to find all overlapping files.
-// if within_range is set, then only store the maximum clean inputs
-// within range [begin, end]. "clean" means there is a boundary
-// between the files in "*inputs" and the surrounding files
 void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     int level, const InternalKey* begin, const InternalKey* end,
-    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
-    bool within_interval, InternalKey** next_smallest) const {
+    std::vector<FileMetaData*>* inputs, const SequenceNumber earliest_mem_seqno,
+    int hint_index, int* file_index, bool within_interval,
+    InternalKey** next_smallest) const {
   assert(level > 0);
 
   auto user_cmp = user_comparator_;
@@ -4195,9 +4208,19 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     }
   }
 
+  // Skip files of potential overlapping seqnos with memtable'
+  for (int i = start_index; i < end_index; ++i) {
+    if (files[i].fd.largest_seqno > earliest_mem_seqno) {
+      start_index = i + 1;
+    } else {
+      break;
+    }
+  }
+
   assert(start_index <= end_index);
 
-  // If there were no overlapping files, return immediately.
+  // If there were no overlapping files of largest seqno no greater than
+  // earliest_mem_seqno, return immediately.
   if (start_index == end_index) {
     if (next_smallest) {
       *next_smallest = nullptr;
@@ -4297,7 +4320,8 @@ uint64_t VersionStorageInfo::MaxNextLevelOverlappingBytes() {
   std::vector<FileMetaData*> overlaps;
   for (int level = 1; level < num_levels() - 1; level++) {
     for (const auto& f : files_[level]) {
-      GetOverlappingInputs(level + 1, &f->smallest, &f->largest, &overlaps);
+      GetOverlappingInputs(level + 1, &f->smallest, &f->largest, &overlaps,
+                           kMaxSequenceNumber /* earliest_mem_seqno */);
       const uint64_t sum = TotalFileSize(overlaps);
       if (sum > result) {
         result = sum;

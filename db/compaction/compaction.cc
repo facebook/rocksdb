@@ -501,8 +501,9 @@ bool Compaction::IsTrivialMove() const {
     if (output_level_ + 1 >= number_levels_) {
       continue;
     }
-    input_vstorage_->GetOverlappingInputs(output_level_ + 1, &file->smallest,
-                                          &file->largest, &file_grand_parents);
+    input_vstorage_->GetOverlappingInputs(
+        output_level_ + 1, &file->smallest, &file->largest, &file_grand_parents,
+        kMaxSequenceNumber /* earliest_mem_seqno */);
     const auto compaction_size =
         file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
     if (compaction_size > max_compaction_bytes_) {

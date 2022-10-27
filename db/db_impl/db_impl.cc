@@ -4290,7 +4290,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
         }
 
         vstorage->GetCleanInputsWithinInterval(
-            i, begin_key, end_key, &level_files, -1 /* hint_index */,
+            i, begin_key, end_key, &level_files,
+            kMaxSequenceNumber /* earliest_mem_seqno */, -1 /* hint_index */,
             nullptr /* file_index */);
         FileMetaData* level_file;
         for (uint32_t j = 0; j < level_files.size(); j++) {

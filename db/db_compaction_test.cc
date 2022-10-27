@@ -9,6 +9,7 @@
 
 #include <tuple>
 
+#include "compaction/compaction_picker_universal.h"
 #include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "env/mock_env.h"
@@ -184,13 +185,6 @@ class RoundRobinSubcompactionsAgainstResources
   }
   int total_low_pri_threads_;
   int max_compaction_limits_;
-};
-
-class DBCompactionTestFIFOCheckConsistencyWithParam
-    : public DBCompactionTest,
-      public testing::WithParamInterface<std::string> {
- public:
-  DBCompactionTestFIFOCheckConsistencyWithParam() : DBCompactionTest() {}
 };
 
 namespace {
@@ -6464,82 +6458,380 @@ TEST_P(DBCompactionTestWithParam,
   }
 }
 
-INSTANTIATE_TEST_CASE_P(DBCompactionTestFIFOCheckConsistencyWithParam,
-                        DBCompactionTestFIFOCheckConsistencyWithParam,
-                        ::testing::Values("FindIntraL0Compaction",
-                                          "PickCompactionToWarm",
-                                          "CompactRange", "CompactFile"));
+class DBCompactionTestL0FilesReorderingCorruption : public DBCompactionTest {
+ public:
+  DBCompactionTestL0FilesReorderingCorruption() : DBCompactionTest() {}
+  void SetupOptions(const CompactionStyle compaciton_style,
+                    const std::string compaction_path_to_test = "") {
+    options_ = CurrentOptions();
+    options_.create_if_missing = true;
+    options_.compression = kNoCompression;
 
-TEST_P(DBCompactionTestFIFOCheckConsistencyWithParam,
-       FlushAfterIntraL0CompactionWithIngestedFile) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.compression = kNoCompression;
+    options_.force_consistency_checks = true;
+    options_.compaction_style = compaciton_style;
+    // TODO: expand test coverage to num_lvels > 1 for universal compacion,
+    // which requires careful unit test design to compact to level 0 despite
+    // num_lvels > 1
+    options_.num_levels = 1;
 
-  options.force_consistency_checks = true;
-  options.compaction_style = kCompactionStyleFIFO;
-  options.max_open_files = -1;
-  options.num_levels = 1;
-  options.level0_file_num_compaction_trigger = 3;
+    if (compaciton_style == CompactionStyle::kCompactionStyleFIFO) {
+      options_.max_open_files = -1;
+    }
 
-  CompactionOptionsFIFO fifo_options;
-  const std::string compaction_path_to_test = GetParam();
-  if (compaction_path_to_test == "FindIntraL0Compaction") {
-    fifo_options.allow_compaction = true;
-    fifo_options.age_for_warm = 0;
-  } else if (compaction_path_to_test == "PickCompactionToWarm") {
-    fifo_options.allow_compaction = false;
-    fifo_options.age_for_warm = 2;
-  } else if (compaction_path_to_test == "CompactRange") {
-    // FIFOCompactionPicker::CompactRange() implementes
-    // on top of regular compaction paths. Here we choose
-    // to trigger FIFOCompactionPicker::PickCompactionToWarm()
-    // for simplicity
-    fifo_options.allow_compaction = false;
-    fifo_options.age_for_warm = 2;
-    options.disable_auto_compactions = true;
-  } else if (compaction_path_to_test == "CompactFile") {
-    fifo_options.allow_compaction = false;
-    fifo_options.age_for_warm = 0;
-    options.disable_auto_compactions = true;
-  } else {
-    assert(false);
-  }
-  options.compaction_options_fifo = fifo_options;
+    if (compaction_path_to_test == "CompactFile" ||
+        compaction_path_to_test == "CompactRange") {
+      options_.disable_auto_compactions = true;
+    } else {
+      options_.level0_file_num_compaction_trigger =
+          (compaciton_style == CompactionStyle::kCompactionStyleFIFO ? 3 : 1);
+      options_.disable_auto_compactions = false;
+    }
 
-  DestroyAndReopen(options);
-
-  // To force assigning the global seqno to ingested file
-  // for our test purpose
-  const Snapshot* snapshot = db_->GetSnapshot();
-
-  std::atomic<bool> compaction_path_sync_point_called(false);
-  if (compaction_path_to_test == "FindIntraL0Compaction") {
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "FindIntraL0Compaction",
-        [&](void* /*arg*/) { compaction_path_sync_point_called.store(true); });
-  } else if (compaction_path_to_test == "PickCompactionToWarm" ||
-             compaction_path_to_test == "CompactRange") {
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "PickCompactionToWarm",
-        [&](void* /*arg*/) { compaction_path_sync_point_called.store(true); });
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "PickCompactionToWarm::BeforeGetCurrentTime",
-        [&fifo_options](void* current_time_arg) -> void {
-          // The unit test goes so quickly that there is almost no time
-          // elapsed after we ingest a file and before we check whether ingested
-          // files can compact to warm.
-          // Therefore we need this trick to simulate elapsed
-          // time in reality.
-          int64_t* current_time = (int64_t*)current_time_arg;
-          *current_time = *current_time + fifo_options.age_for_warm + 1;
-        });
-  } else if (compaction_path_to_test == "CompactFile") {
-    // Sync point is not needed in this case
-    compaction_path_sync_point_called.store(true);
+    if (compaciton_style == CompactionStyle::kCompactionStyleUniversal) {
+      CompactionOptionsUniversal universal_options;
+      if (compaction_path_to_test == "PickCompactionToReduceSizeAmp") {
+        universal_options.max_size_amplification_percent = 50;
+      } else if (compaction_path_to_test ==
+                 "PickCompactionToReduceSortedRuns") {
+        universal_options.max_size_amplification_percent = 400;
+      } else if (compaction_path_to_test == "PickDeleteTriggeredCompaction") {
+        universal_options.max_size_amplification_percent = 400;
+        universal_options.min_merge_width = 6;
+      }
+      options_.compaction_options_universal = universal_options;
+    } else if (compaciton_style == CompactionStyle::kCompactionStyleFIFO) {
+      CompactionOptionsFIFO fifo_options;
+      if (compaction_path_to_test == "FindIntraL0Compaction") {
+        fifo_options.allow_compaction = true;
+        fifo_options.age_for_warm = 0;
+      } else if (compaction_path_to_test == "PickCompactionToWarm" ||
+                 compaction_path_to_test == "CompactRange") {
+        fifo_options.allow_compaction = false;
+        fifo_options.age_for_warm = 2;
+      } else if (compaction_path_to_test == "CompactFile") {
+        fifo_options.allow_compaction = false;
+        fifo_options.age_for_warm = 0;
+      }
+      options_.compaction_options_fifo = fifo_options;
+    }
   }
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  void Destroy(const Options& options) {
+    if (snapshot_) {
+      assert(db_);
+      db_->ReleaseSnapshot(snapshot_);
+      snapshot_ = nullptr;
+    }
+    DBTestBase::Destroy(options);
+  }
+
+  void Reopen(const Options& options) {
+    DBTestBase::Reopen(options);
+    assert(snapshot_ == nullptr);
+    // To force assigning the global seqno to ingested file
+    // for our test purpose.
+    snapshot_ = db_->GetSnapshot();
+  }
+
+  void DestroyAndReopen(Options& options) {
+    Destroy(options);
+    Reopen(options);
+  }
+
+  void AddFilesMarkedForPeriodicCompaction(const size_t num_files) {
+    assert(options_.compaction_style ==
+           CompactionStyle::kCompactionStyleUniversal);
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    assert(versions);
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+    Version* const current = cfd->current();
+    assert(current);
+
+    VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+
+    const std::vector<FileMetaData*> level0_files = storage_info->LevelFiles(0);
+    assert(level0_files.size() == num_files);
+
+    for (FileMetaData* f : level0_files) {
+      storage_info->TEST_AddFileMarkedForPeriodicCompaction(0, f);
+    }
+  }
+
+  void AddFilesMarkedForCompaction(const size_t num_files) {
+    assert(options_.compaction_style ==
+           CompactionStyle::kCompactionStyleUniversal);
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    assert(versions);
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+    Version* const current = cfd->current();
+    assert(current);
+
+    VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+
+    const std::vector<FileMetaData*> level0_files = storage_info->LevelFiles(0);
+    assert(level0_files.size() == num_files);
+
+    for (FileMetaData* f : level0_files) {
+      storage_info->TEST_AddFileMarkedForCompaction(0, f);
+    }
+  }
+
+  void SetupSyncPoints(const std::string compaction_path_to_test) {
+    compaction_path_sync_point_called_.store(false);
+    if (compaction_path_to_test == "PickPeriodicCompaction") {
+      assert(options_.compaction_style ==
+             CompactionStyle::kCompactionStyleUniversal);
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "PostPickPeriodicCompaction", [&](void* compaction_arg) {
+            Compaction* compaction = (Compaction*)compaction_arg;
+            if (compaction != nullptr) {
+              compaction_path_sync_point_called_.store(true);
+            }
+          });
+    } else if (compaction_path_to_test == "PickCompactionToReduceSizeAmp") {
+      assert(options_.compaction_style ==
+             CompactionStyle::kCompactionStyleUniversal);
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "PickCompactionToReduceSizeAmpReturnNonnullptr", [&](void* /*arg*/) {
+            compaction_path_sync_point_called_.store(true);
+          });
+    } else if (compaction_path_to_test == "PickCompactionToReduceSortedRuns") {
+      assert(options_.compaction_style ==
+             CompactionStyle::kCompactionStyleUniversal);
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "PickCompactionToReduceSortedRunsReturnNonnullptr",
+          [&](void* /*arg*/) {
+            compaction_path_sync_point_called_.store(true);
+          });
+    } else if (compaction_path_to_test == "PickDeleteTriggeredCompaction") {
+      assert(options_.compaction_style ==
+             CompactionStyle::kCompactionStyleUniversal);
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "PickDeleteTriggeredCompactionReturnNonnullptr", [&](void* /*arg*/) {
+            compaction_path_sync_point_called_.store(true);
+          });
+    } else if (compaction_path_to_test == "FindIntraL0Compaction") {
+      assert(options_.compaction_style ==
+             CompactionStyle::kCompactionStyleFIFO);
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "FindIntraL0Compaction", [&](void* /*arg*/) {
+            compaction_path_sync_point_called_.store(true);
+          });
+    } else if (compaction_path_to_test == "PickCompactionToWarm" ||
+               compaction_path_to_test == "CompactRange") {
+      assert(options_.compaction_style ==
+             CompactionStyle::kCompactionStyleFIFO);
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "PickCompactionToWarm::BeforeGetCurrentTime",
+          [this](void* current_time_arg) -> void {
+            // The unit test goes so quickly that there is almost no time
+            // elapsed after we ingest a file and before we check whether
+            // ingested files can compact to warm. Therefore we need this trick
+            // to simulate elapsed time in reality.
+            int64_t* current_time = (int64_t*)current_time_arg;
+            *current_time = *current_time +
+                            options_.compaction_options_fifo.age_for_warm + 1;
+          });
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "PostPickCompactionToWarm", [&](void* compaction_arg) {
+            Compaction* compaction = (Compaction*)compaction_arg;
+            if (compaction != nullptr) {
+              compaction_path_sync_point_called_.store(true);
+            }
+          });
+    }
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  }
+
+  bool SyncPointsCalled() { return compaction_path_sync_point_called_.load(); }
+
+  void DisableSyncPoints() {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  }
+
+ protected:
+  Options options_;
+
+ private:
+  const Snapshot* snapshot_ = nullptr;
+  std::atomic<bool> compaction_path_sync_point_called_;
+};
+
+TEST_F(DBCompactionTestL0FilesReorderingCorruption,
+       FlushAfterIntraL0UniversalCompactionWithIngestedFile) {
+  for (const std::string compaction_path_to_test :
+       {"PickPeriodicCompaction", "PickCompactionToReduceSizeAmp",
+        "PickCompactionToReduceSortedRuns", "PickDeleteTriggeredCompaction"}) {
+    SetupOptions(CompactionStyle::kCompactionStyleUniversal,
+                 compaction_path_to_test);
+    DestroyAndReopen(options_);
+
+    // Stop background compaction job to obtain accurate
+    // `NumTableFilesAtLevel(0)` after creating the first sst file
+    // and reaching `options_.level0_file_num_compaction_trigger == 1`
+    test::SleepingBackgroundTask sleeping_tasks;
+    env_->SetBackgroundThreads(1, Env::LOW);
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_tasks,
+                   Env::Priority::LOW);
+    sleeping_tasks.WaitUntilSleeping();
+
+    // Create 3 existing SST file, s0 of key range [key1,key4] and seqno range
+    // [1,2], s1 of key range [key5,key6] and seqno
+    // range [3,4] and s2 of key range [key7,key8] and seqno
+    // range [5,6]
+    ASSERT_OK(Put("key1", "seq1"));
+    ASSERT_OK(Put("key4", "seq2"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+    ASSERT_OK(Put("key5", "seq3"));
+    ASSERT_OK(Put("key6", "seq4"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(2, NumTableFilesAtLevel(0));
+    ASSERT_OK(Put("key7", "seq5"));
+    ASSERT_OK(Put("key8", "seq6"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(3, NumTableFilesAtLevel(0));
+
+    // Accumulate entries in a memtable m1 of key range [key1,key2] and seqno
+    // range [7,8]. Noted that it contains a overlaped key with s0
+    ASSERT_OK(Put("key1", "seq7"));  // overlapped key
+    ASSERT_OK(Put("key2", "seq8"));
+
+    // Ingested two SST files, s3 of key range [key9,key9] and seqno range [9,9]
+    // and s4 of key range [key10,key10] and seqno range [10,10]
+    IngestOneKeyValue(dbfull(), "key9", "seq9", options_);
+    IngestOneKeyValue(dbfull(), "key10", "seq10", options_);
+    // Up to now, L0 contains s0, s1, s2, s3, s4
+    ASSERT_EQ(5, NumTableFilesAtLevel(0));
+
+    if (compaction_path_to_test == "PickPeriodicCompaction") {
+      AddFilesMarkedForPeriodicCompaction(5);
+    } else {
+      AddFilesMarkedForCompaction(5);
+    }
+
+    SetupSyncPoints(compaction_path_to_test);
+    // Resume background compaction job so that intra level0 compaction can be
+    // triggered
+    sleeping_tasks.WakeUp();
+    sleeping_tasks.WaitUntilDone();
+
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_TRUE(SyncPointsCalled())
+        << "failed for compaction path to test: " << compaction_path_to_test;
+    DisableSyncPoints();
+
+    // To verify compaction of s0, s1, s2, s3 and s4 (leading to a new SST s5)
+    // didn't happen.
+    //
+    // Otherwise, after m1 flushes in the next step and becomes s6,
+    // we will have s6 of seqnos range [7, 8] and s5 of seqnos range [1, 10].
+    // This is a corruption because s6 is older than s5 based on its
+    // largest seqno while s6 contains a newer value of "key1" (i.e, "seq7").
+    // than the value of "key1" contained in s5 (i.e, "seq1"). In this case,
+    // `Get("key1")` will return an older version of the value (i.e, "seq1").
+    EXPECT_OK(Flush()) << "failed for compaction path to test: "
+                       << compaction_path_to_test;
+    EXPECT_EQ(Get("key1"), "seq7")
+        << "failed for compaction path to test: " << compaction_path_to_test;
+  }
+
+  Destroy(options_);
+}
+
+TEST_F(DBCompactionTestL0FilesReorderingCorruption,
+       FlushAfterIntraL0FIFOCompactionWithIngestedFile) {
+  for (const std::string compaction_path_to_test :
+       {"FindIntraL0Compaction", "PickCompactionToWarm"}) {
+    SetupOptions(CompactionStyle::kCompactionStyleFIFO,
+                 compaction_path_to_test);
+    DestroyAndReopen(options_);
+
+    // Create an existing SST file s0 of key range [key1,key4] and seqno range
+    // [1,2]
+    ASSERT_OK(Put("key1", "seq1"));
+    ASSERT_OK(Put("key4", "seq2"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+    // Accumulate entries in a memtable m1 of key range [key1,key2] and seqno
+    // range [3,4] Noted that it contains a overlaped key with s0
+    ASSERT_OK(Put("key1", "seq3"));  // overlapped key
+    ASSERT_OK(Put("key2", "seq4"));
+
+    // Stop background compaction job to obtain accurate
+    // `NumTableFilesAtLevel(0)` after file ingestion and reaching
+    // `options_.level0_file_num_compaction_trigger == 3`
+    test::SleepingBackgroundTask sleeping_tasks;
+    env_->SetBackgroundThreads(1, Env::LOW);
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_tasks,
+                   Env::Priority::LOW);
+    sleeping_tasks.WaitUntilSleeping();
+
+    // Ingested two SST files, s1 of key range [key5,key5] and seqno range [5,5]
+    // and s2 of key range [key6,key6] and seqno range [6,6]
+    IngestOneKeyValue(dbfull(), "key5", "seq5", options_);
+    IngestOneKeyValue(dbfull(), "key6", "seq6", options_);
+    // Up to now, L0 contains s0, s1, s2
+    ASSERT_EQ(3, NumTableFilesAtLevel(0));
+
+    SetupSyncPoints(compaction_path_to_test);
+    // Resume background compaction job so that Intra level0 compaction can be
+    // triggered
+    sleeping_tasks.WakeUp();
+    sleeping_tasks.WaitUntilDone();
+
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_TRUE(SyncPointsCalled())
+        << "failed for compaction path to test: " << compaction_path_to_test;
+    DisableSyncPoints();
+
+    // To verify compaction of s0, s1 and s2 (leading to new SST s3) didn't
+    // happen.
+    //
+    // Otherwise, after m1 flushes in the next step and becomes s4,
+    // we will have s4 of seqnos range [3, 4], s3 of seqnos range [1, 6]. This
+    // is a corruption because s4 is older than s3 based on largest seqno while
+    // s4 contains a newer value of "key1" (i.e, "seq3") than the value of
+    // "key1" contained in s3. (i.e, "seq1") In this case, `Get("key1")` will
+    // return an older version of the value
+    // ("seq1").
+    EXPECT_OK(Flush()) << "failed for compaction path to test: "
+                       << compaction_path_to_test;
+    EXPECT_EQ(Get("key1"), "seq3")
+        << "failed for compaction path to test: " << compaction_path_to_test;
+  }
+
+  Destroy(options_);
+}
+
+class DBCompactionTestL0FilesReorderingCorruptionWithParam
+    : public DBCompactionTestL0FilesReorderingCorruption,
+      public testing::WithParamInterface<CompactionStyle> {
+ public:
+  DBCompactionTestL0FilesReorderingCorruptionWithParam()
+      : DBCompactionTestL0FilesReorderingCorruption() {}
+};
+
+// TODO: add `CompactionStyle::kCompactionStyleLevel` to
+// CompactionStyle::kCompactionStyleUniversal which requires careful unit test
+// design to ingest file to L0 and CompactRange()/CompactFile() to level 0
+INSTANTIATE_TEST_CASE_P(
+    DBCompactionTestL0FilesReorderingCorruptionWithParam,
+    DBCompactionTestL0FilesReorderingCorruptionWithParam,
+    ::testing::Values(CompactionStyle::kCompactionStyleUniversal,
+                      CompactionStyle::kCompactionStyleFIFO));
+
+TEST_P(DBCompactionTestL0FilesReorderingCorruptionWithParam,
+       FlushAfterIntraL0CompactFileWithIngestedFile) {
+  SetupOptions(GetParam(), "CompactFile");
+  DestroyAndReopen(options_);
 
   // Create an existing SST file s0 of key range [key1,key4] and seqno range
   // [1,2]
@@ -6553,72 +6845,95 @@ TEST_P(DBCompactionTestFIFOCheckConsistencyWithParam,
   ASSERT_OK(Put("key1", "seq3"));  // overlapped key
   ASSERT_OK(Put("key2", "seq4"));
 
-  ASSERT_TRUE(compaction_path_to_test == "CompactFile" ||
-              !compaction_path_sync_point_called.load());
-
-  // Stop background compaction job to obtain accurate
-  // `NumTableFilesAtLevel(0)` after file ingestion
-  test::SleepingBackgroundTask sleeping_tasks;
-  if (!options.disable_auto_compactions) {
-    env_->SetBackgroundThreads(1, Env::LOW);
-    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_tasks,
-                   Env::Priority::LOW);
-    sleeping_tasks.WaitUntilSleeping();
-  }
-
   // Ingested two SST files, s1 of key range [key5,key5] and seqno range [5,5]
   // and s2 of key range [key6,key6] and seqno range [6,6]
-  IngestOneKeyValue(dbfull(), "key5", "seq5", options);
-  IngestOneKeyValue(dbfull(), "key6", "seq6", options);
+  IngestOneKeyValue(dbfull(), "key5", "seq5", options_);
+  IngestOneKeyValue(dbfull(), "key6", "seq6", options_);
   // Up to now, L0 contains s0, s1, s2
   ASSERT_EQ(3, NumTableFilesAtLevel(0));
 
-  // Resume background compaction job so that Intra level0 compaction can be
-  // triggered
-  if (!options.disable_auto_compactions) {
-    sleeping_tasks.WakeUp();
-    sleeping_tasks.WaitUntilDone();
+  ColumnFamilyMetaData cf_meta_data;
+  db_->GetColumnFamilyMetaData(&cf_meta_data);
+  ASSERT_EQ(cf_meta_data.levels[0].files.size(), 3);
+  std::vector<std::string> input_files;
+  for (const auto& file : cf_meta_data.levels[0].files) {
+    input_files.push_back(file.name);
   }
+  ASSERT_EQ(input_files.size(), 3);
 
-  if (compaction_path_to_test == "CompactRange") {
-    // `start` and `end` is carefully chosen so that compact range:
-    // (1) doesn't overlap with memtable therefore the memtable won't be flushed
-    // (2) should target at compacting s0 with s1 and s2
-    Slice start("key4"), end("key6");
-    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
-  } else if (compaction_path_to_test == "CompactFile") {
-    ColumnFamilyMetaData cf_meta_data;
-    db_->GetColumnFamilyMetaData(&cf_meta_data);
-    assert(cf_meta_data.levels[0].files.size() == 3);
-    std::vector<std::string> input_files;
-    for (const auto& file : cf_meta_data.levels[0].files) {
-      input_files.push_back(file.name);
-    }
-    Status s = db_->CompactFiles(CompactionOptions(), input_files, 0);
-    EXPECT_TRUE(s.IsAborted());
-    EXPECT_TRUE(s.ToString().find(
-                    "has overlapping seqnos with earliest memtable seqnos") !=
-                std::string::npos);
-  } else {
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  }
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  Status s = db_->CompactFiles(CompactionOptions(), input_files, 0);
+  EXPECT_TRUE(s.IsAborted());
+  EXPECT_TRUE(s.ToString().find(
+                  "has overlapping seqnos with earliest memtable seqnos") !=
+              std::string::npos);
 
-  ASSERT_TRUE(compaction_path_to_test == "CompactFile" ||
-              compaction_path_sync_point_called.load());
-
-  // To verify compaction of s0, s1 and s2 (leading to new SST s4) didn't
+  // To verify compaction of s0, s1 and s2 (leading to new SST s3) didn't
   // happen.
   //
-  // Otherwise, when m1 flushes in the next step and become s3,
-  // we will have s3 of seqnos [3, 4], s4 of seqnos [1, 6], which is a
-  // corruption because s3 is older than s4 based on largest seqno while s2
-  // contains a value of Key(1) newer than the value of Key(1) contained in s4.
-  // And in this case, Flush() will return Status::Corruption() caught by
-  // `force_consistency_checks=1`
-  EXPECT_EQ(3, NumTableFilesAtLevel(0));
+  // Otherwise, after m1 flushes in the next step and becomes s4,
+  // we will have s4 of seqnos range [3, 4], s3 of seqnos range [1, 6]. This
+  // is a corruption because s4 is older than s3 based on largest seqno while
+  // s4 contains a newer value of "key1" (i.e, "seq3") than the value of "key1"
+  // contained in s3. (i.e, "seq1") In this case, `Get("key1")` will return an
+  // older version of the value
+  // ("seq1").
   EXPECT_OK(Flush());
-  db_->ReleaseSnapshot(snapshot);
+  EXPECT_EQ(Get("key1"), "seq3");
+
+  Destroy(options_);
+}
+
+TEST_P(DBCompactionTestL0FilesReorderingCorruptionWithParam,
+       FlushAfterIntraL0CompactRangeWithIngestedFile) {
+  SetupOptions(GetParam(), "CompactRange");
+  DestroyAndReopen(options_);
+
+  // Create an existing SST file s0 of key range [key1,key4] and seqno range
+  // [1,2]
+  ASSERT_OK(Put("key1", "seq1"));
+  ASSERT_OK(Put("key4", "seq2"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // Accumulate entries in a memtable m1 of key range [key1,key2] and seqno
+  // range [3,4] Noted that it contains a overlaped key with s0
+  ASSERT_OK(Put("key1", "seq3"));  // overlapped key
+  ASSERT_OK(Put("key2", "seq4"));
+
+  // Ingested two SST files, s1 of key range [key5,key5] and seqno range [5,5]
+  // and s2 of key range [key6,key6] and seqno range [6,6]
+  IngestOneKeyValue(dbfull(), "key5", "seq5", options_);
+  IngestOneKeyValue(dbfull(), "key6", "seq6", options_);
+  // Up to now, L0 contains s0, s1, s2
+  ASSERT_EQ(3, NumTableFilesAtLevel(0));
+
+  if (options_.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    SetupSyncPoints("CompactRange");
+  }
+  // `start` and `end` is carefully chosen so that compact range:
+  // (1) doesn't overlap with memtable therefore the memtable won't be flushed
+  // (2) should target at compacting s0 with s1 and s2
+  Slice start("key4"), end("key6");
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+
+  if (options_.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    ASSERT_TRUE(SyncPointsCalled());
+    DisableSyncPoints();
+  }
+  // To verify compaction of s0, s1 and s2 (leading to new SST s3) didn't
+  // happen.
+  //
+  // Otherwise, after m1 flushes in the next step and becomes s4,
+  // we will have s4 of seqnos range [3, 4], s3 of seqnos range [1, 6]. This
+  // is a corruption because s4 is older than s3 based on largest seqno while
+  // s4 contains a newer value of "key1" (i.e, "seq3") than the value of "key1"
+  // contained in s3. (i.e, "seq1") In this case, `Get("key1")` will return an
+  // older version of the value
+  // ("seq1").
+  EXPECT_OK(Flush());
+  EXPECT_EQ(Get("key1"), "seq3");
+
+  Destroy(options_);
 }
 
 TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {

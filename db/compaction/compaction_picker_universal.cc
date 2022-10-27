@@ -135,6 +135,7 @@ class UniversalCompactionBuilder {
   VersionStorageInfo* vstorage_;
   UniversalCompactionPicker* picker_;
   LogBuffer* log_buffer_;
+  // `earliest_mem_seqno`: see CompactionPicker::PickCompaction() API
   const SequenceNumber earliest_mem_seqno_;
 
   // `earliest_mem_seqno`: see CompactionPicker::PickCompaction() API
@@ -359,7 +360,12 @@ UniversalCompactionBuilder::CalculateSortedRuns(
     uint64_t total_compensated_size = 0U;
     uint64_t total_size = 0U;
     bool being_compacted = false;
+    bool exists_file_may_overlap_with_memtable_seqno = false;
     for (FileMetaData* f : vstorage.LevelFiles(level)) {
+      if (f->fd.largest_seqno > earliest_mem_seqno) {
+        exists_file_may_overlap_with_memtable_seqno = true;
+        break;
+      }
       total_compensated_size += f->compensated_file_size;
       total_size += f->fd.GetFileSize();
       // Size amp, read amp and periodic compactions always include all files
@@ -370,6 +376,9 @@ UniversalCompactionBuilder::CalculateSortedRuns(
       if (f->being_compacted) {
         being_compacted = f->being_compacted;
       }
+    }
+    if (exists_file_may_overlap_with_memtable_seqno) {
+      continue;
     }
     if (total_compensated_size > 0) {
       ret.emplace_back(level, nullptr, total_size, total_compensated_size,
@@ -409,6 +418,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   if (!vstorage_->FilesMarkedForPeriodicCompaction().empty()) {
     // Always need to do a full compaction for periodic compaction.
     c = PickPeriodicCompaction();
+    TEST_SYNC_POINT_CALLBACK("PostPickPeriodicCompaction", c);
   }
 
   // Check for size amplification.
@@ -417,6 +427,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
           static_cast<size_t>(
               mutable_cf_options_.level0_file_num_compaction_trigger)) {
     if ((c = PickCompactionToReduceSizeAmp()) != nullptr) {
+      TEST_SYNC_POINT("PickCompactionToReduceSizeAmpReturnNonnullptr");
       ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: compacting for size amp\n",
                        cf_name_.c_str());
     } else {
@@ -426,6 +437,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
           mutable_cf_options_.compaction_options_universal.size_ratio;
 
       if ((c = PickCompactionToReduceSortedRuns(ratio, UINT_MAX)) != nullptr) {
+        TEST_SYNC_POINT("PickCompactionToReduceSortedRunsReturnNonnullptr");
         ROCKS_LOG_BUFFER(log_buffer_,
                          "[%s] Universal: compacting for size ratio\n",
                          cf_name_.c_str());
@@ -466,6 +478,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
 
   if (c == nullptr) {
     if ((c = PickDeleteTriggeredCompaction()) != nullptr) {
+      TEST_SYNC_POINT("PickDeleteTriggeredCompactionReturnNonnullptr");
       ROCKS_LOG_BUFFER(log_buffer_,
                        "[%s] Universal: delete triggered compaction\n",
                        cf_name_.c_str());
@@ -731,6 +744,9 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
     } else {
       auto& files = inputs[picking_sr.level - start_level].files;
       for (auto* f : vstorage_->LevelFiles(picking_sr.level)) {
+        if (output_level == 0 && f->fd.largest_seqno > earliest_mem_seqno_) {
+          continue;
+        }
         files.push_back(f);
       }
     }
@@ -952,12 +968,38 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   // clean cut, files from other levels, etc.
   uint64_t comp_thres_size = mutable_cf_options_.max_compaction_bytes / 2;
   int start_idx = 0;
-  int bottom_end_idx = 0;
   int bottom_start_idx = 0;
+
+  if (output_level == 0) {
+    // Skip files in `files` and `bottom_files` that have potential overlapping
+    // seqnos with memtable For `earliest_mem_seqno_`, see
+    // CompactionPicker::PickCompaction() API
+    for (int i = 0; i < static_cast<int>(files.size()); i++) {
+      if (files[i]->fd.largest_seqno > earliest_mem_seqno_) {
+        start_idx = i + 1;
+      } else {
+        // We can break here since `files` is sorted in descending order of
+        // largest_seqno
+        break;
+      }
+    }
+    for (int j = 0; j < static_cast<int>(bottom_files.size()); j++) {
+      if (bottom_files[j]->fd.largest_seqno > earliest_mem_seqno_) {
+        bottom_start_idx = j + 1;
+      } else {
+        // We can break here since `files` is sorted in descending order of
+        // largest_seqno
+        break;
+      }
+    }
+  }
+
+  int bottom_end_idx = bottom_start_idx;
   uint64_t non_bottom_size = 0;
   uint64_t bottom_size = 0;
   bool end_bottom_size_counted = false;
-  for (int end_idx = 0; end_idx < static_cast<int>(files.size()); end_idx++) {
+  for (int end_idx = start_idx; end_idx < static_cast<int>(files.size());
+       end_idx++) {
     FileMetaData* end_file = files[end_idx];
 
     // Include bottom most level files smaller than the current second
@@ -1053,19 +1095,22 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
     second_last_level_inputs.files.push_back(files[i]);
   }
   assert(!second_last_level_inputs.empty());
-  if (!picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                       &second_last_level_inputs,
-                                       /*next_smallest=*/nullptr)) {
+  if (!picker_->ExpandInputsToCleanCut(
+          cf_name_, vstorage_, &second_last_level_inputs,
+          output_level == 0 ? earliest_mem_seqno_ : kMaxSequenceNumber,
+          /*next_smallest=*/nullptr)) {
     return nullptr;
   }
   // We might be able to avoid this binary search if we save and expand
   // from bottom_start_idx and bottom_end_idx, but for now, we use
   // SetupOtherInputs() for simplicity.
   int parent_index = -1;  // Create and use bottom_start_idx?
-  if (!picker_->SetupOtherInputs(cf_name_, mutable_cf_options_, vstorage_,
-                                 &second_last_level_inputs,
-                                 &bottom_level_inputs, &parent_index,
-                                 /*base_index=*/-1)) {
+  if (!picker_->SetupOtherInputs(
+          cf_name_, mutable_cf_options_, vstorage_, &second_last_level_inputs,
+          &bottom_level_inputs,
+          output_level == 0 ? earliest_mem_seqno_ : kMaxSequenceNumber,
+          &parent_index,
+          /*base_index=*/-1)) {
     return nullptr;
   }
 
@@ -1082,8 +1127,9 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
       break;
     }
     std::vector<FileMetaData*> level_inputs;
-    vstorage_->GetCleanInputsWithinInterval(sr.level, &smallest, &largest,
-                                            &level_inputs);
+    vstorage_->GetCleanInputsWithinInterval(
+        sr.level, &smallest, &largest, &level_inputs,
+        output_level == 0 ? earliest_mem_seqno_ : kMaxSequenceNumber);
     if (!level_inputs.empty()) {
       inputs_reverse.push_back({});
       inputs_reverse.back().level = sr.level;
@@ -1159,8 +1205,13 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       if (sr->being_compacted) {
         continue;
       }
-      FileMetaData* f = vstorage_->LevelFiles(0)[loop];
+      FileMetaData* f = sr->file;
       if (f->marked_for_compaction) {
+        // Skip files that have potential overlapping seqnos with memtable
+        // For `earliest_mem_seqno_`, see CompactionPicker::PickCompaction() API
+        if (output_level == 0 && f->fd.largest_seqno > earliest_mem_seqno_) {
+          continue;
+        }
         start_level_inputs.files.push_back(f);
         start_index =
             static_cast<int>(loop);  // Consider this as the first candidate.
@@ -1178,7 +1229,12 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
         break;
       }
 
-      FileMetaData* f = vstorage_->LevelFiles(0)[loop];
+      FileMetaData* f = sr->file;
+      // Skip files that have potential overlapping seqnos with memtable
+      // For `earliest_mem_seqno_`, see CompactionPicker::PickCompaction() API
+      if (output_level == 0 && f->fd.largest_seqno > earliest_mem_seqno_) {
+        continue;
+      }
       start_level_inputs.files.push_back(f);
     }
     if (start_level_inputs.size() <= 1) {
@@ -1193,7 +1249,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
     // leveled. We pick one of the files marked for compaction and compact with
     // overlapping files in the adjacent level.
     picker_->PickFilesMarkedForCompaction(cf_name_, vstorage_, &start_level,
-                                          &output_level, &start_level_inputs);
+                                          &output_level, &start_level_inputs,
+                                          earliest_mem_seqno_);
     if (start_level_inputs.empty()) {
       return nullptr;
     }
@@ -1236,9 +1293,13 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       int parent_index = -1;
 
       output_level_inputs.level = output_level;
-      if (!picker_->SetupOtherInputs(cf_name_, mutable_cf_options_, vstorage_,
-                                     &start_level_inputs, &output_level_inputs,
-                                     &parent_index, -1)) {
+      if (!picker_->SetupOtherInputs(
+              cf_name_, mutable_cf_options_, vstorage_, &start_level_inputs,
+              &output_level_inputs,
+              kMaxSequenceNumber /* earliest_mem_seqno since output_level != 0
+                                  */
+              ,
+              &parent_index, -1)) {
         return nullptr;
       }
       inputs.push_back(start_level_inputs);
@@ -1262,6 +1323,11 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
   uint64_t estimated_total_size = 0;
   // Use size of the output level as estimated file size
   for (FileMetaData* f : vstorage_->LevelFiles(output_level)) {
+    // Skip files that have potential overlapping seqnos with memtable
+    // For `earliest_mem_seqno_`, see CompactionPicker::PickCompaction() API
+    if (output_level == 0 && f->fd.largest_seqno > earliest_mem_seqno_) {
+      continue;
+    }
     estimated_total_size += f->fd.GetFileSize();
   }
   uint32_t path_id =
@@ -1298,6 +1364,22 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
   }
   uint32_t path_id =
       GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
+
+  int output_level;
+  if (end_index == sorted_runs_.size() - 1) {
+    // output files at the last level, unless it's reserved
+    output_level = vstorage_->num_levels() - 1;
+    // last level is reserved for the files ingested behind
+    if (ioptions_.allow_ingest_behind) {
+      assert(output_level > 1);
+      output_level--;
+    }
+  } else {
+    // if it's not including all sorted_runs, it can only output to the level
+    // above the `end_index + 1` sorted_run.
+    output_level = sorted_runs_[end_index + 1].level - 1;
+  }
+
   int start_level = sorted_runs_[start_index].level;
 
   std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
@@ -1312,6 +1394,11 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
     } else {
       auto& files = inputs[picking_sr.level - start_level].files;
       for (auto* f : vstorage_->LevelFiles(picking_sr.level)) {
+        // Skip files that have potential overlapping seqnos with memtable
+        // For `earliest_mem_seqno_`, see CompactionPicker::PickCompaction() API
+        if (output_level == 0 && f->fd.largest_seqno > earliest_mem_seqno_) {
+          continue;
+        }
         files.push_back(f);
       }
     }
@@ -1333,21 +1420,6 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
     ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: %s picking %s",
                      cf_name_.c_str(), comp_reason_print_string.c_str(),
                      file_num_buf);
-  }
-
-  int output_level;
-  if (end_index == sorted_runs_.size() - 1) {
-    // output files at the last level, unless it's reserved
-    output_level = vstorage_->num_levels() - 1;
-    // last level is reserved for the files ingested behind
-    if (ioptions_.allow_ingest_behind) {
-      assert(output_level > 1);
-      output_level--;
-    }
-  } else {
-    // if it's not including all sorted_runs, it can only output to the level
-    // above the `end_index + 1` sorted_run.
-    output_level = sorted_runs_[end_index + 1].level - 1;
   }
 
   // intra L0 compactions outputs could have overlap

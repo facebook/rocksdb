@@ -172,8 +172,9 @@ void LevelCompactionBuilder::PickFileToCompact(
     }
     start_level_inputs_.files = {level_file.second};
     start_level_inputs_.level = start_level_;
-    if (compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                   &start_level_inputs_)) {
+    if (compaction_picker_->ExpandInputsToCleanCut(
+            cf_name_, vstorage_, &start_level_inputs_,
+            kMaxSequenceNumber /* earliest_mem_seqno */)) {
       return;
     }
   }
@@ -240,7 +241,8 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   parent_index_ = base_index_ = -1;
 
   compaction_picker_->PickFilesMarkedForCompaction(
-      cf_name_, vstorage_, &start_level_, &output_level_, &start_level_inputs_);
+      cf_name_, vstorage_, &start_level_, &output_level_, &start_level_inputs_,
+      kMaxSequenceNumber /* earliest_mem_seqno */);
   if (!start_level_inputs_.empty()) {
     compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
     return;
@@ -353,7 +355,8 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
   CompactionInputFiles output_level_inputs;
   output_level_inputs.level = output_level_;
   vstorage_->GetOverlappingInputs(output_level_, &smallest, &largest,
-                                  &output_level_inputs.files);
+                                  &output_level_inputs.files,
+                                  kMaxSequenceNumber /* earliest_mem_seqno */);
   if (output_level_inputs.empty()) {
     if (TryExtendNonL0TrivialMove((int)start_index)) {
       return;
@@ -376,8 +379,9 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
     }
 
     tmp_start_level_inputs.files.push_back(f);
-    if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                    &tmp_start_level_inputs) ||
+    if (!compaction_picker_->ExpandInputsToCleanCut(
+            cf_name_, vstorage_, &tmp_start_level_inputs,
+            kMaxSequenceNumber /* earliest_mem_seqno */) ||
         compaction_picker_->FilesRangeOverlapWithCompaction(
             {tmp_start_level_inputs}, output_level_,
             Compaction::EvaluatePenultimateLevel(
@@ -394,11 +398,13 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
 
     // Check whether any output level files are locked
     compaction_picker_->GetRange(tmp_start_level_inputs, &smallest, &largest);
-    vstorage_->GetOverlappingInputs(output_level_, &smallest, &largest,
-                                    &output_level_inputs.files);
+    vstorage_->GetOverlappingInputs(
+        output_level_, &smallest, &largest, &output_level_inputs.files,
+        kMaxSequenceNumber /* earliest_mem_seqno */);
     if (!output_level_inputs.empty() &&
-        !compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                    &output_level_inputs)) {
+        !compaction_picker_->ExpandInputsToCleanCut(
+            cf_name_, vstorage_, &output_level_inputs,
+            kMaxSequenceNumber /* earliest_mem_seqno */)) {
       // Constraint 1a
       tmp_start_level_inputs.clear();
       return;
@@ -437,8 +443,8 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
     if (!is_l0_trivial_move_ &&
         !compaction_picker_->SetupOtherInputs(
             cf_name_, mutable_cf_options_, vstorage_, &start_level_inputs_,
-            &output_level_inputs_, &parent_index_, base_index_,
-            round_robin_expanding)) {
+            &output_level_inputs_, kMaxSequenceNumber /* earliest_mem_seqno */,
+            &parent_index_, base_index_, round_robin_expanding)) {
       return false;
     }
 
@@ -626,8 +632,9 @@ bool LevelCompactionBuilder::TryPickL0TrivialMove() {
           break;
         }
       }
-      vstorage_->GetOverlappingInputs(output_level_, &my_smallest, &my_largest,
-                                      &output_level_inputs.files);
+      vstorage_->GetOverlappingInputs(
+          output_level_, &my_smallest, &my_largest, &output_level_inputs.files,
+          kMaxSequenceNumber /* earliest_mem_seqno */);
       if (output_level_inputs.empty()) {
         assert(!file->being_compacted);
         start_level_inputs_.files.push_back(file);
@@ -678,9 +685,10 @@ bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index) {
       if (next_file->being_compacted) {
         break;
       }
-      vstorage_->GetOverlappingInputs(output_level_, &(initial_file->smallest),
-                                      &(next_file->largest),
-                                      &output_level_inputs.files);
+      vstorage_->GetOverlappingInputs(
+          output_level_, &(initial_file->smallest), &(next_file->largest),
+          &output_level_inputs.files,
+          kMaxSequenceNumber /* earliest_mem_seqno */);
       if (!output_level_inputs.empty()) {
         break;
       }
@@ -756,8 +764,9 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     }
 
     start_level_inputs_.files.push_back(f);
-    if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                    &start_level_inputs_) ||
+    if (!compaction_picker_->ExpandInputsToCleanCut(
+            cf_name_, vstorage_, &start_level_inputs_,
+            kMaxSequenceNumber /* earliest_mem_seqno */) ||
         compaction_picker_->FilesRangeOverlapWithCompaction(
             {start_level_inputs_}, output_level_,
             Compaction::EvaluatePenultimateLevel(
@@ -782,15 +791,17 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     compaction_picker_->GetRange(start_level_inputs_, &smallest, &largest);
     CompactionInputFiles output_level_inputs;
     output_level_inputs.level = output_level_;
-    vstorage_->GetOverlappingInputs(output_level_, &smallest, &largest,
-                                    &output_level_inputs.files);
+    vstorage_->GetOverlappingInputs(
+        output_level_, &smallest, &largest, &output_level_inputs.files,
+        kMaxSequenceNumber /* earliest_mem_seqno */);
     if (output_level_inputs.empty()) {
       if (TryExtendNonL0TrivialMove(index)) {
         break;
       }
     } else {
-      if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                      &output_level_inputs)) {
+      if (!compaction_picker_->ExpandInputsToCleanCut(
+              cf_name_, vstorage_, &output_level_inputs,
+              kMaxSequenceNumber /* earliest_mem_seqno */)) {
         start_level_inputs_.clear();
         if (ioptions_.compaction_pri == kRoundRobin) {
           return false;

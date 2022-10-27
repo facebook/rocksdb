@@ -277,7 +277,6 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) {
-  TEST_SYNC_POINT("PickCompactionToWarm");
   if (mutable_cf_options.compaction_options_fifo.age_for_warm == 0) {
     return nullptr;
   }
@@ -407,6 +406,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
   if (c == nullptr) {
     c = PickCompactionToWarm(cf_name, mutable_cf_options, mutable_db_options,
                              vstorage, log_buffer, earliest_mem_seqno);
+    TEST_SYNC_POINT_CALLBACK("PostPickCompactionToWarm", c);
   }
   RegisterCompaction(c);
   return c;

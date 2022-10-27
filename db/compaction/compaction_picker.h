@@ -179,17 +179,25 @@ class CompactionPicker {
 
   // Add more files to the inputs on "level" to make sure that
   // no newer version of a key is compacted to "level+1" while leaving an older
-  // version in a "level". Otherwise, any Get() will search "level" first,
+  // version in a "level". In this process, only files of largest seqno no
+  // greater than `earliest_mem_seqno` will be added, to prevent potential seqno
+  // overlap with memtable.
+  //
+  // Otherwise, any Get() will search "level" first,
   // and will likely return an old/stale value for the key, since it always
   // searches in increasing order of level to find the value. This could
   // also scramble the order of merge operands. This function should be
   // called any time a new Compaction is created, and its inputs_[0] are
   // populated.
   //
+  // If `earliest_mem_seqno` != kMaxSequenceNumber, the passed-in `inputs` must
+  // only consists files of largest seqno no greater than
+  // `earliest_mem_seqno`, to prevent this function shrink inputs
   // Will return false if it is impossible to apply this compaction.
   bool ExpandInputsToCleanCut(const std::string& cf_name,
                               VersionStorageInfo* vstorage,
                               CompactionInputFiles* inputs,
+                              const SequenceNumber earliest_mem_seqno,
                               InternalKey** next_smallest = nullptr);
 
   // Returns true if any one of the parent files are being compacted
@@ -208,6 +216,7 @@ class CompactionPicker {
                         VersionStorageInfo* vstorage,
                         CompactionInputFiles* inputs,
                         CompactionInputFiles* output_level_inputs,
+                        const SequenceNumber earliest_mem_seqno,
                         int* parent_index, int base_index,
                         bool only_expand_towards_right = false);
 
@@ -216,10 +225,12 @@ class CompactionPicker {
                        const CompactionInputFiles& output_level_inputs,
                        std::vector<FileMetaData*>* grandparents);
 
+  // `earliest_mem_seqno`: See PickCompaction() API
   void PickFilesMarkedForCompaction(const std::string& cf_name,
                                     VersionStorageInfo* vstorage,
                                     int* start_level, int* output_level,
-                                    CompactionInputFiles* start_level_inputs);
+                                    CompactionInputFiles* start_level_inputs,
+                                    SequenceNumber earliest_mem_seqno);
 
   bool GetOverlappingL0Files(VersionStorageInfo* vstorage,
                              CompactionInputFiles* start_level_inputs,

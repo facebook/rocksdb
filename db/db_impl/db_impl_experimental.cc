@@ -39,7 +39,8 @@ Status DBImpl::SuggestCompactRange(ColumnFamilyHandle* column_family,
       std::vector<FileMetaData*> inputs;
       vstorage->GetOverlappingInputs(
           level, begin == nullptr ? nullptr : &start_key,
-          end == nullptr ? nullptr : &end_key, &inputs);
+          end == nullptr ? nullptr : &end_key, &inputs,
+          kMaxSequenceNumber /* earliest_mem_seqno */);
       for (auto f : inputs) {
         f->marked_for_compaction = true;
       }

@@ -227,12 +227,18 @@ void CompactionPicker::GetRange(const std::vector<CompactionInputFiles>& inputs,
   assert(initialized);
 }
 
-bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
-                                              VersionStorageInfo* vstorage,
-                                              CompactionInputFiles* inputs,
-                                              InternalKey** next_smallest) {
+bool CompactionPicker::ExpandInputsToCleanCut(
+    const std::string& /*cf_name*/, VersionStorageInfo* vstorage,
+    CompactionInputFiles* inputs, const SequenceNumber earliest_mem_seqno,
+    InternalKey** next_smallest) {
   // This isn't good compaction
   assert(!inputs->empty());
+
+  if (earliest_mem_seqno != kMaxSequenceNumber) {
+    for (FileMetaData* f __attribute__((__unused__)) : inputs->files) {
+      assert(f->fd.largest_seqno <= earliest_mem_seqno);
+    }
+  }
 
   const int level = inputs->level;
   // GetOverlappingInputs will always do the right thing for level-0.
@@ -253,8 +259,8 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
     GetRange(*inputs, &smallest, &largest);
     inputs->clear();
     vstorage->GetOverlappingInputs(level, &smallest, &largest, &inputs->files,
-                                   hint_index, &hint_index, true,
-                                   next_smallest);
+                                   earliest_mem_seqno, hint_index, &hint_index,
+                                   true, next_smallest);
   } while (inputs->size() > old_size);
 
   // we started off with inputs non-empty and the previous loop only grew
@@ -453,12 +459,15 @@ bool CompactionPicker::IsRangeInCompaction(VersionStorageInfo* vstorage,
   assert(level < NumberLevels());
 
   vstorage->GetOverlappingInputs(level, smallest, largest, &inputs,
+                                 kMaxSequenceNumber /* earliest_mem_seqno */,
                                  level_index ? *level_index : 0, level_index);
   return AreFilesInCompaction(inputs);
 }
 
 // Populates the set of inputs of all other levels that overlap with the
-// start level.
+// start level. In this process, only files of largest seqno no
+// greater than `earliest_mem_seqno` will be added, to prevent potential seqno
+// overlap with memtable.
 // Now we assume all levels except start level and output level are empty.
 // Will also attempt to expand "start level" if that doesn't expand
 // "output level" or cause "level" to include a file for compaction that has an
@@ -470,8 +479,9 @@ bool CompactionPicker::IsRangeInCompaction(VersionStorageInfo* vstorage,
 bool CompactionPicker::SetupOtherInputs(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, CompactionInputFiles* inputs,
-    CompactionInputFiles* output_level_inputs, int* parent_index,
-    int base_index, bool only_expand_towards_right) {
+    CompactionInputFiles* output_level_inputs,
+    const SequenceNumber earliest_mem_seqno, int* parent_index, int base_index,
+    bool only_expand_towards_right) {
   assert(!inputs->empty());
   assert(output_level_inputs->empty());
   const int input_level = inputs->level;
@@ -494,14 +504,15 @@ bool CompactionPicker::SetupOtherInputs(
 
   // Populate the set of next-level files (inputs_GetOutputLevelInputs()) to
   // include in compaction
-  vstorage->GetOverlappingInputs(output_level, &smallest, &largest,
-                                 &output_level_inputs->files, *parent_index,
-                                 parent_index);
+  vstorage->GetOverlappingInputs(
+      output_level, &smallest, &largest, &output_level_inputs->files,
+      earliest_mem_seqno, *parent_index, parent_index);
   if (AreFilesInCompaction(output_level_inputs->files)) {
     return false;
   }
   if (!output_level_inputs->empty()) {
-    if (!ExpandInputsToCleanCut(cf_name, vstorage, output_level_inputs)) {
+    if (!ExpandInputsToCleanCut(cf_name, vstorage, output_level_inputs,
+                                earliest_mem_seqno)) {
       return false;
     }
   }
@@ -527,15 +538,16 @@ bool CompactionPicker::SetupOtherInputs(
     if (only_expand_towards_right) {
       // Round-robin compaction only allows expansion towards the larger side.
       vstorage->GetOverlappingInputs(input_level, &smallest, &all_limit,
-                                     &expanded_inputs.files, base_index,
-                                     nullptr);
+                                     &expanded_inputs.files, earliest_mem_seqno,
+                                     base_index, nullptr);
     } else {
       vstorage->GetOverlappingInputs(input_level, &all_start, &all_limit,
-                                     &expanded_inputs.files, base_index,
-                                     nullptr);
+                                     &expanded_inputs.files, earliest_mem_seqno,
+                                     base_index, nullptr);
     }
     uint64_t expanded_inputs_size = TotalFileSize(expanded_inputs.files);
-    if (!ExpandInputsToCleanCut(cf_name, vstorage, &expanded_inputs)) {
+    if (!ExpandInputsToCleanCut(cf_name, vstorage, &expanded_inputs,
+                                earliest_mem_seqno)) {
       try_overlapping_inputs = false;
     }
     if (try_overlapping_inputs && expanded_inputs.size() > inputs->size() &&
@@ -548,19 +560,21 @@ bool CompactionPicker::SetupOtherInputs(
       expanded_output_level_inputs.level = output_level;
       vstorage->GetOverlappingInputs(output_level, &new_start, &new_limit,
                                      &expanded_output_level_inputs.files,
-                                     *parent_index, parent_index);
+                                     earliest_mem_seqno, *parent_index,
+                                     parent_index);
       assert(!expanded_output_level_inputs.empty());
       if (!AreFilesInCompaction(expanded_output_level_inputs.files) &&
           ExpandInputsToCleanCut(cf_name, vstorage,
-                                 &expanded_output_level_inputs) &&
+                                 &expanded_output_level_inputs,
+                                 earliest_mem_seqno) &&
           expanded_output_level_inputs.size() == output_level_inputs->size()) {
         expand_inputs = true;
       }
     }
     if (!expand_inputs) {
-      vstorage->GetCleanInputsWithinInterval(input_level, &all_start,
-                                             &all_limit, &expanded_inputs.files,
-                                             base_index, nullptr);
+      vstorage->GetCleanInputsWithinInterval(
+          input_level, &all_start, &all_limit, &expanded_inputs.files,
+          earliest_mem_seqno, base_index, nullptr);
       expanded_inputs_size = TotalFileSize(expanded_inputs.files);
       if (expanded_inputs.size() > inputs->size() &&
           (mutable_cf_options.ignore_max_compaction_bytes_for_input ||
@@ -600,7 +614,8 @@ void CompactionPicker::GetGrandparents(
   // level after that has overlapping files)
   for (int level = output_level_inputs.level + 1; level < NumberLevels();
        level++) {
-    vstorage->GetOverlappingInputs(level, &start, &limit, grandparents);
+    vstorage->GetOverlappingInputs(level, &start, &limit, grandparents,
+                                   kMaxSequenceNumber /* earliest_mem_seqno */);
     if (!grandparents->empty()) {
       break;
     }
@@ -710,10 +725,10 @@ Compaction* CompactionPicker::CompactRange(
     end = nullptr;
   }
   vstorage->GetOverlappingInputs(
-      input_level, begin, end, &inputs.files, -1 /* hint_index */,
-      nullptr /* file_index */, true /* expand_range */,
-      nullptr /* next_smallest */,
-      output_level == 0 ? earliest_mem_seqno : kMaxSequenceNumber);
+      input_level, begin, end, &inputs.files,
+      output_level == 0 ? earliest_mem_seqno : kMaxSequenceNumber,
+      -1 /* hint_index */, nullptr /* file_index */, true /* expand_range */,
+      nullptr /* next_smallest */);
   if (inputs.empty()) {
     return nullptr;
   }
@@ -746,7 +761,9 @@ Compaction* CompactionPicker::CompactRange(
       if (output_level < vstorage->num_non_empty_levels()) {
         std::vector<FileMetaData*> files;
         vstorage->GetOverlappingInputsRangeBinarySearch(
-            output_level, smallest, largest, &files, hint_index, &hint_index);
+            output_level, smallest, largest, &files,
+            output_level == 0 ? earliest_mem_seqno : kMaxSequenceNumber,
+            hint_index, &hint_index);
         for (const auto& file : files) {
           output_level_total += file->fd.GetFileSize();
         }
@@ -806,8 +823,10 @@ Compaction* CompactionPicker::CompactRange(
 
   InternalKey key_storage;
   InternalKey* next_smallest = &key_storage;
-  if (ExpandInputsToCleanCut(cf_name, vstorage, &inputs, &next_smallest) ==
-      false) {
+  if (ExpandInputsToCleanCut(
+          cf_name, vstorage, &inputs,
+          output_level == 0 ? earliest_mem_seqno : kMaxSequenceNumber,
+          &next_smallest) == false) {
     // manual compaction is now multi-threaded, so it can
     // happen that ExpandWhileOverlapping fails
     // we handle it higher in RunManualCompaction
@@ -830,8 +849,11 @@ Compaction* CompactionPicker::CompactRange(
   output_level_inputs.level = output_level;
   if (input_level != output_level) {
     int parent_index = -1;
-    if (!SetupOtherInputs(cf_name, mutable_cf_options, vstorage, &inputs,
-                          &output_level_inputs, &parent_index, -1)) {
+    if (!SetupOtherInputs(
+            cf_name, mutable_cf_options, vstorage, &inputs,
+            &output_level_inputs,
+            output_level == 0 ? earliest_mem_seqno : kMaxSequenceNumber,
+            &parent_index, -1)) {
       // manual compaction is now multi-threaded, so it can
       // happen that SetupOtherInputs fails
       // we handle it higher in RunManualCompaction
@@ -1175,7 +1197,8 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
 
 void CompactionPicker::PickFilesMarkedForCompaction(
     const std::string& cf_name, VersionStorageInfo* vstorage, int* start_level,
-    int* output_level, CompactionInputFiles* start_level_inputs) {
+    int* output_level, CompactionInputFiles* start_level_inputs,
+    SequenceNumber earliest_mem_seqno) {
   if (vstorage->FilesMarkedForCompaction().empty()) {
     return;
   }
@@ -1195,7 +1218,9 @@ void CompactionPicker::PickFilesMarkedForCompaction(
 
     start_level_inputs->files = {level_file.second};
     start_level_inputs->level = *start_level;
-    return ExpandInputsToCleanCut(cf_name, vstorage, start_level_inputs);
+    return ExpandInputsToCleanCut(
+        cf_name, vstorage, start_level_inputs,
+        (*output_level) == 0 ? earliest_mem_seqno : kMaxSequenceNumber);
   };
 
   // take a chance on a random file first
@@ -1232,7 +1257,8 @@ bool CompactionPicker::GetOverlappingL0Files(
   // which will include the picked file.
   start_level_inputs->files.clear();
   vstorage->GetOverlappingInputs(0, &smallest, &largest,
-                                 &(start_level_inputs->files));
+                                 &(start_level_inputs->files),
+                                 kMaxSequenceNumber /* earliest_mem_seqno */);
 
   // If we include more L0 files in the same compaction run it can
   // cause the 'smallest' and 'largest' key to get extended to a

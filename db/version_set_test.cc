@@ -186,7 +186,8 @@ class VersionStorageInfoTestBase : public testing::Test {
   std::string GetOverlappingFiles(int level, const InternalKey& begin,
                                   const InternalKey& end) {
     std::vector<FileMetaData*> inputs;
-    vstorage_.GetOverlappingInputs(level, &begin, &end, &inputs);
+    vstorage_.GetOverlappingInputs(level, &begin, &end, &inputs,
+                                   kMaxSequenceNumber /* earliest_mem_seqno */);
 
     std::string result;
     for (size_t i = 0; i < inputs.size(); ++i) {
