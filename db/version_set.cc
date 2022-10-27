@@ -2408,9 +2408,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           merge_operator_, user_key, nullptr, merge_context->GetOperands(),
           str_value, columns, info_log_, db_statistics_, clock_,
           nullptr /* result_operand */, true);
-    }
-    if (LIKELY(value != nullptr)) {
-      value->PinSelf();
+      if (status->ok()) {
+        if (LIKELY(value != nullptr)) {
+          value->PinSelf();
+        }
+      }
     }
   } else {
     if (key_exists != nullptr) {
