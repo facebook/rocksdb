@@ -611,7 +611,8 @@ TEST_F(ClockCacheTest, Misc) {
 }
 
 TEST_F(ClockCacheTest, Limits) {
-  NewShard(3, false /*strict_capacity_limit*/);
+  constexpr size_t kCapacity = 3;
+  NewShard(kCapacity, false /*strict_capacity_limit*/);
   for (bool strict_capacity_limit : {false, true, false}) {
     SCOPED_TRACE("strict_capacity_limit = " +
                  std::to_string(strict_capacity_limit));
@@ -651,15 +652,17 @@ TEST_F(ClockCacheTest, Limits) {
       shard_->Release(h, false /*useful*/, false /*erase_if_last_ref*/);
     }
 
-    // Insert more than table size can handle (cleverly using zero-charge
-    // entries) to exceed occupancy limit.
+    // Insert more than table size can handle to exceed occupancy limit.
+    // (Cleverly using mostly zero-charge entries, but some non-zero to
+    // verify usage tracking on detached entries.)
     {
       size_t n = shard_->GetTableAddressCount() + 1;
       std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [n] {} };
       Status s;
       for (size_t i = 0; i < n && s.ok(); ++i) {
         hkey[1] = i;
-        s = shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/, 0 /*charge*/,
+        s = shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/,
+                           (i + kCapacity < n) ? 0 : 1 /*charge*/,
                            nullptr /*deleter*/, &ha[i], Cache::Priority::LOW);
         if (i == 0) {
           EXPECT_OK(s);

@@ -504,9 +504,8 @@ class HyperClockTable {
   // means that updating `usage_` always succeeds even if forced to exceed
   // capacity. If `need_evict_for_occupancy`, then eviction of at least one
   // entry is required, and the operation should return false if such eviction
-  // is not possible. `usage_` is still updated in that case, as it is assumed
-  // the caller will use DetachedInsert. Otherwise, returns true, indicating
-  // success.
+  // is not possible. `usage_` is not updated in that case. Otherwise, returns
+  // true, indicating success.
   // NOTE: occupancy_ is not managed in this function
   inline bool ChargeUsageMaybeEvictNonStrict(size_t total_charge,
                                              size_t capacity,
@@ -514,6 +513,7 @@ class HyperClockTable {
 
   // Creates a "detached" handle for returning from an Insert operation that
   // cannot be completed by actually inserting into the table.
+  // Updates `detached_usage_` but not `usage_` nor `occupancy_`.
   inline HandleImpl* DetachedInsert(const ClockHandleBasicData& proto);
 
   // Returns the number of bits used to hash an element in the hash

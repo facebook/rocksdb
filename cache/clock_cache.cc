@@ -415,6 +415,8 @@ Status HyperClockTable::Insert(const ClockHandleBasicData& proto,
         proto.FreeData();
         return Status::OK();
       } else {
+        // Need to track usage of fallback detached insert
+        usage_.fetch_add(total_charge, std::memory_order_relaxed);
         use_detached_insert = true;
       }
     }
