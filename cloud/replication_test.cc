@@ -108,6 +108,26 @@ int getLevel0FileCount(DB* db) {
   return std::atoi(v.c_str());
 }
 
+Status countWalFiles(Env* env, const std::string& path, size_t* out) {
+  *out = 0;
+  std::vector<std::string> files;
+  auto s = env->GetChildren(path, &files);
+  if (!s.ok()) {
+    return s;
+  }
+  for (const std::string& file : files) {
+    uint64_t number = 0;
+    FileType type = kInfoLogFile;
+    if (!ParseFileName(file, &number, &type)) {
+      continue;
+    }
+    if (type == kWalFile) {
+      ++(*out);
+    }
+  }
+  return Status::OK();
+}
+
 class ReplicationTest : public testing::Test {
  public:
   ReplicationTest()
@@ -120,6 +140,8 @@ class ReplicationTest : public testing::Test {
     DestroyDir(Env::Default(), test_dir_ + "/leader");
     DestroyDir(Env::Default(), test_dir_ + "/follower");
   }
+
+  std::string leaderPath() const { return test_dir_ + "/leader"; }
 
   using ColumnFamilyMap =
       std::unordered_map<std::string, std::unique_ptr<ColumnFamilyHandle>>;
@@ -586,6 +608,11 @@ TEST_F(ReplicationTest, MultiColumnFamily) {
   // Reopen leader
   closeLeader();
   leader = openLeader();
+  { // expect only one WAL
+    size_t walFileCount{0};
+    ASSERT_OK(countWalFiles(Env::Default(), leaderPath(), &walFileCount));
+    EXPECT_EQ(1, walFileCount);
+  }
   for (size_t i = 0; i < 1000; ++i) {
     ASSERT_OK(leader->Get(ReadOptions(), leaderCF(cf(i % 10)),
                           "key" + std::to_string(i), &val));

@@ -2018,6 +2018,18 @@ Status DBImpl::SwitchMemtableWithoutCreatingWAL(
   logs_.front().number = next_log_num;
   log_write_mutex_.Unlock();
 
+  // Move empty CFs' log number to the new log number
+  for (auto cf : *versions_->GetColumnFamilySet()) {
+    // all this is just optimization to delete logs that
+    // are no longer needed -- if CF is empty, that means it
+    // doesn't need that particular log to stay alive, so we just
+    // advance the log number. no need to persist this in the manifest
+    if (cf->IsEmpty()) {
+      cf->SetLogNumber(logfile_number_);
+      cf->mem()->SetCreationSeq(versions_->LastSequence());
+    }
+  }
+
   cfd->mem()->SetNextLogNumber(logfile_number_);
   cfd->mem()->SetReplicationSequence(replication_sequence);
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
