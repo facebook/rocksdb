@@ -210,6 +210,7 @@ _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 _DEBUG_LEVEL_ENV_VAR = "DEBUG_LEVEL"
 
 stress_cmd = "./db_stress"
+cleanup_cmd = None
 
 
 def is_release_mode():
@@ -224,6 +225,10 @@ def get_dbname(test_name):
     else:
         dbname = test_tmpdir + "/" + test_dir_name
         shutil.rmtree(dbname, True)
+        if cleanup_cmd is not None:
+            print("Running DB cleanup command - %s\n" % cleanup_cmd)
+            # Ignore failure
+            os.system(cleanup_cmd)
         os.mkdir(dbname)
     return dbname
 
@@ -691,6 +696,7 @@ def gen_cmd(params, unknown_params):
                 "write_policy",
                 "stress_cmd",
                 "test_tiered_storage",
+                "cleanup_cmd",
             }
             and v is not None
         ]
@@ -926,6 +932,12 @@ def whitebox_crash_main(args, unknown_args):
             # we need to clean up after ourselves -- only do this on test
             # success
             shutil.rmtree(dbname, True)
+            if cleanup_cmd is not None:
+                print("Running DB cleanup command - %s\n" % cleanup_cmd)
+                ret = os.system(cleanup_cmd)
+                if ret != 0:
+                    print("TEST FAILED. DB cleanup returned error %d\n" % ret)
+                    sys.exit(1)
             os.mkdir(dbname)
             if (expected_values_dir is not None):
                 shutil.rmtree(expected_values_dir, True)
@@ -938,6 +950,7 @@ def whitebox_crash_main(args, unknown_args):
 
 def main():
     global stress_cmd
+    global cleanup_cmd
 
     parser = argparse.ArgumentParser(
         description="This script runs and kills \
@@ -953,6 +966,7 @@ def main():
     parser.add_argument("--write_policy", choices=["write_committed", "write_prepared"])
     parser.add_argument("--stress_cmd")
     parser.add_argument("--test_tiered_storage", action="store_true")
+    parser.add_argument("--cleanup_cmd")
 
     all_params = dict(
         list(default_params.items())
@@ -987,6 +1001,8 @@ def main():
 
     if args.stress_cmd:
         stress_cmd = args.stress_cmd
+    if args.cleanup_cmd:
+        cleanup_cmd = args.cleanup_cmd
     if args.test_type == "blackbox":
         blackbox_crash_main(args, unknown_args)
     if args.test_type == "whitebox":
