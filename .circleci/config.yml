@@ -524,6 +524,7 @@ jobs:
       SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.8
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.8;C:/Users/circleci/thirdparty/snappy-1.1.8/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.8/build/Debug/snappy.lib
+      CMAKE_GENERATOR: Visual Studio 17 2022
     steps:
       - checkout
       - run:
@@ -539,16 +540,16 @@ jobs:
             cd snappy-1.1.8
             mkdir build
             cd build
-            & $Env:CMAKE_BIN -G "Visual Studio 17 2022" ..
+            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" ..
             msbuild.exe Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
       - run:
           name: "Build RocksDB"
           command: |
             mkdir build
             cd build
-            & $Env:CMAKE_BIN -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
+            & $Env:CMAKE_BIN -G "$Env:CMAKE_GENERATOR" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
             cd ..
-            echo "Building with VS version: Visual Studio 17 2022"
+            echo "Building with VS version: $Env:CMAKE_GENERATOR"
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
       - run:
           name: "Test RocksDB"
