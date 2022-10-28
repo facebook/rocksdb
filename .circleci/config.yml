@@ -521,10 +521,9 @@ jobs:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
       CMAKE_HOME: C:/Program Files/CMake
       CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
-      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.7
-      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.7;C:/Users/circleci/thirdparty/snappy-1.1.7/build
-      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.7/build/Debug/snappy.lib
-      CMAKE_GENERATOR: "Visual Studio 17 2022"
+      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.9
+      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.9;C:/Users/circleci/thirdparty/snappy-1.1.9/build
+      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.9/build/Debug/snappy.lib
     steps:
       - checkout
       - run:
@@ -535,9 +534,9 @@ jobs:
             mkdir $Env:THIRDPARTY_HOME
             cd $Env:THIRDPARTY_HOME
             echo "Building Snappy dependency..."
-            curl https://github.com/google/snappy/archive/1.1.7.zip -O snappy-1.1.7.zip
-            unzip -q snappy-1.1.7.zip
-            cd snappy-1.1.7
+            curl https://github.com/google/snappy/archive/refs/tags/1.1.9.zip -O snappy-1.1.9.zip
+            unzip -q snappy-1.1.9.zip
+            cd snappy-1.1.9
             mkdir build
             cd build
             & $Env:CMAKE_BIN -G "Visual Studio 17 2022" ..
@@ -557,8 +556,51 @@ jobs:
           command: |
             build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
 
+  build-windows-vs2019:
+    executor:
+      name: win/server-2019
+      size: 2xlarge
+    environment:
+      THIRDPARTY_HOME: C:/Users/circleci/thirdparty
+      CMAKE_HOME: C:/Program Files/CMake
+      CMAKE_BIN: C:/Program Files/CMake/bin/cmake.exe
+      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.9
+      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.9;C:/Users/circleci/thirdparty/snappy-1.1.9/build
+      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.9/build/Debug/snappy.lib
+    steps:
+      - checkout
+      - run:
+          name: "Install thirdparty dependencies"
+          command: |
+            echo "Installing CMake..."
+            choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+            mkdir $Env:THIRDPARTY_HOME
+            cd $Env:THIRDPARTY_HOME
+            echo "Building Snappy dependency..."
+            curl https://github.com/google/snappy/archive/refs/tags/1.1.9.zip -O snappy-1.1.9.zip
+            unzip -q snappy-1.1.9.zip
+            cd snappy-1.1.9
+            mkdir build
+            cd build
+            & $Env:CMAKE_BIN -G "Visual Studio 16 2019" ..
+            msbuild.exe Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      - run:
+          name: "Build RocksDB"
+          command: |
+            mkdir build
+            cd build
+            & $Env:CMAKE_BIN -G "Visual Studio 16 2019" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
+            cd ..
+            echo "Building with VS version: Visual Studio 16 2019"
+            msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      - run:
+          name: "Test RocksDB"
+          shell: powershell.exe
+          command: |
+            build_tools\run_ci_db_test.ps1 -SuiteRun arena_test,db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
 
-  build-windows:
+
+  build-windows-old:
     executor: win/server-2019
     parameters:
       extra_cmake_opt:
@@ -900,6 +942,7 @@ workflows:
   jobs-windows:
     jobs:
       - build-windows-vs2022
+      - build-windows-vs2019
       - build-cmake-mingw
   jobs-java:
     jobs:
