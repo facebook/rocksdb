@@ -56,6 +56,15 @@ class MergeHelper {
                                Slice* result_operand = nullptr,
                                bool update_num_ops_stats = false);
 
+  static Status TimedFullMerge(const MergeOperator* merge_operator,
+                               const Slice& key, const Slice* base_value,
+                               const std::vector<Slice>& operands,
+                               std::string* value, PinnableWideColumns* columns,
+                               Logger* logger, Statistics* statistics,
+                               SystemClock* clock,
+                               Slice* result_operand = nullptr,
+                               bool update_num_ops_stats = false);
+
   // Merge entries until we hit
   //     - a corrupted key
   //     - a Put/Delete,
