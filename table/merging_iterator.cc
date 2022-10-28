@@ -820,7 +820,8 @@ bool MergingIterator::SkipNextDeleted() {
   // Point key case: check active_ for range tombstone coverage.
   ParsedInternalKey pik;
   ParseInternalKey(current->iter.key(), &pik, false).PermitUncheckedError();
-  for (auto& i : active_) {
+  if (!active_.empty()) {
+    auto i = *active_.begin();
     if (i < current->level) {
       // range tombstone is from a newer level, definitely covers
       assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
@@ -1027,7 +1028,8 @@ bool MergingIterator::SkipPrevDeleted() {
   // Point key case: check active_ for range tombstone coverage.
   ParsedInternalKey pik;
   ParseInternalKey(current->iter.key(), &pik, false).PermitUncheckedError();
-  for (auto& i : active_) {
+  if (!active_.empty()) {
+    auto i = *active_.begin();
     if (i < current->level) {
       // range tombstone is from a newer level, definitely covers
       assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
@@ -1066,6 +1068,7 @@ bool MergingIterator::SkipPrevDeleted() {
       return false /* current key not deleted */;
     }
   }
+
   assert(active_.empty());
   assert(maxHeap_->top()->type == HeapItem::ITERATOR);
   return false /* current key not deleted */;
