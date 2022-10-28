@@ -532,6 +532,7 @@ jobs:
           command: |
             echo "Installing CMake..."
             choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+            $Env:Path += ";C:\Program Files\CMake\bin"
             mkdir ${THIRDPARTY_HOME}
             cd ${THIRDPARTY_HOME}
             echo "Building Snappy dependency..."
@@ -540,16 +541,17 @@ jobs:
             cd snappy-1.1.7
             mkdir build
             cd build
-            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" ..
+            cmake -G "Visual Studio 17 2022" ..
             msbuild.exe Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
       - run:
           name: "Build RocksDB"
           command: |
+            $Env:Path += ";C:\Program Files\CMake\bin"
             mkdir build
             cd build
-            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
+            cmake -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
             cd ..
-            echo "Building with VS version: ${CMAKE_GENERATOR}"
+            echo "Building with VS version: Visual Studio 17 2022"
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
       - run:
           name: "Test RocksDB"
