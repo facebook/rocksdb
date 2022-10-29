@@ -138,22 +138,23 @@ static inline tokutime_t toku_time_now(void) {
   asm volatile("stckf %0" : "=Q"(result) : : "cc");
   return result;
 #elif defined(__riscv) && __riscv_xlen == 32
-  uint32_t cycles_lo, cycles_hi0, cycles_hi1;
+  uint32_t times_lo, times_hi0, times_hi1;
   // Implemented in assembly because Clang insisted on branching.
+  // Use rdtime because linux blocks rdcycle due to security reasons.
   asm volatile(
-      "rdcycleh %0\n"
-      "rdcycle %1\n"
-      "rdcycleh %2\n"
+      "rdtimeh %0\n"
+      "rdtime %1\n"
+      "rdtimeh %2\n"
       "sub %0, %0, %2\n"
       "seqz %0, %0\n"
       "sub %0, zero, %0\n"
       "and %1, %1, %0\n"
-      : "=r"(cycles_hi0), "=r"(cycles_lo), "=r"(cycles_hi1));
-  return (static_cast<uint64_t>(cycles_hi1) << 32) | cycles_lo;
+      : "=r"(times_hi0), "=r"(times_lo), "=r"(times_hi1));
+  return (static_cast<uint64_t>(times_hi1) << 32) | times_lo;
 #elif defined(__riscv) && __riscv_xlen == 64
-  uint64_t cycles;
-  asm volatile("rdcycle %0" : "=r"(cycles));
-  return cycles;
+  uint64_t times;
+  asm volatile("rdtime %0" : "=r"(times));
+  return times;
 #else
 #error No timer implementation for this platform
 #endif
