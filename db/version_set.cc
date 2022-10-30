@@ -1240,7 +1240,7 @@ void LevelIterator::Seek(const Slice& target) {
         prefix_extractor_ != nullptr && !read_options_.total_order_seek &&
         !read_options_.auto_prefix_mode &&
         file_index_ < flevel_->num_files - 1) {
-      size_t ts_sz = user_comparator_.timestamp_size();
+      size_t ts_sz = user_comparator_.user_comparator()->timestamp_size();
       Slice target_user_key_without_ts =
           ExtractUserKeyAndStripTimestamp(target, ts_sz);
       Slice next_file_first_user_key_without_ts =
@@ -2408,12 +2408,16 @@ void Version::Get(const ReadOptions& read_opts, const LookupKey& k,
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
     std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
-    *status = MergeHelper::TimedFullMerge(
-        merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-        str_value, info_log_, db_statistics_, clock_,
-        nullptr /* result_operand */, true);
-    if (LIKELY(value != nullptr)) {
-      value->PinSelf();
+    if (str_value || columns) {
+      *status = MergeHelper::TimedFullMerge(
+          merge_operator_, user_key, nullptr, merge_context->GetOperands(),
+          str_value, columns, info_log_, db_statistics_, clock_,
+          nullptr /* result_operand */, true);
+      if (status->ok()) {
+        if (LIKELY(value != nullptr)) {
+          value->PinSelf();
+        }
+      }
     }
   } else {
     if (key_exists != nullptr) {
@@ -2841,6 +2845,7 @@ Status Version::MultiGetAsync(
         std::vector<Status> statuses = folly::coro::blockingWait(
             folly::coro::collectAllRange(std::move(mget_tasks))
                 .scheduleOn(&range->context()->executor()));
+        mget_tasks.clear();
         for (Status stat : statuses) {
           if (!stat.ok()) {
             s = stat;

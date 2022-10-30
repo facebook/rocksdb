@@ -1487,10 +1487,8 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (!*diverged && iter->Valid()) {
-    const Slice value_base_slice = GetValueBaseSlice(iter->value());
-
-    const WideColumns expected_columns = GenerateExpectedWideColumns(
-        GetValueBase(value_base_slice), iter->value());
+    const WideColumns expected_columns =
+        GenerateExpectedWideColumns(GetValueBase(iter->value()), iter->value());
     if (iter->columns() != expected_columns) {
       fprintf(stderr, "Value and columns inconsistent for iterator: %s\n",
               DebugString(iter->value(), iter->columns(), expected_columns)
@@ -3123,6 +3121,11 @@ void InitializeOptionsFromFlags(
   options.max_background_flushes = FLAGS_max_background_flushes;
   options.compaction_style =
       static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style);
+  if (options.compaction_style ==
+      ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleFIFO) {
+    options.compaction_options_fifo.allow_compaction =
+        FLAGS_fifo_allow_compaction;
+  }
   options.compaction_pri =
       static_cast<ROCKSDB_NAMESPACE::CompactionPri>(FLAGS_compaction_pri);
   options.num_levels = FLAGS_num_levels;

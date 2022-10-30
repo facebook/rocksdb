@@ -90,7 +90,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
   status_.PermitUncheckedError();
-  assert(timestamp_size_ == user_comparator_.timestamp_size());
+  assert(timestamp_size_ ==
+         user_comparator_.user_comparator()->timestamp_size());
 }
 
 Status DBIter::GetProperty(std::string prop_name, std::string* prop) {

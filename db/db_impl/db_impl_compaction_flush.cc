@@ -1344,8 +1344,18 @@ Status DBImpl::CompactFilesImpl(
     }
   }
 
+  SequenceNumber earliest_mem_seqno = kMaxSequenceNumber;
+  if (cfd->mem() != nullptr) {
+    earliest_mem_seqno =
+        std::min(cfd->mem()->GetEarliestSequenceNumber(), earliest_mem_seqno);
+  }
+  if (cfd->imm() != nullptr && cfd->imm()->current() != nullptr) {
+    earliest_mem_seqno =
+        std::min(cfd->imm()->current()->GetEarliestSequenceNumber(false),
+                 earliest_mem_seqno);
+  }
   Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
-      &input_set, cf_meta, output_level);
+      &input_set, cf_meta, output_level, earliest_mem_seqno);
   if (!s.ok()) {
     return s;
   }

@@ -32,8 +32,8 @@ BlockCacheFile* BlockCacheTierMetadata::Evict() {
 }
 
 void BlockCacheTierMetadata::Clear() {
-  cache_file_index_.Clear([](BlockCacheFile* arg){ delete arg; });
-  block_index_.Clear([](BlockInfo* arg){ delete arg; });
+  cache_file_index_.Clear([](BlockCacheFile* arg) { delete arg; });
+  block_index_.Clear([](BlockInfo* arg) { delete arg; });
 }
 
 BlockInfo* BlockCacheTierMetadata::Insert(const Slice& key, const LBA& lba) {

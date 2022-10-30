@@ -6,14 +6,14 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <memory>
 #include <string>
+
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "table/multiget_context.h"
 #include "util/hash.h"
-
-#include <atomic>
-#include <memory>
 
 namespace ROCKSDB_NAMESPACE {
 

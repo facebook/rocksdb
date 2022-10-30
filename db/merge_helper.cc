@@ -110,6 +110,36 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   return Status::OK();
 }
 
+Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
+                                   const Slice& key, const Slice* base_value,
+                                   const std::vector<Slice>& operands,
+                                   std::string* value,
+                                   PinnableWideColumns* columns, Logger* logger,
+                                   Statistics* statistics, SystemClock* clock,
+                                   Slice* result_operand,
+                                   bool update_num_ops_stats) {
+  assert(value || columns);
+  assert(!value || !columns);
+
+  std::string result;
+  const Status s =
+      TimedFullMerge(merge_operator, key, base_value, operands, &result, logger,
+                     statistics, clock, result_operand, update_num_ops_stats);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (value) {
+    *value = std::move(result);
+    return Status::OK();
+  }
+
+  assert(columns);
+  columns->SetPlainValue(result);
+
+  return Status::OK();
+}
+
 // PRE:  iter points to the first merge type entry
 // POST: iter points to the first entry beyond the merge process (or the end)
 //       keys_, operands_ are updated to reflect the merge result.

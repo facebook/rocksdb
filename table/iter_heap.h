@@ -21,6 +21,7 @@ class MaxIteratorComparator {
   bool operator()(IteratorWrapper* a, IteratorWrapper* b) const {
     return comparator_->Compare(a->key(), b->key()) < 0;
   }
+
  private:
   const InternalKeyComparator* comparator_;
 };
@@ -35,6 +36,7 @@ class MinIteratorComparator {
   bool operator()(IteratorWrapper* a, IteratorWrapper* b) const {
     return comparator_->Compare(a->key(), b->key()) > 0;
   }
+
  private:
   const InternalKeyComparator* comparator_;
 };

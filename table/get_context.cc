@@ -407,7 +407,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kDeleted;
         } else if (kMerge == state_) {
           state_ = kFound;
-          Merge(nullptr);
+          if (do_merge_) {
+            Merge(nullptr);
+          }
           // If do_merge_ = false then the current value shouldn't be part of
           // merge_context_->operand_list
         }
@@ -438,16 +440,20 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 }
 
 void GetContext::Merge(const Slice* value) {
+  assert(do_merge_);
+  assert(!pinnable_val_ || !columns_);
+
+  const Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, user_key_, value, merge_context_->GetOperands(),
+      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_, logger_,
+      statistics_, clock_);
+  if (!s.ok()) {
+    state_ = kCorrupt;
+    return;
+  }
+
   if (LIKELY(pinnable_val_ != nullptr)) {
-    if (do_merge_) {
-      Status merge_status = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key_, value, merge_context_->GetOperands(),
-          pinnable_val_->GetSelf(), logger_, statistics_, clock_);
-      pinnable_val_->PinSelf();
-      if (!merge_status.ok()) {
-        state_ = kCorrupt;
-      }
-    }
+    pinnable_val_->PinSelf();
   }
 }
 
