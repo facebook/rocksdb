@@ -738,20 +738,22 @@ Status DataBlockIter::VerifyEntryChecksum(const Slice& key,
 uint32_t DataBlockIter::GetCurrentEntryPosition() const {
   uint32_t index = restart_index_;
   const uint32_t current_offset = current_;
-  while(GetRestartPoint(index) > current_offset) {
+  while (GetRestartPoint(index) > current_offset and index > 0) {
     index--;
   }
   uint32_t offset = GetRestartPoint(index);
   uint32_t entry_num_in_restart{0};
   const char* p = data_ + offset;
+  const char* limit = data_ + restarts_;
   while (p != data_ + current_offset) {
-    GetNextEntryOffset(p, 1);
+    entry_num_in_restart++;
+    GetNextEntryOffset(p, limit);
   }
 
   return block_restart_interval_ * index + entry_num_in_restart;
 }
 
-void DataBlockIter::GetNextEntryOffset(const char* p, const char* limit) const {
+void DataBlockIter::GetNextEntryOffset(const char* p, const char* limit) {
   uint32_t shared, non_shared, value_length;
   p = DecodeEntry()(p, limit, &shared, &non_shared, &value_length);
   p += non_shared + value_length;

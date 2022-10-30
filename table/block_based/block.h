@@ -604,7 +604,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   Status VerifyEntryChecksum(const Slice& key, const Slice& value) const;
   uint32_t GetCurrentEntryPosition() const;
   // Return the offset in data_ just past the end of the entry starting at "p".
-  void GetNextEntryOffset(const char* p, const char* limit) const;
+  static void GetNextEntryOffset(const char* p, const char* limit);
 };
 
 // Iterator over MetaBlocks.  MetaBlocks are similar to Data Blocks and
