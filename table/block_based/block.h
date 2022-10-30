@@ -467,7 +467,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     return static_cast<uint32_t>((value_.data() + value_.size()) - data_);
   }
 
-  uint32_t GetRestartPoint(uint32_t index) {
+  uint32_t GetRestartPoint(uint32_t index) const {
     assert(index < num_restarts_);
     return DecodeFixed32(data_ + restarts_ + index * sizeof(uint32_t));
   }
@@ -603,6 +603,8 @@ class DataBlockIter final : public BlockIter<Slice> {
                              SequenceNumber s, char* checksum_ptr) const;
   Status VerifyEntryChecksum(const Slice& key, const Slice& value) const;
   uint32_t GetCurrentEntryPosition() const;
+  // Return the offset in data_ just past the end of the entry starting at "p".
+  void GetNextEntryOffset(const char* p, const char* limit) const;
 };
 
 // Iterator over MetaBlocks.  MetaBlocks are similar to Data Blocks and
