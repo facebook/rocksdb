@@ -290,7 +290,7 @@ size_t DBImpl::TEST_GetWalPreallocateBlockSize(
 }
 
 #ifndef ROCKSDB_LITE
-void DBImpl::TEST_WaitForPeridicTaskRun(std::function<void()> callback) const {
+void DBImpl::TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const {
   periodic_task_scheduler_.TEST_WaitForRun(callback);
 }
 

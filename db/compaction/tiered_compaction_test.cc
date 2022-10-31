@@ -1240,7 +1240,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicTaskRun(
+  dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
@@ -1248,7 +1248,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
   for (; sst_num < kNumTrigger; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+      dbfull()->TEST_WaitForPeriodicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -1302,7 +1302,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicTaskRun(
+  dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
@@ -1310,7 +1310,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
   for (; sst_num < kNumTrigger; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+      dbfull()->TEST_WaitForPeriodicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -1344,7 +1344,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
     for (int i = 0; i < kNumKeys; i++) {
       // the value needs to be big enough to trigger full compaction
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), rnd.RandomString(100)));
-      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+      dbfull()->TEST_WaitForPeriodicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -1378,7 +1378,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicTaskRun(
+  dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
@@ -1386,7 +1386,7 @@ TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
   for (; sst_num < kNumTrigger; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+      dbfull()->TEST_WaitForPeriodicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -1452,13 +1452,13 @@ TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
 
   Random rnd(301);
 
-  dbfull()->TEST_WaitForPeridicTaskRun([&] {
+  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
     mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(10) + 1));
   });
 
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
-    dbfull()->TEST_WaitForPeridicTaskRun([&] {
+    dbfull()->TEST_WaitForPeriodicTaskRun([&] {
       mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(2)));
     });
   }
@@ -1505,7 +1505,7 @@ TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicTaskRun(
+  dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
@@ -1513,7 +1513,7 @@ TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
   for (; sst_num < kNumTrigger; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+      dbfull()->TEST_WaitForPeriodicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -1583,7 +1583,7 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicTaskRun(
+  dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   Random rnd(301);
@@ -1592,7 +1592,7 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
   for (; sst_num < kNumTrigger; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), rnd.RandomString(100)));
-      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+      dbfull()->TEST_WaitForPeriodicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -1685,7 +1685,7 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
     for (int i = 0; i < kNumKeys; i++) {
       // the value needs to be big enough to trigger full compaction
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+      dbfull()->TEST_WaitForPeriodicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -1736,7 +1736,7 @@ TEST_P(PrecludeLastLevelTestWithParms, PeriodicCompactionToPenultimateLevel) {
 
   for (int i = 0; i < 3 * kNumKeys; i++) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
-    dbfull()->TEST_WaitForPeridicTaskRun(
+    dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
   }
   ASSERT_OK(Flush());
@@ -1810,7 +1810,7 @@ TEST_P(PrecludeLastLevelTestWithParms, PeriodicCompactionToPenultimateLevel) {
   for (int i = 0; i < kNumTrigger - 1; i++) {
     for (int j = 0; j < kNumKeys; j++) {
       ASSERT_OK(Put(Key(i * (kNumKeys - 1) + i), rnd.RandomString(10)));
-      dbfull()->TEST_WaitForPeridicTaskRun(
+      dbfull()->TEST_WaitForPeriodicTaskRun(
           [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
     }
     ASSERT_OK(Flush());
@@ -1825,7 +1825,7 @@ TEST_P(PrecludeLastLevelTestWithParms, PeriodicCompactionToPenultimateLevel) {
   mock_clock_->MockSleepForSeconds(10000);
   for (int i = 0; i < 3 * kNumKeys; i++) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(10)));
-    dbfull()->TEST_WaitForPeridicTaskRun(
+    dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
   }
   ASSERT_OK(Flush());
@@ -1897,14 +1897,14 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicTaskRun(
+  dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
 
   Random rnd(301);
 
   for (int i = 0; i < 300; i++) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
-    dbfull()->TEST_WaitForPeridicTaskRun(
+    dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
   }
   ASSERT_OK(Flush());
@@ -2062,14 +2062,14 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompactionWithRangeDel) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicTaskRun(
+  dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
 
   Random rnd(301);
 
   for (int i = 0; i < 300; i++) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
-    dbfull()->TEST_WaitForPeridicTaskRun(
+    dbfull()->TEST_WaitForPeriodicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
   }
   ASSERT_OK(Flush());
