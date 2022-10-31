@@ -32,8 +32,7 @@ void Multiplier(void* arg1, void* arg2) {
 
 class PinnableSliceTest : public testing::Test {
  public:
-  void AssertSameData(const std::string& expected,
-                      const PinnableSlice& slice) {
+  void AssertSameData(const std::string& expected, const PinnableSlice& slice) {
     std::string got;
     got.assign(slice.data(), slice.size());
     ASSERT_EQ(expected, got);

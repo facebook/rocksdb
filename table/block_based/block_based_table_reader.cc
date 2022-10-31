@@ -2981,7 +2981,8 @@ Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
     out_stream << "  HEX    " << user_key.ToString(true) << ": "
                << blockhandles_iter->value().ToString(true,
                                                       rep_->index_has_first_key)
-               << "\n";
+               << " offset " << blockhandles_iter->value().handle.offset()
+               << " size " << blockhandles_iter->value().handle.size() << "\n";
 
     std::string str_key = user_key.ToString();
     std::string res_key("");
