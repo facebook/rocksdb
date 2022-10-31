@@ -2781,7 +2781,7 @@ TEST_F(DBRangeDelTest, PointToRangeTombstoneWithSnapshot) {
   options.disable_auto_compactions = true;
   options.tombstone_conversion_threshold = 4;
   DestroyAndReopen(options);
-  const Snapshot* snapshot;
+  const Snapshot* snapshot{nullptr};
   for (int i = 0; i < 4; ++i) {
     ASSERT_OK(Delete(Key(i)));
     if (i == 0) {
@@ -2921,7 +2921,7 @@ TEST_F(DBRangeDelTest, PointToRangeTombstoneConcurrentFlush) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Flush());
-  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   std::string val = Get(Key(2));
   ASSERT_EQ(val, "val");
 }
