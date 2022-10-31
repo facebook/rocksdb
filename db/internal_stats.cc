@@ -423,6 +423,10 @@ const std::string DB::Properties::kBlobCacheUsage =
 const std::string DB::Properties::kBlobCachePinnedUsage =
     rocksdb_prefix + blob_cache_pinned_usage;
 
+const std::string InternalStats::kPeriodicCFStats =
+    DB::Properties::kCFStats + ".periodic";
+const int InternalStats::kMaxNoChangePeriodSinceDump = 8;
+
 const UnorderedMap<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
         {DB::Properties::kNumFilesAtLevelPrefix,
@@ -438,6 +442,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kCFStats,
          {false, &InternalStats::HandleCFStats, nullptr,
           &InternalStats::HandleCFMapStats, nullptr}},
+        {InternalStats::kPeriodicCFStats,
+         {false, &InternalStats::HandleCFStatsPeriodic, nullptr, nullptr,
+          nullptr}},
         {DB::Properties::kCFStatsNoFileHistogram,
          {false, &InternalStats::HandleCFStatsNoFileHistogram, nullptr, nullptr,
           nullptr}},
@@ -605,6 +612,7 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
       comp_stats_(num_levels),
       comp_stats_by_pri_(Env::Priority::TOTAL),
       file_read_latency_(num_levels),
+      has_cf_change_since_dump_(true),
       bg_error_count_(0),
       number_levels_(num_levels),
       clock_(clock),
@@ -1041,9 +1049,41 @@ bool InternalStats::HandleCFStats(std::string* value, Slice /*suffix*/) {
   return true;
 }
 
+bool InternalStats::HandleCFStatsPeriodic(std::string* value,
+                                          Slice /*suffix*/) {
+  bool has_change = has_cf_change_since_dump_;
+  if (!has_change) {
+    // If file histogram changes, there is activity in this period too.
+    uint64_t new_histogram_num = 0;
+    for (int level = 0; level < number_levels_; level++) {
+      new_histogram_num += file_read_latency_[level].num();
+    }
+    new_histogram_num += blob_file_read_latency_.num();
+    if (new_histogram_num != last_histogram_num) {
+      has_change = true;
+      last_histogram_num = new_histogram_num;
+    }
+  }
+  if (has_change) {
+    no_cf_change_period_since_dump_ = 0;
+    has_cf_change_since_dump_ = false;
+  } else if (no_cf_change_period_since_dump_++ > 0) {
+    // Not ready to sync
+    if (no_cf_change_period_since_dump_ == kMaxNoChangePeriodSinceDump) {
+      // Next periodic, we need to dump stats even if there is no change.
+      no_cf_change_period_since_dump_ = 0;
+    }
+    return true;
+  }
+
+  DumpCFStatsNoFileHistogram(/*is_periodic=*/true, value);
+  DumpCFFileHistogram(value);
+  return true;
+}
+
 bool InternalStats::HandleCFStatsNoFileHistogram(std::string* value,
                                                  Slice /*suffix*/) {
-  DumpCFStatsNoFileHistogram(value);
+  DumpCFStatsNoFileHistogram(/*is_periodic=*/false, value);
   return true;
 }
 
@@ -1708,11 +1748,12 @@ void InternalStats::DumpCFMapStatsIOStalls(
 }
 
 void InternalStats::DumpCFStats(std::string* value) {
-  DumpCFStatsNoFileHistogram(value);
+  DumpCFStatsNoFileHistogram(/*is_periodic=*/false, value);
   DumpCFFileHistogram(value);
 }
 
-void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
+void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
+                                               std::string* value) {
   char buf[2000];
   // Per-ColumnFamily stats
   PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName(), "Level");
@@ -1864,9 +1905,11 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
       interval_compact_bytes_read / kMB / std::max(interval_seconds_up, 0.001),
       interval_compact_micros / kMicrosInSec);
   value->append(buf);
-  cf_stats_snapshot_.compact_bytes_write = compact_bytes_write;
-  cf_stats_snapshot_.compact_bytes_read = compact_bytes_read;
-  cf_stats_snapshot_.compact_micros = compact_micros;
+  if (is_periodic) {
+    cf_stats_snapshot_.compact_bytes_write = compact_bytes_write;
+    cf_stats_snapshot_.compact_bytes_read = compact_bytes_read;
+    cf_stats_snapshot_.compact_micros = compact_micros;
+  }
 
   snprintf(buf, sizeof(buf),
            "Stalls(count): %" PRIu64
@@ -1897,14 +1940,16 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
            total_stall_count - cf_stats_snapshot_.stall_count);
   value->append(buf);
 
-  cf_stats_snapshot_.seconds_up = seconds_up;
-  cf_stats_snapshot_.ingest_bytes_flush = flush_ingest;
-  cf_stats_snapshot_.ingest_bytes_addfile = add_file_ingest;
-  cf_stats_snapshot_.ingest_files_addfile = ingest_files_addfile;
-  cf_stats_snapshot_.ingest_l0_files_addfile = ingest_l0_files_addfile;
-  cf_stats_snapshot_.ingest_keys_addfile = ingest_keys_addfile;
-  cf_stats_snapshot_.comp_stats = compaction_stats_sum;
-  cf_stats_snapshot_.stall_count = total_stall_count;
+  if (is_periodic) {
+    cf_stats_snapshot_.seconds_up = seconds_up;
+    cf_stats_snapshot_.ingest_bytes_flush = flush_ingest;
+    cf_stats_snapshot_.ingest_bytes_addfile = add_file_ingest;
+    cf_stats_snapshot_.ingest_files_addfile = ingest_files_addfile;
+    cf_stats_snapshot_.ingest_l0_files_addfile = ingest_l0_files_addfile;
+    cf_stats_snapshot_.ingest_keys_addfile = ingest_keys_addfile;
+    cf_stats_snapshot_.comp_stats = compaction_stats_sum;
+    cf_stats_snapshot_.stall_count = total_stall_count;
+  }
 
   // Do not gather cache entry stats during CFStats because DB
   // mutex is held. Only dump last cached collection (rely on DB
