@@ -278,6 +278,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->compression_per_level = moptions.compression_per_level;
   cf_opts->last_level_temperature = moptions.last_level_temperature;
   cf_opts->bottommost_temperature = moptions.last_level_temperature;
+  cf_opts->tombstone_conversion_threshold =
+      moptions.tombstone_conversion_threshold;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,

@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/memtable.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/seqno_to_time_mapping.h"
 #include "db/table_properties_collector.h"
@@ -47,6 +48,9 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
 // If no data is present in *iter, meta->file_size will be set to
 // zero, and no Table file will be produced.
 //
+// The following parameters are needed when converting point to range tombstones
+// are enabled: db, cfd and mems.
+//
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown.
 extern Status BuildTable(
@@ -69,7 +73,8 @@ extern Status BuildTable(
     TableProperties* table_properties = nullptr,
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const std::string* full_history_ts_low = nullptr,
-    BlobFileCompletionCallback* blob_callback = nullptr,
+    BlobFileCompletionCallback* blob_callback = nullptr, DBImpl* db = nullptr,
+    ColumnFamilyData* cfd = nullptr, autovector<MemTable*>* mems = nullptr,
     uint64_t* num_input_entries = nullptr,
     uint64_t* memtable_payload_bytes = nullptr,
     uint64_t* memtable_garbage_bytes = nullptr);

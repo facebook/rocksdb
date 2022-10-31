@@ -1075,4 +1075,10 @@ DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 
+DEFINE_uint32(
+    tombstone_conversion_threshold, 0,
+    "Enables point to range tombstone conversion during Flush. This only "
+    "benefits iterator performance "
+    " if there tends to be long consecutive sequences of point tombstones.");
+
 #endif  // GFLAGS

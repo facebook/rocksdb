@@ -56,6 +56,13 @@ struct FragmentedRangeTombstoneList {
       const InternalKeyComparator& icmp, bool for_compaction = false,
       const std::vector<SequenceNumber>& snapshots = {});
 
+  // Creates range tombstones [start_keys[i], end_keys[i]) at seqs[i]
+  // for 0 <= i < start_keys.size().
+  // REQUIRES start_keys.size() == end_keys.size() == seqs.size()
+  FragmentedRangeTombstoneList(std::vector<std::string>& start_keys,
+                               std::vector<std::string>& end_keys,
+                               std::vector<SequenceNumber>& seqs);
+
   std::vector<RangeTombstoneStack>::const_iterator begin() const {
     return tombstones_.begin();
   }

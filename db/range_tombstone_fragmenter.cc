@@ -72,6 +72,18 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
   FragmentTombstones(std::move(iter), icmp, for_compaction, snapshots);
 }
 
+FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
+    std::vector<std::string>& start_keys, std::vector<std::string>& end_keys,
+    std::vector<SequenceNumber>& seqs) {
+  assert(start_keys.size() == end_keys.size() &&
+         end_keys.size() == seqs.size());
+  tombstone_seqs_.insert(tombstone_seqs_.begin(), seqs.begin(), seqs.end());
+  seq_set_.insert(seqs.begin(), seqs.end());
+  for (size_t i = 0; i < start_keys.size(); ++i) {
+    tombstones_.emplace_back(start_keys[i], end_keys[i], i, i + 1);
+  }
+}
+
 void FragmentedRangeTombstoneList::FragmentTombstones(
     std::unique_ptr<InternalIterator> unfragmented_tombstones,
     const InternalKeyComparator& icmp, bool for_compaction,

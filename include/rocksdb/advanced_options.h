@@ -1087,6 +1087,23 @@ struct AdvancedColumnFamilyOptions {
   // Supported values: 0, 1, 2, 4, 8.
   uint32_t memtable_protection_bytes_per_key = 0;
 
+  // EXPERIMENTAL
+  // Not compatible with user-defined timestamp yet.
+  //
+  // If non-zero, enables the conversion from a consecutive sequence of point
+  // tombstones into a single range tombstone during flush. Specifically,
+  // during flush, if RocksDB sees a sequence of
+  // `tombstone_conversion_threshold` point tombstones, say key1, key3, ...,
+  // key9, it tries to convert them into a range tombstone [key1, key9) and the
+  // point tombstone key9 (as range tombstone end key is exclusive). This can
+  // speed up Iterator for DB that writes many long consecutive sequences
+  // of point tombstones.
+  //
+  // Note that this option slows down flush if not many conversions happen.
+  //
+  // Default: 0 (disabled)
+  uint32_t tombstone_conversion_threshold = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

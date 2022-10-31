@@ -119,6 +119,12 @@ class MemTableListVersion {
                     MergeIteratorBuilder* merge_iter_builder,
                     bool add_range_tombstone_iter);
 
+  // Given a list of immutable memtables in `mems`, add to `merge_iter_builder`
+  // all immutable memtables that not newer than memtables in `mems`.
+  void AddIteratorsOlderThan(autovector<MemTable*>& mems_,
+                             MergeIteratorBuilder* merge_iter_builder,
+                             const ReadOptions& options);
+
   uint64_t GetTotalNumEntries() const;
 
   uint64_t GetTotalNumDeletes() const;

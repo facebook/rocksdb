@@ -1809,6 +1809,35 @@ static void CleanupGetMergeOperandsState(void* arg1, void* /*arg2*/) {
 
 }  // namespace
 
+Iterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
+                                      ColumnFamilyData* cfd,
+                                      autovector<MemTable*>& mems) {
+  SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+  MutableCFOptions cf_opts = *cfd->GetCurrentMutableCFOptions();
+  ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
+      env_, read_options, *cfd->ioptions(), cf_opts, sv->current,
+      kMaxSequenceNumber, cf_opts.max_sequential_skip_in_iterations,
+      sv->current->GetVersionNumber(), nullptr, this, cfd,
+      false /* expose_blob_index */, false /* allow_refresh */);
+  Arena* arena = db_iter->GetArena();
+  InternalIterator* internal_iter;
+  assert(arena != nullptr);
+  // Need to create internal iterator from the arena.
+  MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), arena);
+  const ReadOptions& ro = db_iter->GetReadOptions();
+  sv->imm->AddIteratorsOlderThan(mems, &merge_iter_builder, ro);
+  // Collect iterators for files in L0 - Ln
+  sv->current->AddIterators(ro, file_options_, &merge_iter_builder, false);
+  internal_iter = merge_iter_builder.Finish(nullptr /* db_iter */);
+  SuperVersionHandle* cleanup = new SuperVersionHandle(
+      this, &mutex_, sv,
+      read_options.background_purge_on_iterator_cleanup ||
+          immutable_db_options_.avoid_unnecessary_blocking_io);
+  internal_iter->RegisterCleanup(CleanupSuperVersionHandle, cleanup, nullptr);
+  db_iter->SetIterUnderDBIter(internal_iter);
+  return db_iter;
+}
+
 InternalIterator* DBImpl::NewInternalIterator(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
     SuperVersion* super_version, Arena* arena, SequenceNumber sequence,

@@ -768,6 +768,15 @@ class DBImpl : public DB {
                                         Arena* arena, SequenceNumber sequence,
                                         bool allow_unprepared_value,
                                         ArenaWrappedDBIter* db_iter = nullptr);
+  // Used in BuildTable() during Flush for point to range tombstone conversion
+  // feature (EXPERIMENTAL).
+  //
+  // Given a list of immutable memtables in `mems`, returns an iterator over
+  // all immutable memtables that not newer than memtables in `mems`, and
+  // SSTables.
+  Iterator* NewInternalIterator(const ReadOptions& read_options,
+                                ColumnFamilyData* cfd,
+                                autovector<MemTable*>& mems);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;

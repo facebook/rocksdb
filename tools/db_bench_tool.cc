@@ -1756,6 +1756,12 @@ DEFINE_bool(build_info, false,
 DEFINE_bool(track_and_verify_wals_in_manifest, false,
             "If true, enable WAL tracking in the MANIFEST");
 
+DEFINE_uint32(
+    tombstone_conversion_threshold, 0,
+    "Enables point to range tombstone conversion during Flush. This only "
+    "benefits iterator performance "
+    " if there tends to be long consecutive sequences of point tombstones.");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -4657,6 +4663,8 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
     options.memtable_protection_bytes_per_key =
         FLAGS_memtable_protection_bytes_per_key;
+    options.tombstone_conversion_threshold =
+        FLAGS_tombstone_conversion_threshold;
   }
 
   void InitializeOptionsGeneral(Options* opts) {
@@ -7014,6 +7022,10 @@ class Benchmark {
               fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
               exit(1);
             }
+            // Rate limits Deletes expanded from range tombstones
+            write_rate_limiter->Request(expanded_keys[offset].size(),
+                                        Env::IO_HIGH, nullptr /* stats */,
+                                        RateLimiter::OpType::kWrite);
           }
         } else {
           GenerateKeyFromInt(begin_num, FLAGS_num, &begin_key);

@@ -15,6 +15,7 @@
 
 #include "db/blob/blob_file_builder.h"
 #include "db/compaction/compaction_iterator.h"
+#include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
@@ -53,6 +54,163 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
   return tboptions.ioptions.table_factory->NewTableBuilder(tboptions, file);
 }
 
+// Add the given key and value to output table through `builder`.
+// Key and value are validated through output validator first.
+// File metadata and thread status are updated accordingly.
+Status AddKeyValueToOutput(OutputValidator& output_validator, const Slice& key,
+                           const Slice& value, TableBuilder* builder,
+                           FileMetaData* meta,
+                           const Env::IOPriority& io_priority,
+                           const SequenceNumber& seq, const ValueType& type) {
+  // Reports the IOStats for flush for every following bytes.
+  static const size_t kReportFlushIOStatsEvery = 1048576;
+  Status s;
+  s = output_validator.Add(key, value);
+  if (!s.ok()) {
+    return s;
+  }
+  builder->Add(key, value);
+
+  s = meta->UpdateBoundaries(key, value, seq, type);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // TODO(noetzli): Update stats after flush, too.
+  if (io_priority == Env::IO_HIGH &&
+      IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
+    ThreadStatusUtil::SetThreadOperationProperty(
+        ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+  }
+
+  return s;
+}
+
+// Try to convert point tombstones in `tombstones` to a range tombstone.
+// For example, given point tombstones 1, 3, 4, this function tries
+// to convert them into a single range tombstone [1, 4) and a point
+// tombstone 4 (since end key is exclusive). Make sure that we do not
+// accidentally delete key 2 from any older level by doing a DBIter seek
+// on key 1, and check if DBIter is at a key > 4. If DBIter seek lands on a key
+// > 4, say 9. We advance `c_iter` to look for more point tombstones until 9.
+// `at_next_key` is set to true if `c_iter` points to a key that
+// should be processed when this function returns.
+//
+// If we decide to convert point tombstones, the new range tombstone will have
+// the sequence number that is the max among all point tombstones. Any point
+// tombstone that is visible to a snapshot smaller than the range tombstone's
+// seq will be emitted to the output table. Range tombstone information will be
+// recorded in `start_keys`, `end_keys` and `seqs`.
+//
+// If we decide not to convert, all point tombstones in `tombstones` are added
+// to output table.
+//
+// Assumes the value for point tombstones is empty string.
+Status TryConvertPointToRangeTombstone(
+    std::vector<std::string>& tombstones, ColumnFamilyData* cfd,
+    std::vector<std::string>& start_keys, std::vector<std::string>& end_keys,
+    std::vector<SequenceNumber>& seqs,
+    const std::vector<SequenceNumber>& snapshots,
+    OutputValidator& output_validator, TableBuilder* builder,
+    FileMetaData* meta, const Env::IOPriority& io_priority,
+    std::unique_ptr<Iterator>& db_iter, std::string& last_seek_result,
+    bool& db_iter_reached_end, CompactionIterator& c_iter, bool& at_next_key) {
+  Status s;
+  const auto ucmp = cfd->user_comparator();
+  Slice front_user_key = ExtractUserKey(tombstones.front());
+  // last seek result is too staledP
+  if (!db_iter_reached_end &&
+      (last_seek_result.empty() ||
+       ucmp->Compare(last_seek_result, front_user_key) < 0)) {
+    db_iter->Seek(front_user_key);
+    if (!db_iter->status().ok()) {
+      return db_iter->status();
+    }
+    if (db_iter->Valid()) {
+      last_seek_result.assign(db_iter->key().data(), db_iter->key().size());
+    } else {
+      db_iter_reached_end = true;
+    }
+  }
+  // either we've reached end of DBIter, or that last_seek_result is useful: it
+  // is after current tombstone start
+  assert(db_iter_reached_end ||
+         ucmp->Compare(last_seek_result, front_user_key) >= 0);
+  Slice back_user_key = ExtractUserKey(tombstones.back());
+  if (db_iter_reached_end ||
+      ucmp->Compare(last_seek_result, back_user_key) > 0) {
+    // There is no keys from older level that is logically visble in range
+    // covered by `tombstones`
+    SequenceNumber max_seq = 0;
+    for (auto& k : tombstones) {
+      max_seq = std::max(max_seq, GetInternalKeySeqno(k));
+    }
+    // Try to extend to seek_result as much as possible
+    at_next_key = true;
+    c_iter.Next();
+    while (c_iter.Valid()) {
+      const ParsedInternalKey& ikey = c_iter.ikey();
+      if ((ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) &&
+          (db_iter_reached_end ||
+           ucmp->Compare(last_seek_result, ikey.user_key) > 0)) {
+        Slice k = c_iter.key();
+        tombstones.emplace_back(k.data(), k.size());
+        max_seq = std::max(max_seq, ikey.sequence);
+      } else {
+        break;
+      }
+      c_iter.Next();
+    }
+    // content of `tombstones` changed, need to reinit `front_user_key`
+    front_user_key = ExtractUserKey(tombstones.front());
+    back_user_key = ExtractUserKey(tombstones.back());
+    // Convert to range tombstone
+    start_keys.emplace_back(front_user_key.data(), front_user_key.size());
+    end_keys.emplace_back(back_user_key.data(), back_user_key.size());
+    seqs.emplace_back(max_seq);
+    // Find the largest snapshot less than max_seq given that `snapshots` is
+    // ascending. Emit tombstones that are visible to some snapshot.
+    auto snapshot = std::upper_bound(snapshots.rbegin(), snapshots.rend(),
+                                     max_seq, std::greater<SequenceNumber>());
+    if (snapshot != snapshots.rend()) {
+      for (size_t i = 0; i < tombstones.size() - 1; ++i) {
+        auto& k = tombstones[i];
+        auto k_seq = GetInternalKeySeqno(k);
+        // TODO: maybe use ParsedInternalKey for tombstones given that we parse
+        //  max_seq and op_type sometimes.
+        if (*snapshot >= k_seq) {
+          s = AddKeyValueToOutput(output_validator, k, "" /* value */, builder,
+                                  meta, io_priority, k_seq,
+                                  ExtractValueType(k));
+          if (!s.ok()) {
+            return s;
+          }
+        }
+      }
+    }
+    // Add the last tombstone to output since range tombstone end key is
+    // exclusive
+    s = AddKeyValueToOutput(output_validator, tombstones.back(), "" /* value */,
+                            builder, meta, io_priority,
+                            GetInternalKeySeqno(tombstones.back()),
+                            ExtractValueType(tombstones.back()));
+  } else {
+    // TODO: it is not necessary to flush all tombstones here. Say we cannot
+    //  convert 1, 3 to [1, 3) due to lower level having point key 2. We can
+    //  just flush point tombstone 1 here, and continue buffering tombstones
+    //  starting from 3.
+    for (auto& k : tombstones) {
+      s = AddKeyValueToOutput(output_validator, k, "" /* value */, builder,
+                              meta, io_priority, GetInternalKeySeqno(k),
+                              ExtractValueType(k));
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  }
+  return s;
+}
+
 Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
@@ -71,15 +229,16 @@ Status BuildTable(
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
-    uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes) {
+    BlobFileCompletionCallback* blob_callback, DBImpl* db,
+    ColumnFamilyData* cfd, autovector<MemTable*>* mems,
+    uint64_t* num_input_entries, uint64_t* memtable_payload_bytes,
+    uint64_t* memtable_garbage_bytes) {
+  TEST_SYNC_POINT_CALLBACK("BuildTable:Start", nullptr);
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
   auto& mutable_cf_options = tboptions.moptions;
   auto& ioptions = tboptions.ioptions;
-  // Reports the IOStats for flush for every following bytes.
-  const size_t kReportFlushIOStatsEvery = 1048576;
   OutputValidator output_validator(
       tboptions.internal_comparator,
       /*enable_order_check=*/
@@ -207,31 +366,101 @@ Status BuildTable(
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
+    // TODO: reduce copying of tombstones, keys should already be pinned as they
+    //  are from memetables. This requires change in CompactionIterator.
+    // states for point to range tombstone conversion
+    std::vector<std::string> tombstones;
+    std::vector<std::string> start_keys;
+    std::vector<std::string> end_keys;
+    std::vector<SequenceNumber> seqs;
+    const uint32_t kConvertThreshold =
+        mutable_cf_options.tombstone_conversion_threshold;
+    const bool try_convert = kConvertThreshold > 0 && db && cfd;
+    std::unique_ptr<Iterator> db_iter{nullptr};
+    std::string last_seek_result;
+    bool db_iter_reached_end = false;
+    if (try_convert) {
+      assert(cfd->user_comparator()->timestamp_size() == 0);
+      ReadOptions ro;
+      ro.total_order_seek = true;
+      db_iter.reset(db->NewInternalIterator(ro, cfd, *mems));
+    }
+
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
+
+      if (try_convert) {
+        // ignores kTypeDeletionWithTimestamp, not supporting user-defined
+        // timestamp for now
+        if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {
+          tombstones.emplace_back(key.data(), key.size());
+          bool at_next_key = false;
+          if (tombstones.size() >= kConvertThreshold) {
+            s = TryConvertPointToRangeTombstone(
+                tombstones, cfd, start_keys, end_keys, seqs, snapshots,
+                output_validator, builder, meta, io_priority, db_iter,
+                last_seek_result, db_iter_reached_end, c_iter, at_next_key);
+            tombstones.clear();
+            if (!s.ok()) {
+              break;
+            }
+          }
+          if (at_next_key) {
+            if (!c_iter.Valid()) {
+              break;
+            }
+            const ParsedInternalKey& ik = c_iter.ikey();
+            const Slice& k = c_iter.key();
+            if (ik.type == kTypeDeletion || ik.type == kTypeSingleDeletion) {
+              tombstones.emplace_back(k.data(), k.size());
+            } else {
+              s = AddKeyValueToOutput(output_validator, k, c_iter.value(),
+                                      builder, meta, io_priority, ik.sequence,
+                                      ik.type);
+              if (!s.ok()) {
+                break;
+              }
+            }
+            continue;
+          } else {
+            continue;
+          }
+        } else {
+          for (auto& k : tombstones) {
+            s = AddKeyValueToOutput(
+                output_validator, k, "" /* value */, builder, meta, io_priority,
+                GetInternalKeySeqno(k), ExtractValueType(k));
+            if (!s.ok()) {
+              break;
+            }
+          }
+          tombstones.clear();
+        }
+      }
+
       // Generate a rolling 64-bit hash of the key and values
       // Note :
       // Here "key" integrates 'sequence_number'+'kType'+'user key'.
-      s = output_validator.Add(key, value);
+      s = AddKeyValueToOutput(output_validator, key, value, builder, meta,
+                              io_priority, ikey.sequence, ikey.type);
       if (!s.ok()) {
         break;
       }
-      builder->Add(key, value);
-
-      s = meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
-      if (!s.ok()) {
-        break;
+    }
+    if (s.ok() && !tombstones.empty()) {
+      // flush the remaining buffered point tombstones
+      for (auto& k : tombstones) {
+        s = AddKeyValueToOutput(output_validator, k, "", builder, meta,
+                                io_priority, GetInternalKeySeqno(k),
+                                ExtractValueType(k));
+        if (!s.ok()) {
+          break;
+        }
       }
-
-      // TODO(noetzli): Update stats after flush, too.
-      if (io_priority == Env::IO_HIGH &&
-          IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
-        ThreadStatusUtil::SetThreadOperationProperty(
-            ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
-      }
+      tombstones.clear();
     }
     if (!s.ok()) {
       c_iter.status().PermitUncheckedError();
@@ -240,15 +469,26 @@ Status BuildTable(
     }
 
     if (s.ok()) {
-      auto range_del_it = range_del_agg->NewIterator();
-      for (range_del_it->SeekToFirst(); range_del_it->Valid();
-           range_del_it->Next()) {
-        auto tombstone = range_del_it->Tombstone();
-        auto kv = tombstone.Serialize();
-        builder->Add(kv.first.Encode(), kv.second);
-        meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
-                                       tombstone.seq_,
-                                       tboptions.internal_comparator);
+      // Add range tombstones converted from point tombstones to output
+      FragmentedRangeTombstoneList f(start_keys, end_keys, seqs);
+      if (!start_keys.empty()) {
+        assert(!f.empty());
+        // construct fragmented tombstone list
+        range_del_agg->AddTombstones(
+            std::make_unique<FragmentedRangeTombstoneIterator>(
+                &f, cfd->internal_comparator(), kMaxSequenceNumber));
+      }
+      if (!range_del_agg->IsEmpty()) {
+        auto range_del_it = range_del_agg->NewIterator();
+        for (range_del_it->SeekToFirst(); range_del_it->Valid();
+             range_del_it->Next()) {
+          auto tombstone = range_del_it->Tombstone();
+          auto kv = tombstone.Serialize();
+          builder->Add(kv.first.Encode(), kv.second);
+          meta->UpdateBoundariesForRange(kv.first,  tombstone.SerializeEndKey(),
+                                         tombstone.seq_,
+                                         tboptions.internal_comparator);
+        }
       }
     }
 

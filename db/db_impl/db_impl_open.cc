@@ -1550,6 +1550,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           0 /* file_creation_time */, db_id_, db_session_id_,
           0 /* target_file_size */, meta.fd.GetNumber());
       SeqnoToTimeMapping empty_seqno_time_mapping;
+      // TODO: pass in db, cfd to enable conversion from point to range
+      //  tombstone during restart
       s = BuildTable(
           dbname_, versions_.get(), immutable_db_options_, tboptions,
           file_options_for_compaction_, cfd->table_cache(), iter.get(),

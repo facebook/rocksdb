@@ -2754,6 +2754,178 @@ TEST_F(DBRangeDelTest, RefreshMemtableIter) {
   ASSERT_OK(iter->Refresh());
 }
 
+TEST_F(DBRangeDelTest, PointToRangeTombstone) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.tombstone_conversion_threshold = 4;
+  DestroyAndReopen(options);
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Delete(Key(i)));
+  }
+  ASSERT_OK(Flush());
+  std::string value;
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_TRUE(db_->Get(ReadOptions(), "b1", &value).IsNotFound());
+  }
+  // Tombstones 0, 1, 2, 3 should be converted to [0, 3) and 3.
+  std::vector<LiveFileMetaData> live_file_meta;
+  db_->GetLiveFilesMetaData(&live_file_meta);
+  for (const auto& meta : live_file_meta) {
+    ASSERT_EQ(meta.num_deletions, 2);
+    ASSERT_EQ(meta.num_entries, 2);
+  }
+}
+
+TEST_F(DBRangeDelTest, PointToRangeTombstoneWithSnapshot) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.tombstone_conversion_threshold = 4;
+  DestroyAndReopen(options);
+  const Snapshot* snapshot;
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Delete(Key(i)));
+    if (i == 0) {
+      snapshot = db_->GetSnapshot();
+    }
+  }
+  ASSERT_OK(Flush());
+  std::string value;
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_TRUE(db_->Get(ReadOptions(), "b1", &value).IsNotFound());
+  }
+
+  // Tombstones 0, 1, 2, 3 should be converted to [0, 3) and 3.
+  // 0 should also be emitted since it is visible under a snapshot.
+  std::vector<LiveFileMetaData> live_file_meta;
+  db_->GetLiveFilesMetaData(&live_file_meta);
+  ASSERT_EQ(live_file_meta.size(), 1);
+  ASSERT_EQ(live_file_meta[0].num_deletions, 3);
+  ASSERT_EQ(live_file_meta[0].num_entries, 3);
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBRangeDelTest, PointToRangeTombstoneNotConvering) {
+  // Setup: DB has a point key 2, and point tombstones 0, 1, 3, 4
+  // Test that if there is a "hole" in point tombstones,
+  // conversion should not happen.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.tombstone_conversion_threshold = 4;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put(Key(2), "val"));
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < 5; ++i) {
+    if (i == 2) {
+      continue;
+    }
+    ASSERT_OK(Delete(Key(i)));
+  }
+  ASSERT_OK(Flush());
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), Key(2), &value));
+  ASSERT_EQ(value, "val");
+
+  std::vector<LiveFileMetaData> live_file_meta;
+  db_->GetLiveFilesMetaData(&live_file_meta);
+  ASSERT_EQ(live_file_meta.size(), 2);
+  // Check that no conversion happened
+  ASSERT_EQ(live_file_meta[0].num_deletions, 4);
+  ASSERT_EQ(live_file_meta[0].num_entries, 4);
+}
+
+TEST_F(DBRangeDelTest, PointToRangeTombstoneExtendToSeekEnd1) {
+  // If there is more tombstones that can be included in the same
+  // conversion, we should do that.
+  // Check if we convert 100 consecutive point tombstones into a single
+  // range tombstone + 1 point tombstone for end key.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.tombstone_conversion_threshold = 4;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(Delete(Key(i)));
+  }
+  ASSERT_OK(Flush());
+  std::string value;
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i), &value).IsNotFound());
+  }
+
+  std::vector<LiveFileMetaData> live_file_meta;
+  db_->GetLiveFilesMetaData(&live_file_meta);
+  ASSERT_EQ(live_file_meta.size(), 1);
+  // Check that one conversion happened for all tombstones
+  ASSERT_EQ(live_file_meta[0].num_deletions, 2);
+  ASSERT_EQ(live_file_meta[0].num_entries, 2);
+}
+
+TEST_F(DBRangeDelTest, PointToRangeTombstoneExtendToSeekEnd2) {
+  // If there is more tombstones that can be included in the same
+  // conversion, we should do that.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.tombstone_conversion_threshold = 4;
+  DestroyAndReopen(options);
+  // We should be able to convert to two range tombstones before and after
+  // key 50.
+  ASSERT_OK(Put(Key(50), "val"));
+  ASSERT_OK(Flush());
+  for (int i = 0; i < 100; ++i) {
+    if (i == 50) {
+      continue;
+    }
+    ASSERT_OK(Delete(Key(i)));
+  }
+  ASSERT_OK(Flush());
+  std::string value;
+  for (int i = 0; i < 100; ++i) {
+    if (i == 50) {
+      ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+      ASSERT_EQ(value, "val");
+    } else {
+      ASSERT_TRUE(db_->Get(ReadOptions(), Key(i), &value).IsNotFound());
+    }
+  }
+
+  std::vector<LiveFileMetaData> live_file_meta;
+  db_->GetLiveFilesMetaData(&live_file_meta);
+  ASSERT_EQ(live_file_meta.size(), 2);
+  // Check that two conversion happened for tombstones before and after Key(50)
+  ASSERT_EQ(live_file_meta[0].num_deletions, 4);
+  ASSERT_EQ(live_file_meta[0].num_entries, 4);
+}
+
+TEST_F(DBRangeDelTest, PointToRangeTombstoneConcurrentFlush) {
+  // When there is concurrent flush jobs, each flush job gets a subset of
+  // immutable memtable, point to range tombstone conversion should not
+  // incorrectly ignore the keys from the immutable memtable that is being
+  // flushed by another flush job.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.tombstone_conversion_threshold = 2;
+  options.max_write_buffer_number = 3;
+  // allows 2 background flushes
+  options.max_background_jobs = 8;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put(Key(2), "val"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:Start", [&](void* /* arg */) {
+        SyncPoint::GetInstance()->DisableProcessing();
+        ASSERT_OK(Delete(Key(1)));
+        ASSERT_OK(Delete(Key(3)));
+        FlushOptions fo;
+        fo.wait = false;
+        ASSERT_OK(db_->Flush(fo));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForFlushMemTable();
+  std::string val = Get(Key(2));
+  ASSERT_EQ(val, "val");
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

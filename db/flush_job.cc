@@ -97,7 +97,7 @@ FlushJob::FlushJob(
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
     const SeqnoToTimeMapping& seqno_time_mapping, const std::string& db_id,
     const std::string& db_session_id, std::string full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback)
+    BlobFileCompletionCallback* blob_callback, DBImpl* db)
     : dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
@@ -130,7 +130,8 @@ FlushJob::FlushJob(
       clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback),
-      db_impl_seqno_time_mapping_(seqno_time_mapping) {
+      db_impl_seqno_time_mapping_(seqno_time_mapping),
+      db_(db) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -945,8 +946,8 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->internal_stats(), &io_s, io_tracer_,
           BlobFileCreationReason::kFlush, seqno_to_time_mapping_, event_logger_,
           job_context_->job_id, io_priority, &table_properties_, write_hint,
-          full_history_ts_low, blob_callback_, &num_input_entries,
-          &memtable_payload_bytes, &memtable_garbage_bytes);
+          full_history_ts_low, blob_callback_, db_, cfd_, &mems_,
+          &num_input_entries, &memtable_payload_bytes, &memtable_garbage_bytes);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
       io_s.PermitUncheckedError();

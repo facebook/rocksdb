@@ -1364,6 +1364,9 @@ InternalIterator* MergeIteratorBuilder::Finish(ArenaWrappedDBIter* db_iter) {
     ret = merge_iter;
     merge_iter = nullptr;
   }
+  if (!ret) {
+    return NewEmptyInternalIterator<Slice>(arena);
+  }
   return ret;
 }
 

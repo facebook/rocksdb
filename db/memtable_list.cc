@@ -248,6 +248,38 @@ void MemTableListVersion::AddIterators(const ReadOptions& options,
   }
 }
 
+void MemTableListVersion::AddIteratorsOlderThan(
+    autovector<MemTable*>& mems, MergeIteratorBuilder* merge_iter_builder,
+    const ReadOptions& options) {
+  bool found_start = false;
+  // memlist_ is ordered from new to old
+  for (auto& m : memlist_) {
+    if (!found_start) {
+      if (std::find(mems.begin(), mems.end(), m) != mems.end()) {
+        found_start = true;
+      }
+      if (!found_start) {
+        continue;
+      }
+    }
+    auto mem_iter = m->NewIterator(options, merge_iter_builder->GetArena());
+    SequenceNumber read_seq = kMaxSequenceNumber;
+    TruncatedRangeDelIterator* mem_tombstone_iter = nullptr;
+    auto range_del_iter = m->NewRangeTombstoneIterator(
+        options, read_seq, true /* immutale_memtable */);
+    if (range_del_iter == nullptr || range_del_iter->empty()) {
+      delete range_del_iter;
+    } else {
+      mem_tombstone_iter = new TruncatedRangeDelIterator(
+          std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
+          &m->GetInternalKeyComparator(), nullptr /* smallest */,
+          nullptr /* largest */);
+    }
+    merge_iter_builder->AddPointAndTombstoneIterator(mem_iter,
+                                                     mem_tombstone_iter);
+  }
+}
+
 uint64_t MemTableListVersion::GetTotalNumEntries() const {
   uint64_t total_num = 0;
   for (auto& m : memlist_) {

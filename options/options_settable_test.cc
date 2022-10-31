@@ -539,7 +539,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;age_for_warm=1;};"
       "blob_cache=1M;"
-      "memtable_protection_bytes_per_key=2;",
+      "memtable_protection_bytes_per_key=2;"
+      "tombstone_conversion_threshold=100;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);
