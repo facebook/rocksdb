@@ -1710,6 +1710,133 @@ TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
   Close();
 }
 
+TEST_P(PrecludeLastLevelTestWithParms, PeriodicCompactionToPenultimateLevel) {
+  // Test the last level only periodic compaction should also be blocked by an
+  // ongoing compaction in penultimate level if tiered compaction is enabled
+  // otherwise, the periodic compaction should just run for the last level.
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kPenultimateLevel = kNumLevels - 2;
+  const int kKeyPerSec = 1;
+  const int kNumKeys = 100;
+
+  bool enable_preclude_last_level = GetParam();
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preserve_internal_time_seconds = 20000;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  options.ignore_max_compaction_bytes_for_input = false;
+  options.periodic_compaction_seconds = 10000;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  for (int i = 0; i < 3 * kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    dbfull()->TEST_WaitForPeridicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
+  }
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // make sure all data is compacted to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  // enable preclude feature
+  if (enable_preclude_last_level) {
+    options.preclude_last_level_data_seconds = 20000;
+  }
+  options.max_background_jobs = 8;
+  options.last_level_temperature = Temperature::kCold;
+  Reopen(options);
+
+  std::atomic_bool is_size_ratio_compaction_running = false;
+  std::atomic_bool verified_last_level_compaction = false;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing", [&](void* arg) {
+        auto compaction = static_cast<Compaction*>(arg);
+        if (compaction->output_level() == kPenultimateLevel) {
+          is_size_ratio_compaction_running = true;
+          TEST_SYNC_POINT(
+              "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+              "SizeRatioCompaction1");
+          TEST_SYNC_POINT(
+              "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+              "SizeRatioCompaction2");
+          is_size_ratio_compaction_running = false;
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        auto compaction = static_cast<Compaction*>(arg);
+
+        if (is_size_ratio_compaction_running) {
+          if (enable_preclude_last_level) {
+            ASSERT_TRUE(compaction == nullptr);
+          } else {
+            ASSERT_TRUE(compaction != nullptr);
+            ASSERT_EQ(compaction->compaction_reason(),
+                      CompactionReason::kPeriodicCompaction);
+            ASSERT_EQ(compaction->start_level(), kNumLevels - 1);
+          }
+          verified_last_level_compaction = true;
+        }
+        TEST_SYNC_POINT(
+            "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+            "AutoCompactionPicked");
+      });
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+       "SizeRatioCompaction1",
+       "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:DoneWrite"},
+      {"PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+       "AutoCompactionPicked",
+       "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+       "SizeRatioCompaction2"},
+  });
+
+  auto stop_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
+  for (int i = 0; i < kNumTrigger - 1; i++) {
+    for (int j = 0; j < kNumKeys; j++) {
+      ASSERT_OK(Put(Key(i * (kNumKeys - 1) + i), rnd.RandomString(10)));
+      dbfull()->TEST_WaitForPeridicTaskRun(
+          [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
+    }
+    ASSERT_OK(Flush());
+  }
+
+  TEST_SYNC_POINT(
+      "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:DoneWrite");
+
+  // wait for periodic compaction time and flush to trigger the periodic
+  // compaction, which should be blocked by ongoing compaction in the
+  // penultimate level
+  mock_clock_->MockSleepForSeconds(10000);
+  for (int i = 0; i < 3 * kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(10)));
+    dbfull()->TEST_WaitForPeridicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  stop_token.reset();
+
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(PrecludeLastLevelTestWithParms,
                         PrecludeLastLevelTestWithParms, testing::Bool());
 
