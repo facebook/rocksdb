@@ -485,7 +485,7 @@ Status BuildTable(
           auto tombstone = range_del_it->Tombstone();
           auto kv = tombstone.Serialize();
           builder->Add(kv.first.Encode(), kv.second);
-          meta->UpdateBoundariesForRange(kv.first,  tombstone.SerializeEndKey(),
+          meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
                                          tombstone.seq_,
                                          tboptions.internal_comparator);
         }

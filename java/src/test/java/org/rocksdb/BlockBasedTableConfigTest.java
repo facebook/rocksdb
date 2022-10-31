@@ -31,8 +31,7 @@ public class BlockBasedTableConfigTest {
   public void cacheIndexAndFilterBlocks() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setCacheIndexAndFilterBlocks(true);
-    assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocks()).
-        isTrue();
+    assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocks()).isTrue();
   }
 
   @Test
@@ -156,11 +155,9 @@ public class BlockBasedTableConfigTest {
     String result;
     try (final RocksDB db = RocksDB.open(options, dbPath);
          final Stream<Path> pathStream = Files.walk(Paths.get(dbPath))) {
-      Path optionsPath =
-          pathStream
-              .filter(p -> p.getFileName().toString().startsWith("OPTIONS"))
-              .findAny()
-              .orElseThrow(() -> new AssertionError("Missing options file"));
+      Path optionsPath = pathStream.filter(p -> p.getFileName().toString().startsWith("OPTIONS"))
+                             .findAny()
+                             .orElseThrow(() -> new AssertionError("Missing options file"));
       byte[] optionsData = Files.readAllBytes(optionsPath);
       result = new String(optionsData, StandardCharsets.UTF_8);
     }
