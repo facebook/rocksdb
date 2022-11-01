@@ -43,7 +43,7 @@ const std::string kStandard128Ribbon =
     test::Standard128RibbonFilterPolicy::kClassName();
 const std::string kAutoBloom = BloomFilterPolicy::kClassName();
 const std::string kAutoRibbon = RibbonFilterPolicy::kClassName();
-}  // namespace
+}  // anonymous namespace
 
 // DB tests related to bloom filter.
 
@@ -622,7 +622,7 @@ class AlwaysTrueFilterPolicy : public ReadOnlyBuiltinFilterPolicy {
   bool skip_;
 };
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
   constexpr int maxKey = 10;
@@ -840,7 +840,7 @@ std::vector<CompatibilityConfig> kCompatibilityConfigs = {
      BlockBasedTableOptions().format_version},
     {kCompatibilityRibbonPolicy, true, BlockBasedTableOptions().format_version},
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
   Options options = CurrentOptions();
@@ -1678,7 +1678,7 @@ class TestingContextCustomFilterPolicy
  private:
   mutable std::string test_report_;
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
   auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
@@ -2193,7 +2193,7 @@ INSTANTIATE_TEST_CASE_P(DBBloomFilterTestVaryPrefixAndFormatVer,
 #ifndef ROCKSDB_LITE
 namespace {
 static const std::string kPlainTable = "test_PlainTableBloom";
-}  // namespace
+}  // anonymous namespace
 
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
@@ -2406,7 +2406,7 @@ void PrefixScanInit(DBBloomFilterTest* dbtest) {
     dbtest->Flush();
   }
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBloomFilterTest, PrefixScan) {
   while (ChangeFilterOptions()) {
@@ -3167,7 +3167,7 @@ std::pair<uint64_t, uint64_t> CheckedAndUseful(uint64_t checked,
                                                uint64_t useful) {
   return {checked, useful};
 }
-}  // namespace
+}  // anonymous namespace
 
 // This uses a prefix_extractor + comparator combination that violates
 // one of the old obsolete, unnecessary axioms of prefix extraction:
@@ -3375,7 +3375,7 @@ class NonIdempotentFixed4Transform : public SliceTransform {
 
   bool InDomain(const Slice& src) const override { return src.size() >= 5; }
 };
-}  // namespace
+}  // anonymous namespace
 
 // This uses a prefix_extractor + comparator combination that violates
 // two of the old obsolete, unnecessary axioms of prefix extraction:

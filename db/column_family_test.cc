@@ -2477,7 +2477,7 @@ void DropSingleColumnFamily(ColumnFamilyTest* cf_test, int cf_id,
   }
   test_stage = kChildThreadFinishDroppingColumnFamily;
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(ColumnFamilyTest, CreateAndDropRace) {
   const int kCfCount = 5;

@@ -691,7 +691,7 @@ void ValidateKeyExistence(DB* db, const std::vector<Slice>& keys_must_exist,
   }
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTest2, WalFilterTest) {
   class TestWalFilter : public WalFilter {
@@ -2664,7 +2664,7 @@ namespace {
 void CountSyncPoint() {
   TEST_SYNC_POINT_CALLBACK("DBTest2::MarkedPoint", nullptr /* arg */);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTest2, SyncPointMarker) {
   std::atomic<int> sync_point_called(0);
@@ -5669,7 +5669,7 @@ class DummyOldStats : public Statistics {
   std::atomic<int> num_rt{0};
   std::atomic<int> num_mt{0};
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTest2, OldStatsInterface) {
   DummyOldStats* dos = new DummyOldStats();

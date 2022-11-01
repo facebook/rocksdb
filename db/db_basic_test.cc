@@ -2914,7 +2914,7 @@ class TableFileListener : public EventListener {
   InstrumentedMutex mutex_;
   std::unordered_map<std::string, std::vector<std::string>> cf_to_paths_;
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBasicTest, LastSstFileNotInManifest) {
   // If the last sst file is not tracked in MANIFEST,

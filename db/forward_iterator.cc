@@ -280,7 +280,7 @@ struct SVCleanupParams {
   SuperVersion* sv;
   bool background_purge_on_iterator_cleanup;
 };
-}  // namespace
+}  // anonymous namespace
 
 // Used in PinnedIteratorsManager to release pinned SuperVersion
 void ForwardIterator::DeferredSVCleanup(void* arg) {

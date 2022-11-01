@@ -2125,7 +2125,7 @@ std::string PopMetaIndexKey(InternalIterator* meta_iter) {
   }
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
   // This is to detect unexpected churn in metaindex block keys. This is more

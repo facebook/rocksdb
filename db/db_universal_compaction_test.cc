@@ -93,7 +93,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
   std::atomic_bool expect_full_compaction_;
   std::atomic_bool expect_manual_compaction_;
 };
-}  // namespace
+}  // anonymous namespace
 
 // Make sure we don't trigger a problem if the trigger condtion is given
 // to be 0, which is invalid.

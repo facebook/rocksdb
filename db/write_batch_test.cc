@@ -329,7 +329,7 @@ struct TestHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, PutNotImplemented) {
   WriteBatch batch;
@@ -647,7 +647,7 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
   uint32_t id_;
   const Comparator* const ucmp_ = BytewiseComparator();
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   WriteBatch batch;
@@ -949,7 +949,7 @@ Status CheckTimestampsInWriteBatch(
   TimestampChecker ts_checker(cf_to_ucmps, timestamp);
   return wb.Iterate(&ts_checker);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, SanityChecks) {
   ColumnFamilyHandleImplDummy cf0(0,

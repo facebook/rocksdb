@@ -27,7 +27,7 @@ uint64_t GetUint64Property(const UserCollectedProperties& props,
   return GetVarint64(&raw, &val) ? val : 0;
 }
 
-}  // namespace
+}  // anonymous namespace
 
 Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
                                                     const Slice& value,

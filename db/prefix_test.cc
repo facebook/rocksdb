@@ -213,7 +213,7 @@ class SamePrefixTransform : public SliceTransform {
   bool FullLengthEnabled(size_t* /*len*/) const override { return false; }
 };
 
-}  // namespace
+}  // anonymous namespace
 
 class PrefixTest : public testing::Test {
  public:

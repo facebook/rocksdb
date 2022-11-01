@@ -204,7 +204,7 @@ Status CheckCFPathsSupported(const DBOptions& db_options,
 namespace {
 const uint64_t kDefaultTtl = 0xfffffffffffffffe;
 const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
-}  // namespace
+}  // anonymous namespace
 
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                     const ColumnFamilyOptions& src) {
@@ -878,7 +878,7 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
     return static_cast<int>(res);
   }
 }
-}  // namespace
+}  // anonymous namespace
 
 std::pair<WriteStallCondition, ColumnFamilyData::WriteStallCause>
 ColumnFamilyData::GetWriteStallConditionAndCause(

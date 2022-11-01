@@ -65,7 +65,7 @@ class ErrorEnv : public EnvWrapper {
     return target()->NewWritableFile(fname, result, soptions);
   }
 };
-}  // namespace
+}  // anonymous namespace
 class CorruptionTest : public testing::Test {
  public:
   std::shared_ptr<Env> env_guard_;

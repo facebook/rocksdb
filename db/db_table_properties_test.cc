@@ -52,7 +52,7 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
   VerifySstUniqueIds(props);
 }
-}  // namespace
+}  // anonymous namespace
 
 class DBTablePropertiesTest : public DBTestBase,
                               public testing::WithParamInterface<std::string> {

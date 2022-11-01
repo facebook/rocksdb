@@ -158,7 +158,7 @@ struct BatchContentClassifier : public WriteBatch::Handler {
   }
 };
 
-}  // namespace
+}  // anonymous namespace
 
 struct SavePoints {
   std::stack<SavePoint, autovector<SavePoint>> stack;
@@ -777,7 +777,7 @@ Status CheckColumnFamilyTimestampSize(ColumnFamilyHandle* column_family,
   }
   return Status::OK();
 }
-}  // namespace
+}  // anonymous namespace
 
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const Slice& key, const Slice& value) {
@@ -2840,7 +2840,7 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 };
 
-}  // namespace
+}  // anonymous namespace
 
 // This function can only be called in these conditions:
 // 1) During Recovery()
@@ -3011,7 +3011,7 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
 };
 
-}  // namespace
+}  // anonymous namespace
 
 Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);

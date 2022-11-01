@@ -61,7 +61,7 @@ void ExpectRecords(const int expected_no_records,
   ReadRecords(iter, num_records);
   ASSERT_EQ(num_records, expected_no_records);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTestXactLogIterator, TransactionLogIterator) {
   do {

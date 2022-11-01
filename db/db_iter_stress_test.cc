@@ -392,7 +392,7 @@ struct ReferenceIterator {
   }
 };
 
-}  // namespace
+}  // anonymous namespace
 
 // Use an internal iterator that sometimes returns errors and sometimes
 // adds/removes entries on the fly. Do random operations on a DBIter and

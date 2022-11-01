@@ -3791,7 +3791,7 @@ void SortFileByRoundRobin(const InternalKeyComparator& icmp,
     }
   }
 }
-}  // namespace
+}  // anonymous namespace
 
 void VersionStorageInfo::UpdateFilesByCompactionPri(
     const ImmutableOptions& ioptions, const MutableCFOptions& options) {
@@ -5655,7 +5655,7 @@ std::string ManifestPicker::GetNextManifest(uint64_t* number,
   }
   return ret;
 }
-}  // namespace
+}  // anonymous namespace
 
 Status VersionSet::TryRecover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,

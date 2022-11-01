@@ -858,7 +858,7 @@ namespace {
 std::string MakeLongKey(size_t length, char c) {
   return std::string(length, c);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   Options options = CurrentOptions();
@@ -903,7 +903,7 @@ namespace {
 std::string MakeLongKeyWithPrefix(size_t length, char c) {
   return "00000000" + std::string(length - 8, c);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   Options options = CurrentOptions();

@@ -216,7 +216,7 @@ int CountRecords(TransactionLogIterator* iter) {
   EXPECT_OK(iter->status());
   return count;
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(WalManagerTest, WALArchivalSizeLimit) {
   db_options_.WAL_ttl_seconds = 0;
