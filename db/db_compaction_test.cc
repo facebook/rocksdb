@@ -1290,9 +1290,14 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   DestroyAndReopen(options);
   // Same ranges as above but overlapping
   ranges = {
-      {100, 199}, {300, 399}, {0, 99},    {200, 299},
-      {600, 699}, {400, 499}, {500, 560},  // this range overlap with the next
-                                           // one
+      {100, 199},
+      {300, 399},
+      {0, 99},
+      {200, 299},
+      {600, 699},
+      {400, 499},
+      {500, 560},  // this range overlap with the next
+                   // one
       {551, 599},
   };
   for (size_t i = 0; i < ranges.size(); i++) {
