@@ -907,6 +907,7 @@ int main(int argc, char** argv) {
 
     rocksdb_sstfilewriter_open(writer, sstfilename, &err);
     CheckNoError(err);
+<<<<<<< HEAD
     rocksdb_sstfilewriter_put(writer, "abc1", 4, "v7", 2, &err);
     CheckNoError(err);
     rocksdb_sstfilewriter_put(writer, "abc2", 4, "v8", 2, &err);
@@ -916,6 +917,17 @@ int main(int argc, char** argv) {
     rocksdb_sstfilewriter_put(writer, "abc4", 4, "v10", 3, &err);
     CheckNoError(err);
     rocksdb_sstfilewriter_delete_range(writer, "abc1", 4, "abc4", 4, &err);
+=======
+    rocksdb_sstfilewriter_put(writer,"abc1",4,"v7",2,&err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer,"abc2",4,"v8",2,&err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer,"abc3",4,"v9",2,&err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_put(writer,"abc4",4,"v10",3,&err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_delete_range(writer,"abc1",4,"abc4",4,&err);
+>>>>>>> add sstfilewriter_delete_range
     CheckNoError(err);
     rocksdb_sstfilewriter_finish(writer, &err);
     CheckNoError(err);

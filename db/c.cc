@@ -4928,12 +4928,19 @@ void rocksdb_sstfilewriter_delete_with_ts(rocksdb_sstfilewriter_t* writer,
 }
 
 void rocksdb_sstfilewriter_delete_range(rocksdb_sstfilewriter_t* writer,
+<<<<<<< HEAD
                                         const char* begin_key,
                                         size_t begin_keylen,
                                         const char* end_key, size_t end_keylen,
                                         char** errptr) {
   SaveError(errptr, writer->rep->DeleteRange(Slice(begin_key, begin_keylen),
                                              Slice(end_key, end_keylen)));
+=======
+                                        const char* begin_key, size_t begin_keylen,
+                                        const char* end_key, size_t end_keylen,
+                                        char** errptr) {
+  SaveError(errptr, writer->rep->DeleteRange(Slice(begin_key, begin_keylen), Slice(end_key, end_keylen)));
+>>>>>>> add sstfilewriter_delete_range
 }
 
 void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
