@@ -18,6 +18,7 @@
 #endif
 #include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace ROCKSDB_NAMESPACE {
 class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
@@ -50,7 +51,7 @@ TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
       db_->Put(WriteOptions(), "key", dummy_ts, "value").IsInvalidArgument());
   ASSERT_TRUE(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), "key",
                          dummy_ts, "value")
-                  .IsNotSupported());
+                  .IsInvalidArgument());
   ASSERT_TRUE(db_->Delete(WriteOptions(), "key", dummy_ts).IsInvalidArgument());
   ASSERT_TRUE(
       db_->SingleDelete(WriteOptions(), "key", dummy_ts).IsInvalidArgument());
@@ -96,7 +97,7 @@ TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
   ASSERT_TRUE(db_->Put(WriteOptions(), handle, "key", wrong_ts, "value")
                   .IsInvalidArgument());
   ASSERT_TRUE(db_->Merge(WriteOptions(), handle, "key", wrong_ts, "value")
-                  .IsNotSupported());
+                  .IsInvalidArgument());
   ASSERT_TRUE(
       db_->Delete(WriteOptions(), handle, "key", wrong_ts).IsInvalidArgument());
   ASSERT_TRUE(db_->SingleDelete(WriteOptions(), handle, "key", wrong_ts)
@@ -3688,6 +3689,114 @@ TEST_F(DBBasicTestWithTimestamp, DeleteRangeGetIteratorWithSnapshot) {
 
   db_->ReleaseSnapshot(before_tombstone);
   db_->ReleaseSnapshot(after_tombstone);
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, MergeBasic) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.merge_operator = std::make_shared<StringAppendTESTOperator>('.');
+  DestroyAndReopen(options);
+
+  const std::array<std::string, 3> write_ts_strs = {
+      Timestamp(100, 0), Timestamp(200, 0), Timestamp(300, 0)};
+  constexpr size_t kNumOfUniqKeys = 100;
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+
+  for (size_t i = 0; i < write_ts_strs.size(); ++i) {
+    for (size_t j = 0; j < kNumOfUniqKeys; ++j) {
+      Status s;
+      if (i == 0) {
+        const std::string val = "v" + std::to_string(j) + "_0";
+        s = db_->Put(WriteOptions(), Key1(j), write_ts_strs[i], val);
+      } else {
+        const std::string merge_op = std::to_string(i);
+        s = db_->Merge(WriteOptions(), default_cf, Key1(j), write_ts_strs[i],
+                       merge_op);
+      }
+      ASSERT_OK(s);
+    }
+  }
+
+  std::array<std::string, 3> read_ts_strs = {
+      Timestamp(150, 0), Timestamp(250, 0), Timestamp(350, 0)};
+
+  const auto verify_db_with_get = [&]() {
+    for (size_t i = 0; i < kNumOfUniqKeys; ++i) {
+      const std::string base_val = "v" + std::to_string(i) + "_0";
+      const std::array<std::string, 3> expected_values = {
+          base_val, base_val + ".1", base_val + ".1.2"};
+      const std::array<std::string, 3>& expected_ts = write_ts_strs;
+      ReadOptions read_opts;
+      for (size_t j = 0; j < read_ts_strs.size(); ++j) {
+        Slice read_ts = read_ts_strs[j];
+        read_opts.timestamp = &read_ts;
+        std::string value;
+        std::string ts;
+        const Status s = db_->Get(read_opts, Key1(i), &value, &ts);
+        ASSERT_OK(s);
+        ASSERT_EQ(expected_values[j], value);
+        ASSERT_EQ(expected_ts[j], ts);
+
+        // Do Seek/SeekForPrev
+        std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+        it->Seek(Key1(i));
+        ASSERT_TRUE(it->Valid());
+        ASSERT_EQ(expected_values[j], it->value());
+        ASSERT_EQ(expected_ts[j], it->timestamp());
+
+        it->SeekForPrev(Key1(i));
+        ASSERT_TRUE(it->Valid());
+        ASSERT_EQ(expected_values[j], it->value());
+        ASSERT_EQ(expected_ts[j], it->timestamp());
+      }
+    }
+  };
+
+  const auto verify_db_with_iterator = [&]() {
+    std::string value_suffix;
+    for (size_t i = 0; i < read_ts_strs.size(); ++i) {
+      ReadOptions read_opts;
+      Slice read_ts = read_ts_strs[i];
+      read_opts.timestamp = &read_ts;
+      std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+      size_t key_int_val = 0;
+      for (it->SeekToFirst(); it->Valid(); it->Next(), ++key_int_val) {
+        const std::string key = Key1(key_int_val);
+        const std::string value =
+            "v" + std::to_string(key_int_val) + "_0" + value_suffix;
+        ASSERT_EQ(key, it->key());
+        ASSERT_EQ(value, it->value());
+        ASSERT_EQ(write_ts_strs[i], it->timestamp());
+      }
+      ASSERT_EQ(kNumOfUniqKeys, key_int_val);
+
+      key_int_val = kNumOfUniqKeys - 1;
+      for (it->SeekToLast(); it->Valid(); it->Prev(), --key_int_val) {
+        const std::string key = Key1(key_int_val);
+        const std::string value =
+            "v" + std::to_string(key_int_val) + "_0" + value_suffix;
+        ASSERT_EQ(key, it->key());
+        ASSERT_EQ(value, it->value());
+        ASSERT_EQ(write_ts_strs[i], it->timestamp());
+      }
+      ASSERT_EQ(std::numeric_limits<size_t>::max(), key_int_val);
+
+      value_suffix = value_suffix + "." + std::to_string(i + 1);
+    }
+  };
+
+  verify_db_with_get();
+  verify_db_with_iterator();
+
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  verify_db_with_get();
+  verify_db_with_iterator();
+
   Close();
 }
 }  // namespace ROCKSDB_NAMESPACE

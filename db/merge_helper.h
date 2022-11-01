@@ -65,7 +65,7 @@ class MergeHelper {
                                Slice* result_operand = nullptr,
                                bool update_num_ops_stats = false);
 
-  // Merge entries until we hit
+  // During compaction, merge entries until we hit
   //     - a corrupted key
   //     - a Put/Delete,
   //     - a different user key,
@@ -101,6 +101,7 @@ class MergeHelper {
                     const SequenceNumber stop_before, const bool at_bottom,
                     const bool allow_data_in_errors,
                     const BlobFetcher* blob_fetcher,
+                    const std::string* const full_history_ts_low,
                     PrefetchBufferCollection* prefetch_buffers,
                     CompactionIterationStats* c_iter_stats);
 
@@ -108,6 +109,7 @@ class MergeHelper {
   // in the constructor. Returns the decision that the filter made.
   // Uses compaction_filter_value_ and compaction_filter_skip_until_ for the
   // optional outputs of compaction filter.
+  // user_key includes timestamp if user-defined timestamp is enabled.
   CompactionFilter::Decision FilterMerge(const Slice& user_key,
                                          const Slice& value_slice);
 

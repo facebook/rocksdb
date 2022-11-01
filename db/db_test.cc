@@ -3075,6 +3075,11 @@ class ModelDB : public DB {
     }
     return Write(o, &batch);
   }
+  Status Merge(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+               const Slice& /*k*/, const Slice& /*ts*/,
+               const Slice& /*value*/) override {
+    return Status::NotSupported();
+  }
   using DB::Get;
   Status Get(const ReadOptions& /*options*/, ColumnFamilyHandle* /*cf*/,
              const Slice& key, PinnableSlice* /*value*/) override {
