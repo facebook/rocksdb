@@ -13,6 +13,7 @@
 #include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/wide/wide_column_serialization.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/likely.h"
@@ -255,6 +256,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   assert(s.ok());
   if (!s.ok()) return s;
 
+  assert(kTypeMerge == orig_ikey.type);
+
   bool hit_the_next_user_key = false;
   int cmp_with_full_history_ts_low = 0;
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
@@ -460,10 +463,15 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   }
 
   if (cmp_with_full_history_ts_low >= 0) {
-    // If we reach here, and ts_sz == 0, it means compaction cannot perform
-    // merge with an earlier internal key, thus merge_context_.GetNumOperands()
-    // is 1.
-    assert(ts_sz == 0 || merge_context_.GetNumOperands() == 1);
+    size_t num_merge_operands = merge_context_.GetNumOperands();
+    if (ts_sz && num_merge_operands > 1) {
+      // We do not merge merge operands with different timestamps if they are
+      // not eligible for GC.
+      ROCKS_LOG_ERROR(logger_, "ts_sz=%d, %d merge oprands",
+                      static_cast<int>(ts_sz),
+                      static_cast<int>(num_merge_operands));
+      assert(false);
+    }
   }
 
   if (merge_context_.GetNumOperands() == 0) {
