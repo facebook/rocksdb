@@ -292,9 +292,8 @@ void FilePrefetchBuffer::UpdateBuffersIfNeeded(uint64_t offset) {
     }
   } else {
     if (DoesBufferContainData(second) && IsOffsetInBuffer(offset, second)) {
-      if (!bufs_[curr_].async_read_in_progress_) {
-        assert(bufs_[curr_].buffer_.CurrentSize() == 0);
-      }
+      assert(bufs_[curr_].async_read_in_progress_ ||
+             bufs_[curr_].buffer_.CurrentSize() == 0);
       curr_ = curr_ ^ 1;
     }
   }
@@ -418,7 +417,13 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
   }
   UpdateBuffersIfNeeded(offset);
 
-  // 2. Handle overlapping data over two buffers.
+  // 2. Handle overlapping data over two buffers. If data is overlapping then
+  //    during this call:
+  //   - data from curr_ is copied into third buffer,
+  //   - curr_ is send for async prefetching of further data if second buffer
+  //     contains remaining requested data or in progress for async prefetch,
+  //   - switch buffers and curr_ now points to second buffer to copy remaining
+  //     data.
   s = HandleOverlappingData(opts, reader, offset, length, readahead_size,
                             rate_limiter_priority, copy_to_third_buffer,
                             tmp_offset, tmp_length);
@@ -438,6 +443,8 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
       return s;
     }
   } else {
+    // After poll request, curr_ might be empty because of IOError in
+    // callback while reading or may contain required data.
     PollAndUpdateBuffersIfNeeded(offset);
   }
 
@@ -468,9 +475,9 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
   uint32_t second = curr_ ^ 1;
   assert(!bufs_[curr_].async_read_in_progress_);
 
-  // In case because of some error curr_ got empty, abort IO for second as well.
-  // Otherwise data might not align if more data needs to be read in curr_ which
-  // might overlap with second buffer.
+  // In case because of some IOError curr_ got empty, abort IO for second as
+  // well. Otherwise data might not align if more data needs to be read in curr_
+  // which might overlap with second buffer.
   if (!DoesBufferContainData(curr_) && bufs_[second].async_read_in_progress_) {
     if (bufs_[second].io_handle_ != nullptr) {
       std::vector<void*> handles;
