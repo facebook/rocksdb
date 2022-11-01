@@ -2805,7 +2805,7 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   table_options.pin_l0_filter_and_index_blocks_in_cache = true;
   table_options.block_size = 16 * 1024;
   ASSERT_TRUE(table_options.block_size >
-            BlockBasedTable::kMultiGetReadStackBufSize);
+              BlockBasedTable::kMultiGetReadStackBufSize);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 

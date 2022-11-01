@@ -767,10 +767,10 @@ INSTANTIATE_TEST_CASE_P(
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
-    ::testing::Values(
-        std::make_tuple(kAutoBloom, true, kLatestFormatVersion),
-        std::make_tuple(kAutoBloom, false, kLatestFormatVersion),
-        std::make_tuple(kAutoRibbon, false, kLatestFormatVersion)));
+    ::testing::Values(std::make_tuple(kAutoBloom, true, kLatestFormatVersion),
+                      std::make_tuple(kAutoBloom, false, kLatestFormatVersion),
+                      std::make_tuple(kAutoRibbon, false,
+                                      kLatestFormatVersion)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
@@ -2186,10 +2186,8 @@ INSTANTIATE_TEST_CASE_P(DBBloomFilterTestVaryPrefixAndFormatVer,
                             std::make_tuple(false, 2),
                             std::make_tuple(false, 3),
                             std::make_tuple(false, 4),
-                            std::make_tuple(false, 5),
-                            std::make_tuple(true, 2),
-                            std::make_tuple(true, 3),
-                            std::make_tuple(true, 4),
+                            std::make_tuple(false, 5), std::make_tuple(true, 2),
+                            std::make_tuple(true, 3), std::make_tuple(true, 4),
                             std::make_tuple(true, 5)));
 
 #ifndef ROCKSDB_LITE

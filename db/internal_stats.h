@@ -353,7 +353,7 @@ class InternalStats {
       this->num_output_records += c.num_output_records;
       this->count += c.count;
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
-      for (int i = 0; i< num_of_reasons; i++) {
+      for (int i = 0; i < num_of_reasons; i++) {
         counts[i] += c.counts[i];
       }
     }
@@ -648,8 +648,8 @@ class InternalStats {
   struct CFStatsSnapshot {
     // ColumnFamily-level stats
     CompactionStats comp_stats;
-    uint64_t ingest_bytes_flush;      // Bytes written to L0 (Flush)
-    uint64_t stall_count;             // Stall count
+    uint64_t ingest_bytes_flush;  // Bytes written to L0 (Flush)
+    uint64_t stall_count;         // Stall count
     // Stats from compaction jobs - bytes written, bytes read, duration.
     uint64_t compact_bytes_write;
     uint64_t compact_bytes_read;
@@ -691,10 +691,10 @@ class InternalStats {
 
   struct DBStatsSnapshot {
     // DB-level stats
-    uint64_t ingest_bytes;            // Bytes written by user
-    uint64_t wal_bytes;               // Bytes written to WAL
-    uint64_t wal_synced;              // Number of times WAL is synced
-    uint64_t write_with_wal;          // Number of writes that request WAL
+    uint64_t ingest_bytes;    // Bytes written by user
+    uint64_t wal_bytes;       // Bytes written to WAL
+    uint64_t wal_synced;      // Number of times WAL is synced
+    uint64_t write_with_wal;  // Number of writes that request WAL
     // These count the number of writes processed by the calling thread or
     // another thread.
     uint64_t write_other;
@@ -980,13 +980,14 @@ class InternalStats {
     return false;
   }
 
-  bool GetIntProperty(const DBPropertyInfo& /*property_info*/, uint64_t* /*value*/,
-                      DBImpl* /*db*/) const {
+  bool GetIntProperty(const DBPropertyInfo& /*property_info*/,
+                      uint64_t* /*value*/, DBImpl* /*db*/) const {
     return false;
   }
 
   bool GetIntPropertyOutOfMutex(const DBPropertyInfo& /*property_info*/,
-                                Version* /*version*/, uint64_t* /*value*/) const {
+                                Version* /*version*/,
+                                uint64_t* /*value*/) const {
     return false;
   }
 };
