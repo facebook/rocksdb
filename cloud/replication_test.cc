@@ -671,6 +671,45 @@ TEST_F(ReplicationTest, SwitchEmptyMemTable) {
   ASSERT_EQ(1, followerCFD("default")->imm()->NumNotFlushed());
 }
 
+// Reproduces SYS-3423
+TEST_F(ReplicationTest, FollowerDeletesMemtables) {
+  auto leader = openLeader();
+  auto follower = openFollower();
+
+  auto cf = [](int i) { return "cf" + std::to_string(i); };
+
+  for (int i = 0; i < 5; ++i) {
+    createColumnFamily(cf(i));
+  }
+
+  // Fill up column families in order
+  for (int cfi = 0; cfi < 5; cfi++) {
+    for (size_t i = 0; i < 1000; ++i) {
+      ASSERT_OK(leader->Put(wo(), leaderCF(cf(cfi)), "key" + std::to_string(i),
+                            "val" + std::to_string(i)));
+    }
+    ASSERT_OK(leader->Flush(FlushOptions()));
+  }
+  catchUpFollower();
+
+  {
+    auto fdb = static_cast_with_check<DBImpl>(leader);
+    auto cfs = fdb->GetVersionSet()->GetColumnFamilySet();
+    for (auto cfd : *cfs) {
+      // Everything is flushed immutable memtables shouldn't use any memory
+      EXPECT_EQ(0, *cfd->imm()->current_memory_usage());
+    }
+  }
+
+  uint64_t leaderValue{0};
+  ASSERT_TRUE(leader->GetAggregatedIntProperty(
+      DB::Properties::kLiveSstFilesSize, &leaderValue));
+  uint64_t followerValue{0};
+  ASSERT_TRUE(follower->GetAggregatedIntProperty(
+      DB::Properties::kLiveSstFilesSize, &followerValue));
+  EXPECT_EQ(leaderValue, followerValue);
+}
+
 class TestEventListener: public EventListener {
   public:
     explicit TestEventListener(ReplicationTest* testInstance): testInstance_(testInstance) { }

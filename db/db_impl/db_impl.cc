@@ -1145,7 +1145,7 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
                                          std::string replication_sequence,
                                          CFOptionsFactory cf_options_factory,
                                          ApplyReplicationLogRecordInfo* info) {
-  JobContext job_context(0, true);
+  JobContext job_context(0, false);
   Status s;
 
   {
@@ -1313,11 +1313,13 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
           if (!cfd) {
             continue;
           }
-          auto& sv_context = job_context.superversion_contexts.back();
-          cfd->InstallSuperVersion(&sv_context, &mutex_);
-          sv_context.NewSuperVersion();
           cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
                                          &job_context.memtables_to_free);
+          auto& sv_context = job_context.superversion_contexts.back();
+          if (!sv_context.new_superversion) {
+            sv_context.NewSuperVersion();
+          }
+          cfd->InstallSuperVersion(&sv_context, &mutex_);
         }
 
         info->has_manifest_writes = true;
@@ -1328,8 +1330,11 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
         for (auto& cf : added_column_families) {
           auto* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf);
           auto& sv_context = job_context.superversion_contexts.back();
+          if (!sv_context.new_superversion) {
+            sv_context.NewSuperVersion();
+          }
           cfd->InstallSuperVersion(&sv_context, &mutex_);
-          sv_context.NewSuperVersion();
+          cfd->set_initialized();
           info->added_column_families.push_back(
               std::make_unique<ColumnFamilyHandleImpl>(cfd, this, &mutex_));
         }

@@ -39,6 +39,7 @@ class CloudFileDeletionScheduler
     std::vector<std::string> files;
     for (auto& [file, handle] : files_to_delete_) {
       files.push_back(file);
+      (void)handle;
     }
     return files;
   }
