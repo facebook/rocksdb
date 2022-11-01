@@ -74,11 +74,11 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    WriteBufferManager* write_buffer_manager,
                    SequenceNumber latest_seq, uint32_t column_family_id)
     : comparator_(cmp),
-      moptions_(ioptions, mutable_cf_options),
+      ioptions_(ioptions, mutable_cf_options),
       refs_(0),
-      kArenaBlockSize(Arena::OptimizeBlockSize(moptions_.arena_block_size)),
+      kArenaBlockSize(Arena::OptimizeBlockSize(ioptions_.arena_block_size)),
       mem_tracker_(write_buffer_manager),
-      arena_(moptions_.arena_block_size,
+      arena_(ioptions_.arena_block_size,
              (write_buffer_manager != nullptr &&
               (write_buffer_manager->enabled() ||
                write_buffer_manager->cost_to_cache()))
@@ -104,8 +104,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       creation_seq_(latest_seq),
       mem_next_logfile_number_(0),
       min_prep_log_referenced_(0),
-      locks_(moptions_.inplace_update_support
-                 ? moptions_.inplace_update_num_locks
+      locks_(ioptions_.inplace_update_support
+                 ? ioptions_.inplace_update_num_locks
                  : 0),
       prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       flush_state_(FLUSH_NOT_REQUESTED),
@@ -120,12 +120,12 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   assert(!ShouldScheduleFlush());
 
   // use bloom_filter_ for both whole key and prefix bloom filter
-  if ((prefix_extractor_ || moptions_.memtable_whole_key_filtering) &&
-      moptions_.memtable_prefix_bloom_bits > 0) {
+  if ((prefix_extractor_ || ioptions_.memtable_whole_key_filtering) &&
+      ioptions_.memtable_prefix_bloom_bits > 0) {
     bloom_filter_.reset(
-        new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
+        new DynamicBloom(&arena_, ioptions_.memtable_prefix_bloom_bits,
                          6 /* hard coded 6 probes */,
-                         moptions_.memtable_huge_page_size, ioptions.logger));
+                         ioptions_.memtable_huge_page_size, ioptions.logger));
   }
   // Initialize cached_range_tombstone_ here since it could
   // be read before it is constructed in MemTable::Add(), which could also lead
@@ -377,9 +377,9 @@ class MemTableIterator : public InternalIterator {
         arena_mode_(arena != nullptr),
         value_pinned_(
             !mem.GetImmutableMemTableOptions()->inplace_update_support),
-        protection_bytes_per_key_(mem.moptions_.protection_bytes_per_key),
+        protection_bytes_per_key_(mem.ioptions_.protection_bytes_per_key),
         status_(Status::OK()),
-        logger_(mem.moptions_.info_log) {
+        logger_(mem.ioptions_.info_log) {
     if (use_range_del_table) {
       iter_ = mem.range_del_table_->GetIterator(arena);
     } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek &&
@@ -684,7 +684,7 @@ void MemTable::UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                                    const Slice& key, const Slice& value,
                                    ValueType type, SequenceNumber s,
                                    char* checksum_ptr) {
-  if (moptions_.protection_bytes_per_key == 0) {
+  if (ioptions_.protection_bytes_per_key == 0) {
     return;
   }
 
@@ -695,7 +695,7 @@ void MemTable::UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
   } else {
     checksum = kv_prot_info->GetVal();
   }
-  switch (moptions_.protection_bytes_per_key) {
+  switch (ioptions_.protection_bytes_per_key) {
     case 1:
       checksum_ptr[0] = static_cast<uint8_t>(checksum);
       break;
@@ -730,7 +730,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   uint32_t internal_key_size = key_size + 8;
   const uint32_t encoded_len = VarintLength(internal_key_size) +
                                internal_key_size + VarintLength(val_size) +
-                               val_size + moptions_.protection_bytes_per_key;
+                               val_size + ioptions_.protection_bytes_per_key;
   char* buf = nullptr;
   std::unique_ptr<MemTableRep>& table =
       type == kTypeRangeDeletion ? range_del_table_ : table_;
@@ -745,12 +745,12 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   p += 8;
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
-  assert((unsigned)(p + val_size - buf + moptions_.protection_bytes_per_key) ==
+  assert((unsigned)(p + val_size - buf + ioptions_.protection_bytes_per_key) ==
          (unsigned)encoded_len);
 
   UpdateEntryChecksum(kv_prot_info, key, value, type, s,
-                      buf + encoded_len - moptions_.protection_bytes_per_key);
-  Slice encoded(buf, encoded_len - moptions_.protection_bytes_per_key);
+                      buf + encoded_len - ioptions_.protection_bytes_per_key);
+  Slice encoded(buf, encoded_len - ioptions_.protection_bytes_per_key);
   if (kv_prot_info != nullptr) {
     TEST_SYNC_POINT_CALLBACK("MemTable::Add:Encoded", &encoded);
     Status status = VerifyEncodedEntry(encoded, *kv_prot_info);
@@ -794,7 +794,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
         prefix_extractor_->InDomain(key_without_ts)) {
       bloom_filter_->Add(prefix_extractor_->Transform(key_without_ts));
     }
-    if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
+    if (bloom_filter_ && ioptions_.memtable_whole_key_filtering) {
       bloom_filter_->Add(key_without_ts);
     }
 
@@ -831,7 +831,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       bloom_filter_->AddConcurrently(
           prefix_extractor_->Transform(key_without_ts));
     }
-    if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
+    if (bloom_filter_ && ioptions_.memtable_whole_key_filtering) {
       bloom_filter_->AddConcurrently(key_without_ts);
     }
 
@@ -1242,7 +1242,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   if (bloom_filter_) {
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
     // only do whole key filtering for Get() to save CPU
-    if (moptions_.memtable_whole_key_filtering) {
+    if (ioptions_.memtable_whole_key_filtering) {
       may_contain = bloom_filter_->MayContain(user_key_without_ts);
       bloom_checked = true;
     } else {
@@ -1297,16 +1297,16 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.mem = this;
   saver.merge_context = merge_context;
   saver.max_covering_tombstone_seq = max_covering_tombstone_seq;
-  saver.merge_operator = moptions_.merge_operator;
-  saver.logger = moptions_.info_log;
-  saver.inplace_update_support = moptions_.inplace_update_support;
-  saver.statistics = moptions_.statistics;
+  saver.merge_operator = ioptions_.merge_operator;
+  saver.logger = ioptions_.info_log;
+  saver.inplace_update_support = ioptions_.inplace_update_support;
+  saver.statistics = ioptions_.statistics;
   saver.clock = clock_;
   saver.callback_ = callback;
   saver.is_blob_index = is_blob_index;
   saver.do_merge = do_merge;
-  saver.allow_data_in_errors = moptions_.allow_data_in_errors;
-  saver.protection_bytes_per_key = moptions_.protection_bytes_per_key;
+  saver.allow_data_in_errors = ioptions_.allow_data_in_errors;
+  saver.protection_bytes_per_key = ioptions_.protection_bytes_per_key;
   table_->Get(key, &saver, SaveValue);
   *seq = saver.seq;
 }
@@ -1328,7 +1328,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   MultiGetRange temp_range(*range, range->begin(), range->end());
   if (bloom_filter_ && no_range_del) {
     bool whole_key =
-        !prefix_extractor_ || moptions_.memtable_whole_key_filtering;
+        !prefix_extractor_ || ioptions_.memtable_whole_key_filtering;
     std::array<Slice, MultiGetContext::MAX_BATCH_SIZE> bloom_keys;
     std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match;
     std::array<size_t, MultiGetContext::MAX_BATCH_SIZE> range_indexes;
@@ -1388,7 +1388,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       iter->value->PinSelf();
       range->AddValueSize(iter->value->size());
       range->MarkKeyDone(iter);
-      RecordTick(moptions_.statistics, MEMTABLE_HIT);
+      RecordTick(ioptions_.statistics, MEMTABLE_HIT);
       if (range->GetValueSize() > read_options.value_size_soft_limit) {
         // Set all remaining keys in range to Abort
         for (auto range_iter = range->begin(); range_iter != range->end();
@@ -1443,7 +1443,7 @@ Status MemTable::Update(SequenceNumber seq, ValueType value_type,
           assert((unsigned)((p + value.size()) - entry) ==
                  (unsigned)(VarintLength(key_length) + key_length +
                             VarintLength(value.size()) + value.size()));
-          RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
+          RecordTick(ioptions_.statistics, NUMBER_KEYS_UPDATED);
           if (kv_prot_info != nullptr) {
             ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
             // `seq` is swallowed and `existing_seq` prevails.
@@ -1500,7 +1500,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
 
         std::string str_value;
         WriteLock wl(GetLock(lkey.user_key()));
-        auto status = moptions_.inplace_callback(prev_buffer, &new_prev_size,
+        auto status = ioptions_.inplace_callback(prev_buffer, &new_prev_size,
                                                  delta, &str_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // Value already updated by callback.
@@ -1515,7 +1515,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
               prev_buffer = p;
             }
           }
-          RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
+          RecordTick(ioptions_.statistics, NUMBER_KEYS_UPDATED);
           UpdateFlushState();
           Slice new_value(prev_buffer, new_prev_size);
           if (kv_prot_info != nullptr) {
@@ -1543,7 +1543,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
             s = Add(seq, kTypeValue, key, Slice(str_value),
                     nullptr /* kv_prot_info */);
           }
-          RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
+          RecordTick(ioptions_.statistics, NUMBER_KEYS_WRITTEN);
           UpdateFlushState();
           return s;
         } else if (status == UpdateStatus::UPDATE_FAILED) {

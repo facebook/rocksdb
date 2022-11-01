@@ -460,7 +460,7 @@ class MemTable {
   // return true if the current MemTableRep supports snapshots.
   // inplace update prevents snapshots,
   bool IsSnapshotSupported() const {
-    return table_->IsSnapshotSupported() && !moptions_.inplace_update_support;
+    return table_->IsSnapshotSupported() && !ioptions_.inplace_update_support;
   }
 
   struct MemTableStats {
@@ -479,7 +479,7 @@ class MemTable {
   }
 
   const ImmutableMemTableOptions* GetImmutableMemTableOptions() const {
-    return &moptions_;
+    return &ioptions_;
   }
 
   uint64_t ApproximateOldestKeyTime() const {
@@ -544,7 +544,7 @@ class MemTable {
   friend class MemTableList;
 
   KeyComparator comparator_;
-  const ImmutableMemTableOptions moptions_;
+  const ImmutableMemTableOptions ioptions_;
   int refs_;
   const size_t kArenaBlockSize;
   AllocTracker mem_tracker_;
