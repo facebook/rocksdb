@@ -808,7 +808,11 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
-        s = db_->Merge(write_opts, cfh, k, v);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->Merge(write_opts, cfh, k, v);
+        } else {
+          s = db_->Merge(write_opts, cfh, k, write_ts, v);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;

@@ -399,8 +399,6 @@ ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
     "user_timestamp_size": 8,
-    "use_merge": 0,
-    "use_full_merge_v1": 0,
     "use_txn": 0,
     "enable_blob_files": 0,
     "use_blob_db": 0,
