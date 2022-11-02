@@ -215,6 +215,10 @@ class StackableDB : public DB {
                        const Slice& value) override {
     return db_->Merge(options, column_family, key, value);
   }
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& ts, const Slice& value) override {
+    return db_->Merge(options, column_family, key, ts, value);
+  }
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override {
     return db_->Write(opts, updates);

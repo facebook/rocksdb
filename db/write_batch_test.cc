@@ -961,14 +961,14 @@ TEST_F(WriteBatchTest, SanityChecks) {
   ASSERT_TRUE(wb.Put(nullptr, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(wb.Delete(nullptr, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(nullptr, "key", "ts").IsInvalidArgument());
-  ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(wb.DeleteRange(nullptr, "begin_key", "end_key", "ts")
                   .IsInvalidArgument());
 
   ASSERT_TRUE(wb.Put(&cf4, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(wb.Delete(&cf4, "key", "ts").IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(&cf4, "key", "ts").IsInvalidArgument());
-  ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsInvalidArgument());
   ASSERT_TRUE(
       wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsInvalidArgument());
 
@@ -978,7 +978,7 @@ TEST_F(WriteBatchTest, SanityChecks) {
   ASSERT_TRUE(wb.Put(&cf0, "key", ts, "value").IsInvalidArgument());
   ASSERT_TRUE(wb.Delete(&cf0, "key", ts).IsInvalidArgument());
   ASSERT_TRUE(wb.SingleDelete(&cf0, "key", ts).IsInvalidArgument());
-  ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsNotSupported());
+  ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsInvalidArgument());
   ASSERT_TRUE(
       wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsInvalidArgument());
 
