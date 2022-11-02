@@ -920,7 +920,7 @@ inline void HyperClockTable::Rollback(const UniqueId64x2& hashed_key,
                                       const HandleImpl* h) {
   size_t current = ModTableSize(hashed_key[1]);
   size_t increment = static_cast<size_t>(hashed_key[0]) | 1U;
-  for (size_t i = 0; &array_[current] != h; i++) {
+  while (&array_[current] != h) {
     array_[current].displacements.fetch_sub(1, std::memory_order_relaxed);
     current = ModTableSize(current + increment);
   }

@@ -1010,7 +1010,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   r->props.num_entries++;
   r->props.raw_key_size += key.size();
   r->props.raw_value_size += value.size();
-  if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion) {
+  if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion ||
+      value_type == kTypeDeletionWithTimestamp) {
     r->props.num_deletions++;
   } else if (value_type == kTypeRangeDeletion) {
     r->props.num_deletions++;

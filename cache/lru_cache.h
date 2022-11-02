@@ -212,6 +212,7 @@ struct LRUHandle {
 
   void Free() {
     assert(refs == 0);
+
     if (!IsSecondaryCacheCompatible() && info_.deleter) {
       (*info_.deleter)(key(), value);
     } else if (IsSecondaryCacheCompatible()) {
@@ -226,7 +227,8 @@ struct LRUHandle {
         (*info_.helper->del_cb)(key(), value);
       }
     }
-    delete[] reinterpret_cast<char*>(this);
+
+    free(this);
   }
 
   inline size_t CalcuMetaCharge(

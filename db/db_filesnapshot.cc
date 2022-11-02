@@ -65,8 +65,7 @@ Status DBImpl::FlushForGetLiveFiles() {
 }
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
-                            uint64_t* manifest_file_size,
-                            bool flush_memtable) {
+                            uint64_t* manifest_file_size, bool flush_memtable) {
   *manifest_file_size = 0;
 
   mutex_.Lock();

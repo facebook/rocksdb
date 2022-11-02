@@ -57,7 +57,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   Reopen(options);
   FlushOptions no_wait;
   no_wait.wait = false;
-  no_wait.allow_write_stall=true;
+  no_wait.allow_write_stall = true;
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"VersionSet::LogAndApply:WriteManifest",
@@ -1822,8 +1822,8 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
 #ifndef ROCKSDB_LITE
   uint64_t num_bg_errors;
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBackgroundErrors,
-                                  &num_bg_errors));
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBackgroundErrors, &num_bg_errors));
   ASSERT_GT(num_bg_errors, 0);
 #endif  // ROCKSDB_LITE
 

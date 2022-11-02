@@ -330,9 +330,8 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
   return comparator.CompareKeySeq(k1, k2);
 }
 
-int MemTable::KeyComparator::operator()(const char* prefix_len_key,
-                                        const KeyComparator::DecodedType& key)
-    const {
+int MemTable::KeyComparator::operator()(
+    const char* prefix_len_key, const KeyComparator::DecodedType& key) const {
   // Internal keys are encoded as length-prefixed strings.
   Slice a = GetLengthPrefixedSlice(prefix_len_key);
   return comparator.CompareKeySeq(a, key);
@@ -784,7 +783,8 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
                        std::memory_order_relaxed);
     data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
                      std::memory_order_relaxed);
-    if (type == kTypeDeletion) {
+    if (type == kTypeDeletion || type == kTypeSingleDeletion ||
+        type == kTypeDeletionWithTimestamp) {
       num_deletes_.store(num_deletes_.load(std::memory_order_relaxed) + 1,
                          std::memory_order_relaxed);
     }
@@ -913,7 +913,7 @@ struct Saver {
     return true;
   }
 };
-}  // namespace
+}  // anonymous namespace
 
 static bool SaveValue(void* arg, const char* entry) {
   TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
@@ -1057,6 +1057,8 @@ static bool SaveValue(void* arg, const char* entry) {
         if (!s->do_merge) {
           // Preserve the value with the goal of returning it as part of
           // raw merge operands to the user
+          // TODO(yanqin) update MergeContext so that timestamps information
+          // can also be retained.
 
           merge_context->PushOperand(
               v, s->inplace_update_support == false /* operand_pinned */);
@@ -1064,20 +1066,10 @@ static bool SaveValue(void* arg, const char* entry) {
           assert(s->do_merge);
 
           if (s->value || s->columns) {
-            std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
-                merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, nullptr /* result_operand */, true);
-
-            if (s->status->ok()) {
-              if (s->value) {
-                *(s->value) = std::move(result);
-              } else {
-                assert(s->columns);
-                s->columns->SetPlainValue(result);
-              }
-            }
+                merge_context->GetOperands(), s->value, s->columns, s->logger,
+                s->statistics, s->clock, nullptr /* result_operand */, true);
           }
         } else if (s->value) {
           s->value->assign(v.data(), v.size());
@@ -1148,10 +1140,10 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          if (s->value != nullptr) {
+          if (s->value || s->columns) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), s->value, s->logger,
+                merge_context->GetOperands(), s->value, s->columns, s->logger,
                 s->statistics, s->clock, nullptr /* result_operand */, true);
           }
         } else {
@@ -1177,10 +1169,13 @@ static bool SaveValue(void* arg, const char* entry) {
             v, s->inplace_update_support == false /* operand_pinned */);
         if (s->do_merge && merge_operator->ShouldMerge(
                                merge_context->GetOperandsDirectionBackward())) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), nullptr,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->clock, nullptr /* result_operand */, true);
+          if (s->value || s->columns) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), nullptr,
+                merge_context->GetOperands(), s->value, s->columns, s->logger,
+                s->statistics, s->clock, nullptr /* result_operand */, true);
+          }
+
           *(s->found_final_value) = true;
           return false;
         }

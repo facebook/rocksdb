@@ -158,7 +158,7 @@ struct BatchContentClassifier : public WriteBatch::Handler {
   }
 };
 
-}  // anon namespace
+}  // anonymous namespace
 
 struct SavePoints {
   std::stack<SavePoint, autovector<SavePoint>> stack;
@@ -231,18 +231,16 @@ WriteBatch& WriteBatch::operator=(WriteBatch&& src) {
   return *this;
 }
 
-WriteBatch::~WriteBatch() { }
+WriteBatch::~WriteBatch() {}
 
-WriteBatch::Handler::~Handler() { }
+WriteBatch::Handler::~Handler() {}
 
 void WriteBatch::Handler::LogData(const Slice& /*blob*/) {
   // If the user has not specified something to do with blobs, then we ignore
   // them.
 }
 
-bool WriteBatch::Handler::Continue() {
-  return true;
-}
+bool WriteBatch::Handler::Continue() { return true; }
 
 void WriteBatch::Clear() {
   rep_.clear();
@@ -779,7 +777,7 @@ Status CheckColumnFamilyTimestampSize(ColumnFamilyHandle* column_family,
   }
   return Status::OK();
 }
-}  // namespace
+}  // anonymous namespace
 
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const Slice& key, const Slice& value) {
@@ -1481,8 +1479,27 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
     return WriteBatchInternal::Merge(this, cf_id, key, value);
   }
 
-  return Status::InvalidArgument(
-      "Cannot call this method on column family enabling timestamp");
+  needs_in_place_update_ts_ = true;
+  has_key_with_ts_ = true;
+  std::string dummy_ts(ts_sz, '\0');
+  std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
+
+  return WriteBatchInternal::Merge(
+      this, cf_id, SliceParts(key_with_ts.data(), 2), SliceParts(&value, 1));
+}
+
+Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
+                         const Slice& ts, const Slice& value) {
+  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  if (!s.ok()) {
+    return s;
+  }
+  has_key_with_ts_ = true;
+  assert(column_family);
+  uint32_t cf_id = column_family->GetID();
+  std::array<Slice, 2> key_with_ts{{key, ts}};
+  return WriteBatchInternal::Merge(
+      this, cf_id, SliceParts(key_with_ts.data(), 2), SliceParts(&value, 1));
 }
 
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
@@ -1727,7 +1744,6 @@ Status WriteBatch::VerifyChecksum() const {
 namespace {
 
 class MemTableInserter : public WriteBatch::Handler {
-
   SequenceNumber sequence_;
   ColumnFamilyMemTables* const cf_mems_;
   FlushScheduler* const flush_scheduler_;
@@ -1738,7 +1754,7 @@ class MemTableInserter : public WriteBatch::Handler {
   uint64_t log_number_ref_;
   DBImpl* db_;
   const bool concurrent_memtable_writes_;
-  bool       post_info_created_;
+  bool post_info_created_;
   const WriteBatch::ProtectionInfo* prot_info_;
   size_t prot_info_idx_;
 
@@ -1764,8 +1780,8 @@ class MemTableInserter : public WriteBatch::Handler {
   // Whether this batch was unprepared or not
   bool unprepared_batch_;
   using DupDetector = std::aligned_storage<sizeof(DuplicateDetector)>::type;
-  DupDetector       duplicate_detector_;
-  bool              dup_dectector_on_;
+  DupDetector duplicate_detector_;
+  bool dup_dectector_on_;
 
   bool hint_per_batch_;
   bool hint_created_;
@@ -1785,7 +1801,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   MemPostInfoMap& GetPostMap() {
     assert(concurrent_memtable_writes_);
-    if(!post_info_created_) {
+    if (!post_info_created_) {
       new (&mem_post_info_map_) MemPostInfoMap();
       post_info_created_ = true;
     }
@@ -1799,8 +1815,8 @@ class MemTableInserter : public WriteBatch::Handler {
       new (&duplicate_detector_) DuplicateDetector(db_);
       dup_dectector_on_ = true;
     }
-    return reinterpret_cast<DuplicateDetector*>
-      (&duplicate_detector_)->IsDuplicateKeySeq(column_family_id, key, sequence_);
+    return reinterpret_cast<DuplicateDetector*>(&duplicate_detector_)
+        ->IsDuplicateKeySeq(column_family_id, key, sequence_);
   }
 
   const ProtectionInfoKVOC64* NextProtectionInfo() {
@@ -1876,12 +1892,11 @@ class MemTableInserter : public WriteBatch::Handler {
 
   ~MemTableInserter() override {
     if (dup_dectector_on_) {
-      reinterpret_cast<DuplicateDetector*>
-        (&duplicate_detector_)->~DuplicateDetector();
+      reinterpret_cast<DuplicateDetector*>(&duplicate_detector_)
+          ->~DuplicateDetector();
     }
     if (post_info_created_) {
-      reinterpret_cast<MemPostInfoMap*>
-        (&mem_post_info_map_)->~MemPostInfoMap();
+      reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_)->~MemPostInfoMap();
     }
     if (hint_created_) {
       for (auto iter : GetHintMap()) {
@@ -1923,7 +1938,7 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(concurrent_memtable_writes_);
     // If post info was not created there is nothing
     // to process and no need to create on demand
-    if(post_info_created_) {
+    if (post_info_created_) {
       for (auto& pair : GetPostMap()) {
         pair.first->BatchPostProcess(pair.second);
       }
@@ -2036,6 +2051,7 @@ class MemTableInserter : public WriteBatch::Handler {
           if (cf_handle == nullptr) {
             cf_handle = db_->DefaultColumnFamily();
           }
+          // TODO (yanqin): fix when user-defined timestamp is enabled.
           get_status = db_->Get(ropts, cf_handle, key, &prev_value);
         }
         // Intentionally overwrites the `NotFound` in `ret_status`.
@@ -2844,7 +2860,7 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 };
 
-}  // namespace
+}  // anonymous namespace
 
 // This function can only be called in these conditions:
 // 1) During Recovery()
@@ -3015,7 +3031,7 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
 };
 
-}  // namespace
+}  // anonymous namespace
 
 Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
