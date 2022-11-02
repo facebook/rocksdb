@@ -331,7 +331,8 @@ inline bool HyperClockTable::ChargeUsageMaybeEvictNonStrict(
     need_evict_charge = total_charge;
     if (old_usage > capacity) {
       // Not too much to avoid thundering herd while avoiding strict
-      // synchronization
+      // synchronization, such as the compare_exchange used with strict
+      // capacity limit.
       need_evict_charge += std::min(capacity / 1024, total_charge) + 1;
     }
   }
