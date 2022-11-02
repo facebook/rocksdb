@@ -3799,6 +3799,77 @@ TEST_F(DBBasicTestWithTimestamp, MergeBasic) {
 
   Close();
 }
+
+TEST_F(DBBasicTestWithTimestamp, MergeAfterDeletion) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.merge_operator = std::make_shared<StringAppendTESTOperator>('.');
+  DestroyAndReopen(options);
+
+  ColumnFamilyHandle* const column_family = db_->DefaultColumnFamily();
+
+  const size_t num_keys_per_file = 10;
+  const size_t num_merges_per_key = 2;
+  for (size_t i = 0; i < num_keys_per_file; ++i) {
+    std::string ts = Timestamp(i + 10000, 0);
+    Status s = db_->Delete(WriteOptions(), Key1(i), ts);
+    ASSERT_OK(s);
+    for (size_t j = 1; j <= num_merges_per_key; ++j) {
+      ts = Timestamp(i + 10000 + j, 0);
+      s = db_->Merge(WriteOptions(), column_family, Key1(i), ts,
+                     std::to_string(j));
+      ASSERT_OK(s);
+    }
+  }
+
+  const auto verify_db = [&]() {
+    ReadOptions read_opts;
+    std::string read_ts_str = Timestamp(20000, 0);
+    Slice ts = read_ts_str;
+    read_opts.timestamp = &ts;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    size_t count = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++count) {
+      std::string key = Key1(count);
+      ASSERT_EQ(key, it->key());
+      std::string value;
+      for (size_t j = 1; j <= num_merges_per_key; ++j) {
+        value.append(std::to_string(j));
+        if (j < num_merges_per_key) {
+          value.push_back('.');
+        }
+      }
+      ASSERT_EQ(value, it->value());
+      std::string ts1 = Timestamp(count + 10000 + num_merges_per_key, 0);
+      ASSERT_EQ(ts1, it->timestamp());
+    }
+    ASSERT_OK(it->status());
+    ASSERT_EQ(num_keys_per_file, count);
+    for (it->SeekToLast(); it->Valid(); it->Prev(), --count) {
+      std::string key = Key1(count - 1);
+      ASSERT_EQ(key, it->key());
+      std::string value;
+      for (size_t j = 1; j <= num_merges_per_key; ++j) {
+        value.append(std::to_string(j));
+        if (j < num_merges_per_key) {
+          value.push_back('.');
+        }
+      }
+      ASSERT_EQ(value, it->value());
+      std::string ts1 = Timestamp(count - 1 + 10000 + num_merges_per_key, 0);
+      ASSERT_EQ(ts1, it->timestamp());
+    }
+    ASSERT_OK(it->status());
+    ASSERT_EQ(0, count);
+  };
+
+  verify_db();
+
+  Close();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
