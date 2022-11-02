@@ -1060,15 +1060,13 @@ jint rocksdb_get_helper_direct(
 
   ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
 
-  // TODO(yhchiang): we might save one memory allocation here by adding
-  // a DB::Get() function which takes preallocated jbyte* as input.
-  std::string cvalue;
+  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
   ROCKSDB_NAMESPACE::Status s;
   if (column_family_handle != nullptr) {
-    s = db->Get(read_options, column_family_handle, key_slice, &cvalue);
+    s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
   } else {
     // backwards compatibility
-    s = db->Get(read_options, key_slice, &cvalue);
+    s = db->Get(read_options, db->DefaultColumnFamily(), key_slice, &pinnable_value);
   }
 
   if (s.IsNotFound()) {
@@ -1088,13 +1086,14 @@ jint rocksdb_get_helper_direct(
     return kStatusError;
   }
 
-  const jint cvalue_len = static_cast<jint>(cvalue.size());
-  const jint length = std::min(jval_len, cvalue_len);
+  const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
+  const jint length = std::min(jval_len, pinnable_value_len);
 
-  memcpy(value, cvalue.c_str(), length);
+  memcpy(value, pinnable_value.data(), length);
+  pinnable_value.Reset();
 
   *has_exception = false;
-  return cvalue_len;
+  return pinnable_value_len;
 }
 
 /*
