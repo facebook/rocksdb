@@ -334,14 +334,18 @@ TEST_F(DBWideBasicTest, MergePlainKeyValue) {
     }
   };
 
-  // Base KVs (if any) and Merge operands both in memtable
-  write_base();
-  write_merge();
-  verify();
+  {
+    // Base KVs (if any) and Merge operands both in memtable (note: we take a
+    // snapshot in between to make sure they do not get reconciled during flush)
+    write_base();
+    ManagedSnapshot snapshot(db_);
+    write_merge();
+    verify();
 
-  // Base KVs (if any) and Merge operands both in storage
-  ASSERT_OK(Flush());
-  verify();
+    // Base KVs (if any) and Merge operands both in storage
+    ASSERT_OK(Flush());
+    verify();
+  }
 
   // Base KVs (if any) in storage, Merge operands in memtable
   DestroyAndReopen(options);
@@ -353,6 +357,7 @@ TEST_F(DBWideBasicTest, MergePlainKeyValue) {
 
 TEST_F(DBWideBasicTest, MergeEntity) {
   Options options = GetDefaultOptions();
+  options.create_if_missing = true;
 
   const std::string delim("|");
   options.merge_operator = MergeOperators::CreateStringAppendOperator(delim);
@@ -370,6 +375,25 @@ TEST_F(DBWideBasicTest, MergeEntity) {
   constexpr char second_key[] = "second";
   WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
   constexpr char second_merge_operand[] = "bla2";
+
+  auto write_base = [&]() {
+    // Use the DB::PutEntity API
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                             first_key, first_columns));
+
+    // Use WriteBatch
+    WriteBatch batch;
+    ASSERT_OK(batch.PutEntity(db_->DefaultColumnFamily(), second_key,
+                              second_columns));
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  };
+
+  auto write_merge = [&]() {
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
+                         first_merge_operand));
+    ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
+                         second_merge_operand));
+  };
 
   auto verify = [&]() {
     const std::string first_expected_default(
@@ -485,41 +509,24 @@ TEST_F(DBWideBasicTest, MergeEntity) {
     }
   };
 
-  // Use the DB::PutEntity API
-  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
-                           first_key, first_columns));
+  {
+    // Base KVs and Merge operands both in memtable (note: we take a snapshot in
+    // between to make sure they do not get reconciled during flush)
+    write_base();
+    ManagedSnapshot snapshot(db_);
+    write_merge();
+    verify();
 
-  // Use WriteBatch
-  WriteBatch batch;
-  ASSERT_OK(
-      batch.PutEntity(db_->DefaultColumnFamily(), second_key, second_columns));
-  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    // Base KVs and Merge operands both in storage
+    ASSERT_OK(Flush());
+    verify();
+  }
 
+  // Base KVs in storage, Merge operands in memtable
+  DestroyAndReopen(options);
+  write_base();
   ASSERT_OK(Flush());
-
-  // Add a couple of merge operands
-  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
-                       first_merge_operand));
-  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
-                       second_merge_operand));
-
-  // Try reading when PutEntity is in storage, Merge is in memtable
-  verify();
-
-  // Try reading when PutEntity and Merge are both in storage
-  ASSERT_OK(Flush());
-
-  verify();
-
-  // Try reading when PutEntity and Merge are both in memtable
-  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
-                           first_key, first_columns));
-  ASSERT_OK(db_->Write(WriteOptions(), &batch));
-  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
-                       first_merge_operand));
-  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
-                       second_merge_operand));
-
+  write_merge();
   verify();
 }
 
