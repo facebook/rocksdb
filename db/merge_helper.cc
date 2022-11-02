@@ -159,9 +159,11 @@ Status MergeHelper::TimedFullMergeWithEntity(
     }
   }
 
+  const bool has_default_column =
+      !base_columns.empty() && base_columns[0].name() == kDefaultWideColumnName;
+
   Slice value_of_default;
-  if (!base_columns.empty() &&
-      base_columns[0].name() == kDefaultWideColumnName) {
+  if (has_default_column) {
     value_of_default = base_columns[0].value();
   }
 
@@ -185,8 +187,7 @@ Status MergeHelper::TimedFullMergeWithEntity(
 
   std::string output;
 
-  if (!base_columns.empty() &&
-      base_columns[0].name() == kDefaultWideColumnName) {
+  if (has_default_column) {
     base_columns[0].value() = result;
 
     const Status s = WideColumnSerialization::Serialize(base_columns, output);
