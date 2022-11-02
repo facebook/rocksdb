@@ -59,7 +59,7 @@ void VerifyOptionsFileName(
     }
   }
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(OptionsFileTest, NumberOfOptionsFiles) {
   const int kReopenCount = 20;

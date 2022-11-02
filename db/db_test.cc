@@ -1135,7 +1135,7 @@ class DelayFilterFactory : public CompactionFilterFactory {
  private:
   DBTestBase* db_test;
 };
-}  // namespace
+}  // anonymous namespace
 
 #ifndef ROCKSDB_LITE
 
@@ -1490,7 +1490,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
   }
   return true;
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTest, MinLevelToCompress1) {
   Options options = CurrentOptions();
@@ -2843,7 +2843,7 @@ static void MTThreadBody(void* arg) {
   fprintf(stderr, "... stopping thread %d after %d ops\n", id, int(counter));
 }
 
-}  // namespace
+}  // anonymous namespace
 
 class MultiThreadedDBTest
     : public DBTest,
@@ -2929,7 +2929,7 @@ static void GCThreadBody(void* arg) {
   t->done = true;
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTest, GroupCommitTest) {
   do {
@@ -4645,7 +4645,7 @@ void VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
   }
   ASSERT_EQ(op_count, expected_count);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTest, GetThreadStatus) {
   Options options;

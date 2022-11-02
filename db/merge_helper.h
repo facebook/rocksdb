@@ -167,7 +167,7 @@ class MergeHelper {
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
   Logger* logger_;
-  bool assert_valid_internal_key_; // enforce no internal key corruption?
+  bool assert_valid_internal_key_;  // enforce no internal key corruption?
   bool allow_single_operand_;
   SequenceNumber latest_snapshot_;
   const SnapshotChecker* const snapshot_checker_;
