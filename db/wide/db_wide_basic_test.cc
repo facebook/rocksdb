@@ -336,7 +336,8 @@ TEST_F(DBWideBasicTest, MergePlainKeyValue) {
 
   {
     // Base KVs (if any) and Merge operands both in memtable (note: we take a
-    // snapshot in between to make sure they do not get reconciled during flush)
+    // snapshot in between to make sure they do not get reconciled during the
+    // subsequent flush)
     write_base();
     ManagedSnapshot snapshot(db_);
     write_merge();
@@ -511,7 +512,8 @@ TEST_F(DBWideBasicTest, MergeEntity) {
 
   {
     // Base KVs and Merge operands both in memtable (note: we take a snapshot in
-    // between to make sure they do not get reconciled during flush)
+    // between to make sure they do not get reconciled during the subsequent
+    // flush)
     write_base();
     ManagedSnapshot snapshot(db_);
     write_merge();
