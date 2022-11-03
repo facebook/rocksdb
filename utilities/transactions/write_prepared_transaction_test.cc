@@ -1684,22 +1684,23 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     expected_commits = 0;
     std::vector<port::Thread> threads;
 
-    linked = 0;
+    linked.store(0, std::memory_order_release);
     std::atomic<bool> batch_formed(false);
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::EnterAsBatchGroupLeader:End",
         [&](void* /*arg*/) { batch_formed = true; });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::JoinBatchGroup:Wait", [&](void* /*arg*/) {
-          linked++;
-          if (linked == 1) {
+          size_t orig_linked = linked.fetch_add(1, std::memory_order_acq_rel);
+          if (orig_linked == 0) {
             // Wait until the others are linked too.
-            while (linked < first_group_size) {
+            while (linked.load(std::memory_order_acquire) < first_group_size) {
             }
-          } else if (linked == 1 + first_group_size) {
+          } else if (orig_linked == first_group_size) {
             // Make the 2nd batch of the rest of writes plus any followup
             // commits from the first batch
-            while (linked < txn_cnt + commit_writes) {
+            while (linked.load(std::memory_order_acquire) <
+                   txn_cnt + commit_writes) {
             }
           }
           // Then we will have one or more batches consisting of follow-up
@@ -1731,14 +1732,15 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
           FAIL();
       }
       // wait to be linked
-      while (linked.load() <= bi) {
+      while (linked.load(std::memory_order_acquire) <= bi) {
       }
       // after a queue of size first_group_size
       if (bi + 1 == first_group_size) {
         while (!batch_formed) {
         }
         // to make it more deterministic, wait until the commits are linked
-        while (linked.load() <= bi + expected_commits) {
+        while (linked.load(std::memory_order_acquire) <=
+               bi + expected_commits) {
         }
       }
     }

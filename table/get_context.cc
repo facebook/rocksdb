@@ -478,6 +478,7 @@ bool GetContext::GetBlobValue(const Slice& blob_index,
 }
 
 void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
+  // TODO(yanqin) preserve timestamps information in merge_context
   if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
       value_pinner != nullptr) {
     value_pinner->DelegateCleanupsTo(pinned_iters_mgr());

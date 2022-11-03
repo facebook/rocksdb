@@ -1079,18 +1079,7 @@ void DBImpl::DumpStats() {
     default_cf_internal_stats_->GetStringProperty(*property_info, *property,
                                                   &stats);
 
-    property = &DB::Properties::kCFStatsNoFileHistogram;
-    property_info = GetPropertyInfo(*property);
-    assert(property_info != nullptr);
-    assert(!property_info->need_out_of_mutex);
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->initialized()) {
-        cfd->internal_stats()->GetStringProperty(*property_info, *property,
-                                                 &stats);
-      }
-    }
-
-    property = &DB::Properties::kCFFileHistogram;
+    property = &InternalStats::kPeriodicCFStats;
     property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
     assert(!property_info->need_out_of_mutex);

@@ -11,11 +11,11 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
-#include <memory>
 
 #include "db/version_set.h"
 #include "file/file_util.h"

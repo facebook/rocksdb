@@ -230,9 +230,7 @@ class VersionStorageInfo {
       double blob_garbage_collection_age_cutoff,
       double blob_garbage_collection_force_threshold);
 
-  bool level0_non_overlapping() const {
-    return level0_non_overlapping_;
-  }
+  bool level0_non_overlapping() const { return level0_non_overlapping_; }
 
   // Updates the oldest snapshot and related internal state, like the bottommost
   // files marked for compaction.
@@ -814,8 +812,8 @@ class Version {
 
   Status OverlapWithLevelIterator(const ReadOptions&, const FileOptions&,
                                   const Slice& smallest_user_key,
-                                  const Slice& largest_user_key,
-                                  int level, bool* overlap);
+                                  const Slice& largest_user_key, int level,
+                                  bool* overlap);
 
   // Lookup the value for key or get all merge operands for key.
   // If do_merge = true (default) then lookup value for key.
@@ -1032,10 +1030,10 @@ class Version {
   const MergeOperator* merge_operator_;
 
   VersionStorageInfo storage_info_;
-  VersionSet* vset_;            // VersionSet to which this Version belongs
-  Version* next_;               // Next version in linked list
-  Version* prev_;               // Previous version in linked list
-  int refs_;                    // Number of live refs to this version
+  VersionSet* vset_;  // VersionSet to which this Version belongs
+  Version* next_;     // Next version in linked list
+  Version* prev_;     // Previous version in linked list
+  int refs_;          // Number of live refs to this version
   const FileOptions file_options_;
   const MutableCFOptions mutable_cf_options_;
   // Cached value to avoid recomputing it on every read.
@@ -1398,7 +1396,7 @@ class VersionSet {
                             FileMetaData** metadata, ColumnFamilyData** cfd);
 
   // This function doesn't support leveldb SST filenames
-  void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
+  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
     assert(table_cache_);

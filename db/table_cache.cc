@@ -38,7 +38,7 @@ static void DeleteEntry(const Slice& /*key*/, void* value) {
   T* typed_value = reinterpret_cast<T*>(value);
   delete typed_value;
 }
-}  // namespace
+}  // anonymous namespace
 }  // namespace ROCKSDB_NAMESPACE
 
 // Generate the regular and coroutine versions of some methods by
@@ -79,7 +79,7 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace
+}  // anonymous namespace
 
 const int kLoadConcurency = 128;
 
@@ -103,8 +103,7 @@ TableCache::TableCache(const ImmutableOptions& ioptions,
   }
 }
 
-TableCache::~TableCache() {
-}
+TableCache::~TableCache() {}
 
 TableReader* TableCache::GetTableReaderFromHandle(Cache::Handle* handle) {
   return reinterpret_cast<TableReader*>(cache_->Value(handle));

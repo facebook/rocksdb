@@ -23,12 +23,11 @@ namespace ROCKSDB_NAMESPACE {
 class LogFileImpl : public LogFile {
  public:
   LogFileImpl(uint64_t logNum, WalFileType logType, SequenceNumber startSeq,
-              uint64_t sizeBytes) :
-    logNumber_(logNum),
-    type_(logType),
-    startSequence_(startSeq),
-    sizeFileBytes_(sizeBytes) {
-  }
+              uint64_t sizeBytes)
+      : logNumber_(logNum),
+        type_(logType),
+        startSequence_(startSeq),
+        sizeFileBytes_(sizeBytes) {}
 
   std::string PathName() const override {
     if (type_ == kArchivedLogFile) {
@@ -45,7 +44,7 @@ class LogFileImpl : public LogFile {
 
   uint64_t SizeFileBytes() const override { return sizeFileBytes_; }
 
-  bool operator < (const LogFile& that) const {
+  bool operator<(const LogFile& that) const {
     return LogNumber() < that.LogNumber();
   }
 
@@ -54,7 +53,6 @@ class LogFileImpl : public LogFile {
   WalFileType type_;
   SequenceNumber startSequence_;
   uint64_t sizeFileBytes_;
-
 };
 
 class TransactionLogIteratorImpl : public TransactionLogIterator {
