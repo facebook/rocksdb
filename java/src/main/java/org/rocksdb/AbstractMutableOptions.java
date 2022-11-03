@@ -295,7 +295,7 @@ public abstract class AbstractMutableOptions {
       if (Double.doubleToLongBits(doubleValue) != Double.doubleToLongBits(Math.round(doubleValue)))
         throw new IllegalArgumentException(
             MessageFormat.format(MESSAGE_UNABLE_TO_PARSE_OR_ROUND, value, " to int"));
-      //noinspection NumericCastThatLosesPrecision
+      // noinspection NumericCastThatLosesPrecision
       return (int) Math.round(doubleValue);
     }
 

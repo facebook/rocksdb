@@ -4,6 +4,13 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb.test;
 
+import static org.rocksdb.test.RocksJunitRunner.RocksJunitListener.Status.*;
+
+import java.io.PrintStream;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.internal.JUnitSystem;
 import org.junit.internal.RealSystem;
 import org.junit.internal.TextListener;
@@ -11,14 +18,6 @@ import org.junit.runner.Description;
 import org.junit.runner.JUnitCore;
 import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
-
-import java.io.PrintStream;
-import java.text.DecimalFormat;
-import java.text.NumberFormat;
-import java.util.ArrayList;
-import java.util.List;
-
-import static org.rocksdb.test.RocksJunitRunner.RocksJunitListener.Status.*;
 
 /**
  * Custom Junit Runner to print also Test classes

@@ -218,8 +218,7 @@ public abstract class MutableOptionValue<T> {
     @Override
     double asDouble() {
       if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
-        throw new NumberFormatException(
-            "long value lies outside the bounds of int");
+        throw new NumberFormatException("long value lies outside the bounds of int");
       }
       return Long.valueOf(value).doubleValue();
     }

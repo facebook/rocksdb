@@ -18,13 +18,10 @@ public class EnvironmentTest {
   private static final String MUSL_ENVIRONMENT_FIELD_NAME = "MUSL_ENVIRONMENT";
   private static final String MUSL_LIBC_FIELD_NAME = "MUSL_LIBC";
 
-  @SuppressWarnings("StaticVariableMayNotBeInitialized")
-  private static String INITIAL_OS;
-  @SuppressWarnings("StaticVariableMayNotBeInitialized")
-  private static String INITIAL_ARCH;
+  @SuppressWarnings("StaticVariableMayNotBeInitialized") private static String INITIAL_OS;
+  @SuppressWarnings("StaticVariableMayNotBeInitialized") private static String INITIAL_ARCH;
   private static String INITIAL_MUSL_ENVIRONMENT;
-  @SuppressWarnings("StaticVariableMayNotBeInitialized")
-  private static Boolean INITIAL_MUSL_LIBC;
+  @SuppressWarnings("StaticVariableMayNotBeInitialized") private static Boolean INITIAL_MUSL_LIBC;
 
   @BeforeClass
   public static void saveState() {
@@ -258,8 +255,7 @@ public class EnvironmentTest {
     assertThat(Environment.initIsMuslLibc()).isFalse();
   }
 
-  private static void setEnvironmentClassFields(final String osName,
-                                                final String osArch) {
+  private static void setEnvironmentClassFields(final String osName, final String osArch) {
     setEnvironmentClassField(OS_FIELD_NAME, osName);
     setEnvironmentClassField(ARCH_FIELD_NAME, osArch);
   }
