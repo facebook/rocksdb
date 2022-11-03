@@ -1118,7 +1118,7 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMergeWithEntity(
                 merge_operator, s->key->user_key(), v,
                 merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                s->statistics, s->clock, /* update_num_ops_stats */ true);
           }
         } else if (s->value) {
           Slice value_of_default;
