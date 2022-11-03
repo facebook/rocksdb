@@ -14,20 +14,20 @@ package org.rocksdb;
 public abstract class AbstractCompactionFilterFactory<T extends AbstractCompactionFilter<?>>
     extends RocksCallbackObject {
 
-  public AbstractCompactionFilterFactory() {
-    super(null);
+  protected AbstractCompactionFilterFactory() {
+    super();
   }
 
   @Override
-  protected long initializeNative(final long... nativeParameterHandles) {
+  protected final long initializeNative(final long... nativeParameterHandles) {
     return createNewCompactionFilterFactory0();
   }
 
   /**
    * Called from JNI, see compaction_filter_factory_jnicallback.cc
    *
-   * @param fullCompaction {@link AbstractCompactionFilter.Context#fullCompaction}
-   * @param manualCompaction {@link AbstractCompactionFilter.Context#manualCompaction}
+   * @param fullCompaction {@link AbstractCompactionFilter.Context#isFullCompaction()}
+   * @param manualCompaction {@link AbstractCompactionFilter.Context#isManualCompaction()}
    *
    * @return native handle of the CompactionFilter
    */

@@ -8,6 +8,10 @@ package org.rocksdb;
 import java.util.Collection;
 import java.util.List;
 
+/**
+ * Interface to the immutable column family options; those which cannot be modified on a running instance.
+ * @param <T>
+ */
 public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>
     extends AdvancedColumnFamilyOptionsInterface<T> {
   /**
@@ -183,7 +187,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * instead.
    *
    * The client should specify only set one of the two.
-   * {@link #setCompactionFilter(AbstractCompactionFilter)} takes precedence
+   * {#setCompactionFilter(AbstractCompactionFilter)} takes precedence
    * over {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
    * if the client specifies both.
    *

@@ -5,6 +5,10 @@
 
 package org.rocksdb;
 
+/**
+ * Column family options which can be updated on a running DB
+ * @param <T>
+ */
 public interface MutableColumnFamilyOptionsInterface<
     T extends MutableColumnFamilyOptionsInterface<T>>
     extends AdvancedMutableColumnFamilyOptionsInterface<T> {

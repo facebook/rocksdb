@@ -40,7 +40,7 @@ public abstract class AbstractNativeReference implements AutoCloseable {
    * It is strong recommended that the developer calls this after they
    * have finished using the object.</p>
    * <p>
-   * Note, that once an instance of {@link AbstractNativeReference} has been
+   * Note, that once an instance of {@code AbstractNativeReference} has been
    * closed, calling any of its functions will lead to undefined
    * behavior.</p>
    */

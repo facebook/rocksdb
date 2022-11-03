@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 import static org.rocksdb.AbstractEventListener.EnabledEventCallback.*;
 
 /**
@@ -65,7 +67,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
       }
 
       throw new IllegalArgumentException(
-          "Illegal value provided for EnabledEventCallback: " + value);
+          MessageFormat.format("Illegal value provided for EnabledEventCallback: {0}", value));
     }
   }
 
@@ -106,8 +108,8 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   private static long packToLong(final EnabledEventCallback... enabledEventCallbacks) {
     long l = 0;
-    for (int i = 0; i < enabledEventCallbacks.length; i++) {
-      l |= 1 << enabledEventCallbacks[i].getValue();
+    for (final EnabledEventCallback enabledEventCallback : enabledEventCallbacks) {
+      l |= 1L << enabledEventCallback.getValue();
     }
     return l;
   }
@@ -317,7 +319,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
   }
 
   @Override
-  protected long initializeNative(final long... nativeParameterHandles) {
+  protected final long initializeNative(final long... nativeParameterHandles) {
     return createNewEventListener(nativeParameterHandles[0]);
   }
 

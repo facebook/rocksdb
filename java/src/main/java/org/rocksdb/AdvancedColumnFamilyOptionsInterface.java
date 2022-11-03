@@ -14,7 +14,7 @@ import java.util.List;
  * Taken from include/rocksdb/advanced_options.h
  */
 public interface AdvancedColumnFamilyOptionsInterface<
-    T extends AdvancedColumnFamilyOptionsInterface<T>> {
+    T extends AdvancedColumnFamilyOptionsInterface<T> & ColumnFamilyOptionsInterface<T>> {
   /**
    * The minimum number of write buffers that will be merged together
    * before writing to storage.  If set to 1, then
@@ -342,7 +342,7 @@ public interface AdvancedColumnFamilyOptionsInterface<
    * @param compactionStyle Compaction style.
    * @return the reference to the current options.
    */
-  ColumnFamilyOptionsInterface setCompactionStyle(
+  ColumnFamilyOptionsInterface<T> setCompactionStyle(
       CompactionStyle compactionStyle);
 
   /**

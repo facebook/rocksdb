@@ -260,9 +260,9 @@ public class WriteBatch extends AbstractWriteBatch {
   @Override final native void setMaxBytes(final long nativeHandle,
     final long maxBytes);
 
-  private native static long newWriteBatch(final int reserved_bytes);
-  private native static long newWriteBatch(final byte[] serialized,
-      final int serializedLength);
+  private static native long newWriteBatch(final int reserved_bytes);
+  private static native long newWriteBatch(final byte[] serialized,
+                                           final int serializedLength);
   private native void iterate(final long handle, final long handlerHandle)
       throws RocksDBException;
   private native byte[] data(final long nativeHandle) throws RocksDBException;
@@ -282,9 +282,9 @@ public class WriteBatch extends AbstractWriteBatch {
   /**
    * Handler callback for iterating over the contents of a batch.
    */
-  public static abstract class Handler
+  public abstract static class Handler
       extends RocksCallbackObject {
-    public Handler() {
+    protected Handler() {
       super(null);
     }
 

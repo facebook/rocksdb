@@ -42,7 +42,7 @@ public enum AccessHint {
    */
   public static AccessHint getAccessHint(final byte byteIdentifier) {
     for (final AccessHint accessHint : AccessHint.values()) {
-      if (accessHint.getValue() == byteIdentifier) {
+      if (accessHint.value == byteIdentifier) {
         return accessHint;
       }
     }

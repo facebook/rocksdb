@@ -119,14 +119,14 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
    */
   public int compare(final AbstractSlice<?> other) {
     assert (other != null);
-    if(!isOwningHandle()) {
-      return other.isOwningHandle() ? -1 : 0;
-    } else {
-      if(!other.isOwningHandle()) {
-        return 1;
-      } else {
+    if (isOwningHandle()) {
+      if (other.isOwningHandle()) {
         return compare0(getNativeHandle(), other.getNativeHandle());
+      } else {
+        return 1;
       }
+    } else {
+      return other.isOwningHandle() ? -1 : 0;
     }
   }
 
@@ -147,7 +147,7 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
    */
   @Override
   public boolean equals(final Object other) {
-    if (other != null && other instanceof AbstractSlice) {
+    if (other instanceof AbstractSlice) {
       return compare((AbstractSlice<?>)other) == 0;
     } else {
       return false;
@@ -172,7 +172,7 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
     }
   }
 
-  protected native static long createNewSliceFromString(final String str);
+  protected static native long createNewSliceFromString(final String str);
   private native int size0(long handle);
   private native boolean empty0(long handle);
   private native String toString0(long handle, boolean hex);

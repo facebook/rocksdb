@@ -10,6 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * DB Options which can be updated on a running DB
+ */
 public class MutableDBOptions extends AbstractMutableOptions {
 
   /**
@@ -49,7 +52,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
    *
    * @return A builder for the mutable db options
    */
-  public static MutableDBOptionsBuilder parse(final String str, boolean ignoreUnknown) {
+  public static MutableDBOptionsBuilder parse(final String str, final boolean ignoreUnknown) {
     Objects.requireNonNull(str);
 
     final List<OptionString.Entry> parsedOptions = OptionString.Parser.parse(str);
@@ -94,7 +97,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
       extends AbstractMutableOptionsBuilder<MutableDBOptions, MutableDBOptionsBuilder, MutableDBOptionKey>
       implements MutableDBOptionsInterface<MutableDBOptionsBuilder> {
 
-    private final static Map<String, MutableDBOptionKey> ALL_KEYS_LOOKUP = new HashMap<>();
+    private static final Map<String, MutableDBOptionKey> ALL_KEYS_LOOKUP = new HashMap<>();
     static {
       for(final MutableDBOptionKey key : DBOption.values()) {
         ALL_KEYS_LOOKUP.put(key.name(), key);
