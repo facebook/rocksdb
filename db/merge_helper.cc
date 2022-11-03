@@ -146,7 +146,7 @@ Status MergeHelper::TimedFullMergeWithEntity(
     const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
     const std::vector<Slice>& operands, std::string* value,
     PinnableWideColumns* columns, Logger* logger, Statistics* statistics,
-    SystemClock* clock, Slice* result_operand, bool update_num_ops_stats) {
+    SystemClock* clock, bool update_num_ops_stats) {
   assert(value || columns);
   assert(!value || !columns);
 
@@ -171,6 +171,8 @@ Status MergeHelper::TimedFullMergeWithEntity(
   std::string result;
 
   {
+    constexpr Slice* result_operand = nullptr;
+
     const Status s = TimedFullMerge(
         merge_operator, key, &value_of_default, operands, &result, logger,
         statistics, clock, result_operand, update_num_ops_stats);
