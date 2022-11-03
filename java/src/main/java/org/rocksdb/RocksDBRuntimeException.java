@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.io.IOException;
+
 /**
  * A RocksDBException encapsulates the error of an operation.  This exception
  * type is used to describe an internal error from the c++ rocksdb library.
@@ -41,6 +43,11 @@ public class RocksDBRuntimeException extends RuntimeException {
   public RocksDBRuntimeException(final Status status) {
     super(status.getState() != null ? status.getState() : status.getCodeString());
     this.status = status;
+  }
+
+  public RocksDBRuntimeException(final String msg, final IOException cause) {
+    super(msg, cause);
+    this.status = null;
   }
 
   /**
