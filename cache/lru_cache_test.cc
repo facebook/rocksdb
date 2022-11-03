@@ -506,10 +506,14 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
 
 }  // namespace fast_lru_cache
 
-namespace hyper_clock_cache {
+namespace clock_cache {
 
 class ClockCacheTest : public testing::Test {
  public:
+  using Shard = HyperClockCache::Shard;
+  using Table = HyperClockTable;
+  using HandleImpl = Shard::HandleImpl;
+
   ClockCacheTest() {}
   ~ClockCacheTest() override { DeleteShard(); }
 
@@ -523,10 +527,13 @@ class ClockCacheTest : public testing::Test {
 
   void NewShard(size_t capacity, bool strict_capacity_limit = true) {
     DeleteShard();
-    shard_ = reinterpret_cast<ClockCacheShard*>(
-        port::cacheline_aligned_alloc(sizeof(ClockCacheShard)));
-    new (shard_) ClockCacheShard(capacity, 1, strict_capacity_limit,
-                                 kDontChargeCacheMetadata);
+    shard_ =
+        reinterpret_cast<Shard*>(port::cacheline_aligned_alloc(sizeof(Shard)));
+
+    Table::Opts opts;
+    opts.estimated_value_size = 1;
+    new (shard_)
+        Shard(capacity, strict_capacity_limit, kDontChargeCacheMetadata, opts);
   }
 
   Status Insert(const UniqueId64x2& hashed_key,
@@ -580,7 +587,7 @@ class ClockCacheTest : public testing::Test {
     return {(static_cast<uint64_t>(key) << 56) + 1234U, 5678U};
   }
 
-  ClockCacheShard* shard_ = nullptr;
+  Shard* shard_ = nullptr;
 };
 
 TEST_F(ClockCacheTest, Misc) {
@@ -604,7 +611,8 @@ TEST_F(ClockCacheTest, Misc) {
 }
 
 TEST_F(ClockCacheTest, Limits) {
-  NewShard(3, false /*strict_capacity_limit*/);
+  constexpr size_t kCapacity = 3;
+  NewShard(kCapacity, false /*strict_capacity_limit*/);
   for (bool strict_capacity_limit : {false, true, false}) {
     SCOPED_TRACE("strict_capacity_limit = " +
                  std::to_string(strict_capacity_limit));
@@ -628,7 +636,7 @@ TEST_F(ClockCacheTest, Limits) {
 
     // Single entry fills capacity
     {
-      ClockHandle* h;
+      HandleImpl* h;
       ASSERT_OK(shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/,
                                3 /*charge*/, nullptr /*deleter*/, &h,
                                Cache::Priority::LOW));
@@ -644,15 +652,17 @@ TEST_F(ClockCacheTest, Limits) {
       shard_->Release(h, false /*useful*/, false /*erase_if_last_ref*/);
     }
 
-    // Insert more than table size can handle (cleverly using zero-charge
-    // entries) to exceed occupancy limit.
+    // Insert more than table size can handle to exceed occupancy limit.
+    // (Cleverly using mostly zero-charge entries, but some non-zero to
+    // verify usage tracking on detached entries.)
     {
       size_t n = shard_->GetTableAddressCount() + 1;
-      std::unique_ptr<ClockHandle* []> ha { new ClockHandle* [n] {} };
+      std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [n] {} };
       Status s;
       for (size_t i = 0; i < n && s.ok(); ++i) {
         hkey[1] = i;
-        s = shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/, 0 /*charge*/,
+        s = shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/,
+                           (i + kCapacity < n) ? 0 : 1 /*charge*/,
                            nullptr /*deleter*/, &ha[i], Cache::Priority::LOW);
         if (i == 0) {
           EXPECT_OK(s);
@@ -798,7 +808,7 @@ void IncrementIntDeleter(const Slice& /*key*/, void* value) {
 // Testing calls to CorrectNearOverflow in Release
 TEST_F(ClockCacheTest, ClockCounterOverflowTest) {
   NewShard(6, /*strict_capacity_limit*/ false);
-  ClockHandle* h;
+  HandleImpl* h;
   int deleted = 0;
   UniqueId64x2 hkey = TestHashedKey('x');
   ASSERT_OK(shard_->Insert(TestKey(hkey), hkey, &deleted, 1,
@@ -840,18 +850,18 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
   Slice key2 = TestKey(hkey2);
   UniqueId64x2 hkey3 = TestHashedKey('z');
   Slice key3 = TestKey(hkey3);
-  ClockHandle* h1;
+  HandleImpl* h1;
   ASSERT_OK(shard_->Insert(key1, hkey1, &deleted, 1, IncrementIntDeleter, &h1,
                            Cache::Priority::HIGH));
-  ClockHandle* h2;
+  HandleImpl* h2;
   ASSERT_OK(shard_->Insert(key2, hkey2, &deleted, 1, IncrementIntDeleter, &h2,
                            Cache::Priority::HIGH));
-  ClockHandle* h3;
+  HandleImpl* h3;
   ASSERT_OK(shard_->Insert(key3, hkey3, &deleted, 1, IncrementIntDeleter, &h3,
                            Cache::Priority::HIGH));
 
   // Can repeatedly lookup+release despite the hash collision
-  ClockHandle* tmp_h;
+  HandleImpl* tmp_h;
   for (bool erase_if_last_ref : {true, false}) {  // but not last ref
     tmp_h = shard_->Lookup(key1, hkey1);
     ASSERT_EQ(h1, tmp_h);
@@ -999,7 +1009,7 @@ TEST_F(ClockCacheTest, TableSizesTest) {
   }
 }
 
-}  // namespace hyper_clock_cache
+}  // namespace clock_cache
 
 class TestSecondaryCache : public SecondaryCache {
  public:

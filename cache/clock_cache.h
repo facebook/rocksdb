@@ -27,7 +27,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace hyper_clock_cache {
+namespace clock_cache {
 
 // Forward declaration of friend class.
 class ClockCacheTest;
@@ -311,6 +311,14 @@ struct ClockHandleBasicData {
   UniqueId64x2 hashed_key = kNullUniqueId64x2;
   size_t total_charge = 0;
 
+  // For total_charge_and_flags
+  // "Detached" means the handle is allocated separately from hash table.
+  static constexpr uint64_t kFlagDetached = uint64_t{1} << 63;
+  // Extract just the total charge
+  static constexpr uint64_t kTotalChargeMask = kFlagDetached - 1;
+
+  inline size_t GetTotalCharge() const { return total_charge; }
+
   // Calls deleter (if non-null) on cache key and value
   void FreeData() const;
 
@@ -318,9 +326,7 @@ struct ClockHandleBasicData {
   const UniqueId64x2& GetHash() const { return hashed_key; }
 };
 
-// Target size to be exactly a common cache line size (see static_assert in
-// clock_cache.cc)
-struct ALIGN_AS(64U) ClockHandle : public ClockHandleBasicData {
+struct ClockHandle : public ClockHandleBasicData {
   // Constants for handling the atomic `meta` word, which tracks most of the
   // state of the handle. The meta word looks like this:
   // low bits                                                     high bits
@@ -372,32 +378,54 @@ struct ALIGN_AS(64U) ClockHandle : public ClockHandleBasicData {
 
   // See above
   std::atomic<uint64_t> meta{};
-  // The number of elements that hash to this slot or a lower one, but wind
-  // up in this slot or a higher one.
-  std::atomic<uint32_t> displacements{};
 
-  // True iff the handle is allocated separately from hash table.
-  bool detached = false;
+  // Anticipating use for SecondaryCache support
+  void* reserved_for_future_use = nullptr;
 };  // struct ClockHandle
 
-class ClockHandleTable {
+class HyperClockTable {
  public:
-  explicit ClockHandleTable(int hash_bits, bool initial_charge_metadata);
-  ~ClockHandleTable();
+  // Target size to be exactly a common cache line size (see static_assert in
+  // clock_cache.cc)
+  struct ALIGN_AS(64U) HandleImpl : public ClockHandle {
+    // The number of elements that hash to this slot or a lower one, but wind
+    // up in this slot or a higher one.
+    std::atomic<uint32_t> displacements{};
 
-  Status Insert(const ClockHandleBasicData& proto, ClockHandle** handle,
+    // Whether this is a "deteched" handle that is independently allocated
+    // with `new` (so must be deleted with `delete`).
+    // TODO: ideally this would be packed into some other data field, such
+    // as upper bits of total_charge, but that incurs a measurable performance
+    // regression.
+    bool detached = false;
+
+    inline bool IsDetached() const { return detached; }
+
+    inline void SetDetached() { detached = true; }
+  };  // struct HandleImpl
+
+  struct Opts {
+    size_t estimated_value_size;
+  };
+
+  HyperClockTable(size_t capacity, bool strict_capacity_limit,
+                  CacheMetadataChargePolicy metadata_charge_policy,
+                  const Opts& opts);
+  ~HyperClockTable();
+
+  Status Insert(const ClockHandleBasicData& proto, HandleImpl** handle,
                 Cache::Priority priority, size_t capacity,
                 bool strict_capacity_limit);
 
-  ClockHandle* Lookup(const UniqueId64x2& hashed_key);
+  HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
-  bool Release(ClockHandle* handle, bool useful, bool erase_if_last_ref);
+  bool Release(HandleImpl* handle, bool useful, bool erase_if_last_ref);
 
-  void Ref(ClockHandle& handle);
+  void Ref(HandleImpl& handle);
 
   void Erase(const UniqueId64x2& hashed_key);
 
-  void ConstApplyToEntriesRange(std::function<void(const ClockHandle&)> func,
+  void ConstApplyToEntriesRange(std::function<void(const HandleImpl&)> func,
                                 size_t index_begin, size_t index_end,
                                 bool apply_if_will_be_deleted) const;
 
@@ -406,8 +434,6 @@ class ClockHandleTable {
   size_t GetTableSize() const { return size_t{1} << length_bits_; }
 
   int GetLengthBits() const { return length_bits_; }
-
-  size_t GetOccupancyLimit() const { return occupancy_limit_; }
 
   size_t GetOccupancy() const {
     return occupancy_.load(std::memory_order_relaxed);
@@ -420,8 +446,8 @@ class ClockHandleTable {
   }
 
   // Acquire/release N references
-  void TEST_RefN(ClockHandle& handle, size_t n);
-  void TEST_ReleaseN(ClockHandle* handle, size_t n);
+  void TEST_RefN(HandleImpl& handle, size_t n);
+  void TEST_ReleaseN(HandleImpl* handle, size_t n);
 
  private:  // functions
   // Returns x mod 2^{length_bits_}.
@@ -432,8 +458,8 @@ class ClockHandleTable {
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  void Evict(size_t requested_charge, size_t* freed_charge,
-             size_t* freed_count);
+  inline void Evict(size_t requested_charge, size_t* freed_charge,
+                    size_t* freed_count);
 
   // Returns the first slot in the probe sequence, starting from the given
   // probe number, with a handle e such that match(e) is true. At every
@@ -446,15 +472,54 @@ class ClockHandleTable {
   // value of probe is one more than the last non-aborting probe during the
   // call. This is so that that the variable can be used to keep track of
   // progress across consecutive calls to FindSlot.
-  inline ClockHandle* FindSlot(const UniqueId64x2& hashed_key,
-                               std::function<bool(ClockHandle*)> match,
-                               std::function<bool(ClockHandle*)> stop,
-                               std::function<void(ClockHandle*)> update,
-                               size_t& probe);
+  inline HandleImpl* FindSlot(const UniqueId64x2& hashed_key,
+                              std::function<bool(HandleImpl*)> match,
+                              std::function<bool(HandleImpl*)> stop,
+                              std::function<void(HandleImpl*)> update,
+                              size_t& probe);
 
   // Re-decrement all displacements in probe path starting from beginning
   // until (not including) the given handle
-  void Rollback(const UniqueId64x2& hashed_key, const ClockHandle* h);
+  inline void Rollback(const UniqueId64x2& hashed_key, const HandleImpl* h);
+
+  // Subtracts `total_charge` from `usage_` and 1 from `occupancy_`.
+  // Ideally this comes after releasing the entry itself so that we
+  // actually have the available occupancy/usage that is claimed.
+  // However, that means total_charge has to be saved from the handle
+  // before releasing it so that it can be provided to this function.
+  inline void ReclaimEntryUsage(size_t total_charge);
+
+  // Helper for updating `usage_` for new entry with given `total_charge`
+  // and evicting if needed under strict_capacity_limit=true rules. This
+  // means the operation might fail with Status::MemoryLimit. If
+  // `need_evict_for_occupancy`, then eviction of at least one entry is
+  // required, and the operation should fail if not possible.
+  // NOTE: Otherwise, occupancy_ is not managed in this function
+  inline Status ChargeUsageMaybeEvictStrict(size_t total_charge,
+                                            size_t capacity,
+                                            bool need_evict_for_occupancy);
+
+  // Helper for updating `usage_` for new entry with given `total_charge`
+  // and evicting if needed under strict_capacity_limit=false rules. This
+  // means that updating `usage_` always succeeds even if forced to exceed
+  // capacity. If `need_evict_for_occupancy`, then eviction of at least one
+  // entry is required, and the operation should return false if such eviction
+  // is not possible. `usage_` is not updated in that case. Otherwise, returns
+  // true, indicating success.
+  // NOTE: occupancy_ is not managed in this function
+  inline bool ChargeUsageMaybeEvictNonStrict(size_t total_charge,
+                                             size_t capacity,
+                                             bool need_evict_for_occupancy);
+
+  // Creates a "detached" handle for returning from an Insert operation that
+  // cannot be completed by actually inserting into the table.
+  // Updates `detached_usage_` but not `usage_` nor `occupancy_`.
+  inline HandleImpl* DetachedInsert(const ClockHandleBasicData& proto);
+
+  // Returns the number of bits used to hash an element in the hash
+  // table.
+  static int CalcHashBits(size_t capacity, size_t estimated_value_size,
+                          CacheMetadataChargePolicy metadata_charge_policy);
 
  private:  // data
   // Number of hash bits used for table index.
@@ -468,7 +533,7 @@ class ClockHandleTable {
   const size_t occupancy_limit_;
 
   // Array of slots comprising the hash table.
-  const std::unique_ptr<ClockHandle[]> array_;
+  const std::unique_ptr<HandleImpl[]> array_;
 
   // We partition the following members into different cache lines
   // to avoid false sharing among Lookup, Release, Erase and Insert
@@ -487,17 +552,18 @@ class ClockHandleTable {
 
   // Part of usage by detached entries (not in table)
   std::atomic<size_t> detached_usage_{};
-};  // class ClockHandleTable
+};  // class HyperClockTable
 
 // A single shard of sharded cache.
+template <class Table>
 class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
  public:
-  ClockCacheShard(size_t capacity, size_t estimated_value_size,
-                  bool strict_capacity_limit,
-                  CacheMetadataChargePolicy metadata_charge_policy);
+  ClockCacheShard(size_t capacity, bool strict_capacity_limit,
+                  CacheMetadataChargePolicy metadata_charge_policy,
+                  const typename Table::Opts& opts);
 
   // For CacheShard concept
-  using HandleImpl = ClockHandle;
+  using HandleImpl = typename Table::HandleImpl;
   // Hash is lossless hash of 128-bit key
   using HashVal = UniqueId64x2;
   using HashCref = const HashVal&;
@@ -532,16 +598,16 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   void SetStrictCapacityLimit(bool strict_capacity_limit);
 
   Status Insert(const Slice& key, const UniqueId64x2& hashed_key, void* value,
-                size_t charge, Cache::DeleterFn deleter, ClockHandle** handle,
+                size_t charge, Cache::DeleterFn deleter, HandleImpl** handle,
                 Cache::Priority priority);
 
-  ClockHandle* Lookup(const Slice& key, const UniqueId64x2& hashed_key);
+  HandleImpl* Lookup(const Slice& key, const UniqueId64x2& hashed_key);
 
-  bool Release(ClockHandle* handle, bool useful, bool erase_if_last_ref);
+  bool Release(HandleImpl* handle, bool useful, bool erase_if_last_ref);
 
-  bool Release(ClockHandle* handle, bool erase_if_last_ref = false);
+  bool Release(HandleImpl* handle, bool erase_if_last_ref = false);
 
-  bool Ref(ClockHandle* handle);
+  bool Ref(HandleImpl* handle);
 
   void Erase(const Slice& key, const UniqueId64x2& hashed_key);
 
@@ -565,40 +631,29 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   // SecondaryCache not yet supported
   Status Insert(const Slice& key, const UniqueId64x2& hashed_key, void* value,
                 const Cache::CacheItemHelper* helper, size_t charge,
-                ClockHandle** handle, Cache::Priority priority) {
+                HandleImpl** handle, Cache::Priority priority) {
     return Insert(key, hashed_key, value, charge, helper->del_cb, handle,
                   priority);
   }
 
-  ClockHandle* Lookup(const Slice& key, const UniqueId64x2& hashed_key,
-                      const Cache::CacheItemHelper* /*helper*/,
-                      const Cache::CreateCallback& /*create_cb*/,
-                      Cache::Priority /*priority*/, bool /*wait*/,
-                      Statistics* /*stats*/) {
+  HandleImpl* Lookup(const Slice& key, const UniqueId64x2& hashed_key,
+                     const Cache::CacheItemHelper* /*helper*/,
+                     const Cache::CreateCallback& /*create_cb*/,
+                     Cache::Priority /*priority*/, bool /*wait*/,
+                     Statistics* /*stats*/) {
     return Lookup(key, hashed_key);
   }
 
-  bool IsReady(ClockHandle* /*handle*/) { return true; }
+  bool IsReady(HandleImpl* /*handle*/) { return true; }
 
-  void Wait(ClockHandle* /*handle*/) {}
+  void Wait(HandleImpl* /*handle*/) {}
 
   // Acquire/release N references
-  void TEST_RefN(ClockHandle* handle, size_t n);
-  void TEST_ReleaseN(ClockHandle* handle, size_t n);
-
- private:  // functions
-  friend class ClockCache;
-  friend class ClockCacheTest;
-
-  ClockHandle* DetachedInsert(const ClockHandleBasicData& h);
-
-  // Returns the number of bits used to hash an element in the hash
-  // table.
-  static int CalcHashBits(size_t capacity, size_t estimated_value_size,
-                          CacheMetadataChargePolicy metadata_charge_policy);
+  void TEST_RefN(HandleImpl* handle, size_t n);
+  void TEST_ReleaseN(HandleImpl* handle, size_t n);
 
  private:  // data
-  ClockHandleTable table_;
+  Table table_;
 
   // Maximum total charge of all elements stored in the table.
   std::atomic<size_t> capacity_;
@@ -611,8 +666,10 @@ class HyperClockCache
 #ifdef NDEBUG
     final
 #endif
-    : public ShardedCache<ClockCacheShard> {
+    : public ShardedCache<ClockCacheShard<HyperClockTable>> {
  public:
+  using Shard = ClockCacheShard<HyperClockTable>;
+
   HyperClockCache(size_t capacity, size_t estimated_value_size,
                   int num_shard_bits, bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy,
@@ -627,6 +684,6 @@ class HyperClockCache
   DeleterFn GetDeleter(Handle* handle) const override;
 };  // class HyperClockCache
 
-}  // namespace hyper_clock_cache
+}  // namespace clock_cache
 
 }  // namespace ROCKSDB_NAMESPACE
