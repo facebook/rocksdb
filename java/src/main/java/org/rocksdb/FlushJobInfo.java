@@ -166,18 +166,13 @@ public class FlushJobInfo {
     if (o == null || getClass() != o.getClass())
       return false;
     final FlushJobInfo that = (FlushJobInfo) o;
-    if (columnFamilyId == that.columnFamilyId)
-      if (threadId == that.threadId)
-        if (jobId == that.jobId)
-          if (triggeredWritesSlowdown == that.triggeredWritesSlowdown)
-            if (triggeredWritesStop == that.triggeredWritesStop)
-              if (smallestSeqno == that.smallestSeqno)
-                if (largestSeqno == that.largestSeqno)
-                  if (Objects.equals(columnFamilyName, that.columnFamilyName))
-                    if (Objects.equals(filePath, that.filePath))
-                      if (Objects.equals(tableProperties, that.tableProperties))
-                        return flushReason == that.flushReason;
-    return false;
+    return columnFamilyId == that.columnFamilyId && threadId == that.threadId && jobId == that.jobId
+        && triggeredWritesSlowdown == that.triggeredWritesSlowdown
+        && triggeredWritesStop == that.triggeredWritesStop && smallestSeqno == that.smallestSeqno
+        && largestSeqno == that.largestSeqno
+        && Objects.equals(columnFamilyName, that.columnFamilyName)
+        && Objects.equals(filePath, that.filePath)
+        && Objects.equals(tableProperties, that.tableProperties) && flushReason == that.flushReason;
   }
 
   @Override
