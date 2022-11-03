@@ -199,6 +199,7 @@ public class SstFileWriter extends RocksObject {
     return fileSize(nativeHandle_);
   }
 
+  @SuppressWarnings("unused")
   private static native long newSstFileWriter(final long envOptionsHandle, final long optionsHandle,
       final long userComparatorHandle, final byte comparatorType);
 

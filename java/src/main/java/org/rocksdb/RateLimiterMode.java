@@ -39,9 +39,10 @@ public enum RateLimiterMode {
    * @throws IllegalArgumentException if the access hint for the byteIdentifier
    *     cannot be found
    */
+  @SuppressWarnings("unused")
   public static RateLimiterMode getRateLimiterMode(final byte byteIdentifier) {
-    for (final RateLimiterMode rateLimiterMode : RateLimiterMode.values()) {
-      if (rateLimiterMode.getValue() == byteIdentifier) {
+    for (final RateLimiterMode rateLimiterMode : values()) {
+      if (rateLimiterMode.value == byteIdentifier) {
         return rateLimiterMode;
       }
     }

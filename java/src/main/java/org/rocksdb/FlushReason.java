@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 public enum FlushReason {
   OTHERS((byte) 0x00),
   GET_LIVE_FILES((byte) 0x01),
@@ -30,6 +32,7 @@ public enum FlushReason {
    *
    * @return the internal representation
    */
+  @SuppressWarnings("unused")
   byte getValue() {
     return value;
   }
@@ -42,12 +45,13 @@ public enum FlushReason {
    * @throws IllegalArgumentException if the value is unknown.
    */
   static FlushReason fromValue(final byte value) {
-    for (final FlushReason flushReason : FlushReason.values()) {
+    for (final FlushReason flushReason : values()) {
       if (flushReason.value == value) {
         return flushReason;
       }
     }
 
-    throw new IllegalArgumentException("Illegal value provided for FlushReason: " + value);
+    throw new IllegalArgumentException(
+        MessageFormat.format("Illegal value provided for FlushReason: {0}", value));
   }
 }

@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 /**
  * The operation stage.
  */
@@ -46,14 +48,13 @@ public enum OperationStage {
    * @throws IllegalArgumentException if the value does not match
    *     an OperationStage
    */
-  static OperationStage fromValue(final byte value)
-      throws IllegalArgumentException {
-    for (final OperationStage threadType : OperationStage.values()) {
+  static OperationStage fromValue(final byte value) {
+    for (final OperationStage threadType : values()) {
       if (threadType.value == value) {
         return threadType;
       }
     }
     throw new IllegalArgumentException(
-        "Unknown value for OperationStage: " + value);
+        MessageFormat.format("Unknown value for OperationStage: {0}", value));
   }
 }

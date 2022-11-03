@@ -65,7 +65,8 @@ public class BloomFilter extends Filter {
    * @param bitsPerKey number of bits to use
    * @param IGNORED_useBlockBasedMode obsolete, ignored parameter
    */
-  public BloomFilter(final double bitsPerKey, final boolean IGNORED_useBlockBasedMode) {
+  public BloomFilter(final double bitsPerKey,
+      @SuppressWarnings("unused") final boolean IGNORED_useBlockBasedMode) {
     this(bitsPerKey);
   }
 

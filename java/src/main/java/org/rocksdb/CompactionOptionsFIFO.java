@@ -76,8 +76,7 @@ public class CompactionOptionsFIFO extends RocksObject {
     return allowCompaction(nativeHandle_);
   }
 
-
-  private native static long newCompactionOptionsFIFO();
+  private static native long newCompactionOptionsFIFO();
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setMaxTableFilesSize(final long handle,

@@ -25,5 +25,5 @@ public abstract class MemTableConfig {
    *
    * @return native handle address to native memory table instance.
    */
-  abstract protected long newMemTableFactoryHandle();
+  protected abstract long newMemTableFactoryHandle();
 }

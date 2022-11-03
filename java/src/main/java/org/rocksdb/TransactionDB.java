@@ -12,11 +12,8 @@ import java.util.Map;
 /**
  * Database with Transaction support
  */
-public class TransactionDB extends RocksDB
-    implements TransactionalDB<TransactionOptions> {
-
-  private TransactionDBOptions transactionDbOptions_;
-
+@SuppressWarnings("ObjectAllocationInLoop")
+public class TransactionDB extends RocksDB implements TransactionalDB<TransactionOptions> {
   /**
    * Private constructor.
    *
@@ -34,8 +31,8 @@ public class TransactionDB extends RocksDB
    *     instance.
    * @param path the path to the rocksdb.
    *
-   * @return a {@link TransactionDB} instance on success, null if the specified
-   *     {@link TransactionDB} can not be opened.
+   * @return a {@code TransactionDB} instance on success, null if the specified
+   *     {@code TransactionDB} can not be opened.
    *
    * @throws RocksDBException if an error occurs whilst opening the database.
    */
@@ -65,18 +62,16 @@ public class TransactionDB extends RocksDB
    * @param columnFamilyDescriptors list of column family descriptors
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
    *
-   * @return a {@link TransactionDB} instance on success, null if the specified
-   *     {@link TransactionDB} can not be opened.
+   * @return a {@code TransactionDB} instance on success, null if the specified
+   *     {@code TransactionDB} can not be opened.
    *
    * @throws RocksDBException if an error occurs whilst opening the database.
    */
+  @SuppressWarnings("ObjectAllocationInLoop")
   public static TransactionDB open(final DBOptions dbOptions,
-      final TransactionDBOptions transactionDbOptions,
-      final String path,
+      final TransactionDBOptions transactionDbOptions, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles)
-      throws RocksDBException {
-
+      final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
@@ -199,6 +194,7 @@ public class TransactionDB extends RocksDB
     return oldTransaction;
   }
 
+  @SuppressWarnings({"unused", "ReturnOfNull"})
   public Transaction getTransactionByName(final String transactionName) {
     final long jtxnHandle = getTransactionByName(nativeHandle_, transactionName);
     if(jtxnHandle == 0) {
@@ -213,6 +209,7 @@ public class TransactionDB extends RocksDB
     return txn;
   }
 
+  @SuppressWarnings("unused")
   public List<Transaction> getAllPreparedTransactions() {
     final long[] jtxnHandles = getAllPreparedTransactions(nativeHandle_);
 
@@ -233,8 +230,7 @@ public class TransactionDB extends RocksDB
     private final long[] transactionIDs;
     private final boolean exclusive;
 
-    public KeyLockInfo(final String key, final long transactionIDs[],
-        final boolean exclusive) {
+    public KeyLockInfo(final String key, final long[] transactionIDs, final boolean exclusive) {
       this.key = key;
       this.transactionIDs = transactionIDs;
       this.exclusive = exclusive;
@@ -288,8 +284,8 @@ public class TransactionDB extends RocksDB
    *
    * @return The waiting transactions
    */
-  private DeadlockInfo newDeadlockInfo(
-      final long transactionID, final long columnFamilyId,
+  @SuppressWarnings("unused")
+  private static DeadlockInfo newDeadlockInfo(final long transactionID, final long columnFamilyId,
       final String waitingKey, final boolean exclusive) {
     return new DeadlockInfo(transactionID, columnFamilyId,
         waitingKey, exclusive);
@@ -314,6 +310,7 @@ public class TransactionDB extends RocksDB
      *
      * @return the transaction ID
      */
+    @SuppressWarnings("unused")
     public long getTransactionID() {
       return transactionID;
     }
@@ -323,6 +320,7 @@ public class TransactionDB extends RocksDB
      *
      * @return The column family ID
      */
+    @SuppressWarnings("unused")
     public long getColumnFamilyId() {
       return columnFamilyId;
     }
@@ -332,6 +330,7 @@ public class TransactionDB extends RocksDB
      *
      * @return the key that we are waiting on
      */
+    @SuppressWarnings("unused")
     public String getWaitingKey() {
       return waitingKey;
     }
@@ -368,10 +367,8 @@ public class TransactionDB extends RocksDB
     setDeadlockInfoBufferSize(nativeHandle_, targetSize);
   }
 
-  private void storeTransactionDbOptions(
-      final TransactionDBOptions transactionDbOptions) {
-    this.transactionDbOptions_ = transactionDbOptions;
-  }
+  @SuppressWarnings("unused")
+  private void storeTransactionDbOptions(final TransactionDBOptions transactionDbOptions) {}
 
   @Override protected final native void disposeInternal(final long handle);
 
@@ -381,8 +378,8 @@ public class TransactionDB extends RocksDB
   private static native long[] open(final long dbOptionsHandle,
       final long transactionDbOptionsHandle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
-  private native static void closeDatabase(final long handle)
-      throws RocksDBException;
+  @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
+  private static native void closeDatabase(final long handle) throws RocksDBException;
   private native long beginTransaction(final long handle,
       final long writeOptionsHandle);
   private native long beginTransaction(final long handle,

@@ -38,6 +38,7 @@ public class EnvOptions extends RocksObject {
    *
    * @return the reference to these options.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public EnvOptions setUseMmapReads(final boolean useMmapReads) {
     setUseMmapReads(nativeHandle_, useMmapReads);
     return this;
@@ -62,6 +63,7 @@ public class EnvOptions extends RocksObject {
    *
    * @return the reference to these options.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public EnvOptions setUseMmapWrites(final boolean useMmapWrites) {
     setUseMmapWrites(nativeHandle_, useMmapWrites);
     return this;
@@ -161,6 +163,7 @@ public class EnvOptions extends RocksObject {
    *
    * @return the reference to these options.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public EnvOptions setSetFdCloexec(final boolean setFdCloexec) {
     setSetFdCloexec(nativeHandle_, setFdCloexec);
     return this;
@@ -215,8 +218,8 @@ public class EnvOptions extends RocksObject {
    *
    * @return the reference to these options.
    */
-  public EnvOptions setFallocateWithKeepSize(
-      final boolean fallocateWithKeepSize) {
+  @SuppressWarnings("UnusedReturnValue")
+  public EnvOptions setFallocateWithKeepSize(final boolean fallocateWithKeepSize) {
     setFallocateWithKeepSize(nativeHandle_, fallocateWithKeepSize);
     return this;
   }

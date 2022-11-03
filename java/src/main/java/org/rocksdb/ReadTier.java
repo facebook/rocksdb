@@ -34,13 +34,13 @@ public enum ReadTier {
    *
    * @param value byte representation of ReadTier.
    *
-   * @return {@link org.rocksdb.ReadTier} instance or null.
+   * @return {@code ReadTier} instance or null.
    * @throws java.lang.IllegalArgumentException if an invalid
    *     value is provided.
    */
   public static ReadTier getReadTier(final byte value) {
-    for (final ReadTier readTier : ReadTier.values()) {
-      if (readTier.getValue() == value){
+    for (final ReadTier readTier : values()) {
+      if (readTier.value == value) {
         return readTier;
       }
     }

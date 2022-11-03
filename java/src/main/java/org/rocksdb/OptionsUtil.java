@@ -45,8 +45,10 @@ public class OptionsUtil {
    *     native library.
    */
 
-  public static void loadLatestOptions(String dbPath, Env env, DBOptions dbOptions,
-      List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
+  @SuppressWarnings("unused")
+  public static void loadLatestOptions(final String dbPath, final Env env,
+      final DBOptions dbOptions, final List<ColumnFamilyDescriptor> cfDescs)
+      throws RocksDBException {
     loadLatestOptions(dbPath, env, dbOptions, cfDescs, false);
   }
 
@@ -64,8 +66,9 @@ public class OptionsUtil {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public static void loadLatestOptions(String dbPath, Env env, DBOptions dbOptions,
-      List<ColumnFamilyDescriptor> cfDescs, boolean ignoreUnknownOptions) throws RocksDBException {
+  public static void loadLatestOptions(final String dbPath, final Env env,
+      final DBOptions dbOptions, final List<ColumnFamilyDescriptor> cfDescs,
+      final boolean ignoreUnknownOptions) throws RocksDBException {
     loadLatestOptions(
         dbPath, env.nativeHandle_, dbOptions.nativeHandle_, cfDescs, ignoreUnknownOptions);
   }
@@ -84,8 +87,10 @@ public class OptionsUtil {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public static void loadLatestOptions(ConfigOptions configOptions, String dbPath,
-      DBOptions dbOptions, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
+  @SuppressWarnings("unused")
+  public static void loadLatestOptions(final ConfigOptions configOptions, final String dbPath,
+      final DBOptions dbOptions, final List<ColumnFamilyDescriptor> cfDescs)
+      throws RocksDBException {
     loadLatestOptions(configOptions.nativeHandle_, dbPath, dbOptions.nativeHandle_, cfDescs);
   }
 
@@ -104,8 +109,10 @@ public class OptionsUtil {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public static void loadOptionsFromFile(String optionsFileName, Env env, DBOptions dbOptions,
-      List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
+  @SuppressWarnings("unused")
+  public static void loadOptionsFromFile(final String optionsFileName, final Env env,
+      final DBOptions dbOptions, final List<ColumnFamilyDescriptor> cfDescs)
+      throws RocksDBException {
     loadOptionsFromFile(optionsFileName, env, dbOptions, cfDescs, false);
   }
 
@@ -123,8 +130,9 @@ public class OptionsUtil {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public static void loadOptionsFromFile(String optionsFileName, Env env, DBOptions dbOptions,
-      List<ColumnFamilyDescriptor> cfDescs, boolean ignoreUnknownOptions) throws RocksDBException {
+  public static void loadOptionsFromFile(final String optionsFileName, final Env env,
+      final DBOptions dbOptions, final List<ColumnFamilyDescriptor> cfDescs,
+      final boolean ignoreUnknownOptions) throws RocksDBException {
     loadOptionsFromFile(
         optionsFileName, env.nativeHandle_, dbOptions.nativeHandle_, cfDescs, ignoreUnknownOptions);
   }
@@ -143,8 +151,10 @@ public class OptionsUtil {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public static void loadOptionsFromFile(ConfigOptions configOptions, String optionsFileName,
-      DBOptions dbOptions, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
+  @SuppressWarnings("unused")
+  public static void loadOptionsFromFile(final ConfigOptions configOptions,
+      final String optionsFileName, final DBOptions dbOptions,
+      final List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException {
     loadOptionsFromFile(
         configOptions.nativeHandle_, optionsFileName, dbOptions.nativeHandle_, cfDescs);
   }
@@ -159,7 +169,8 @@ public class OptionsUtil {
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public static String getLatestOptionsFileName(String dbPath, Env env) throws RocksDBException {
+  public static String getLatestOptionsFileName(final String dbPath, final Env env)
+      throws RocksDBException {
     return getLatestOptionsFileName(dbPath, env.nativeHandle_);
   }
 
@@ -170,15 +181,15 @@ public class OptionsUtil {
   private OptionsUtil() {}
 
   // native methods
-  private native static void loadLatestOptions(String dbPath, long envHandle, long dbOptionsHandle,
+  private static native void loadLatestOptions(String dbPath, long envHandle, long dbOptionsHandle,
       List<ColumnFamilyDescriptor> cfDescs, boolean ignoreUnknownOptions) throws RocksDBException;
-  private native static void loadLatestOptions(long cfgHandle, String dbPath, long dbOptionsHandle,
+  private static native void loadLatestOptions(long cfgHandle, String dbPath, long dbOptionsHandle,
       List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
-  private native static void loadOptionsFromFile(String optionsFileName, long envHandle,
+  private static native void loadOptionsFromFile(String optionsFileName, long envHandle,
       long dbOptionsHandle, List<ColumnFamilyDescriptor> cfDescs, boolean ignoreUnknownOptions)
       throws RocksDBException;
-  private native static void loadOptionsFromFile(long cfgHandle, String optionsFileName,
+  private static native void loadOptionsFromFile(long cfgHandle, String optionsFileName,
       long dbOptionsHandle, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
-  private native static String getLatestOptionsFileName(String dbPath, long envHandle)
+  private static native String getLatestOptionsFileName(String dbPath, long envHandle)
       throws RocksDBException;
 }

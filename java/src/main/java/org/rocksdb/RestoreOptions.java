@@ -27,6 +27,6 @@ public class RestoreOptions extends RocksObject {
     super(newRestoreOptions(keepLogFiles));
   }
 
-  private native static long newRestoreOptions(boolean keepLogFiles);
+  private static native long newRestoreOptions(boolean keepLogFiles);
   @Override protected final native void disposeInternal(final long handle);
 }

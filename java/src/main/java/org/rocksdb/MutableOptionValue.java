@@ -4,17 +4,35 @@ package org.rocksdb;
 import static org.rocksdb.AbstractMutableOptions.INT_ARRAY_INT_SEPARATOR;
 
 public abstract class MutableOptionValue<T> {
-
-  abstract double asDouble() throws NumberFormatException;
-  abstract long asLong() throws NumberFormatException;
-  abstract int asInt() throws NumberFormatException;
-  abstract boolean asBoolean() throws IllegalStateException;
-  abstract int[] asIntArray() throws IllegalStateException;
+  /**
+   * @return
+   * @throws NumberFormatException
+   */
+  @SuppressWarnings("JavaDoc") abstract double asDouble();
+  /**
+   * @return
+   * @throws NumberFormatException
+   */
+  @SuppressWarnings("JavaDoc") abstract long asLong();
+  /**
+   * @return
+   * @throws NumberFormatException
+   */
+  @SuppressWarnings("JavaDoc") abstract int asInt();
+  /**
+   * @return
+   * @throws IllegalStateException
+   */
+  @SuppressWarnings("JavaDoc") abstract boolean asBoolean();
+  /**
+   * @return
+   * @throws IllegalStateException
+   */
+  @SuppressWarnings("JavaDoc") abstract int[] asIntArray();
   abstract String asString();
   abstract T asObject();
 
-  private static abstract class MutableOptionValueObject<T>
-      extends MutableOptionValue<T> {
+  private abstract static class MutableOptionValueObject<T> extends MutableOptionValue<T> {
     protected final T value;
 
     protected MutableOptionValueObject(final T value) {
@@ -26,6 +44,7 @@ public abstract class MutableOptionValue<T> {
     }
   }
 
+  @SuppressWarnings("unused")
   static MutableOptionValue<String> fromString(final String s) {
     return new MutableOptionStringValue(s);
   }
@@ -60,28 +79,53 @@ public abstract class MutableOptionValue<T> {
       super(value);
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    double asDouble() throws NumberFormatException {
+    double asDouble() {
       return Double.parseDouble(value);
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    long asLong() throws NumberFormatException {
+    long asLong() {
       return Long.parseLong(value);
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int asInt() throws NumberFormatException {
+    int asInt() {
       return Integer.parseInt(value);
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    boolean asBoolean() throws IllegalStateException {
+    boolean asBoolean() {
       return Boolean.parseBoolean(value);
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int[] asIntArray() throws IllegalStateException {
+    int[] asIntArray() {
       throw new IllegalStateException("String is not applicable as int[]");
     }
 
@@ -103,13 +147,23 @@ public abstract class MutableOptionValue<T> {
       return value;
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    long asLong() throws NumberFormatException {
+    long asLong() {
       return Double.valueOf(value).longValue();
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int asInt() throws NumberFormatException {
+    int asInt() {
       if(value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
         throw new NumberFormatException(
             "double value lies outside the bounds of int");
@@ -117,14 +171,24 @@ public abstract class MutableOptionValue<T> {
       return Double.valueOf(value).intValue();
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    boolean asBoolean() throws IllegalStateException {
+    boolean asBoolean() {
       throw new IllegalStateException(
           "double is not applicable as boolean");
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int[] asIntArray() throws IllegalStateException {
+    int[] asIntArray() {
       if(value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
         throw new NumberFormatException(
             "double value lies outside the bounds of int");
@@ -153,16 +217,30 @@ public abstract class MutableOptionValue<T> {
 
     @Override
     double asDouble() {
+      if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+        throw new NumberFormatException(
+            "long value lies outside the bounds of int");
+      }
       return Long.valueOf(value).doubleValue();
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    long asLong() throws NumberFormatException {
+    long asLong() {
       return value;
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int asInt() throws NumberFormatException {
+    int asInt() {
       if(value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
         throw new NumberFormatException(
             "long value lies outside the bounds of int");
@@ -170,14 +248,24 @@ public abstract class MutableOptionValue<T> {
       return Long.valueOf(value).intValue();
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    boolean asBoolean() throws IllegalStateException {
+    boolean asBoolean() {
       throw new IllegalStateException(
           "long is not applicable as boolean");
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int[] asIntArray() throws IllegalStateException {
+    int[] asIntArray() {
       if(value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
         throw new NumberFormatException(
             "long value lies outside the bounds of int");
@@ -209,23 +297,43 @@ public abstract class MutableOptionValue<T> {
       return Integer.valueOf(value).doubleValue();
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    long asLong() throws NumberFormatException {
+    long asLong() {
       return value;
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int asInt() throws NumberFormatException {
+    int asInt() {
       return value;
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    boolean asBoolean() throws IllegalStateException {
+    boolean asBoolean() {
       throw new IllegalStateException("int is not applicable as boolean");
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int[] asIntArray() throws IllegalStateException {
+    int[] asIntArray() {
       return new int[] { value };
     }
 
@@ -253,13 +361,22 @@ public abstract class MutableOptionValue<T> {
       throw new NumberFormatException("boolean is not applicable as double");
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    long asLong() throws NumberFormatException {
+    long asLong() {
       throw new NumberFormatException("boolean is not applicable as Long");
     }
 
-    @Override
-    int asInt() throws NumberFormatException {
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
+    int asInt() {
       throw new NumberFormatException("boolean is not applicable as int");
     }
 
@@ -268,8 +385,13 @@ public abstract class MutableOptionValue<T> {
       return value;
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int[] asIntArray() throws IllegalStateException {
+    int[] asIntArray() {
       throw new IllegalStateException("boolean is not applicable as int[]");
     }
 
@@ -295,13 +417,23 @@ public abstract class MutableOptionValue<T> {
       throw new NumberFormatException("int[] is not applicable as double");
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    long asLong() throws NumberFormatException {
+    long asLong() {
       throw new NumberFormatException("int[] is not applicable as Long");
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int asInt() throws NumberFormatException {
+    int asInt() {
       throw new NumberFormatException("int[] is not applicable as int");
     }
 
@@ -310,8 +442,13 @@ public abstract class MutableOptionValue<T> {
       throw new NumberFormatException("int[] is not applicable as boolean");
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int[] asIntArray() throws IllegalStateException {
+    int[] asIntArray() {
       return value;
     }
 
@@ -335,28 +472,53 @@ public abstract class MutableOptionValue<T> {
       super(value);
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    double asDouble() throws NumberFormatException {
+    double asDouble() {
       throw new NumberFormatException("Enum is not applicable as double");
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    long asLong() throws NumberFormatException {
+    long asLong() {
       throw new NumberFormatException("Enum is not applicable as long");
     }
 
+    /**
+     * @return
+     * @throws NumberFormatException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int asInt() throws NumberFormatException {
+    int asInt() {
       throw new NumberFormatException("Enum is not applicable as int");
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    boolean asBoolean() throws IllegalStateException {
+    boolean asBoolean() {
       throw new NumberFormatException("Enum is not applicable as boolean");
     }
 
+    /**
+     * @return
+     * @throws IllegalStateException
+     */
+    @SuppressWarnings("JavaDoc")
     @Override
-    int[] asIntArray() throws IllegalStateException {
+    int[] asIntArray() {
       throw new NumberFormatException("Enum is not applicable as int[]");
     }
 

@@ -18,6 +18,7 @@ public class CompactionJobInfo extends RocksObject {
   /**
    * Private as called from JNI C++
    */
+  @SuppressWarnings("unused")
   private CompactionJobInfo(final long nativeHandle) {
     super(nativeHandle);
     // We do not own the native object!
@@ -132,6 +133,7 @@ public class CompactionJobInfo extends RocksObject {
    *
    * @return the detailed information, or null if not available.
    */
+  @SuppressWarnings("ReturnOfNull")
   public /* @Nullable */ CompactionJobStats stats() {
     final long statsHandle = stats(nativeHandle_);
     if (statsHandle == 0) {
@@ -140,7 +142,6 @@ public class CompactionJobInfo extends RocksObject {
 
     return new CompactionJobStats(statsHandle);
   }
-
 
   private static native long newCompactionJobInfo();
   @Override protected native void disposeInternal(final long handle);

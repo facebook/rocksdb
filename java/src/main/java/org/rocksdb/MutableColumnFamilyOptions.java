@@ -5,7 +5,10 @@
 
 package org.rocksdb;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 public class MutableColumnFamilyOptions
     extends AbstractMutableOptions {
@@ -157,8 +160,8 @@ public class MutableColumnFamilyOptions
   public static class MutableColumnFamilyOptionsBuilder
       extends AbstractMutableOptionsBuilder<MutableColumnFamilyOptions, MutableColumnFamilyOptionsBuilder, MutableColumnFamilyOptionKey>
       implements MutableColumnFamilyOptionsInterface<MutableColumnFamilyOptionsBuilder> {
-
-    private final static Map<String, MutableColumnFamilyOptionKey> ALL_KEYS_LOOKUP = new HashMap<>();
+    private static final Map<String, MutableColumnFamilyOptionKey> ALL_KEYS_LOOKUP =
+        new HashMap<>();
     static {
       for(final MutableColumnFamilyOptionKey key : MemtableOption.values()) {
         ALL_KEYS_LOOKUP.put(key.name(), key);
@@ -476,7 +479,7 @@ public class MutableColumnFamilyOptions
 
     @Override
     public CompressionType compressionType() {
-      return (CompressionType) getEnum(MiscOption.compression);
+      return getEnum(MiscOption.compression);
     }
 
     @Override
@@ -549,7 +552,7 @@ public class MutableColumnFamilyOptions
 
     @Override
     public CompressionType blobCompressionType() {
-      return (CompressionType) getEnum(BlobOption.blob_compression_type);
+      return getEnum(BlobOption.blob_compression_type);
     }
 
     @Override

@@ -17,6 +17,7 @@ public abstract class Env extends RocksObject {
     RocksDB.loadLibrary();
   }
 
+  @SuppressWarnings("StaticInitializerReferencesSubClass")
   private static final Env DEFAULT_ENV = new RocksEnv(getDefaultEnvInternal());
   static {
     /*
@@ -104,8 +105,8 @@ public abstract class Env extends RocksObject {
    *
    * @return current {@link RocksEnv} instance.
    */
-  public Env incBackgroundThreadsIfNeeded(final int number,
-    final Priority priority) {
+  @SuppressWarnings("UnusedReturnValue")
+  public Env incBackgroundThreadsIfNeeded(final int number, final Priority priority) {
     incBackgroundThreadsIfNeeded(nativeHandle_, number, priority.getValue());
     return this;
   }
@@ -117,6 +118,7 @@ public abstract class Env extends RocksObject {
    *
    * @return current {@link RocksEnv} instance.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public Env lowerThreadPoolIOPriority(final Priority priority) {
     lowerThreadPoolIOPriority(nativeHandle_, priority.getValue());
     return this;
@@ -129,6 +131,7 @@ public abstract class Env extends RocksObject {
    *
    * @return current {@link RocksEnv} instance.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public Env lowerThreadPoolCPUPriority(final Priority priority) {
     lowerThreadPoolCPUPriority(nativeHandle_, priority.getValue());
     return this;

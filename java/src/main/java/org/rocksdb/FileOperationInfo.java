@@ -65,6 +65,7 @@ public class FileOperationInfo {
    *
    * @return the start timestamp.
    */
+  @SuppressWarnings("unused")
   public long getStartTimestamp() {
     return startTimestamp;
   }

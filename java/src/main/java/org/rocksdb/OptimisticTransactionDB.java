@@ -25,18 +25,19 @@ public class OptimisticTransactionDB extends RocksDB
 
   /**
    * Open an OptimisticTransactionDB similar to
-   * {@link RocksDB#open(Options, String)}.
+   * {#open(Options, String)}.
    *
    * @param options {@link org.rocksdb.Options} instance.
    * @param path the path to the rocksdb.
    *
-   * @return a {@link OptimisticTransactionDB} instance on success, null if the
-   * specified {@link OptimisticTransactionDB} can not be opened.
+   * @return a {@code OptimisticTransactionDB} instance on success, null if the
+   * specified {@code OptimisticTransactionDB} can not be opened.
    *
    * @throws RocksDBException if an error occurs whilst opening the database.
    */
-  public static OptimisticTransactionDB open(final Options options,
-      final String path) throws RocksDBException {
+  @SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
+  public static OptimisticTransactionDB open(final Options options, final String path)
+      throws RocksDBException {
     final OptimisticTransactionDB otdb = new OptimisticTransactionDB(open(
         options.nativeHandle_, path));
 
@@ -50,24 +51,22 @@ public class OptimisticTransactionDB extends RocksDB
 
   /**
    * Open an OptimisticTransactionDB similar to
-   * {@link RocksDB#open(DBOptions, String, List, List)}.
+   * {@code open(DBOptions, String, List, List)}.
    *
    * @param dbOptions {@link org.rocksdb.DBOptions} instance.
    * @param path the path to the rocksdb.
    * @param columnFamilyDescriptors list of column family descriptors
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
    *
-   * @return a {@link OptimisticTransactionDB} instance on success, null if the
-   *     specified {@link OptimisticTransactionDB} can not be opened.
+   * @return a {@code OptimisticTransactionDB} instance on success, null if the
+   *     specified {@code OptimisticTransactionDB} can not be opened.
    *
    * @throws RocksDBException if an error occurs whilst opening the database.
    */
-  public static OptimisticTransactionDB open(final DBOptions dbOptions,
-      final String path,
+  @SuppressWarnings({"MethodOverridesStaticMethodOfSuperclass", "ObjectAllocationInLoop"})
+  public static OptimisticTransactionDB open(final DBOptions dbOptions, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles)
-      throws RocksDBException {
-
+      final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
@@ -93,7 +92,6 @@ public class OptimisticTransactionDB extends RocksDB
 
     return otdb;
   }
-
 
   /**
    * This is similar to {@link #close()} except that it
@@ -205,12 +203,14 @@ public class OptimisticTransactionDB extends RocksDB
 
   @Override protected final native void disposeInternal(final long handle);
 
-  protected static native long open(final long optionsHandle,
-      final String path) throws RocksDBException;
+  @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
+  protected static native long open(final long optionsHandle, final String path)
+      throws RocksDBException;
+  @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
   protected static native long[] open(final long handle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions);
-  private native static void closeDatabase(final long handle)
-      throws RocksDBException;
+  @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
+  private static native void closeDatabase(final long handle) throws RocksDBException;
   private native long beginTransaction(final long handle,
       final long writeOptionsHandle);
   private native long beginTransaction(final long handle,

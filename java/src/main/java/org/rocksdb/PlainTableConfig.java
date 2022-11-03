@@ -13,16 +13,15 @@ package org.rocksdb;
  * <p>It also support prefix hash feature.</p>
  */
 public class PlainTableConfig extends TableFormatConfig {
-  public static final int VARIABLE_LENGTH = 0;
-  public static final int DEFAULT_BLOOM_BITS_PER_KEY = 10;
-  public static final double DEFAULT_HASH_TABLE_RATIO = 0.75;
-  public static final int DEFAULT_INDEX_SPARSENESS = 16;
-  public static final int DEFAULT_HUGE_TLB_SIZE = 0;
-  public static final EncodingType DEFAULT_ENCODING_TYPE =
-      EncodingType.kPlain;
-  public static final boolean DEFAULT_FULL_SCAN_MODE = false;
-  public static final boolean DEFAULT_STORE_INDEX_IN_FILE
-      = false;
+  @SuppressWarnings("WeakerAccess") public static final int VARIABLE_LENGTH = 0;
+  @SuppressWarnings("WeakerAccess") public static final int DEFAULT_BLOOM_BITS_PER_KEY = 10;
+  @SuppressWarnings("WeakerAccess") public static final double DEFAULT_HASH_TABLE_RATIO = 0.75;
+  @SuppressWarnings("WeakerAccess") public static final int DEFAULT_INDEX_SPARSENESS = 16;
+  @SuppressWarnings("WeakerAccess") public static final int DEFAULT_HUGE_TLB_SIZE = 0;
+  @SuppressWarnings("WeakerAccess")
+  public static final EncodingType DEFAULT_ENCODING_TYPE = EncodingType.kPlain;
+  @SuppressWarnings("WeakerAccess") public static final boolean DEFAULT_FULL_SCAN_MODE = false;
+  @SuppressWarnings("WeakerAccess") public static final boolean DEFAULT_STORE_INDEX_IN_FILE = false;
 
   public PlainTableConfig() {
     keySize_ = VARIABLE_LENGTH;
@@ -48,7 +47,8 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param keySize the length of the user key.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setKeySize(int keySize) {
+  @SuppressWarnings("UnusedReturnValue")
+  public PlainTableConfig setKeySize(final int keySize) {
     keySize_ = keySize;
     return this;
   }
@@ -68,7 +68,8 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param bitsPerKey the number of bits per key for bloom filer.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setBloomBitsPerKey(int bitsPerKey) {
+  @SuppressWarnings("UnusedReturnValue")
+  public PlainTableConfig setBloomBitsPerKey(final int bitsPerKey) {
     bloomBitsPerKey_ = bitsPerKey;
     return this;
   }
@@ -89,7 +90,8 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param ratio the hash table ratio.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setHashTableRatio(double ratio) {
+  @SuppressWarnings("UnusedReturnValue")
+  public PlainTableConfig setHashTableRatio(final double ratio) {
     hashTableRatio_ = ratio;
     return this;
   }
@@ -110,7 +112,8 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param sparseness the index sparseness.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setIndexSparseness(int sparseness) {
+  @SuppressWarnings("UnusedReturnValue")
+  public PlainTableConfig setIndexSparseness(final int sparseness) {
     indexSparseness_ = sparseness;
     return this;
   }
@@ -134,7 +137,8 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param hugePageTlbSize huge page tlb size
    * @return the reference to the current config.
    */
-  public PlainTableConfig setHugePageTlbSize(int hugePageTlbSize) {
+  @SuppressWarnings("UnusedReturnValue")
+  public PlainTableConfig setHugePageTlbSize(final int hugePageTlbSize) {
     this.hugePageTlbSize_ = hugePageTlbSize;
     return this;
   }
@@ -166,7 +170,8 @@ public class PlainTableConfig extends TableFormatConfig {
    * @param encodingType {@link org.rocksdb.EncodingType} value.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setEncodingType(EncodingType encodingType) {
+  @SuppressWarnings("UnusedReturnValue")
+  public PlainTableConfig setEncodingType(final EncodingType encodingType) {
     this.encodingType_ = encodingType;
     return this;
   }
@@ -188,7 +193,8 @@ public class PlainTableConfig extends TableFormatConfig {
    *     scan mode shall be enabled.
    * @return the reference to the current config.
    */
-  public PlainTableConfig setFullScanMode(boolean fullScanMode) {
+  @SuppressWarnings("UnusedReturnValue")
+  public PlainTableConfig setFullScanMode(final boolean fullScanMode) {
     this.fullScanMode_ = fullScanMode;
     return this;
   }
@@ -212,7 +218,8 @@ public class PlainTableConfig extends TableFormatConfig {
    *     be stored in a file
    * @return the reference to the current config.
    */
-  public PlainTableConfig setStoreIndexInFile(boolean storeIndexInFile) {
+  @SuppressWarnings("UnusedReturnValue")
+  public PlainTableConfig setStoreIndexInFile(final boolean storeIndexInFile) {
     this.storeIndexInFile_ = storeIndexInFile;
     return this;
   }

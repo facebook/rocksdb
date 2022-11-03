@@ -35,8 +35,9 @@ enum ComparatorType {
    * @throws IllegalArgumentException if the comparator type for the byteIdentifier
    *     cannot be found
    */
+  @SuppressWarnings("UnusedReturnValue")
   static ComparatorType getComparatorType(final byte byteIdentifier) {
-    for (final ComparatorType comparatorType : ComparatorType.values()) {
+    for (final ComparatorType comparatorType : values()) {
       if (comparatorType.value == byteIdentifier) {
         return comparatorType;
       }

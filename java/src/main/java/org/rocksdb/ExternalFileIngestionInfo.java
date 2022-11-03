@@ -43,6 +43,7 @@ public class ExternalFileIngestionInfo {
    *
    * @return the path of the file outside the DB.
    */
+  @SuppressWarnings("unused")
   public String getExternalFilePath() {
     return externalFilePath;
   }
@@ -52,6 +53,7 @@ public class ExternalFileIngestionInfo {
    *
    * @return the path of the file inside the DB.
    */
+  @SuppressWarnings("unused")
   public String getInternalFilePath() {
     return internalFilePath;
   }
@@ -61,6 +63,7 @@ public class ExternalFileIngestionInfo {
    *
    * @return the global sequence number.
    */
+  @SuppressWarnings("unused")
   public long getGlobalSeqno() {
     return globalSeqno;
   }

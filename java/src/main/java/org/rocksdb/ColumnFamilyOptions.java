@@ -6,7 +6,11 @@
 package org.rocksdb;
 
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Properties;
 
 /**
  * ColumnFamilyOptions to control the behavior of a database.  It will be used
@@ -40,7 +44,7 @@ public class ColumnFamilyOptions extends RocksObject
    *
    * @param other The ColumnFamilyOptions to copy.
    */
-  public ColumnFamilyOptions(ColumnFamilyOptions other) {
+  public ColumnFamilyOptions(final ColumnFamilyOptions other) {
     super(copyColumnFamilyOptions(other.nativeHandle_));
     this.memTableConfig_ = other.memTableConfig_;
     this.tableFormatConfig_ = other.tableFormatConfig_;
@@ -72,7 +76,7 @@ public class ColumnFamilyOptions extends RocksObject
    *
    * @param handle native handle to ColumnFamilyOptions instance.
    */
-  ColumnFamilyOptions(final long handle) {
+  private ColumnFamilyOptions(final long handle) {
     super(handle);
   }
 
@@ -89,7 +93,7 @@ public class ColumnFamilyOptions extends RocksObject
    *
    * @param properties {@link java.util.Properties} instance.
    *
-   * @return {@link org.rocksdb.ColumnFamilyOptions instance}
+   * @return {@code org.rocksdb.ColumnFamilyOptions instance}
    *     or null.
    *
    * @throws java.lang.IllegalArgumentException if null or empty
@@ -120,7 +124,7 @@ public class ColumnFamilyOptions extends RocksObject
    * @param cfgOpts  ConfigOptions controlling how the properties are parsed.
    * @param properties {@link java.util.Properties} instance.
    *
-   * @return {@link org.rocksdb.ColumnFamilyOptions instance}
+   * @return {@code org.rocksdb.ColumnFamilyOptions instance}
    *     or null.
    *
    * @throws java.lang.IllegalArgumentException if null or empty
@@ -626,8 +630,10 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
+  @SuppressWarnings("ObjectAllocationInLoop")
   @Override
   public List<DbPath> cfPaths() {
+    @SuppressWarnings("NumericCastThatLosesPrecision")
     final int len = (int) cfPathsLen(nativeHandle_);
 
     if (len == 0) {
@@ -707,7 +713,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setBloomLocality(int bloomLocality) {
+  public ColumnFamilyOptions setBloomLocality(final int bloomLocality) {
     setBloomLocality(nativeHandle_, bloomLocality);
     return this;
   }
@@ -742,9 +748,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions
-  setMemtableHugePageSize(
-      long memtableHugePageSize) {
+  public ColumnFamilyOptions setMemtableHugePageSize(final long memtableHugePageSize) {
     setMemtableHugePageSize(nativeHandle_,
         memtableHugePageSize);
     return this;
@@ -756,7 +760,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setSoftPendingCompactionBytesLimit(long softPendingCompactionBytesLimit) {
+  public ColumnFamilyOptions setSoftPendingCompactionBytesLimit(
+      final long softPendingCompactionBytesLimit) {
     setSoftPendingCompactionBytesLimit(nativeHandle_,
         softPendingCompactionBytesLimit);
     return this;
@@ -768,7 +773,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setHardPendingCompactionBytesLimit(long hardPendingCompactionBytesLimit) {
+  public ColumnFamilyOptions setHardPendingCompactionBytesLimit(
+      final long hardPendingCompactionBytesLimit) {
     setHardPendingCompactionBytesLimit(nativeHandle_, hardPendingCompactionBytesLimit);
     return this;
   }
@@ -779,7 +785,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setLevel0FileNumCompactionTrigger(int level0FileNumCompactionTrigger) {
+  public ColumnFamilyOptions setLevel0FileNumCompactionTrigger(
+      final int level0FileNumCompactionTrigger) {
     setLevel0FileNumCompactionTrigger(nativeHandle_, level0FileNumCompactionTrigger);
     return this;
   }
@@ -790,7 +797,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setLevel0SlowdownWritesTrigger(int level0SlowdownWritesTrigger) {
+  public ColumnFamilyOptions setLevel0SlowdownWritesTrigger(final int level0SlowdownWritesTrigger) {
     setLevel0SlowdownWritesTrigger(nativeHandle_, level0SlowdownWritesTrigger);
     return this;
   }
@@ -801,7 +808,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setLevel0StopWritesTrigger(int level0StopWritesTrigger) {
+  public ColumnFamilyOptions setLevel0StopWritesTrigger(final int level0StopWritesTrigger) {
     setLevel0StopWritesTrigger(nativeHandle_, level0StopWritesTrigger);
     return this;
   }
@@ -812,7 +819,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMaxBytesForLevelMultiplierAdditional(int[] maxBytesForLevelMultiplierAdditional) {
+  public ColumnFamilyOptions setMaxBytesForLevelMultiplierAdditional(
+      final int[] maxBytesForLevelMultiplierAdditional) {
     setMaxBytesForLevelMultiplierAdditional(nativeHandle_, maxBytesForLevelMultiplierAdditional);
     return this;
   }
@@ -823,7 +831,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setParanoidFileChecks(boolean paranoidFileChecks) {
+  public ColumnFamilyOptions setParanoidFileChecks(final boolean paranoidFileChecks) {
     setParanoidFileChecks(nativeHandle_, paranoidFileChecks);
     return this;
   }
@@ -931,7 +939,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setSstPartitionerFactory(SstPartitionerFactory sstPartitionerFactory) {
+  public ColumnFamilyOptions setSstPartitionerFactory(
+      final SstPartitionerFactory sstPartitionerFactory) {
     setSstPartitionerFactory(nativeHandle_, sstPartitionerFactory.nativeHandle_);
     this.sstPartitionerFactory_ = sstPartitionerFactory;
     return this;
@@ -1344,8 +1353,11 @@ public class ColumnFamilyOptions extends RocksObject
       long compactionFilterHandle);
   private native void setCompactionFilterFactoryHandle(long handle,
       long compactionFilterFactoryHandle);
-  private native void setWriteBufferSize(long handle, long writeBufferSize)
-      throws IllegalArgumentException;
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
+  private native void setWriteBufferSize(long handle, long writeBufferSize);
   private native long writeBufferSize(long handle);
   private native void setMaxWriteBufferNumber(
       long handle, int maxWriteBufferNumber);
@@ -1398,9 +1410,11 @@ public class ColumnFamilyOptions extends RocksObject
   private native double maxBytesForLevelMultiplier(long handle);
   private native void setMaxCompactionBytes(long handle, long maxCompactionBytes);
   private native long maxCompactionBytes(long handle);
-  private native void setArenaBlockSize(
-      long handle, long arenaBlockSize)
-      throws IllegalArgumentException;
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
+  private native void setArenaBlockSize(long handle, long arenaBlockSize);
   private native long arenaBlockSize(long handle);
   private native void setDisableAutoCompactions(
       long handle, boolean disableAutoCompactions);
@@ -1425,9 +1439,11 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setInplaceUpdateSupport(
       long handle, boolean inplaceUpdateSupport);
   private native boolean inplaceUpdateSupport(long handle);
-  private native void setInplaceUpdateNumLocks(
-      long handle, long inplaceUpdateNumLocks)
-      throws IllegalArgumentException;
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
+  private native void setInplaceUpdateNumLocks(long handle, long inplaceUpdateNumLocks);
   private native long inplaceUpdateNumLocks(long handle);
   private native void setMemtablePrefixBloomSizeRatio(
       long handle, double memtablePrefixBloomSizeRatio);
@@ -1440,9 +1456,11 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setBloomLocality(
       long handle, int bloomLocality);
   private native int bloomLocality(long handle);
-  private native void setMaxSuccessiveMerges(
-      long handle, long maxSuccessiveMerges)
-      throws IllegalArgumentException;
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
+  private native void setMaxSuccessiveMerges(long handle, long maxSuccessiveMerges);
   private native long maxSuccessiveMerges(long handle);
   private native void setOptimizeFiltersForHits(long handle,
       boolean optimizeFiltersForHits);
@@ -1525,16 +1543,25 @@ public class ColumnFamilyOptions extends RocksObject
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
-  private MemTableConfig memTableConfig_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private MemTableConfig memTableConfig_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private TableFormatConfig tableFormatConfig_;
-  private AbstractComparator comparator_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private AbstractComparator comparator_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
       compactionFilterFactory_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private CompactionOptionsUniversal compactionOptionsUniversal_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private CompactionOptionsFIFO compactionOptionsFIFO_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private CompressionOptions bottommostCompressionOptions_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private CompressionOptions compressionOptions_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private SstPartitionerFactory sstPartitionerFactory_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private ConcurrentTaskLimiter compactionThreadLimiter_;
 }

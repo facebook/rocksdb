@@ -47,6 +47,7 @@ public class FlushJobInfo {
    *
    * @return the id of the column family
    */
+  @SuppressWarnings("unused")
   public long getColumnFamilyId() {
     return columnFamilyId;
   }
@@ -65,6 +66,7 @@ public class FlushJobInfo {
    *
    * @return the path to the newly created file
    */
+  @SuppressWarnings("unused")
   public String getFilePath() {
     return filePath;
   }
@@ -74,6 +76,7 @@ public class FlushJobInfo {
    *
    * @return the id of the thread that completed this flush job
    */
+  @SuppressWarnings("unused")
   public long getThreadId() {
     return threadId;
   }
@@ -83,6 +86,7 @@ public class FlushJobInfo {
    *
    * @return the job id
    */
+  @SuppressWarnings("unused")
   public int getJobId() {
     return jobId;
   }
@@ -97,6 +101,7 @@ public class FlushJobInfo {
    * @return true if rocksdb is currently slowing-down all writes,
    *     false otherwise
    */
+  @SuppressWarnings("unused")
   public boolean isTriggeredWritesSlowdown() {
     return triggeredWritesSlowdown;
   }
@@ -111,6 +116,7 @@ public class FlushJobInfo {
    *
    * @return true  if rocksdb is currently blocking any writes, false otherwise
    */
+  @SuppressWarnings("unused")
   public boolean isTriggeredWritesStop() {
     return triggeredWritesStop;
   }
@@ -120,6 +126,7 @@ public class FlushJobInfo {
    *
    * @return the smallest sequence number
    */
+  @SuppressWarnings("unused")
   public long getSmallestSeqno() {
     return smallestSeqno;
   }
@@ -129,6 +136,7 @@ public class FlushJobInfo {
    *
    * @return the largest sequence number
    */
+  @SuppressWarnings("unused")
   public long getLargestSeqno() {
     return largestSeqno;
   }

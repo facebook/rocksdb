@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 /**
  * The type used to refer to a thread operation.
  *
@@ -41,14 +43,13 @@ public enum OperationType {
    * @throws IllegalArgumentException if the value does not match
    *     an OperationType
    */
-  static OperationType fromValue(final byte value)
-      throws IllegalArgumentException {
-    for (final OperationType threadType : OperationType.values()) {
+  static OperationType fromValue(final byte value) {
+    for (final OperationType threadType : values()) {
       if (threadType.value == value) {
         return threadType;
       }
     }
     throw new IllegalArgumentException(
-        "Unknown value for OperationType: " + value);
+        MessageFormat.format("Unknown value for OperationType: {0}", value));
   }
 }

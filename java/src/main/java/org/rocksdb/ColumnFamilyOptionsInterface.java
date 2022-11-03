@@ -358,7 +358,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    *
    * @return the mem-table config.
    */
-  MemTableConfig memTableConfig();
+  @SuppressWarnings("unused") MemTableConfig memTableConfig();
 
   /**
    * Set the config for mem-table.
@@ -384,7 +384,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    *
    * @return the table format config.
    */
-  TableFormatConfig tableFormatConfig();
+  @SuppressWarnings("unused") TableFormatConfig tableFormatConfig();
 
   /**
    * Set the config for table format.

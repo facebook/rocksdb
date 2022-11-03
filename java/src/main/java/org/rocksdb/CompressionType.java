@@ -37,16 +37,17 @@ public enum CompressionType {
    *
    * @return CompressionType instance.
    */
+  @SuppressWarnings({"SimplifiableEqualsExpression", "CallToSuspiciousStringMethod"})
   public static CompressionType getCompressionType(final String libraryName) {
     if (libraryName != null) {
-      for (final CompressionType compressionType : CompressionType.values()) {
-        if (compressionType.getLibraryName() != null &&
-            compressionType.getLibraryName().equals(libraryName)) {
+      for (final CompressionType compressionType : values()) {
+        if (compressionType.libraryName_ != null
+            && compressionType.libraryName_.equals(libraryName)) {
           return compressionType;
         }
       }
     }
-    return CompressionType.NO_COMPRESSION;
+    return NO_COMPRESSION;
   }
 
   /**
@@ -61,8 +62,8 @@ public enum CompressionType {
    *   provided byteIdentifier
    */
   public static CompressionType getCompressionType(final byte byteIdentifier) {
-    for (final CompressionType compressionType : CompressionType.values()) {
-      if (compressionType.getValue() == byteIdentifier) {
+    for (final CompressionType compressionType : values()) {
+      if (compressionType.value_ == byteIdentifier) {
         return compressionType;
       }
     }
@@ -83,6 +84,7 @@ public enum CompressionType {
    */
   static CompressionType getFromInternal(final String internalName) {
     for (final CompressionType compressionType : values()) {
+      // noinspection CallToSuspiciousStringMethod
       if (compressionType.internalName_.equals(internalName)) {
         return compressionType;
       }

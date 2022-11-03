@@ -25,6 +25,7 @@ public class CompactionOptionsUniversal extends RocksObject {
    *
    * @return the reference to the current options.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public CompactionOptionsUniversal setSizeRatio(final int sizeRatio) {
     setSizeRatio(nativeHandle_, sizeRatio);
     return this;
@@ -52,6 +53,7 @@ public class CompactionOptionsUniversal extends RocksObject {
    *
    * @return the reference to the current options.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public CompactionOptionsUniversal setMinMergeWidth(final int minMergeWidth) {
     setMinMergeWidth(nativeHandle_, minMergeWidth);
     return this;
@@ -77,6 +79,7 @@ public class CompactionOptionsUniversal extends RocksObject {
    *
    * @return the reference to the current options.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public CompactionOptionsUniversal setMaxMergeWidth(final int maxMergeWidth) {
     setMaxMergeWidth(nativeHandle_, maxMergeWidth);
     return this;
@@ -111,6 +114,7 @@ public class CompactionOptionsUniversal extends RocksObject {
    *
    * @return the reference to the current options.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public CompactionOptionsUniversal setMaxSizeAmplificationPercent(
       final int maxSizeAmplificationPercent) {
     setMaxSizeAmplificationPercent(nativeHandle_, maxSizeAmplificationPercent);
@@ -229,8 +233,8 @@ public class CompactionOptionsUniversal extends RocksObject {
    *
    * @return the reference to the current options.
    */
-  public CompactionOptionsUniversal setAllowTrivialMove(
-      final boolean allowTrivialMove) {
+  @SuppressWarnings("UnusedReturnValue")
+  public CompactionOptionsUniversal setAllowTrivialMove(final boolean allowTrivialMove) {
     setAllowTrivialMove(nativeHandle_, allowTrivialMove);
     return this;
   }
@@ -247,7 +251,7 @@ public class CompactionOptionsUniversal extends RocksObject {
     return allowTrivialMove(nativeHandle_);
   }
 
-  private native static long newCompactionOptionsUniversal();
+  private static native long newCompactionOptionsUniversal();
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setSizeRatio(final long handle, final int sizeRatio);

@@ -5,23 +5,25 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 public class OptionString {
-  private final static char kvPairSeparator = ';';
-  private final static char kvSeparator = '=';
-  private final static char complexValueBegin = '{';
-  private final static char complexValueEnd = '}';
-  private final static char wrappedValueBegin = '{';
-  private final static char wrappedValueEnd = '}';
-  private final static char arrayValueSeparator = ':';
+  private static final char kvPairSeparator = ';';
+  private static final char kvSeparator = '=';
+  private static final char complexValueBegin = '{';
+  private static final char complexValueEnd = '}';
+  private static final char wrappedValueBegin = '{';
+  private static final char wrappedValueEnd = '}';
+  private static final char arrayValueSeparator = ':';
 
   static class Value {
     final List<String> list;
     final List<Entry> complex;
 
+    @SuppressWarnings("PublicConstructorInNonPublicClass")
     public Value(final List<String> list, final List<Entry> complex) {
       this.list = list;
       this.complex = complex;
@@ -69,19 +71,22 @@ public class OptionString {
     }
 
     public String toString() {
-      return "" + key + "=" + value;
+      return MessageFormat.format("{0}={1}", key, value);
     }
   }
 
   static class Parser {
+    @SuppressWarnings({"SerializableHasSerializationMethods", "UncheckedExceptionClass"})
     static class Exception extends RuntimeException {
-      public Exception(final String s) {
+      private static final long serialVersionUID = 752283782841276408L;
+
+      Exception(final String s) {
         super(s);
       }
     }
 
     final String str;
-    final StringBuilder sb;
+    @SuppressWarnings("StringBufferField") final StringBuilder sb;
 
     private Parser(final String str) {
       this.str = str;
@@ -92,10 +97,10 @@ public class OptionString {
       final int pos = str.length() - sb.length();
       final int before = Math.min(pos, 64);
       final int after = Math.min(64, str.length() - pos);
-      final String here =
-          str.substring(pos - before, pos) + "__*HERE*__" + str.substring(pos, pos + after);
+      final String here = MessageFormat.format(
+          "{0}__*HERE*__{1}", str.substring(pos - before, pos), str.substring(pos, pos + after));
 
-      throw new Parser.Exception(message + " at [" + here + "]");
+      throw new Parser.Exception(MessageFormat.format("{0} at [{1}]", message, here));
     }
 
     private void skipWhite() {
@@ -155,7 +160,7 @@ public class OptionString {
         next();
         final String result = parseSimpleValue();
         if (!is(wrappedValueEnd)) {
-          exception("Expected to end a wrapped value with " + wrappedValueEnd);
+          exception(String.format("Expected to end a wrapped value with %s", wrappedValueEnd));
         }
         next();
 
@@ -173,6 +178,7 @@ public class OptionString {
       while (true) {
         list.add(parseSimpleValue());
         if (!is(arrayValueSeparator))
+          // noinspection BreakStatement
           break;
 
         next();
@@ -198,6 +204,7 @@ public class OptionString {
       return new Entry(key, value);
     }
 
+    @SuppressWarnings("ReturnOfNull")
     private Value parseValue() {
       skipWhite();
       if (is(complexValueBegin)) {
@@ -220,6 +227,7 @@ public class OptionString {
       return null;
     }
 
+    @SuppressWarnings("ObjectAllocationInLoop")
     private List<Entry> parseComplex() {
       final List<Entry> entries = new ArrayList<>();
 
@@ -232,6 +240,7 @@ public class OptionString {
           skipWhite();
           if (!isKeyChar()) {
             // the separator was a terminator
+            // noinspection BreakStatement
             break;
           }
           entries.add(parseOption());

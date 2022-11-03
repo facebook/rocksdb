@@ -14,6 +14,7 @@ public class CompressionOptions extends RocksObject {
     super(newCompressionOptions());
   }
 
+  @SuppressWarnings("UnusedReturnValue")
   public CompressionOptions setWindowBits(final int windowBits) {
     setWindowBits(nativeHandle_, windowBits);
     return this;
@@ -32,6 +33,7 @@ public class CompressionOptions extends RocksObject {
     return level(nativeHandle_);
   }
 
+  @SuppressWarnings("UnusedReturnValue")
   public CompressionOptions setStrategy(final int strategy) {
     setStrategy(nativeHandle_, strategy);
     return this;
@@ -85,6 +87,7 @@ public class CompressionOptions extends RocksObject {
    *
    * @return the reference to the current options
    */
+  @SuppressWarnings("UnusedReturnValue")
   public CompressionOptions setZStdMaxTrainBytes(final int zstdMaxTrainBytes) {
     setZstdMaxTrainBytes(nativeHandle_, zstdMaxTrainBytes);
     return this;

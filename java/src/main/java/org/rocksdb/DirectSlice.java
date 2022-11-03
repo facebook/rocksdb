@@ -22,8 +22,8 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * Indicates whether we have to free the memory pointed to by the Slice
    */
   private final boolean internalBuffer;
-  private volatile boolean cleared = false;
-  private volatile long internalBufferOffset = 0;
+  @SuppressWarnings("RedundantFieldInitialization") private volatile boolean cleared = false;
+  @SuppressWarnings("RedundantFieldInitialization") private volatile long internalBufferOffset = 0;
 
   /**
    * Called from JNI to construct a new Java DirectSlice
@@ -107,6 +107,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
   @Override
   public void removePrefix(final int n) {
     removePrefix0(getNativeHandle(), n);
+    // noinspection NonAtomicOperationOnVolatileField
     this.internalBufferOffset += n;
   }
 

@@ -209,8 +209,9 @@ public enum HistogramType {
    * @throws java.lang.IllegalArgumentException if an invalid
    *     value is provided.
    */
+  @SuppressWarnings("unused")
   public static HistogramType getHistogramType(final byte value) {
-    for (final HistogramType histogramType : HistogramType.values()) {
+    for (final HistogramType histogramType : values()) {
       if (histogramType.value == value) {
         return histogramType;
       }

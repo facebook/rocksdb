@@ -32,11 +32,13 @@ public class ConfigOptions extends RocksObject {
     return this;
   }
 
+  @SuppressWarnings("unused")
   public ConfigOptions setInputStringsEscaped(final boolean escaped) {
     setInputStringsEscaped(nativeHandle_, escaped);
     return this;
   }
 
+  @SuppressWarnings("unused")
   public ConfigOptions setSanityLevel(final SanityLevel level) {
     setSanityLevel(nativeHandle_, level.getValue());
     return this;

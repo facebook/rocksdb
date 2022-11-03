@@ -15,6 +15,8 @@ import java.nio.ByteBuffer;
  */
 public abstract class NativeComparatorWrapper
     extends AbstractComparator {
+  private static final String DO_NOT_CALL_NATIVE_CODE =
+      "This should not be called. Implementation is in Native code";
 
   @Override
   final ComparatorType getComparatorType() {
@@ -23,26 +25,22 @@ public abstract class NativeComparatorWrapper
 
   @Override
   public final String name() {
-    throw new IllegalStateException("This should not be called. " +
-        "Implementation is in Native code");
+    throw new IllegalStateException(DO_NOT_CALL_NATIVE_CODE);
   }
 
   @Override
   public final int compare(final ByteBuffer s1, final ByteBuffer s2) {
-    throw new IllegalStateException("This should not be called. " +
-        "Implementation is in Native code");
+    throw new IllegalStateException(DO_NOT_CALL_NATIVE_CODE);
   }
 
   @Override
   public final void findShortestSeparator(final ByteBuffer start, final ByteBuffer limit) {
-    throw new IllegalStateException("This should not be called. " +
-        "Implementation is in Native code");
+    throw new IllegalStateException(DO_NOT_CALL_NATIVE_CODE);
   }
 
   @Override
   public final void findShortSuccessor(final ByteBuffer key) {
-    throw new IllegalStateException("This should not be called. " +
-        "Implementation is in Native code");
+    throw new IllegalStateException(DO_NOT_CALL_NATIVE_CODE);
   }
 
   /**
@@ -55,5 +53,6 @@ public abstract class NativeComparatorWrapper
     disposeInternal(nativeHandle_);
   }
 
+  @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
   private native void disposeInternal(final long handle);
 }

@@ -185,6 +185,7 @@ public interface EventListener {
    * @param columnFamilyHandle is a pointer to the column family handle to be
    *     deleted which will become a dangling pointer after the deletion.
    */
+  @SuppressWarnings("unused")
   void onColumnFamilyHandleDeletionStarted(final ColumnFamilyHandle columnFamilyHandle);
 
   /**
@@ -306,7 +307,7 @@ public interface EventListener {
    *
    * @return whether to callback when file read/write is finished
    */
-  boolean shouldBeNotifiedOnFileIO();
+  @SuppressWarnings("UnusedReturnValue") boolean shouldBeNotifiedOnFileIO();
 
   /**
    * A callback function for RocksDB which will be called just before

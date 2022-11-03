@@ -51,6 +51,7 @@ public class CompactRangeOptions extends RocksObject {
      * @param bottommostLevelCompaction The value of the BottommostLevelCompaction
      * @return BottommostLevelCompaction instance, or null if none matches
      */
+    @SuppressWarnings("ReturnOfNull")
     public static BottommostLevelCompaction fromRocksId(final int bottommostLevelCompaction) {
       switch (bottommostLevelCompaction) {
         case VALUE_kSkip: return kSkip;
@@ -83,6 +84,7 @@ public class CompactRangeOptions extends RocksObject {
    * @param exclusiveCompaction true if compaction should be exclusive
    * @return This CompactRangeOptions
    */
+  @SuppressWarnings("UnusedReturnValue")
   public CompactRangeOptions setExclusiveManualCompaction(final boolean exclusiveCompaction) {
     setExclusiveManualCompaction(nativeHandle_, exclusiveCompaction);
     return this;
@@ -164,7 +166,9 @@ public class CompactRangeOptions extends RocksObject {
    * @param bottommostLevelCompaction The policy for compacting the bottommost level
    * @return This CompactRangeOptions
    */
-  public CompactRangeOptions setBottommostLevelCompaction(final BottommostLevelCompaction bottommostLevelCompaction) {
+  @SuppressWarnings("UnusedReturnValue")
+  public CompactRangeOptions setBottommostLevelCompaction(
+      final BottommostLevelCompaction bottommostLevelCompaction) {
     setBottommostLevelCompaction(nativeHandle_, bottommostLevelCompaction.getValue());
     return this;
   }
@@ -186,6 +190,7 @@ public class CompactRangeOptions extends RocksObject {
    * @return This CompactRangeOptions
    * @param allowWriteStall true if compaction should execute immediately
    */
+  @SuppressWarnings("UnusedReturnValue")
   public CompactRangeOptions setAllowWriteStall(final boolean allowWriteStall) {
     setAllowWriteStall(nativeHandle_, allowWriteStall);
     return this;

@@ -5,9 +5,12 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
 import java.util.Objects;
 
 public class MemTableInfo {
+  private static final char SINGLE_QUOTE = '\'';
+
   private final String columnFamilyName;
   private final long firstSeqno;
   private final long earliestSeqno;
@@ -42,6 +45,7 @@ public class MemTableInfo {
    *
    * @return the sequence number of the first inserted element.
    */
+  @SuppressWarnings("unused")
   public long getFirstSeqno() {
     return firstSeqno;
   }
@@ -54,6 +58,7 @@ public class MemTableInfo {
    *
    * @return the earliest sequence number.
    */
+  @SuppressWarnings("unused")
   public long getEarliestSeqno() {
     return earliestSeqno;
   }
@@ -63,6 +68,7 @@ public class MemTableInfo {
    *
    * @return the total number of entries.
    */
+  @SuppressWarnings("unused")
   public long getNumEntries() {
     return numEntries;
   }
@@ -72,20 +78,24 @@ public class MemTableInfo {
    *
    * @return the total number of deletes.
    */
+  @SuppressWarnings("unused")
   public long getNumDeletes() {
     return numDeletes;
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    MemTableInfo that = (MemTableInfo) o;
-    return firstSeqno == that.firstSeqno && earliestSeqno == that.earliestSeqno
-        && numEntries == that.numEntries && numDeletes == that.numDeletes
-        && Objects.equals(columnFamilyName, that.columnFamilyName);
+    final MemTableInfo that = (MemTableInfo) o;
+    if (firstSeqno == that.firstSeqno)
+      if (earliestSeqno == that.earliestSeqno)
+        if (numEntries == that.numEntries)
+          if (numDeletes == that.numDeletes)
+            return Objects.equals(columnFamilyName, that.columnFamilyName);
+    return false;
   }
 
   @Override
@@ -95,9 +105,8 @@ public class MemTableInfo {
 
   @Override
   public String toString() {
-    return "MemTableInfo{"
-        + "columnFamilyName='" + columnFamilyName + '\'' + ", firstSeqno=" + firstSeqno
-        + ", earliestSeqno=" + earliestSeqno + ", numEntries=" + numEntries
-        + ", numDeletes=" + numDeletes + '}';
+    return MessageFormat.format(
+        "MemTableInfo'{'columnFamilyName=''{0}{1}, firstSeqno={2}, earliestSeqno={3}, numEntries={4}, numDeletes={5}'}'",
+        columnFamilyName, SINGLE_QUOTE, firstSeqno, earliestSeqno, numEntries, numDeletes);
   }
 }

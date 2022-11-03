@@ -181,10 +181,10 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * <p>The oldest WAL files are the ones that are causing all the space amplification.
    * </p>
    *  For example, with 15 column families, each with
-   *  <code>write_buffer_size = 128 MB</code>
-   *  <code>max_write_buffer_number = 6</code>
-   *  <code>max_total_wal_size</code> will be calculated to be <code>[15 * 128MB * 6] * 4 =
-   * 45GB</code>
+   *  {@code write_buffer_size = 128 MB}
+   *  {@code max_write_buffer_number = 6}
+   *  {@code max_total_wal_size} will be calculated to be {@code [15 * 128MB * 6] * 4 =
+   * 45GB}
    * <p>
    *  The RocksDB wiki has some discussion about how the WAL interacts
    *  with memtables and flushing of column families, at
@@ -208,10 +208,10 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * <p>The oldest WAL files are the ones that are causing all the space amplification.
    * </p>
    *  For example, with 15 column families, each with
-   *  <code>write_buffer_size = 128 MB</code>
-   *  <code>max_write_buffer_number = 6</code>
-   *  <code>max_total_wal_size</code> will be calculated to be <code>[15 * 128MB * 6] * 4 =
-   * 45GB</code>
+   *  {@code write_buffer_size = 128 MB}
+   *  {@code max_write_buffer_number = 6}
+   *  {@code max_total_wal_size} will be calculated to be {@code [15 * 128MB * 6] * 4 =
+   * 45GB}
    * <p>
    *  The RocksDB wiki has some discussion about how the WAL interacts
    *  with memtables and flushing of column families, at

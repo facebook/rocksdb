@@ -34,13 +34,14 @@ public enum Priority {
    *
    * @param value byte representation of Priority.
    *
-   * @return {@link org.rocksdb.Priority} instance.
+   * @return {@code Priority} instance.
    * @throws java.lang.IllegalArgumentException if an invalid
    *     value is provided.
    */
+  @SuppressWarnings("unused")
   static Priority getPriority(final byte value) {
-    for (final Priority priority : Priority.values()) {
-      if (priority.getValue() == value){
+    for (final Priority priority : values()) {
+      if (priority.value == value) {
         return priority;
       }
     }

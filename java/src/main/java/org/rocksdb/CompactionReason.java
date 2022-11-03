@@ -103,6 +103,7 @@ public enum CompactionReason {
    *
    * @return the internal representation value
    */
+  @SuppressWarnings("unused")
   byte getValue() {
     return value;
   }

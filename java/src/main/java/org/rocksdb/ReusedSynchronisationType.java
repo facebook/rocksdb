@@ -47,15 +47,14 @@ public enum ReusedSynchronisationType {
    *
    * @param value byte representation of ReusedSynchronisationType.
    *
-   * @return {@link org.rocksdb.ReusedSynchronisationType} instance.
+   * @return {@code ReusedSynchronisationType} instance.
    * @throws java.lang.IllegalArgumentException if an invalid
    *     value is provided.
    */
   public static ReusedSynchronisationType getReusedSynchronisationType(
       final byte value) {
-    for (final ReusedSynchronisationType reusedSynchronisationType
-        : ReusedSynchronisationType.values()) {
-      if (reusedSynchronisationType.getValue() == value) {
+    for (final ReusedSynchronisationType reusedSynchronisationType : values()) {
+      if (reusedSynchronisationType.value == value) {
         return reusedSynchronisationType;
       }
     }
