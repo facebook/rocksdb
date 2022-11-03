@@ -12,6 +12,7 @@
 #include "db/blob/prefetch_buffer_collection.h"
 #include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_serialization.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/likely.h"
@@ -138,6 +139,70 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   columns->SetPlainValue(result);
 
   return Status::OK();
+}
+
+Status MergeHelper::TimedFullMergeWithEntity(
+    const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
+    const std::vector<Slice>& operands, std::string* value,
+    PinnableWideColumns* columns, Logger* logger, Statistics* statistics,
+    SystemClock* clock, Slice* result_operand, bool update_num_ops_stats) {
+  assert(value || columns);
+  assert(!value || !columns);
+
+  WideColumns base_columns;
+
+  {
+    const Status s =
+        WideColumnSerialization::Deserialize(base_entity, base_columns);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  const bool has_default_column =
+      !base_columns.empty() && base_columns[0].name() == kDefaultWideColumnName;
+
+  Slice value_of_default;
+  if (has_default_column) {
+    value_of_default = base_columns[0].value();
+  }
+
+  std::string result;
+
+  {
+    const Status s = TimedFullMerge(
+        merge_operator, key, &value_of_default, operands, &result, logger,
+        statistics, clock, result_operand, update_num_ops_stats);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (value) {
+    *value = std::move(result);
+    return Status::OK();
+  }
+
+  assert(columns);
+
+  std::string output;
+
+  if (has_default_column) {
+    base_columns[0].value() = result;
+
+    const Status s = WideColumnSerialization::Serialize(base_columns, output);
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    const Status s =
+        WideColumnSerialization::Serialize(result, base_columns, output);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  return columns->SetWideColumnValue(output);
 }
 
 // PRE:  iter points to the first merge type entry
