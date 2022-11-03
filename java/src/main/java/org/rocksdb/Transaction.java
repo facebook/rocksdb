@@ -1989,8 +1989,8 @@ public class Transaction extends RocksObject {
    *
    * @return The waiting transactions
    */
-  @SuppressWarnings("unused")
-  private static WaitingTransactions newWaitingTransactions(
+  @SuppressWarnings({"unused", "MethodMayBeStatic"})
+  private WaitingTransactions newWaitingTransactions(
       final long columnFamilyId, final String key,
       final long[] transactionIds) {
     return new WaitingTransactions(columnFamilyId, key, transactionIds);

@@ -17,6 +17,10 @@ import static org.assertj.core.api.Assertions.fail;
 
 public class TransactionTest extends AbstractTransactionTest {
 
+  private static final String EXPECTED_EXCEPTION =
+      "Expected an exception for put after getForUpdate from conflicting transactions";
+
+
   @Test
   public void getForUpdate_cf_conflict() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
@@ -46,8 +50,7 @@ public class TransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting" +
-          "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -193,12 +196,12 @@ public class TransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting" +
-          "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
   @Test
+  @Deprecated
   public void multiGetForUpdate_cf_conflict() throws RocksDBException {
     final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
     final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
@@ -231,8 +234,7 @@ public class TransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting" +
-          "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -270,12 +272,12 @@ public class TransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting"
-          + "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
   @Test
+  @Deprecated
   public void multiGetForUpdate_conflict() throws RocksDBException {
     final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
     final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
@@ -305,8 +307,7 @@ public class TransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting"
-          + "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -340,8 +341,7 @@ public class TransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting" +
-          "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -449,7 +449,7 @@ public class TransactionTest extends AbstractTransactionTest {
     private final TransactionDB txnDb;
     private final TransactionDBOptions txnDbOptions;
 
-    public TransactionDBContainer(
+    private TransactionDBContainer(
         final TransactionOptions txnOptions, final WriteOptions writeOptions,
         final List<ColumnFamilyHandle> columnFamilyHandles,
         final TransactionDB txnDb, final TransactionDBOptions txnDbOptions,

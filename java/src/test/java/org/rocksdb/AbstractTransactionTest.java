@@ -325,12 +325,12 @@ public abstract class AbstractTransactionTest {
       final List<ColumnFamilyHandle> cfList = Arrays.asList(testCf, testCf);
 
       assertThat(txn.multiGetForUpdate(readOptions, cfList, keys))
-          .isEqualTo(new byte[][] { null, null });
+          .containsExactly(null, null);
 
       txn.put(testCf, keys[0], values[0]);
       txn.put(testCf, keys[1], values[1]);
       assertThat(txn.multiGetForUpdate(readOptions, cfList, keys))
-          .isEqualTo(values);
+          .containsExactly(values);
     }
   }
 
@@ -350,12 +350,12 @@ public abstract class AbstractTransactionTest {
       final List<ColumnFamilyHandle> cfList = Arrays.asList(testCf, testCf);
 
       assertThat(txn.multiGetForUpdateAsList(readOptions, cfList, Arrays.asList(keys)))
-          .isEqualTo(Arrays.asList(null, null));
+          .containsExactly(null, null);
 
       txn.put(testCf, keys[0], values[0]);
       txn.put(testCf, keys[1], values[1]);
       assertThat(txn.multiGetForUpdateAsList(readOptions, cfList, Arrays.asList(keys)))
-          .isEqualTo(Arrays.asList(values));
+          .containsExactly(values);
     }
   }
 
@@ -372,11 +372,11 @@ public abstract class AbstractTransactionTest {
     try (final DBContainer dbContainer = startDb();
          final ReadOptions readOptions = new ReadOptions();
          final Transaction txn = dbContainer.beginTransaction()) {
-      assertThat(txn.multiGetForUpdate(readOptions, keys)).isEqualTo(new byte[][]{null, null});
+      assertThat(txn.multiGetForUpdate(readOptions, keys)).containsExactly(null, null);
 
       txn.put(keys[0], values[0]);
       txn.put(keys[1], values[1]);
-      assertThat(txn.multiGetForUpdate(readOptions, keys)).isEqualTo(values);
+      assertThat(txn.multiGetForUpdate(readOptions, keys)).containsExactly(values);
     }
   }
 
@@ -392,12 +392,11 @@ public abstract class AbstractTransactionTest {
     try (final DBContainer dbContainer = startDb();
          final ReadOptions readOptions = new ReadOptions();
          final Transaction txn = dbContainer.beginTransaction()) {
-      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys))).isEqualTo(
-          Arrays.asList(null, null));
+      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys))).containsExactly(null, null);
 
       txn.put(keys[0], values[0]);
       txn.put(keys[1], values[1]);
-      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys))).isEqualTo(Arrays.asList(values));
+      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys))).containsExactly(values);
     }
   }
 

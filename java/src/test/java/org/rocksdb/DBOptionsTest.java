@@ -5,16 +5,20 @@
 
 package org.rocksdb;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
-import java.nio.file.Paths;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.ClassRule;
 import org.junit.Test;
+
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class DBOptionsTest {
 
@@ -27,11 +31,11 @@ public class DBOptionsTest {
 
   @Test
   public void copyConstructor() {
-    DBOptions origOpts = new DBOptions();
+    final DBOptions origOpts = new DBOptions();
     origOpts.setCreateIfMissing(rand.nextBoolean());
     origOpts.setAllow2pc(rand.nextBoolean());
     origOpts.setMaxBackgroundJobs(rand.nextInt(10));
-    DBOptions copyOpts = new DBOptions(origOpts);
+    final DBOptions copyOpts = new DBOptions(origOpts);
     assertThat(origOpts.createIfMissing()).isEqualTo(copyOpts.createIfMissing());
     assertThat(origOpts.allow2pc()).isEqualTo(copyOpts.allow2pc());
   }
@@ -45,9 +49,9 @@ public class DBOptionsTest {
     try(final DBOptions opt = DBOptions.getDBOptionsFromProps(properties)) {
       assertThat(opt).isNotNull();
       assertThat(String.valueOf(opt.allowMmapReads())).
-          isEqualTo(properties.get("allow_mmap_reads"));
+          isEqualTo(properties.getProperty("allow_mmap_reads"));
       assertThat(String.valueOf(opt.bytesPerSync())).
-          isEqualTo(properties.get("bytes_per_sync"));
+          isEqualTo(properties.getProperty("bytes_per_sync"));
     }
   }
 
@@ -64,14 +68,16 @@ public class DBOptionsTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void failDBOptionsFromPropsWithNullValue() {
-    try(final DBOptions opt = DBOptions.getDBOptionsFromProps(null)) {
+    //noinspection EmptyTryBlock
+    try(final DBOptions ignored = DBOptions.getDBOptionsFromProps(null)) {
       //no-op
     }
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void failDBOptionsFromPropsWithEmptyProps() {
-    try(final DBOptions opt = DBOptions.getDBOptionsFromProps(
+    //noinspection EmptyTryBlock
+    try(final DBOptions ignored = DBOptions.getDBOptionsFromProps(
         new Properties())) {
       //no-op
     }
@@ -218,6 +224,7 @@ public class DBOptionsTest {
 
   @SuppressWarnings("deprecated")
   @Test
+  @Deprecated
   public void maxBackgroundCompactions() {
     try(final DBOptions opt = new DBOptions()) {
       final int intValue = rand.nextInt();
@@ -238,6 +245,7 @@ public class DBOptionsTest {
 
   @SuppressWarnings("deprecated")
   @Test
+  @Deprecated
   public void maxBackgroundFlushes() {
     try(final DBOptions opt = new DBOptions()) {
       final int intValue = rand.nextInt();
@@ -256,7 +264,7 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void maxLogFileSize() throws RocksDBException {
+  public void maxLogFileSize() {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();
       opt.setMaxLogFileSize(longValue);
@@ -265,7 +273,7 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void logFileTimeToRoll() throws RocksDBException {
+  public void logFileTimeToRoll() {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();
       opt.setLogFileTimeToRoll(longValue);
@@ -274,7 +282,7 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void keepLogFileNum() throws RocksDBException {
+  public void keepLogFileNum() {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();
       opt.setKeepLogFileNum(longValue);
@@ -283,7 +291,7 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void recycleLogFileNum() throws RocksDBException {
+  public void recycleLogFileNum() {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();
       opt.setRecycleLogFileNum(longValue);
@@ -328,7 +336,7 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void manifestPreallocationSize() throws RocksDBException {
+  public void manifestPreallocationSize() {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();
       opt.setManifestPreallocationSize(longValue);
@@ -436,20 +444,20 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void setWriteBufferManager() throws RocksDBException {
+  public void setWriteBufferManager() {
     try (final DBOptions opt = new DBOptions();
-         final Cache cache = new LRUCache(1 * 1024 * 1024);
-         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000l, cache)) {
+         final Cache cache = new LRUCache(1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000L, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
     }
   }
 
   @Test
-  public void setWriteBufferManagerWithZeroBufferSize() throws RocksDBException {
+  public void setWriteBufferManagerWithZeroBufferSize() {
     try (final DBOptions opt = new DBOptions();
-         final Cache cache = new LRUCache(1 * 1024 * 1024);
-         final WriteBufferManager writeBufferManager = new WriteBufferManager(0l, cache)) {
+         final Cache cache = new LRUCache(1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(0L, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
     }
@@ -649,6 +657,7 @@ public class DBOptionsTest {
     try (final DBOptions opt = new DBOptions()) {
       assertThat(opt.walFilter()).isNull();
 
+      //noinspection AnonymousInnerClassMayBeStatic
       try (final AbstractWalFilter walFilter = new AbstractWalFilter() {
         @Override
         public void columnFamilyLogNumberMap(
@@ -872,6 +881,7 @@ public class DBOptionsTest {
   public void eventListeners() {
     final AtomicBoolean wasCalled1 = new AtomicBoolean();
     final AtomicBoolean wasCalled2 = new AtomicBoolean();
+    //noinspection AnonymousInnerClassMayBeStatic
     try (final DBOptions options = new DBOptions();
          final AbstractEventListener el1 =
              new AbstractEventListener() {
@@ -888,17 +898,17 @@ public class DBOptionsTest {
                }
              }) {
       assertThat(options.setListeners(Arrays.asList(el1, el2))).isEqualTo(options);
-      List<AbstractEventListener> listeners = options.listeners();
-      assertEquals(el1, listeners.get(0));
-      assertEquals(el2, listeners.get(1));
-      options.setListeners(Collections.<AbstractEventListener>emptyList());
+      final List<AbstractEventListener> listeners = options.listeners();
+      assertThat(listeners.get(0)).isEqualTo(el1);
+      assertThat(listeners.get(1)).isEqualTo(el2);
+      options.setListeners(Collections.emptyList());
       listeners.get(0).onTableFileDeleted(null);
-      assertTrue(wasCalled1.get());
+      assertThat(wasCalled1.get()).isTrue();
       listeners.get(1).onMemTableSealed(null);
-      assertTrue(wasCalled2.get());
-      List<AbstractEventListener> listeners2 = options.listeners();
-      assertNotNull(listeners2);
-      assertEquals(0, listeners2.size());
+      assertThat(wasCalled2.get()).isTrue();
+      final List<AbstractEventListener> listeners2 = options.listeners();
+      assertThat(listeners2).isNotNull();
+      assertThat(listeners2.size()).isEqualTo(0);
     }
   }
 }

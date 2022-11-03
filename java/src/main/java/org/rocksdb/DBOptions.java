@@ -6,7 +6,12 @@
 package org.rocksdb;
 
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Properties;
 
 /**
  * DBOptions to control the behavior of a database.  It will be used
@@ -80,6 +85,7 @@ public class DBOptions extends RocksObject
    * @throws java.lang.IllegalArgumentException if null or empty
    *     {@link java.util.Properties} instance is passed to the method call.
    */
+  @SuppressWarnings("unused")
   public static DBOptions getDBOptionsFromProps(
       final ConfigOptions cfgOpts, final Properties properties) {
     DBOptions dbOptions = null;
@@ -286,6 +292,7 @@ public class DBOptions extends RocksObject
     return this;
   }
 
+  @SuppressWarnings("ReturnOfNull")
   @Override
   public Statistics statistics() {
     assert(isOwningHandle());
@@ -331,7 +338,7 @@ public class DBOptions extends RocksObject
 
   @Override
   public List<DbPath> dbPaths() {
-    final int len = (int)dbPathsLen(nativeHandle_);
+    @SuppressWarnings("NumericCastThatLosesPrecision") final int len = (int)dbPathsLen(nativeHandle_);
     if(len == 0) {
       return Collections.emptyList();
     } else {
@@ -1244,6 +1251,7 @@ public class DBOptions extends RocksObject
    *
    * @param nativeHandle native handle to DBOptions instance.
    */
+  @SuppressWarnings("unused")
   private DBOptions(final long nativeHandle) {
     super(nativeHandle);
   }
