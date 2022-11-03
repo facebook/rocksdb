@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 /**
  * The type used to refer to a thread state.
  *
@@ -40,14 +42,13 @@ public enum StateType {
    * @throws IllegalArgumentException if the value does not match
    *     a StateType
    */
-  static StateType fromValue(final byte value)
-      throws IllegalArgumentException {
-    for (final StateType threadType : StateType.values()) {
+  static StateType fromValue(final byte value) {
+    for (final StateType threadType : values()) {
       if (threadType.value == value) {
         return threadType;
       }
     }
     throw new IllegalArgumentException(
-        "Unknown value for StateType: " + value);
+        MessageFormat.format("Unknown value for StateType: {0}", value));
   }
 }

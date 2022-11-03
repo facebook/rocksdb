@@ -6,6 +6,7 @@ package org.rocksdb;
  */
 public class SkipListMemTableConfig extends MemTableConfig {
 
+  @SuppressWarnings("WeakerAccess")
   public static final long DEFAULT_LOOKAHEAD = 0;
 
   /**
@@ -25,6 +26,7 @@ public class SkipListMemTableConfig extends MemTableConfig {
    *     seeks with consecutive keys.
    * @return the current instance of SkipListMemTableConfig
    */
+  @SuppressWarnings("UnusedReturnValue")
   public SkipListMemTableConfig setLookahead(final long lookahead) {
     lookahead_ = lookahead;
     return this;
@@ -44,8 +46,12 @@ public class SkipListMemTableConfig extends MemTableConfig {
     return newMemTableFactoryHandle0(lookahead_);
   }
 
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
   private native long newMemTableFactoryHandle0(long lookahead)
-      throws IllegalArgumentException;
+  ;
 
   private long lookahead_;
 }

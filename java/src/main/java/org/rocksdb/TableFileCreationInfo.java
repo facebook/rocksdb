@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
 import java.util.Objects;
 
 public class TableFileCreationInfo extends TableFileCreationBriefInfo {
@@ -39,6 +40,7 @@ public class TableFileCreationInfo extends TableFileCreationBriefInfo {
    *
    * @return the size.
    */
+  @SuppressWarnings("unused")
   public long getFileSize() {
     return fileSize;
   }
@@ -62,14 +64,15 @@ public class TableFileCreationInfo extends TableFileCreationBriefInfo {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    TableFileCreationInfo that = (TableFileCreationInfo) o;
-    return fileSize == that.fileSize && Objects.equals(tableProperties, that.tableProperties)
-        && Objects.equals(status, that.status);
+    final TableFileCreationInfo that = (TableFileCreationInfo) o;
+    if (fileSize == that.fileSize)
+      if (Objects.equals(tableProperties, that.tableProperties)) return Objects.equals(status, that.status);
+    return false;
   }
 
   @Override
@@ -79,8 +82,6 @@ public class TableFileCreationInfo extends TableFileCreationBriefInfo {
 
   @Override
   public String toString() {
-    return "TableFileCreationInfo{"
-        + "fileSize=" + fileSize + ", tableProperties=" + tableProperties + ", status=" + status
-        + '}';
+    return MessageFormat.format("TableFileCreationInfo'{'fileSize={0}, tableProperties={1}, status={2}'}'", fileSize, tableProperties, status);
   }
 }

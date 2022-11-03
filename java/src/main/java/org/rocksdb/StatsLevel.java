@@ -49,13 +49,13 @@ public enum StatsLevel {
      *
      * @param value byte representation of StatsLevel.
      *
-     * @return {@link org.rocksdb.StatsLevel} instance.
+     * @return {@code org.rocksdb.StatsLevel} instance.
      * @throws java.lang.IllegalArgumentException if an invalid
      *     value is provided.
      */
     public static StatsLevel getStatsLevel(final byte value) {
-        for (final StatsLevel statsLevel : StatsLevel.values()) {
-            if (statsLevel.getValue() == value){
+        for (final StatsLevel statsLevel : values()) {
+            if (statsLevel.value == value){
                 return statsLevel;
             }
         }

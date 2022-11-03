@@ -19,7 +19,9 @@ public abstract class RocksMutableObject extends AbstractNativeReference {
    * An mutable reference to the value of the C++ pointer pointing to some
    * underlying native RocksDB C++ object.
    */
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private long nativeHandle_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private boolean owningHandle_;
 
   protected RocksMutableObject() {
@@ -36,8 +38,9 @@ public abstract class RocksMutableObject extends AbstractNativeReference {
    * @param newNativeHandle The C++ pointer to the new native object
    * @param owningNativeHandle true if we own the new native object
    */
+  @SuppressWarnings("SynchronizedMethod")
   public synchronized void resetNativeHandle(final long newNativeHandle,
-      final boolean owningNativeHandle) {
+                                             final boolean owningNativeHandle) {
     close();
     setNativeHandle(newNativeHandle, owningNativeHandle);
   }
@@ -48,13 +51,15 @@ public abstract class RocksMutableObject extends AbstractNativeReference {
    * @param nativeHandle The C++ pointer to the native object
    * @param owningNativeHandle true if we own the native object
    */
+  @SuppressWarnings("SynchronizedMethod")
   public synchronized void setNativeHandle(final long nativeHandle,
-      final boolean owningNativeHandle) {
+                                           final boolean owningNativeHandle) {
     this.nativeHandle_ = nativeHandle;
     this.owningHandle_ = owningNativeHandle;
   }
 
   @Override
+  @SuppressWarnings("SynchronizedMethod")
   protected synchronized boolean isOwningHandle() {
     return this.owningHandle_;
   }
@@ -65,22 +70,28 @@ public abstract class RocksMutableObject extends AbstractNativeReference {
    *
    * @return the pointer value for the native object
    */
+  @SuppressWarnings("SynchronizedMethod")
   protected synchronized long getNativeHandle() {
     assert (this.nativeHandle_ != 0);
     return this.nativeHandle_;
   }
 
   @Override
-  public synchronized final void close() {
-    if (isOwningHandle()) {
+  @SuppressWarnings("SynchronizedMethod")
+  public final synchronized void close() {
+    if (owningHandle_) {
       disposeInternal();
       this.owningHandle_ = false;
       this.nativeHandle_ = 0;
     }
   }
 
+  @SuppressWarnings("MethodMayBeSynchronized")
   protected void disposeInternal() {
-    disposeInternal(nativeHandle_);
+    //noinspection SynchronizeOnThis
+    synchronized (this) {
+      disposeInternal(nativeHandle_);
+    }
   }
 
   protected abstract void disposeInternal(final long handle);

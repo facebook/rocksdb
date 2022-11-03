@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
 import java.util.Objects;
 
 public class TableFileDeletionInfo {
@@ -39,6 +40,7 @@ public class TableFileDeletionInfo {
    *
    * @return the path.
    */
+  @SuppressWarnings("unused")
   public String getFilePath() {
     return filePath;
   }
@@ -48,6 +50,7 @@ public class TableFileDeletionInfo {
    *
    * @return the id of the job.
    */
+  @SuppressWarnings("unused")
   public int getJobId() {
     return jobId;
   }
@@ -62,14 +65,15 @@ public class TableFileDeletionInfo {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    TableFileDeletionInfo that = (TableFileDeletionInfo) o;
-    return jobId == that.jobId && Objects.equals(dbName, that.dbName)
-        && Objects.equals(filePath, that.filePath) && Objects.equals(status, that.status);
+    final TableFileDeletionInfo that = (TableFileDeletionInfo) o;
+    if (jobId == that.jobId) if (Objects.equals(dbName, that.dbName))
+      if (Objects.equals(filePath, that.filePath)) return Objects.equals(status, that.status);
+    return false;
   }
 
   @Override
@@ -79,8 +83,6 @@ public class TableFileDeletionInfo {
 
   @Override
   public String toString() {
-    return "TableFileDeletionInfo{"
-        + "dbName='" + dbName + '\'' + ", filePath='" + filePath + '\'' + ", jobId=" + jobId
-        + ", status=" + status + '}';
+    return MessageFormat.format("TableFileDeletionInfo'{'dbName=''{0}'', filePath=''{1}'', jobId={2}, status={3}'}'", dbName, filePath, jobId, status);
   }
 }

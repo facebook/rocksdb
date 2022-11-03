@@ -66,6 +66,7 @@ public class SstFileMetaData {
    *
    * @return the name of the file.
    */
+  @SuppressWarnings("unused")
   public String fileName() {
     return fileName;
   }
@@ -93,6 +94,7 @@ public class SstFileMetaData {
    *
    * @return the smallest sequence number
    */
+  @SuppressWarnings("unused")
   public long smallestSeqno() {
     return smallestSeqno;
   }
@@ -102,6 +104,7 @@ public class SstFileMetaData {
    *
    * @return the largest sequence number
    */
+  @SuppressWarnings("unused")
   public long largestSeqno() {
     return largestSeqno;
   }
@@ -111,6 +114,7 @@ public class SstFileMetaData {
    *
    * @return the smallest user defined key
    */
+  @SuppressWarnings("unused")
   public byte[] smallestKey() {
     return smallestKey;
   }
@@ -120,6 +124,7 @@ public class SstFileMetaData {
    *
    * @return the largest user defined key
    */
+  @SuppressWarnings("unused")
   public byte[] largestKey() {
     return largestKey;
   }
@@ -129,6 +134,7 @@ public class SstFileMetaData {
    *
    * @return the number of times the file has been read
    */
+  @SuppressWarnings("unused")
   public long numReadsSampled() {
     return numReadsSampled;
   }
@@ -138,6 +144,7 @@ public class SstFileMetaData {
    *
    * @return true if the file is currently being compacted, false otherwise.
    */
+  @SuppressWarnings("unused")
   public boolean beingCompacted() {
     return beingCompacted;
   }
@@ -147,6 +154,7 @@ public class SstFileMetaData {
    *
    * @return the number of entries.
    */
+  @SuppressWarnings("unused")
   public long numEntries() {
     return numEntries;
   }
@@ -156,6 +164,7 @@ public class SstFileMetaData {
    *
    * @return the number of deletions.
    */
+  @SuppressWarnings("unused")
   public long numDeletions() {
     return numDeletions;
   }

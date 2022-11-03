@@ -97,6 +97,7 @@ public class TableProperties {
    *
    * @return the total size of all data blocks.
    */
+  @SuppressWarnings("unused")
   public long getDataSize() {
     return dataSize;
   }
@@ -106,6 +107,7 @@ public class TableProperties {
    *
    * @return the size of index block.
    */
+  @SuppressWarnings("unused")
   public long getIndexSize() {
     return indexSize;
   }
@@ -116,6 +118,7 @@ public class TableProperties {
    *
    * @return the total number of index partitions.
    */
+  @SuppressWarnings("unused")
   public long getIndexPartitions() {
     return indexPartitions;
   }
@@ -126,6 +129,7 @@ public class TableProperties {
    *
    * @return the size of the top-level index.
    */
+  @SuppressWarnings("unused")
   public long getTopLevelIndexSize() {
     return topLevelIndexSize;
   }
@@ -137,6 +141,7 @@ public class TableProperties {
    *
    * @return the index key
    */
+  @SuppressWarnings("unused")
   public long getIndexKeyIsUserKey() {
     return indexKeyIsUserKey;
   }
@@ -146,6 +151,7 @@ public class TableProperties {
    *
    * @return whether delta encoding is used to encode the index values.
    */
+  @SuppressWarnings("unused")
   public long getIndexValueIsDeltaEncoded() {
     return indexValueIsDeltaEncoded;
   }
@@ -164,6 +170,7 @@ public class TableProperties {
    *
    * @return the total raw key size.
    */
+  @SuppressWarnings("unused")
   public long getRawKeySize() {
     return rawKeySize;
   }
@@ -173,6 +180,7 @@ public class TableProperties {
    *
    * @return the total raw value size.
    */
+  @SuppressWarnings("unused")
   public long getRawValueSize() {
     return rawValueSize;
   }
@@ -182,6 +190,7 @@ public class TableProperties {
    *
    * @return the number of blocks in this table.
    */
+  @SuppressWarnings("unused")
   public long getNumDataBlocks() {
     return numDataBlocks;
   }
@@ -200,6 +209,7 @@ public class TableProperties {
    *
    * @return the number of deletions in the table.
    */
+  @SuppressWarnings("unused")
   public long getNumDeletions() {
     return numDeletions;
   }
@@ -209,6 +219,7 @@ public class TableProperties {
    *
    * @return the number of merge operands in the table.
    */
+  @SuppressWarnings("unused")
   public long getNumMergeOperands() {
     return numMergeOperands;
   }
@@ -218,6 +229,7 @@ public class TableProperties {
    *
    * @return the number of range deletions in this table.
    */
+  @SuppressWarnings("unused")
   public long getNumRangeDeletions() {
     return numRangeDeletions;
   }
@@ -227,6 +239,7 @@ public class TableProperties {
    *
    * @return the format version.
    */
+  @SuppressWarnings("unused")
   public long getFormatVersion() {
     return formatVersion;
   }
@@ -237,6 +250,7 @@ public class TableProperties {
    * @return 0 when the key is variable length, otherwise number of
    *     bytes for each key.
    */
+  @SuppressWarnings("unused")
   public long getFixedKeyLen() {
     return fixedKeyLen;
   }
@@ -248,6 +262,7 @@ public class TableProperties {
    *
    * @return the id of the column family.
    */
+  @SuppressWarnings("unused")
   public long getColumnFamilyId() {
     return columnFamilyId;
   }
@@ -268,6 +283,7 @@ public class TableProperties {
    *
    * @return 0 means unknown, otherwise the timestamp.
    */
+  @SuppressWarnings("unused")
   public long getOldestKeyTime() {
     return oldestKeyTime;
   }
@@ -278,6 +294,7 @@ public class TableProperties {
    *
    * @return 0 means unknown, otherwise the timestamp.
    */
+  @SuppressWarnings("unused")
   public long getSlowCompressionEstimatedDataSize() {
     return slowCompressionEstimatedDataSize;
   }
@@ -288,6 +305,7 @@ public class TableProperties {
    *
    * @return 0 means unknown, otherwise the timestamp.
    */
+  @SuppressWarnings("unused")
   public long getFastCompressionEstimatedDataSize() {
     return fastCompressionEstimatedDataSize;
   }
@@ -309,7 +327,8 @@ public class TableProperties {
    * @return the name of the filter policy, or null if
    *     no filter policy is used.
    */
-  /*@Nullable*/ public String getFilterPolicyName() {
+  /*@Nullable*/ @SuppressWarnings("unused")
+  public String getFilterPolicyName() {
     return filterPolicyName;
   }
 
@@ -318,6 +337,7 @@ public class TableProperties {
    *
    * @return the name of the comparator.
    */
+  @SuppressWarnings("unused")
   public String getComparatorName() {
     return comparatorName;
   }
@@ -328,6 +348,7 @@ public class TableProperties {
    * @return the name of the merge operator, or null if no merge operator
    *      is used.
    */
+  @SuppressWarnings("unused")
   /*@Nullable*/ public String getMergeOperatorName() {
     return mergeOperatorName;
   }
@@ -338,7 +359,8 @@ public class TableProperties {
    * @return the name of the prefix extractor, or null if no prefix
    *     extractor is used.
    */
-  /*@Nullable*/ public String getPrefixExtractorName() {
+  /*@Nullable*/ @SuppressWarnings("unused")
+  public String getPrefixExtractorName() {
     return prefixExtractorName;
   }
 
@@ -348,6 +370,7 @@ public class TableProperties {
    * @return the names of the property collector factories separated
    *     by commas, e.g. {collector_name[1]},{collector_name[2]},...
    */
+  @SuppressWarnings("unused")
   public String getPropertyCollectorsNames() {
     return propertyCollectorsNames;
   }
@@ -357,6 +380,7 @@ public class TableProperties {
    *
    * @return the name of the compression algorithm.
    */
+  @SuppressWarnings("unused")
   public String getCompressionName() {
     return compressionName;
   }
@@ -366,6 +390,7 @@ public class TableProperties {
    *
    * @return the user collected properties.
    */
+  @SuppressWarnings("unused")
   public Map<String, String> getUserCollectedProperties() {
     return userCollectedProperties;
   }
@@ -375,17 +400,19 @@ public class TableProperties {
    *
    * @return the readable properties.
    */
+  @SuppressWarnings("unused")
   public Map<String, String> getReadableProperties() {
     return readableProperties;
   }
 
-  @Override
-  public boolean equals(Object o) {
+  //@Override
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    TableProperties that = (TableProperties) o;
+    final TableProperties that = (TableProperties) o;
+    //noinspection OverlyComplexBooleanExpression
     return dataSize == that.dataSize && indexSize == that.indexSize
         && indexPartitions == that.indexPartitions && topLevelIndexSize == that.topLevelIndexSize
         && indexKeyIsUserKey == that.indexKeyIsUserKey

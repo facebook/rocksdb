@@ -6,10 +6,12 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 public enum SanityLevel {
   NONE((byte) 0x0),
   LOOSELY_COMPATIBLE((byte) 0x1),
-  EXACT_MATCH((byte) 0xFF);
+  @SuppressWarnings("NumericCastThatLosesPrecision") EXACT_MATCH((byte) 0xFF);
 
   private final byte value;
 
@@ -36,12 +38,13 @@ public enum SanityLevel {
    * @throws IllegalArgumentException if the value does not match a
    *     SanityLevel
    */
-  static SanityLevel fromValue(final byte value) throws IllegalArgumentException {
-    for (final SanityLevel level : SanityLevel.values()) {
+  @SuppressWarnings("unused")
+  static SanityLevel fromValue(final byte value) {
+    for (final SanityLevel level : values()) {
       if (level.value == value) {
         return level;
       }
     }
-    throw new IllegalArgumentException("Unknown value for SanityLevel: " + value);
+    throw new IllegalArgumentException(MessageFormat.format("Unknown value for SanityLevel: {0}", value));
   }
 }

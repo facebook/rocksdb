@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
 import java.util.Objects;
 
 public class TableFileCreationBriefInfo {
@@ -40,6 +41,7 @@ public class TableFileCreationBriefInfo {
    *
    * @return the name of the database.
    */
+  @SuppressWarnings("unused")
   public String getDbName() {
     return dbName;
   }
@@ -58,6 +60,7 @@ public class TableFileCreationBriefInfo {
    *
    * @return the path.
    */
+  @SuppressWarnings("unused")
   public String getFilePath() {
     return filePath;
   }
@@ -68,6 +71,7 @@ public class TableFileCreationBriefInfo {
    *
    * @return the id of the job.
    */
+  @SuppressWarnings("unused")
   public int getJobId() {
     return jobId;
   }
@@ -82,15 +86,16 @@ public class TableFileCreationBriefInfo {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    TableFileCreationBriefInfo that = (TableFileCreationBriefInfo) o;
-    return jobId == that.jobId && Objects.equals(dbName, that.dbName)
-        && Objects.equals(columnFamilyName, that.columnFamilyName)
-        && Objects.equals(filePath, that.filePath) && reason == that.reason;
+    final TableFileCreationBriefInfo that = (TableFileCreationBriefInfo) o;
+    if (jobId == that.jobId) if (Objects.equals(dbName, that.dbName))
+      if (Objects.equals(columnFamilyName, that.columnFamilyName))
+        if (Objects.equals(filePath, that.filePath)) return reason == that.reason;
+    return false;
   }
 
   @Override
@@ -100,8 +105,6 @@ public class TableFileCreationBriefInfo {
 
   @Override
   public String toString() {
-    return "TableFileCreationBriefInfo{"
-        + "dbName='" + dbName + '\'' + ", columnFamilyName='" + columnFamilyName + '\''
-        + ", filePath='" + filePath + '\'' + ", jobId=" + jobId + ", reason=" + reason + '}';
+    return MessageFormat.format("TableFileCreationBriefInfo'{'dbName=''{0}'', columnFamilyName=''{1}'', filePath=''{2}'', jobId={3}, reason={4}'}'", dbName, columnFamilyName, filePath, jobId, reason);
   }
 }

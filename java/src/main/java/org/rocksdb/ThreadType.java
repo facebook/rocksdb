@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 /**
  * The type of a thread.
  */
@@ -53,13 +55,12 @@ public enum ThreadType {
    *
    * @throws IllegalArgumentException if the value does not match a ThreadType
    */
-  static ThreadType fromValue(final byte value)
-      throws IllegalArgumentException {
-    for (final ThreadType threadType : ThreadType.values()) {
+  static ThreadType fromValue(final byte value) {
+    for (final ThreadType threadType : values()) {
       if (threadType.value == value) {
         return threadType;
       }
     }
-    throw new IllegalArgumentException("Unknown value for ThreadType: " + value);
+    throw new IllegalArgumentException(MessageFormat.format("Unknown value for ThreadType: {0}", value));
   }
 }

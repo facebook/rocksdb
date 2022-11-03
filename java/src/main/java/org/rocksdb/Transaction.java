@@ -29,6 +29,8 @@ public class Transaction extends RocksObject {
 
   private final RocksDB parent;
 
+  private static final byte[][] EMPTY_BYTES = new byte[0][0];
+
   /**
    * Intentionally package private
    * as this is called from
@@ -55,17 +57,17 @@ public class Transaction extends RocksObject {
    * not been modified since the time each key was first written (or fetched via
    * {@link #getForUpdate}).
    *
-   * Using {@link #setSnapshot()} will provide stricter isolation guarantees
+   * Using {@code #setSnapshot()} will provide stricter isolation guarantees
    * at the expense of potentially more transaction failures due to conflicts
    * with other writes.
    *
-   * Calling {@link #setSnapshot()} has no effect on keys written before this
+   * Calling {@code #setSnapshot()} has no effect on keys written before this
    * function has been called.
    *
-   * {@link #setSnapshot()} may be called multiple times if you would like to
+   * {@code #setSnapshot()} may be called multiple times if you would like to
    * change the snapshot used for different operations in this transaction.
    *
-   * Calling {@link #setSnapshot()} will not affect the version of Data returned
+   * Calling {@code #setSnapshot()} will not affect the version of Data returned
    * by get(...) methods. See {@link #get} for more details.
    */
   public void setSnapshot() {
@@ -80,7 +82,7 @@ public class Transaction extends RocksObject {
    * {@link #setSnapshot()} for you right before performing the next
    * write/getForUpdate.
    *
-   * Calling {@link #setSnapshotOnNextOperation()} will not affect what
+   * Calling {@code #setSnapshotOnNextOperation()} will not affect what
    * snapshot is returned by {@link #getSnapshot} until the next
    * write/getForUpdate is executed.
    *
@@ -150,10 +152,10 @@ public class Transaction extends RocksObject {
     assert(isOwningHandle());
     final long snapshotNativeHandle = getSnapshot(nativeHandle_);
     if(snapshotNativeHandle == 0) {
+      //noinspection ReturnOfNull
       return null;
     } else {
-      final Snapshot snapshot = new Snapshot(snapshotNativeHandle);
-      return snapshot;
+      return new Snapshot(snapshotNativeHandle);
     }
   }
 
@@ -163,12 +165,12 @@ public class Transaction extends RocksObject {
    * This removes any snapshot that currently exists or is set to be created
    * on the next update operation ({@link #setSnapshotOnNextOperation()}).
    *
-   * Calling {@link #clearSnapshot()} has no effect on keys written before this
+   * Calling {@code #clearSnapshot()} has no effect on keys written before this
    * function has been called.
    *
    * If a reference to a snapshot was retrieved via {@link #getSnapshot()}, it
    * will no longer be valid and should be discarded after a call to
-   * {@link #clearSnapshot()}.
+   * {@code #clearSnapshot()}.
    */
   public void clearSnapshot() {
     assert(isOwningHandle());
@@ -338,10 +340,10 @@ public class Transaction extends RocksObject {
    * @throws IllegalArgumentException thrown if the size of passed keys is not
    *    equal to the amount of passed column family handles.
    */
-  @Deprecated
+  @SuppressWarnings("deprecation")
   public byte[][] multiGet(final ReadOptions readOptions,
-      final List<ColumnFamilyHandle> columnFamilyHandles, final byte[][] keys)
-      throws RocksDBException {
+                           final List<ColumnFamilyHandle> columnFamilyHandles,
+                           final byte[][] keys) throws RocksDBException {
     assert(isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
@@ -350,7 +352,7 @@ public class Transaction extends RocksObject {
           "For each key there must be a ColumnFamilyHandle.");
     }
     if(keys.length == 0) {
-      return new byte[0][0];
+      return EMPTY_BYTES;
     }
     final long[] cfHandles = new long[columnFamilyHandles.size()];
     for (int i = 0; i < columnFamilyHandles.size(); i++) {
@@ -436,12 +438,12 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  @Deprecated
-  public byte[][] multiGet(final ReadOptions readOptions, final byte[][] keys)
-      throws RocksDBException {
+  @SuppressWarnings("deprecation")
+  public byte[][] multiGet(final ReadOptions readOptions,
+                           final byte[][] keys) throws RocksDBException {
     assert(isOwningHandle());
     if(keys.length == 0) {
-      return new byte[0][0];
+      return EMPTY_BYTES;
     }
 
     return multiGet(nativeHandle_, readOptions.nativeHandle_,
@@ -530,9 +532,10 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
+  @SuppressWarnings("unused")
   public byte[] getForUpdate(final ReadOptions readOptions,
-      final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final boolean exclusive,
-      final boolean doValidate) throws RocksDBException {
+                             final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final boolean exclusive,
+                             final boolean doValidate) throws RocksDBException {
     assert (isOwningHandle());
     return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
         columnFamilyHandle.nativeHandle_, exclusive, doValidate);
@@ -642,7 +645,7 @@ public class Transaction extends RocksObject {
           "For each key there must be a ColumnFamilyHandle.");
     }
     if(keys.length == 0) {
-      return new byte[0][0];
+      return EMPTY_BYTES;
     }
     final long[] cfHandles = new long[columnFamilyHandles.size()];
     for (int i = 0; i < columnFamilyHandles.size(); i++) {
@@ -706,7 +709,7 @@ public class Transaction extends RocksObject {
       throws RocksDBException {
     assert(isOwningHandle());
     if(keys.length == 0) {
-      return new byte[0][0];
+      return EMPTY_BYTES;
     }
 
     return multiGetForUpdate(nativeHandle_,
@@ -1424,8 +1427,9 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
+  @SuppressWarnings("unused")
   public void putUntracked(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[][] keyParts, final byte[][] valueParts)
+                           final byte[][] keyParts, final byte[][] valueParts)
       throws RocksDBException {
     assert(isOwningHandle());
     putUntracked(nativeHandle_, keyParts, keyParts.length, valueParts,
@@ -1444,6 +1448,7 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
+  @SuppressWarnings("unused")
   public void putUntracked(final byte[][] keyParts, final byte[][] valueParts)
       throws RocksDBException {
     assert(isOwningHandle());
@@ -1603,10 +1608,10 @@ public class Transaction extends RocksObject {
    *
    * If the caller does not want to fetch the keys about to be written,
    * they may want to avoid indexing as a performance optimization.
-   * Calling {@link #disableIndexing()} will turn off indexing for all future
+   * Calling {#disableIndexing()} will turn off indexing for all future
    * put/merge/delete operations until {@link #enableIndexing()} is called.
    *
-   * If a key is put/merge/deleted after {@link #disableIndexing()} is called
+   * If a key is put/merge/deleted after {#disableIndexing()} is called
    * and then is fetched via get/getForUpdate/getIterator, the result of the
    * fetch is undefined.
    */
@@ -1686,16 +1691,14 @@ public class Transaction extends RocksObject {
    * committed.
    *
    * Note: You should not write or delete anything from the batch directly and
-   * should only use the functions in the {@link Transaction} class to
+   * should only use the functions in the {Transaction} class to
    * write to this transaction.
    *
    * @return The write batch
    */
   public WriteBatchWithIndex getWriteBatch() {
     assert(isOwningHandle());
-    final WriteBatchWithIndex writeBatchWithIndex =
-        new WriteBatchWithIndex(getWriteBatch(nativeHandle_));
-    return writeBatchWithIndex;
+    return new WriteBatchWithIndex(getWriteBatch(nativeHandle_));
   }
 
   /**
@@ -1719,9 +1722,7 @@ public class Transaction extends RocksObject {
    */
   public WriteOptions getWriteOptions() {
     assert(isOwningHandle());
-    final WriteOptions writeOptions =
-        new WriteOptions(getWriteOptions(nativeHandle_));
-    return writeOptions;
+    return new WriteOptions(getWriteOptions(nativeHandle_));
   }
 
   /**
@@ -1736,30 +1737,30 @@ public class Transaction extends RocksObject {
 
   /**
    * If this key was previously fetched in this transaction using
-   * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}/
-   * {@link #multiGetForUpdate(ReadOptions, List, byte[][])}, calling
-   * {@link #undoGetForUpdate(ColumnFamilyHandle, byte[])} will tell
+   * {#getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}/
+   * {#multiGetForUpdate(ReadOptions, List, byte[][])}, calling
+   * {#undoGetForUpdate(ColumnFamilyHandle, byte[])} will tell
    * the transaction that it no longer needs to do any conflict checking
    * for this key.
    *
    * If a key has been fetched N times via
    * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}/
    * {@link #multiGetForUpdate(ReadOptions, List, byte[][])}, then
-   * {@link #undoGetForUpdate(ColumnFamilyHandle, byte[])}  will only have an
+   * {#undoGetForUpdate(ColumnFamilyHandle, byte[])}  will only have an
    * effect if it is also called N times. If this key has been written to in
-   * this transaction, {@link #undoGetForUpdate(ColumnFamilyHandle, byte[])}
+   * this transaction, {#undoGetForUpdate(ColumnFamilyHandle, byte[])}
    * will have no effect.
    *
    * If {@link #setSavePoint()} has been called after the
    * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)},
-   * {@link #undoGetForUpdate(ColumnFamilyHandle, byte[])} will not have any
+   * {#undoGetForUpdate(ColumnFamilyHandle, byte[])} will not have any
    * effect.
    *
    * If this Transaction was created by an {@link OptimisticTransactionDB},
-   * calling {@link #undoGetForUpdate(ColumnFamilyHandle, byte[])} can affect
+   * calling {#undoGetForUpdate(ColumnFamilyHandle, byte[])} can affect
    * whether this key is conflict checked at commit time.
    * If this Transaction was created by a {@link TransactionDB},
-   * calling {@link #undoGetForUpdate(ColumnFamilyHandle, byte[])} may release
+   * calling {#undoGetForUpdate(ColumnFamilyHandle, byte[])} may release
    * any held locks for this key.
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
@@ -1776,28 +1777,28 @@ public class Transaction extends RocksObject {
    * If this key was previously fetched in this transaction using
    * {@link #getForUpdate(ReadOptions, byte[], boolean)}/
    * {@link #multiGetForUpdate(ReadOptions, List, byte[][])}, calling
-   * {@link #undoGetForUpdate(byte[])} will tell
+   * {#undoGetForUpdate(byte[])} will tell
    * the transaction that it no longer needs to do any conflict checking
    * for this key.
    *
    * If a key has been fetched N times via
    * {@link #getForUpdate(ReadOptions, byte[], boolean)}/
    * {@link #multiGetForUpdate(ReadOptions, List, byte[][])}, then
-   * {@link #undoGetForUpdate(byte[])}  will only have an
+   * {#undoGetForUpdate(byte[])}  will only have an
    * effect if it is also called N times. If this key has been written to in
-   * this transaction, {@link #undoGetForUpdate(byte[])}
+   * this transaction, {#undoGetForUpdate(byte[])}
    * will have no effect.
    *
    * If {@link #setSavePoint()} has been called after the
    * {@link #getForUpdate(ReadOptions, byte[], boolean)},
-   * {@link #undoGetForUpdate(byte[])} will not have any
+   * {#undoGetForUpdate(byte[])} will not have any
    * effect.
    *
    * If this Transaction was created by an {@link OptimisticTransactionDB},
-   * calling {@link #undoGetForUpdate(byte[])} can affect
+   * calling {#undoGetForUpdate(byte[])} can affect
    * whether this key is conflict checked at commit time.
    * If this Transaction was created by a {@link TransactionDB},
-   * calling {@link #undoGetForUpdate(byte[])} may release
+   * calling {#undoGetForUpdate(byte[])} may release
    * any held locks for this key.
    *
    * @param key the key to retrieve the value for.
@@ -1828,9 +1829,7 @@ public class Transaction extends RocksObject {
    */
   public WriteBatch getCommitTimeWriteBatch() {
     assert(isOwningHandle());
-    final WriteBatch writeBatch =
-        new WriteBatch(getCommitTimeWriteBatch(nativeHandle_));
-    return writeBatch;
+    return new WriteBatch(getCommitTimeWriteBatch(nativeHandle_));
   }
 
   /**
@@ -1949,6 +1948,7 @@ public class Transaction extends RocksObject {
      * Keep old misspelled variable as alias
      * Tip from https://stackoverflow.com/a/37092410/454544
      */
+    @SuppressWarnings("unused")
     public static final TransactionState COMMITED = COMMITTED;
 
     private final byte value;
@@ -1962,12 +1962,12 @@ public class Transaction extends RocksObject {
      *
      * @param value byte representation of TransactionState.
      *
-     * @return {@link org.rocksdb.Transaction.TransactionState} instance or null.
+     * @return {org.rocksdb.Transaction.TransactionState} instance or null.
      * @throws java.lang.IllegalArgumentException if an invalid
      *     value is provided.
      */
     public static TransactionState getTransactionState(final byte value) {
-      for (final TransactionState transactionState : TransactionState.values()) {
+      for (final TransactionState transactionState : values()) {
         if (transactionState.value == value){
           return transactionState;
         }
@@ -1987,7 +1987,8 @@ public class Transaction extends RocksObject {
    *
    * @return The waiting transactions
    */
-  private WaitingTransactions newWaitingTransactions(
+  @SuppressWarnings("unused")
+  private static WaitingTransactions newWaitingTransactions(
       final long columnFamilyId, final String key,
       final long[] transactionIds) {
     return new WaitingTransactions(columnFamilyId, key, transactionIds);
@@ -2010,6 +2011,7 @@ public class Transaction extends RocksObject {
      *
      * @return The column family ID
      */
+    @SuppressWarnings("unused")
     public long getColumnFamilyId() {
       return columnFamilyId;
     }
@@ -2046,10 +2048,10 @@ public class Transaction extends RocksObject {
   private native void rollbackToSavePoint(final long handle)
       throws RocksDBException;
   private native byte[] get(final long handle, final long readOptionsHandle,
-      final byte key[], final int keyLength, final long columnFamilyHandle)
+                            final byte[] key, final int keyLength, final long columnFamilyHandle)
       throws RocksDBException;
   private native byte[] get(final long handle, final long readOptionsHandle,
-      final byte key[], final int keyLen) throws RocksDBException;
+                            final byte[] key, final int keyLen) throws RocksDBException;
   private native byte[][] multiGet(final long handle,
       final long readOptionsHandle, final byte[][] keys,
       final long[] columnFamilyHandles) throws RocksDBException;
@@ -2057,10 +2059,10 @@ public class Transaction extends RocksObject {
       final long readOptionsHandle, final byte[][] keys)
       throws RocksDBException;
   private native byte[] getForUpdate(final long handle, final long readOptionsHandle,
-      final byte key[], final int keyLength, final long columnFamilyHandle, final boolean exclusive,
-      final boolean doValidate) throws RocksDBException;
+                                     final byte[] key, final int keyLength, final long columnFamilyHandle, final boolean exclusive,
+                                     final boolean doValidate) throws RocksDBException;
   private native byte[] getForUpdate(final long handle, final long readOptionsHandle,
-      final byte key[], final int keyLen, final boolean exclusive, final boolean doValidate)
+                                     final byte[] key, final int keyLen, final boolean exclusive, final boolean doValidate)
       throws RocksDBException;
   private native byte[][] multiGetForUpdate(final long handle,
       final long readOptionsHandle, final byte[][] keys,

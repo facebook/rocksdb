@@ -134,10 +134,10 @@ public class Statistics extends RocksObject {
     return toString(nativeHandle_);
   }
 
-  private native static long newStatistics();
-  private native static long newStatistics(final long otherStatisticsHandle);
-  private native static long newStatistics(final byte[] ignoreHistograms);
-  private native static long newStatistics(final byte[] ignoreHistograms, final long otherStatisticsHandle);
+  private static native long newStatistics();
+  private static native long newStatistics(final long otherStatisticsHandle);
+  private static native long newStatistics(final byte[] ignoreHistograms);
+  private static native long newStatistics(final byte[] ignoreHistograms, final long otherStatisticsHandle);
 
   @Override protected final native void disposeInternal(final long handle);
 

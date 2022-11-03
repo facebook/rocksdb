@@ -58,52 +58,52 @@ public class StatisticsCollector {
     _executorService.shutdownNow();
     // Wait for collectStatistics runnable to finish so that disposal of
     // statistics does not cause any exceptions to be thrown.
+    //noinspection ResultOfMethodCallIgnored
     _executorService.awaitTermination(shutdownTimeout, TimeUnit.MILLISECONDS);
   }
 
   private Runnable collectStatistics() {
-    return new Runnable() {
-
-      @Override
-      public void run() {
-        while (_isRunning) {
-          try {
-            if(Thread.currentThread().isInterrupted()) {
-              break;
-            }
-            for(final StatsCollectorInput statsCollectorInput :
-                _statsCollectorInputList) {
-              Statistics statistics = statsCollectorInput.getStatistics();
-              StatisticsCollectorCallback statsCallback =
-                  statsCollectorInput.getCallback();
-
-              // Collect ticker data
-              for(final TickerType ticker : TickerType.values()) {
-                if(ticker != TickerType.TICKER_ENUM_MAX) {
-                  final long tickerValue = statistics.getTickerCount(ticker);
-                  statsCallback.tickerCallback(ticker, tickerValue);
-                }
-              }
-
-              // Collect histogram data
-              for(final HistogramType histogramType : HistogramType.values()) {
-                if(histogramType != HistogramType.HISTOGRAM_ENUM_MAX) {
-                  final HistogramData histogramData =
-                          statistics.getHistogramData(histogramType);
-                  statsCallback.histogramCallback(histogramType, histogramData);
-                }
-              }
-            }
-
-            Thread.sleep(_statsCollectionInterval);
-          }
-          catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
+    return () -> {
+      while (_isRunning) {
+        try {
+          if(Thread.currentThread().isInterrupted()) {
+            //noinspection BreakStatement
             break;
           }
-          catch (final Exception e) {
-            throw new RuntimeException("Error while calculating statistics", e);
+          for(final StatsCollectorInput statsCollectorInput :
+              _statsCollectorInputList) {
+            final Statistics statistics = statsCollectorInput.getStatistics();
+            final StatisticsCollectorCallback statsCallback =
+                statsCollectorInput.getCallback();
+
+            // Collect ticker data
+            for(final TickerType ticker : TickerType.values()) {
+              if(ticker != TickerType.TICKER_ENUM_MAX) {
+                final long tickerValue = statistics.getTickerCount(ticker);
+                statsCallback.tickerCallback(ticker, tickerValue);
+              }
+            }
+
+            // Collect histogram data
+            for(final HistogramType histogramType : HistogramType.values()) {
+              if(histogramType != HistogramType.HISTOGRAM_ENUM_MAX) {
+                final HistogramData histogramData =
+                        statistics.getHistogramData(histogramType);
+                statsCallback.histogramCallback(histogramType, histogramData);
+              }
+            }
           }
+
+          //noinspection BusyWait
+          Thread.sleep(_statsCollectionInterval);
+        }
+        catch (final InterruptedException e) {
+          Thread.currentThread().interrupt();
+          //noinspection BreakStatement
+          break;
+        }
+        catch (final RuntimeException e) {
+          throw new RocksDBRuntimeException("Error while calculating statistics", e);
         }
       }
     };

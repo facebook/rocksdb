@@ -32,7 +32,7 @@ public class SstFileReader extends RocksObject {
    */
   public SstFileReaderIterator newIterator(final ReadOptions readOptions) {
     assert (isOwningHandle());
-    long iter = newIterator(nativeHandle_, readOptions.nativeHandle_);
+    final long iter = newIterator(nativeHandle_, readOptions.nativeHandle_);
     return new SstFileReaderIterator(this, iter);
   }
 
@@ -75,7 +75,7 @@ public class SstFileReader extends RocksObject {
   private native void open(final long handle, final String filePath)
       throws RocksDBException;
 
-  private native static long newSstFileReader(final long optionsHandle);
+  private static native long newSstFileReader(final long optionsHandle);
   private native void verifyChecksum(final long handle) throws RocksDBException;
   private native TableProperties getTableProperties(final long handle)
       throws RocksDBException;

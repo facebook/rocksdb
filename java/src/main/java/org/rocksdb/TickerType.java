@@ -172,7 +172,7 @@ public enum TickerType {
      */
     GET_HIT_L2_AND_UP((byte) 0x1D),
 
-    /**
+    /*
      * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
      * There are 4 reasons currently.
      */
@@ -452,7 +452,7 @@ public enum TickerType {
     ROW_CACHE_HIT((byte) 0x58),
     ROW_CACHE_MISS((byte) 0x59),
 
-    /**
+    /*
      * Read amplification statistics.
      *
      * Read amplification can be calculated using this formula
@@ -858,13 +858,14 @@ public enum TickerType {
      *
      * @param value byte representation of TickerType.
      *
-     * @return {@link org.rocksdb.TickerType} instance.
+     * @return {@code org.rocksdb.TickerType} instance.
      * @throws java.lang.IllegalArgumentException if an invalid
      *     value is provided.
      */
+    @SuppressWarnings("unused")
     public static TickerType getTickerType(final byte value) {
-        for (final TickerType tickerType : TickerType.values()) {
-            if (tickerType.getValue() == value) {
+        for (final TickerType tickerType : values()) {
+            if (tickerType.value == value) {
                 return tickerType;
             }
         }

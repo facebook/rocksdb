@@ -22,13 +22,20 @@ public class RocksDBRuntimeException extends RuntimeException {
    */
   @SuppressWarnings("unused")
   public RocksDBRuntimeException(final String msg) {
-    this(msg, null);
+    super(msg);
+    this.status = null;
   }
 
   @SuppressWarnings("WeakerAccess")
   public RocksDBRuntimeException(final String msg, final RocksDBException cause) {
     super(msg, cause);
     this.status = cause.getStatus();
+  }
+
+  @SuppressWarnings("WeakerAccess")
+  public RocksDBRuntimeException(final String msg, final RuntimeException cause) {
+    super(msg, cause);
+    this.status = null;
   }
 
   @SuppressWarnings("unused")

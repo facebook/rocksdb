@@ -28,5 +28,5 @@ public class RocksEnv extends Env {
   }
 
   @Override
-  protected native final void disposeInternal(final long handle);
+  protected final native void disposeInternal(final long handle);
 }

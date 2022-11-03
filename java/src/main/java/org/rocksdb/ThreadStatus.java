@@ -15,7 +15,7 @@ public class ThreadStatus {
   private final OperationType operationType;
   private final long operationElapsedTime; // microseconds
   private final OperationStage operationStage;
-  private final long  operationProperties[];
+  private final long[] operationProperties;
   private final StateType stateType;
 
   /**
@@ -46,6 +46,7 @@ public class ThreadStatus {
    *
    * @return the thread id
    */
+  @SuppressWarnings("unused")
   public long getThreadId() {
     return threadId;
   }
@@ -55,6 +56,7 @@ public class ThreadStatus {
    *
    * @return the type of the thread.
    */
+  @SuppressWarnings("unused")
   public ThreadType getThreadType() {
     return threadType;
   }
@@ -66,7 +68,8 @@ public class ThreadStatus {
    * @return the name of the db, or null if the thread is not involved
    *     in any DB operation.
    */
-  /* @Nullable */ public String getDbName() {
+  /* @Nullable */ @SuppressWarnings("unused")
+  public String getDbName() {
     return dbName;
   }
 
@@ -96,6 +99,7 @@ public class ThreadStatus {
    *
    * @return the elapsed time
    */
+  @SuppressWarnings("unused")
   public long getOperationElapsedTime() {
     return operationElapsedTime;
   }
@@ -106,6 +110,7 @@ public class ThreadStatus {
    *
    * @return the current stage of the current operation
    */
+  @SuppressWarnings("unused")
   public OperationStage getOperationStage() {
     return operationStage;
   }
@@ -128,6 +133,7 @@ public class ThreadStatus {
    *
    * @return the state
    */
+  @SuppressWarnings("unused")
   public StateType getStateType() {
     return stateType;
   }
@@ -139,6 +145,7 @@ public class ThreadStatus {
    *
    * @return the name of the thread type.
    */
+  @SuppressWarnings("unused")
   public static String getThreadTypeName(final ThreadType threadType) {
     return getThreadTypeName(threadType.getValue());
   }
@@ -150,10 +157,12 @@ public class ThreadStatus {
    *
    * @return the name of the operation.
    */
+  @SuppressWarnings("unused")
   public static String getOperationName(final OperationType operationType) {
     return getOperationName(operationType.getValue());
   }
 
+  @SuppressWarnings("unused")
   public static String microsToString(final long operationElapsedTime) {
     return microsToStringNative(operationElapsedTime);
   }
@@ -165,6 +174,7 @@ public class ThreadStatus {
    *
    * @return the description of the operation stage.
    */
+  @SuppressWarnings("unused")
   public static String getOperationStageName(
       final OperationStage operationStage) {
     return getOperationStageName(operationStage.getValue());
@@ -179,6 +189,7 @@ public class ThreadStatus {
    *
    * @return the name of the operation property
    */
+  @SuppressWarnings("unused")
   public static String getOperationPropertyName(
       final OperationType operationType, final int i) {
     return getOperationPropertyName(operationType.getValue(), i);
@@ -193,6 +204,7 @@ public class ThreadStatus {
    *
    * @return the property values.
    */
+  @SuppressWarnings("unused")
   public static Map<String, Long> interpretOperationProperties(
       final OperationType operationType, final long[] operationProperties) {
     return interpretOperationProperties(operationType.getValue(),
@@ -206,6 +218,7 @@ public class ThreadStatus {
    *
    * @return the name of the state.
    */
+  @SuppressWarnings("unused")
   public static String getStateName(final StateType stateType) {
     return getStateName(stateType.getValue());
   }

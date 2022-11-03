@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 public enum TableFileCreationReason {
   FLUSH((byte) 0x00),
   COMPACTION((byte) 0x01),
@@ -22,6 +24,7 @@ public enum TableFileCreationReason {
    *
    * @return the internal representation
    */
+  @SuppressWarnings("unused")
   byte getValue() {
     return value;
   }
@@ -34,13 +37,13 @@ public enum TableFileCreationReason {
    * @throws IllegalArgumentException if the value is unknown.
    */
   static TableFileCreationReason fromValue(final byte value) {
-    for (final TableFileCreationReason tableFileCreationReason : TableFileCreationReason.values()) {
+    for (final TableFileCreationReason tableFileCreationReason : values()) {
       if (tableFileCreationReason.value == value) {
         return tableFileCreationReason;
       }
     }
 
     throw new IllegalArgumentException(
-        "Illegal value provided for TableFileCreationReason: " + value);
+        MessageFormat.format("Illegal value provided for TableFileCreationReason: {0}", value));
   }
 }
