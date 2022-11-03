@@ -49,6 +49,7 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    *
    * @throws RocksDBException thrown if a new backup could not be created
    */
+  @SuppressWarnings("unused")
   public void createNewBackup(final RocksDB db) throws RocksDBException {
     createNewBackup(db, false);
   }
@@ -226,8 +227,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
         restoreOptions.nativeHandle_);
   }
 
-  private native static long open(final long env, final long backupEngineOptions)
-      throws RocksDBException;
+  private static native long open(final long env,
+                                  final long backupEngineOptions) throws RocksDBException;
 
   private native void createNewBackup(final long handle, final long dbHandle,
       final boolean flushBeforeBackup) throws RocksDBException;

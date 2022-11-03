@@ -71,6 +71,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param cacheIndexAndFilterBlocks and filter blocks should be put in block cache.
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setCacheIndexAndFilterBlocks(
       final boolean cacheIndexAndFilterBlocks) {
     this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
@@ -96,6 +97,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *            will be treated as high-priority.
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setCacheIndexAndFilterBlocksWithHighPriority(
       final boolean cacheIndexAndFilterBlocksWithHighPriority) {
     this.cacheIndexAndFilterBlocksWithHighPriority = cacheIndexAndFilterBlocksWithHighPriority;
@@ -119,6 +121,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param pinL0FilterAndIndexBlocksInCache pin blocks in block cache
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setPinL0FilterAndIndexBlocksInCache(
       final boolean pinL0FilterAndIndexBlocksInCache) {
     this.pinL0FilterAndIndexBlocksInCache = pinL0FilterAndIndexBlocksInCache;
@@ -144,6 +147,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param pinTopLevelIndexAndFilter if top-level index and filter blocks should be pinned.
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setPinTopLevelIndexAndFilter(final boolean pinTopLevelIndexAndFilter) {
     this.pinTopLevelIndexAndFilter = pinTopLevelIndexAndFilter;
     return this;
@@ -164,6 +168,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param indexType {@link org.rocksdb.IndexType} value
    * @return the reference to the current option.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setIndexType(
       final IndexType indexType) {
     this.indexType = indexType;
@@ -185,6 +190,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param dataBlockIndexType {@link org.rocksdb.DataBlockIndexType} value
    * @return the reference to the current option.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setDataBlockIndexType(
       final DataBlockIndexType dataBlockIndexType) {
     this.dataBlockIndexType = dataBlockIndexType;
@@ -197,6 +203,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the #entries/#buckets.
    */
+  @SuppressWarnings("unused")
   public double dataBlockHashTableUtilRatio() {
     return dataBlockHashTableUtilRatio;
   }
@@ -208,6 +215,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param dataBlockHashTableUtilRatio #entries/#buckets
    * @return the reference to the current option.
    */
+  @SuppressWarnings("unused")
   public BlockBasedTableConfig setDataBlockHashTableUtilRatio(
       final double dataBlockHashTableUtilRatio) {
     this.dataBlockHashTableUtilRatio = dataBlockHashTableUtilRatio;
@@ -229,6 +237,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param checksumType {@link org.rocksdb.ChecksumType} value.
    * @return the reference to the current option.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setChecksumType(
       final ChecksumType checksumType) {
     this.checksumType = checksumType;
@@ -363,6 +372,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param blockSizeDeviation the deviation to block size allowed
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setBlockSizeDeviation(
       final int blockSizeDeviation) {
     this.blockSizeDeviation = blockSizeDeviation;
@@ -384,6 +394,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param restartInterval block restart interval.
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setBlockRestartInterval(
       final int restartInterval) {
     blockRestartInterval = restartInterval;
@@ -405,6 +416,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param restartInterval index block restart interval.
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setIndexBlockRestartInterval(
       final int restartInterval) {
     indexBlockRestartInterval = restartInterval;
@@ -450,6 +462,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param partitionFilters use partition filters.
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setPartitionFilters(final boolean partitionFilters) {
     this.partitionFilters = partitionFilters;
     return this;
@@ -534,6 +547,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setUseDeltaEncoding(
       final boolean useDeltaEncoding) {
     this.useDeltaEncoding = useDeltaEncoding;
@@ -545,6 +559,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the current filter policy.
    */
+  @SuppressWarnings("unused")
   public Filter filterPolicy() {
     return filterPolicy;
   }
@@ -598,6 +613,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param wholeKeyFiltering if enable whole key filtering
    * @return the reference to the current config.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setWholeKeyFiltering(
       final boolean wholeKeyFiltering) {
     this.wholeKeyFiltering = wholeKeyFiltering;
@@ -775,6 +791,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current option.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setBlockAlign(final boolean blockAlign) {
     this.blockAlign = blockAlign;
     return this;
@@ -798,6 +815,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current option.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BlockBasedTableConfig setIndexShortening(final IndexShorteningMode indexShortening) {
     this.indexShortening = indexShortening;
     return this;
@@ -927,8 +945,9 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @deprecated This option is now deprecated. No matter what value it
    *     is set to, it will behave as
-   *     if {@link #hashIndexAllowCollision()} == true.
+   *     if {@code #hashIndexAllowCollision()} == true.
    */
+  @SuppressWarnings("MethodMayBeStatic")
   @Deprecated
   public boolean hashIndexAllowCollision() {
     return true;
@@ -950,7 +969,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    */
   @Deprecated
   public BlockBasedTableConfig setHashIndexAllowCollision(
-      final boolean hashIndexAllowCollision) {
+      @SuppressWarnings("unused") final boolean hashIndexAllowCollision) {
     // no-op
     return this;
   }
@@ -1046,10 +1065,14 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private IndexShorteningMode indexShortening;
 
   // NOTE: ONLY used if blockCache == null
+  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated private long blockCacheSize;
+  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated private int blockCacheNumShardBits;
 
   // NOTE: ONLY used if blockCacheCompressed == null
+  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated private long blockCacheCompressedSize;
+  @SuppressWarnings("DeprecatedIsStillUsed")
   @Deprecated private int blockCacheCompressedNumShardBits;
 }

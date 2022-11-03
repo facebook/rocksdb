@@ -752,7 +752,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   T setBlobGarbageCollectionForceThreshold(double blobGarbageCollectionForceThreshold);
 
   /**
-   * Get the current value for the {@link #blobGarbageCollectionForceThreshold}
+   * Get the current value for the {@code #blobGarbageCollectionForceThreshold}
    * @return the current threshold at which garbage collection of blobs is forced
    */
   double blobGarbageCollectionForceThreshold();

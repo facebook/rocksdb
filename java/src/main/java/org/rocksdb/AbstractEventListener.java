@@ -7,7 +7,28 @@ package org.rocksdb;
 
 import java.text.MessageFormat;
 
-import static org.rocksdb.AbstractEventListener.EnabledEventCallback.*;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_BACKGROUND_ERROR;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_COMPACTION_BEGIN;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_COMPACTION_COMPLETED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_ERROR_RECOVERY_BEGIN;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_ERROR_RECOVERY_COMPLETED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_EXTERNAL_FILE_INGESTED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_FILE_CLOSE_FINISH;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_FILE_FLUSH_FINISH;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_FILE_RANGE_SYNC_FINISH;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_FILE_READ_FINISH;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_FILE_SYNC_FINISH;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_FILE_TRUNCATE_FINISH;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_FILE_WRITE_FINISH;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_FLUSH_BEGIN;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_FLUSH_COMPLETED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_MEMTABLE_SEALED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_STALL_CONDITIONS_CHANGED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_TABLE_FILE_CREATED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_TABLE_FILE_CREATION_STARTED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_TABLE_FILE_DELETED;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.SHOULD_BE_NOTIFIED_ON_FILE_IO;
 
 /**
  * Base class for Event Listeners.
@@ -59,8 +80,9 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
      *
      * @throws IllegalArgumentException if the value is unknown.
      */
+    @SuppressWarnings("unused")
     static EnabledEventCallback fromValue(final byte value) {
-      for (final EnabledEventCallback enabledEventCallback : EnabledEventCallback.values()) {
+      for (final EnabledEventCallback enabledEventCallback : values()) {
         if (enabledEventCallback.value == value) {
           return enabledEventCallback;
         }
@@ -126,6 +148,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param flushJobInfo the flush job info
    */
+  @SuppressWarnings("unused")
   private void onFlushCompletedProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
     db.disOwnNativeHandle(); // we don't own this!
@@ -144,6 +167,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param flushJobInfo the flush job info
    */
+  @SuppressWarnings("unused")
   private void onFlushBeginProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
     db.disOwnNativeHandle(); // we don't own this!
@@ -167,6 +191,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param compactionJobInfo the flush job info
    */
+  @SuppressWarnings("unused")
   private void onCompactionBeginProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
@@ -186,6 +211,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param compactionJobInfo the flush job info
    */
+  @SuppressWarnings("unused")
   private void onCompactionCompletedProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
@@ -227,6 +253,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param externalFileIngestionInfo the flush job info
    */
+  @SuppressWarnings("unused")
   private void onExternalFileIngestedProxy(
       final long dbHandle, final ExternalFileIngestionInfo externalFileIngestionInfo) {
     final RocksDB db = new RocksDB(dbHandle);
@@ -247,6 +274,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param reasonByte byte value representing error reason
    * @param backgroundError status with error code
    */
+  @SuppressWarnings("unused")
   private void onBackgroundErrorProxy(final byte reasonByte, final Status backgroundError) {
     onBackgroundError(BackgroundErrorReason.fromValue(reasonByte), backgroundError);
   }
@@ -309,6 +337,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param reasonByte byte value representing error reason
    * @param backgroundError status with error code
    */
+  @SuppressWarnings("unused")
   private boolean onErrorRecoveryBeginProxy(final byte reasonByte, final Status backgroundError) {
     return onErrorRecoveryBegin(BackgroundErrorReason.fromValue(reasonByte), backgroundError);
   }
@@ -332,5 +361,6 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
   }
 
   private native long createNewEventListener(final long enabledEventCallbackValues);
+  @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
   private native void disposeInternal(final long handle);
 }

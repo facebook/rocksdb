@@ -56,6 +56,7 @@ public class BackupInfo {
    *
    * @return the number of files of this backup.
    */
+  @SuppressWarnings("unused")
   public int numberFiles() {
     return numberFiles_;
   }
@@ -68,9 +69,9 @@ public class BackupInfo {
     return app_metadata_;
   }
 
-  private int backupId_;
-  private long timestamp_;
-  private long size_;
-  private int numberFiles_;
-  private String app_metadata_;
+  private final int backupId_;
+  private final long timestamp_;
+  private final long size_;
+  private final int numberFiles_;
+  private final String app_metadata_;
 }

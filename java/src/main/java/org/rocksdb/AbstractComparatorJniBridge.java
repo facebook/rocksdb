@@ -17,6 +17,7 @@ import java.nio.ByteBuffer;
  * class keeps the API of the
  * {@link org.rocksdb.AbstractComparator} clean.
  */
+@SuppressWarnings("unused")
 class AbstractComparatorJniBridge {
 
     /**

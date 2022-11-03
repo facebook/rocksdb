@@ -46,6 +46,7 @@ public class ColumnFamilyHandle extends RocksObject {
    *
    * @param nativeHandle native handle to the column family.
    */
+  @SuppressWarnings("unused")
   ColumnFamilyHandle(final long nativeHandle) {
     super(nativeHandle);
     rocksDB_ = null;
@@ -107,7 +108,7 @@ public class ColumnFamilyHandle extends RocksObject {
       return rocksDB_.nativeHandle_ == that.rocksDB_.nativeHandle_ &&
           getID() == that.getID() &&
           Arrays.equals(getName(), that.getName());
-    } catch (RocksDBException e) {
+    } catch (final RocksDBException e) {
       throw new RuntimeException("Cannot compare column family handles", e);
     }
   }

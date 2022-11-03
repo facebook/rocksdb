@@ -31,8 +31,9 @@ public abstract class AbstractCompactionFilterFactory<T extends AbstractCompacti
    *
    * @return native handle of the CompactionFilter
    */
+  @SuppressWarnings("unused")
   private long createCompactionFilter(final boolean fullCompaction,
-      final boolean manualCompaction) {
+                                      final boolean manualCompaction) {
     final T filter = createCompactionFilter(
         new AbstractCompactionFilter.Context(fullCompaction, manualCompaction));
 
@@ -63,7 +64,7 @@ public abstract class AbstractCompactionFilterFactory<T extends AbstractCompacti
   public abstract String name();
 
   /**
-   * We override {@link RocksCallbackObject#disposeInternal()}
+   * We override {@link #disposeInternal()}
    * as disposing of a rocksdb::AbstractCompactionFilterFactory requires
    * a slightly different approach as it is a std::shared_ptr
    */
@@ -73,5 +74,6 @@ public abstract class AbstractCompactionFilterFactory<T extends AbstractCompacti
   }
 
   private native long createNewCompactionFilterFactory0();
+  @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
   private native void disposeInternal(final long handle);
 }

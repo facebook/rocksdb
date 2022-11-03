@@ -2,8 +2,14 @@
 package org.rocksdb;
 
 import java.text.MessageFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 
+@SuppressWarnings("AbstractClassWithoutAbstractMethods")
 public abstract class AbstractMutableOptions {
 
   private static final String KEY_VALUE_PAIR_SEPARATOR = ";";
@@ -284,6 +290,7 @@ public abstract class AbstractMutableOptions {
       if (Double.doubleToLongBits(doubleValue) != Double.doubleToLongBits(Math.round(doubleValue)))
         throw new IllegalArgumentException(
             MessageFormat.format(MESSAGE_UNABLE_TO_PARSE_OR_ROUND, value, " to int"));
+      //noinspection NumericCastThatLosesPrecision
       return (int) Math.round(doubleValue);
     }
 
@@ -305,12 +312,12 @@ public abstract class AbstractMutableOptions {
       for (final OptionString.Entry option : options) {
         try {
           if (option.key.isEmpty()) {
-            throw new IllegalArgumentException("options string is invalid: " + option);
+            throw new IllegalArgumentException(MessageFormat.format("options string is invalid: {0}", option));
           }
           fromOptionString(option, ignoreUnknown);
         } catch (final NumberFormatException nfe) {
           throw new IllegalArgumentException(
-              "" + option.key + "=" + option.value + " - not a valid value for its type", nfe);
+              MessageFormat.format("{0}={1} - not a valid value for its type", option.key, option.value), nfe);
         }
       }
 
@@ -327,6 +334,7 @@ public abstract class AbstractMutableOptions {
      * @throws IllegalArgumentException if the key is unkown, or a value has the wrong type/form
      * @throws NumberFormatException if a string is not a number of the expected kind
      */
+    @SuppressWarnings("UnusedReturnValue")
     private U fromOptionString(final OptionString.Entry option, final boolean ignoreUnknown) {
       Objects.requireNonNull(option.key);
       Objects.requireNonNull(option.value);
@@ -337,12 +345,12 @@ public abstract class AbstractMutableOptions {
         return self();
       } else if (key == null) {
         throw new IllegalArgumentException(
-            MessageFormat.format("Key: {0} is not a known option key", key));
+            MessageFormat.format("Key: {0} is not a known option key", option.key));
       }
 
       if (!option.value.isList()) {
         throw new IllegalArgumentException(
-            MessageFormat.format("Option: {0} is not a simple value or list, don't know how to parse it", key));
+            MessageFormat.format("Option: {0}={1} is not a simple value or list, don't know how to parse it", option.key, key));
       }
 
       // Check that simple values are the single item in the array
@@ -394,7 +402,7 @@ public abstract class AbstractMutableOptions {
           }
 
         default:
-          throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());
+          throw new IllegalStateException(MessageFormat.format("{0} has unknown value type: {1}", key, key.getValueType()));
       }
     }
 

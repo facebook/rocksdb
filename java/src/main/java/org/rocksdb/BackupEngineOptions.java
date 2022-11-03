@@ -17,15 +17,19 @@ import java.io.File;
  * @see org.rocksdb.BackupEngine
  */
 public class BackupEngineOptions extends RocksObject {
-  private Env backupEnv = null;
-  private Logger infoLog = null;
-  private RateLimiter backupRateLimiter = null;
-  private RateLimiter restoreRateLimiter = null;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
+  private Env backupEnv;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
+  private Logger infoLog;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
+  private RateLimiter backupRateLimiter;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
+  private RateLimiter restoreRateLimiter;
 
   /**
    * <p>BackupEngineOptions constructor.</p>
    *
-   * @param path Where to keep the backup files. Has to be different than db
+   * @param path Where to keep the backup files. Has to be different from db
    *   name. Best to set this to {@code db name_ + "/backups"}
    * @throws java.lang.IllegalArgumentException if illegal path is used.
    */
@@ -55,7 +59,7 @@ public class BackupEngineOptions extends RocksObject {
 
   /**
    * Backup Env object. It will be used for backup file I/O. If it's
-   * null, backups will be written out using DBs Env. Otherwise
+   * null, backups will be written out using DBs Env. Otherwise,
    * backup's I/O will be performed using this object.
    *
    * Default: null
@@ -63,6 +67,7 @@ public class BackupEngineOptions extends RocksObject {
    * @param env The environment to use
    * @return instance of current BackupEngineOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BackupEngineOptions setBackupEnv(final Env env) {
     assert(isOwningHandle());
     setBackupEnv(nativeHandle_, env.nativeHandle_);
@@ -72,7 +77,7 @@ public class BackupEngineOptions extends RocksObject {
 
   /**
    * Backup Env object. It will be used for backup file I/O. If it's
-   * null, backups will be written out using DBs Env. Otherwise
+   * null, backups will be written out using DBs Env. Otherwise,
    * backup's I/O will be performed using this object.
    *
    * Default: null
@@ -119,6 +124,7 @@ public class BackupEngineOptions extends RocksObject {
    * @param logger The logger to use for the backup
    * @return instance of current BackupEngineOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BackupEngineOptions setInfoLog(final Logger logger) {
     assert(isOwningHandle());
     setInfoLog(nativeHandle_, logger.nativeHandle_);
@@ -175,6 +181,7 @@ public class BackupEngineOptions extends RocksObject {
    *
    * @return instance of current BackupEngineOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BackupEngineOptions setDestroyOldData(final boolean destroyOldData) {
     assert(isOwningHandle());
     setDestroyOldData(nativeHandle_, destroyOldData);
@@ -202,6 +209,7 @@ public class BackupEngineOptions extends RocksObject {
    *
    * @return instance of current BackupEngineOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BackupEngineOptions setBackupLogFiles(final boolean backupLogFiles) {
     assert(isOwningHandle());
     setBackupLogFiles(nativeHandle_, backupLogFiles);
@@ -228,6 +236,7 @@ public class BackupEngineOptions extends RocksObject {
    *
    * @return instance of current BackupEngineOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BackupEngineOptions setBackupRateLimit(long backupRateLimit) {
     assert(isOwningHandle());
     backupRateLimit = (backupRateLimit <= 0) ? 0 : backupRateLimit;
@@ -256,6 +265,7 @@ public class BackupEngineOptions extends RocksObject {
    * @param backupRateLimiter The rate limiter to use for the backup
    * @return instance of current BackupEngineOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BackupEngineOptions setBackupRateLimiter(final RateLimiter backupRateLimiter) {
     assert(isOwningHandle());
     setBackupRateLimiter(nativeHandle_, backupRateLimiter.nativeHandle_);
@@ -350,6 +360,7 @@ public class BackupEngineOptions extends RocksObject {
    *
    * @return instance of current BackupEngineOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BackupEngineOptions setShareFilesWithChecksum(final boolean shareFilesWithChecksum) {
     assert(isOwningHandle());
     setShareFilesWithChecksum(nativeHandle_, shareFilesWithChecksum);
@@ -377,6 +388,7 @@ public class BackupEngineOptions extends RocksObject {
    * @param maxBackgroundOperations The maximum number of background threads
    * @return instance of current BackupEngineOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BackupEngineOptions setMaxBackgroundOperations(final int maxBackgroundOperations) {
     assert(isOwningHandle());
     setMaxBackgroundOperations(nativeHandle_, maxBackgroundOperations);
@@ -407,6 +419,7 @@ public class BackupEngineOptions extends RocksObject {
    *     callback trigger
    * @return instance of current BackupEngineOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public BackupEngineOptions setCallbackTriggerIntervalSize(
       final long callbackTriggerIntervalSize) {
     assert(isOwningHandle());
@@ -416,7 +429,7 @@ public class BackupEngineOptions extends RocksObject {
 
   /**
    * During backup user can get callback every time next
-   * {@link #callbackTriggerIntervalSize()} bytes being copied.
+   * {@code #callbackTriggerIntervalSize()} bytes being copied.
    *
    * Default: 4194304
    *
@@ -427,7 +440,7 @@ public class BackupEngineOptions extends RocksObject {
     return callbackTriggerIntervalSize(nativeHandle_);
   }
 
-  private native static long newBackupEngineOptions(final String path);
+  private static native long newBackupEngineOptions(final String path);
   private native String backupDir(long handle);
   private native void setBackupEnv(final long handle, final long envHandle);
   private native void setShareTableFiles(long handle, boolean flag);

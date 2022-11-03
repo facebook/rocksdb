@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 public enum BackgroundErrorReason {
   FLUSH((byte) 0x0),
   COMPACTION((byte) 0x1),
@@ -22,6 +24,7 @@ public enum BackgroundErrorReason {
    *
    * @return the internal representation
    */
+  @SuppressWarnings("unused")
   byte getValue() {
     return value;
   }
@@ -34,13 +37,13 @@ public enum BackgroundErrorReason {
    * @throws IllegalArgumentException if the value is unknown.
    */
   static BackgroundErrorReason fromValue(final byte value) {
-    for (final BackgroundErrorReason backgroundErrorReason : BackgroundErrorReason.values()) {
+    for (final BackgroundErrorReason backgroundErrorReason : values()) {
       if (backgroundErrorReason.value == value) {
         return backgroundErrorReason;
       }
     }
 
     throw new IllegalArgumentException(
-        "Illegal value provided for BackgroundErrorReason: " + value);
+        MessageFormat.format("Illegal value provided for BackgroundErrorReason: {0}", value));
   }
 }

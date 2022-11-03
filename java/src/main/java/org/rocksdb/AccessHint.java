@@ -41,7 +41,7 @@ public enum AccessHint {
    *     cannot be found
    */
   public static AccessHint getAccessHint(final byte byteIdentifier) {
-    for (final AccessHint accessHint : AccessHint.values()) {
+    for (final AccessHint accessHint : values()) {
       if (accessHint.value == byteIdentifier) {
         return accessHint;
       }

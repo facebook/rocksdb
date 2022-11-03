@@ -28,6 +28,7 @@ public abstract class AbstractTransactionNotifier
    * This is intentionally private as it is the callback hook
    * from JNI
    */
+  @SuppressWarnings("unused")
   private void snapshotCreated(final long snapshotHandle) {
     snapshotCreated(new Snapshot(snapshotHandle));
   }
@@ -50,5 +51,6 @@ public abstract class AbstractTransactionNotifier
   protected void disposeInternal() {
     disposeInternal(nativeHandle_);
   }
+  @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
   protected final native void disposeInternal(final long handle);
 }
