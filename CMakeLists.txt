@@ -294,8 +294,7 @@ if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-if ((NOT PORTABLE OR MSVC) OR FORCE_SSE42)
-  CHECK_CXX_SOURCE_COMPILES("
+CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
 #include <wmmintrin.h>
@@ -307,12 +306,11 @@ int main() {
   auto d = _mm_cvtsi128_si64(c);
 }
 " HAVE_SSE42)
-  if(HAVE_SSE42)
-    add_definitions(-DHAVE_SSE42)
-    add_definitions(-DHAVE_PCLMUL)
-  elseif(FORCE_SSE42)
-    message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
-  endif()
+if(HAVE_SSE42)
+  add_definitions(-DHAVE_SSE42)
+  add_definitions(-DHAVE_PCLMUL)
+elseif(FORCE_SSE42)
+  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
 endif()
 
 # Check if -latomic is required or not

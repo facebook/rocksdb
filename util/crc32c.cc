@@ -423,7 +423,9 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 #ifndef HAVE_POWER8
 
 static bool isSSE42() {
-#if defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
+#ifndef HAVE_SSE42
+  return false;
+#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
   __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
   return c_ & (1U << 20);  // copied from CpuId.h in Folly. Test SSE42
@@ -431,15 +433,17 @@ static bool isSSE42() {
   int info[4];
   __cpuidex(info, 0x00000001, 0);
   return (info[2] & ((int)1 << 20)) != 0;
-#elif defined(HAVE_SSE42)
-  return true;
 #else
   return false;
 #endif
 }
 
 static bool isPCLMULQDQ() {
-#if defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
+#ifndef HAVE_SSE42
+  // in build_detect_platform we set this macro when both SSE42 and PCLMULQDQ
+  // are supported by compiler
+  return false;
+#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
   __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
   return c_ & (1U << 1);  // PCLMULQDQ is in bit 1 (not bit 0)
@@ -447,10 +451,6 @@ static bool isPCLMULQDQ() {
   int info[4];
   __cpuidex(info, 0x00000001, 0);
   return (info[2] & ((int)1 << 1)) != 0;
-#elif defined(HAVE_SSE42)
-  // in build_detect_platform we set this macro when both SSE42 and PCLMULQDQ
-  // are supported by compiler
-  return true;
 #else
   return false;
 #endif
@@ -571,8 +571,7 @@ std::string IsFastCrc32Supported() {
  * This version is from the folly library, created by Dave Watson <davejwatson@fb.com>
  *
 */
-#if (defined HAVE_SSE42 && defined HAVE_PCLMUL) || \
-    (defined ROCKSDB_PORTABLE && defined _MSC_VER)
+#if defined HAVE_SSE42 && defined HAVE_PCLMUL
 
 #define CRCtriplet(crc, buf, offset)                  \
   crc##0 = _mm_crc32_u64(crc##0, *(buf##0 + offset)); \
@@ -1248,7 +1247,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
   }
 }
 
-#endif //HAVE_SSE42 && HAVE_PCLMUL || (ROCKSDB_PORTABLE && _MSC_VER)
+#endif //HAVE_SSE42 && HAVE_PCLMUL
 
 static inline Function Choose_Extend() {
 #ifdef HAVE_POWER8
@@ -1263,7 +1262,7 @@ static inline Function Choose_Extend() {
 #else
   if (isSSE42()) {
     if (isPCLMULQDQ()) {
-#if ((defined HAVE_SSE42 && defined HAVE_PCLMUL) || (defined ROCKSDB_PORTABLE && defined _MSC_VER)) && !defined NO_THREEWAY_CRC32C
+#if (defined HAVE_SSE42 && defined HAVE_PCLMUL) && !defined NO_THREEWAY_CRC32C
       return crc32c_3way;
 #else
     return ExtendImpl<Fast_CRC32>; // Fast_CRC32 will check HAVE_SSE42 itself
