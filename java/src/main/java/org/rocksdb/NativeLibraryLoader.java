@@ -1,13 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb;
 
-import org.rocksdb.util.Environment;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import org.rocksdb.util.Environment;
 
 /**
  * This class is used to load the RocksDB shared library from within the jar.
@@ -16,8 +15,7 @@ import java.nio.file.StandardCopyOption;
 public class NativeLibraryLoader {
   //singleton
   private static final NativeLibraryLoader instance = new NativeLibraryLoader();
-  @SuppressWarnings("RedundantFieldInitialization")
-  private static boolean initialized = false;
+  @SuppressWarnings("RedundantFieldInitialization") private static boolean initialized = false;
 
   private static final String sharedLibraryName = Environment.getSharedLibraryName("rocksdb");
   private static final String jniLibraryName = Environment.getJniLibraryName("rocksdb");
@@ -56,20 +54,20 @@ public class NativeLibraryLoader {
    */
   @SuppressWarnings("SynchronizedMethod")
   public synchronized void loadLibrary(final String tmpDir) throws IOException {
-    //noinspection ErrorNotRethrown
+    // noinspection ErrorNotRethrown
     try {
       // try dynamic library
-      //noinspection LoadLibraryWithNonConstantString
+      // noinspection LoadLibraryWithNonConstantString
       System.loadLibrary(sharedLibraryName);
       return;
     } catch (final UnsatisfiedLinkError ule) {
       // ignore - try from static library
     }
 
-    //noinspection ErrorNotRethrown
+    // noinspection ErrorNotRethrown
     try {
       // try static library
-      //noinspection LoadLibraryWithNonConstantString
+      // noinspection LoadLibraryWithNonConstantString
       System.loadLibrary(jniLibraryName);
       return;
     } catch (final UnsatisfiedLinkError ule) {
@@ -77,10 +75,10 @@ public class NativeLibraryLoader {
     }
 
     if (fallbackJniLibraryName != null) {
-      //noinspection ErrorNotRethrown
+      // noinspection ErrorNotRethrown
       try {
         // try static library fallback
-        //noinspection LoadLibraryWithNonConstantString
+        // noinspection LoadLibraryWithNonConstantString
         System.loadLibrary(fallbackJniLibraryName);
         return;
       } catch (final UnsatisfiedLinkError ule) {
@@ -107,18 +105,16 @@ public class NativeLibraryLoader {
    * @throws java.io.IOException if a filesystem operation fails.
    */
   @SuppressWarnings("WeakerAccess")
-  void loadLibraryFromJar(final String tmpDir)
-      throws IOException {
+  void loadLibraryFromJar(final String tmpDir) throws IOException {
     if (!initialized) {
-      //noinspection LoadLibraryWithNonConstantString
+      // noinspection LoadLibraryWithNonConstantString
       System.load(loadLibraryFromJarToTemp(tmpDir).getAbsolutePath());
       initialized = true;
     }
   }
 
   @SuppressWarnings("ProhibitedExceptionThrown")
-  File loadLibraryFromJarToTemp(final String tmpDir)
-          throws IOException {
+  File loadLibraryFromJarToTemp(final String tmpDir) throws IOException {
     InputStream is = null;
     try {
       // attempt to look up the static library in the jar file

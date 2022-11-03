@@ -30,7 +30,7 @@ public class EnvironmentTest {
   public static void saveState() {
     INITIAL_ARCH = getEnvironmentClassField(ARCH_FIELD_NAME);
     INITIAL_OS = getEnvironmentClassField(OS_FIELD_NAME);
-    //noinspection AutoUnboxing
+    // noinspection AutoUnboxing
     INITIAL_MUSL_LIBC = getEnvironmentClassField(MUSL_LIBC_FIELD_NAME);
     INITIAL_MUSL_ENVIRONMENT = getEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME);
   }
@@ -286,7 +286,7 @@ public class EnvironmentTest {
       */
       return (T)field.get(null);
     } catch (final NoSuchFieldException | IllegalAccessException e) {
-      //noinspection ProhibitedExceptionThrown
+      // noinspection ProhibitedExceptionThrown
       throw new RuntimeException(e);
     }
   }
@@ -303,7 +303,7 @@ public class EnvironmentTest {
       */
       field.set(null, value);
     } catch (final NoSuchFieldException | IllegalAccessException e) {
-      //noinspection ProhibitedExceptionThrown
+      // noinspection ProhibitedExceptionThrown
       throw new RuntimeException(e);
     }
   }

@@ -50,7 +50,7 @@ public class Environment {
   public static boolean isAix() {
     return OS.contains("aix");
   }
-  
+
   public static boolean isUnix() {
     return OS.contains("nix") ||
         OS.contains("nux");
@@ -246,7 +246,8 @@ public class Environment {
     } else if (isWindows()) {
       return MessageFormat.format("{0}.dll", libraryFileName);
     }
-    throw new UnsupportedOperationException(String.format("Cannot determine JNI library suffix for ARCH='%s' OS='%s'", ARCH, OS));
+    throw new UnsupportedOperationException(
+        String.format("Cannot determine JNI library suffix for ARCH='%s' OS='%s'", ARCH, OS));
   }
 
   public static String getJniLibraryExtension() {

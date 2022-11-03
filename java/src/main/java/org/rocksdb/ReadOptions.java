@@ -63,8 +63,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public ReadOptions setVerifyChecksums(
-      final boolean verifyChecksums) {
+  public ReadOptions setVerifyChecksums(final boolean verifyChecksums) {
     assert(isOwningHandle());
     setVerifyChecksums(nativeHandle_, verifyChecksums);
     return this;
@@ -397,8 +396,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   @SuppressWarnings("unused")
-  public ReadOptions setMaxSkippableInternalKeys(
-      final long maxSkippableInternalKeys) {
+  public ReadOptions setMaxSkippableInternalKeys(final long maxSkippableInternalKeys) {
     assert(isOwningHandle());
     setMaxSkippableInternalKeys(nativeHandle_, maxSkippableInternalKeys);
     return this;
@@ -792,14 +790,11 @@ public class ReadOptions extends RocksObject {
   private AbstractSlice<?> iterateLowerBoundSlice_;
   @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private AbstractSlice<?> iterateUpperBoundSlice_;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private AbstractSlice<?> timestampSlice_;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private AbstractSlice<?> iterStartTs_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private AbstractSlice<?> timestampSlice_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private AbstractSlice<?> iterStartTs_;
 
   private static native long newReadOptions();
-  private static native long newReadOptions(final boolean verifyChecksums,
-                                            final boolean fillCache);
+  private static native long newReadOptions(final boolean verifyChecksums, final boolean fillCache);
   private static native long copyReadOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
 
