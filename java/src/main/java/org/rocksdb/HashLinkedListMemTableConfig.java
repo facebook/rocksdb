@@ -15,11 +15,16 @@ package org.rocksdb;
  * and post a warning in the LOG.
  */
 public class HashLinkedListMemTableConfig extends MemTableConfig {
+  @SuppressWarnings("WeakerAccess")
   public static final long DEFAULT_BUCKET_COUNT = 50000;
+  @SuppressWarnings("WeakerAccess")
   public static final long DEFAULT_HUGE_PAGE_TLB_SIZE = 0;
+  @SuppressWarnings("WeakerAccess")
   public static final int DEFAULT_BUCKET_ENTRIES_LOG_THRES = 4096;
+  @SuppressWarnings("WeakerAccess")
   public static final boolean
       DEFAULT_IF_LOG_BUCKET_DIST_WHEN_FLUSH = true;
+  @SuppressWarnings("WeakerAccess")
   public static final int DEFAUL_THRESHOLD_USE_SKIPLIST = 256;
 
   /**
@@ -40,6 +45,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @param count the number of hash buckets.
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public HashLinkedListMemTableConfig setBucketCount(
       final long count) {
     bucketCount_ = count;
@@ -68,6 +74,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @param size if set to {@code <= 0} hashtable bytes from malloc
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public HashLinkedListMemTableConfig setHugePageTlbSize(
       final long size) {
     hugePageTlbSize_ = size;
@@ -91,6 +98,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    *     logging starts.
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public HashLinkedListMemTableConfig
       setBucketEntriesLoggingThreshold(final int threshold) {
     bucketEntriesLoggingThreshold_ = threshold;
@@ -115,6 +123,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    *     of entry distribution shall be logged.
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public HashLinkedListMemTableConfig
       setIfLogBucketDistWhenFlush(final boolean logDistribution) {
     ifLogBucketDistWhenFlush_ = logDistribution;
@@ -139,6 +148,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    *     used.
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public HashLinkedListMemTableConfig
       setThresholdUseSkiplist(final int threshold) {
     thresholdUseSkiplist_ = threshold;
@@ -161,10 +171,14 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
         thresholdUseSkiplist_);
   }
 
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
   private native long newMemTableFactoryHandle(long bucketCount,
-      long hugePageTlbSize, int bucketEntriesLoggingThreshold,
-      boolean ifLogBucketDistWhenFlush, int thresholdUseSkiplist)
-      throws IllegalArgumentException;
+                                               long hugePageTlbSize, int bucketEntriesLoggingThreshold,
+                                               boolean ifLogBucketDistWhenFlush, int thresholdUseSkiplist)
+  ;
 
   private long bucketCount_;
   private long hugePageTlbSize_;

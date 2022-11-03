@@ -78,7 +78,7 @@ public class FlushOptions extends RocksObject {
     return allowWriteStall(nativeHandle_);
   }
 
-  private native static long newFlushOptions();
+  private static native long newFlushOptions();
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setWaitForFlush(final long handle,

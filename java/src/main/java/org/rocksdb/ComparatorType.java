@@ -37,7 +37,7 @@ enum ComparatorType {
    */
   static ComparatorType getComparatorType(final byte byteIdentifier) {
     for (final ComparatorType comparatorType : ComparatorType.values()) {
-      if (comparatorType.getValue() == byteIdentifier) {
+      if (comparatorType.value == byteIdentifier) {
         return comparatorType;
       }
     }

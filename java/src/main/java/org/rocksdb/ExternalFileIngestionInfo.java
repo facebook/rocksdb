@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
 import java.util.Objects;
 
 public class ExternalFileIngestionInfo {
@@ -74,17 +75,17 @@ public class ExternalFileIngestionInfo {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    ExternalFileIngestionInfo that = (ExternalFileIngestionInfo) o;
-    return globalSeqno == that.globalSeqno
-        && Objects.equals(columnFamilyName, that.columnFamilyName)
-        && Objects.equals(externalFilePath, that.externalFilePath)
-        && Objects.equals(internalFilePath, that.internalFilePath)
-        && Objects.equals(tableProperties, that.tableProperties);
+    final ExternalFileIngestionInfo that = (ExternalFileIngestionInfo) o;
+    if (globalSeqno == that.globalSeqno) if (Objects.equals(columnFamilyName, that.columnFamilyName))
+      if (Objects.equals(externalFilePath, that.externalFilePath))
+        if (Objects.equals(internalFilePath, that.internalFilePath))
+          return Objects.equals(tableProperties, that.tableProperties);
+    return false;
   }
 
   @Override
@@ -95,9 +96,6 @@ public class ExternalFileIngestionInfo {
 
   @Override
   public String toString() {
-    return "ExternalFileIngestionInfo{"
-        + "columnFamilyName='" + columnFamilyName + '\'' + ", externalFilePath='" + externalFilePath
-        + '\'' + ", internalFilePath='" + internalFilePath + '\'' + ", globalSeqno=" + globalSeqno
-        + ", tableProperties=" + tableProperties + '}';
+    return MessageFormat.format("ExternalFileIngestionInfo'{'columnFamilyName=''{0}'', externalFilePath=''{1}'', internalFilePath=''{2}'', globalSeqno={3}, tableProperties={4}'}'", columnFamilyName, externalFilePath, internalFilePath, globalSeqno, tableProperties);
   }
 }

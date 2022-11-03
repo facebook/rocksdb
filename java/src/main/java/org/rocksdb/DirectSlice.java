@@ -16,7 +16,7 @@ import java.nio.ByteBuffer;
  * values consider using @see org.rocksdb.Slice
  */
 public class DirectSlice extends AbstractSlice<ByteBuffer> {
-  public final static DirectSlice NONE = new DirectSlice();
+  public static final DirectSlice NONE = new DirectSlice();
 
   /**
    * Indicates whether we have to free the memory pointed to by the Slice
@@ -123,9 +123,9 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
     disposeInternal(nativeHandle);
   }
 
-  private native static long createNewDirectSlice0(final ByteBuffer data,
-      final int length);
-  private native static long createNewDirectSlice1(final ByteBuffer data);
+  private static native long createNewDirectSlice0(final ByteBuffer data,
+                                                   final int length);
+  private static native long createNewDirectSlice1(final ByteBuffer data);
   @Override protected final native ByteBuffer data0(long handle);
   private native byte get0(long handle, int offset);
   private native void clear0(long handle, boolean internalBuffer,

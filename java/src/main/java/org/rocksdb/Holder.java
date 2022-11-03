@@ -9,6 +9,7 @@ package org.rocksdb;
  * Simple instance reference wrapper.
  */
 public class Holder<T> {
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private /* @Nullable */ T value;
 
   /**

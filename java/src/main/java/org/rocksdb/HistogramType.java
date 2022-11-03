@@ -205,13 +205,13 @@ public enum HistogramType {
    *
    * @param value byte representation of HistogramType.
    *
-   * @return {@link org.rocksdb.HistogramType} instance.
+   * @return {@code HistogramType} instance.
    * @throws java.lang.IllegalArgumentException if an invalid
    *     value is provided.
    */
   public static HistogramType getHistogramType(final byte value) {
     for (final HistogramType histogramType : HistogramType.values()) {
-      if (histogramType.getValue() == value) {
+      if (histogramType.value == value) {
         return histogramType;
       }
     }

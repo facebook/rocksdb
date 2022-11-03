@@ -152,6 +152,7 @@ public class IngestExternalFileOptions extends RocksObject {
    *
    * @return the reference to the current IngestExternalFileOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public IngestExternalFileOptions setIngestBehind(final boolean ingestBehind) {
     setIngestBehind(nativeHandle_, ingestBehind);
     return this;
@@ -201,8 +202,8 @@ public class IngestExternalFileOptions extends RocksObject {
     return this;
   }
 
-  private native static long newIngestExternalFileOptions();
-  private native static long newIngestExternalFileOptions(
+  private static native long newIngestExternalFileOptions();
+  private static native long newIngestExternalFileOptions(
       final boolean moveFiles, final boolean snapshotConsistency,
       final boolean allowGlobalSeqNo, final boolean allowBlockingFlush);
   @Override protected final native void disposeInternal(final long handle);

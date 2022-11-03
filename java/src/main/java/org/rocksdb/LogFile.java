@@ -32,6 +32,7 @@ public class LogFile {
    *
    * @return log file's pathname
    */
+  @SuppressWarnings("unused")
   public String pathName() {
     return pathName;
   }
@@ -42,6 +43,7 @@ public class LogFile {
    *
    * @return the log number
    */
+  @SuppressWarnings("unused")
   public long logNumber() {
     return logNumber;
   }
@@ -60,6 +62,7 @@ public class LogFile {
    *
    * @return the stating sequence number
    */
+  @SuppressWarnings("unused")
   public long startSequence() {
     return startSequence;
   }
@@ -69,6 +72,7 @@ public class LogFile {
    *
    * @return size of log file
    */
+  @SuppressWarnings("unused")
   public long sizeFileBytes() {
     return sizeFileBytes;
   }

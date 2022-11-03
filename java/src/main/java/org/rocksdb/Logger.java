@@ -37,8 +37,8 @@ package org.rocksdb;
  */
 public abstract class Logger extends RocksCallbackObject {
 
-  private final static long WITH_OPTIONS = 0;
-  private final static long WITH_DBOPTIONS = 1;
+  private static final long WITH_OPTIONS = 0;
+  private static final long WITH_DBOPTIONS = 1;
 
   /**
    * <p>AbstractLogger constructor.</p>
@@ -49,7 +49,7 @@ public abstract class Logger extends RocksCallbackObject {
    *
    * @param options {@link org.rocksdb.Options} instance.
    */
-  public Logger(final Options options) {
+  protected Logger(final Options options) {
     super(options.nativeHandle_, WITH_OPTIONS);
 
   }
@@ -63,18 +63,18 @@ public abstract class Logger extends RocksCallbackObject {
    *
    * @param dboptions {@link org.rocksdb.DBOptions} instance.
    */
-  public Logger(final DBOptions dboptions) {
+  protected Logger(final DBOptions dboptions) {
     super(dboptions.nativeHandle_, WITH_DBOPTIONS);
   }
 
   @Override
-  protected long initializeNative(long... nativeParameterHandles) {
+  protected long initializeNative(final long... nativeParameterHandles) {
     if(nativeParameterHandles[1] == WITH_OPTIONS) {
       return createNewLoggerOptions(nativeParameterHandles[0]);
     } else if(nativeParameterHandles[1] == WITH_DBOPTIONS) {
       return createNewLoggerDbOptions(nativeParameterHandles[0]);
     } else {
-      throw new IllegalArgumentException();
+      throw new IllegalArgumentException("Options value is not WITH_OPTIONS or WITH_DBOPTIONS");
     }
   }
 
@@ -109,7 +109,7 @@ public abstract class Logger extends RocksCallbackObject {
   protected native byte infoLogLevel(long handle);
 
   /**
-   * We override {@link RocksCallbackObject#disposeInternal()}
+   * We override {@link #disposeInternal()}
    * as disposing of a rocksdb::LoggerJniCallback requires
    * a slightly different approach as it is a std::shared_ptr
    */
@@ -118,5 +118,6 @@ public abstract class Logger extends RocksCallbackObject {
     disposeInternal(nativeHandle_);
   }
 
+  @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
   private native void disposeInternal(final long handle);
 }

@@ -119,7 +119,7 @@ public class ComparatorOptions extends RocksObject {
     return this;
   }
 
-  private native static long newComparatorOptions();
+  private static native long newComparatorOptions();
   private native byte reusedSynchronisationType(final long handle);
   private native void setReusedSynchronisationType(final long handle,
       final byte reusedSynchronisationType);

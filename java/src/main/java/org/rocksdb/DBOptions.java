@@ -41,7 +41,7 @@ public class DBOptions extends RocksObject
    *
    * @param other The DBOptions to copy.
    */
-  public DBOptions(DBOptions other) {
+  public DBOptions(final DBOptions other) {
     super(copyDBOptions(other.nativeHandle_));
     this.env_ = other.env_;
     this.numShardBits_ = other.numShardBits_;
@@ -74,7 +74,7 @@ public class DBOptions extends RocksObject
    * @param cfgOpts The ConfigOptions to control how the string is processed.
    * @param properties {@link java.util.Properties} instance.
    *
-   * @return {@link org.rocksdb.DBOptions instance}
+   * @return {@code DBOptions}
    *     or null.
    *
    * @throws java.lang.IllegalArgumentException if null or empty
@@ -104,7 +104,7 @@ public class DBOptions extends RocksObject
    *
    * @param properties {@link java.util.Properties} instance.
    *
-   * @return {@link org.rocksdb.DBOptions instance}
+   * @return {@code DBOptions} instance
    *     or null.
    *
    * @throws java.lang.IllegalArgumentException if null or empty
@@ -342,6 +342,7 @@ public class DBOptions extends RocksObject
 
       final List<DbPath> dbPaths = new ArrayList<>();
       for(int i = 0; i < len; i++) {
+        //noinspection ObjectAllocationInLoop
         dbPaths.add(new DbPath(Paths.get(paths[i]), targetSizes[i]));
       }
       return dbPaths;
@@ -1232,7 +1233,7 @@ public class DBOptions extends RocksObject
     return bgerrorResumeRetryInterval(nativeHandle_);
   }
 
-  static final int DEFAULT_NUM_SHARD_BITS = -1;
+  private static final int DEFAULT_NUM_SHARD_BITS = -1;
 
 
 
@@ -1310,14 +1311,26 @@ public class DBOptions extends RocksObject
   private native int maxBackgroundFlushes(long handle);
   private native void setMaxBackgroundJobs(long handle, int maxBackgroundJobs);
   private native int maxBackgroundJobs(long handle);
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
   private native void setMaxLogFileSize(long handle, long maxLogFileSize)
-      throws IllegalArgumentException;
+  ;
   private native long maxLogFileSize(long handle);
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
   private native void setLogFileTimeToRoll(
-      long handle, long logFileTimeToRoll) throws IllegalArgumentException;
+      long handle, long logFileTimeToRoll);
   private native long logFileTimeToRoll(long handle);
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
   private native void setKeepLogFileNum(long handle, long keepLogFileNum)
-      throws IllegalArgumentException;
+  ;
   private native long keepLogFileNum(long handle);
   private native void setRecycleLogFileNum(long handle, long recycleLogFileNum);
   private native long recycleLogFileNum(long handle);
@@ -1334,8 +1347,12 @@ public class DBOptions extends RocksObject
   private static native void setMaxWriteBatchGroupSizeBytes(
       final long handle, final long maxWriteBatchGroupSizeBytes);
   private static native long maxWriteBatchGroupSizeBytes(final long handle);
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
   private native void setManifestPreallocationSize(
-      long handle, long size) throws IllegalArgumentException;
+      long handle, long size);
   private native long manifestPreallocationSize(long handle);
   private native void setUseDirectReads(long handle, boolean useDirectReads);
   private native boolean useDirectReads(long handle);
@@ -1486,10 +1503,16 @@ public class DBOptions extends RocksObject
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private Env env_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private int numShardBits_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private RateLimiter rateLimiter_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private Cache rowCache_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private WalFilter walFilter_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private WriteBufferManager writeBufferManager_;
 }

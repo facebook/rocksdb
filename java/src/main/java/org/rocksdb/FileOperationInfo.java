@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
 import java.util.Objects;
 
 /**
@@ -87,15 +88,16 @@ public class FileOperationInfo {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    FileOperationInfo that = (FileOperationInfo) o;
-    return offset == that.offset && length == that.length && startTimestamp == that.startTimestamp
-        && duration == that.duration && Objects.equals(path, that.path)
-        && Objects.equals(status, that.status);
+    final FileOperationInfo that = (FileOperationInfo) o;
+    if (offset == that.offset) if (length == that.length) if (startTimestamp == that.startTimestamp)
+      if (duration == that.duration)
+        if (Objects.equals(path, that.path)) return Objects.equals(status, that.status);
+    return false;
   }
 
   @Override
@@ -105,8 +107,6 @@ public class FileOperationInfo {
 
   @Override
   public String toString() {
-    return "FileOperationInfo{"
-        + "path='" + path + '\'' + ", offset=" + offset + ", length=" + length + ", startTimestamp="
-        + startTimestamp + ", duration=" + duration + ", status=" + status + '}';
+    return MessageFormat.format("FileOperationInfo'{'path=''{0}'', offset={1}, length={2}, startTimestamp={3}, duration={4}, status={5}'}'", path, offset, length, startTimestamp, duration, status);
   }
 }

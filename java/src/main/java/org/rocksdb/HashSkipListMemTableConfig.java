@@ -15,8 +15,11 @@ package org.rocksdb;
  * and post a warning in the LOG.
  */
 public class HashSkipListMemTableConfig extends MemTableConfig {
+  @SuppressWarnings("WeakerAccess")
   public static final int DEFAULT_BUCKET_COUNT = 1000000;
+  @SuppressWarnings("WeakerAccess")
   public static final int DEFAULT_BRANCHING_FACTOR = 4;
+  @SuppressWarnings("WeakerAccess")
   public static final int DEFAULT_HEIGHT = 4;
 
   /**
@@ -36,6 +39,7 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
    *    skiplist memtable.
    * @return the reference to the current HashSkipListMemTableConfig.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public HashSkipListMemTableConfig setBucketCount(
       final long count) {
     bucketCount_ = count;
@@ -56,6 +60,7 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
    *
    * @return the reference to the current HashSkipListMemTableConfig.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public HashSkipListMemTableConfig setHeight(final int height) {
     height_ = height;
     return this;
@@ -77,6 +82,7 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
    *     lists in the skip list.
    * @return the reference to the current HashSkipListMemTableConfig.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public HashSkipListMemTableConfig setBranchingFactor(
       final int bf) {
     branchingFactor_ = bf;
@@ -96,9 +102,13 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
         bucketCount_, height_, branchingFactor_);
   }
 
+  /**
+   * @throws IllegalArgumentException
+   */
+  @SuppressWarnings("JavaDoc")
   private native long newMemTableFactoryHandle(
       long bucketCount, int height, int branchingFactor)
-      throws IllegalArgumentException;
+  ;
 
   private long bucketCount_;
   private int branchingFactor_;

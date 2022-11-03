@@ -15,7 +15,7 @@ public enum InfoLogLevel {
 
   private final byte value_;
 
-  private InfoLogLevel(final byte value) {
+  InfoLogLevel(final byte value) {
     value_ = value;
   }
 
@@ -33,13 +33,13 @@ public enum InfoLogLevel {
    *
    * @param value byte representation of InfoLogLevel.
    *
-   * @return {@link org.rocksdb.InfoLogLevel} instance.
+   * @return {@code InfoLogLevel} instance.
    * @throws java.lang.IllegalArgumentException if an invalid
    *     value is provided.
    */
   public static InfoLogLevel getInfoLogLevel(final byte value) {
-    for (final InfoLogLevel infoLogLevel : InfoLogLevel.values()) {
-      if (infoLogLevel.getValue() == value) {
+    for (final InfoLogLevel infoLogLevel : values()) {
+      if (infoLogLevel.value_ == value) {
         return infoLogLevel;
       }
     }

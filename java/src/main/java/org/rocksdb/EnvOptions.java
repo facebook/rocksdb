@@ -323,8 +323,8 @@ public class EnvOptions extends RocksObject {
     return rateLimiter;
   }
 
-  private native static long newEnvOptions();
-  private native static long newEnvOptions(final long dboptions_handle);
+  private static native long newEnvOptions();
+  private static native long newEnvOptions(final long dboptions_handle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setUseMmapReads(final long handle,
@@ -362,5 +362,6 @@ public class EnvOptions extends RocksObject {
   private native long writableFileMaxBufferSize(final long handle);
   private native void setRateLimiter(final long handle,
       final long rateLimiterHandle);
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private RateLimiter rateLimiter;
 }

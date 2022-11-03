@@ -132,7 +132,7 @@ public class CompressionOptions extends RocksObject {
   }
 
 
-  private native static long newCompressionOptions();
+  private static native long newCompressionOptions();
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setWindowBits(final long handle, final int windowBits);
