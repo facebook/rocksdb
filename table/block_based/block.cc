@@ -12,6 +12,7 @@
 #include "table/block_based/block.h"
 
 #include <algorithm>
+#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -286,9 +287,6 @@ void DataBlockIter::SeekImpl(const Slice& target) {
     return;
   }
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
-  if (!checksums_.empty()) {
-    VerifyEntryChecksum(key_, value());
-  }
 }
 
 void MetaBlockIter::SeekImpl(const Slice& target) {
@@ -521,9 +519,6 @@ void DataBlockIter::SeekToFirstImpl() {
   SeekToRestartPoint(0);
   bool is_shared = false;
   ParseNextDataKey(&is_shared);
-  if (!checksums_.empty()) {
-    VerifyEntryChecksum(key_, value());
-  }
 }
 
 void MetaBlockIter::SeekToFirstImpl() {
@@ -552,9 +547,6 @@ void DataBlockIter::SeekToLastImpl() {
   bool is_shared = false;
   while (ParseNextDataKey(&is_shared) && NextEntryOffset() < restarts_) {
     // Keep skipping
-  }
-  if (!checksums_.empty()) {
-    VerifyEntryChecksum(key_, value());
   }
 }
 
@@ -654,10 +646,6 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
     }
 #endif  // NDEBUG
 
-    if (!checksums_.empty()) {
-      VerifyEntryChecksum(key(), value());
-    }
-
     return true;
   } else {
     return false;
@@ -665,16 +653,14 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
 }
 
 void DataBlockIter::GenerateEntryChecksum(const Slice& key, const Slice& value,
-                                          SequenceNumber s,
+                                          [[maybe_unused]] SequenceNumber s,
                                           char* checksum_ptr) const {
   if (protection_bytes_per_key_ == 0) {
     return;
   }
 
-  uint64_t checksum = ProtectionInfo64()
-                          .ProtectKVO(key, value, ValueType::kTypeValue)
-                          .ProtectS(s)
-                          .GetVal();
+  uint64_t checksum =
+      ProtectionInfo64().ProtectKVO(key, value, ValueType::kTypeValue).GetVal();
 
   switch (protection_bytes_per_key_) {
     case 1:
@@ -696,19 +682,28 @@ void DataBlockIter::GenerateEntryChecksum(const Slice& key, const Slice& value,
 
 Status DataBlockIter::VerifyEntryChecksum(const Slice& key,
                                           const Slice& value) const {
+  std::cout << "VerifyEntryChecksum protection_bytes_per_key_ "
+            << protection_bytes_per_key_ << std::endl;
   if (protection_bytes_per_key_ == 0) {
     return Status::OK();
   }
 
-  uint64_t expected = ProtectionInfo64()
-                          .ProtectKVO(key, value, ValueType::kTypeValue)
-                          .ProtectS(0)
-                          .GetVal();
+  std::cout << "Key: " << key.data() << "\n\n";
+  std::cout << "value: " << value.data() << "\n";
+
+  uint64_t expected =
+      ProtectionInfo64().ProtectKVO(key, value, ValueType::kTypeValue).GetVal();
 
   bool match = true;
   uint32_t entry_position = GetCurrentEntryPosition();
+  std::cout << "entry_position " << entry_position << "\n";
+
+  std::cout << "static_cast<uint16_t>(expected) "
+            << static_cast<uint16_t>(expected) << "\n";
   const char* checksum_ptr =
-      checksums_.data() + entry_position * protection_bytes_per_key_;
+      checksums_ptr_->data() + entry_position * protection_bytes_per_key_;
+  std::cout << "DecodeFixed16(checksum_ptr)" << DecodeFixed16(checksum_ptr)
+            << "\n";
   switch (protection_bytes_per_key_) {
     case 1:
       match = static_cast<uint8_t>(*(checksum_ptr)) ==
@@ -726,6 +721,8 @@ Status DataBlockIter::VerifyEntryChecksum(const Slice& key,
     default:
       assert(false);
   }
+
+  std::cout << "match: " << match << std::endl;
   if (!match) {
     std::string msg(
         "Corrupted Block entry, per key-value checksum verification "
@@ -1149,6 +1146,7 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
   }
 
   if (block_type == BlockType::kData) {
+    std::cout << "BlockType::kData" << std::endl;
     std::unique_ptr<DataBlockIter> iter(
         NewDataIterator(raw_ucmp, 0, nullptr, nullptr,
                         false, protection_bytes_per_key));
@@ -1166,13 +1164,17 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
     iter->SeekToFirst();
     assert(iter->Valid());
     for (uint32_t i = 0; iter->Valid(); iter->Next(), ++i) {
+      if (i == 0) {
+        std::cout << "key: " << iter->key().data() << "\n";
+        std::cout << "value: " << iter->value().data() << "\n";
+      }
       // sequence_# is 0
       iter->GenerateEntryChecksum(iter->key(), iter->value(), 0,
                                   buf + i * protection_bytes_per_key);
     }
 
     // set checksums_
-    iter->checksums_.assign(buf, buf_size);
+    checksums_.assign(buf, buf_size);
   }
 }
 
@@ -1211,11 +1213,13 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
     ret_iter->Invalidate(Status::OK());
     return ret_iter;
   } else {
+    std::cout << "Block::NewDataIterator"
+              << "\n";
     ret_iter->Initialize(
         raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
         read_amp_bitmap_.get(), block_contents_pinned,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr,
-        protection_bytes_per_key, block_restart_interval_);
+        protection_bytes_per_key, &checksums_, block_restart_interval_);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_

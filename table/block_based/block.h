@@ -251,6 +251,7 @@ class Block {
   const int block_restart_interval_;
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   DataBlockHashIndex data_block_hash_index_;
+  std::string checksums_;
 };
 
 // A `BlockIter` iterates over the entries in a `Block`'s data buffer. The
@@ -419,7 +420,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // Must be called every time a key is found that needs to be returned to user,
   // and may be called when no key is found (as a no-op). Updates `key_`,
   // `key_buf_`, and `key_pinned_` with info about the found key.
-  void UpdateKey() {
+  virtual void UpdateKey() {
     key_buf_.Clear();
     if (!Valid()) {
       return;
@@ -502,11 +503,12 @@ class DataBlockIter final : public BlockIter<Slice> {
                 uint32_t num_restarts, SequenceNumber global_seqno,
                 BlockReadAmpBitmap* read_amp_bitmap, bool block_contents_pinned,
                 DataBlockHashIndex* data_block_hash_index,
-                uint32_t protection_bytes_per_key, int block_restart_interval)
+                uint32_t protection_bytes_per_key, std::string* checksums_ptr,
+                int block_restart_interval)
       : DataBlockIter() {
     Initialize(raw_ucmp, data, restarts, num_restarts, global_seqno,
                read_amp_bitmap, block_contents_pinned, data_block_hash_index,
-               protection_bytes_per_key, block_restart_interval);
+               protection_bytes_per_key, checksums_ptr, block_restart_interval);
   }
   void Initialize(const Comparator* raw_ucmp, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
@@ -514,7 +516,7 @@ class DataBlockIter final : public BlockIter<Slice> {
                   BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned,
                   DataBlockHashIndex* data_block_hash_index,
-                  uint32_t protection_bytes_per_key,
+                  uint32_t protection_bytes_per_key, std::string* checksums_ptr,
                   int block_restart_interval) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
@@ -523,6 +525,7 @@ class DataBlockIter final : public BlockIter<Slice> {
     last_bitmap_offset_ = current_ + 1;
     data_block_hash_index_ = data_block_hash_index;
     protection_bytes_per_key_ = protection_bytes_per_key;
+    checksums_ptr_ = checksums_ptr;
     block_restart_interval_ = block_restart_interval;
   }
 
@@ -565,6 +568,12 @@ class DataBlockIter final : public BlockIter<Slice> {
   void SeekForPrevImpl(const Slice& target) override;
   void NextImpl() override;
   void PrevImpl() override;
+  void UpdateKey() override {
+    BlockIter::UpdateKey();
+    if (Valid() && checksums_ptr_ != nullptr && !checksums_ptr_->empty()) {
+      VerifyEntryChecksum(key(), value());
+    }
+  }
 
  private:
   // read-amp bitmap
@@ -593,9 +602,9 @@ class DataBlockIter final : public BlockIter<Slice> {
   };
   std::string prev_entries_keys_buff_;
   std::vector<CachedPrevEntry> prev_entries_;
-  int32_t prev_entries_idx_ = -1;
-  std::string checksums_;
-  uint32_t protection_bytes_per_key_ = 0;
+  int32_t prev_entries_idx_{-1};
+  std::string* checksums_ptr_{nullptr};
+  uint32_t protection_bytes_per_key_{0};
 
   DataBlockHashIndex* data_block_hash_index_;
 

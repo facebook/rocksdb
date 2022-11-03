@@ -85,7 +85,8 @@ TEST_P(BlockTestWithChecksum, SimpleTest) {
 
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  BlockBuilder builder(16);
+  int block_restart_interval = 16;
+  BlockBuilder builder(block_restart_interval);
   int num_records = 100000;
 
   GenerateRandomKVs(&keys, &values, 0, num_records);
@@ -100,14 +101,21 @@ TEST_P(BlockTestWithChecksum, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents));
-  if (protection_bytes_per_key_ > 0) {
-  }
+  std::cout << "protection_bytes_per_key_ " << protection_bytes_per_key_
+            << "\n";
+  Block reader{std::move(contents),
+               0,
+               nullptr,
+               BlockType::kData,
+               block_restart_interval,
+               options.comparator,
+               protection_bytes_per_key_};
 
   // read contents of block sequentially
   int count = 0;
-  InternalIterator *iter =
-      reader.NewDataIterator(options.comparator, kDisableGlobalSequenceNumber);
+  InternalIterator *iter = reader.NewDataIterator(
+      options.comparator, kDisableGlobalSequenceNumber, nullptr, nullptr, false,
+      protection_bytes_per_key_);
   for (iter->SeekToFirst(); iter->Valid(); count++, iter->Next()) {
     // read kv from block
     Slice k = iter->key();
@@ -121,7 +129,8 @@ TEST_P(BlockTestWithChecksum, SimpleTest) {
 
   // read block contents randomly
   iter =
-      reader.NewDataIterator(options.comparator, kDisableGlobalSequenceNumber);
+      reader.NewDataIterator(options.comparator, kDisableGlobalSequenceNumber,
+                             nullptr, nullptr, protection_bytes_per_key_);
   for (int i = 0; i < num_records; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -136,7 +145,8 @@ TEST_P(BlockTestWithChecksum, SimpleTest) {
   delete iter;
 }
 
-INSTANTIATE_TEST_CASE_P(P, BlockTestWithChecksum, ::testing::Values(0, 2));
+INSTANTIATE_TEST_CASE_P(P, BlockTestWithChecksum,
+                        ::testing::ValuesIn(std::vector<uint32_t>{2}));
 
 // return the block contents
 BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
