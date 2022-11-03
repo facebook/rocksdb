@@ -189,8 +189,18 @@ public class FlushJobInfo {
 
   @Override
   public String toString() {
-    return MessageFormat.format(
-        "FlushJobInfo'{'columnFamilyId={0}, columnFamilyName=''{1}'', filePath=''{2}'', threadId={3}, jobId={4}, triggeredWritesSlowdown={5}, triggeredWritesStop={6}, smallestSeqno={7}, largestSeqno={8}, tableProperties={9}, flushReason={10}'}'",
+    return MessageFormat.format("FlushJobInfo'{'"
+            + "columnFamilyId={0}, "
+            + "columnFamilyName=''{1}'', "
+            + "filePath=''{2}'', "
+            + "threadId={3}, "
+            + "jobId={4}, "
+            + "triggeredWritesSlowdown={5}, "
+            + "triggeredWritesStop={6}, "
+            + "smallestSeqno={7}, "
+            + "largestSeqno={8}, "
+            + "tableProperties={9}, "
+            + "flushReason={10}'}'",
         columnFamilyId, columnFamilyName, filePath, threadId, jobId, triggeredWritesSlowdown,
         triggeredWritesStop, smallestSeqno, largestSeqno, tableProperties, flushReason);
   }
