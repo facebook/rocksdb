@@ -5,7 +5,9 @@
 
 package org.rocksdb.util;
 
-import org.rocksdb.*;
+import org.rocksdb.AbstractComparator;
+import org.rocksdb.ComparatorOptions;
+import org.rocksdb.Slice;
 
 import java.nio.ByteBuffer;
 
@@ -39,8 +41,7 @@ public final class BytewiseComparator extends AbstractComparator {
 
   static int _compare(final ByteBuffer a, final ByteBuffer b) {
     assert(a != null && b != null);
-    final int minLen = a.remaining() < b.remaining() ?
-        a.remaining() : b.remaining();
+    final int minLen = Math.min(a.remaining(), b.remaining());
     int r = memcmp(a, b, minLen);
     if (r == 0) {
       if (a.remaining() < b.remaining()) {

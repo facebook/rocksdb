@@ -3,11 +3,12 @@ package org.rocksdb.util;
 
 import java.io.File;
 import java.io.IOException;
+import java.text.MessageFormat;
 
 public class Environment {
-  private static String OS = System.getProperty("os.name").toLowerCase();
-  private static String ARCH = System.getProperty("os.arch").toLowerCase();
-  private static String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
+  private static final String OS = System.getProperty("os.name").toLowerCase();
+  private static final String ARCH = System.getProperty("os.arch").toLowerCase();
+  private static final String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
 
   /**
    * Will be lazily initialised by {@link #isMuslLibc()} instead of the previous static
@@ -233,7 +234,7 @@ public class Environment {
     } else if (isWindows()) {
       return libraryFileName + ".dll";
     }
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException(String.format("Cannot determine JNI library suffix for ARCH='%s' OS='%s'", ARCH, OS));
   }
 
   public static String getJniLibraryExtension() {
