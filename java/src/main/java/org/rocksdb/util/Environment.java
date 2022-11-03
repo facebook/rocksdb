@@ -6,7 +6,9 @@ import java.io.IOException;
 import java.text.MessageFormat;
 
 public class Environment {
+  @SuppressWarnings("AccessOfSystemProperties")
   private static final String OS = System.getProperty("os.name").toLowerCase();
+  @SuppressWarnings("AccessOfSystemProperties")
   private static final String ARCH = System.getProperty("os.arch").toLowerCase();
   private static final String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
 
@@ -25,6 +27,7 @@ public class Environment {
     return ARCH.contains("ppc");
   }
 
+  @SuppressWarnings("WeakerAccess")
   public static boolean isS390x() {
     return ARCH.contains("s390x");
   }
@@ -33,14 +36,17 @@ public class Environment {
     return (OS.contains("win"));
   }
 
+  @SuppressWarnings("WeakerAccess")
   public static boolean isFreeBSD() {
     return (OS.contains("freebsd"));
   }
 
+  @SuppressWarnings("WeakerAccess")
   public static boolean isMac() {
     return (OS.contains("mac"));
   }
 
+  @SuppressWarnings("WeakerAccess")
   public static boolean isAix() {
     return OS.contains("aix");
   }
@@ -124,27 +130,29 @@ public class Environment {
     return false;
   }
 
+  @SuppressWarnings("WeakerAccess")
   public static boolean isSolaris() {
     return OS.contains("sunos");
   }
 
+  @SuppressWarnings("WeakerAccess")
   public static boolean isOpenBSD() {
     return (OS.contains("openbsd"));
   }
 
   public static boolean is64Bit() {
-    if (ARCH.indexOf("sparcv9") >= 0) {
+    if (ARCH.contains("sparcv9")) {
       return true;
     }
     return (ARCH.indexOf("64") > 0);
   }
 
   public static String getSharedLibraryName(final String name) {
-    return name + "jni";
+    return MessageFormat.format("{0}jni", name);
   }
 
   public static String getSharedLibraryFileName(final String name) {
-    return appendLibOsSuffix("lib" + getSharedLibraryName(name), true);
+    return appendLibOsSuffix(MessageFormat.format("lib{0}", getSharedLibraryName(name)), true);
   }
 
   /**
@@ -153,8 +161,9 @@ public class Environment {
    * @return the name of the implementation,
    *    or null if the default for that platform (e.g. glibc on Linux).
    */
+  @SuppressWarnings("WeakerAccess, ReturnOfNull")
   public static /* @Nullable */ String getLibcName() {
-    if (isMuslLibc()) {
+    if (MUSL_LIBC) {
       return "musl";
     } else {
       return null;
@@ -166,9 +175,10 @@ public class Environment {
     if (libcName == null) {
       return "";
     }
-    return "-" + libcName;
+    return MessageFormat.format("-{0}", libcName);
   }
 
+  @SuppressWarnings("IfStatementWithTooManyBranches")
   public static String getJniLibraryName(final String name) {
     if (isUnix()) {
       final String arch = is64Bit() ? "64" : "32";
@@ -207,6 +217,7 @@ public class Environment {
     throw new UnsupportedOperationException(String.format("Cannot determine JNI library name for ARCH='%s' OS='%s' name='%s'", ARCH, OS, name));
   }
 
+  @SuppressWarnings("ReturnOfNull")
   public static /*@Nullable*/ String getFallbackJniLibraryName(final String name) {
     if (isMac() && is64Bit()) {
       return String.format("%sjni-osx", name);
@@ -215,24 +226,25 @@ public class Environment {
   }
 
   public static String getJniLibraryFileName(final String name) {
-    return appendLibOsSuffix("lib" + getJniLibraryName(name), false);
+    return appendLibOsSuffix(MessageFormat.format("lib{0}", getJniLibraryName(name)), false);
   }
 
+  @SuppressWarnings("ReturnOfNull")
   public static /*@Nullable*/ String getFallbackJniLibraryFileName(final String name) {
     final String fallbackJniLibraryName = getFallbackJniLibraryName(name);
     if (fallbackJniLibraryName == null) {
       return null;
     }
-    return appendLibOsSuffix("lib" + fallbackJniLibraryName, false);
+    return appendLibOsSuffix(MessageFormat.format("lib{0}", fallbackJniLibraryName), false);
   }
 
   private static String appendLibOsSuffix(final String libraryFileName, final boolean shared) {
     if (isUnix() || isAix() || isSolaris() || isFreeBSD() || isOpenBSD()) {
-      return libraryFileName + ".so";
+      return MessageFormat.format("{0}.so", libraryFileName);
     } else if (isMac()) {
-      return libraryFileName + (shared ? ".dylib" : ".jnilib");
+      return MessageFormat.format("{0}{1}", libraryFileName, shared ? ".dylib" : ".jnilib");
     } else if (isWindows()) {
-      return libraryFileName + ".dll";
+      return MessageFormat.format("{0}.dll", libraryFileName);
     }
     throw new UnsupportedOperationException(String.format("Cannot determine JNI library suffix for ARCH='%s' OS='%s'", ARCH, OS));
   }

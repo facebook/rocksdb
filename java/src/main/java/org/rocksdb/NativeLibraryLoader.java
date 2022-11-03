@@ -1,11 +1,13 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb;
 
-import java.io.*;
+import org.rocksdb.util.Environment;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-
-import org.rocksdb.util.Environment;
 
 /**
  * This class is used to load the RocksDB shared library from within the jar.
@@ -14,6 +16,7 @@ import org.rocksdb.util.Environment;
 public class NativeLibraryLoader {
   //singleton
   private static final NativeLibraryLoader instance = new NativeLibraryLoader();
+  @SuppressWarnings("RedundantFieldInitialization")
   private static boolean initialized = false;
 
   private static final String sharedLibraryName = Environment.getSharedLibraryName("rocksdb");
@@ -51,17 +54,22 @@ public class NativeLibraryLoader {
    *
    * @throws java.io.IOException if a filesystem operation fails.
    */
+  @SuppressWarnings("SynchronizedMethod")
   public synchronized void loadLibrary(final String tmpDir) throws IOException {
+    //noinspection ErrorNotRethrown
     try {
       // try dynamic library
+      //noinspection LoadLibraryWithNonConstantString
       System.loadLibrary(sharedLibraryName);
       return;
     } catch (final UnsatisfiedLinkError ule) {
       // ignore - try from static library
     }
 
+    //noinspection ErrorNotRethrown
     try {
       // try static library
+      //noinspection LoadLibraryWithNonConstantString
       System.loadLibrary(jniLibraryName);
       return;
     } catch (final UnsatisfiedLinkError ule) {
@@ -69,8 +77,10 @@ public class NativeLibraryLoader {
     }
 
     if (fallbackJniLibraryName != null) {
+      //noinspection ErrorNotRethrown
       try {
         // try static library fallback
+        //noinspection LoadLibraryWithNonConstantString
         System.loadLibrary(fallbackJniLibraryName);
         return;
       } catch (final UnsatisfiedLinkError ule) {
@@ -96,14 +106,17 @@ public class NativeLibraryLoader {
    *
    * @throws java.io.IOException if a filesystem operation fails.
    */
+  @SuppressWarnings("WeakerAccess")
   void loadLibraryFromJar(final String tmpDir)
       throws IOException {
     if (!initialized) {
+      //noinspection LoadLibraryWithNonConstantString
       System.load(loadLibraryFromJarToTemp(tmpDir).getAbsolutePath());
       initialized = true;
     }
   }
 
+  @SuppressWarnings("ProhibitedExceptionThrown")
   File loadLibraryFromJarToTemp(final String tmpDir)
           throws IOException {
     InputStream is = null;
@@ -145,10 +158,10 @@ public class NativeLibraryLoader {
           throw new RuntimeException("File: " + temp.getAbsolutePath() + " could not be created.");
         }
       }
-      if (!temp.exists()) {
-        throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
-      } else {
+      if (temp.exists()) {
         temp.deleteOnExit();
+      } else {
+        throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
       }
 
       // copy the library from the Jar file to the temp destination

@@ -33,7 +33,7 @@ public class ReadOptions extends RocksObject {
    *
    * @param other The ReadOptions to copy.
    */
-  public ReadOptions(ReadOptions other) {
+  public ReadOptions(final ReadOptions other) {
     super(copyReadOptions(other.nativeHandle_));
     this.iterateLowerBoundSlice_ = other.iterateLowerBoundSlice_;
     this.iterateUpperBoundSlice_ = other.iterateUpperBoundSlice_;
@@ -62,6 +62,7 @@ public class ReadOptions extends RocksObject {
    *     will be performed on every read.
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setVerifyChecksums(
       final boolean verifyChecksums) {
     assert(isOwningHandle());
@@ -92,6 +93,7 @@ public class ReadOptions extends RocksObject {
    *     performed.
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setFillCache(final boolean fillCache) {
     assert(isOwningHandle());
     setFillCache(nativeHandle_, fillCache);
@@ -104,9 +106,10 @@ public class ReadOptions extends RocksObject {
    * @return the Snapshot assigned to this instance. If no Snapshot
    *     is assigned null.
    */
+  @SuppressWarnings("ReturnOfNull")
   public Snapshot snapshot() {
     assert(isOwningHandle());
-    long snapshotHandle = snapshot(nativeHandle_);
+    final long snapshotHandle = snapshot(nativeHandle_);
     if (snapshotHandle != 0) {
       return new Snapshot(snapshotHandle);
     }
@@ -128,7 +131,7 @@ public class ReadOptions extends RocksObject {
     if (snapshot != null) {
       setSnapshot(nativeHandle_, snapshot.nativeHandle_);
     } else {
-      setSnapshot(nativeHandle_, 0l);
+      setSnapshot(nativeHandle_, 0L);
     }
     return this;
   }
@@ -151,6 +154,7 @@ public class ReadOptions extends RocksObject {
    * @param readTier {@link ReadTier} instance
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setReadTier(final ReadTier readTier) {
     assert(isOwningHandle());
     setReadTier(nativeHandle_, readTier.getValue());
@@ -239,6 +243,7 @@ public class ReadOptions extends RocksObject {
    * @param totalOrderSeek if true, then total order seek will be enabled.
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setTotalOrderSeek(final boolean totalOrderSeek) {
     assert(isOwningHandle());
     setTotalOrderSeek(nativeHandle_, totalOrderSeek);
@@ -260,13 +265,14 @@ public class ReadOptions extends RocksObject {
    * Enforce that the iterator only iterates over the same prefix as the seek.
    * This option is effective only for prefix seeks, i.e. prefix_extractor is
    * non-null for the column family and {@link #totalOrderSeek()} is false.
-   * Unlike iterate_upper_bound, {@link #setPrefixSameAsStart(boolean)} only
+   * Unlike iterate_upper_bound, {#setPrefixSameAsStart(boolean)} only
    * works within a prefix but in both directions.
    *
    * @param prefixSameAsStart if true, then the iterator only iterates over the
    *   same prefix as the seek
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setPrefixSameAsStart(final boolean prefixSameAsStart) {
     assert(isOwningHandle());
     setPrefixSameAsStart(nativeHandle_, prefixSameAsStart);
@@ -294,6 +300,7 @@ public class ReadOptions extends RocksObject {
    * @param pinData if true, the blocks loaded by the iterator will be pinned
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setPinData(final boolean pinData) {
     assert(isOwningHandle());
     setPinData(nativeHandle_, pinData);
@@ -357,6 +364,7 @@ public class ReadOptions extends RocksObject {
    * @param readaheadSize The readahead size is bytes
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setReadaheadSize(final long readaheadSize) {
     assert(isOwningHandle());
     setReadaheadSize(nativeHandle_, readaheadSize);
@@ -370,6 +378,7 @@ public class ReadOptions extends RocksObject {
    * @return the number of keys that can be skipped
    *     before failing an iterator seek as incomplete.
    */
+  @SuppressWarnings("unused")
   public long maxSkippableInternalKeys() {
     assert(isOwningHandle());
     return maxSkippableInternalKeys(nativeHandle_);
@@ -387,6 +396,7 @@ public class ReadOptions extends RocksObject {
    *
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("unused")
   public ReadOptions setMaxSkippableInternalKeys(
       final long maxSkippableInternalKeys) {
     assert(isOwningHandle());
@@ -442,6 +452,7 @@ public class ReadOptions extends RocksObject {
    * @param iterateLowerBound Slice representing the lower bound
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setIterateLowerBound(final AbstractSlice<?> iterateLowerBound) {
     assert(isOwningHandle());
     setIterateLowerBound(
@@ -459,6 +470,7 @@ public class ReadOptions extends RocksObject {
    *
    * @return the smallest key, or null if there is no lower bound defined.
    */
+  @SuppressWarnings("ReturnOfNull")
   public Slice iterateLowerBound() {
     assert(isOwningHandle());
     final long lowerBoundSliceHandle = iterateLowerBound(nativeHandle_);
@@ -486,6 +498,7 @@ public class ReadOptions extends RocksObject {
    * @param iterateUpperBound Slice representing the upper bound
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setIterateUpperBound(final AbstractSlice<?> iterateUpperBound) {
     assert(isOwningHandle());
     setIterateUpperBound(
@@ -503,6 +516,7 @@ public class ReadOptions extends RocksObject {
    *
    * @return the largest key, or null if there is no upper bound defined.
    */
+  @SuppressWarnings("ReturnOfNull")
   public Slice iterateUpperBound() {
     assert(isOwningHandle());
     final long upperBoundSliceHandle = iterateUpperBound(nativeHandle_);
@@ -559,6 +573,7 @@ public class ReadOptions extends RocksObject {
    * @param mode auto prefix mode
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setAutoPrefixMode(final boolean mode) {
     assert (isOwningHandle());
     setAutoPrefixMode(nativeHandle_, mode);
@@ -581,13 +596,14 @@ public class ReadOptions extends RocksObject {
    * @see #iterStartTs()
    * @return Reference to timestamp or null if there is no timestamp defined.
    */
+  @SuppressWarnings("ReturnOfNull")
   public Slice timestamp() {
     assert (isOwningHandle());
     final long timestampSliceHandle = timestamp(nativeHandle_);
-    if (timestampSliceHandle != 0) {
-      return new Slice(timestampSliceHandle);
-    } else {
+    if (timestampSliceHandle == 0) {
       return null;
+    } else {
+      return new Slice(timestampSliceHandle);
     }
   }
 
@@ -631,13 +647,14 @@ public class ReadOptions extends RocksObject {
    * @return Reference to lower bound timestamp or null if there is no lower bound timestamp
    *     defined.
    */
+  @SuppressWarnings("ReturnOfNull")
   public Slice iterStartTs() {
     assert (isOwningHandle());
     final long iterStartTsHandle = iterStartTs(nativeHandle_);
-    if (iterStartTsHandle != 0) {
-      return new Slice(iterStartTsHandle);
-    } else {
+    if (iterStartTsHandle == 0) {
       return null;
+    } else {
+      return new Slice(iterStartTsHandle);
     }
   }
 
@@ -698,6 +715,7 @@ public class ReadOptions extends RocksObject {
    * @param deadlineTime deadline time in microseconds.
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setDeadline(final long deadlineTime) {
     assert (isOwningHandle());
     setDeadline(nativeHandle_, deadlineTime);
@@ -725,6 +743,7 @@ public class ReadOptions extends RocksObject {
    * @param ioTimeout time in microseconds.
    * @return the reference to the current ReadOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setIoTimeout(final long ioTimeout) {
     assert (isOwningHandle());
     setIoTimeout(nativeHandle_, ioTimeout);
@@ -754,6 +773,7 @@ public class ReadOptions extends RocksObject {
    * @param valueSizeSoftLimit the maximum cumulative value size of the keys
    * @return the reference to the current ReadOptions
    */
+  @SuppressWarnings("UnusedReturnValue")
   public ReadOptions setValueSizeSoftLimit(final long valueSizeSoftLimit) {
     assert (isOwningHandle());
     setValueSizeSoftLimit(nativeHandle_, valueSizeSoftLimit);
@@ -768,15 +788,19 @@ public class ReadOptions extends RocksObject {
   // freely leave scope without us losing the Java Slice object, which during
   // close() would also reap its associated rocksdb::Slice native object since
   // it's possibly (likely) to be an owning handle.
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private AbstractSlice<?> iterateLowerBoundSlice_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private AbstractSlice<?> iterateUpperBoundSlice_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private AbstractSlice<?> timestampSlice_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private AbstractSlice<?> iterStartTs_;
 
-  private native static long newReadOptions();
-  private native static long newReadOptions(final boolean verifyChecksums,
-    final boolean fillCache);
-  private native static long copyReadOptions(long handle);
+  private static native long newReadOptions();
+  private static native long newReadOptions(final boolean verifyChecksums,
+                                            final boolean fillCache);
+  private static native long copyReadOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native boolean verifyChecksums(long handle);

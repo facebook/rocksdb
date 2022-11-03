@@ -13,21 +13,24 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class EnvironmentTest {
-  private final static String ARCH_FIELD_NAME = "ARCH";
-  private final static String OS_FIELD_NAME = "OS";
+  private static final String ARCH_FIELD_NAME = "ARCH";
+  private static final String OS_FIELD_NAME = "OS";
+  private static final String MUSL_ENVIRONMENT_FIELD_NAME = "MUSL_ENVIRONMENT";
+  private static final String MUSL_LIBC_FIELD_NAME = "MUSL_LIBC";
 
-  private final static String MUSL_ENVIRONMENT_FIELD_NAME = "MUSL_ENVIRONMENT";
-  private final static String MUSL_LIBC_FIELD_NAME = "MUSL_LIBC";
-
+  @SuppressWarnings("StaticVariableMayNotBeInitialized")
   private static String INITIAL_OS;
+  @SuppressWarnings("StaticVariableMayNotBeInitialized")
   private static String INITIAL_ARCH;
   private static String INITIAL_MUSL_ENVIRONMENT;
+  @SuppressWarnings("StaticVariableMayNotBeInitialized")
   private static Boolean INITIAL_MUSL_LIBC;
 
   @BeforeClass
   public static void saveState() {
     INITIAL_ARCH = getEnvironmentClassField(ARCH_FIELD_NAME);
     INITIAL_OS = getEnvironmentClassField(OS_FIELD_NAME);
+    //noinspection AutoUnboxing
     INITIAL_MUSL_LIBC = getEnvironmentClassField(MUSL_LIBC_FIELD_NAME);
     INITIAL_MUSL_ENVIRONMENT = getEnvironmentClassField(MUSL_ENVIRONMENT_FIELD_NAME);
   }
@@ -255,12 +258,13 @@ public class EnvironmentTest {
     assertThat(Environment.initIsMuslLibc()).isFalse();
   }
 
-  private void setEnvironmentClassFields(String osName,
-      String osArch) {
+  private static void setEnvironmentClassFields(final String osName,
+                                                final String osArch) {
     setEnvironmentClassField(OS_FIELD_NAME, osName);
     setEnvironmentClassField(ARCH_FIELD_NAME, osArch);
   }
 
+  @SuppressWarnings("StaticVariableUsedBeforeInitialization")
   @AfterClass
   public static void restoreState() {
     setEnvironmentClassField(OS_FIELD_NAME, INITIAL_OS);
@@ -270,7 +274,7 @@ public class EnvironmentTest {
   }
 
   @SuppressWarnings("unchecked")
-  private static <T> T getEnvironmentClassField(String fieldName) {
+  private static <T> T getEnvironmentClassField(final String fieldName) {
     final Field field;
     try {
       field = Environment.class.getDeclaredField(fieldName);
@@ -282,11 +286,12 @@ public class EnvironmentTest {
       */
       return (T)field.get(null);
     } catch (final NoSuchFieldException | IllegalAccessException e) {
+      //noinspection ProhibitedExceptionThrown
       throw new RuntimeException(e);
     }
   }
 
-  private static void setEnvironmentClassField(String fieldName, Object value) {
+  private static void setEnvironmentClassField(final String fieldName, final Object value) {
     final Field field;
     try {
       field = Environment.class.getDeclaredField(fieldName);
@@ -298,6 +303,7 @@ public class EnvironmentTest {
       */
       field.set(null, value);
     } catch (final NoSuchFieldException | IllegalAccessException e) {
+      //noinspection ProhibitedExceptionThrown
       throw new RuntimeException(e);
     }
   }
