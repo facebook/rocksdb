@@ -38,7 +38,6 @@ public class WriteOptions extends RocksObject {
     super(copyWriteOptions(other.nativeHandle_));
   }
 
-
   /**
    * If true, the write will be flushed from the operating system
    * buffer cache (by calling WritableFile::Sync()) before the write
@@ -129,8 +128,7 @@ public class WriteOptions extends RocksObject {
    * @return the instance of the current WriteOptions.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public WriteOptions setIgnoreMissingColumnFamilies(
-      final boolean ignoreMissingColumnFamilies) {
+  public WriteOptions setIgnoreMissingColumnFamilies(final boolean ignoreMissingColumnFamilies) {
     setIgnoreMissingColumnFamilies(nativeHandle_, ignoreMissingColumnFamilies);
     return this;
   }

@@ -362,6 +362,5 @@ public class EnvOptions extends RocksObject {
   private native long writableFileMaxBufferSize(final long handle);
   private native void setRateLimiter(final long handle,
       final long rateLimiterHandle);
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private RateLimiter rateLimiter;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private RateLimiter rateLimiter;
 }

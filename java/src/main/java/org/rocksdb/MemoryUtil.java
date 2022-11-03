@@ -53,13 +53,13 @@ public class MemoryUtil {
     }
     final Map<Byte, Long> byteOutput = getApproximateMemoryUsageByType(dbHandles, cacheHandles);
     final Map<MemoryUsageType, Long> output = new EnumMap<>(MemoryUsageType.class);
-    for(final Map.Entry<Byte, Long> longEntry : byteOutput.entrySet()) {
-      //noinspection AutoUnboxing
+    for (final Map.Entry<Byte, Long> longEntry : byteOutput.entrySet()) {
+      // noinspection AutoUnboxing
       output.put(MemoryUsageType.getMemoryUsageType(longEntry.getKey()), longEntry.getValue());
     }
     return output;
   }
 
-  private static native Map<Byte, Long> getApproximateMemoryUsageByType(final long[] dbHandles,
-                                                                        final long[] cacheHandles);
+  private static native Map<Byte, Long> getApproximateMemoryUsageByType(
+      final long[] dbHandles, final long[] cacheHandles);
 }

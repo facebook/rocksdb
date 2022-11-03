@@ -203,9 +203,9 @@ public class IngestExternalFileOptions extends RocksObject {
   }
 
   private static native long newIngestExternalFileOptions();
-  private static native long newIngestExternalFileOptions(
-      final boolean moveFiles, final boolean snapshotConsistency,
-      final boolean allowGlobalSeqNo, final boolean allowBlockingFlush);
+  private static native long newIngestExternalFileOptions(final boolean moveFiles,
+      final boolean snapshotConsistency, final boolean allowGlobalSeqNo,
+      final boolean allowBlockingFlush);
   @Override protected final native void disposeInternal(final long handle);
 
   private native boolean moveFiles(final long handle);

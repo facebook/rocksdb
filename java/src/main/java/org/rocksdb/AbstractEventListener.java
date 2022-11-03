@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import java.text.MessageFormat;
-
 import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_BACKGROUND_ERROR;
 import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED;
 import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_COMPACTION_BEGIN;
@@ -29,6 +27,8 @@ import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_TABLE_FI
 import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_TABLE_FILE_CREATION_STARTED;
 import static org.rocksdb.AbstractEventListener.EnabledEventCallback.ON_TABLE_FILE_DELETED;
 import static org.rocksdb.AbstractEventListener.EnabledEventCallback.SHOULD_BE_NOTIFIED_ON_FILE_IO;
+
+import java.text.MessageFormat;
 
 /**
  * Base class for Event Listeners.

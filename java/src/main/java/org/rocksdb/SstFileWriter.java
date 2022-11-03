@@ -199,12 +199,11 @@ public class SstFileWriter extends RocksObject {
     return fileSize(nativeHandle_);
   }
 
-  private static native long newSstFileWriter(
-      final long envOptionsHandle, final long optionsHandle,
+  private static native long newSstFileWriter(final long envOptionsHandle, final long optionsHandle,
       final long userComparatorHandle, final byte comparatorType);
 
-  private static native long newSstFileWriter(final long envOptionsHandle,
-                                              final long optionsHandle);
+  private static native long newSstFileWriter(
+      final long envOptionsHandle, final long optionsHandle);
 
   private native void open(final long handle, final String filePath)
       throws RocksDBException;

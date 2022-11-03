@@ -94,9 +94,12 @@ public class FileOperationInfo {
     if (o == null || getClass() != o.getClass())
       return false;
     final FileOperationInfo that = (FileOperationInfo) o;
-    if (offset == that.offset) if (length == that.length) if (startTimestamp == that.startTimestamp)
-      if (duration == that.duration)
-        if (Objects.equals(path, that.path)) return Objects.equals(status, that.status);
+    if (offset == that.offset)
+      if (length == that.length)
+        if (startTimestamp == that.startTimestamp)
+          if (duration == that.duration)
+            if (Objects.equals(path, that.path))
+              return Objects.equals(status, that.status);
     return false;
   }
 
@@ -107,6 +110,8 @@ public class FileOperationInfo {
 
   @Override
   public String toString() {
-    return MessageFormat.format("FileOperationInfo'{'path=''{0}'', offset={1}, length={2}, startTimestamp={3}, duration={4}, status={5}'}'", path, offset, length, startTimestamp, duration, status);
+    return MessageFormat.format(
+        "FileOperationInfo'{'path=''{0}'', offset={1}, length={2}, startTimestamp={3}, duration={4}, status={5}'}'",
+        path, offset, length, startTimestamp, duration, status);
   }
 }

@@ -81,10 +81,11 @@ public class ExternalFileIngestionInfo {
     if (o == null || getClass() != o.getClass())
       return false;
     final ExternalFileIngestionInfo that = (ExternalFileIngestionInfo) o;
-    if (globalSeqno == that.globalSeqno) if (Objects.equals(columnFamilyName, that.columnFamilyName))
-      if (Objects.equals(externalFilePath, that.externalFilePath))
-        if (Objects.equals(internalFilePath, that.internalFilePath))
-          return Objects.equals(tableProperties, that.tableProperties);
+    if (globalSeqno == that.globalSeqno)
+      if (Objects.equals(columnFamilyName, that.columnFamilyName))
+        if (Objects.equals(externalFilePath, that.externalFilePath))
+          if (Objects.equals(internalFilePath, that.internalFilePath))
+            return Objects.equals(tableProperties, that.tableProperties);
     return false;
   }
 
@@ -96,6 +97,8 @@ public class ExternalFileIngestionInfo {
 
   @Override
   public String toString() {
-    return MessageFormat.format("ExternalFileIngestionInfo'{'columnFamilyName=''{0}'', externalFilePath=''{1}'', internalFilePath=''{2}'', globalSeqno={3}, tableProperties={4}'}'", columnFamilyName, externalFilePath, internalFilePath, globalSeqno, tableProperties);
+    return MessageFormat.format(
+        "ExternalFileIngestionInfo'{'columnFamilyName=''{0}'', externalFilePath=''{1}'', internalFilePath=''{2}'', globalSeqno={3}, tableProperties={4}'}'",
+        columnFamilyName, externalFilePath, internalFilePath, globalSeqno, tableProperties);
   }
 }

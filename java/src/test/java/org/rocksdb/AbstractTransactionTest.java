@@ -21,12 +21,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Base class of {@link TransactionTest} and {@link OptimisticTransactionTest}
  */
 public abstract class AbstractTransactionTest {
-
   protected static final String EXPECTED_EXCEPTION =
       "Expected an exception for put after getForUpdate from conflicting transactions";
 
-  static final byte[] TXN_TEST_COLUMN_FAMILY = "txn_test_cf"
-      .getBytes();
+  static final byte[] TXN_TEST_COLUMN_FAMILY = "txn_test_cf".getBytes();
 
   protected static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
@@ -209,12 +207,8 @@ public abstract class AbstractTransactionTest {
   @Test
   @Deprecated
   public final void multiGetPut_cf() throws RocksDBException {
-    final byte[][] keys = new byte[][] {
-        "key1".getBytes(UTF_8),
-        "key2".getBytes(UTF_8)};
-    final byte[][] values = new byte[][] {
-        "value1".getBytes(UTF_8),
-        "value2".getBytes(UTF_8)};
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
 
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
@@ -314,12 +308,8 @@ public abstract class AbstractTransactionTest {
   @Test
   @Deprecated
   public final void multiGetForUpdate_cf() throws RocksDBException {
-    final byte[][] keys = new byte[][] {
-        "key1".getBytes(UTF_8),
-        "key2".getBytes(UTF_8)};
-    final byte[][] values = new byte[][] {
-        "value1".getBytes(UTF_8),
-        "value2".getBytes(UTF_8)};
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
 
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
@@ -327,28 +317,22 @@ public abstract class AbstractTransactionTest {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       final List<ColumnFamilyHandle> cfList = Arrays.asList(testCf, testCf);
 
-      assertThat(txn.multiGetForUpdate(readOptions, cfList, keys))
-          .containsExactly(null, null);
+      assertThat(txn.multiGetForUpdate(readOptions, cfList, keys)).containsExactly(null, null);
 
       txn.put(testCf, keys[0], values[0]);
       txn.put(testCf, keys[1], values[1]);
-      assertThat(txn.multiGetForUpdate(readOptions, cfList, keys))
-          .containsExactly(values);
+      assertThat(txn.multiGetForUpdate(readOptions, cfList, keys)).containsExactly(values);
     }
   }
 
   @Test
   public final void multiGetForUpdateAsList_cf() throws RocksDBException {
-    final byte[][] keys = new byte[][] {
-        "key1".getBytes(UTF_8),
-        "key2".getBytes(UTF_8)};
-    final byte[][] values = new byte[][] {
-        "value1".getBytes(UTF_8),
-        "value2".getBytes(UTF_8)};
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
 
-    try(final DBContainer dbContainer = startDb();
-        final ReadOptions readOptions = new ReadOptions();
-        final Transaction txn = dbContainer.beginTransaction()) {
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       final List<ColumnFamilyHandle> cfList = Arrays.asList(testCf, testCf);
 
@@ -365,12 +349,8 @@ public abstract class AbstractTransactionTest {
   @Test
   @Deprecated
   public final void multiGetForUpdate() throws RocksDBException {
-    final byte[][] keys = new byte[][]{
-        "key1".getBytes(UTF_8),
-        "key2".getBytes(UTF_8)};
-    final byte[][] values = new byte[][]{
-        "value1".getBytes(UTF_8),
-        "value2".getBytes(UTF_8)};
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
 
     try (final DBContainer dbContainer = startDb();
          final ReadOptions readOptions = new ReadOptions();
@@ -385,21 +365,19 @@ public abstract class AbstractTransactionTest {
 
   @Test
   public final void multiGetForUpdateAsList() throws RocksDBException {
-    final byte[][] keys = new byte[][]{
-        "key1".getBytes(UTF_8),
-        "key2".getBytes(UTF_8)};
-    final byte[][] values = new byte[][]{
-        "value1".getBytes(UTF_8),
-        "value2".getBytes(UTF_8)};
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
 
     try (final DBContainer dbContainer = startDb();
          final ReadOptions readOptions = new ReadOptions();
          final Transaction txn = dbContainer.beginTransaction()) {
-      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys))).containsExactly(null, null);
+      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys)))
+          .containsExactly(null, null);
 
       txn.put(keys[0], values[0]);
       txn.put(keys[1], values[1]);
-      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys))).containsExactly(values);
+      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys)))
+          .containsExactly(values);
     }
   }
 
@@ -467,7 +445,6 @@ public abstract class AbstractTransactionTest {
     }
   }
 
-
   @Test
   public final void delete_cf() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
@@ -503,12 +480,8 @@ public abstract class AbstractTransactionTest {
 
   @Test
   public final void delete_parts_cf() throws RocksDBException {
-    final byte[][] keyParts = new byte[][] {
-        "ke".getBytes(UTF_8),
-        "y1".getBytes(UTF_8)};
-    final byte[][] valueParts = new byte[][] {
-        "val".getBytes(UTF_8),
-        "ue1".getBytes(UTF_8)};
+    final byte[][] keyParts = new byte[][] {"ke".getBytes(UTF_8), "y1".getBytes(UTF_8)};
+    final byte[][] valueParts = new byte[][] {"val".getBytes(UTF_8), "ue1".getBytes(UTF_8)};
     final byte[] key = concat(keyParts);
     final byte[] value = concat(valueParts);
 
@@ -528,12 +501,8 @@ public abstract class AbstractTransactionTest {
 
   @Test
   public final void delete_parts() throws RocksDBException {
-    final byte[][] keyParts = new byte[][] {
-        "ke".getBytes(UTF_8),
-        "y1".getBytes(UTF_8)};
-    final byte[][] valueParts = new byte[][] {
-        "val".getBytes(UTF_8),
-        "ue1".getBytes(UTF_8)};
+    final byte[][] keyParts = new byte[][] {"ke".getBytes(UTF_8), "y1".getBytes(UTF_8)};
+    final byte[][] valueParts = new byte[][] {"val".getBytes(UTF_8), "ue1".getBytes(UTF_8)};
     final byte[] key = concat(keyParts);
     final byte[] value = concat(valueParts);
 
@@ -581,12 +550,8 @@ public abstract class AbstractTransactionTest {
   @Deprecated
   @Test
   public final void multiGetPutUntracked_cf() throws RocksDBException {
-    final byte[][] keys = new byte[][] {
-        "key1".getBytes(UTF_8),
-        "key2".getBytes(UTF_8)};
-    final byte[][] values = new byte[][] {
-        "value1".getBytes(UTF_8),
-        "value2".getBytes(UTF_8)};
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
 
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
@@ -626,12 +591,8 @@ public abstract class AbstractTransactionTest {
   @Deprecated
   @Test
   public final void multiGetPutUntracked() throws RocksDBException {
-    final byte[][] keys = new byte[][] {
-        "key1".getBytes(UTF_8),
-        "key2".getBytes(UTF_8)};
-    final byte[][] values = new byte[][] {
-        "value1".getBytes(UTF_8),
-        "value2".getBytes(UTF_8)};
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
 
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
@@ -717,12 +678,8 @@ public abstract class AbstractTransactionTest {
 
   @Test
   public final void deleteUntracked_parts_cf() throws RocksDBException {
-    final byte[][] keyParts = new byte[][] {
-        "ke".getBytes(UTF_8),
-        "y1".getBytes(UTF_8)};
-    final byte[][] valueParts = new byte[][] {
-        "val".getBytes(UTF_8),
-        "ue1".getBytes(UTF_8)};
+    final byte[][] keyParts = new byte[][] {"ke".getBytes(UTF_8), "y1".getBytes(UTF_8)};
+    final byte[][] valueParts = new byte[][] {"val".getBytes(UTF_8), "ue1".getBytes(UTF_8)};
     final byte[] key = concat(keyParts);
     final byte[] value = concat(valueParts);
 
@@ -740,12 +697,8 @@ public abstract class AbstractTransactionTest {
 
   @Test
   public final void deleteUntracked_parts() throws RocksDBException {
-    final byte[][] keyParts = new byte[][] {
-        "ke".getBytes(UTF_8),
-        "y1".getBytes(UTF_8)};
-    final byte[][] valueParts = new byte[][] {
-        "val".getBytes(UTF_8),
-        "ue1".getBytes(UTF_8)};
+    final byte[][] keyParts = new byte[][] {"ke".getBytes(UTF_8), "y1".getBytes(UTF_8)};
+    final byte[][] valueParts = new byte[][] {"val".getBytes(UTF_8), "ue1".getBytes(UTF_8)};
     final byte[] key = concat(keyParts);
     final byte[] value = concat(valueParts);
 
@@ -982,8 +935,7 @@ public abstract class AbstractTransactionTest {
       extends AbstractTransactionNotifier {
     private final List<Snapshot> createdSnapshots = new ArrayList<>(1);
 
-    TestTransactionNotifier() {
-    }
+    TestTransactionNotifier() {}
 
     @Override
     public final void snapshotCreated(final Snapshot newSnapshot) {
@@ -995,17 +947,14 @@ public abstract class AbstractTransactionTest {
     }
   }
 
-   protected abstract static class DBContainer
-      implements AutoCloseable {
+  protected abstract static class DBContainer implements AutoCloseable {
     protected final WriteOptions writeOptions;
     protected final List<ColumnFamilyHandle> columnFamilyHandles;
     protected final ColumnFamilyOptions columnFamilyOptions;
     protected final DBOptions options;
 
-    DBContainer(final WriteOptions writeOptions,
-                final List<ColumnFamilyHandle> columnFamilyHandles,
-                final ColumnFamilyOptions columnFamilyOptions,
-                final DBOptions options) {
+    DBContainer(final WriteOptions writeOptions, final List<ColumnFamilyHandle> columnFamilyHandles,
+        final ColumnFamilyOptions columnFamilyOptions, final DBOptions options) {
       this.writeOptions = writeOptions;
       this.columnFamilyHandles = columnFamilyHandles;
       this.columnFamilyOptions = columnFamilyOptions;

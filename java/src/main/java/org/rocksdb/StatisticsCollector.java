@@ -58,7 +58,7 @@ public class StatisticsCollector {
     _executorService.shutdownNow();
     // Wait for collectStatistics runnable to finish so that disposal of
     // statistics does not cause any exceptions to be thrown.
-    //noinspection ResultOfMethodCallIgnored
+    // noinspection ResultOfMethodCallIgnored
     _executorService.awaitTermination(shutdownTimeout, TimeUnit.MILLISECONDS);
   }
 
@@ -66,43 +66,38 @@ public class StatisticsCollector {
     return () -> {
       while (_isRunning) {
         try {
-          if(Thread.currentThread().isInterrupted()) {
-            //noinspection BreakStatement
+          if (Thread.currentThread().isInterrupted()) {
+            // noinspection BreakStatement
             break;
           }
-          for(final StatsCollectorInput statsCollectorInput :
-              _statsCollectorInputList) {
+          for (final StatsCollectorInput statsCollectorInput : _statsCollectorInputList) {
             final Statistics statistics = statsCollectorInput.getStatistics();
-            final StatisticsCollectorCallback statsCallback =
-                statsCollectorInput.getCallback();
+            final StatisticsCollectorCallback statsCallback = statsCollectorInput.getCallback();
 
             // Collect ticker data
-            for(final TickerType ticker : TickerType.values()) {
-              if(ticker != TickerType.TICKER_ENUM_MAX) {
+            for (final TickerType ticker : TickerType.values()) {
+              if (ticker != TickerType.TICKER_ENUM_MAX) {
                 final long tickerValue = statistics.getTickerCount(ticker);
                 statsCallback.tickerCallback(ticker, tickerValue);
               }
             }
 
             // Collect histogram data
-            for(final HistogramType histogramType : HistogramType.values()) {
-              if(histogramType != HistogramType.HISTOGRAM_ENUM_MAX) {
-                final HistogramData histogramData =
-                        statistics.getHistogramData(histogramType);
+            for (final HistogramType histogramType : HistogramType.values()) {
+              if (histogramType != HistogramType.HISTOGRAM_ENUM_MAX) {
+                final HistogramData histogramData = statistics.getHistogramData(histogramType);
                 statsCallback.histogramCallback(histogramType, histogramData);
               }
             }
           }
 
-          //noinspection BusyWait
+          // noinspection BusyWait
           Thread.sleep(_statsCollectionInterval);
-        }
-        catch (final InterruptedException e) {
+        } catch (final InterruptedException e) {
           Thread.currentThread().interrupt();
-          //noinspection BreakStatement
+          // noinspection BreakStatement
           break;
-        }
-        catch (final RuntimeException e) {
+        } catch (final RuntimeException e) {
           throw new RocksDBRuntimeException("Error while calculating statistics", e);
         }
       }

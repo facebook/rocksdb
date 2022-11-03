@@ -864,12 +864,11 @@ public enum TickerType {
      */
     @SuppressWarnings("unused")
     public static TickerType getTickerType(final byte value) {
-        for (final TickerType tickerType : values()) {
-            if (tickerType.value == value) {
-                return tickerType;
-            }
+      for (final TickerType tickerType : values()) {
+        if (tickerType.value == value) {
+          return tickerType;
         }
-        throw new IllegalArgumentException(
-            "Illegal value provided for TickerType.");
+      }
+      throw new IllegalArgumentException("Illegal value provided for TickerType.");
     }
 }

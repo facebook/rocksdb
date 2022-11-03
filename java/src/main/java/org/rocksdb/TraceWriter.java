@@ -32,6 +32,5 @@ public interface TraceWriter {
    *
    * @return the file size
    */
-  @SuppressWarnings("unused")
-  long getFileSize();
+  @SuppressWarnings("unused") long getFileSize();
 }

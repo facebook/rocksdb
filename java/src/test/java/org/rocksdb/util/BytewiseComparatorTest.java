@@ -5,6 +5,24 @@
 
 package org.rocksdb.util;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Fail.fail;
+import static org.rocksdb.util.ByteUtil.bytes;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.security.SecureRandom;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.TreeMap;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -22,25 +40,6 @@ import org.rocksdb.RocksIteratorInterface;
 import org.rocksdb.RocksNativeLibraryResource;
 import org.rocksdb.WriteOptions;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.file.FileSystems;
-import java.nio.file.Path;
-import java.security.SecureRandom;
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.TreeMap;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.assertj.core.api.Fail.fail;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.rocksdb.util.ByteUtil.bytes;
-
 /**
  * This is a direct port of various C++
  * tests from db/comparator_db_test.cc
@@ -48,7 +47,6 @@ import static org.rocksdb.util.ByteUtil.bytes;
  */
 @SuppressWarnings({"ObjectAllocationInLoop", "MultipleExceptionsDeclaredOnTestMethod"})
 public class BytewiseComparatorTest {
-
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
       new RocksNativeLibraryResource();
@@ -57,7 +55,8 @@ public class BytewiseComparatorTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   private final List<String> source_strings = Arrays.asList("b", "d", "f", "h", "j", "l");
-  private final List<String> interleaving_strings = Arrays.asList("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m");
+  private final List<String> interleaving_strings =
+      Arrays.asList("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m");
 
   /**
    * Open the database using the C++ BytewiseComparatorImpl
@@ -71,17 +70,13 @@ public class BytewiseComparatorTest {
           FileSystems.getDefault().getPath(dbFolder.newFolder().getAbsolutePath());
       try(final RocksDB db = openDatabase(dbDir,
           BuiltinComparator.BYTEWISE_COMPARATOR)) {
-
-        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
+        final Random rnd = new SecureRandom(
+            new byte[] {(byte) (rand_seed & 0xff), (byte) (rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
             .setUseDirectBuffer(false);
             final AbstractComparator comparator2 = new BytewiseComparator(copt2)) {
           final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
-          doRandomIterationTest(
-              db,
-              jComparator,
-              rnd
-          );
+          doRandomIterationTest(db, jComparator, rnd);
         }
       }
     }
@@ -101,17 +96,13 @@ public class BytewiseComparatorTest {
           .setUseDirectBuffer(false);
           final AbstractComparator comparator = new BytewiseComparator(copt);
           final RocksDB db = openDatabase(dbDir, comparator)) {
-
-        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
+        final Random rnd = new SecureRandom(
+            new byte[] {(byte) (rand_seed & 0xff), (byte) (rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
             .setUseDirectBuffer(false);
             final AbstractComparator comparator2 = new BytewiseComparator(copt2)) {
           final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
-          doRandomIterationTest(
-              db,
-              jComparator,
-              rnd
-          );
+          doRandomIterationTest(db, jComparator, rnd);
         }
       }
     }
@@ -129,17 +120,13 @@ public class BytewiseComparatorTest {
           FileSystems.getDefault().getPath(dbFolder.newFolder().getAbsolutePath());
       try(final RocksDB db = openDatabase(dbDir,
           BuiltinComparator.BYTEWISE_COMPARATOR)) {
-
-        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
+        final Random rnd = new SecureRandom(
+            new byte[] {(byte) (rand_seed & 0xff), (byte) (rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
               .setUseDirectBuffer(true);
             final AbstractComparator comparator2 = new BytewiseComparator(copt2)) {
           final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
-          doRandomIterationTest(
-              db,
-              jComparator,
-              rnd
-          );
+          doRandomIterationTest(db, jComparator, rnd);
         }
       }
     }
@@ -159,17 +146,13 @@ public class BytewiseComparatorTest {
            .setUseDirectBuffer(true);
           final AbstractComparator comparator = new BytewiseComparator(copt);
           final RocksDB db = openDatabase(dbDir, comparator)) {
-
-        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
+        final Random rnd = new SecureRandom(
+            new byte[] {(byte) (rand_seed & 0xff), (byte) (rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
               .setUseDirectBuffer(true);
             final AbstractComparator comparator2 = new BytewiseComparator(copt2)) {
           final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
-          doRandomIterationTest(
-              db,
-              jComparator,
-              rnd
-          );
+          doRandomIterationTest(db, jComparator, rnd);
         }
       }
     }
@@ -187,17 +170,13 @@ public class BytewiseComparatorTest {
           FileSystems.getDefault().getPath(dbFolder.newFolder().getAbsolutePath());
       try(final RocksDB db = openDatabase(dbDir,
           BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR)) {
-
-        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
+        final Random rnd = new SecureRandom(
+            new byte[] {(byte) (rand_seed & 0xff), (byte) (rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
             .setUseDirectBuffer(false);
             final AbstractComparator comparator2 = new ReverseBytewiseComparator(copt2)) {
           final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
-          doRandomIterationTest(
-              db,
-              jComparator,
-              rnd
-          );
+          doRandomIterationTest(db, jComparator, rnd);
         }
       }
     }
@@ -217,26 +196,20 @@ public class BytewiseComparatorTest {
            .setUseDirectBuffer(false);
            final AbstractComparator comparator = new ReverseBytewiseComparator(copt);
            final RocksDB db = openDatabase(dbDir, comparator)) {
-
-        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
+        final Random rnd = new SecureRandom(
+            new byte[] {(byte) (rand_seed & 0xff), (byte) (rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
             .setUseDirectBuffer(false);
             final AbstractComparator comparator2 = new ReverseBytewiseComparator(copt2)) {
           final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
-          doRandomIterationTest(
-              db,
-              jComparator,
-              rnd
-          );
+          doRandomIterationTest(db, jComparator, rnd);
         }
       }
     }
   }
 
-  private void doRandomIterationTest(
-      final RocksDB db, final Comparator<String> javaComparator,
+  private void doRandomIterationTest(final RocksDB db, final Comparator<String> javaComparator,
       final Random rnd) throws RocksDBException {
-
     final int num_writes = 8;
     final int num_iter_ops = 100;
     final int num_trigger_flush = 3;
@@ -313,7 +286,7 @@ public class BytewiseComparatorTest {
               iter.next();
               result_iter.next();
             } else {
-              //noinspection ContinueStatement
+              // noinspection ContinueStatement
               continue;
             }
             break;
@@ -323,7 +296,7 @@ public class BytewiseComparatorTest {
               iter.prev();
               result_iter.prev();
             } else {
-              //noinspection ContinueStatement
+              // noinspection ContinueStatement
               continue;
             }
             break;
@@ -335,7 +308,7 @@ public class BytewiseComparatorTest {
             result_iter.seekToFirst();
             break;
           default: {
-            //noinspection ConstantConditions
+            // noinspection ConstantConditions
             assert (type == 7);
             final int key_idx = rnd.nextInt(source_strings.size());
             final String key = source_strings.get(key_idx);
@@ -367,8 +340,7 @@ public class BytewiseComparatorTest {
   /**
    * Open the database using a C++ Comparator
    */
-  private static RocksDB openDatabase(
-      final Path dbDir, final BuiltinComparator cppComparator)
+  private static RocksDB openDatabase(final Path dbDir, final BuiltinComparator cppComparator)
       throws RocksDBException {
     final Options options = new Options()
         .setCreateIfMissing(true)
@@ -379,9 +351,7 @@ public class BytewiseComparatorTest {
   /**
    * Open the database using a Java Comparator
    */
-  private static RocksDB openDatabase(
-      final Path dbDir,
-      final AbstractComparator javaComparator)
+  private static RocksDB openDatabase(final Path dbDir, final AbstractComparator javaComparator)
       throws RocksDBException {
     final Options options = new Options()
         .setCreateIfMissing(true)
@@ -420,7 +390,6 @@ public class BytewiseComparatorTest {
       entries.addAll(map.entrySet());
       this.comparator = map.comparator();
     }
-
 
     @Override
     public boolean isValid() {
@@ -500,7 +469,8 @@ public class BytewiseComparatorTest {
     @Override
     public void status() throws RocksDBException {
       if(offset < 0 || offset >= entries.size()) {
-        throw new RocksDBException(MessageFormat.format("Index out of bounds. Size is: {0}, offset is: {1}", entries.size(), offset));
+        throw new RocksDBException(MessageFormat.format(
+            "Index out of bounds. Size is: {0}, offset is: {1}", entries.size(), offset));
       }
     }
 
@@ -509,7 +479,7 @@ public class BytewiseComparatorTest {
       if (isValid()) {
         return entries.get(offset).getKey();
       } else {
-        //noinspection IfStatementWithTooManyBranches
+        // noinspection IfStatementWithTooManyBranches
         if (entries.isEmpty()) {
           return (K) "";
         } else if (offset == -1) {

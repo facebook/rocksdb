@@ -5,13 +5,12 @@
 
 package org.rocksdb.util;
 
+import static org.rocksdb.util.ByteUtil.memcmp;
+
+import java.nio.ByteBuffer;
 import org.rocksdb.AbstractComparator;
 import org.rocksdb.ComparatorOptions;
 import org.rocksdb.Slice;
-
-import java.nio.ByteBuffer;
-
-import static org.rocksdb.util.ByteUtil.memcmp;
 
 /**
  * This is a Java Native implementation of the C++
@@ -73,11 +72,11 @@ public final class BytewiseComparator extends AbstractComparator {
         // already the shortest possible.
         return;
       }
-      //noinspection ConstantConditions
+      // noinspection ConstantConditions
       assert(startByte < limitByte);
 
       if (diffIndex < limit.remaining() - 1 || startByte + 1 < limitByte) {
-        //noinspection NumericCastThatLosesPrecision
+        // noinspection NumericCastThatLosesPrecision
         start.put(diffIndex, (byte)((start.get(diffIndex) & 0xff) + 1));
         start.limit(diffIndex + 1);
       } else {
@@ -95,10 +94,10 @@ public final class BytewiseComparator extends AbstractComparator {
           // increment it
           if ((start.get(diffIndex) & 0xff) <
               0xff) {
-            //noinspection NumericCastThatLosesPrecision
+            // noinspection NumericCastThatLosesPrecision
             start.put(diffIndex, (byte)((start.get(diffIndex) & 0xff) + 1));
             start.limit(diffIndex + 1);
-            //noinspection BreakStatement
+            // noinspection BreakStatement
             break;
           }
           diffIndex++;
@@ -115,7 +114,7 @@ public final class BytewiseComparator extends AbstractComparator {
     for (int i = 0; i < n; i++) {
       final int byt = key.get(i) & 0xff;
       if (byt != 0xff) {
-        //noinspection NumericCastThatLosesPrecision
+        // noinspection NumericCastThatLosesPrecision
         key.put(i, (byte)(byt + 1));
         key.limit(i+1);
         return;

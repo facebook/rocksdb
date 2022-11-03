@@ -152,7 +152,7 @@ public class Transaction extends RocksObject {
     assert(isOwningHandle());
     final long snapshotNativeHandle = getSnapshot(nativeHandle_);
     if(snapshotNativeHandle == 0) {
-      //noinspection ReturnOfNull
+      // noinspection ReturnOfNull
       return null;
     } else {
       return new Snapshot(snapshotNativeHandle);
@@ -342,8 +342,8 @@ public class Transaction extends RocksObject {
    */
   @Deprecated
   public byte[][] multiGet(final ReadOptions readOptions,
-                           final List<ColumnFamilyHandle> columnFamilyHandles,
-                           final byte[][] keys) throws RocksDBException {
+      final List<ColumnFamilyHandle> columnFamilyHandles, final byte[][] keys)
+      throws RocksDBException {
     assert(isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
@@ -439,8 +439,8 @@ public class Transaction extends RocksObject {
    *    native library.
    */
   @Deprecated
-  public byte[][] multiGet(final ReadOptions readOptions,
-                           final byte[][] keys) throws RocksDBException {
+  public byte[][] multiGet(final ReadOptions readOptions, final byte[][] keys)
+      throws RocksDBException {
     assert(isOwningHandle());
     if(keys.length == 0) {
       return EMPTY_BYTES;
@@ -534,8 +534,8 @@ public class Transaction extends RocksObject {
    */
   @SuppressWarnings("unused")
   public byte[] getForUpdate(final ReadOptions readOptions,
-                             final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final boolean exclusive,
-                             final boolean doValidate) throws RocksDBException {
+      final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final boolean exclusive,
+      final boolean doValidate) throws RocksDBException {
     assert (isOwningHandle());
     return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
         columnFamilyHandle.nativeHandle_, exclusive, doValidate);
@@ -1430,9 +1430,8 @@ public class Transaction extends RocksObject {
    *     described above occurs, or in the case of an unexpected error
    */
   @SuppressWarnings("unused")
-  public void putUntracked(final ColumnFamilyHandle columnFamilyHandle,
-                           final byte[][] keyParts, final byte[][] valueParts)
-      throws RocksDBException {
+  public void putUntracked(final ColumnFamilyHandle columnFamilyHandle, final byte[][] keyParts,
+      final byte[][] valueParts) throws RocksDBException {
     assert(isOwningHandle());
     putUntracked(nativeHandle_, keyParts, keyParts.length, valueParts,
         valueParts.length, columnFamilyHandle.nativeHandle_);
@@ -1950,8 +1949,7 @@ public class Transaction extends RocksObject {
      * Keep old misspelled variable as alias
      * Tip from https://stackoverflow.com/a/37092410/454544
      */
-    @SuppressWarnings("unused")
-    public static final TransactionState COMMITED = COMMITTED;
+    @SuppressWarnings("unused") public static final TransactionState COMMITED = COMMITTED;
 
     private final byte value;
 
@@ -1991,8 +1989,7 @@ public class Transaction extends RocksObject {
    */
   @SuppressWarnings({"unused", "MethodMayBeStatic"})
   private WaitingTransactions newWaitingTransactions(
-      final long columnFamilyId, final String key,
-      final long[] transactionIds) {
+      final long columnFamilyId, final String key, final long[] transactionIds) {
     return new WaitingTransactions(columnFamilyId, key, transactionIds);
   }
 
@@ -2049,11 +2046,10 @@ public class Transaction extends RocksObject {
   private native void setSavePoint(final long handle) throws RocksDBException;
   private native void rollbackToSavePoint(final long handle)
       throws RocksDBException;
-  private native byte[] get(final long handle, final long readOptionsHandle,
-                            final byte[] key, final int keyLength, final long columnFamilyHandle)
-      throws RocksDBException;
-  private native byte[] get(final long handle, final long readOptionsHandle,
-                            final byte[] key, final int keyLen) throws RocksDBException;
+  private native byte[] get(final long handle, final long readOptionsHandle, final byte[] key,
+      final int keyLength, final long columnFamilyHandle) throws RocksDBException;
+  private native byte[] get(final long handle, final long readOptionsHandle, final byte[] key,
+      final int keyLen) throws RocksDBException;
   private native byte[][] multiGet(final long handle,
       final long readOptionsHandle, final byte[][] keys,
       final long[] columnFamilyHandles) throws RocksDBException;
@@ -2061,10 +2057,10 @@ public class Transaction extends RocksObject {
       final long readOptionsHandle, final byte[][] keys)
       throws RocksDBException;
   private native byte[] getForUpdate(final long handle, final long readOptionsHandle,
-                                     final byte[] key, final int keyLength, final long columnFamilyHandle, final boolean exclusive,
-                                     final boolean doValidate) throws RocksDBException;
+      final byte[] key, final int keyLength, final long columnFamilyHandle, final boolean exclusive,
+      final boolean doValidate) throws RocksDBException;
   private native byte[] getForUpdate(final long handle, final long readOptionsHandle,
-                                     final byte[] key, final int keyLen, final boolean exclusive, final boolean doValidate)
+      final byte[] key, final int keyLen, final boolean exclusive, final boolean doValidate)
       throws RocksDBException;
   private native byte[][] multiGetForUpdate(final long handle,
       final long readOptionsHandle, final byte[][] keys,

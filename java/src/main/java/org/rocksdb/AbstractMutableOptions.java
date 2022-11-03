@@ -11,14 +11,14 @@ import java.util.Objects;
 
 @SuppressWarnings("AbstractClassWithoutAbstractMethods")
 public abstract class AbstractMutableOptions {
-
   private static final String KEY_VALUE_PAIR_SEPARATOR = ";";
   private static final char KEY_VALUE_SEPARATOR = '=';
   static final String INT_ARRAY_INT_SEPARATOR = ":";
 
   private static final String MESSAGE_KEY_HAS_NOT_BEEN_SET = "Key {0} has not been set";
   private static final String MESSAGE_VALUE_IS_NOT_ENUM = "{0} is not of Enum type";
-  private static final String MESSAGE_UNABLE_TO_PARSE_OR_ROUND = "Unable to parse or round {0} to {1}";
+  private static final String MESSAGE_UNABLE_TO_PARSE_OR_ROUND =
+      "Unable to parse or round {0} to {1}";
 
   protected final String[] keys;
   private final String[] values;
@@ -65,10 +65,8 @@ public abstract class AbstractMutableOptions {
   }
 
   public abstract static class AbstractMutableOptionsBuilder<
-      T extends AbstractMutableOptions,
-      U extends AbstractMutableOptionsBuilder<T, U, K>,
-      K extends MutableOptionKey> {
-
+      T extends AbstractMutableOptions, U extends AbstractMutableOptionsBuilder<T, U, K>, K
+          extends MutableOptionKey> {
     private final Map<K, MutableOptionValue<?>> options = new LinkedHashMap<>();
     private final List<OptionString.Entry> unknown = new ArrayList<>();
 
@@ -105,8 +103,7 @@ public abstract class AbstractMutableOptions {
       return build(keys, values);
     }
 
-    protected U setDouble(
-        final K key, final double value) {
+    protected U setDouble(final K key, final double value) {
       if (key.getValueType() != MutableOptionKey.ValueType.DOUBLE) {
         throw new IllegalArgumentException(
             key + " does not accept a double value");
@@ -148,7 +145,8 @@ public abstract class AbstractMutableOptions {
     protected long getLong(final K key) {
       final MutableOptionValue<?> value = options.get(key);
       if(value == null) {
-        throw new NoSuchElementException(MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
+        throw new NoSuchElementException(
+            MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
       }
       return value.asLong();
     }
@@ -172,7 +170,8 @@ public abstract class AbstractMutableOptions {
     protected int getInt(final K key) {
       final MutableOptionValue<?> value = options.get(key);
       if(value == null) {
-        throw new NoSuchElementException(MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
+        throw new NoSuchElementException(
+            MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
       }
       return value.asInt();
     }
@@ -196,7 +195,8 @@ public abstract class AbstractMutableOptions {
     protected boolean getBoolean(final K key) {
       final MutableOptionValue<?> value = options.get(key);
       if(value == null) {
-        throw new NoSuchElementException(MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
+        throw new NoSuchElementException(
+            MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
       }
       return value.asBoolean();
     }
@@ -220,7 +220,8 @@ public abstract class AbstractMutableOptions {
     protected int[] getIntArray(final K key) {
       final MutableOptionValue<?> value = options.get(key);
       if(value == null) {
-        throw new NoSuchElementException(MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
+        throw new NoSuchElementException(
+            MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
       }
       return value.asIntArray();
     }
@@ -245,11 +246,13 @@ public abstract class AbstractMutableOptions {
     protected <N extends Enum<N>> N getEnum(final K key) {
       final MutableOptionValue<?> value = options.get(key);
       if (value == null) {
-        throw new NoSuchElementException(MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
+        throw new NoSuchElementException(
+            MessageFormat.format(MESSAGE_KEY_HAS_NOT_BEEN_SET, key.name()));
       }
 
       if (!(value instanceof MutableOptionValue.MutableOptionEnumValue)) {
-        throw new NoSuchElementException(MessageFormat.format(MESSAGE_VALUE_IS_NOT_ENUM, key.name()));
+        throw new NoSuchElementException(
+            MessageFormat.format(MESSAGE_VALUE_IS_NOT_ENUM, key.name()));
       }
 
       return ((MutableOptionValue.MutableOptionEnumValue<N>) value).asObject();
@@ -265,7 +268,8 @@ public abstract class AbstractMutableOptions {
     private static long parseAsLong(final String value) {
       try {
         return Long.parseLong(value);
-      } catch (final NumberFormatException ignored) {}
+      } catch (final NumberFormatException ignored) {
+      }
 
       final double doubleValue = Double.parseDouble(value);
       if (Double.doubleToLongBits(doubleValue) != Double.doubleToLongBits(Math.round(doubleValue)))
@@ -284,7 +288,8 @@ public abstract class AbstractMutableOptions {
     private static int parseAsInt(final String value) {
       try {
         return Integer.parseInt(value);
-      } catch (final NumberFormatException ignored) {}
+      } catch (final NumberFormatException ignored) {
+      }
 
       final double doubleValue = Double.parseDouble(value);
       if (Double.doubleToLongBits(doubleValue) != Double.doubleToLongBits(Math.round(doubleValue)))
@@ -312,12 +317,15 @@ public abstract class AbstractMutableOptions {
       for (final OptionString.Entry option : options) {
         try {
           if (option.key.isEmpty()) {
-            throw new IllegalArgumentException(MessageFormat.format("options string is invalid: {0}", option));
+            throw new IllegalArgumentException(
+                MessageFormat.format("options string is invalid: {0}", option));
           }
           fromOptionString(option, ignoreUnknown);
         } catch (final NumberFormatException nfe) {
           throw new IllegalArgumentException(
-              MessageFormat.format("{0}={1} - not a valid value for its type", option.key, option.value), nfe);
+              MessageFormat.format(
+                  "{0}={1} - not a valid value for its type", option.key, option.value),
+              nfe);
         }
       }
 
@@ -349,16 +357,16 @@ public abstract class AbstractMutableOptions {
       }
 
       if (!option.value.isList()) {
-        throw new IllegalArgumentException(
-            MessageFormat.format("Option: {0}={1} is not a simple value or list, don't know how to parse it", option.key, key));
+        throw new IllegalArgumentException(MessageFormat.format(
+            "Option: {0}={1} is not a simple value or list, don't know how to parse it", option.key,
+            key));
       }
 
       // Check that simple values are the single item in the array
       if (key.getValueType() != MutableOptionKey.ValueType.INT_ARRAY) {
         {
           if (option.value.list.size() != 1) {
-            throw new IllegalArgumentException(
-                MessageFormat.format(
+            throw new IllegalArgumentException(MessageFormat.format(
                 "Simple value does not have exactly 1 item: {0}", option.value.list));
           }
         }
@@ -402,7 +410,8 @@ public abstract class AbstractMutableOptions {
           }
 
         default:
-          throw new IllegalStateException(MessageFormat.format("{0} has unknown value type: {1}", key, key.getValueType()));
+          throw new IllegalStateException(
+              MessageFormat.format("{0} has unknown value type: {1}", key, key.getValueType()));
       }
     }
 

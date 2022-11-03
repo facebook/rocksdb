@@ -64,8 +64,7 @@ public class TtlDB extends RocksDB {
    *     part of the library.
    */
   @SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
-  public static TtlDB open(final Options options, final String db_path)
-      throws RocksDBException {
+  public static TtlDB open(final Options options, final String db_path) throws RocksDBException {
     return open(options, db_path, 0, false);
   }
 
@@ -127,7 +126,7 @@ public class TtlDB extends RocksDB {
 
     final int[] ttlVals = new int[ttlValues.size()];
     for(int i = 0; i < ttlValues.size(); i++) {
-      //noinspection AutoUnboxing
+      // noinspection AutoUnboxing
       ttlVals[i] = ttlValues.get(i);
     }
     final long[] handles = openCF(options.nativeHandle_, db_path,
@@ -135,7 +134,7 @@ public class TtlDB extends RocksDB {
 
     final TtlDB ttlDB = new TtlDB(handles[0]);
     for (int i = 1; i < handles.length; i++) {
-      //noinspection ObjectAllocationInLoop
+      // noinspection ObjectAllocationInLoop
       columnFamilyHandles.add(new ColumnFamilyHandle(ttlDB, handles[i]));
     }
     return ttlDB;
@@ -232,17 +231,14 @@ public class TtlDB extends RocksDB {
 
   @Override protected native void disposeInternal(final long handle);
 
-  private static native long open(final long optionsHandle,
-                                  final String db_path, final int ttl, final boolean readOnly)
-      throws RocksDBException;
-  private static native long[] openCF(final long optionsHandle,
-                                      final String db_path, final byte[][] columnFamilyNames,
-                                      final long[] columnFamilyOptions, final int[] ttlValues,
-                                      final boolean readOnly) throws RocksDBException;
+  private static native long open(final long optionsHandle, final String db_path, final int ttl,
+      final boolean readOnly) throws RocksDBException;
+  private static native long[] openCF(final long optionsHandle, final String db_path,
+      final byte[][] columnFamilyNames, final long[] columnFamilyOptions, final int[] ttlValues,
+      final boolean readOnly) throws RocksDBException;
   private native long createColumnFamilyWithTtl(final long handle,
       final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
       throws RocksDBException;
   @SuppressWarnings("MethodOverridesInaccessibleMethodOfSuper")
-  private static native void closeDatabase(final long handle)
-      throws RocksDBException;
+  private static native void closeDatabase(final long handle) throws RocksDBException;
 }

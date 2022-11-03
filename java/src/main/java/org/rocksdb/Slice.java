@@ -18,10 +18,8 @@ public class Slice extends AbstractSlice<byte[]> {
   /**
    * Indicates whether we have to free the memory pointed to by the Slice
    */
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private volatile boolean cleared;
-  @SuppressWarnings("RedundantFieldInitialization")
-  private volatile long internalBufferOffset = 0;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private volatile boolean cleared;
+  @SuppressWarnings("RedundantFieldInitialization") private volatile long internalBufferOffset = 0;
 
   /**
    * <p>Called from JNI to construct a new Java Slice
@@ -105,7 +103,7 @@ public class Slice extends AbstractSlice<byte[]> {
   @Override
   public void removePrefix(final int n) {
     removePrefix0(getNativeHandle(), n);
-    //noinspection NonAtomicOperationOnVolatileField
+    // noinspection NonAtomicOperationOnVolatileField
     this.internalBufferOffset += n;
   }
 
@@ -128,8 +126,7 @@ public class Slice extends AbstractSlice<byte[]> {
   }
 
   @Override protected final native byte[] data0(long handle);
-  private static native long createNewSlice0(final byte[] data,
-                                             final int length);
+  private static native long createNewSlice0(final byte[] data, final int length);
   private static native long createNewSlice1(final byte[] data);
   private native void clear0(long handle, boolean internalBuffer,
       long internalBufferOffset);

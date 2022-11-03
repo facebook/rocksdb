@@ -92,9 +92,11 @@ public class TableFileCreationBriefInfo {
     if (o == null || getClass() != o.getClass())
       return false;
     final TableFileCreationBriefInfo that = (TableFileCreationBriefInfo) o;
-    if (jobId == that.jobId) if (Objects.equals(dbName, that.dbName))
-      if (Objects.equals(columnFamilyName, that.columnFamilyName))
-        if (Objects.equals(filePath, that.filePath)) return reason == that.reason;
+    if (jobId == that.jobId)
+      if (Objects.equals(dbName, that.dbName))
+        if (Objects.equals(columnFamilyName, that.columnFamilyName))
+          if (Objects.equals(filePath, that.filePath))
+            return reason == that.reason;
     return false;
   }
 
@@ -105,6 +107,8 @@ public class TableFileCreationBriefInfo {
 
   @Override
   public String toString() {
-    return MessageFormat.format("TableFileCreationBriefInfo'{'dbName=''{0}'', columnFamilyName=''{1}'', filePath=''{2}'', jobId={3}, reason={4}'}'", dbName, columnFamilyName, filePath, jobId, reason);
+    return MessageFormat.format(
+        "TableFileCreationBriefInfo'{'dbName=''{0}'', columnFamilyName=''{1}'', filePath=''{2}'', jobId={3}, reason={4}'}'",
+        dbName, columnFamilyName, filePath, jobId, reason);
   }
 }

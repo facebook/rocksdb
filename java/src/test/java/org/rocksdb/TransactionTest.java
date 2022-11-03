@@ -445,12 +445,10 @@ public class TransactionTest extends AbstractTransactionTest {
     private final TransactionDB txnDb;
     private final TransactionDBOptions txnDbOptions;
 
-    private TransactionDBContainer(
-        final TransactionOptions txnOptions, final WriteOptions writeOptions,
-        final List<ColumnFamilyHandle> columnFamilyHandles,
+    private TransactionDBContainer(final TransactionOptions txnOptions,
+        final WriteOptions writeOptions, final List<ColumnFamilyHandle> columnFamilyHandles,
         final TransactionDB txnDb, final TransactionDBOptions txnDbOptions,
-        final ColumnFamilyOptions columnFamilyOptions,
-        final DBOptions options) {
+        final ColumnFamilyOptions columnFamilyOptions, final DBOptions options) {
       super(writeOptions, columnFamilyHandles, columnFamilyOptions,
           options);
       this.txnOptions = txnOptions;

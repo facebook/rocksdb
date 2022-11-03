@@ -36,7 +36,6 @@ package org.rocksdb;
  * </p>
  */
 public abstract class Logger extends RocksCallbackObject {
-
   private static final long WITH_OPTIONS = 0;
   private static final long WITH_DBOPTIONS = 1;
 
@@ -51,7 +50,6 @@ public abstract class Logger extends RocksCallbackObject {
    */
   protected Logger(final Options options) {
     super(options.nativeHandle_, WITH_OPTIONS);
-
   }
 
   /**

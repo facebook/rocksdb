@@ -61,6 +61,7 @@ public enum ThreadType {
         return threadType;
       }
     }
-    throw new IllegalArgumentException(MessageFormat.format("Unknown value for ThreadType: {0}", value));
+    throw new IllegalArgumentException(
+        MessageFormat.format("Unknown value for ThreadType: {0}", value));
   }
 }

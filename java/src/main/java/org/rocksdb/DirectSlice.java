@@ -123,8 +123,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
     disposeInternal(nativeHandle);
   }
 
-  private static native long createNewDirectSlice0(final ByteBuffer data,
-                                                   final int length);
+  private static native long createNewDirectSlice0(final ByteBuffer data, final int length);
   private static native long createNewDirectSlice1(final ByteBuffer data);
   @Override protected final native ByteBuffer data0(long handle);
   private native byte get0(long handle, int offset);

@@ -158,11 +158,17 @@ public class FlushJobInfo {
     if (o == null || getClass() != o.getClass())
       return false;
     final FlushJobInfo that = (FlushJobInfo) o;
-    if (columnFamilyId == that.columnFamilyId) if (threadId == that.threadId) if (jobId == that.jobId)
-      if (triggeredWritesSlowdown == that.triggeredWritesSlowdown) if (triggeredWritesStop == that.triggeredWritesStop)
-        if (smallestSeqno == that.smallestSeqno) if (largestSeqno == that.largestSeqno)
-          if (Objects.equals(columnFamilyName, that.columnFamilyName)) if (Objects.equals(filePath, that.filePath))
-            if (Objects.equals(tableProperties, that.tableProperties)) return flushReason == that.flushReason;
+    if (columnFamilyId == that.columnFamilyId)
+      if (threadId == that.threadId)
+        if (jobId == that.jobId)
+          if (triggeredWritesSlowdown == that.triggeredWritesSlowdown)
+            if (triggeredWritesStop == that.triggeredWritesStop)
+              if (smallestSeqno == that.smallestSeqno)
+                if (largestSeqno == that.largestSeqno)
+                  if (Objects.equals(columnFamilyName, that.columnFamilyName))
+                    if (Objects.equals(filePath, that.filePath))
+                      if (Objects.equals(tableProperties, that.tableProperties))
+                        return flushReason == that.flushReason;
     return false;
   }
 
@@ -175,6 +181,9 @@ public class FlushJobInfo {
 
   @Override
   public String toString() {
-    return MessageFormat.format("FlushJobInfo'{'columnFamilyId={0}, columnFamilyName=''{1}'', filePath=''{2}'', threadId={3}, jobId={4}, triggeredWritesSlowdown={5}, triggeredWritesStop={6}, smallestSeqno={7}, largestSeqno={8}, tableProperties={9}, flushReason={10}'}'", columnFamilyId, columnFamilyName, filePath, threadId, jobId, triggeredWritesSlowdown, triggeredWritesStop, smallestSeqno, largestSeqno, tableProperties, flushReason);
+    return MessageFormat.format(
+        "FlushJobInfo'{'columnFamilyId={0}, columnFamilyName=''{1}'', filePath=''{2}'', threadId={3}, jobId={4}, triggeredWritesSlowdown={5}, triggeredWritesStop={6}, smallestSeqno={7}, largestSeqno={8}, tableProperties={9}, flushReason={10}'}'",
+        columnFamilyId, columnFamilyName, filePath, threadId, jobId, triggeredWritesSlowdown,
+        triggeredWritesStop, smallestSeqno, largestSeqno, tableProperties, flushReason);
   }
 }

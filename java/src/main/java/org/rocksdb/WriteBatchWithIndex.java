@@ -153,7 +153,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * point-in-time from baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(final ColumnFamilyHandle columnFamilyHandle,
-                                           final RocksIterator baseIterator, /* @Nullable */ final ReadOptions readOptions) {
+      final RocksIterator baseIterator, /* @Nullable */ final ReadOptions readOptions) {
     final RocksIterator iterator = new RocksIterator(baseIterator.parent_,
         iteratorWithBase(nativeHandle_, columnFamilyHandle.nativeHandle_,
             baseIterator.nativeHandle_, readOptions == null ? 0 : readOptions.nativeHandle_));
@@ -212,8 +212,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * Merge operations, MergeInProgress status may be returned.
    */
   @SuppressWarnings({"unused", "RedundantThrows"})
-  public byte[] getFromBatch(final ColumnFamilyHandle columnFamilyHandle,
-                             final DBOptions options, final byte[] key) throws RocksDBException {
+  public byte[] getFromBatch(final ColumnFamilyHandle columnFamilyHandle, final DBOptions options,
+      final byte[] key) throws RocksDBException {
     return getFromBatch(nativeHandle_, options.nativeHandle_,
         key, key.length, columnFamilyHandle.nativeHandle_);
   }
@@ -261,7 +261,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   @SuppressWarnings({"unused", "RedundantThrows"})
   public byte[] getFromBatchAndDB(final RocksDB db, final ColumnFamilyHandle columnFamilyHandle,
-                                  final ReadOptions options, final byte[] key) throws RocksDBException {
+      final ReadOptions options, final byte[] key) throws RocksDBException {
     return getFromBatchAndDB(nativeHandle_, db.nativeHandle_,
         options.nativeHandle_, key, key.length,
         columnFamilyHandle.nativeHandle_);
@@ -290,8 +290,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @throws RocksDBException if the value for the key cannot be read
    */
   @SuppressWarnings("RedundantThrows")
-  public byte[] getFromBatchAndDB(final RocksDB db, final ReadOptions options,
-      final byte[] key) throws RocksDBException {
+  public byte[] getFromBatchAndDB(final RocksDB db, final ReadOptions options, final byte[] key)
+      throws RocksDBException {
     return getFromBatchAndDB(nativeHandle_, db.nativeHandle_,
         options.nativeHandle_, key, key.length);
   }
@@ -343,10 +343,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
 
   private static native long newWriteBatchWithIndex();
   private static native long newWriteBatchWithIndex(final boolean overwriteKey);
-  private static native long newWriteBatchWithIndex(
-      final long fallbackIndexComparatorHandle,
-      final byte comparatorType, final int reservedBytes,
-      final boolean overwriteKey);
+  private static native long newWriteBatchWithIndex(final long fallbackIndexComparatorHandle,
+      final byte comparatorType, final int reservedBytes, final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);
   private native long iteratorWithBase(final long handle, final long baseIteratorHandle,

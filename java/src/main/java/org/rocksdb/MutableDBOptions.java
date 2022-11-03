@@ -96,7 +96,6 @@ public class MutableDBOptions extends AbstractMutableOptions {
   public static class MutableDBOptionsBuilder
       extends AbstractMutableOptionsBuilder<MutableDBOptions, MutableDBOptionsBuilder, MutableDBOptionKey>
       implements MutableDBOptionsInterface<MutableDBOptionsBuilder> {
-
     private static final Map<String, MutableDBOptionKey> ALL_KEYS_LOOKUP = new HashMap<>();
     static {
       for(final MutableDBOptionKey key : DBOption.values()) {

@@ -19,7 +19,6 @@ import static org.rocksdb.util.CapturingWriteBatchHandler.Action.SINGLE_DELETE;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -86,8 +85,7 @@ public class WriteBatchTest {
   }
 
   @Test
-  public void multipleBatchOperationsDirect()
-      throws RocksDBException {
+  public void multipleBatchOperationsDirect() throws RocksDBException {
     try (final WriteBatch batch = new WriteBatch()) {
       final ByteBuffer key = ByteBuffer.allocateDirect(16);
       final ByteBuffer value = ByteBuffer.allocateDirect(16);
@@ -105,7 +103,8 @@ public class WriteBatchTest {
       assertThat(key.position()).isEqualTo(3);
       assertThat(key.limit()).isEqualTo(3);
 
-      batch.put("baz".getBytes(StandardCharsets.US_ASCII), "boo".getBytes(StandardCharsets.US_ASCII));
+      batch.put(
+          "baz".getBytes(StandardCharsets.US_ASCII), "boo".getBytes(StandardCharsets.US_ASCII));
 
       WriteBatchTestInternalHelper.setSequence(batch, 100);
       assertThat(WriteBatchTestInternalHelper.sequence(batch)).isNotNull().isEqualTo(100);
@@ -117,8 +116,7 @@ public class WriteBatchTest {
 
   @SuppressWarnings("StringBufferReplaceableByString")
   @Test
-  public void testAppendOperation()
-      throws RocksDBException {
+  public void testAppendOperation() throws RocksDBException {
     try (final WriteBatch b1 = new WriteBatch();
          final WriteBatch b2 = new WriteBatch()) {
       WriteBatchTestInternalHelper.setSequence(b1, 200);
@@ -128,24 +126,30 @@ public class WriteBatchTest {
       assertThat(b1.count()).isEqualTo(0);
       b2.put("a".getBytes(UTF_8), "va".getBytes(UTF_8));
       WriteBatchTestInternalHelper.append(b1, b2);
-      assertThat(new String(getContents(b1),
-          UTF_8)).isEqualTo("Put(a, va)@200");
+      assertThat(new String(getContents(b1), UTF_8)).isEqualTo("Put(a, va)@200");
       b2.clear();
       b2.put("b".getBytes(UTF_8), "vb".getBytes(UTF_8));
       WriteBatchTestInternalHelper.append(b1, b2);
-      assertThat(new String(getContents(b1), UTF_8)).isEqualTo(new StringBuilder().append("Put(a, va)@200").append("Put(b, vb)@201").toString());
+      assertThat(new String(getContents(b1), UTF_8))
+          .isEqualTo(
+              new StringBuilder().append("Put(a, va)@200").append("Put(b, vb)@201").toString());
       assertThat(b1.count()).isEqualTo(2);
       b2.delete("foo".getBytes(UTF_8));
       WriteBatchTestInternalHelper.append(b1, b2);
-      assertThat(new String(getContents(b1), UTF_8)).isEqualTo(new StringBuilder().append("Put(a, va)@200").append("Put(b, vb)@202").append("Put(b, vb)@201").append("Delete(foo)@203").toString());
+      assertThat(new String(getContents(b1), UTF_8))
+          .isEqualTo(new StringBuilder()
+                         .append("Put(a, va)@200")
+                         .append("Put(b, vb)@202")
+                         .append("Put(b, vb)@201")
+                         .append("Delete(foo)@203")
+                         .toString());
       assertThat(b1.count()).isEqualTo(4);
     }
   }
 
   @SuppressWarnings("StringBufferReplaceableByString")
   @Test
-  public void blobOperation()
-      throws RocksDBException {
+  public void blobOperation() throws RocksDBException {
     try (final WriteBatch batch = new WriteBatch()) {
       batch.put("k1".getBytes(UTF_8), "v1".getBytes(UTF_8));
       batch.put("k2".getBytes(UTF_8), "v2".getBytes(UTF_8));
@@ -155,8 +159,14 @@ public class WriteBatchTest {
       batch.putLogData("blob2".getBytes(UTF_8));
       batch.merge("foo".getBytes(UTF_8), "bar".getBytes(UTF_8));
       assertThat(batch.count()).isEqualTo(5);
-      assertThat(new String(getContents(batch, true), UTF_8)).isEqualTo(
-          new StringBuilder().append("Merge(foo, bar)@4").append("Put(k1, v1)@0").append("Delete(k2)@3").append("Put(k2, v2)@1").append("Put(k3, v3)@2").toString());
+      assertThat(new String(getContents(batch, true), UTF_8))
+          .isEqualTo(new StringBuilder()
+                         .append("Merge(foo, bar)@4")
+                         .append("Put(k1, v1)@0")
+                         .append("Delete(k2)@3")
+                         .append("Put(k2, v2)@1")
+                         .append("Put(k3, v3)@2")
+                         .toString());
     }
   }
 
@@ -473,7 +483,8 @@ public class WriteBatchTest {
   }
 
   @SuppressWarnings("WeakerAccess")
-  static byte[] getContents(final WriteBatch wb, @SuppressWarnings("SameParameterValue") final boolean mergeOperatorSupported) {
+  static byte[] getContents(final WriteBatch wb,
+      @SuppressWarnings("SameParameterValue") final boolean mergeOperatorSupported) {
     return getContents(wb.nativeHandle_, mergeOperatorSupported);
   }
 
@@ -483,8 +494,7 @@ public class WriteBatchTest {
   }
 
   @SuppressWarnings({"WeakerAccess", "ReturnOfNull"})
-  static String getFromWriteBatch(final WriteBatch wb, final String key)
-      throws RocksDBException {
+  static String getFromWriteBatch(final WriteBatch wb, final String key) throws RocksDBException {
     final WriteBatchGetter getter =
         new WriteBatchGetter(key.getBytes(UTF_8));
     wb.iterate(getter);
@@ -495,7 +505,8 @@ public class WriteBatchTest {
     }
   }
 
-  private static native byte[] getContents(final long writeBatchHandle, final boolean mergeOperatorSupported);
+  private static native byte[] getContents(
+      final long writeBatchHandle, final boolean mergeOperatorSupported);
 }
 
 /**

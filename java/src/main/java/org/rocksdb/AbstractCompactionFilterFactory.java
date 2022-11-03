@@ -13,7 +13,6 @@ package org.rocksdb;
  */
 public abstract class AbstractCompactionFilterFactory<T extends AbstractCompactionFilter<?>>
     extends RocksCallbackObject {
-
   protected AbstractCompactionFilterFactory() {
     super();
   }
@@ -32,8 +31,8 @@ public abstract class AbstractCompactionFilterFactory<T extends AbstractCompacti
    * @return native handle of the CompactionFilter
    */
   @SuppressWarnings("unused")
-  private long createCompactionFilter(final boolean fullCompaction,
-                                      final boolean manualCompaction) {
+  private long createCompactionFilter(
+      final boolean fullCompaction, final boolean manualCompaction) {
     final T filter = createCompactionFilter(
         new AbstractCompactionFilter.Context(fullCompaction, manualCompaction));
 

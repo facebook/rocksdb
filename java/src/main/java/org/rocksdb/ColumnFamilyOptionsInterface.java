@@ -9,7 +9,8 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Interface to the immutable column family options; those which cannot be modified on a running instance.
+ * Interface to the immutable column family options; those which cannot be modified on a running
+ * instance.
  * @param <T>
  */
 public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>

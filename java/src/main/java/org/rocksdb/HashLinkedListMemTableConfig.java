@@ -15,17 +15,12 @@ package org.rocksdb;
  * and post a warning in the LOG.
  */
 public class HashLinkedListMemTableConfig extends MemTableConfig {
+  @SuppressWarnings("WeakerAccess") public static final long DEFAULT_BUCKET_COUNT = 50000;
+  @SuppressWarnings("WeakerAccess") public static final long DEFAULT_HUGE_PAGE_TLB_SIZE = 0;
+  @SuppressWarnings("WeakerAccess") public static final int DEFAULT_BUCKET_ENTRIES_LOG_THRES = 4096;
   @SuppressWarnings("WeakerAccess")
-  public static final long DEFAULT_BUCKET_COUNT = 50000;
-  @SuppressWarnings("WeakerAccess")
-  public static final long DEFAULT_HUGE_PAGE_TLB_SIZE = 0;
-  @SuppressWarnings("WeakerAccess")
-  public static final int DEFAULT_BUCKET_ENTRIES_LOG_THRES = 4096;
-  @SuppressWarnings("WeakerAccess")
-  public static final boolean
-      DEFAULT_IF_LOG_BUCKET_DIST_WHEN_FLUSH = true;
-  @SuppressWarnings("WeakerAccess")
-  public static final int DEFAUL_THRESHOLD_USE_SKIPLIST = 256;
+  public static final boolean DEFAULT_IF_LOG_BUCKET_DIST_WHEN_FLUSH = true;
+  @SuppressWarnings("WeakerAccess") public static final int DEFAUL_THRESHOLD_USE_SKIPLIST = 256;
 
   /**
    * HashLinkedListMemTableConfig constructor
@@ -46,8 +41,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public HashLinkedListMemTableConfig setBucketCount(
-      final long count) {
+  public HashLinkedListMemTableConfig setBucketCount(final long count) {
     bucketCount_ = count;
     return this;
   }
@@ -75,8 +69,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public HashLinkedListMemTableConfig setHugePageTlbSize(
-      final long size) {
+  public HashLinkedListMemTableConfig setHugePageTlbSize(final long size) {
     hugePageTlbSize_ = size;
     return this;
   }
@@ -99,8 +92,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public HashLinkedListMemTableConfig
-      setBucketEntriesLoggingThreshold(final int threshold) {
+  public HashLinkedListMemTableConfig setBucketEntriesLoggingThreshold(final int threshold) {
     bucketEntriesLoggingThreshold_ = threshold;
     return this;
   }
@@ -124,8 +116,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public HashLinkedListMemTableConfig
-      setIfLogBucketDistWhenFlush(final boolean logDistribution) {
+  public HashLinkedListMemTableConfig setIfLogBucketDistWhenFlush(final boolean logDistribution) {
     ifLogBucketDistWhenFlush_ = logDistribution;
     return this;
   }
@@ -149,8 +140,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public HashLinkedListMemTableConfig
-      setThresholdUseSkiplist(final int threshold) {
+  public HashLinkedListMemTableConfig setThresholdUseSkiplist(final int threshold) {
     thresholdUseSkiplist_ = threshold;
     return this;
   }
@@ -175,10 +165,9 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @throws IllegalArgumentException
    */
   @SuppressWarnings("JavaDoc")
-  private native long newMemTableFactoryHandle(long bucketCount,
-                                               long hugePageTlbSize, int bucketEntriesLoggingThreshold,
-                                               boolean ifLogBucketDistWhenFlush, int thresholdUseSkiplist)
-  ;
+  private native long newMemTableFactoryHandle(long bucketCount, long hugePageTlbSize,
+      int bucketEntriesLoggingThreshold, boolean ifLogBucketDistWhenFlush,
+      int thresholdUseSkiplist);
 
   private long bucketCount_;
   private long hugePageTlbSize_;

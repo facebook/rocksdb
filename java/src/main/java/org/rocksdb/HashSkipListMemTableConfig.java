@@ -15,12 +15,9 @@ package org.rocksdb;
  * and post a warning in the LOG.
  */
 public class HashSkipListMemTableConfig extends MemTableConfig {
-  @SuppressWarnings("WeakerAccess")
-  public static final int DEFAULT_BUCKET_COUNT = 1000000;
-  @SuppressWarnings("WeakerAccess")
-  public static final int DEFAULT_BRANCHING_FACTOR = 4;
-  @SuppressWarnings("WeakerAccess")
-  public static final int DEFAULT_HEIGHT = 4;
+  @SuppressWarnings("WeakerAccess") public static final int DEFAULT_BUCKET_COUNT = 1000000;
+  @SuppressWarnings("WeakerAccess") public static final int DEFAULT_BRANCHING_FACTOR = 4;
+  @SuppressWarnings("WeakerAccess") public static final int DEFAULT_HEIGHT = 4;
 
   /**
    * HashSkipListMemTableConfig constructor
@@ -40,8 +37,7 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashSkipListMemTableConfig.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public HashSkipListMemTableConfig setBucketCount(
-      final long count) {
+  public HashSkipListMemTableConfig setBucketCount(final long count) {
     bucketCount_ = count;
     return this;
   }
@@ -83,8 +79,7 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashSkipListMemTableConfig.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public HashSkipListMemTableConfig setBranchingFactor(
-      final int bf) {
+  public HashSkipListMemTableConfig setBranchingFactor(final int bf) {
     branchingFactor_ = bf;
     return this;
   }
@@ -106,9 +101,7 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
    * @throws IllegalArgumentException
    */
   @SuppressWarnings("JavaDoc")
-  private native long newMemTableFactoryHandle(
-      long bucketCount, int height, int branchingFactor)
-  ;
+  private native long newMemTableFactoryHandle(long bucketCount, int height, int branchingFactor);
 
   private long bucketCount_;
   private int branchingFactor_;

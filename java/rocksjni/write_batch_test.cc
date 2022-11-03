@@ -9,9 +9,9 @@
 
 #include <memory>
 
+#include "db/db_test_util.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
-#include "db/db_test_util.h"
 #include "include/org_rocksdb_WriteBatch.h"
 #include "include/org_rocksdb_WriteBatchTest.h"
 #include "include/org_rocksdb_WriteBatchTestInternalHelper.h"
@@ -32,10 +32,9 @@
  * Method:    getContents
  * Signature: (J)[B
  */
-jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
-                                                       jclass /*jclazz*/,
-                                                       jlong jwb_handle,
-                                                       jboolean merge_operator_supported) {
+jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
+    JNIEnv* env, jclass /*jclazz*/, jlong jwb_handle,
+    jboolean merge_operator_supported) {
   auto* b = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
   assert(b != nullptr);
 

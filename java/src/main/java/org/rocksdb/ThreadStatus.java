@@ -175,8 +175,7 @@ public class ThreadStatus {
    * @return the description of the operation stage.
    */
   @SuppressWarnings("unused")
-  public static String getOperationStageName(
-      final OperationStage operationStage) {
+  public static String getOperationStageName(final OperationStage operationStage) {
     return getOperationStageName(operationStage.getValue());
   }
 
@@ -190,8 +189,7 @@ public class ThreadStatus {
    * @return the name of the operation property
    */
   @SuppressWarnings("unused")
-  public static String getOperationPropertyName(
-      final OperationType operationType, final int i) {
+  public static String getOperationPropertyName(final OperationType operationType, final int i) {
     return getOperationPropertyName(operationType.getValue(), i);
   }
 

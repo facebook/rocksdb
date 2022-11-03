@@ -17,14 +17,10 @@ import java.io.File;
  * @see org.rocksdb.BackupEngine
  */
 public class BackupEngineOptions extends RocksObject {
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private Env backupEnv;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private Logger infoLog;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private RateLimiter backupRateLimiter;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private RateLimiter restoreRateLimiter;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private Env backupEnv;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private Logger infoLog;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private RateLimiter backupRateLimiter;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private RateLimiter restoreRateLimiter;
 
   /**
    * <p>BackupEngineOptions constructor.</p>

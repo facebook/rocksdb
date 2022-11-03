@@ -144,8 +144,7 @@ public class TransactionOptions extends RocksObject
    * @return this TransactionOptions instance
    */
   @SuppressWarnings("UnusedReturnValue")
-  public TransactionOptions setDeadlockDetectDepth(
-      final long deadlockDetectDepth) {
+  public TransactionOptions setDeadlockDetectDepth(final long deadlockDetectDepth) {
     setDeadlockDetectDepth(nativeHandle_, deadlockDetectDepth);
     return this;
   }

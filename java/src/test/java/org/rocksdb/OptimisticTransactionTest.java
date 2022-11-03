@@ -402,12 +402,10 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
     private final OptimisticTransactionDB optimisticTxnDb;
 
     private OptimisticTransactionDBContainer(
-        final OptimisticTransactionOptions optimisticTxnOptions,
-        final WriteOptions writeOptions,
+        final OptimisticTransactionOptions optimisticTxnOptions, final WriteOptions writeOptions,
         final List<ColumnFamilyHandle> columnFamilyHandles,
         final OptimisticTransactionDB optimisticTxnDb,
-        final ColumnFamilyOptions columnFamilyOptions,
-        final DBOptions options) {
+        final ColumnFamilyOptions columnFamilyOptions, final DBOptions options) {
       super(writeOptions, columnFamilyHandles, columnFamilyOptions,
           options);
       this.optimisticTxnOptions = optimisticTxnOptions;

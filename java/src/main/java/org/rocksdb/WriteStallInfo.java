@@ -71,6 +71,8 @@ public class WriteStallInfo {
 
   @Override
   public String toString() {
-    return MessageFormat.format("WriteStallInfo'{'columnFamilyName=''{0}'', currentCondition={1}, previousCondition={2}'}'", columnFamilyName, currentCondition, previousCondition);
+    return MessageFormat.format(
+        "WriteStallInfo'{'columnFamilyName=''{0}'', currentCondition={1}, previousCondition={2}'}'",
+        columnFamilyName, currentCondition, previousCondition);
   }
 }

@@ -148,7 +148,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public BlockBasedTableConfig setPinTopLevelIndexAndFilter(final boolean pinTopLevelIndexAndFilter) {
+  public BlockBasedTableConfig setPinTopLevelIndexAndFilter(
+      final boolean pinTopLevelIndexAndFilter) {
     this.pinTopLevelIndexAndFilter = pinTopLevelIndexAndFilter;
     return this;
   }
@@ -169,8 +170,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current option.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public BlockBasedTableConfig setIndexType(
-      final IndexType indexType) {
+  public BlockBasedTableConfig setIndexType(final IndexType indexType) {
     this.indexType = indexType;
     return this;
   }
@@ -191,8 +191,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current option.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public BlockBasedTableConfig setDataBlockIndexType(
-      final DataBlockIndexType dataBlockIndexType) {
+  public BlockBasedTableConfig setDataBlockIndexType(final DataBlockIndexType dataBlockIndexType) {
     this.dataBlockIndexType = dataBlockIndexType;
     return this;
   }
@@ -238,8 +237,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current option.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public BlockBasedTableConfig setChecksumType(
-      final ChecksumType checksumType) {
+  public BlockBasedTableConfig setChecksumType(final ChecksumType checksumType) {
     this.checksumType = checksumType;
     return this;
   }
@@ -373,8 +371,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public BlockBasedTableConfig setBlockSizeDeviation(
-      final int blockSizeDeviation) {
+  public BlockBasedTableConfig setBlockSizeDeviation(final int blockSizeDeviation) {
     this.blockSizeDeviation = blockSizeDeviation;
     return this;
   }
@@ -395,8 +392,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public BlockBasedTableConfig setBlockRestartInterval(
-      final int restartInterval) {
+  public BlockBasedTableConfig setBlockRestartInterval(final int restartInterval) {
     blockRestartInterval = restartInterval;
     return this;
   }
@@ -417,8 +413,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public BlockBasedTableConfig setIndexBlockRestartInterval(
-      final int restartInterval) {
+  public BlockBasedTableConfig setIndexBlockRestartInterval(final int restartInterval) {
     indexBlockRestartInterval = restartInterval;
     return this;
   }
@@ -548,8 +543,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public BlockBasedTableConfig setUseDeltaEncoding(
-      final boolean useDeltaEncoding) {
+  public BlockBasedTableConfig setUseDeltaEncoding(final boolean useDeltaEncoding) {
     this.useDeltaEncoding = useDeltaEncoding;
     return this;
   }
@@ -614,8 +608,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   @SuppressWarnings("UnusedReturnValue")
-  public BlockBasedTableConfig setWholeKeyFiltering(
-      final boolean wholeKeyFiltering) {
+  public BlockBasedTableConfig setWholeKeyFiltering(final boolean wholeKeyFiltering) {
     this.wholeKeyFiltering = wholeKeyFiltering;
     return this;
   }
@@ -1065,14 +1058,12 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private IndexShorteningMode indexShortening;
 
   // NOTE: ONLY used if blockCache == null
-  @SuppressWarnings("DeprecatedIsStillUsed")
-  @Deprecated private long blockCacheSize;
-  @SuppressWarnings("DeprecatedIsStillUsed")
-  @Deprecated private int blockCacheNumShardBits;
+  @SuppressWarnings("DeprecatedIsStillUsed") @Deprecated private long blockCacheSize;
+  @SuppressWarnings("DeprecatedIsStillUsed") @Deprecated private int blockCacheNumShardBits;
 
   // NOTE: ONLY used if blockCacheCompressed == null
+  @SuppressWarnings("DeprecatedIsStillUsed") @Deprecated private long blockCacheCompressedSize;
   @SuppressWarnings("DeprecatedIsStillUsed")
-  @Deprecated private long blockCacheCompressedSize;
-  @SuppressWarnings("DeprecatedIsStillUsed")
-  @Deprecated private int blockCacheCompressedNumShardBits;
+  @Deprecated
+  private int blockCacheCompressedNumShardBits;
 }

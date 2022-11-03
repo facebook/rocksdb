@@ -54,11 +54,11 @@ public enum StatsLevel {
      *     value is provided.
      */
     public static StatsLevel getStatsLevel(final byte value) {
-        for (final StatsLevel statsLevel : values()) {
-            if (statsLevel.value == value){
-                return statsLevel;
-            }
+      for (final StatsLevel statsLevel : values()) {
+        if (statsLevel.value == value) {
+          return statsLevel;
         }
+      }
         throw new IllegalArgumentException(
                 "Illegal value provided for StatsLevel.");
     }

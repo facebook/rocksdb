@@ -338,7 +338,8 @@ public class DBOptions extends RocksObject
 
   @Override
   public List<DbPath> dbPaths() {
-    @SuppressWarnings("NumericCastThatLosesPrecision") final int len = (int)dbPathsLen(nativeHandle_);
+    @SuppressWarnings("NumericCastThatLosesPrecision")
+    final int len = (int) dbPathsLen(nativeHandle_);
     if(len == 0) {
       return Collections.emptyList();
     } else {
@@ -349,7 +350,7 @@ public class DBOptions extends RocksObject
 
       final List<DbPath> dbPaths = new ArrayList<>();
       for(int i = 0; i < len; i++) {
-        //noinspection ObjectAllocationInLoop
+        // noinspection ObjectAllocationInLoop
         dbPaths.add(new DbPath(Paths.get(paths[i]), targetSizes[i]));
       }
       return dbPaths;
@@ -1242,9 +1243,6 @@ public class DBOptions extends RocksObject
 
   private static final int DEFAULT_NUM_SHARD_BITS = -1;
 
-
-
-
   /**
    * <p>Private constructor to be used by
    * {@link #getDBOptionsFromProps(java.util.Properties)}</p>
@@ -1323,22 +1321,19 @@ public class DBOptions extends RocksObject
    * @throws IllegalArgumentException
    */
   @SuppressWarnings("JavaDoc")
-  private native void setMaxLogFileSize(long handle, long maxLogFileSize)
-  ;
+  private native void setMaxLogFileSize(long handle, long maxLogFileSize);
   private native long maxLogFileSize(long handle);
   /**
    * @throws IllegalArgumentException
    */
   @SuppressWarnings("JavaDoc")
-  private native void setLogFileTimeToRoll(
-      long handle, long logFileTimeToRoll);
+  private native void setLogFileTimeToRoll(long handle, long logFileTimeToRoll);
   private native long logFileTimeToRoll(long handle);
   /**
    * @throws IllegalArgumentException
    */
   @SuppressWarnings("JavaDoc")
-  private native void setKeepLogFileNum(long handle, long keepLogFileNum)
-  ;
+  private native void setKeepLogFileNum(long handle, long keepLogFileNum);
   private native long keepLogFileNum(long handle);
   private native void setRecycleLogFileNum(long handle, long recycleLogFileNum);
   private native long recycleLogFileNum(long handle);
@@ -1359,8 +1354,7 @@ public class DBOptions extends RocksObject
    * @throws IllegalArgumentException
    */
   @SuppressWarnings("JavaDoc")
-  private native void setManifestPreallocationSize(
-      long handle, long size);
+  private native void setManifestPreallocationSize(long handle, long size);
   private native long manifestPreallocationSize(long handle);
   private native void setUseDirectReads(long handle, boolean useDirectReads);
   private native boolean useDirectReads(long handle);
@@ -1511,16 +1505,11 @@ public class DBOptions extends RocksObject
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private Env env_;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private int numShardBits_;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private RateLimiter rateLimiter_;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private Cache rowCache_;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private WalFilter walFilter_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private Env env_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private int numShardBits_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private RateLimiter rateLimiter_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private Cache rowCache_;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private WalFilter walFilter_;
   @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private WriteBufferManager writeBufferManager_;
 }

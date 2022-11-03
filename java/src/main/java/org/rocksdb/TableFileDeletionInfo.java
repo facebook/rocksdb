@@ -71,8 +71,10 @@ public class TableFileDeletionInfo {
     if (o == null || getClass() != o.getClass())
       return false;
     final TableFileDeletionInfo that = (TableFileDeletionInfo) o;
-    if (jobId == that.jobId) if (Objects.equals(dbName, that.dbName))
-      if (Objects.equals(filePath, that.filePath)) return Objects.equals(status, that.status);
+    if (jobId == that.jobId)
+      if (Objects.equals(dbName, that.dbName))
+        if (Objects.equals(filePath, that.filePath))
+          return Objects.equals(status, that.status);
     return false;
   }
 
@@ -83,6 +85,8 @@ public class TableFileDeletionInfo {
 
   @Override
   public String toString() {
-    return MessageFormat.format("TableFileDeletionInfo'{'dbName=''{0}'', filePath=''{1}'', jobId={2}, status={3}'}'", dbName, filePath, jobId, status);
+    return MessageFormat.format(
+        "TableFileDeletionInfo'{'dbName=''{0}'', filePath=''{1}'', jobId={2}, status={3}'}'",
+        dbName, filePath, jobId, status);
   }
 }

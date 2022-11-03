@@ -5,9 +5,7 @@ package org.rocksdb;
  * The config for skip-list memtable representation.
  */
 public class SkipListMemTableConfig extends MemTableConfig {
-
-  @SuppressWarnings("WeakerAccess")
-  public static final long DEFAULT_LOOKAHEAD = 0;
+  @SuppressWarnings("WeakerAccess") public static final long DEFAULT_LOOKAHEAD = 0;
 
   /**
    * SkipListMemTableConfig constructor
@@ -49,9 +47,7 @@ public class SkipListMemTableConfig extends MemTableConfig {
   /**
    * @throws IllegalArgumentException
    */
-  @SuppressWarnings("JavaDoc")
-  private native long newMemTableFactoryHandle0(long lookahead)
-  ;
+  @SuppressWarnings("JavaDoc") private native long newMemTableFactoryHandle0(long lookahead);
 
   private long lookahead_;
 }

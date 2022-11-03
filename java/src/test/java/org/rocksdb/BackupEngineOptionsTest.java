@@ -8,15 +8,13 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Random;
-
 import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Test;
 
 public class BackupEngineOptionsTest {
   @SuppressWarnings("AccessOfSystemProperties")
-  private static final String ARBITRARY_PATH =
-      System.getProperty("java.io.tmpdir");
+  private static final String ARBITRARY_PATH = System.getProperty("java.io.tmpdir");
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
@@ -299,8 +297,6 @@ public class BackupEngineOptionsTest {
     }
 
     @Override
-    protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-
-    }
+    protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {}
   }
 }

@@ -11,14 +11,14 @@ package org.rocksdb;
  * two strings.
  */
 public class StringAppendOperator extends MergeOperator {
-    private static final char DELIM = ',';
+  private static final char DELIM = ',';
 
-    public StringAppendOperator() {
-        this(DELIM);
+  public StringAppendOperator() {
+    this(DELIM);
     }
 
     public StringAppendOperator(final char delim) {
-        super(newSharedStringAppendOperator(delim));
+      super(newSharedStringAppendOperator(delim));
     }
 
     public StringAppendOperator(final String delim) {

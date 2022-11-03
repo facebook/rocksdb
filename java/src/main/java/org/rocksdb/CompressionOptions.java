@@ -131,7 +131,6 @@ public class CompressionOptions extends RocksObject {
     return enabled(nativeHandle_);
   }
 
-
   private static native long newCompressionOptions();
   @Override protected final native void disposeInternal(final long handle);
 

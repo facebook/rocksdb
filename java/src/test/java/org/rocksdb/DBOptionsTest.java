@@ -5,8 +5,7 @@
 
 package org.rocksdb;
 
-import org.junit.ClassRule;
-import org.junit.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -17,8 +16,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.ClassRule;
+import org.junit.Test;
 
 public class DBOptionsTest {
 
@@ -48,10 +47,10 @@ public class DBOptionsTest {
     properties.put("bytes_per_sync", "13");
     try(final DBOptions opt = DBOptions.getDBOptionsFromProps(properties)) {
       assertThat(opt).isNotNull();
-      assertThat(String.valueOf(opt.allowMmapReads())).
-          isEqualTo(properties.getProperty("allow_mmap_reads"));
-      assertThat(String.valueOf(opt.bytesPerSync())).
-          isEqualTo(properties.getProperty("bytes_per_sync"));
+      assertThat(String.valueOf(opt.allowMmapReads()))
+          .isEqualTo(properties.getProperty("allow_mmap_reads"));
+      assertThat(String.valueOf(opt.bytesPerSync()))
+          .isEqualTo(properties.getProperty("bytes_per_sync"));
     }
   }
 
@@ -68,17 +67,16 @@ public class DBOptionsTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void failDBOptionsFromPropsWithNullValue() {
-    //noinspection EmptyTryBlock
-    try(final DBOptions ignored = DBOptions.getDBOptionsFromProps(null)) {
+    // noinspection EmptyTryBlock
+    try (final DBOptions ignored = DBOptions.getDBOptionsFromProps(null)) {
       //no-op
     }
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void failDBOptionsFromPropsWithEmptyProps() {
-    //noinspection EmptyTryBlock
-    try(final DBOptions ignored = DBOptions.getDBOptionsFromProps(
-        new Properties())) {
+    // noinspection EmptyTryBlock
+    try (final DBOptions ignored = DBOptions.getDBOptionsFromProps(new Properties())) {
       //no-op
     }
   }
@@ -445,8 +443,7 @@ public class DBOptionsTest {
 
   @Test
   public void setWriteBufferManager() {
-    try (final DBOptions opt = new DBOptions();
-         final Cache cache = new LRUCache(1024 * 1024);
+    try (final DBOptions opt = new DBOptions(); final Cache cache = new LRUCache(1024 * 1024);
          final WriteBufferManager writeBufferManager = new WriteBufferManager(2000L, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
@@ -455,8 +452,7 @@ public class DBOptionsTest {
 
   @Test
   public void setWriteBufferManagerWithZeroBufferSize() {
-    try (final DBOptions opt = new DBOptions();
-         final Cache cache = new LRUCache(1024 * 1024);
+    try (final DBOptions opt = new DBOptions(); final Cache cache = new LRUCache(1024 * 1024);
          final WriteBufferManager writeBufferManager = new WriteBufferManager(0L, cache)) {
       opt.setWriteBufferManager(writeBufferManager);
       assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
@@ -657,7 +653,7 @@ public class DBOptionsTest {
     try (final DBOptions opt = new DBOptions()) {
       assertThat(opt.walFilter()).isNull();
 
-      //noinspection AnonymousInnerClassMayBeStatic
+      // noinspection AnonymousInnerClassMayBeStatic
       try (final AbstractWalFilter walFilter = new AbstractWalFilter() {
         @Override
         public void columnFamilyLogNumberMap(
@@ -881,7 +877,7 @@ public class DBOptionsTest {
   public void eventListeners() {
     final AtomicBoolean wasCalled1 = new AtomicBoolean();
     final AtomicBoolean wasCalled2 = new AtomicBoolean();
-    //noinspection AnonymousInnerClassMayBeStatic
+    // noinspection AnonymousInnerClassMayBeStatic
     try (final DBOptions options = new DBOptions();
          final AbstractEventListener el1 =
              new AbstractEventListener() {

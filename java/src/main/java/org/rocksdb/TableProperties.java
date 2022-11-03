@@ -412,7 +412,7 @@ public class TableProperties {
     if (o == null || getClass() != o.getClass())
       return false;
     final TableProperties that = (TableProperties) o;
-    //noinspection OverlyComplexBooleanExpression
+    // noinspection OverlyComplexBooleanExpression
     return dataSize == that.dataSize && indexSize == that.indexSize
         && indexPartitions == that.indexPartitions && topLevelIndexSize == that.topLevelIndexSize
         && indexKeyIsUserKey == that.indexKeyIsUserKey

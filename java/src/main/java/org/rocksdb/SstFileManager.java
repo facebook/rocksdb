@@ -19,8 +19,7 @@ import java.util.Map;
 public final class SstFileManager extends RocksObject {
 
   public static final long RATE_BYTES_PER_SEC_DEFAULT = 0;
-  @SuppressWarnings("unused")
-  public static final boolean DELETE_EXISTING_TRASH_DEFAULT = true;
+  @SuppressWarnings("unused") public static final boolean DELETE_EXISTING_TRASH_DEFAULT = true;
   public static final double MAX_TRASH_DB_RATION_DEFAULT = 0.25;
   @SuppressWarnings("WeakerAccess")
   public static final long BYTES_MAX_DELETE_CHUNK_DEFAULT = 64 * 1024 * 1024;
@@ -231,9 +230,8 @@ public final class SstFileManager extends RocksObject {
     setMaxTrashDBRatio(nativeHandle_, ratio);
   }
 
-  private static native long newSstFileManager(final long handle,
-                                               final long logger_handle, final long rateBytesPerSec,
-                                               final double maxTrashDbRatio, final long bytesMaxDeleteChunk)
+  private static native long newSstFileManager(final long handle, final long logger_handle,
+      final long rateBytesPerSec, final double maxTrashDbRatio, final long bytesMaxDeleteChunk)
       throws RocksDBException;
   private native void setMaxAllowedSpaceUsage(final long handle,
       final long maxAllowedSpace);
@@ -250,5 +248,6 @@ public final class SstFileManager extends RocksObject {
   private native double getMaxTrashDBRatio(final long handle);
   private native void setMaxTrashDBRatio(final long handle, final double ratio);
   @SuppressWarnings("FinalMethodInFinalClass")
-  @Override protected final native void disposeInternal(final long handle);
+  @Override
+  protected final native void disposeInternal(final long handle);
 }

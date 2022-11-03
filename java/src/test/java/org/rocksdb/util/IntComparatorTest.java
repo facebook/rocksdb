@@ -5,6 +5,17 @@
 
 package org.rocksdb.util;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.nio.ByteBuffer;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -26,18 +37,6 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.RocksNativeLibraryResource;
-
-import java.nio.ByteBuffer;
-import java.nio.file.FileSystems;
-import java.nio.file.Path;
-import java.security.SecureRandom;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Random;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Tests for IntComparator, but more generally
@@ -160,8 +159,8 @@ public class IntComparatorTest {
    *
    * @throws RocksDBException if a database error happens.
    */
-  private static void testRoundtrip(final Path db_path,
-                                    final AbstractComparator comparator) throws RocksDBException {
+  private static void testRoundtrip(final Path db_path, final AbstractComparator comparator)
+      throws RocksDBException {
     try (final Options opt = new Options()
              .setCreateIfMissing(true)
              .setComparator(comparator)) {
@@ -210,23 +209,19 @@ public class IntComparatorTest {
    *
    * @throws RocksDBException if a database error happens.
    */
-  private static void testRoundtripCf(final Path db_path,
-                                      final AbstractComparator comparator) throws RocksDBException {
-
-    try (final ColumnFamilyOptions columnFamilyOptions = new ColumnFamilyOptions()
-        .setComparator(comparator)) {
-      final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
-          new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-          new ColumnFamilyDescriptor("new_cf".getBytes(), columnFamilyOptions));
+  private static void testRoundtripCf(final Path db_path, final AbstractComparator comparator)
+      throws RocksDBException {
+    try (final ColumnFamilyOptions columnFamilyOptions =
+             new ColumnFamilyOptions().setComparator(comparator)) {
+      final List<ColumnFamilyDescriptor> cfDescriptors =
+          Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+              new ColumnFamilyDescriptor("new_cf".getBytes(), columnFamilyOptions));
 
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
 
-      try (final DBOptions opt = new DBOptions()
-          .setCreateIfMissing(true)
-          .setCreateMissingColumnFamilies(true)) {
-
-        try (final RocksDB db = RocksDB.open(opt, db_path.toString(),
-            cfDescriptors, cfHandles)) {
+      try (final DBOptions opt =
+               new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true)) {
+        try (final RocksDB db = RocksDB.open(opt, db_path.toString(), cfDescriptors, cfHandles)) {
           try {
             assertThat(cfDescriptors.size()).isEqualTo(2);
             assertThat(cfHandles.size()).isEqualTo(2);
@@ -246,8 +241,7 @@ public class IntComparatorTest {
         // integer keys should be in ascending
         // order as defined by SimpleIntComparator
         final ByteBuffer key = ByteBuffer.allocate(4);
-        try (final RocksDB db = RocksDB.open(opt, db_path.toString(),
-            cfDescriptors, cfHandles);
+        try (final RocksDB db = RocksDB.open(opt, db_path.toString(), cfDescriptors, cfHandles);
              final RocksIterator it = db.newIterator(cfHandles.get(1))) {
           try {
             assertThat(cfDescriptors.size()).isEqualTo(2);

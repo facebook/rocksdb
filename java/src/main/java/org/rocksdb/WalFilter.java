@@ -27,8 +27,8 @@ public interface WalFilter {
    * @param cfNameId column_family_name to column_family_id map
    */
   @SuppressWarnings("unused")
-  void columnFamilyLogNumberMap(final Map<Integer, Long> cfLognumber,
-      final Map<String, Integer> cfNameId);
+  void columnFamilyLogNumberMap(
+      final Map<Integer, Long> cfLognumber, final Map<String, Integer> cfNameId);
 
   /**
    * LogRecord is invoked for each log record encountered for all the logs

@@ -42,6 +42,7 @@ public enum WriteStallCondition {
       }
     }
 
-    throw new IllegalArgumentException(MessageFormat.format("Illegal value provided for WriteStallCondition: {0}", value));
+    throw new IllegalArgumentException(
+        MessageFormat.format("Illegal value provided for WriteStallCondition: {0}", value));
   }
 }

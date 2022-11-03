@@ -342,8 +342,7 @@ public interface AdvancedColumnFamilyOptionsInterface<
    * @param compactionStyle Compaction style.
    * @return the reference to the current options.
    */
-  ColumnFamilyOptionsInterface<T> setCompactionStyle(
-      CompactionStyle compactionStyle);
+  ColumnFamilyOptionsInterface<T> setCompactionStyle(CompactionStyle compactionStyle);
 
   /**
    * Compaction style for DB.

@@ -45,7 +45,7 @@ public enum CompactionStopStyle {
   public static CompactionStopStyle getCompactionStopStyle(final byte value) {
     for (final CompactionStopStyle compactionStopStyle :
         CompactionStopStyle.values()) {
-      if (compactionStopStyle.value == value){
+      if (compactionStopStyle.value == value) {
         return compactionStopStyle;
       }
     }

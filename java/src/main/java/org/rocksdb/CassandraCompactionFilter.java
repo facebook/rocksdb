@@ -10,7 +10,8 @@ package org.rocksdb;
  */
 public class CassandraCompactionFilter
     extends AbstractCompactionFilter<Slice> {
-  public CassandraCompactionFilter(final boolean purgeTtlOnExpiration, final int gcGracePeriodInSeconds) {
+  public CassandraCompactionFilter(
+      final boolean purgeTtlOnExpiration, final int gcGracePeriodInSeconds) {
     super(createNewCassandraCompactionFilter0(purgeTtlOnExpiration, gcGracePeriodInSeconds));
   }
 

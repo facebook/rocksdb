@@ -88,8 +88,8 @@ public enum CompressionType {
       }
     }
 
-    throw new IllegalArgumentException(
-        MessageFormat.format("Illegal internalName ''{0}'' provided for CompressionType.", internalName));
+    throw new IllegalArgumentException(MessageFormat.format(
+        "Illegal internalName ''{0}'' provided for CompressionType.", internalName));
   }
 
   /**

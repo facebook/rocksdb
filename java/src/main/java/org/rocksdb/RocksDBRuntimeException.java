@@ -11,7 +11,6 @@ package org.rocksdb;
  */
 @SuppressWarnings({"SerializableHasSerializationMethods", "UncheckedExceptionClass"})
 public class RocksDBRuntimeException extends RuntimeException {
-
   private static final long serialVersionUID = -9108026450339418124L;
   /* @Nullable */ private final Status status;
 
@@ -40,8 +39,7 @@ public class RocksDBRuntimeException extends RuntimeException {
 
   @SuppressWarnings("unused")
   public RocksDBRuntimeException(final Status status) {
-    super(status.getState() != null ? status.getState()
-        : status.getCodeString());
+    super(status.getState() != null ? status.getState() : status.getCodeString());
     this.status = status;
   }
 

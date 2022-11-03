@@ -10,7 +10,6 @@ package org.rocksdb;
  * any compaction that is using this CompactRangeOptions.
  */
 public class CompactRangeOptions extends RocksObject {
-
   private static final byte VALUE_kSkip = 0;
   private static final byte VALUE_kIfHaveCompactionFilter = 1;
   private static final byte VALUE_kForce = 2;

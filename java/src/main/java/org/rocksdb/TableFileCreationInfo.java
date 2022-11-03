@@ -71,7 +71,8 @@ public class TableFileCreationInfo extends TableFileCreationBriefInfo {
       return false;
     final TableFileCreationInfo that = (TableFileCreationInfo) o;
     if (fileSize == that.fileSize)
-      if (Objects.equals(tableProperties, that.tableProperties)) return Objects.equals(status, that.status);
+      if (Objects.equals(tableProperties, that.tableProperties))
+        return Objects.equals(status, that.status);
     return false;
   }
 
@@ -82,6 +83,8 @@ public class TableFileCreationInfo extends TableFileCreationBriefInfo {
 
   @Override
   public String toString() {
-    return MessageFormat.format("TableFileCreationInfo'{'fileSize={0}, tableProperties={1}, status={2}'}'", fileSize, tableProperties, status);
+    return MessageFormat.format(
+        "TableFileCreationInfo'{'fileSize={0}, tableProperties={1}, status={2}'}'", fileSize,
+        tableProperties, status);
   }
 }

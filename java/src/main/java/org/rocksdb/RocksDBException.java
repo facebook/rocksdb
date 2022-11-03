@@ -11,7 +11,6 @@ package org.rocksdb;
  */
 @SuppressWarnings({"SerializableHasSerializationMethods", "CheckedExceptionClass"})
 public class RocksDBException extends Exception {
-
   private static final long serialVersionUID = 345912921372541616L;
   /* @Nullable */ private final Status status;
 

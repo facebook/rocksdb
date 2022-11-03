@@ -262,8 +262,7 @@ public class WriteBatch extends AbstractWriteBatch {
     final long maxBytes);
 
   private static native long newWriteBatch(final int reserved_bytes);
-  private static native long newWriteBatch(final byte[] serialized,
-                                           final int serializedLength);
+  private static native long newWriteBatch(final byte[] serialized, final int serializedLength);
   private native void iterate(final long handle, final long handlerHandle)
       throws RocksDBException;
   private native byte[] data(final long nativeHandle) throws RocksDBException;
@@ -283,8 +282,7 @@ public class WriteBatch extends AbstractWriteBatch {
   /**
    * Handler callback for iterating over the contents of a batch.
    */
-  public abstract static class Handler
-      extends RocksCallbackObject {
+  public abstract static class Handler extends RocksCallbackObject {
     protected Handler() {
       super();
     }
@@ -310,25 +308,19 @@ public class WriteBatch extends AbstractWriteBatch {
         final byte[] beginKey, final byte[] endKey) throws RocksDBException;
     public abstract void deleteRange(final byte[] beginKey,
         final byte[] endKey);
+    @SuppressWarnings("unused") public abstract void logData(final byte[] blob);
     @SuppressWarnings("unused")
-    public abstract void logData(final byte[] blob);
+    public abstract void putBlobIndex(
+        final int columnFamilyId, final byte[] key, final byte[] value) throws RocksDBException;
+    @SuppressWarnings("unused") public abstract void markBeginPrepare() throws RocksDBException;
     @SuppressWarnings("unused")
-    public abstract void putBlobIndex(final int columnFamilyId,
-        final byte[] key, final byte[] value) throws RocksDBException;
+    public abstract void markEndPrepare(final byte[] xid) throws RocksDBException;
     @SuppressWarnings("unused")
-    public abstract void markBeginPrepare() throws RocksDBException;
+    public abstract void markNoop(final boolean emptyBatch) throws RocksDBException;
     @SuppressWarnings("unused")
-    public abstract void markEndPrepare(final byte[] xid)
-        throws RocksDBException;
+    public abstract void markRollback(final byte[] xid) throws RocksDBException;
     @SuppressWarnings("unused")
-    public abstract void markNoop(final boolean emptyBatch)
-        throws RocksDBException;
-    @SuppressWarnings("unused")
-    public abstract void markRollback(final byte[] xid)
-        throws RocksDBException;
-    @SuppressWarnings("unused")
-    public abstract void markCommit(final byte[] xid)
-        throws RocksDBException;
+    public abstract void markCommit(final byte[] xid) throws RocksDBException;
     @SuppressWarnings("unused")
     public abstract void markCommitWithTimestamp(final byte[] xid, final byte[] ts)
         throws RocksDBException;

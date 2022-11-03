@@ -28,8 +28,8 @@ public abstract class AbstractWriteBatch extends RocksObject
   }
 
   @Override
-  public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-                        final byte[] value) throws RocksDBException {
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final byte[] value)
+      throws RocksDBException {
     put(nativeHandle_, key, key.length, value, value.length,
         columnFamilyHandle.nativeHandle_);
   }
@@ -41,7 +41,7 @@ public abstract class AbstractWriteBatch extends RocksObject
 
   @Override
   public void merge(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-                          final byte[] value) throws RocksDBException {
+      final byte[] value) throws RocksDBException {
     merge(nativeHandle_, key, key.length, value, value.length,
         columnFamilyHandle.nativeHandle_);
   }
@@ -57,7 +57,7 @@ public abstract class AbstractWriteBatch extends RocksObject
 
   @Override
   public void put(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
-                        final ByteBuffer value) throws RocksDBException {
+      final ByteBuffer value) throws RocksDBException {
     assert key.isDirect() && value.isDirect();
     putDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
         value.remaining(), columnFamilyHandle.nativeHandle_);
@@ -102,14 +102,13 @@ public abstract class AbstractWriteBatch extends RocksObject
   }
 
   @Override
-  public void deleteRange(final byte[] beginKey, final byte[] endKey)
-      throws RocksDBException {
+  public void deleteRange(final byte[] beginKey, final byte[] endKey) throws RocksDBException {
     deleteRange(nativeHandle_, beginKey, beginKey.length, endKey, endKey.length);
   }
 
   @Override
-  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle,
-                                final byte[] beginKey, final byte[] endKey) throws RocksDBException {
+  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle, final byte[] beginKey,
+      final byte[] endKey) throws RocksDBException {
     deleteRange(nativeHandle_, beginKey, beginKey.length, endKey, endKey.length,
         columnFamilyHandle.nativeHandle_);
   }

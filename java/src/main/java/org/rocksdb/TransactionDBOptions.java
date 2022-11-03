@@ -104,8 +104,7 @@ public class TransactionDBOptions extends RocksObject {
    * @return this TransactionDBOptions instance
    */
   @SuppressWarnings("UnusedReturnValue")
-  public TransactionDBOptions setTransactionLockTimeout(
-      final long transactionLockTimeout) {
+  public TransactionDBOptions setTransactionLockTimeout(final long transactionLockTimeout) {
     assert(isOwningHandle());
     setTransactionLockTimeout(nativeHandle_, transactionLockTimeout);
     return this;
@@ -114,8 +113,8 @@ public class TransactionDBOptions extends RocksObject {
   /**
    * The wait timeout in milliseconds when writing a key
    * OUTSIDE of a transaction (ie by calling {@link org.rocksdb.RocksDB#put(byte[], byte[])},
-   * {@link org.rocksdb.RocksDB#merge(byte[], byte[])}, {@link RocksDB#delete(byte[])} or {@link RocksDB#write}
-   * , or one of their variants, directly).
+   * {@link org.rocksdb.RocksDB#merge(byte[], byte[])}, {@link RocksDB#delete(byte[])} or {@link
+   * RocksDB#write} , or one of their variants, directly).
    *
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, there is no timeout and will block indefinitely when acquiring
@@ -132,8 +131,8 @@ public class TransactionDBOptions extends RocksObject {
   /**
    * If positive, specifies the wait timeout in milliseconds when writing a key
    * OUTSIDE of a transaction (ie by calling {@link org.rocksdb.RocksDB#put(byte[], byte[])},
-   * {@link org.rocksdb.RocksDB#merge(byte[], byte[])}, {@link RocksDB#delete(byte[])} or {@link RocksDB#write}
-   * , or one of their variants, directly).
+   * {@link org.rocksdb.RocksDB#merge(byte[], byte[])}, {@link RocksDB#delete(byte[])} or {@link
+   * RocksDB#write} , or one of their variants, directly).
    *
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, there is no timeout and will block indefinitely when acquiring
@@ -152,12 +151,11 @@ public class TransactionDBOptions extends RocksObject {
    * @return this TransactionDBOptions instance
    */
   @SuppressWarnings("UnusedReturnValue")
-  public TransactionDBOptions setDefaultLockTimeout(
-       final long defaultLockTimeout) {
-     assert(isOwningHandle());
-     setDefaultLockTimeout(nativeHandle_, defaultLockTimeout);
-     return this;
-   }
+  public TransactionDBOptions setDefaultLockTimeout(final long defaultLockTimeout) {
+    assert (isOwningHandle());
+    setDefaultLockTimeout(nativeHandle_, defaultLockTimeout);
+    return this;
+  }
 
 //  /**
 //   * If set, the {@link TransactionDB} will use this implementation of a mutex
@@ -197,8 +195,7 @@ public class TransactionDBOptions extends RocksObject {
    * @return this TransactionDBOptions instance
    */
   @SuppressWarnings("UnusedReturnValue")
-  public TransactionDBOptions setWritePolicy(
-      final TxnDBWritePolicy writePolicy) {
+  public TransactionDBOptions setWritePolicy(final TxnDBWritePolicy writePolicy) {
     assert(isOwningHandle());
     setWritePolicy(nativeHandle_, writePolicy.getValue());
     return this;

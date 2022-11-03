@@ -5,8 +5,7 @@ package org.rocksdb;
  * The config for vector memtable representation.
  */
 public class VectorMemTableConfig extends MemTableConfig {
-  @SuppressWarnings("WeakerAccess")
-  public static final int DEFAULT_RESERVED_SIZE = 0;
+  @SuppressWarnings("WeakerAccess") public static final int DEFAULT_RESERVED_SIZE = 0;
 
   /**
    * VectorMemTableConfig constructor
@@ -42,7 +41,8 @@ public class VectorMemTableConfig extends MemTableConfig {
   }
 
   /**
-   * @throws IllegalArgumentException if {@code reservedSize} doesn't fit a natural machine size constraint
+   * @throws IllegalArgumentException if {@code reservedSize} doesn't fit a natural machine size
+   *     constraint
    */
   private native long newMemTableFactoryHandle(long reservedSize);
   private int reservedSize_;

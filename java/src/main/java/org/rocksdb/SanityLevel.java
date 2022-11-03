@@ -45,6 +45,7 @@ public enum SanityLevel {
         return level;
       }
     }
-    throw new IllegalArgumentException(MessageFormat.format("Unknown value for SanityLevel: {0}", value));
+    throw new IllegalArgumentException(
+        MessageFormat.format("Unknown value for SanityLevel: {0}", value));
   }
 }

@@ -64,8 +64,8 @@ public abstract class AbstractTraceWriter
 
   private static short statusToShort(final Status.Code code,
       final Status.SubCode subCode) {
-    final short result = (short)(code.getValue() << 8);
-    //noinspection NumericCastThatLosesPrecision
+    final short result = (short) (code.getValue() << 8);
+    // noinspection NumericCastThatLosesPrecision
     return (short)(result | subCode.getValue());
   }
 
