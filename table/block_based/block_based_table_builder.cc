@@ -1517,7 +1517,8 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
             std::move(results), read_amp_bytes_per_bit,
             rep_->ioptions.statistics.get(),
             false /*rep_->blocks_definitely_zstd_compressed*/,
-            rep_->table_options.filter_policy.get()));
+            rep_->table_options.filter_policy.get(), block_type, 16,
+            rep_->internal_comparator.user_comparator(), 0));
 
     assert(block_holder->own_bytes());
     size_t charge = block_holder->ApproximateMemoryUsage();

@@ -144,8 +144,8 @@ Status ReadBlockFromFile(
   }
   if (s.ok()) {
     result->reset(BlocklikeTraits<TBlocklike>::Create(
-        std::move(contents), block_type, block_restart_interval, raw_ucmp,
-        read_amp_bytes_per_bit, ioptions.stats, using_zstd, filter_policy));
+        std::move(contents), read_amp_bytes_per_bit, ioptions.stats, using_zstd,
+        filter_policy, block_type, block_restart_interval, raw_ucmp, 0));
   }
 
   return s;
@@ -1306,7 +1306,9 @@ Status BlockBasedTable::GetDataBlockFromCache(
   bool using_zstd = rep_->blocks_definitely_zstd_compressed;
   const FilterPolicy* filter_policy = rep_->filter_policy;
   Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
-      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
+
+      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy, block_type,
+      16, rep_->internal_comparator.user_comparator(), 0);
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
@@ -1337,7 +1339,9 @@ Status BlockBasedTable::GetDataBlockFromCache(
   if (rep_->ioptions.lowest_used_cache_tier ==
       CacheTier::kNonVolatileBlockTier) {
     Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
-        read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
+
+        read_amp_bytes_per_bit, statistics, using_zstd, filter_policy,
+        block_type, 16, rep_->internal_comparator.user_comparator(), 0);
     block_cache_compressed_handle = block_cache_compressed->Lookup(
         cache_key,
         BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
@@ -1376,7 +1380,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
         BlocklikeTraits<TBlocklike>::Create(
             std::move(contents), read_amp_bytes_per_bit, statistics,
             rep_->blocks_definitely_zstd_compressed,
-            rep_->table_options.filter_policy.get()));
+            rep_->table_options.filter_policy.get(), block_type, 16,
+            rep_->internal_comparator.user_comparator(), 0));
 
     if (block_cache != nullptr && block_holder->own_bytes() &&
         read_options.fill_cache) {
@@ -1449,12 +1454,14 @@ Status BlockBasedTable::PutDataBlockToCache(
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
         std::move(uncompressed_block_contents), read_amp_bytes_per_bit,
         statistics, rep_->blocks_definitely_zstd_compressed,
-        rep_->table_options.filter_policy.get()));
+        rep_->table_options.filter_policy.get(), block_type, 16,
+        rep_->internal_comparator.user_comparator(), 0));
   } else {
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
         std::move(block_contents), read_amp_bytes_per_bit, statistics,
         rep_->blocks_definitely_zstd_compressed,
-        rep_->table_options.filter_policy.get()));
+        rep_->table_options.filter_policy.get(), block_type, 16,
+        rep_->internal_comparator.user_comparator(), 0));
   }
 
   // Insert compressed block into compressed block cache.
@@ -1561,7 +1568,8 @@ DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
     uint32_t block_protection_bytes_per_key) {
   return block->NewDataIterator(rep->internal_comparator.user_comparator(),
                                 rep->get_global_seqno(block_type), input_iter,
-                                rep->ioptions.stats, block_contents_pinned);
+                                rep->ioptions.stats, block_contents_pinned,
+                                block_protection_bytes_per_key);
 }
 
 template <>

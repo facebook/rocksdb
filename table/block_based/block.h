@@ -154,11 +154,12 @@ class BlockReadAmpBitmap {
 class Block {
  public:
   // Initialize the block with the specified contents.
-  explicit Block(BlockContents&& contents, BlockType block_type,
-                 int block_restart_interval, const Comparator* raw_ucmp,
-                 uint32_t block_protection_bytes_per_key,
-                 size_t read_amp_bytes_per_bit = 0,
-                 Statistics* statistics = nullptr);
+  explicit Block(BlockContents&& contents, size_t read_amp_bytes_per_bit = 0,
+                 Statistics* statistics = nullptr,
+                 BlockType block_type = BlockType::kInvalid,
+                 int block_restart_interval = 0,
+                 const Comparator* raw_ucmp = nullptr,
+                 uint32_t block_protection_bytes_per_key = 0);
   // No copying allowed
   Block(const Block&) = delete;
   void operator=(const Block&) = delete;

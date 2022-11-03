@@ -21,12 +21,11 @@ template <typename T, CacheEntryRole R>
 Cache::CacheItemHelper* GetCacheItemHelperForRole();
 
 template <typename TBlocklike>
-Cache::CreateCallback GetCreateCallback(BlockType block_type,
-                                        const Comparator* raw_ucmp,
-                                        uint32_t block_protection_bytes_per_key,
-                                        size_t read_amp_bytes_per_bit,
-                                        Statistics* statistics, bool using_zstd,
-                                        const FilterPolicy* filter_policy) {
+Cache::CreateCallback GetCreateCallback(
+    size_t read_amp_bytes_per_bit, Statistics* statistics, bool using_zstd,
+    const FilterPolicy* filter_policy, BlockType block_type,
+    int block_restart_interval, const Comparator* raw_ucmp,
+    uint32_t block_protection_bytes_per_key) {
   return [=](const void* buf, size_t size, void** out_obj,
              size_t* charge) -> Status {
     assert(buf != nullptr);
@@ -34,8 +33,9 @@ Cache::CreateCallback GetCreateCallback(BlockType block_type,
     memcpy(buf_data.get(), buf, size);
     BlockContents bc = BlockContents(std::move(buf_data), size);
     TBlocklike* ucd_ptr = BlocklikeTraits<TBlocklike>::Create(
-        std::move(bc), block_type, raw_ucmp, block_protection_bytes_per_key,
-        read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
+        std::move(bc), read_amp_bytes_per_bit, statistics, using_zstd,
+        filter_policy, block_type, block_restart_interval, raw_ucmp,
+        block_protection_bytes_per_key);
     *out_obj = reinterpret_cast<void*>(ucd_ptr);
     *charge = size;
     return Status::OK();
@@ -45,14 +45,14 @@ Cache::CreateCallback GetCreateCallback(BlockType block_type,
 template <>
 class BlocklikeTraits<BlockContents> {
  public:
-  static BlockContents* Create(BlockContents&& contents,
-                               BlockType /* block_type */,
-                               const Comparator* /* raw_ucmp */,
-                               uint32_t /* block_protection_bytes_per_key */,
-                               size_t /* read_amp_bytes_per_bit */,
-                               Statistics* /* statistics */,
-                               bool /* using_zstd */,
-                               const FilterPolicy* /* filter_policy */) {
+  static BlockContents* Create(
+      BlockContents&& contents, [[maybe_unused]] size_t read_amp_bytes_per_bit,
+      [[maybe_unused]] Statistics* statistics, [[maybe_unused]] bool using_zstd,
+      [[maybe_unused]] const FilterPolicy* filter_policy,
+      [[maybe_unused]] BlockType block_type,
+      [[maybe_unused]] int block_restart_interval,
+      [[maybe_unused]] const Comparator* raw_ucmp,
+      [[maybe_unused]] uint32_t block_protection_bytes_per_key) {
     return new BlockContents(std::move(contents));
   }
 
@@ -88,11 +88,13 @@ template <>
 class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
   static ParsedFullFilterBlock* Create(
-      BlockContents&& contents, BlockType /* block_type */,
-      const Comparator* /* raw_ucmp */,
-      uint32_t /* block_protection_bytes_per_key */,
-      size_t /* read_amp_bytes_per_bit */, Statistics* /* statistics */,
-      bool /* using_zstd */, const FilterPolicy* filter_policy) {
+      BlockContents&& contents, [[maybe_unused]] size_t read_amp_bytes_per_bit,
+      [[maybe_unused]] Statistics* statistics, [[maybe_unused]] bool using_zstd,
+      const FilterPolicy* filter_policy,
+      [[maybe_unused]] BlockType block_type = BlockType::kFilter,
+      [[maybe_unused]] int block_restart_interval = 0,
+      [[maybe_unused]] const Comparator* raw_ucmp = nullptr,
+      [[maybe_unused]] uint32_t block_protection_bytes_per_key = 0) {
     return new ParsedFullFilterBlock(filter_policy, std::move(contents));
   }
 
@@ -128,16 +130,15 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
 template <>
 class BlocklikeTraits<Block> {
  public:
-  static Block* Create(BlockContents&& contents, BlockType block_type,
-                       int block_restart_interval, const Comparator* raw_ucmp,
-                       uint32_t block_protection_bytes_per_key,
-                       size_t read_amp_bytes_per_bit, Statistics* statistics,
-                       bool /* using_zstd */,
-                       const FilterPolicy* /* filter_policy */
-  ) {
-    return new Block(std::move(contents), block_type, block_restart_interval,
-                     raw_ucmp, block_protection_bytes_per_key,
-                     read_amp_bytes_per_bit, statistics);
+  static Block* Create(BlockContents&& contents, size_t read_amp_bytes_per_bit,
+                       Statistics* statistics, [[maybe_unused]] bool using_zstd,
+                       [[maybe_unused]] const FilterPolicy* filter_policy,
+                       BlockType block_type, int block_restart_interval,
+                       const Comparator* raw_ucmp,
+                       uint32_t block_protection_bytes_per_key) {
+    return new Block(std::move(contents), read_amp_bytes_per_bit, statistics,
+                     block_type, block_restart_interval, raw_ucmp,
+                     block_protection_bytes_per_key);
   }
 
   static uint32_t GetNumRestarts(const Block& block) {
@@ -184,11 +185,13 @@ template <>
 class BlocklikeTraits<UncompressionDict> {
  public:
   static UncompressionDict* Create(
-      BlockContents&& contents, BlockType /* block_type */,
-      const Comparator* /* raw_ucmp */,
-      uint32_t /* block_protection_bytes_per_key */,
-      size_t /* read_amp_bytes_per_bit */, Statistics* /* statistics */,
-      bool using_zstd, const FilterPolicy* /* filter_policy */) {
+      BlockContents&& contents, [[maybe_unused]] size_t read_amp_bytes_per_bit,
+      [[maybe_unused]] Statistics* statistics, bool using_zstd,
+      [[maybe_unused]] const FilterPolicy* filter_policy,
+      [[maybe_unused]] BlockType block_type,
+      [[maybe_unused]] int block_restart_interval,
+      [[maybe_unused]] const Comparator* raw_ucmp,
+      [[maybe_unused]] uint32_t block_protection_bytes_per_key) {
     return new UncompressionDict(contents.data, std::move(contents.allocation),
                                  using_zstd);
   }

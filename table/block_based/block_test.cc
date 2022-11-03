@@ -71,8 +71,15 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
 
 class BlockTest : public testing::Test {};
 
+class BlockTestWithChecksum : public BlockTest,
+                              public ::testing::WithParamInterface<uint32_t> {
+ public:
+  BlockTestWithChecksum() { protection_bytes_per_key_ = GetParam(); }
+  uint32_t protection_bytes_per_key_;
+};
+
 // block test
-TEST_F(BlockTest, SimpleTest) {
+TEST_P(BlockTestWithChecksum, SimpleTest) {
   Random rnd(301);
   Options options = Options();
 
@@ -94,6 +101,8 @@ TEST_F(BlockTest, SimpleTest) {
   BlockContents contents;
   contents.data = rawblock;
   Block reader(std::move(contents));
+  if (protection_bytes_per_key_ > 0) {
+  }
 
   // read contents of block sequentially
   int count = 0;
@@ -126,6 +135,8 @@ TEST_F(BlockTest, SimpleTest) {
   }
   delete iter;
 }
+
+INSTANTIATE_TEST_CASE_P(P, BlockTestWithChecksum, ::testing::Values(0, 2));
 
 // return the block contents
 BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,

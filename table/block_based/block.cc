@@ -707,7 +707,8 @@ Status DataBlockIter::VerifyEntryChecksum(const Slice& key,
 
   bool match = true;
   uint32_t entry_position = GetCurrentEntryPosition();
-  const char* checksum_ptr = checksums_.data();
+  const char* checksum_ptr =
+      checksums_.data() + entry_position * protection_bytes_per_key_;
   switch (protection_bytes_per_key_) {
     case 1:
       match = static_cast<uint8_t>(*(checksum_ptr)) ==
@@ -745,7 +746,7 @@ uint32_t DataBlockIter::GetCurrentEntryPosition() const {
   uint32_t entry_num_in_restart{0};
   const char* p = data_ + offset;
   const char* limit = data_ + restarts_;
-  while (p != data_ + current_offset) {
+  while (p < data_ + current_offset) {
     entry_num_in_restart++;
     GetNextEntryOffset(p, limit);
   }
@@ -1088,10 +1089,10 @@ Block::~Block() {
   // TEST_SYNC_POINT("Block::~Block");
 }
 
-Block::Block(BlockContents&& contents, BlockType block_type,
+Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
+             Statistics* statistics, BlockType block_type,
              int block_restart_interval, const Comparator* raw_ucmp,
-             uint32_t protection_bytes_per_key, size_t read_amp_bytes_per_bit,
-             Statistics* statistics)
+             uint32_t protection_bytes_per_key)
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
       size_(contents_.data.size()),
