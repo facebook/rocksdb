@@ -34,14 +34,14 @@ public class RocksJunitRunner {
 
     private final PrintStream writer;
 
-    @SuppressWarnings("RedundantFieldInitialization") private String currentClassName = null;
-    @SuppressWarnings("RedundantFieldInitialization") private String currentMethodName = null;
-    @SuppressWarnings("RedundantFieldInitialization") private Status currentStatus = null;
+    private String currentClassName;
+    private String currentMethodName;
+    private Status currentStatus;
     private long currentTestsStartTime = System.currentTimeMillis();
-    @SuppressWarnings("RedundantFieldInitialization") private int currentTestsCount = 0;
-    @SuppressWarnings("RedundantFieldInitialization") private int currentTestsIgnoredCount = 0;
-    @SuppressWarnings("RedundantFieldInitialization") private int currentTestsFailureCount = 0;
-    @SuppressWarnings("RedundantFieldInitialization") private int currentTestsErrorCount = 0;
+    private int currentTestsCount;
+    private int currentTestsIgnoredCount;
+    private int currentTestsFailureCount;
+    private int currentTestsErrorCount;
 
     enum Status {
       IGNORED,
