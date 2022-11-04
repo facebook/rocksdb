@@ -12,7 +12,6 @@
 #include "table/block_based/block.h"
 
 #include <algorithm>
-#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -1133,10 +1132,9 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
         restart_offset_, read_amp_bytes_per_bit, statistics));
   }
 
-  if (block_type == BlockType::kData) {
-    std::unique_ptr<DataBlockIter> iter(
-        NewDataIterator(raw_ucmp, 0, nullptr, nullptr,
-                        false, protection_bytes_per_key));
+  if (block_type == BlockType::kData and protection_bytes_per_key > 0) {
+    std::unique_ptr<DataBlockIter> iter(NewDataIterator(
+        raw_ucmp, 0, nullptr, statistics, false, protection_bytes_per_key));
 
     iter->SeekToFirst();
     assert(iter->Valid());

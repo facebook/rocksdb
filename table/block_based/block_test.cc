@@ -241,9 +241,6 @@ TEST_P(BlockTestWithChecksum, IndexHashWithSharedPrefix) {
                      BlockType::kData, protection_bytes_per_key_);
 }
 
-INSTANTIATE_TEST_CASE_P(P, BlockTestWithChecksum,
-                        ::testing::ValuesIn(std::vector<uint32_t>{0, 2}));
-
 // A slow and accurate version of BlockReadAmpBitmap that simply store
 // all the marked ranges in a set.
 class BlockReadAmpBitmapSlowAndAccurate {
@@ -379,13 +376,14 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(BlockTest, BlockWithReadAmpBitmap) {
+TEST_P(BlockTestWithChecksum, BlockWithReadAmpBitmap) {
   Random rnd(301);
   Options options = Options();
 
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  BlockBuilder builder(16);
+  int block_restart_interval{16};
+  BlockBuilder builder(block_restart_interval);
   int num_records = 10000;
 
   GenerateRandomKVs(&keys, &values, 0, num_records, 1);
@@ -404,12 +402,15 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kBytesPerBit, stats.get(),
+                 BlockType::kData, block_restart_interval, options.comparator,
+                 protection_bytes_per_key_);
 
     // read contents of block sequentially
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get(),
+        false, protection_bytes_per_key_);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       iter->value();
       read_bytes += iter->TEST_CurrentEntrySize();
@@ -419,7 +420,6 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
       double read_amp = static_cast<double>(stats->getTickerCount(
                             READ_AMP_ESTIMATE_USEFUL_BYTES)) /
                         stats->getTickerCount(READ_AMP_TOTAL_READ_BYTES);
-
       // Error in read amplification will be less than 1% if we are reading
       // sequentially
       double error_pct = fabs(semi_acc_read_amp - read_amp) * 100;
@@ -436,11 +436,14 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kBytesPerBit, stats.get(),
+                 BlockType::kData, block_restart_interval, options.comparator,
+                 protection_bytes_per_key_);
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get(),
+        false, protection_bytes_per_key_);
     for (int i = 0; i < num_records; i++) {
       Slice k(keys[i]);
 
@@ -470,11 +473,14 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kBytesPerBit, stats.get(),
+                 BlockType::kData, block_restart_interval, options.comparator,
+                 protection_bytes_per_key_);
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get(),
+        false, protection_bytes_per_key_);
     std::unordered_set<int> read_keys;
     for (int i = 0; i < num_records; i++) {
       int index = rnd.Uniform(num_records);
@@ -518,6 +524,9 @@ TEST_F(BlockTest, ReadAmpBitmapPow2) {
   ASSERT_EQ(BlockReadAmpBitmap(100, 33, stats.get()).GetBytesPerBit(), 32u);
   ASSERT_EQ(BlockReadAmpBitmap(100, 35, stats.get()).GetBytesPerBit(), 32u);
 }
+
+INSTANTIATE_TEST_CASE_P(P, BlockTestWithChecksum,
+                        ::testing::ValuesIn(std::vector<uint32_t>{0}));
 
 class IndexBlockTest
     : public testing::Test,
