@@ -1135,10 +1135,13 @@ static bool SaveValue(void* arg, const char* entry) {
                   /* update_num_ops_stats */ true);
             }
           } else if (s->columns) {
+            std::string result;
             *(s->status) = MergeHelper::TimedFullMergeWithEntity(
                 merge_operator, s->key->user_key(), v,
-                merge_context->GetOperands(), s->columns, s->logger,
-                s->statistics, s->clock, /* update_num_ops_stats */ true);
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, /* update_num_ops_stats */ true);
+
+            s->columns->SetWideColumnValue(result);
           }
         } else if (s->value) {
           Slice value_of_default;

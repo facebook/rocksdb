@@ -514,14 +514,18 @@ void GetContext::MergeWithEntity(Slice entity) {
     return;
   }
 
+  std::string result;
   const Status s = MergeHelper::TimedFullMergeWithEntity(
       merge_operator_, user_key_, entity, merge_context_->GetOperands(),
-      columns_, logger_, statistics_, clock_,
+      &result, logger_, statistics_, clock_,
       /* update_num_ops_stats */ true);
   if (!s.ok()) {
     state_ = kCorrupt;
     return;
   }
+
+  assert(columns_);
+  columns_->SetWideColumnValue(result);
 }
 
 bool GetContext::GetBlobValue(const Slice& blob_index,
