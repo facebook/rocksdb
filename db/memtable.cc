@@ -115,8 +115,14 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
       atomic_flush_seqno_(kMaxSequenceNumber),
       approximate_memory_usage_(0) {
-  UpdateFlushState();
-  // something went wrong if we need to flush before inserting anything
+  if (ShouldFlushNow()) {
+    ROCKS_LOG_ERROR(ioptions.logger, 
+      "Ignore the decision to flush an empty Memtable! However, it still "
+      "has a big chance to flush upon the first insertion. This anomaly "
+      "will lead to great performance degradation and is possibly due to "
+      "bad choice of write_buf_size(%lu) and(or) arena_block_size(%lu).",
+      write_buffer_size_.load(std::memory_order_relaxed), kArenaBlockSize);
+  }
   assert(!ShouldScheduleFlush());
 
   // use bloom_filter_ for both whole key and prefix bloom filter

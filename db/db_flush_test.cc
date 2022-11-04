@@ -1440,6 +1440,21 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   ASSERT_EQ(Get(KEY5), p_v5);
 }
 
+TEST_F(DBFlushTest, TolerateBadWriteBufSizeAndArenaBlockSize) {
+  Options options = CurrentOptions();
+
+  options.statistics = CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+
+  // Check that no crash when construcing a Memtable
+  // even with bad choice of these two variables
+  // https://github.com/facebook/rocksdb/issues/10713
+  options.arena_block_size = 1024*1024*16;
+  options.write_buffer_size = 1024*1024*2;
+
+  ASSERT_OK(TryReopen(options));
+}
+
 TEST_F(DBFlushTest, DISABLED_MemPurgeWALSupport) {
   Options options = CurrentOptions();
 

@@ -341,7 +341,7 @@ struct AdvancedColumnFamilyOptions {
   // If inplace_callback function is not set,
   //   Put(key, new_value) will update inplace the existing_value iff
   //   * key exists in current memtable
-  //   * new sizeof(new_value) <= sizeof(existing_value)
+  //   * sizeof(new_value) <= sizeof(existing_value)
   //   * existing_value for that key is a put i.e. kTypeValue
   // If inplace_callback function is set, check doc for inplace_callback.
   // Default: false.
