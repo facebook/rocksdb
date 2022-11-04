@@ -112,43 +112,12 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   return Status::OK();
 }
 
-Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
-                                   const Slice& key, const Slice* base_value,
-                                   const std::vector<Slice>& operands,
-                                   std::string* value,
-                                   PinnableWideColumns* columns, Logger* logger,
-                                   Statistics* statistics, SystemClock* clock,
-                                   Slice* result_operand,
-                                   bool update_num_ops_stats) {
-  assert(value || columns);
-  assert(!value || !columns);
-
-  std::string result;
-  const Status s =
-      TimedFullMerge(merge_operator, key, base_value, operands, &result, logger,
-                     statistics, clock, result_operand, update_num_ops_stats);
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (value) {
-    *value = std::move(result);
-    return Status::OK();
-  }
-
-  assert(columns);
-  columns->SetPlainValue(result);
-
-  return Status::OK();
-}
-
 Status MergeHelper::TimedFullMergeWithEntity(
     const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
-    const std::vector<Slice>& operands, std::string* value,
-    PinnableWideColumns* columns, Logger* logger, Statistics* statistics,
-    SystemClock* clock, bool update_num_ops_stats) {
-  assert(value || columns);
-  assert(!value || !columns);
+    const std::vector<Slice>& operands, PinnableWideColumns* columns,
+    Logger* logger, Statistics* statistics, SystemClock* clock,
+    bool update_num_ops_stats) {
+  assert(columns);
 
   WideColumns base_columns;
 
@@ -180,13 +149,6 @@ Status MergeHelper::TimedFullMergeWithEntity(
       return s;
     }
   }
-
-  if (value) {
-    *value = std::move(result);
-    return Status::OK();
-  }
-
-  assert(columns);
 
   std::string output;
 
