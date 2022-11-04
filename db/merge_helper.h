@@ -16,6 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/wide_columns.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -64,6 +65,13 @@ class MergeHelper {
                                SystemClock* clock,
                                Slice* result_operand = nullptr,
                                bool update_num_ops_stats = false);
+
+  static Status TimedFullMergeWithEntity(
+      const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
+      const std::vector<Slice>& operands, std::string* value,
+      PinnableWideColumns* columns, Logger* logger, Statistics* statistics,
+      SystemClock* clock, Slice* result_operand = nullptr,
+      bool update_num_ops_stats = false);
 
   // During compaction, merge entries until we hit
   //     - a corrupted key

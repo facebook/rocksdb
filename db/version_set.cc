@@ -2371,10 +2371,6 @@ void Version::Get(const ReadOptions& read_opts, const LookupKey& k,
             "Encounter unexpected blob index. Please open DB with "
             "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         return;
-      case GetContext::kUnexpectedWideColumnEntity:
-        *status =
-            Status::NotSupported("Encountered unexpected wide-column entity");
-        return;
     }
     f = fp.GetNextFile();
   }
