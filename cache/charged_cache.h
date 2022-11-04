@@ -23,16 +23,15 @@ class ChargedCache : public Cache {
                std::shared_ptr<Cache> block_cache);
   ~ChargedCache() override = default;
 
-  Status Insert(const Slice& key, void* value, size_t charge, DeleterFn deleter,
-                Handle** handle, Priority priority) override;
-  Status Insert(const Slice& key, void* value, const CacheItemHelper* helper,
-                size_t charge, Handle** handle = nullptr,
+  Status Insert(const Slice& key, ValueType* value,
+                const CacheItemHelper* helper, size_t charge,
+                Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override;
 
-  Cache::Handle* Lookup(const Slice& key, Statistics* stats) override;
   Cache::Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
-                        const CreateCallback& create_cb, Priority priority,
-                        bool wait, Statistics* stats = nullptr) override;
+                        CreateContext* create_context,
+                        Priority priority = Priority::LOW, bool wait = true,
+                        Statistics* stats = nullptr) override;
 
   bool Release(Cache::Handle* handle, bool useful,
                bool erase_if_last_ref = false) override;
@@ -56,7 +55,9 @@ class ChargedCache : public Cache {
     return cache_->HasStrictCapacityLimit();
   }
 
-  void* Value(Cache::Handle* handle) override { return cache_->Value(handle); }
+  ValueType* Value(Cache::Handle* handle) override {
+    return cache_->Value(handle);
+  }
 
   bool IsReady(Cache::Handle* handle) override {
     return cache_->IsReady(handle);
@@ -84,20 +85,16 @@ class ChargedCache : public Cache {
     return cache_->GetCharge(handle);
   }
 
-  Cache::DeleterFn GetDeleter(Cache::Handle* handle) const override {
-    return cache_->GetDeleter(handle);
+  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override {
+    return cache_->GetCacheItemHelper(handle);
   }
 
   void ApplyToAllEntries(
-      const std::function<void(const Slice& key, void* value, size_t charge,
-                               Cache::DeleterFn deleter)>& callback,
+      const std::function<void(const Slice& key, ValueType* value,
+                               size_t charge, const CacheItemHelper* helper)>&
+          callback,
       const Cache::ApplyToAllEntriesOptions& opts) override {
     cache_->ApplyToAllEntries(callback, opts);
-  }
-
-  void ApplyToAllCacheEntries(void (*callback)(void* value, size_t charge),
-                              bool thread_safe) override {
-    cache_->ApplyToAllCacheEntries(callback, thread_safe);
   }
 
   std::string GetPrintableOptions() const override {

@@ -23,6 +23,7 @@
 #include "memory/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block_type.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
@@ -320,6 +321,11 @@ struct UncompressionDict {
   bool own_bytes() const { return !dict_.empty() || allocation_; }
 
   const Slice& GetRawDict() const { return slice_; }
+
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return slice_; }
+  static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kOtherBlock;
+  static constexpr BlockType kBlockType = BlockType::kCompressionDictionary;
 
 #ifdef ROCKSDB_ZSTD_DDICT
   const ZSTD_DDict* GetDigestedZstdDDict() const { return zstd_ddict_; }

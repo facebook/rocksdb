@@ -17,21 +17,23 @@ template <typename T>
 T* GetFromCacheHandle(Cache* cache, Cache::Handle* handle) {
   assert(cache);
   assert(handle);
-
-  return static_cast<T*>(cache->Value(handle));
-}
-
-// Simple generic deleter for Cache (to be used with Cache::Insert).
-template <typename T>
-void DeleteCacheEntry(const Slice& /* key */, void* value) {
-  delete static_cast<T*>(value);
+  Cache::ValueType* value = cache->Value(handle);
+  // We don't strictly require values to extend ValueType, but it's a
+  // good idea
+  if constexpr (std::is_convertible_v<T*, Cache::ValueType*>) {
+    return static_cast<T*>(value);
+  } else {
+    return reinterpret_cast<T*>(value);
+  }
 }
 
 // Turns a T* into a Slice so it can be used as a key with Cache.
 template <typename T>
-Slice GetSlice(const T* t) {
+Slice GetSliceForKey(const T* t) {
   return Slice(reinterpret_cast<const char*>(t), sizeof(T));
 }
+
+void ReleaseCacheHandleCleanup(void* arg1, void* arg2);
 
 // Generic resource management object for cache handles that releases the handle
 // when destroyed. Has unique ownership of the handle, so copying it is not
@@ -88,7 +90,7 @@ class CacheHandleGuard {
     if (cleanable) {
       if (handle_ != nullptr) {
         assert(cache_);
-        cleanable->RegisterCleanup(&ReleaseCacheHandle, cache_, handle_);
+        cleanable->RegisterCleanup(&ReleaseCacheHandleCleanup, cache_, handle_);
       }
     }
     ResetFields();
@@ -115,16 +117,6 @@ class CacheHandleGuard {
     value_ = nullptr;
   }
 
-  static void ReleaseCacheHandle(void* arg1, void* arg2) {
-    Cache* const cache = static_cast<Cache*>(arg1);
-    assert(cache);
-
-    Cache::Handle* const cache_handle = static_cast<Cache::Handle*>(arg2);
-    assert(cache_handle);
-
-    cache->Release(cache_handle);
-  }
-
  private:
   Cache* cache_ = nullptr;
   Cache::Handle* handle_ = nullptr;
@@ -139,7 +131,13 @@ template <typename T>
 std::shared_ptr<T> MakeSharedCacheHandleGuard(Cache* cache,
                                               Cache::Handle* handle) {
   auto wrapper = std::make_shared<CacheHandleGuard<T>>(cache, handle);
-  return std::shared_ptr<T>(wrapper, static_cast<T*>(cache->Value(handle)));
+  return std::shared_ptr<T>(wrapper, GetFromCacheHandle<T>(cache, handle));
 }
+
+Status WarmInCache(Cache* cache, const Slice& key, const Slice& contents,
+                   Cache::CreateContext* create_context,
+                   const Cache::CacheItemHelper* helper,
+                   Cache::Priority priority = Cache::Priority::LOW,
+                   size_t* out_charge = nullptr);
 
 }  // namespace ROCKSDB_NAMESPACE

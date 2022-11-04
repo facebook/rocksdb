@@ -7,7 +7,7 @@
 
 #include <cinttypes>
 
-#include "cache/cache_helpers.h"
+#include "cache/typed_cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "util/mutexlock.h"
 
@@ -36,7 +36,10 @@ class BlobFileCache {
                            CacheHandleGuard<BlobFileReader>* blob_file_reader);
 
  private:
-  Cache* cache_;
+  using CacheInterface =
+      BasicTypedCacheInterface<BlobFileReader, CacheEntryRole::kMisc>;
+  using TypedHandle = CacheInterface::TypedHandle;
+  CacheInterface cache_;
   // Note: mutex_ below is used to guard against multiple threads racing to open
   // the same file.
   Striped<port::Mutex, Slice> mutex_;

@@ -33,7 +33,7 @@ class SecondaryCacheResultHandle {
   virtual void Wait() = 0;
 
   // Return the value. If nullptr, it means the lookup was unsuccessful
-  virtual void* Value() = 0;
+  virtual Cache::ValueType* Value() = 0;
 
   // Return the size of value
   virtual size_t Size() = 0;
@@ -74,7 +74,7 @@ class SecondaryCache : public Customizable {
   // Lookup() might return the same parsed value back. But more typically, if
   // the implementation only uses `value` for getting persistable data during
   // the call, then the default implementation of `InsertSaved()` suffices.
-  virtual Status Insert(const Slice& key, void* value,
+  virtual Status Insert(const Slice& key, Cache::ValueType* value,
                         const Cache::CacheItemHelper* helper) = 0;
 
   // Insert a value from its saved/persistable data (typically uncompressed
@@ -101,8 +101,9 @@ class SecondaryCache : public Customizable {
   // is_in_sec_cache is to indicate whether the handle is possibly erased
   // from the secondary cache after the Lookup.
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
-      const Slice& key, const Cache::CreateCallback& create_cb, bool wait,
-      bool advise_erase, bool& is_in_sec_cache) = 0;
+      const Slice& key, const Cache::CacheItemHelper* helper,
+      Cache::CreateContext* create_context, bool wait, bool advise_erase,
+      bool& is_in_sec_cache) = 0;
 
   // Indicate whether a handle can be erased in this secondary cache.
   [[nodiscard]] virtual bool SupportForceErase() const = 0;

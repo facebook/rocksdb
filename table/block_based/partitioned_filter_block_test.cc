@@ -7,6 +7,7 @@
 
 #include <map>
 
+#include "block_cache.h"
 #include "index_builder.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -35,7 +36,8 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
  public:
   MyPartitionedFilterBlockReader(BlockBasedTable* t,
                                  CachableEntry<Block>&& filter_block)
-      : PartitionedFilterBlockReader(t, std::move(filter_block)) {
+      : PartitionedFilterBlockReader(
+            t, std::move(filter_block.As<Block_kFilterPartitionIndex>())) {
     for (const auto& pair : blooms) {
       const uint64_t offset = pair.first;
       const std::string& bloom = pair.second;

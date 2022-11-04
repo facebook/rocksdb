@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cassert>
+#include <type_traits>
 
 #include "port/likely.h"
 #include "rocksdb/cache.h"
@@ -179,7 +180,7 @@ class CachableEntry {
     assert(cache_ != nullptr);
     assert(cache_handle_ != nullptr);
 
-    value_ = static_cast<T*>(cache_->Value(cache_handle_));
+    value_ = reinterpret_cast<T*>(cache_->Value(cache_handle_));
   }
 
   bool IsReady() {
@@ -189,6 +190,16 @@ class CachableEntry {
       return cache_->IsReady(cache_handle_);
     }
     return true;
+  }
+
+  // TODO: doc
+  template <class TWrapper>
+  std::enable_if_t<sizeof(TWrapper) == sizeof(T) &&
+                       (std::is_base_of_v<TWrapper, T> ||
+                        std::is_base_of_v<T, TWrapper>),
+                   CachableEntry<TWrapper>&>
+  As() {
+    return *reinterpret_cast<CachableEntry<TWrapper>*>(this);
   }
 
  private:
