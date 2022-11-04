@@ -610,11 +610,11 @@ class DataBlockIter final : public BlockIter<Slice> {
 
   bool SeekForGetImpl(const Slice& target);
   void GenerateEntryChecksum(const Slice& key, const Slice& value,
-                             SequenceNumber s, char* checksum_ptr) const;
+                             char* checksum_ptr) const;
   Status VerifyEntryChecksum(const Slice& key, const Slice& value) const;
   uint32_t GetCurrentEntryPosition() const;
   // Return the offset in data_ just past the end of the entry starting at "p".
-  static void GetNextEntryOffset(const char* p, const char* limit);
+  static const char* GetNextEntryOffset(const char* p, const char* limit);
 };
 
 // Iterator over MetaBlocks.  MetaBlocks are similar to Data Blocks and

@@ -146,7 +146,7 @@ TEST_P(BlockTestWithChecksum, SimpleTest) {
 }
 
 INSTANTIATE_TEST_CASE_P(P, BlockTestWithChecksum,
-                        ::testing::ValuesIn(std::vector<uint32_t>{2}));
+                        ::testing::ValuesIn(std::vector<uint32_t>{0, 2}));
 
 // return the block contents
 BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
