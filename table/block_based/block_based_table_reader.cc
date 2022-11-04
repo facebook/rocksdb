@@ -123,7 +123,8 @@ Status ReadBlockFromFile(
     const PersistentCacheOptions& cache_options, size_t read_amp_bytes_per_bit,
     MemoryAllocator* memory_allocator, bool for_compaction, bool using_zstd,
     const FilterPolicy* filter_policy, bool async_read,
-    int block_restart_interval, const Comparator* raw_ucmp) {
+    int block_restart_interval, const Comparator* raw_ucmp,
+    uint32_t block_protection_bytes_per_key) {
   assert(result);
 
   BlockContents contents;
@@ -145,7 +146,8 @@ Status ReadBlockFromFile(
   if (s.ok()) {
     result->reset(BlocklikeTraits<TBlocklike>::Create(
         std::move(contents), read_amp_bytes_per_bit, ioptions.stats, using_zstd,
-        filter_policy, block_type, block_restart_interval, raw_ucmp, 0));
+        filter_policy, block_type, block_restart_interval, raw_ucmp,
+        block_protection_bytes_per_key));
   }
 
   return s;
@@ -652,9 +654,10 @@ Status BlockBasedTable::Open(
   }
 
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
-  Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
-                                      internal_comparator, skip_filters,
-                                      file_size, level, immortal_table);
+  Rep* rep = new BlockBasedTable::Rep(
+      ioptions, env_options, table_options, internal_comparator, skip_filters,
+      file_size, level, immortal_table,
+      read_options.block_protection_bytes_per_key);
   rep->file = std::move(file);
   rep->footer = footer;
 
@@ -1257,7 +1260,8 @@ Status BlockBasedTable::ReadMetaIndexBlock(
       false /* for_compaction */, rep_->blocks_definitely_zstd_compressed,
       nullptr /* filter_policy */, false /* async_read */,
       rep_->table_options.block_restart_interval,
-      rep_->internal_comparator.user_comparator());
+      rep_->internal_comparator.user_comparator(),
+      rep_->block_protection_bytes_per_key);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.logger,
@@ -1306,9 +1310,10 @@ Status BlockBasedTable::GetDataBlockFromCache(
   bool using_zstd = rep_->blocks_definitely_zstd_compressed;
   const FilterPolicy* filter_policy = rep_->filter_policy;
   Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
-
       read_amp_bytes_per_bit, statistics, using_zstd, filter_policy, block_type,
-      16, rep_->internal_comparator.user_comparator(), 0);
+      rep_->table_options.block_restart_interval,
+      rep_->internal_comparator.user_comparator(),
+      rep_->block_protection_bytes_per_key);
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
@@ -1339,9 +1344,10 @@ Status BlockBasedTable::GetDataBlockFromCache(
   if (rep_->ioptions.lowest_used_cache_tier ==
       CacheTier::kNonVolatileBlockTier) {
     Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
-
         read_amp_bytes_per_bit, statistics, using_zstd, filter_policy,
-        block_type, 16, rep_->internal_comparator.user_comparator(), 0);
+        block_type, rep_->table_options.block_restart_interval,
+        rep_->internal_comparator.user_comparator(),
+        rep_->block_protection_bytes_per_key);
     block_cache_compressed_handle = block_cache_compressed->Lookup(
         cache_key,
         BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
@@ -1380,8 +1386,10 @@ Status BlockBasedTable::GetDataBlockFromCache(
         BlocklikeTraits<TBlocklike>::Create(
             std::move(contents), read_amp_bytes_per_bit, statistics,
             rep_->blocks_definitely_zstd_compressed,
-            rep_->table_options.filter_policy.get(), block_type, 16,
-            rep_->internal_comparator.user_comparator(), 0));
+            rep_->table_options.filter_policy.get(), block_type,
+            rep_->table_options.block_restart_interval,
+            rep_->internal_comparator.user_comparator(),
+            rep_->block_protection_bytes_per_key));
 
     if (block_cache != nullptr && block_holder->own_bytes() &&
         read_options.fill_cache) {
@@ -1454,14 +1462,18 @@ Status BlockBasedTable::PutDataBlockToCache(
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
         std::move(uncompressed_block_contents), read_amp_bytes_per_bit,
         statistics, rep_->blocks_definitely_zstd_compressed,
-        rep_->table_options.filter_policy.get(), block_type, 16,
-        rep_->internal_comparator.user_comparator(), 0));
+        rep_->table_options.filter_policy.get(), block_type,
+        rep_->table_options.block_restart_interval,
+        rep_->internal_comparator.user_comparator(),
+        rep_->block_protection_bytes_per_key));
   } else {
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
         std::move(block_contents), read_amp_bytes_per_bit, statistics,
         rep_->blocks_definitely_zstd_compressed,
-        rep_->table_options.filter_policy.get(), block_type, 16,
-        rep_->internal_comparator.user_comparator(), 0));
+        rep_->table_options.filter_policy.get(), block_type,
+        rep_->table_options.block_restart_interval,
+        rep_->internal_comparator.user_comparator(),
+        rep_->block_protection_bytes_per_key));
   }
 
   // Insert compressed block into compressed block cache.
@@ -1831,7 +1843,8 @@ Status BlockBasedTable::RetrieveBlock(
         rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get(), async_read,
         rep_->table_options.block_restart_interval,
-        rep_->internal_comparator.user_comparator());
+        rep_->internal_comparator.user_comparator(),
+        rep_->block_protection_bytes_per_key);
 
     if (get_context) {
       switch (block_type) {
