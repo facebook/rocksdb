@@ -101,8 +101,6 @@ TEST_P(BlockTestWithChecksum, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  std::cout << "protection_bytes_per_key_ " << protection_bytes_per_key_
-            << "\n";
   Block reader{std::move(contents),
                0,
                nullptr,
@@ -128,9 +126,9 @@ TEST_P(BlockTestWithChecksum, SimpleTest) {
   delete iter;
 
   // read block contents randomly
-  iter =
-      reader.NewDataIterator(options.comparator, kDisableGlobalSequenceNumber,
-                             nullptr, nullptr, protection_bytes_per_key_);
+  iter = reader.NewDataIterator(options.comparator,
+                                kDisableGlobalSequenceNumber, nullptr, nullptr,
+                                false, protection_bytes_per_key_);
   for (int i = 0; i < num_records; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -144,9 +142,6 @@ TEST_P(BlockTestWithChecksum, SimpleTest) {
   }
   delete iter;
 }
-
-INSTANTIATE_TEST_CASE_P(P, BlockTestWithChecksum,
-                        ::testing::ValuesIn(std::vector<uint32_t>{0, 2}));
 
 // return the block contents
 BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
@@ -169,18 +164,24 @@ BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
 
 void CheckBlockContents(BlockContents contents, const int max_key,
                         const std::vector<std::string> &keys,
-                        const std::vector<std::string> &values) {
+                        const std::vector<std::string> &values,
+                        BlockType block_type,
+                        uint32_t protection_bytes_per_key) {
+  Options options = Options();
   const size_t prefix_size = 6;
   // create block reader
   BlockContents contents_ref(contents.data);
-  Block reader1(std::move(contents));
-  Block reader2(std::move(contents_ref));
+  Block reader1(std::move(contents), 0, nullptr, block_type, 1,
+                options.comparator, protection_bytes_per_key);
+  Block reader2(std::move(contents_ref), 0, nullptr, block_type, 1,
+                options.comparator, protection_bytes_per_key);
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
 
   std::unique_ptr<InternalIterator> regular_iter(reader2.NewDataIterator(
-      BytewiseComparator(), kDisableGlobalSequenceNumber));
+      BytewiseComparator(), kDisableGlobalSequenceNumber, nullptr, nullptr,
+      false, protection_bytes_per_key));
 
   // Seek existent keys
   for (size_t i = 0; i < keys.size(); i++) {
@@ -205,7 +206,7 @@ void CheckBlockContents(BlockContents contents, const int max_key,
 }
 
 // In this test case, no two key share same prefix.
-TEST_F(BlockTest, SimpleIndexHash) {
+TEST_P(BlockTestWithChecksum, SimpleIndexHash) {
   const int kMaxKey = 100000;
   std::vector<std::string> keys;
   std::vector<std::string> values;
@@ -216,10 +217,11 @@ TEST_F(BlockTest, SimpleIndexHash) {
   std::unique_ptr<BlockBuilder> builder;
   auto contents = GetBlockContents(&builder, keys, values);
 
-  CheckBlockContents(std::move(contents), kMaxKey, keys, values);
+  CheckBlockContents(std::move(contents), kMaxKey, keys, values,
+                     BlockType::kData, protection_bytes_per_key_);
 }
 
-TEST_F(BlockTest, IndexHashWithSharedPrefix) {
+TEST_P(BlockTestWithChecksum, IndexHashWithSharedPrefix) {
   const int kMaxKey = 100000;
   // for each prefix, there will be 5 keys starts with it.
   const int kPrefixGroup = 5;
@@ -235,8 +237,12 @@ TEST_F(BlockTest, IndexHashWithSharedPrefix) {
   std::unique_ptr<BlockBuilder> builder;
   auto contents = GetBlockContents(&builder, keys, values, kPrefixGroup);
 
-  CheckBlockContents(std::move(contents), kMaxKey, keys, values);
+  CheckBlockContents(std::move(contents), kMaxKey, keys, values,
+                     BlockType::kData, protection_bytes_per_key_);
 }
+
+INSTANTIATE_TEST_CASE_P(P, BlockTestWithChecksum,
+                        ::testing::ValuesIn(std::vector<uint32_t>{0, 2}));
 
 // A slow and accurate version of BlockReadAmpBitmap that simply store
 // all the marked ranges in a set.
