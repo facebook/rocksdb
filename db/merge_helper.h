@@ -57,20 +57,13 @@ class MergeHelper {
                                Slice* result_operand = nullptr,
                                bool update_num_ops_stats = false);
 
-  static Status TimedFullMerge(const MergeOperator* merge_operator,
-                               const Slice& key, const Slice* base_value,
-                               const std::vector<Slice>& operands,
-                               std::string* value, PinnableWideColumns* columns,
-                               Logger* logger, Statistics* statistics,
-                               SystemClock* clock,
-                               Slice* result_operand = nullptr,
-                               bool update_num_ops_stats = false);
-
-  static Status TimedFullMergeWithEntity(
-      const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
-      const std::vector<Slice>& operands, std::string* value,
-      PinnableWideColumns* columns, Logger* logger, Statistics* statistics,
-      SystemClock* clock, bool update_num_ops_stats);
+  static Status TimedFullMergeWithEntity(const MergeOperator* merge_operator,
+                                         const Slice& key, Slice base_entity,
+                                         const std::vector<Slice>& operands,
+                                         PinnableWideColumns* columns,
+                                         Logger* logger, Statistics* statistics,
+                                         SystemClock* clock,
+                                         bool update_num_ops_stats);
 
   // During compaction, merge entries until we hit
   //     - a corrupted key
