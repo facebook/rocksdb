@@ -419,6 +419,13 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
             std::max(m->GetNextLogNumber(), *max_next_log_number);
       }
       ret->push_back(m);
+    } else if (!ret->empty()) {
+      // This `break` is necessary to prevent picking non-consecutive memtables
+      // in case `memlist` has one or more entries with
+      // `flush_in_progress_ == true` sandwiched between entries with
+      // `flush_in_progress_ == false`. This could happen after parallel flushes
+      // are picked and the one flushing older memtables is rolled back.
+      break;
     }
   }
   if (!atomic_flush || num_flush_not_started_ == 0) {
