@@ -314,10 +314,11 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
       case CacheDumpUnitType::kData: {
         helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kData);
         std::unique_ptr<Block> block_holder;
+        // Do not enable block per key-value checksum here.
         block_holder.reset(BlocklikeTraits<Block>::Create(
             std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get(), BlockType::kData,
-            16, nullptr, 0));
+            0, nullptr, 0));
         if (helper != nullptr) {
           s = secondary_cache_->Insert(dump_unit.key,
                                        (void*)(block_holder.get()), helper);
