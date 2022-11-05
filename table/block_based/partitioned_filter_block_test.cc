@@ -147,10 +147,11 @@ class PartitionedFilterBlockTest
     constexpr uint64_t file_size = 12345;
     constexpr int level = 0;
     constexpr bool immortal_table = false;
+    constexpr uint32_t block_protection_bytes_per_key = 0;
     table_.reset(new MockedBlockBasedTable(
-        new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, file_size, level,
-                                 immortal_table),
+        new BlockBasedTable::Rep(
+            ioptions_, env_options_, table_options_, icomp_, skip_filters,
+            file_size, level, immortal_table, block_protection_bytes_per_key),
         pib));
     BlockContents contents(slice);
     CachableEntry<Block> block(

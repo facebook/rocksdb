@@ -43,9 +43,11 @@ class MockBlockBasedTableTester {
 
     constexpr bool skip_filters = false;
     constexpr bool immortal_table = false;
+    constexpr uint32_t block_protection_bytes_per_key = 0;
     table_.reset(new MockBlockBasedTable(new BlockBasedTable::Rep(
         ioptions_, env_options_, table_options_, icomp_, skip_filters,
-        12345 /*file_size*/, kMockLevel, immortal_table)));
+        12345 /*file_size*/, kMockLevel, immortal_table,
+        block_protection_bytes_per_key)));
   }
 
   FilterBitsBuilder* GetBuilder() const {
