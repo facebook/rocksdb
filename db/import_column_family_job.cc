@@ -156,6 +156,7 @@ Status ImportColumnFamilyJob::Run() {
         static_cast<uint64_t>(temp_current_time);
   }
 
+  InferL0EpochNumbersFromSeqNo();
   for (size_t i = 0; i < files_to_import_.size(); ++i) {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
@@ -165,8 +166,8 @@ Status ImportColumnFamilyJob::Run() {
                   f.largest_internal_key, file_metadata.smallest_seqno,
                   file_metadata.largest_seqno, false, file_metadata.temperature,
                   kInvalidBlobFileNumber, oldest_ancester_time, current_time,
-                  kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                  f.unique_id);
+                  file_metadata.l0_epoch_number, kUnknownFileChecksum,
+                  kUnknownFileChecksumFuncName, f.unique_id);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
@@ -307,6 +308,39 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   return status;
 }
 
+void ImportColumnFamilyJob::InferL0EpochNumbersFromSeqNo() {
+  std::vector<LiveFileMetaData*> l0_live_file_metadatas;
+  std::vector<FileMetaData*> l0_file_metadata_ptrs;
+
+  for (std::size_t i = 0; i < metadata_.size(); ++i) {
+    LiveFileMetaData* live_file_metadata = &(metadata_[i]);
+    const auto& f = files_to_import_[i];
+
+    if (live_file_metadata->level == 0) {
+      l0_live_file_metadatas.push_back(live_file_metadata);
+      l0_file_metadata_ptrs.emplace_back(new FileMetaData(
+          f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
+          f.smallest_internal_key, f.largest_internal_key,
+          live_file_metadata->smallest_seqno, live_file_metadata->largest_seqno,
+          false, live_file_metadata->temperature, kInvalidBlobFileNumber,
+          kUnknownOldestAncesterTime /* doesn't matter here */,
+          kUnknownFileCreationTime /* doesn't matter here */,
+          live_file_metadata->l0_epoch_number, kUnknownFileChecksum,
+          kUnknownFileChecksumFuncName, f.unique_id));
+    }
+  }
+
+  versions_->InferL0EpochNumbersFromSeqNo(l0_file_metadata_ptrs);
+
+  for (std::size_t i = 0; i < l0_live_file_metadatas.size(); ++i) {
+    l0_live_file_metadatas[i]->l0_epoch_number =
+        l0_file_metadata_ptrs[i]->l0_epoch_number;
+  }
+
+  for (std::size_t i = 0; i < l0_file_metadata_ptrs.size(); ++i) {
+    delete l0_file_metadata_ptrs[i];
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

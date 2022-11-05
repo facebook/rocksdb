@@ -16,6 +16,7 @@
 #include "db/blob/blob_source.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
+#include "version_edit.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -432,6 +433,17 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     }
   }
   if (s->ok()) {
+    if (HasMissingL0EpochNumber()) {
+      InferL0EpochNumbersFromSeqNo();
+    } else if (version_edit_params_.HasNextL0EpochNumber()) {
+      assert(version_set_->next_l0_epoch_number_ <=
+             version_edit_params_.GeNextL0EpochNumber());
+      version_set_->next_l0_epoch_number_.store(
+          version_edit_params_.GeNextL0EpochNumber());
+    }
+  }
+
+  if (s->ok()) {
     for (auto* cfd : *(version_set_->column_family_set_)) {
       if (cfd->IsDropped()) {
         continue;
@@ -515,6 +527,39 @@ ColumnFamilyData* VersionEditHandler::DestroyCfAndCleanup(
   ret->UnrefAndTryDelete();
   ret = nullptr;
   return ret;
+}
+
+bool VersionEditHandler::HasMissingL0EpochNumber() const {
+  for (auto* cfd : *(version_set_->column_family_set_)) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    assert(cfd->initialized());
+
+    auto builder_iter = builders_.find(cfd->GetID());
+    assert(builder_iter != builders_.end());
+    auto* builder = builder_iter->second->version_builder();
+
+    if (builder->HasMissingL0EpochNumber()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void VersionEditHandler::InferL0EpochNumbersFromSeqNo() {
+  for (auto* cfd : *(version_set_->column_family_set_)) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    assert(cfd->initialized());
+
+    auto builder_iter = builders_.find(cfd->GetID());
+    assert(builder_iter != builders_.end());
+    auto* builder = builder_iter->second->version_builder();
+
+    builder->InferL0EpochNumbersFromSeqNo();
+  }
 }
 
 Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
@@ -616,6 +661,11 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
     }
     if (edit.has_next_file_number_) {
       version_edit_params_.SetNextFile(edit.next_file_number_);
+    }
+    if (edit.has_next_l0_epoch_number_) {
+      assert(version_edit_params_.GeNextL0EpochNumber() <=
+             edit.next_l0_epoch_number_);
+      version_edit_params_.SetNextL0EpochNumber(edit.next_l0_epoch_number_);
     }
     if (edit.has_max_column_family_) {
       version_edit_params_.SetMaxColumnFamily(edit.max_column_family_);
@@ -967,10 +1017,11 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
            cfd->current()->DebugString(hex_).size(), stdout);
   }
   fprintf(stdout,
-          "next_file_number %" PRIu64 " last_sequence %" PRIu64
-          "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
-          " min_log_number_to_keep %" PRIu64 "\n",
+          "next_file_number %" PRIu64 " next_l0_epoch_number %" PRIu64
+          " last_sequence %" PRIu64 "  prev_log_number %" PRIu64
+          " max_column_family %" PRIu32 " min_log_number_to_keep %" PRIu64 "\n",
           version_set_->current_next_file_number(),
+          version_set_->current_next_l0_epoch_number(),
           version_set_->LastSequence(), version_set_->prev_log_number(),
           version_set_->column_family_set_->GetMaxColumnFamily(),
           version_set_->min_log_number_to_keep());

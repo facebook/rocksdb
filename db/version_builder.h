@@ -11,6 +11,7 @@
 
 #include <memory>
 
+#include "db/version_edit.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice_transform.h"
 
@@ -48,6 +49,8 @@ class VersionBuilder {
       const std::shared_ptr<const SliceTransform>& prefix_extractor,
       size_t max_file_size_for_l0_meta_pin);
   uint64_t GetMinOldestBlobFileNumber() const;
+  bool HasMissingL0EpochNumber() const;
+  void InferL0EpochNumbersFromSeqNo();
 
  private:
   class Rep;
@@ -67,6 +70,25 @@ class BaseReferencedVersionBuilder {
  private:
   std::unique_ptr<VersionBuilder> version_builder_;
   Version* version_;
+};
+
+class NewestFirstBySeqNo {
+ public:
+  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+    assert(lhs);
+    assert(rhs);
+
+    if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
+      return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
+    }
+
+    if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
+      return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
+    }
+
+    // Break ties by file number
+    return lhs->fd.GetNumber() > rhs->fd.GetNumber();
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

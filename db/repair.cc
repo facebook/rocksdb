@@ -125,7 +125,8 @@ class Repairer {
               /*db_id=*/"", db_session_id_),
         next_file_number_(1),
         db_lock_(nullptr),
-        closed_(false) {
+        closed_(false),
+        level_to_add_tables(0) {
     for (const auto& cfd : column_families) {
       cf_name_to_opts_[cfd.name] = cfd.options;
     }
@@ -213,14 +214,14 @@ class Repairer {
     if (status.ok()) {
       // Need to scan existing SST files first so the column families are
       // created before we process WAL files
-      ExtractMetaData();
+      ExtractMetaData(true /* infer_l0_epoch_numbers_from_seqno */);
 
       // ExtractMetaData() uses table_fds_ to know which SST files' metadata to
       // extract -- we need to clear it here since metadata for existing SST
       // files has been extracted already
       table_fds_.clear();
       ConvertLogFilesToTables();
-      ExtractMetaData();
+      ExtractMetaData(false /* infer_l0_epoch_numbers_from_seqno */);
       status = AddTables();
     }
     if (status.ok()) {
@@ -267,6 +268,7 @@ class Repairer {
 
   std::vector<std::string> manifests_;
   std::vector<FileDescriptor> table_fds_;
+  std::vector<uint64_t> table_l0_epoch_numbers_;
   std::vector<uint64_t> logs_;
   std::vector<TableInfo> tables_;
   uint64_t next_file_number_;
@@ -274,6 +276,7 @@ class Repairer {
   // acquired.
   FileLock* db_lock_;
   bool closed_;
+  const uint32_t level_to_add_tables;
 
   Status FindFiles() {
     std::vector<std::string> filenames;
@@ -327,6 +330,22 @@ class Repairer {
       return Status::Corruption(dbname_, "repair found no files");
     }
     return Status::OK();
+  }
+
+  void InferL0EpochNumbersFromSeqNo() {
+    assert(level_to_add_tables == 0);
+    std::unordered_map<uint32_t, std::vector<FileMetaData*>>
+        cf_id_to_l0_file_metadatas;
+    for (std::size_t i = 0; i < tables_.size(); ++i) {
+      cf_id_to_l0_file_metadatas[tables_[i].column_family_id].push_back(
+          &(tables_[i].meta));
+    }
+
+    for (const auto& cf_id_and_l0_file_metadatas : cf_id_to_l0_file_metadatas) {
+      std::vector<FileMetaData*> l0_file_metadatas(
+          cf_id_and_l0_file_metadatas.second);
+      vset_.InferL0EpochNumbersFromSeqNo(l0_file_metadatas);
+    }
   }
 
   void ConvertLogFilesToTables() {
@@ -431,6 +450,8 @@ class Repairer {
           .PermitUncheckedError();  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
       meta.file_creation_time = current_time;
+      assert(level_to_add_tables == 0);
+      meta.l0_epoch_number = vset_.NewL0EpochNumber();
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
       auto write_hint = cfd->CalculateSSTWriteHint(0);
@@ -470,6 +491,8 @@ class Repairer {
       if (status.ok()) {
         if (meta.fd.GetFileSize() > 0) {
           table_fds_.push_back(meta.fd);
+          table_l0_epoch_numbers_.push_back(meta.l0_epoch_number);
+          assert(table_l0_epoch_numbers_.size() == table_fds_.size());
         }
       } else {
         break;
@@ -479,10 +502,14 @@ class Repairer {
     return status;
   }
 
-  void ExtractMetaData() {
+  void ExtractMetaData(bool infer_l0_epoch_numbers_from_seqno = false) {
     for (size_t i = 0; i < table_fds_.size(); i++) {
       TableInfo t;
       t.meta.fd = table_fds_[i];
+      if (!infer_l0_epoch_numbers_from_seqno) {
+        assert(table_fds_.size() == table_l0_epoch_numbers_.size());
+        t.meta.l0_epoch_number = table_l0_epoch_numbers_[i];
+      }
       Status status = ScanTable(&t);
       if (!status.ok()) {
         std::string fname = TableFileName(
@@ -496,6 +523,9 @@ class Repairer {
       } else {
         tables_.push_back(t);
       }
+    }
+    if (infer_l0_epoch_numbers_from_seqno) {
+      InferL0EpochNumbersFromSeqNo();
     }
   }
 
@@ -649,14 +679,15 @@ class Repairer {
       // TODO(opt): separate out into multiple levels
       for (const auto* table : cf_id_and_tables.second) {
         edit.AddFile(
-            0, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
-            table->meta.fd.GetFileSize(), table->meta.smallest,
-            table->meta.largest, table->meta.fd.smallest_seqno,
-            table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
-            table->meta.temperature, table->meta.oldest_blob_file_number,
+            level_to_add_tables, table->meta.fd.GetNumber(),
+            table->meta.fd.GetPathId(), table->meta.fd.GetFileSize(),
+            table->meta.smallest, table->meta.largest,
+            table->meta.fd.smallest_seqno, table->meta.fd.largest_seqno,
+            table->meta.marked_for_compaction, table->meta.temperature,
+            table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
-            table->meta.file_checksum, table->meta.file_checksum_func_name,
-            table->meta.unique_id);
+            table->meta.l0_epoch_number, table->meta.file_checksum,
+            table->meta.file_checksum_func_name, table->meta.unique_id);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);

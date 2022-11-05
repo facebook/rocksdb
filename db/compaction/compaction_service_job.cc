@@ -190,6 +190,9 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.largest.DecodeFrom(file.largest_internal_key);
     meta.oldest_ancester_time = file.oldest_ancester_time;
     meta.file_creation_time = file.file_creation_time;
+    meta.l0_epoch_number = compaction_input.output_level == 0
+                               ? compaction->MinL0InputFileL0EpochNumber()
+                               : kUnknownL0EpochNumber;
     meta.marked_for_compaction = file.marked_for_compaction;
     meta.unique_id = file.unique_id;
 
@@ -333,8 +336,9 @@ Status CompactionServiceCompactionJob::Run() {
         MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
         meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
         meta.largest.Encode().ToString(), meta.oldest_ancester_time,
-        meta.file_creation_time, output_file.validator.GetHash(),
-        meta.marked_for_compaction, meta.unique_id);
+        meta.file_creation_time, meta.l0_epoch_number,
+        output_file.validator.GetHash(), meta.marked_for_compaction,
+        meta.unique_id);
   }
   InternalStats::CompactionStatsFull compaction_stats;
   sub_compact->AggregateCompactionStats(compaction_stats);
@@ -487,6 +491,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"file_creation_time",
          {offsetof(struct CompactionServiceOutputFile, file_creation_time),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"l0_epoch_number",
+         {offsetof(struct CompactionServiceOutputFile, l0_epoch_number),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"paranoid_hash",

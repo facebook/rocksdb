@@ -45,6 +45,7 @@
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
+#include "version_edit.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -994,13 +995,18 @@ Status FlushJob::WriteLevel0Table() {
     // threads could be concurrently producing compacted files for
     // that key range.
     // Add file to L0
-    edit_->AddFile(0 /* level */, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
+    constexpr int level = 0;
+    db_mutex_->AssertHeld();
+    meta_.l0_epoch_number =
+        level == 0 ? versions_->NewL0EpochNumber() : kUnknownL0EpochNumber;
+    edit_->AddFile(level, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
                    meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
                    meta_.marked_for_compaction, meta_.temperature,
                    meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
-                   meta_.file_creation_time, meta_.file_checksum,
-                   meta_.file_checksum_func_name, meta_.unique_id);
+                   meta_.file_creation_time, meta_.l0_epoch_number,
+                   meta_.file_checksum, meta_.file_checksum_func_name,
+                   meta_.unique_id);
 
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }

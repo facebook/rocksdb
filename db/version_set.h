@@ -440,6 +440,11 @@ class VersionStorageInfo {
     return files_marked_for_compaction_;
   }
 
+  void TEST_AddFileMarkedForCompaction(int level, FileMetaData* f) {
+    f->marked_for_compaction = true;
+    files_marked_for_compaction_.emplace_back(level, f);
+  }
+
   // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
@@ -1233,6 +1238,10 @@ class VersionSet {
 
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
+  uint64_t current_next_l0_epoch_number() const {
+    return next_l0_epoch_number_.load();
+  }
+
   uint64_t min_log_number_to_keep() const {
     return min_log_number_to_keep_.load();
   }
@@ -1244,6 +1253,20 @@ class VersionSet {
   uint64_t FetchAddFileNumber(uint64_t n) {
     return next_file_number_.fetch_add(n);
   }
+
+  // Allocate and return a new L0 epoch number
+  uint64_t NewL0EpochNumber() { return next_l0_epoch_number_.fetch_add(1); }
+
+  // Fetch And Add n new L0 epoch number
+  uint64_t FetchAddL0EpochNumber(uint64_t n) {
+    return next_l0_epoch_number_.fetch_add(n);
+  }
+
+  // Sort a copy of `l0_file_metadatas` by NewestFirstBySeqNo comparator
+  // and assign L0 epoch number to each FileMetaData pointed to in
+  // `l0_file_metadatas` accordingly
+  void InferL0EpochNumbersFromSeqNo(
+      const std::vector<FileMetaData*>& l0_file_metadatas);
 
   // Return the last sequence number.
   uint64_t LastSequence() const {
@@ -1516,6 +1539,7 @@ class VersionSet {
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
+  std::atomic<uint64_t> next_l0_epoch_number_;
   // Any WAL number smaller than this should be ignored during recovery,
   // and is qualified for being deleted.
   std::atomic<uint64_t> min_log_number_to_keep_ = {0};

@@ -66,6 +66,8 @@ class ImportColumnFamilyJob {
                              IngestedFileInfo* file_to_import,
                              SuperVersion* sv);
 
+  void InferL0EpochNumbersFromSeqNo();
+
   SystemClock* clock_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;

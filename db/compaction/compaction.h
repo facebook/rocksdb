@@ -378,6 +378,9 @@ class Compaction {
   // This is used to filter out some input files' ancester's time range.
   uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
                                           const InternalKey* end) const;
+  // Return the minimum L0 epoch number among
+  // L0 input files associated with this compaction
+  uint64_t MinL0InputFileL0EpochNumber() const;
 
   // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
   // compaction begin and compaction completion callbacks match.

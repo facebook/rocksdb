@@ -1840,6 +1840,11 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
                              sub_compact->compaction->output_path_id(), 0);
     meta.oldest_ancester_time = oldest_ancester_time;
     meta.file_creation_time = current_time;
+    meta.l0_epoch_number =
+        sub_compact->compaction->output_level() == 0
+            ? sub_compact->compaction->MinL0InputFileL0EpochNumber()
+            : kUnknownL0EpochNumber;
+
     meta.temperature = temperature;
     assert(!db_id_.empty());
     assert(!db_session_id_.empty());

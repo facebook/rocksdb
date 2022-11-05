@@ -193,6 +193,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                     const VersionEdit& edit);
+
+  bool HasMissingL0EpochNumber() const;
+  void InferL0EpochNumbersFromSeqNo();
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.

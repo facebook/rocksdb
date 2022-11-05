@@ -807,6 +807,16 @@ uint64_t Compaction::MinInputFileOldestAncesterTime(
   return min_oldest_ancester_time;
 }
 
+uint64_t Compaction::MinL0InputFileL0EpochNumber() const {
+  uint64_t min_l0_epoch_number = std::numeric_limits<uint64_t>::max();
+  for (const auto& file : inputs_[0].files) {
+    assert(file->l0_epoch_number != kUnknownL0EpochNumber);
+    min_l0_epoch_number = std::min(min_l0_epoch_number, file->l0_epoch_number);
+  }
+
+  return min_l0_epoch_number;
+}
+
 int Compaction::EvaluatePenultimateLevel(
     const VersionStorageInfo* vstorage,
     const ImmutableOptions& immutable_options, const int start_level,

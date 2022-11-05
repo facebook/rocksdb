@@ -32,26 +32,22 @@
 #include "port/port.h"
 #include "table/table_reader.h"
 #include "util/string_util.h"
+#include "version_edit.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class VersionBuilder::Rep {
-  class NewestFirstBySeqNo {
+  class NewestFirstByL0EpochNumber {
    public:
     bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
       assert(lhs);
       assert(rhs);
 
-      if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
-        return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
+      if (lhs->l0_epoch_number != rhs->l0_epoch_number) {
+        return lhs->l0_epoch_number > rhs->l0_epoch_number;
+      } else {
+        return false;
       }
-
-      if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
-        return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
-      }
-
-      // Break ties by file number
-      return lhs->fd.GetNumber() > rhs->fd.GetNumber();
     }
   };
 
@@ -251,7 +247,7 @@ class VersionBuilder::Rep {
   std::unordered_map<uint64_t, int> table_file_levels_;
   // Current compact cursors that should be changed after the last compaction
   std::unordered_map<int, InternalKey> updated_compact_cursors_;
-  NewestFirstBySeqNo level_zero_cmp_;
+  NewestFirstByL0EpochNumber level_zero_cmp_;
   BySmallestKey level_nonzero_cmp_;
 
   // Mutable metadata objects for all blob files affected by the series of
@@ -389,35 +385,28 @@ class VersionBuilder::Rep {
           assert(lhs);
           assert(rhs);
 
-          if (!level_zero_cmp_(lhs, rhs)) {
+          if (lhs->l0_epoch_number == kUnknownL0EpochNumber) {
             std::ostringstream oss;
-            oss << "L0 files are not sorted properly: files #"
-                << lhs->fd.GetNumber() << ", #" << rhs->fd.GetNumber();
-
+            oss << "L0 file is not assigned with valid l0 epoch number: files #"
+                << lhs->fd.GetNumber() << " with l0 epoch number "
+                << lhs->l0_epoch_number;
             return Status::Corruption("VersionBuilder", oss.str());
           }
 
-          if (rhs->fd.smallest_seqno == rhs->fd.largest_seqno) {
-            // This is an external file that we ingested
-            const SequenceNumber external_file_seqno = rhs->fd.smallest_seqno;
-
-            if (!(external_file_seqno < lhs->fd.largest_seqno ||
-                  external_file_seqno == 0)) {
-              std::ostringstream oss;
-              oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
-                  << lhs->fd.smallest_seqno << ' ' << lhs->fd.largest_seqno
-                  << " vs. file #" << rhs->fd.GetNumber()
-                  << " with global_seqno " << external_file_seqno;
-
-              return Status::Corruption("VersionBuilder", oss.str());
-            }
-          } else if (lhs->fd.smallest_seqno <= rhs->fd.smallest_seqno) {
+          if (rhs->l0_epoch_number == kUnknownL0EpochNumber) {
             std::ostringstream oss;
-            oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
-                << lhs->fd.smallest_seqno << ' ' << lhs->fd.largest_seqno
-                << " vs. file #" << rhs->fd.GetNumber() << " with seqno "
-                << rhs->fd.smallest_seqno << ' ' << rhs->fd.largest_seqno;
+            oss << "L0 file is not assigned with valid l0 epoch number: files #"
+                << rhs->fd.GetNumber() << " with l0 epoch number "
+                << rhs->l0_epoch_number;
+            return Status::Corruption("VersionBuilder", oss.str());
+          }
 
+          if (!level_zero_cmp_(lhs, rhs)) {
+            std::ostringstream oss;
+            oss << "L0 files are not sorted properly: files #"
+                << lhs->fd.GetNumber() << " with l0 epoch number "
+                << lhs->l0_epoch_number << ", #" << rhs->fd.GetNumber()
+                << " with l0 epoch number " << rhs->l0_epoch_number;
             return Status::Corruption("VersionBuilder", oss.str());
           }
 
@@ -1023,6 +1012,26 @@ class VersionBuilder::Rep {
     return min_oldest_blob_file_num;
   }
 
+  bool HasMissingL0EpochNumber() const {
+    const std::unordered_map<uint64_t, FileMetaData*> added_files =
+        levels_[0].added_files;
+    for (const auto& pair : added_files) {
+      const FileMetaData* f = pair.second;
+      if (f->l0_epoch_number == kUnknownL0EpochNumber) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void InferL0EpochNumbersFromSeqNo() {
+    std::vector<FileMetaData*> l0_file_metadatas;
+    for (const auto& pair : levels_[0].added_files) {
+      l0_file_metadatas.push_back(pair.second);
+    }
+    version_set_->InferL0EpochNumbersFromSeqNo(l0_file_metadatas);
+  }
+
   static std::shared_ptr<BlobFileMetaData> CreateBlobFileMetaData(
       const MutableBlobFileMetaData& mutable_meta) {
     return BlobFileMetaData::Create(
@@ -1342,6 +1351,14 @@ Status VersionBuilder::LoadTableHandlers(
 
 uint64_t VersionBuilder::GetMinOldestBlobFileNumber() const {
   return rep_->GetMinOldestBlobFileNumber();
+}
+
+bool VersionBuilder::HasMissingL0EpochNumber() const {
+  return rep_->HasMissingL0EpochNumber();
+}
+
+void VersionBuilder::InferL0EpochNumbersFromSeqNo() {
+  return rep_->InferL0EpochNumbersFromSeqNo();
 }
 
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(

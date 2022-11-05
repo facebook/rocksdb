@@ -1771,8 +1771,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->temperature,
           file->oldest_blob_file_number, file->TryGetOldestAncesterTime(),
-          file->TryGetFileCreationTime(), file->file_checksum,
-          file->file_checksum_func_name);
+          file->TryGetFileCreationTime(), file->l0_epoch_number,
+          file->file_checksum, file->file_checksum_func_name);
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -4693,6 +4693,7 @@ VersionSet::VersionSet(const std::string& dbname,
       dbname_(dbname),
       db_options_(_db_options),
       next_file_number_(2),
+      next_l0_epoch_number_(1),
       manifest_file_number_(0),  // Filled by Recover()
       options_file_number_(0),
       options_file_size_(0),
@@ -4737,6 +4738,7 @@ void VersionSet::Reset() {
   }
   db_id_.clear();
   next_file_number_.store(2);
+  next_l0_epoch_number_.store(1);
   min_log_number_to_keep_.store(0);
   manifest_file_number_ = 0;
   options_file_number_ = 0;
@@ -5426,6 +5428,8 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
   assert(max_last_sequence != nullptr);
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
+  assert(edit->GeNextL0EpochNumber() <= next_l0_epoch_number_.load());
+  edit->SetNextL0EpochNumber(next_l0_epoch_number_.load());
   assert(!edit->HasLastSequence());
   edit->SetLastSequence(*max_last_sequence);
   if (edit->is_column_family_drop_) {
@@ -5455,6 +5459,8 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     edit->SetPrevLogNumber(prev_log_number_);
   }
   edit->SetNextFile(next_file_number_.load());
+  assert(edit->GeNextL0EpochNumber() <= next_l0_epoch_number_.load());
+  edit->SetNextL0EpochNumber(next_l0_epoch_number_.load());
   if (edit->HasLastSequence() && edit->GetLastSequence() > *max_last_sequence) {
     *max_last_sequence = edit->GetLastSequence();
   } else {
@@ -5553,12 +5559,14 @@ Status VersionSet::Recover(
         db_options_->info_log,
         "Recovered from manifest file:%s succeeded,"
         "manifest_file_number is %" PRIu64 ", next_file_number is %" PRIu64
-        ", last_sequence is %" PRIu64 ", log_number is %" PRIu64
-        ",prev_log_number is %" PRIu64 ",max_column_family is %" PRIu32
-        ",min_log_number_to_keep is %" PRIu64 "\n",
+        ", next_l0_epoch_number is %" PRIu64 ", last_sequence is %" PRIu64
+        ", log_number is %" PRIu64 ",prev_log_number is %" PRIu64
+        ",max_column_family is %" PRIu32 ",min_log_number_to_keep is %" PRIu64
+        "\n",
         manifest_path.c_str(), manifest_file_number_, next_file_number_.load(),
-        last_sequence_.load(), log_number, prev_log_number_,
-        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep());
+        next_l0_epoch_number_.load(), last_sequence_.load(), log_number,
+        prev_log_number_, column_family_set_->GetMaxColumnFamily(),
+        min_log_number_to_keep());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {
@@ -5976,6 +5984,23 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 }
 #endif  // ROCKSDB_LITE
 
+void VersionSet::InferL0EpochNumbersFromSeqNo(
+    const std::vector<FileMetaData*>& l0_file_metadatas) {
+  std::vector<FileMetaData*> sorted_l0_file_metadatas(l0_file_metadatas);
+  NewestFirstBySeqNo cmp;
+  std::sort(sorted_l0_file_metadatas.begin(), sorted_l0_file_metadatas.end(),
+            cmp);
+
+  FetchAddL0EpochNumber(sorted_l0_file_metadatas.size());
+  uint64_t l0_epoch_num = current_next_l0_epoch_number() - 1;
+
+  for (auto it = sorted_l0_file_metadatas.begin();
+       it != sorted_l0_file_metadatas.end(); ++it) {
+    FileMetaData* f = *it;
+    f->l0_epoch_number = l0_epoch_num--;
+  }
+}
+
 void VersionSet::MarkFileNumberUsed(uint64_t number) {
   // only called during recovery and repair which are single threaded, so this
   // works because there can't be concurrent calls
@@ -6079,13 +6104,13 @@ Status VersionSet::WriteCurrentStateToManifest(
         for (const auto& f : level_files) {
           assert(f);
 
-          edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
-                       f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction, f->temperature,
-                       f->oldest_blob_file_number, f->oldest_ancester_time,
-                       f->file_creation_time, f->file_checksum,
-                       f->file_checksum_func_name, f->unique_id);
+          edit.AddFile(
+              level, f->fd.GetNumber(), f->fd.GetPathId(), f->fd.GetFileSize(),
+              f->smallest, f->largest, f->fd.smallest_seqno,
+              f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
+              f->oldest_blob_file_number, f->oldest_ancester_time,
+              f->file_creation_time, f->l0_epoch_number, f->file_checksum,
+              f->file_checksum_func_name, f->unique_id);
         }
       }
 
@@ -6575,6 +6600,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.temperature = file->temperature;
         filemetadata.oldest_ancester_time = file->TryGetOldestAncesterTime();
         filemetadata.file_creation_time = file->TryGetFileCreationTime();
+        filemetadata.l0_epoch_number = file->l0_epoch_number;
         metadata->push_back(filemetadata);
       }
     }

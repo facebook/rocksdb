@@ -27,12 +27,29 @@
 #include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
+#include "version_edit.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
+  std::vector<FileMetaData*> GetL0FileMetadatas() {
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    assert(versions);
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+    Version* const current = cfd->current();
+    assert(current);
+    VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+    return storage_info->LevelFiles(0);
+  }
+  uint64_t GetCurrentNextL0EpochNumber() {
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    assert(versions);
+    return versions->current_next_l0_epoch_number();
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -7324,6 +7341,82 @@ TEST_F(DBTest2, PointInTimeRecoveryWithSyncFailureInCFCreation) {
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
   ReopenWithColumnFamilies({"default", "test1", "test2"}, options);
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, SortL0FilesByL0EpochNumber) {
+  Options options = CurrentOptions();
+  options.num_levels = 1;
+  options.compaction_style = kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key1", "seq1"));
+
+  SstFileWriter sst_file_writer{EnvOptions(), Options()};
+  std::string external_file1 = dbname_ + "/test_compact_files1.sst";
+  std::string external_file2 = dbname_ + "/test_compact_files2.sst";
+  ASSERT_OK(sst_file_writer.Open(external_file1));
+  ASSERT_OK(sst_file_writer.Put("key2", "seq0"));
+  ASSERT_OK(sst_file_writer.Finish());
+  ASSERT_OK(sst_file_writer.Open(external_file2));
+  ASSERT_OK(sst_file_writer.Put("key3", "seq0"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  ASSERT_OK(Put("key4", "seq2"));
+
+  ASSERT_OK(Flush());
+  auto* handle = db_->DefaultColumnFamily();
+  ASSERT_OK(db_->IngestExternalFile(handle, {external_file1, external_file2},
+                                    IngestExternalFileOptions()));
+
+  // To verify L0 files are sorted by l0_epoch_number in descending order
+  // instead of largest_seqno
+  const std::vector<FileMetaData*> level0_files_1 = GetL0FileMetadatas();
+
+  ASSERT_EQ(level0_files_1.size(), 3);
+
+  EXPECT_EQ(level0_files_1[0]->l0_epoch_number, 3);
+  EXPECT_EQ(level0_files_1[0]->fd.largest_seqno, 0);
+  EXPECT_EQ(level0_files_1[0]->num_entries, 1);
+  EXPECT_TRUE(level0_files_1[0]->largest.user_key() == Slice("key3"));
+
+  EXPECT_EQ(level0_files_1[1]->l0_epoch_number, 2);
+  EXPECT_EQ(level0_files_1[1]->fd.largest_seqno, 0);
+  EXPECT_EQ(level0_files_1[1]->num_entries, 1);
+  EXPECT_TRUE(level0_files_1[1]->largest.user_key() == Slice("key2"));
+
+  EXPECT_EQ(level0_files_1[2]->l0_epoch_number, 1);
+  EXPECT_EQ(level0_files_1[2]->fd.largest_seqno, 2);
+  EXPECT_EQ(level0_files_1[2]->num_entries, 2);
+  EXPECT_TRUE(level0_files_1[2]->largest.user_key() == Slice("key4"));
+  EXPECT_TRUE(level0_files_1[2]->smallest.user_key() == Slice("key1"));
+
+  // To verify compacted L0 file is assigned with the minimum l0_epoch_number
+  // among input files'
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  const std::vector<FileMetaData*> level0_files_2 = GetL0FileMetadatas();
+
+  ASSERT_EQ(level0_files_2.size(), 1);
+
+  EXPECT_EQ(level0_files_2[0]->l0_epoch_number, 1);
+  EXPECT_EQ(level0_files_2[0]->num_entries, 4);
+  EXPECT_TRUE(level0_files_2[0]->largest.user_key() == Slice("key4"));
+  EXPECT_TRUE(level0_files_2[0]->smallest.user_key() == Slice("key1"));
+  EXPECT_EQ(GetCurrentNextL0EpochNumber(), 4);
+
+  // To verify L0 files' l0_file_number and VersionSet::next_l0_file_number were
+  // persisted and recovered
+  ASSERT_OK(TryReopen(options));
+  const std::vector<FileMetaData*> level0_files_3 = GetL0FileMetadatas();
+
+  ASSERT_EQ(level0_files_3.size(), 1);
+
+  EXPECT_EQ(level0_files_3[0]->l0_epoch_number, 1);
+  EXPECT_EQ(level0_files_3[0]->num_entries, 4);
+  EXPECT_TRUE(level0_files_3[0]->largest.user_key() == Slice("key4"));
+  EXPECT_TRUE(level0_files_3[0]->smallest.user_key() == Slice("key1"));
+  EXPECT_EQ(GetCurrentNextL0EpochNumber(), 4);
+}
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest2, RenameDirectory) {
   Options options = CurrentOptions();

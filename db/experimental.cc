@@ -107,13 +107,14 @@ Status UpdateManifestForFilesState(
               // Current state inconsistent with manifest
               ++files_updated;
               edit.DeleteFile(level, number);
-              edit.AddFile(
-                  level, number, lf->fd.GetPathId(), lf->fd.GetFileSize(),
-                  lf->smallest, lf->largest, lf->fd.smallest_seqno,
-                  lf->fd.largest_seqno, lf->marked_for_compaction, temp,
-                  lf->oldest_blob_file_number, lf->oldest_ancester_time,
-                  lf->file_creation_time, lf->file_checksum,
-                  lf->file_checksum_func_name, lf->unique_id);
+              edit.AddFile(level, number, lf->fd.GetPathId(),
+                           lf->fd.GetFileSize(), lf->smallest, lf->largest,
+                           lf->fd.smallest_seqno, lf->fd.largest_seqno,
+                           lf->marked_for_compaction, temp,
+                           lf->oldest_blob_file_number,
+                           lf->oldest_ancester_time, lf->file_creation_time,
+                           lf->l0_epoch_number, lf->file_checksum,
+                           lf->file_checksum_func_name, lf->unique_id);
             }
           }
         } else {
