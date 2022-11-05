@@ -333,10 +333,10 @@ class BlockBasedTable : public TableReader {
 
   // Either Block::NewDataIterator() or Block::NewIndexIterator().
   template <typename TBlockIter>
-  static TBlockIter* InitBlockIterator(
-      const Rep* rep, Block* block, BlockType block_type,
-      TBlockIter* input_iter, bool block_contents_pinned,
-      uint32_t block_protection_bytes_per_key = 0);
+  static TBlockIter* InitBlockIterator(const Rep* rep, Block* block,
+                                       BlockType block_type,
+                                       TBlockIter* input_iter,
+                                       bool block_contents_pinned);
 
   // If block cache enabled (compressed or uncompressed), looks for the block
   // identified by handle in (1) uncompressed cache, (2) compressed cache, and
