@@ -1272,6 +1272,8 @@ Status DBIter::Merge(const Slice* val, const Slice& user_key) {
 }
 
 Status DBIter::MergeEntity(const Slice& entity, const Slice& user_key) {
+  saved_value_.clear();
+
   Status s = MergeHelper::TimedFullMergeWithEntity(
       merge_operator_, user_key, entity, merge_context_.GetOperands(),
       &saved_value_, logger_, statistics_, clock_, true);
@@ -1281,10 +1283,12 @@ Status DBIter::MergeEntity(const Slice& entity, const Slice& user_key) {
     return s;
   }
 
-  SetValueAndColumnsFromEntity(saved_value_);
+  if (!SetValueAndColumnsFromEntity(saved_value_)) {
+    return status_;
+  }
 
   valid_ = true;
-  return s;
+  return Status::OK();
 }
 
 // Move backwards until the key smaller than saved_key_.
