@@ -1132,7 +1132,7 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
         restart_offset_, read_amp_bytes_per_bit, statistics));
   }
 
-  if (block_type == BlockType::kData and protection_bytes_per_key > 0) {
+  if (block_type == BlockType::kData && protection_bytes_per_key > 0) {
     std::unique_ptr<DataBlockIter> iter(NewDataIterator(
         raw_ucmp, 0, nullptr, statistics, false, protection_bytes_per_key));
 
