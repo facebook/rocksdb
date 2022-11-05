@@ -721,7 +721,7 @@ Status DataBlockIter::VerifyEntryChecksum(const Slice& key,
 uint32_t DataBlockIter::GetCurrentEntryPosition() const {
   uint32_t index = restart_index_;
   const uint32_t current_offset = current_;
-  while (GetRestartPoint(index) > current_offset and index > 0) {
+  while (GetRestartPoint(index) > current_offset && index > 0) {
     index--;
   }
   uint32_t offset = GetRestartPoint(index);
