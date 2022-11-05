@@ -589,11 +589,19 @@ bool DBIter::MergeValuesNewToOld() {
       }
       return true;
     } else if (kTypeWideColumnEntity == ikey.type) {
-      // TODO: support wide-column entities
-      status_ = Status::NotSupported(
-          "Merge currently not supported for wide-column entities");
-      valid_ = false;
-      return false;
+      const Status s = MergeEntity(iter_.value(), ikey.user_key);
+      if (!s.ok()) {
+        return false;
+      }
+
+      // iter_ is positioned after put
+      iter_.Next();
+      if (!iter_.status().ok()) {
+        valid_ = false;
+        return false;
+      }
+
+      return true;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
@@ -985,11 +993,12 @@ bool DBIter::FindValueForCurrentKey() {
 
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
-        // TODO: support wide-column entities
-        status_ = Status::NotSupported(
-            "Merge currently not supported for wide-column entities");
-        valid_ = false;
-        return false;
+        s = MergeEntity(pinned_value_, saved_key_.GetUserKey());
+        if (!s.ok()) {
+          return false;
+        }
+
+        return true;
       } else {
         assert(last_not_merge_type == kTypeValue);
         s = Merge(&pinned_value_, saved_key_.GetUserKey());
@@ -1206,11 +1215,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
-      // TODO: support wide-column entities
-      status_ = Status::NotSupported(
-          "Merge currently not supported for wide-column entities");
-      valid_ = false;
-      return false;
+      const Status s = MergeEntity(iter_.value(), saved_key_.GetUserKey());
+      if (!s.ok()) {
+        return false;
+      }
+
+      return true;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
