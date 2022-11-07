@@ -142,8 +142,9 @@ struct SstFileMetaData : public FileStorageInfo {
   // Timestamp when the SST file is created, provided by
   // SystemClock::GetCurrentTime(). 0 if the information is not available.
   uint64_t file_creation_time = 0;
-  // The order of a file being added to L0.
-  // Larger `l0_epoch_number` indicates newer L0 file.
+  // The order of a file being flushed or ingested to L0.
+  // File compacted to L0 will be assigned with the minimum `l0_epoch_number`
+  // among input files'. Larger `l0_epoch_number` indicates newer L0 file.
   uint64_t l0_epoch_number = 0;
   // DEPRECATED: The name of the file within its directory with a
   // leading slash (e.g. "/123456.sst"). Use relative_filename from base struct

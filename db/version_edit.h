@@ -43,7 +43,6 @@ enum Tag : uint32_t {
   // 8 was used for large value refs
   kPrevLogNumber = 9,
   kMinLogNumberToKeep = 10,
-  kNextL0EpochNumber = 11,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -71,6 +70,7 @@ enum Tag : uint32_t {
   kFullHistoryTsLow,
   kWalAddition2,
   kWalDeletion2,
+  kNextL0EpochNumber,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -213,8 +213,9 @@ struct FileMetaData {
   // Unix time when the SST file is created.
   uint64_t file_creation_time = kUnknownFileCreationTime;
 
-  // The order of a file being added to L0.
-  // Larger `l0_epoch_number` indicates newer L0 file.
+  // The order of a file being flushed or ingested to L0.
+  // File compacted to L0 will be assigned with the minimum `l0_epoch_number`
+  // among input files'. Larger `l0_epoch_number` indicates newer L0 file.
   uint64_t l0_epoch_number = kUnknownL0EpochNumber;
 
   // File checksum
