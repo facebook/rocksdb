@@ -541,7 +541,7 @@ public class ColumnFamilyTest {
   public void testCFNameSimplifiedChinese() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
-      final String simplifiedChinese = "简体字";
+      final String simplifiedChinese = "\u7b80\u4f53\u5b57";
       db.createColumnFamily(new ColumnFamilyDescriptor(simplifiedChinese.getBytes()));
 
       final List<byte[]> families =
