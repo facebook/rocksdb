@@ -471,7 +471,8 @@ void GetContext::Merge(const Slice* value) {
   const Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key_, value, merge_context_->GetOperands(),
       pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_, logger_,
-      statistics_, clock_);
+      statistics_, clock_, /* result_operand */ nullptr,
+      /* update_num_ops_stats */ true);
   if (!s.ok()) {
     state_ = kCorrupt;
     return;
@@ -489,7 +490,7 @@ void GetContext::MergeWithEntity(Slice entity) {
   const Status s = MergeHelper::TimedFullMergeWithEntity(
       merge_operator_, user_key_, entity, merge_context_->GetOperands(),
       pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_, logger_,
-      statistics_, clock_);
+      statistics_, clock_, /* update_num_ops_stats */ true);
   if (!s.ok()) {
     state_ = kCorrupt;
     return;

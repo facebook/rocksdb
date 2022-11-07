@@ -146,7 +146,7 @@ Status MergeHelper::TimedFullMergeWithEntity(
     const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
     const std::vector<Slice>& operands, std::string* value,
     PinnableWideColumns* columns, Logger* logger, Statistics* statistics,
-    SystemClock* clock, Slice* result_operand, bool update_num_ops_stats) {
+    SystemClock* clock, bool update_num_ops_stats) {
   assert(value || columns);
   assert(!value || !columns);
 
@@ -171,6 +171,8 @@ Status MergeHelper::TimedFullMergeWithEntity(
   std::string result;
 
   {
+    constexpr Slice* result_operand = nullptr;
+
     const Status s = TimedFullMerge(
         merge_operator, key, &value_of_default, operands, &result, logger,
         statistics, clock, result_operand, update_num_ops_stats);
@@ -380,9 +382,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         val_ptr = nullptr;
       }
       std::string merge_result;
-      s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
-                         merge_context_.GetOperands(), &merge_result, logger_,
-                         stats_, clock_);
+      s = TimedFullMerge(
+          user_merge_operator_, ikey.user_key, val_ptr,
+          merge_context_.GetOperands(), &merge_result, logger_, stats_, clock_,
+          /* result_operand */ nullptr, /* update_num_ops_stats */ false);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
@@ -509,9 +512,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     assert(merge_context_.GetNumOperands() >= 1);
     assert(merge_context_.GetNumOperands() == keys_.size());
     std::string merge_result;
-    s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, nullptr,
-                       merge_context_.GetOperands(), &merge_result, logger_,
-                       stats_, clock_);
+    s = TimedFullMerge(
+        user_merge_operator_, orig_ikey.user_key, nullptr,
+        merge_context_.GetOperands(), &merge_result, logger_, stats_, clock_,
+        /* result_operand */ nullptr, /* update_num_ops_stats */ false);
     if (s.ok()) {
       // The original key encountered
       // We are certain that keys_ is not empty here (see assertions couple of

@@ -1069,7 +1069,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
                 merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                s->statistics, s->clock, /* result_operand */ nullptr,
+                /* update_num_ops_stats */ true);
           }
         } else if (s->value) {
           s->value->assign(v.data(), v.size());
@@ -1118,7 +1119,7 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMergeWithEntity(
                 merge_operator, s->key->user_key(), v,
                 merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                s->statistics, s->clock, /* update_num_ops_stats */ true);
           }
         } else if (s->value) {
           Slice value_of_default;
@@ -1152,7 +1153,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                s->statistics, s->clock, /* result_operand */ nullptr,
+                /* update_num_ops_stats */ true);
           }
         } else {
           *(s->status) = Status::NotFound();
@@ -1181,7 +1183,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                s->statistics, s->clock, /* result_operand */ nullptr,
+                /* update_num_ops_stats */ true);
           }
 
           *(s->found_final_value) = true;
