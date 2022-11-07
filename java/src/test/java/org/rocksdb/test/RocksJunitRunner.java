@@ -13,10 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.internal.JUnitSystem;
 import org.junit.internal.RealSystem;
-import org.junit.internal.TextListener;
-import org.junit.runner.Description;
 import org.junit.runner.JUnitCore;
-import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
 
 /**
@@ -29,7 +26,7 @@ public class RocksJunitRunner {
    * Listener which overrides default functionality
    * to print class and method to system out.
    */
-  static class RocksJunitListener extends TextListener {
+  static class RocksJunitListener extends org.junit.internal.TextListener {
     private static final NumberFormat secsFormat = new DecimalFormat("###,###.###");
 
     private final PrintStream writer;
@@ -55,29 +52,28 @@ public class RocksJunitRunner {
      *
      * @param system JUnitSystem
      */
-    RocksJunitListener(final JUnitSystem system) {
+    public RocksJunitListener(final JUnitSystem system) {
       this(system.out());
     }
 
-    RocksJunitListener(final PrintStream writer) {
+    public RocksJunitListener(final PrintStream writer) {
       super(writer);
       this.writer = writer;
     }
 
     @Override
-    public void testRunStarted(final Description description) {
+    public void testRunStarted(final org.junit.runner.Description description) {
       writer.format("Starting RocksJava Tests...%n");
-
     }
 
-    private void changeCurrentTestClass(final Description description) {
+    private void changeCurrentTestClass(final org.junit.runner.Description description) {
       writer.format("%nRunning: %s%n", description.getClassName());
       currentClassName = description.getClassName();
     }
 
     @SuppressWarnings("CallToSuspiciousStringMethod")
     @Override
-    public void testStarted(final Description description) {
+    public void testStarted(final org.junit.runner.Description description) {
       if (currentClassName == null) {
         currentTestsStartTime = System.currentTimeMillis();
         changeCurrentTestClass(description);
@@ -127,13 +123,13 @@ public class RocksJunitRunner {
     }
 
     @Override
-    public void testIgnored(final Description description) {
+    public void testIgnored(final org.junit.runner.Description description) {
       currentStatus = IGNORED;
       currentTestsIgnoredCount++;
     }
 
     @Override
-    public void testFinished(final Description description) {
+    public void testFinished(final org.junit.runner.Description description) {
       if(currentStatus == OK) {
         writer.format("\t%s OK%n",currentMethodName);
       } else {
@@ -142,7 +138,7 @@ public class RocksJunitRunner {
     }
 
     @Override
-    public void testRunFinished(final Result result) {
+    public void testRunFinished(final org.junit.runner.Result result) {
       printTestsSummary();
       super.testRunFinished(result);
     }
@@ -165,7 +161,7 @@ public class RocksJunitRunner {
         classes.add(Class.forName(arg));
       }
       final Class<?>[] clazzes = classes.toArray(EMPTY_CLASS_ARRAY);
-      final Result result = runner.run(clazzes);
+      final org.junit.runner.Result result = runner.run(clazzes);
       if(!result.wasSuccessful()) {
         System.exit(-1);
       }
