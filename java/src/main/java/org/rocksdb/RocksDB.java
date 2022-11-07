@@ -40,7 +40,7 @@ public class RocksDB extends RocksObject {
       new AtomicReference<>(LibraryState.NOT_LOADED);
 
   static {
-    loadLibrary();
+    RocksDB.loadLibrary();
   }
 
   private final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
