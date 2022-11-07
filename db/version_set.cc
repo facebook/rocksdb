@@ -2389,7 +2389,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, merge_context->GetOperands(),
           str_value, columns, info_log_, db_statistics_, clock_,
-          nullptr /* result_operand */, true);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
           value->PinSelf();
@@ -2630,7 +2630,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
           str_value, info_log_, db_statistics_, clock_,
-          nullptr /* result_operand */, true);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
