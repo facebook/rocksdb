@@ -1070,7 +1070,7 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, nullptr /* result_operand */,
+                s->clock, /* result_operand */ nullptr,
                 /* update_num_ops_stats */ true);
 
             if (s->value) {
@@ -1131,7 +1131,7 @@ static bool SaveValue(void* arg, const char* entry) {
               *(s->status) = MergeHelper::TimedFullMerge(
                   merge_operator, s->key->user_key(), &value_of_default,
                   merge_context->GetOperands(), s->value, s->logger,
-                  s->statistics, s->clock, nullptr /* result_operand */,
+                  s->statistics, s->clock, /* result_operand */ nullptr,
                   /* update_num_ops_stats */ true);
             }
           } else if (s->columns) {
@@ -1176,7 +1176,7 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, nullptr /* result_operand */,
+                s->clock, /* result_operand */ nullptr,
                 /* update_num_ops_stats */ true);
 
             if (s->value) {
@@ -1214,7 +1214,7 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, nullptr /* result_operand */,
+                s->clock, /* result_operand */ nullptr,
                 /* update_num_ops_stats */ true);
 
             if (s->value) {

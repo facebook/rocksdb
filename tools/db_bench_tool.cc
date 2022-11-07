@@ -3498,6 +3498,11 @@ class Benchmark {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
+      } else if (name == "multireadwhilewriting") {
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
+        num_threads++;
+        method = &Benchmark::MultiReadWhileWriting;
       } else if (name == "approximatesizerandom") {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
@@ -6890,6 +6895,14 @@ class Benchmark {
   void ReadWhileWriting(ThreadState* thread) {
     if (thread->tid > 0) {
       ReadRandom(thread);
+    } else {
+      BGWriter(thread, kWrite);
+    }
+  }
+
+  void MultiReadWhileWriting(ThreadState* thread) {
+    if (thread->tid > 0) {
+      MultiReadRandom(thread);
     } else {
       BGWriter(thread, kWrite);
     }

@@ -54,8 +54,8 @@ class MergeHelper {
                                const std::vector<Slice>& operands,
                                std::string* result, Logger* logger,
                                Statistics* statistics, SystemClock* clock,
-                               Slice* result_operand = nullptr,
-                               bool update_num_ops_stats = false);
+                               Slice* result_operand,
+                               bool update_num_ops_stats);
 
   static Status TimedFullMergeWithEntity(
       const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
