@@ -5,12 +5,19 @@ import java.io.File;
 import java.io.IOException;
 import java.text.MessageFormat;
 
+/**
+ * Inspection may suggest that these fields can be final.
+ * This is not the case. Setting such a field using reflection
+ * is not guaranteed to work, and in fact may (does) fail in later JVMs (e.g. 13+)
+ * https://stackoverflow.com/questions/3301635/change-private-static-final-field-using-java-reflection
+ */
+@SuppressWarnings("FieldMayBeFinal")
 public class Environment {
   @SuppressWarnings("AccessOfSystemProperties")
-  private static final String OS = System.getProperty("os.name").toLowerCase();
+  private static String OS = System.getProperty("os.name").toLowerCase();
   @SuppressWarnings("AccessOfSystemProperties")
-  private static final String ARCH = System.getProperty("os.arch").toLowerCase();
-  private static final String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
+  private static String ARCH = System.getProperty("os.arch").toLowerCase();
+  private static String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
 
   /**
    * Will be lazily initialised by {@link #isMuslLibc()} instead of the previous static
