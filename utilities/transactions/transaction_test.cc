@@ -5619,7 +5619,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     size_t branch = 0;
     auto seq = db_impl->GetLatestSequenceNumber();
     exp_seq = seq;
-    txn_t0(0);
+    TestTxn0(0);
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
@@ -5637,28 +5637,11 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     }
 
     // Doing it twice might detect some bugs
-    txn_t0(1);
+    TestTxn0(1);
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
-    txn_t1(0);
-    seq = db_impl->TEST_GetLastVisibleSequence();
-    ASSERT_EQ(exp_seq, seq);
-
-    if (branch_do(n, &branch)) {
-      ASSERT_OK(db_impl->Flush(fopt));
-      seq = db_impl->TEST_GetLastVisibleSequence();
-      ASSERT_EQ(exp_seq, seq);
-    }
-    if (!short_test && branch_do(n, &branch)) {
-      ASSERT_OK(db_impl->FlushWAL(true));
-      ASSERT_OK(ReOpenNoDelete());
-      db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-
-    txn_t3(0);
+    TestTxn1(0);
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
@@ -5675,7 +5658,24 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
       ASSERT_EQ(exp_seq, seq);
     }
 
-    txn_t4(0);
+    TestTxn3(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
+
+    if (branch_do(n, &branch)) {
+      ASSERT_OK(db_impl->Flush(fopt));
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
+      ASSERT_OK(db_impl->FlushWAL(true));
+      ASSERT_OK(ReOpenNoDelete());
+      db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    TestTxn4(0);
     seq = db_impl->TEST_GetLastVisibleSequence();
 
     ASSERT_EQ(exp_seq, seq);
@@ -5693,7 +5693,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
       ASSERT_EQ(exp_seq, seq);
     }
 
-    txn_t2(0);
+    TestTxn2(0);
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
