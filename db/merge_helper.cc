@@ -382,9 +382,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         val_ptr = nullptr;
       }
       std::string merge_result;
-      s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
-                         merge_context_.GetOperands(), &merge_result, logger_,
-                         stats_, clock_);
+      s = TimedFullMerge(
+          user_merge_operator_, ikey.user_key, val_ptr,
+          merge_context_.GetOperands(), &merge_result, logger_, stats_, clock_,
+          /* result_operand */ nullptr, /* update_num_ops_stats */ false);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
@@ -511,9 +512,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     assert(merge_context_.GetNumOperands() >= 1);
     assert(merge_context_.GetNumOperands() == keys_.size());
     std::string merge_result;
-    s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, nullptr,
-                       merge_context_.GetOperands(), &merge_result, logger_,
-                       stats_, clock_);
+    s = TimedFullMerge(
+        user_merge_operator_, orig_ikey.user_key, nullptr,
+        merge_context_.GetOperands(), &merge_result, logger_, stats_, clock_,
+        /* result_operand */ nullptr, /* update_num_ops_stats */ false);
     if (s.ok()) {
       // The original key encountered
       // We are certain that keys_ is not empty here (see assertions couple of
