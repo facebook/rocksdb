@@ -494,21 +494,26 @@ void GetContext::MergeWithEntity(Slice entity) {
 
   if (LIKELY(pinnable_val_ != nullptr)) {
     Slice value_of_default;
-    if (!WideColumnSerialization::GetValueOfDefaultColumn(entity,
-                                                          value_of_default)
-             .ok()) {
-      state_ = kCorrupt;
-      return;
+
+    {
+      const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
+          entity, value_of_default);
+      if (!s.ok()) {
+        state_ = kCorrupt;
+        return;
+      }
     }
 
-    const Status s = MergeHelper::TimedFullMerge(
-        merge_operator_, user_key_, &value_of_default,
-        merge_context_->GetOperands(), pinnable_val_->GetSelf(), logger_,
-        statistics_, clock_, /* result_operand */ nullptr,
-        /* update_num_ops_stats */ true);
-    if (!s.ok()) {
-      state_ = kCorrupt;
-      return;
+    {
+      const Status s = MergeHelper::TimedFullMerge(
+          merge_operator_, user_key_, &value_of_default,
+          merge_context_->GetOperands(), pinnable_val_->GetSelf(), logger_,
+          statistics_, clock_, /* result_operand */ nullptr,
+          /* update_num_ops_stats */ true);
+      if (!s.ok()) {
+        state_ = kCorrupt;
+        return;
+      }
     }
 
     pinnable_val_->PinSelf();
@@ -516,16 +521,25 @@ void GetContext::MergeWithEntity(Slice entity) {
   }
 
   std::string result;
-  const Status s = MergeHelper::TimedFullMergeWithEntity(
-      merge_operator_, user_key_, entity, merge_context_->GetOperands(),
-      &result, logger_, statistics_, clock_, /* update_num_ops_stats */ true);
-  if (!s.ok()) {
-    state_ = kCorrupt;
-    return;
+
+  {
+    const Status s = MergeHelper::TimedFullMergeWithEntity(
+        merge_operator_, user_key_, entity, merge_context_->GetOperands(),
+        &result, logger_, statistics_, clock_, /* update_num_ops_stats */ true);
+    if (!s.ok()) {
+      state_ = kCorrupt;
+      return;
+    }
   }
 
-  assert(columns_);
-  columns_->SetWideColumnValue(result);
+  {
+    assert(columns_);
+    const Status s = columns_->SetWideColumnValue(result);
+    if (!s.ok()) {
+      state_ = kCorrupt;
+      return;
+    }
+  }
 }
 
 bool GetContext::GetBlobValue(const Slice& blob_index,
