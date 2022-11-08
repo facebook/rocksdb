@@ -396,23 +396,19 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
         version_edit_params_.max_column_family_);
     version_set_->MarkMinLogNumberToKeep(
         version_edit_params_.min_log_number_to_keep_);
-    *s = version_set_->wals_.DeleteWalsBefore(
-        version_set_->min_log_number_to_keep());
-    if (s->ok()) {
-      version_set_->MarkFileNumberUsed(version_edit_params_.prev_log_number_);
-      version_set_->MarkFileNumberUsed(version_edit_params_.log_number_);
-      for (auto* cfd : *(version_set_->GetColumnFamilySet())) {
-        if (cfd->IsDropped()) {
-          continue;
-        }
-        auto builder_iter = builders_.find(cfd->GetID());
-        assert(builder_iter != builders_.end());
-        auto* builder = builder_iter->second->version_builder();
-        if (!builder->CheckConsistencyForNumLevels()) {
-          *s = Status::InvalidArgument(
-              "db has more levels than options.num_levels");
-          break;
-        }
+    version_set_->MarkFileNumberUsed(version_edit_params_.prev_log_number_);
+    version_set_->MarkFileNumberUsed(version_edit_params_.log_number_);
+    for (auto* cfd : *(version_set_->GetColumnFamilySet())) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      auto builder_iter = builders_.find(cfd->GetID());
+      assert(builder_iter != builders_.end());
+      auto* builder = builder_iter->second->version_builder();
+      if (!builder->CheckConsistencyForNumLevels()) {
+        *s = Status::InvalidArgument(
+            "db has more levels than options.num_levels");
+        break;
       }
     }
   }

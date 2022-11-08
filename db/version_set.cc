@@ -5101,6 +5101,22 @@ Status VersionSet::ProcessManifestWrites(
           break;
         }
       }
+      // Version edit records above may contain WAL addition for WAL
+      // that already has deletion record in the manifest.
+      // Such addition record should be offsetted by a deletion record.
+      VersionEdit wal_deletions;
+      wal_deletions.DeleteWalsBefore(min_log_number_to_keep());
+      std::string wal_deletions_record;
+      if (!wal_deletions.EncodeTo(&wal_deletions_record)) {
+        s = Status::Corruption("Unable to Encode VersionEdit: " +
+                               wal_deletions.DebugString(true));
+      }
+      if (s.ok()) {
+        io_s = descriptor_log_->AddRecord(wal_deletions_record);
+        if (!io_s.ok()) {
+          s = io_s;
+        }
+      }
       if (s.ok()) {
         io_s = SyncManifest(db_options_, descriptor_log_->file());
         manifest_io_status = io_s;
@@ -6034,6 +6050,21 @@ Status VersionSet::WriteCurrentStateToManifest(
                                 wal_additions.DebugString(true));
     }
     io_s = log->AddRecord(record);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+
+    // WAL addition records above may contain entry for WAL
+    // that already has deletion record in the manifest.
+    // Such addition record should be offsetted by a deletion record.
+    VersionEdit wal_deletions;
+    wal_deletions.DeleteWalsBefore(min_log_number_to_keep());
+    std::string wal_deletions_record;
+    if (!wal_deletions.EncodeTo(&wal_deletions_record)) {
+      return Status::Corruption("Unable to Encode VersionEdit: " +
+                                wal_deletions.DebugString(true));
+    }
+    io_s = log->AddRecord(wal_deletions_record);
     if (!io_s.ok()) {
       return io_s;
     }
