@@ -17,7 +17,7 @@ There are few options when compiling RocksDB:
 * `make check` will compile and run all the unit tests. `make check` will compile RocksDB in debug mode.
 
 * `make all` will compile our static library, and all our tools and unit tests. Our tools
-depend on gflags. You will need to have gflags installed to run `make all`. This will compile RocksDB in debug mode. Don't
+depend on gflags 2.2.0 or newer. You will need to have gflags installed to run `make all`. This will compile RocksDB in debug mode. Don't
 use binaries compiled by `make all` in production.
 
 * By default the binary we produce is optimized for the CPU you're compiling on
@@ -77,7 +77,7 @@ most processors made since roughly 2013.
 
               git clone https://github.com/gflags/gflags.git
               cd gflags
-              git checkout v2.0
+              git checkout v2.2.0
               ./configure && make && sudo make install
 
       **Notice**: Once installed, please add the include path for gflags to your `CPATH` environment variable and the
