@@ -2394,7 +2394,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         if (LIKELY(value != nullptr)) {
           *(value->GetSelf()) = std::move(result);
           value->PinSelf();
-        } else if (columns != nullptr) {
+        } else {
+          assert(columns != nullptr);
           columns->SetPlainValue(result);
         }
       }
