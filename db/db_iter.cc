@@ -158,6 +158,8 @@ void DBIter::Next() {
 
   local_stats_.next_count_++;
   if (ok && iter_.Valid()) {
+    ClearSavedValue();
+
     if (prefix_same_as_start_) {
       assert(prefix_extractor_ != nullptr);
       const Slice prefix = prefix_.GetUserKey();
@@ -644,6 +646,8 @@ void DBIter::Prev() {
     }
   }
   if (ok) {
+    ClearSavedValue();
+
     Slice prefix;
     if (prefix_same_as_start_) {
       assert(prefix_extractor_ != nullptr);
