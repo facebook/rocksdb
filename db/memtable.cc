@@ -1073,11 +1073,13 @@ static bool SaveValue(void* arg, const char* entry) {
                 s->clock, /* result_operand */ nullptr,
                 /* update_num_ops_stats */ true);
 
-            if (s->value) {
-              *(s->value) = std::move(result);
-            } else {
-              assert(s->columns);
-              s->columns->SetPlainValue(result);
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(result);
+              }
             }
           }
         } else if (s->value) {
@@ -1141,7 +1143,9 @@ static bool SaveValue(void* arg, const char* entry) {
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
                 s->clock, /* update_num_ops_stats */ true);
 
-            s->columns->SetWideColumnValue(result);
+            if (s->status->ok()) {
+              *(s->status) = s->columns->SetWideColumnValue(result);
+            }
           }
         } else if (s->value) {
           Slice value_of_default;
@@ -1179,11 +1183,13 @@ static bool SaveValue(void* arg, const char* entry) {
                 s->clock, /* result_operand */ nullptr,
                 /* update_num_ops_stats */ true);
 
-            if (s->value) {
-              *(s->value) = std::move(result);
-            } else {
-              assert(s->columns);
-              s->columns->SetPlainValue(result);
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(result);
+              }
             }
           }
         } else {
@@ -1217,11 +1223,13 @@ static bool SaveValue(void* arg, const char* entry) {
                 s->clock, /* result_operand */ nullptr,
                 /* update_num_ops_stats */ true);
 
-            if (s->value) {
-              *(s->value) = std::move(result);
-            } else {
-              assert(s->columns);
-              s->columns->SetPlainValue(result);
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(result);
+              }
             }
           }
 
