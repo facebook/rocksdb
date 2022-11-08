@@ -1277,8 +1277,6 @@ Status DBIter::Merge(const Slice* val, const Slice& user_key) {
 }
 
 Status DBIter::MergeEntity(const Slice& entity, const Slice& user_key) {
-  saved_value_.clear();
-
   Status s = MergeHelper::TimedFullMergeWithEntity(
       merge_operator_, user_key, entity, merge_context_.GetOperands(),
       &saved_value_, logger_, statistics_, clock_,
