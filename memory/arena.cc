@@ -22,8 +22,8 @@ namespace ROCKSDB_NAMESPACE {
 
 size_t Arena::OptimizeBlockSize(size_t block_size) {
   // Make sure block_size is in optimal range
-  block_size = std::max(Arena::kMinBlockSize, block_size);
-  block_size = std::min(Arena::kMaxBlockSize, block_size);
+  block_size =
+      std::clamp(block_size, Arena::kMinBlockSize, Arena::kMaxBlockSize);
 
   // make sure block_size is the multiple of kAlignUnit
   if (block_size % kAlignUnit != 0) {
