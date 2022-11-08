@@ -1096,9 +1096,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // (a) concurrent compactions,
   // (b) CompactionFilter::Decision::kRemoveAndSkipUntil.
   read_options.total_order_seek = true;
-  db_mutex_->AssertHeld();
-  read_options.block_protection_bytes_per_key =
-      cfd->GetCurrentMutableCFOptions()->block_protection_bytes_per_key;
 
   // Remove the timestamps from boundaries because boundaries created in
   // GenSubcompactionBoundaries doesn't strip away the timestamp.
