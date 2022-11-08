@@ -506,6 +506,11 @@ void GetContext::MergeWithEntity(Slice entity) {
         merge_context_->GetOperands(), pinnable_val_->GetSelf(), logger_,
         statistics_, clock_, /* result_operand */ nullptr,
         /* update_num_ops_stats */ true);
+    if (!s.ok()) {
+      state_ = kCorrupt;
+      return;
+    }
+
     pinnable_val_->PinSelf();
     return;
   }
