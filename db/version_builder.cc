@@ -1032,6 +1032,16 @@ class VersionBuilder::Rep {
     version_set_->InferL0EpochNumbersFromSeqNo(l0_file_metadatas);
   }
 
+  uint64_t InferNextL0EpochNumberFromL0Files() const {
+    uint64_t max_l0_epoch_number = kUnknownL0EpochNumber;
+    for (const auto& pair : levels_[0].added_files) {
+      max_l0_epoch_number =
+          std::max(max_l0_epoch_number, pair.second->l0_epoch_number);
+    }
+
+    return max_l0_epoch_number + 1;
+  }
+
   static std::shared_ptr<BlobFileMetaData> CreateBlobFileMetaData(
       const MutableBlobFileMetaData& mutable_meta) {
     return BlobFileMetaData::Create(
@@ -1359,6 +1369,10 @@ bool VersionBuilder::HasMissingL0EpochNumber() const {
 
 void VersionBuilder::InferL0EpochNumbersFromSeqNo() {
   return rep_->InferL0EpochNumbersFromSeqNo();
+}
+
+uint64_t VersionBuilder::InferNextL0EpochNumberFromL0Files() const {
+  return rep_->InferNextL0EpochNumberFromL0Files();
 }
 
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(

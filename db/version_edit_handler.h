@@ -196,6 +196,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
 
   bool HasMissingL0EpochNumber() const;
   void InferL0EpochNumbersFromSeqNo();
+  uint64_t InferNextL0EpochNumberFromL0Files() const;
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.

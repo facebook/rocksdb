@@ -66,7 +66,6 @@ void VersionEdit::Clear() {
   log_number_ = 0;
   prev_log_number_ = 0;
   next_file_number_ = 0;
-  next_l0_epoch_number_ = kUnknownL0EpochNumber;
   max_column_family_ = 0;
   min_log_number_to_keep_ = 0;
   last_sequence_ = 0;
@@ -75,7 +74,6 @@ void VersionEdit::Clear() {
   has_log_number_ = false;
   has_prev_log_number_ = false;
   has_next_file_number_ = false;
-  has_next_l0_epoch_number_ = false;
   has_max_column_family_ = false;
   has_min_log_number_to_keep_ = false;
   has_last_sequence_ = false;
@@ -112,9 +110,6 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
   if (has_next_file_number_) {
     PutVarint32Varint64(dst, kNextFileNumber, next_file_number_);
-  }
-  if (has_next_l0_epoch_number_) {
-    PutVarint32Varint64(dst, kNextL0EpochNumber, next_l0_epoch_number_);
   }
   if (has_max_column_family_) {
     PutVarint32Varint32(dst, kMaxColumnFamily, max_column_family_);
@@ -489,14 +484,6 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
-      case kNextL0EpochNumber:
-        if (GetVarint64(&input, &next_l0_epoch_number_)) {
-          has_next_l0_epoch_number_ = true;
-        } else {
-          msg = "next L0 epoch number";
-        }
-        break;
-
       case kMaxColumnFamily:
         if (GetVarint32(&input, &max_column_family_)) {
           has_max_column_family_ = true;
@@ -787,10 +774,6 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  NextFileNumber: ");
     AppendNumberTo(&r, next_file_number_);
   }
-  if (has_next_l0_epoch_number_) {
-    r.append("\n  NextL0EpochNumber: ");
-    AppendNumberTo(&r, next_l0_epoch_number_);
-  }
   if (has_max_column_family_) {
     r.append("\n  MaxColumnFamily: ");
     AppendNumberTo(&r, max_column_family_);
@@ -917,9 +900,6 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (has_next_file_number_) {
     jw << "NextFileNumber" << next_file_number_;
-  }
-  if (has_next_l0_epoch_number_) {
-    jw << "NextL0EpochNumber" << next_l0_epoch_number_;
   }
   if (has_max_column_family_) {
     jw << "MaxColumnFamily" << max_column_family_;

@@ -5428,8 +5428,6 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
   assert(max_last_sequence != nullptr);
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
-  assert(edit->GeNextL0EpochNumber() <= next_l0_epoch_number_.load());
-  edit->SetNextL0EpochNumber(next_l0_epoch_number_.load());
   assert(!edit->HasLastSequence());
   edit->SetLastSequence(*max_last_sequence);
   if (edit->is_column_family_drop_) {
@@ -5459,8 +5457,6 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     edit->SetPrevLogNumber(prev_log_number_);
   }
   edit->SetNextFile(next_file_number_.load());
-  assert(edit->GeNextL0EpochNumber() <= next_l0_epoch_number_.load());
-  edit->SetNextL0EpochNumber(next_l0_epoch_number_.load());
   if (edit->HasLastSequence() && edit->GetLastSequence() > *max_last_sequence) {
     *max_last_sequence = edit->GetLastSequence();
   } else {

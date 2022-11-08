@@ -51,6 +51,7 @@ class VersionBuilder {
   uint64_t GetMinOldestBlobFileNumber() const;
   bool HasMissingL0EpochNumber() const;
   void InferL0EpochNumbersFromSeqNo();
+  uint64_t InferNextL0EpochNumberFromL0Files() const;
 
  private:
   class Rep;

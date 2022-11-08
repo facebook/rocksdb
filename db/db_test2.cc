@@ -7404,7 +7404,7 @@ TEST_F(DBTest2, SortL0FilesByL0EpochNumber) {
   EXPECT_EQ(GetCurrentNextL0EpochNumber(), 4);
 
   // To verify L0 files' l0_file_number and VersionSet::next_l0_file_number were
-  // persisted and recovered
+  // correctly recovered
   ASSERT_OK(TryReopen(options));
   const std::vector<FileMetaData*> level0_files_3 = GetL0FileMetadatas();
 
@@ -7414,7 +7414,7 @@ TEST_F(DBTest2, SortL0FilesByL0EpochNumber) {
   EXPECT_EQ(level0_files_3[0]->num_entries, 4);
   EXPECT_TRUE(level0_files_3[0]->largest.user_key() == Slice("key4"));
   EXPECT_TRUE(level0_files_3[0]->smallest.user_key() == Slice("key1"));
-  EXPECT_EQ(GetCurrentNextL0EpochNumber(), 4);
+  EXPECT_EQ(GetCurrentNextL0EpochNumber(), 2);
 }
 #endif  // ROCKSDB_LITE
 

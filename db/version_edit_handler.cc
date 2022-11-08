@@ -435,11 +435,9 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
   if (s->ok()) {
     if (HasMissingL0EpochNumber()) {
       InferL0EpochNumbersFromSeqNo();
-    } else if (version_edit_params_.HasNextL0EpochNumber()) {
-      assert(version_set_->next_l0_epoch_number_ <=
-             version_edit_params_.GeNextL0EpochNumber());
+    } else {
       version_set_->next_l0_epoch_number_.store(
-          version_edit_params_.GeNextL0EpochNumber());
+          InferNextL0EpochNumberFromL0Files());
     }
   }
 
@@ -562,6 +560,27 @@ void VersionEditHandler::InferL0EpochNumbersFromSeqNo() {
   }
 }
 
+uint64_t VersionEditHandler::InferNextL0EpochNumberFromL0Files() const {
+  uint64_t max_next_l0_epoch_number = kUnknownL0EpochNumber;
+  for (auto* cfd : *(version_set_->column_family_set_)) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    assert(cfd->initialized());
+
+    auto builder_iter = builders_.find(cfd->GetID());
+    assert(builder_iter != builders_.end());
+    auto* builder = builder_iter->second->version_builder();
+
+    uint64_t next_l0_epoch_number_per_cf =
+        builder->InferNextL0EpochNumberFromL0Files();
+    max_next_l0_epoch_number =
+        std::max(next_l0_epoch_number_per_cf, max_next_l0_epoch_number);
+  }
+
+  return max_next_l0_epoch_number;
+}
+
 Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
                                               ColumnFamilyData* cfd,
                                               bool force_create_version) {
@@ -661,11 +680,6 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
     }
     if (edit.has_next_file_number_) {
       version_edit_params_.SetNextFile(edit.next_file_number_);
-    }
-    if (edit.has_next_l0_epoch_number_) {
-      assert(version_edit_params_.GeNextL0EpochNumber() <=
-             edit.next_l0_epoch_number_);
-      version_edit_params_.SetNextL0EpochNumber(edit.next_l0_epoch_number_);
     }
     if (edit.has_max_column_family_) {
       version_edit_params_.SetMaxColumnFamily(edit.max_column_family_);

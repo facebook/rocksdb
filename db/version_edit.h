@@ -70,7 +70,6 @@ enum Tag : uint32_t {
   kFullHistoryTsLow,
   kWalAddition2,
   kWalDeletion2,
-  kNextL0EpochNumber,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -389,13 +388,6 @@ class VersionEdit {
   bool HasNextFile() const { return has_next_file_number_; }
   uint64_t GetNextFile() const { return next_file_number_; }
 
-  void SetNextL0EpochNumber(uint64_t num) {
-    has_next_l0_epoch_number_ = true;
-    next_l0_epoch_number_ = num;
-  }
-  bool HasNextL0EpochNumber() const { return has_next_l0_epoch_number_; }
-  uint64_t GeNextL0EpochNumber() const { return next_l0_epoch_number_; }
-
   void SetMaxColumnFamily(uint32_t max_column_family) {
     has_max_column_family_ = true;
     max_column_family_ = max_column_family;
@@ -641,7 +633,6 @@ class VersionEdit {
   uint64_t log_number_ = 0;
   uint64_t prev_log_number_ = 0;
   uint64_t next_file_number_ = 0;
-  uint64_t next_l0_epoch_number_ = kUnknownL0EpochNumber;
   uint32_t max_column_family_ = 0;
   // The most recent WAL log number that is deleted
   uint64_t min_log_number_to_keep_ = 0;
@@ -651,7 +642,6 @@ class VersionEdit {
   bool has_log_number_ = false;
   bool has_prev_log_number_ = false;
   bool has_next_file_number_ = false;
-  bool has_next_l0_epoch_number_ = false;
   bool has_max_column_family_ = false;
   bool has_min_log_number_to_keep_ = false;
   bool has_last_sequence_ = false;

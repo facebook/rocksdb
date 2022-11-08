@@ -8,7 +8,7 @@
 * Fix memory corruption error in scans if async_io is enabled. Memory corruption happened if there is IOError while reading the data leading to empty buffer and other buffer already in progress of async read goes again for reading.
 * Fix failed memtable flush retry bug that could cause wrongly ordered updates, which would surface to writers as `Status::Corruption` in case of `force_consistency_checks=true` (default). It affects use cases that enable both parallel flush (`max_background_flushes > 1` or `max_background_jobs >= 8`) and non-default memtable count (`max_write_buffer_number > 2`).
 * Fixed an issue where the `READ_NUM_MERGE_OPERANDS` ticker was not updated when the base key-value or tombstone was read from an SST file.
-* Fix L0 file reordering corruption caused by ingesting files of overlapping seqnos with memtable's (#). Before the fix, `force_consistency_checks=true` may catch the corruption before it's exposed to readers, in which case writes returning `Status::Corruption` would be expected. Also replace the previous incomplete fix (#10777, #5958) to the same corruption with this new fix.
+* Fix L0 file reordering corruption caused by ingesting files of overlapping seqnos with memtable's (#10922) using newly introduced `L0_epoch_number`. Before the fix, `force_consistency_checks=true` may catch the corruption before it's exposed to readers, in which case writes returning `Status::Corruption` would be expected. Also replace the previous incomplete fix (#10777, #5958) to the same corruption with this new fix.
 
 ### New Features
 * Add basic support for user-defined timestamp to Merge (#10819).
