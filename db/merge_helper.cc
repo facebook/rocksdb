@@ -12,6 +12,8 @@
 #include "db/blob/prefetch_buffer_collection.h"
 #include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
+#include "db/wide/wide_column_serialization.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/likely.h"
@@ -140,6 +142,72 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   return Status::OK();
 }
 
+Status MergeHelper::TimedFullMergeWithEntity(
+    const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
+    const std::vector<Slice>& operands, std::string* value,
+    PinnableWideColumns* columns, Logger* logger, Statistics* statistics,
+    SystemClock* clock, bool update_num_ops_stats) {
+  assert(value || columns);
+  assert(!value || !columns);
+
+  WideColumns base_columns;
+
+  {
+    const Status s =
+        WideColumnSerialization::Deserialize(base_entity, base_columns);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  const bool has_default_column =
+      !base_columns.empty() && base_columns[0].name() == kDefaultWideColumnName;
+
+  Slice value_of_default;
+  if (has_default_column) {
+    value_of_default = base_columns[0].value();
+  }
+
+  std::string result;
+
+  {
+    constexpr Slice* result_operand = nullptr;
+
+    const Status s = TimedFullMerge(
+        merge_operator, key, &value_of_default, operands, &result, logger,
+        statistics, clock, result_operand, update_num_ops_stats);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (value) {
+    *value = std::move(result);
+    return Status::OK();
+  }
+
+  assert(columns);
+
+  std::string output;
+
+  if (has_default_column) {
+    base_columns[0].value() = result;
+
+    const Status s = WideColumnSerialization::Serialize(base_columns, output);
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    const Status s =
+        WideColumnSerialization::Serialize(result, base_columns, output);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  return columns->SetWideColumnValue(output);
+}
+
 // PRE:  iter points to the first merge type entry
 // POST: iter points to the first entry beyond the merge process (or the end)
 //       keys_, operands_ are updated to reflect the merge result.
@@ -189,6 +257,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   Status s = ParseInternalKey(original_key, &orig_ikey, allow_data_in_errors);
   assert(s.ok());
   if (!s.ok()) return s;
+
+  assert(kTypeMerge == orig_ikey.type);
 
   bool hit_the_next_user_key = false;
   int cmp_with_full_history_ts_low = 0;
@@ -312,9 +382,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         val_ptr = nullptr;
       }
       std::string merge_result;
-      s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
-                         merge_context_.GetOperands(), &merge_result, logger_,
-                         stats_, clock_);
+      s = TimedFullMerge(
+          user_merge_operator_, ikey.user_key, val_ptr,
+          merge_context_.GetOperands(), &merge_result, logger_, stats_, clock_,
+          /* result_operand */ nullptr, /* update_num_ops_stats */ false);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
@@ -395,10 +466,15 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   }
 
   if (cmp_with_full_history_ts_low >= 0) {
-    // If we reach here, and ts_sz == 0, it means compaction cannot perform
-    // merge with an earlier internal key, thus merge_context_.GetNumOperands()
-    // is 1.
-    assert(ts_sz == 0 || merge_context_.GetNumOperands() == 1);
+    size_t num_merge_operands = merge_context_.GetNumOperands();
+    if (ts_sz && num_merge_operands > 1) {
+      // We do not merge merge operands with different timestamps if they are
+      // not eligible for GC.
+      ROCKS_LOG_ERROR(logger_, "ts_sz=%d, %d merge oprands",
+                      static_cast<int>(ts_sz),
+                      static_cast<int>(num_merge_operands));
+      assert(false);
+    }
   }
 
   if (merge_context_.GetNumOperands() == 0) {
@@ -436,9 +512,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     assert(merge_context_.GetNumOperands() >= 1);
     assert(merge_context_.GetNumOperands() == keys_.size());
     std::string merge_result;
-    s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, nullptr,
-                       merge_context_.GetOperands(), &merge_result, logger_,
-                       stats_, clock_);
+    s = TimedFullMerge(
+        user_merge_operator_, orig_ikey.user_key, nullptr,
+        merge_context_.GetOperands(), &merge_result, logger_, stats_, clock_,
+        /* result_operand */ nullptr, /* update_num_ops_stats */ false);
     if (s.ok()) {
       // The original key encountered
       // We are certain that keys_ is not empty here (see assertions couple of

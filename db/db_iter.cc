@@ -528,7 +528,8 @@ bool DBIter::MergeValuesNewToOld() {
       // hit the next user key, stop right here
       break;
     }
-    if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type) {
+    if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
+        kTypeDeletionWithTimestamp == ikey.type) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_.Next();
@@ -957,7 +958,8 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeMerge:
       current_entry_is_merged_ = true;
       if (last_not_merge_type == kTypeDeletion ||
-          last_not_merge_type == kTypeSingleDeletion) {
+          last_not_merge_type == kTypeSingleDeletion ||
+          last_not_merge_type == kTypeDeletionWithTimestamp) {
         s = Merge(nullptr, saved_key_.GetUserKey());
         if (!s.ok()) {
           return false;
@@ -1164,7 +1166,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
                                                 saved_key_.GetUserKey())) {
       break;
     }
-    if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {
+    if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
+        ikey.type == kTypeDeletionWithTimestamp) {
       break;
     }
     if (!iter_.PrepareValue()) {
@@ -1244,7 +1247,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 Status DBIter::Merge(const Slice* val, const Slice& user_key) {
   Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, val, merge_context_.GetOperands(),
-      &saved_value_, logger_, statistics_, clock_, &pinned_value_, true);
+      &saved_value_, logger_, statistics_, clock_, &pinned_value_,
+      /* update_num_ops_stats */ true);
   if (!s.ok()) {
     valid_ = false;
     status_ = s;

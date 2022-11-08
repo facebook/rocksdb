@@ -2366,10 +2366,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
             "Encounter unexpected blob index. Please open DB with "
             "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         return;
-      case GetContext::kUnexpectedWideColumnEntity:
-        *status =
-            Status::NotSupported("Encountered unexpected wide-column entity");
-        return;
     }
     f = fp.GetNextFile();
   }
@@ -2393,7 +2389,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, merge_context->GetOperands(),
           str_value, columns, info_log_, db_statistics_, clock_,
-          nullptr /* result_operand */, true);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
           value->PinSelf();
@@ -2634,7 +2630,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
           str_value, info_log_, db_statistics_, clock_,
-          nullptr /* result_operand */, true);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());

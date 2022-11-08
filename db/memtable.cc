@@ -1069,7 +1069,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
                 merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                s->statistics, s->clock, /* result_operand */ nullptr,
+                /* update_num_ops_stats */ true);
           }
         } else if (s->value) {
           s->value->assign(v.data(), v.size());
@@ -1090,20 +1091,6 @@ static bool SaveValue(void* arg, const char* entry) {
         return false;
       }
       case kTypeWideColumnEntity: {
-        if (!s->do_merge) {
-          *(s->status) = Status::NotSupported(
-              "GetMergeOperands not supported for wide-column entities");
-          *(s->found_final_value) = true;
-          return false;
-        }
-
-        if (*(s->merge_in_progress)) {
-          *(s->status) = Status::NotSupported(
-              "Merge not supported for wide-column entities");
-          *(s->found_final_value) = true;
-          return false;
-        }
-
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
         }
@@ -1112,7 +1099,29 @@ static bool SaveValue(void* arg, const char* entry) {
 
         *(s->status) = Status::OK();
 
-        if (s->value) {
+        if (!s->do_merge) {
+          // Preserve the value with the goal of returning it as part of
+          // raw merge operands to the user
+
+          Slice value_of_default;
+          *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
+              v, value_of_default);
+
+          if (s->status->ok()) {
+            merge_context->PushOperand(
+                value_of_default,
+                s->inplace_update_support == false /* operand_pinned */);
+          }
+        } else if (*(s->merge_in_progress)) {
+          assert(s->do_merge);
+
+          if (s->value || s->columns) {
+            *(s->status) = MergeHelper::TimedFullMergeWithEntity(
+                merge_operator, s->key->user_key(), v,
+                merge_context->GetOperands(), s->value, s->columns, s->logger,
+                s->statistics, s->clock, /* update_num_ops_stats */ true);
+          }
+        } else if (s->value) {
           Slice value_of_default;
           *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
               v, value_of_default);
@@ -1144,7 +1153,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                s->statistics, s->clock, /* result_operand */ nullptr,
+                /* update_num_ops_stats */ true);
           }
         } else {
           *(s->status) = Status::NotFound();
@@ -1173,7 +1183,8 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                s->statistics, s->clock, /* result_operand */ nullptr,
+                /* update_num_ops_stats */ true);
           }
 
           *(s->found_final_value) = true;
