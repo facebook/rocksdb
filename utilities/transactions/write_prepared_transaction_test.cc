@@ -1714,19 +1714,19 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
       size_t d = (n % base[bi + 1]) / base[bi];
       switch (d) {
         case 0:
-          threads.emplace_back(txn_t0, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn0, this, bi);
           break;
         case 1:
-          threads.emplace_back(txn_t1, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn1, this, bi);
           break;
         case 2:
-          threads.emplace_back(txn_t2, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn2, this, bi);
           break;
         case 3:
-          threads.emplace_back(txn_t3, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn3, this, bi);
           break;
         case 4:
-          threads.emplace_back(txn_t3, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn3, this, bi);
           break;
         default:
           FAIL();
@@ -1794,7 +1794,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(ReOpen());
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
 
-  txn_t0(0);
+  TestTxn0(0);
 
   TransactionOptions txn_options;
   WriteOptions write_options;
@@ -1809,7 +1809,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(s);
   auto prep_seq_0 = txn0->GetId();
 
-  txn_t1(0);
+  TestTxn1(0);
 
   index++;
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
@@ -1822,7 +1822,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(s);
   auto prep_seq_1 = txn1->GetId();
 
-  txn_t2(0);
+  TestTxn2(0);
 
   ReadOptions ropt;
   PinnableSlice pinnable_val;
@@ -1858,7 +1858,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_TRUE(s.IsNotFound());
   pinnable_val.Reset();
 
-  txn_t3(0);
+  TestTxn3(0);
 
   // Test that a recovered txns will be properly marked committed for the next
   // recovery
