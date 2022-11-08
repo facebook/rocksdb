@@ -333,9 +333,7 @@ class SharedState {
   uint64_t GetStartTimestamp() const { return start_timestamp_; }
 
  private:
-  static void IgnoreReadErrorCallback(void*) {
-    ignore_read_error = true;
-  }
+  static void IgnoreReadErrorCallback(void*) { ignore_read_error = true; }
 
   // Pick random keys in each column family that will not experience overwrite.
   std::unordered_set<int64_t> GenerateNoOverwriteIds() const {

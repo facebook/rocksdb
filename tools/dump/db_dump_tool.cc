@@ -5,11 +5,12 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/db_dump_tool.h"
+
 #include <cinttypes>
 #include <iostream>
 
 #include "rocksdb/db.h"
-#include "rocksdb/db_dump_tool.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
 

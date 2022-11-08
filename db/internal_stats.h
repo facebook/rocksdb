@@ -353,7 +353,7 @@ class InternalStats {
       this->num_output_records += c.num_output_records;
       this->count += c.count;
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
-      for (int i = 0; i< num_of_reasons; i++) {
+      for (int i = 0; i < num_of_reasons; i++) {
         counts[i] += c.counts[i];
       }
     }
@@ -506,6 +506,7 @@ class InternalStats {
     db_stats_snapshot_.Clear();
     bg_error_count_ = 0;
     started_at_ = clock_->NowMicros();
+    has_cf_change_since_dump_ = true;
   }
 
   void AddCompactionStats(int level, Env::Priority thread_pri,
@@ -528,6 +529,7 @@ class InternalStats {
   }
 
   void AddCFStats(InternalCFStatsType type, uint64_t value) {
+    has_cf_change_since_dump_ = true;
     cf_stats_value_[type] += value;
     ++cf_stats_count_[type];
   }
@@ -593,6 +595,8 @@ class InternalStats {
   // DBPropertyInfo struct used internally for retrieving properties.
   static const UnorderedMap<std::string, DBPropertyInfo> ppt_name_to_info;
 
+  static const std::string kPeriodicCFStats;
+
  private:
   void DumpDBMapStats(std::map<std::string, std::string>* db_stats);
   void DumpDBStats(std::string* value);
@@ -605,7 +609,11 @@ class InternalStats {
       std::map<int, std::map<LevelStatType, double>>* priorities_stats);
   void DumpCFMapStatsIOStalls(std::map<std::string, std::string>* cf_stats);
   void DumpCFStats(std::string* value);
-  void DumpCFStatsNoFileHistogram(std::string* value);
+  // if is_periodic = true, it is an internal call by RocksDB periodically to
+  // dump the status.
+  void DumpCFStatsNoFileHistogram(bool is_periodic, std::string* value);
+  // if is_periodic = true, it is an internal call by RocksDB periodically to
+  // dump the status.
   void DumpCFFileHistogram(std::string* value);
 
   Cache* GetBlockCacheForStats();
@@ -629,13 +637,19 @@ class InternalStats {
   CompactionStats per_key_placement_comp_stats_;
   std::vector<HistogramImpl> file_read_latency_;
   HistogramImpl blob_file_read_latency_;
+  bool has_cf_change_since_dump_;
+  // How many periods of no change since the last time stats are dumped for
+  // a periodic dump.
+  int no_cf_change_period_since_dump_ = 0;
+  uint64_t last_histogram_num = std::numeric_limits<uint64_t>::max();
+  static const int kMaxNoChangePeriodSinceDump;
 
   // Used to compute per-interval statistics
   struct CFStatsSnapshot {
     // ColumnFamily-level stats
     CompactionStats comp_stats;
-    uint64_t ingest_bytes_flush;      // Bytes written to L0 (Flush)
-    uint64_t stall_count;             // Stall count
+    uint64_t ingest_bytes_flush;  // Bytes written to L0 (Flush)
+    uint64_t stall_count;         // Stall count
     // Stats from compaction jobs - bytes written, bytes read, duration.
     uint64_t compact_bytes_write;
     uint64_t compact_bytes_read;
@@ -677,10 +691,10 @@ class InternalStats {
 
   struct DBStatsSnapshot {
     // DB-level stats
-    uint64_t ingest_bytes;            // Bytes written by user
-    uint64_t wal_bytes;               // Bytes written to WAL
-    uint64_t wal_synced;              // Number of times WAL is synced
-    uint64_t write_with_wal;          // Number of writes that request WAL
+    uint64_t ingest_bytes;    // Bytes written by user
+    uint64_t wal_bytes;       // Bytes written to WAL
+    uint64_t wal_synced;      // Number of times WAL is synced
+    uint64_t write_with_wal;  // Number of writes that request WAL
     // These count the number of writes processed by the calling thread or
     // another thread.
     uint64_t write_other;
@@ -729,6 +743,7 @@ class InternalStats {
   bool HandleCFStats(std::string* value, Slice suffix);
   bool HandleCFStatsNoFileHistogram(std::string* value, Slice suffix);
   bool HandleCFFileHistogram(std::string* value, Slice suffix);
+  bool HandleCFStatsPeriodic(std::string* value, Slice suffix);
   bool HandleDBMapStats(std::map<std::string, std::string>* compaction_stats,
                         Slice suffix);
   bool HandleDBStats(std::string* value, Slice suffix);
@@ -965,13 +980,14 @@ class InternalStats {
     return false;
   }
 
-  bool GetIntProperty(const DBPropertyInfo& /*property_info*/, uint64_t* /*value*/,
-                      DBImpl* /*db*/) const {
+  bool GetIntProperty(const DBPropertyInfo& /*property_info*/,
+                      uint64_t* /*value*/, DBImpl* /*db*/) const {
     return false;
   }
 
   bool GetIntPropertyOutOfMutex(const DBPropertyInfo& /*property_info*/,
-                                Version* /*version*/, uint64_t* /*value*/) const {
+                                Version* /*version*/,
+                                uint64_t* /*value*/) const {
     return false;
   }
 };

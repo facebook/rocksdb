@@ -186,6 +186,13 @@ class RoundRobinSubcompactionsAgainstResources
   int max_compaction_limits_;
 };
 
+class DBCompactionTestFIFOCheckConsistencyWithParam
+    : public DBCompactionTest,
+      public testing::WithParamInterface<std::string> {
+ public:
+  DBCompactionTestFIFOCheckConsistencyWithParam() : DBCompactionTest() {}
+};
+
 namespace {
 class FlushedFileCollector : public EventListener {
  public:
@@ -248,9 +255,8 @@ Options DeletionTriggerOptions(Options options) {
   return options;
 }
 
-bool HaveOverlappingKeyRanges(
-    const Comparator* c,
-    const SstFileMetaData& a, const SstFileMetaData& b) {
+bool HaveOverlappingKeyRanges(const Comparator* c, const SstFileMetaData& a,
+                              const SstFileMetaData& b) {
   if (c->CompareWithoutTimestamp(a.smallestkey, b.smallestkey) >= 0) {
     if (c->CompareWithoutTimestamp(a.smallestkey, b.largestkey) <= 0) {
       // b.smallestkey <= a.smallestkey <= b.largestkey
@@ -275,18 +281,15 @@ bool HaveOverlappingKeyRanges(
 // Identifies all files between level "min_level" and "max_level"
 // which has overlapping key range with "input_file_meta".
 void GetOverlappingFileNumbersForLevelCompaction(
-    const ColumnFamilyMetaData& cf_meta,
-    const Comparator* comparator,
-    int min_level, int max_level,
-    const SstFileMetaData* input_file_meta,
+    const ColumnFamilyMetaData& cf_meta, const Comparator* comparator,
+    int min_level, int max_level, const SstFileMetaData* input_file_meta,
     std::set<std::string>* overlapping_file_names) {
   std::set<const SstFileMetaData*> overlapping_files;
   overlapping_files.insert(input_file_meta);
   for (int m = min_level; m <= max_level; ++m) {
     for (auto& file : cf_meta.levels[m].files) {
       for (auto* included_file : overlapping_files) {
-        if (HaveOverlappingKeyRanges(
-                comparator, *included_file, file)) {
+        if (HaveOverlappingKeyRanges(comparator, *included_file, file)) {
           overlapping_files.insert(&file);
           overlapping_file_names->insert(file.name);
           break;
@@ -309,12 +312,9 @@ void VerifyCompactionResult(
 #endif
 }
 
-const SstFileMetaData* PickFileRandomly(
-    const ColumnFamilyMetaData& cf_meta,
-    Random* rand,
-    int* level = nullptr) {
-  auto file_id = rand->Uniform(static_cast<int>(
-      cf_meta.file_count)) + 1;
+const SstFileMetaData* PickFileRandomly(const ColumnFamilyMetaData& cf_meta,
+                                        Random* rand, int* level = nullptr) {
+  auto file_id = rand->Uniform(static_cast<int>(cf_meta.file_count)) + 1;
   for (auto& level_meta : cf_meta.levels) {
     if (file_id <= level_meta.files.size()) {
       if (level != nullptr) {
@@ -740,7 +740,6 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
   }
 }
 
-
 TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
   const int kNumKeysPerFile = 100;
 
@@ -883,7 +882,7 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
 
 TEST_P(DBCompactionTestWithParam, CompactionsGenerateMultipleFiles) {
   Options options = CurrentOptions();
-  options.write_buffer_size = 100000000;        // Large write buffer
+  options.write_buffer_size = 100000000;  // Large write buffer
   options.max_subcompactions = max_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -1069,7 +1068,7 @@ TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
   compact_opt.compression = kNoCompression;
   compact_opt.output_file_size_limit = 4096;
   const size_t key_len =
-    static_cast<size_t>(compact_opt.output_file_size_limit) / 5;
+      static_cast<size_t>(compact_opt.output_file_size_limit) / 5;
 
   DestroyAndReopen(options);
 
@@ -1247,14 +1246,8 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   DestroyAndReopen(options);
   // non overlapping ranges
   std::vector<std::pair<int32_t, int32_t>> ranges = {
-    {100, 199},
-    {300, 399},
-    {0, 99},
-    {200, 299},
-    {600, 699},
-    {400, 499},
-    {500, 550},
-    {551, 599},
+      {100, 199}, {300, 399}, {0, 99},    {200, 299},
+      {600, 699}, {400, 499}, {500, 550}, {551, 599},
   };
   int32_t value_size = 10 * 1024;  // 10 KB
 
@@ -1297,14 +1290,15 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   DestroyAndReopen(options);
   // Same ranges as above but overlapping
   ranges = {
-    {100, 199},
-    {300, 399},
-    {0, 99},
-    {200, 299},
-    {600, 699},
-    {400, 499},
-    {500, 560},  // this range overlap with the next one
-    {551, 599},
+      {100, 199},
+      {300, 399},
+      {0, 99},
+      {200, 299},
+      {600, 699},
+      {400, 499},
+      {500, 560},  // this range overlap with the next
+                   // one
+      {551, 599},
   };
   for (size_t i = 0; i < ranges.size(); i++) {
     for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
@@ -1907,7 +1901,7 @@ TEST_F(DBCompactionTest, DeleteFilesInRanges) {
   ASSERT_EQ("0,0,10", FilesPerLevel(0));
 
   // file [0 => 100), [200 => 300), ... [800, 900)
-  for (auto i = 0; i < 10; i+=2) {
+  for (auto i = 0; i < 10; i += 2) {
     for (auto j = 0; j < 100; j++) {
       auto k = i * 100 + j;
       ASSERT_OK(Put(Key(k), values[k]));
@@ -2349,14 +2343,14 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionCFPathUse) {
   cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_2", 4 * 1024 * 1024);
   cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_3", 1024 * 1024 * 1024);
   option_vector.emplace_back(DBOptions(options), cf_opt1);
-  CreateColumnFamilies({"one"},option_vector[1]);
+  CreateColumnFamilies({"one"}, option_vector[1]);
 
   // Configure CF2 specific paths.
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2", 500 * 1024);
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_2", 4 * 1024 * 1024);
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_3", 1024 * 1024 * 1024);
   option_vector.emplace_back(DBOptions(options), cf_opt2);
-  CreateColumnFamilies({"two"},option_vector[2]);
+  CreateColumnFamilies({"two"}, option_vector[2]);
 
   ReopenWithColumnFamilies({"default", "one", "two"}, option_vector);
 
@@ -2729,7 +2723,6 @@ TEST_P(DBCompactionTestWithParam, ManualCompaction) {
   }
 }
 
-
 TEST_P(DBCompactionTestWithParam, ManualLevelCompactionOutputPathId) {
   Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_ + "_2", 2 * 10485760);
@@ -2866,14 +2859,13 @@ TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
       auto file_meta = PickFileRandomly(cf_meta, &rnd, &level);
       compaction_input_file_names.push_back(file_meta->name);
       GetOverlappingFileNumbersForLevelCompaction(
-          cf_meta, options.comparator, level, output_level,
-          file_meta, &overlapping_file_names);
+          cf_meta, options.comparator, level, output_level, file_meta,
+          &overlapping_file_names);
     }
 
-    ASSERT_OK(dbfull()->CompactFiles(
-        CompactionOptions(), handles_[1],
-        compaction_input_file_names,
-        output_level));
+    ASSERT_OK(dbfull()->CompactFiles(CompactionOptions(), handles_[1],
+                                     compaction_input_file_names,
+                                     output_level));
 
     // Make sure all overlapping files do not exist after compaction
     dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
@@ -2896,8 +2888,7 @@ TEST_P(DBCompactionTestWithParam, PartialCompactionFailure) {
   options.write_buffer_size = kKeysPerBuffer * kKvSize;
   options.max_write_buffer_number = 2;
   options.target_file_size_base =
-      options.write_buffer_size *
-      (options.max_write_buffer_number - 1);
+      options.write_buffer_size * (options.max_write_buffer_number - 1);
   options.level0_file_num_compaction_trigger = kNumL1Files;
   options.max_bytes_for_level_base =
       options.level0_file_num_compaction_trigger *
@@ -2917,10 +2908,9 @@ TEST_P(DBCompactionTestWithParam, PartialCompactionFailure) {
 
   DestroyAndReopen(options);
 
-  const int kNumInsertedKeys =
-      options.level0_file_num_compaction_trigger *
-      (options.max_write_buffer_number - 1) *
-      kKeysPerBuffer;
+  const int kNumInsertedKeys = options.level0_file_num_compaction_trigger *
+                               (options.max_write_buffer_number - 1) *
+                               kKeysPerBuffer;
 
   Random rnd(301);
   std::vector<std::string> keys;
@@ -3618,9 +3608,8 @@ TEST_F(DBCompactionTest, CompactFilesPendingL0Bug) {
   ASSERT_EQ(kNumL0Files, cf_meta.levels[0].files.size());
   std::vector<std::string> input_filenames;
   input_filenames.push_back(cf_meta.levels[0].files.front().name);
-  ASSERT_OK(dbfull()
-                  ->CompactFiles(CompactionOptions(), input_filenames,
-                                 0 /* output_level */));
+  ASSERT_OK(dbfull()->CompactFiles(CompactionOptions(), input_filenames,
+                                   0 /* output_level */));
   TEST_SYNC_POINT("DBCompactionTest::CompactFilesPendingL0Bug:ManualCompacted");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -4503,9 +4492,9 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   const int kValueSize = 100;
 
   Options options = CurrentOptions();
-  options.ttl = 10 * 60 * 60;  // 10 hours
+  options.ttl = 10 * 60 * 60;                          // 10 hours
   options.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
-  options.max_open_files = -1;   // needed for both periodic and ttl compactions
+  options.max_open_files = -1;  // needed for both periodic and ttl compactions
   env_->SetMockSleep();
   options.env = env_;
 
@@ -4927,7 +4916,7 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
        {"DBImpl::FlushMemTable:StallWaitDone", "CompactionJob::Run():End"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  //used for the delayable flushes
+  // used for the delayable flushes
   FlushOptions flush_opts;
   flush_opts.allow_write_stall = true;
   for (int i = 0; i < kNumL0FilesLimit - 1; ++i) {
@@ -4946,7 +4935,8 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   ASSERT_OK(Put(std::to_string(0), rnd.RandomString(1024)));
   ASSERT_OK(dbfull()->Flush(flush_opts));
   ASSERT_OK(Put(std::to_string(0), rnd.RandomString(1024)));
-  TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush");
+  TEST_SYNC_POINT(
+      "DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush");
   manual_compaction_thread.join();
 
   // If CompactRange's flush was skipped, the final Put above will still be
@@ -5239,10 +5229,10 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   }
 
   std::shared_ptr<ConcurrentTaskLimiter> unique_limiter(
-    NewConcurrentTaskLimiter("unique_limiter", -1));
+      NewConcurrentTaskLimiter("unique_limiter", -1));
 
-  const char* cf_names[] = {"default", "0", "1", "2", "3", "4", "5",
-    "6", "7", "8", "9", "a", "b", "c", "d", "e", "f" };
+  const char* cf_names[] = {"default", "0", "1", "2", "3", "4", "5", "6", "7",
+                            "8",       "9", "a", "b", "c", "d", "e", "f"};
   const unsigned int cf_count = sizeof cf_names / sizeof cf_names[0];
 
   std::unordered_map<std::string, CompactionLimiter*> cf_to_limiter;
@@ -5254,10 +5244,10 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   options.level0_file_num_compaction_trigger = 4;
   options.level0_slowdown_writes_trigger = 64;
   options.level0_stop_writes_trigger = 64;
-  options.max_background_jobs = kMaxBackgroundThreads; // Enough threads
+  options.max_background_jobs = kMaxBackgroundThreads;  // Enough threads
   options.memtable_factory.reset(
       test::NewSpecialSkipListFactory(kNumKeysPerFile));
-  options.max_write_buffer_number = 10; // Enough memtables
+  options.max_write_buffer_number = 10;  // Enough memtables
   DestroyAndReopen(options);
 
   std::vector<Options> option_vector;
@@ -5285,9 +5275,8 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
     CreateColumnFamilies({cf_names[cf]}, option_vector[cf]);
   }
 
-  ReopenWithColumnFamilies(std::vector<std::string>(cf_names,
-                                                    cf_names + cf_count),
-                           option_vector);
+  ReopenWithColumnFamilies(
+      std::vector<std::string>(cf_names, cf_names + cf_count), option_vector);
 
   port::Mutex mutex;
 
@@ -5349,7 +5338,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   // Enough L0 files to trigger compaction
   for (unsigned int cf = 0; cf < cf_count; cf++) {
     ASSERT_EQ(NumTableFilesAtLevel(0, cf),
-      options.level0_file_num_compaction_trigger);
+              options.level0_file_num_compaction_trigger);
   }
 
   // Create more files for one column family, which triggers speed up
@@ -5392,7 +5381,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
 
   // flush one more file to cf 1
   for (int i = 0; i < kNumKeysPerFile; i++) {
-      ASSERT_OK(Put(cf_test, Key(keyIndex++), ""));
+    ASSERT_OK(Put(cf_test, Key(keyIndex++), ""));
   }
   // put extra key to trigger flush
   ASSERT_OK(Put(cf_test, "", ""));
@@ -5427,9 +5416,7 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
       });
   if (options.use_direct_io_for_flush_and_compaction) {
     SyncPoint::GetInstance()->SetCallBack(
-        "SanitizeOptions:direct_io", [&](void* /*arg*/) {
-          readahead = true;
-        });
+        "SanitizeOptions:direct_io", [&](void* /*arg*/) { readahead = true; });
   }
   SyncPoint::GetInstance()->EnableProcessing();
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -6455,6 +6442,163 @@ TEST_P(DBCompactionTestWithParam,
   for (int i = 6; i < 10; ++i) {
     ASSERT_EQ(value2, Get(Key(i)));
   }
+}
+
+INSTANTIATE_TEST_CASE_P(DBCompactionTestFIFOCheckConsistencyWithParam,
+                        DBCompactionTestFIFOCheckConsistencyWithParam,
+                        ::testing::Values("FindIntraL0Compaction",
+                                          "PickCompactionToWarm",
+                                          "CompactRange", "CompactFile"));
+
+TEST_P(DBCompactionTestFIFOCheckConsistencyWithParam,
+       FlushAfterIntraL0CompactionWithIngestedFile) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+
+  options.force_consistency_checks = true;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.max_open_files = -1;
+  options.num_levels = 1;
+  options.level0_file_num_compaction_trigger = 3;
+
+  CompactionOptionsFIFO fifo_options;
+  const std::string compaction_path_to_test = GetParam();
+  if (compaction_path_to_test == "FindIntraL0Compaction") {
+    fifo_options.allow_compaction = true;
+    fifo_options.age_for_warm = 0;
+  } else if (compaction_path_to_test == "PickCompactionToWarm") {
+    fifo_options.allow_compaction = false;
+    fifo_options.age_for_warm = 2;
+  } else if (compaction_path_to_test == "CompactRange") {
+    // FIFOCompactionPicker::CompactRange() implementes
+    // on top of regular compaction paths. Here we choose
+    // to trigger FIFOCompactionPicker::PickCompactionToWarm()
+    // for simplicity
+    fifo_options.allow_compaction = false;
+    fifo_options.age_for_warm = 2;
+    options.disable_auto_compactions = true;
+  } else if (compaction_path_to_test == "CompactFile") {
+    fifo_options.allow_compaction = false;
+    fifo_options.age_for_warm = 0;
+    options.disable_auto_compactions = true;
+  } else {
+    assert(false);
+  }
+  options.compaction_options_fifo = fifo_options;
+
+  DestroyAndReopen(options);
+
+  // To force assigning the global seqno to ingested file
+  // for our test purpose
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  std::atomic<bool> compaction_path_sync_point_called(false);
+  if (compaction_path_to_test == "FindIntraL0Compaction") {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "FindIntraL0Compaction",
+        [&](void* /*arg*/) { compaction_path_sync_point_called.store(true); });
+  } else if (compaction_path_to_test == "PickCompactionToWarm" ||
+             compaction_path_to_test == "CompactRange") {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "PickCompactionToWarm",
+        [&](void* /*arg*/) { compaction_path_sync_point_called.store(true); });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "PickCompactionToWarm::BeforeGetCurrentTime",
+        [&fifo_options](void* current_time_arg) -> void {
+          // The unit test goes so quickly that there is almost no time
+          // elapsed after we ingest a file and before we check whether ingested
+          // files can compact to warm.
+          // Therefore we need this trick to simulate elapsed
+          // time in reality.
+          int64_t* current_time = (int64_t*)current_time_arg;
+          *current_time = *current_time + fifo_options.age_for_warm + 1;
+        });
+  } else if (compaction_path_to_test == "CompactFile") {
+    // Sync point is not needed in this case
+    compaction_path_sync_point_called.store(true);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create an existing SST file s0 of key range [key1,key4] and seqno range
+  // [1,2]
+  ASSERT_OK(Put("key1", "seq1"));
+  ASSERT_OK(Put("key4", "seq2"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // Accumulate entries in a memtable m1 of key range [key1,key2] and seqno
+  // range [3,4] Noted that it contains a overlaped key with s0
+  ASSERT_OK(Put("key1", "seq3"));  // overlapped key
+  ASSERT_OK(Put("key2", "seq4"));
+
+  ASSERT_TRUE(compaction_path_to_test == "CompactFile" ||
+              !compaction_path_sync_point_called.load());
+
+  // Stop background compaction job to obtain accurate
+  // `NumTableFilesAtLevel(0)` after file ingestion
+  test::SleepingBackgroundTask sleeping_tasks;
+  if (!options.disable_auto_compactions) {
+    env_->SetBackgroundThreads(1, Env::LOW);
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_tasks,
+                   Env::Priority::LOW);
+    sleeping_tasks.WaitUntilSleeping();
+  }
+
+  // Ingested two SST files, s1 of key range [key5,key5] and seqno range [5,5]
+  // and s2 of key range [key6,key6] and seqno range [6,6]
+  IngestOneKeyValue(dbfull(), "key5", "seq5", options);
+  IngestOneKeyValue(dbfull(), "key6", "seq6", options);
+  // Up to now, L0 contains s0, s1, s2
+  ASSERT_EQ(3, NumTableFilesAtLevel(0));
+
+  // Resume background compaction job so that Intra level0 compaction can be
+  // triggered
+  if (!options.disable_auto_compactions) {
+    sleeping_tasks.WakeUp();
+    sleeping_tasks.WaitUntilDone();
+  }
+
+  if (compaction_path_to_test == "CompactRange") {
+    // `start` and `end` is carefully chosen so that compact range:
+    // (1) doesn't overlap with memtable therefore the memtable won't be flushed
+    // (2) should target at compacting s0 with s1 and s2
+    Slice start("key4"), end("key6");
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  } else if (compaction_path_to_test == "CompactFile") {
+    ColumnFamilyMetaData cf_meta_data;
+    db_->GetColumnFamilyMetaData(&cf_meta_data);
+    assert(cf_meta_data.levels[0].files.size() == 3);
+    std::vector<std::string> input_files;
+    for (const auto& file : cf_meta_data.levels[0].files) {
+      input_files.push_back(file.name);
+    }
+    Status s = db_->CompactFiles(CompactionOptions(), input_files, 0);
+    EXPECT_TRUE(s.IsAborted());
+    EXPECT_TRUE(s.ToString().find(
+                    "has overlapping seqnos with earliest memtable seqnos") !=
+                std::string::npos);
+  } else {
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_TRUE(compaction_path_to_test == "CompactFile" ||
+              compaction_path_sync_point_called.load());
+
+  // To verify compaction of s0, s1 and s2 (leading to new SST s4) didn't
+  // happen.
+  //
+  // Otherwise, when m1 flushes in the next step and become s3,
+  // we will have s3 of seqnos [3, 4], s4 of seqnos [1, 6], which is a
+  // corruption because s3 is older than s4 based on largest seqno while s2
+  // contains a value of Key(1) newer than the value of Key(1) contained in s4.
+  // And in this case, Flush() will return Status::Corruption() caught by
+  // `force_consistency_checks=1`
+  EXPECT_EQ(3, NumTableFilesAtLevel(0));
+  EXPECT_OK(Flush());
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
@@ -8240,8 +8384,8 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
-  (void) argc;
-  (void) argv;
+  (void)argc;
+  (void)argv;
   return 0;
 #endif
 }

@@ -106,9 +106,8 @@ Status ExternalSstFileIngestionJob::Prepare(
   for (IngestedFileInfo& f : files_to_ingest_) {
     f.copy_file = false;
     const std::string path_outside_db = f.external_file_path;
-    const std::string path_inside_db =
-        TableFileName(cfd_->ioptions()->cf_paths, f.fd.GetNumber(),
-                      f.fd.GetPathId());
+    const std::string path_inside_db = TableFileName(
+        cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
     if (ingestion_options_.move_files) {
       status =
           fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
@@ -491,7 +490,8 @@ void ExternalSstFileIngestionJob::UpdateStats() {
   stream.StartArray();
 
   for (IngestedFileInfo& f : files_to_ingest_) {
-    InternalStats::CompactionStats stats(CompactionReason::kExternalSstIngestion, 1);
+    InternalStats::CompactionStats stats(
+        CompactionReason::kExternalSstIngestion, 1);
     stats.micros = total_time;
     // If actual copy occurred for this file, then we need to count the file
     // size as the actual bytes written. If the file was linked, then we ignore
@@ -591,8 +591,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   std::unique_ptr<FSRandomAccessFile> sst_file;
   std::unique_ptr<RandomAccessFileReader> sst_file_reader;
 
-  status = fs_->NewRandomAccessFile(external_file, env_options_,
-                                    &sst_file, nullptr);
+  status =
+      fs_->NewRandomAccessFile(external_file, env_options_, &sst_file, nullptr);
   if (!status.ok()) {
     return status;
   }
@@ -658,9 +658,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     assert(seqno_iter == uprops.end());
     file_to_ingest->original_seqno = 0;
     if (ingestion_options_.allow_blocking_flush ||
-            ingestion_options_.allow_global_seqno) {
+        ingestion_options_.allow_global_seqno) {
       return Status::InvalidArgument(
-            "External SST file V1 does not support global seqno");
+          "External SST file V1 does not support global seqno");
     }
   } else {
     return Status::InvalidArgument("External file version is not supported");
@@ -857,7 +857,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     return status;
   }
 
- TEST_SYNC_POINT_CALLBACK(
+  TEST_SYNC_POINT_CALLBACK(
       "ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile",
       &overlap_with_db);
   file_to_ingest->picked_level = target_level;
@@ -872,10 +872,10 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
   auto* vstorage = cfd_->current()->storage_info();
   // first check if new files fit in the bottommost level
   int bottom_lvl = cfd_->NumberLevels() - 1;
-  if(!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
+  if (!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
     return Status::InvalidArgument(
-      "Can't ingest_behind file as it doesn't fit "
-      "at the bottommost level!");
+        "Can't ingest_behind file as it doesn't fit "
+        "at the bottommost level!");
   }
 
   // second check if despite allow_ingest_behind=true we still have 0 seqnums
@@ -884,8 +884,8 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
     for (auto file : vstorage->LevelFiles(lvl)) {
       if (file->fd.smallest_seqno == 0) {
         return Status::InvalidArgument(
-          "Can't ingest_behind file as despite allow_ingest_behind=true "
-          "there are files with 0 seqno in database at upper levels!");
+            "Can't ingest_behind file as despite allow_ingest_behind=true "
+            "there are files with 0 seqno in database at upper levels!");
       }
     }
   }
@@ -912,9 +912,8 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     // If the file system does not support random write, then we should not.
     // Otherwise we should.
     std::unique_ptr<FSRandomRWFile> rwfile;
-    Status status =
-        fs_->NewRandomRWFile(file_to_ingest->internal_file_path, env_options_,
-                             &rwfile, nullptr);
+    Status status = fs_->NewRandomRWFile(file_to_ingest->internal_file_path,
+                                         env_options_, &rwfile, nullptr);
     TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::NewRandomRWFile",
                              &status);
     if (status.ok()) {

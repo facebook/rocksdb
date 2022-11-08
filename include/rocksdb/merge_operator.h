@@ -82,6 +82,7 @@ class MergeOperator : public Customizable {
   }
 
   struct MergeOperationInput {
+    // If user-defined timestamp is enabled, `_key` includes timestamp.
     explicit MergeOperationInput(const Slice& _key,
                                  const Slice* _existing_value,
                                  const std::vector<Slice>& _operand_list,

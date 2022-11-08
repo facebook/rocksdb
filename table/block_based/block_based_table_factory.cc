@@ -474,7 +474,8 @@ void BlockBasedTableFactory::InitializeOptions() {
   }
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       table_options_.index_block_restart_interval != 1) {
-    // Currently kHashSearch is incompatible with index_block_restart_interval > 1
+    // Currently kHashSearch is incompatible with
+    // index_block_restart_interval > 1
     table_options_.index_block_restart_interval = 1;
   }
   if (table_options_.partition_filters &&

@@ -65,7 +65,7 @@ class ErrorEnv : public EnvWrapper {
     return target()->NewWritableFile(fname, result, soptions);
   }
 };
-}  // namespace
+}  // anonymous namespace
 class CorruptionTest : public testing::Test {
  public:
   std::shared_ptr<Env> env_guard_;
@@ -138,9 +138,7 @@ class CorruptionTest : public testing::Test {
     return DB::Open(opt, dbname_, &db_);
   }
 
-  void Reopen(Options* options = nullptr) {
-    ASSERT_OK(TryReopen(options));
-  }
+  void Reopen(Options* options = nullptr) { ASSERT_OK(TryReopen(options)); }
 
   void RepairDB() {
     delete db_;
@@ -156,7 +154,7 @@ class CorruptionTest : public testing::Test {
         DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
         ASSERT_OK(dbi->TEST_FlushMemTable());
       }
-      //if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
+      // if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
       Slice key = Key(i + start, &key_space);
       batch.Clear();
       ASSERT_OK(batch.Put(key, Value(i + start, &value_space)));
@@ -183,8 +181,7 @@ class CorruptionTest : public testing::Test {
       ASSERT_OK(iter->status());
       uint64_t key;
       Slice in(iter->key());
-      if (!ConsumeDecimalNumber(&in, &key) ||
-          !in.empty() ||
+      if (!ConsumeDecimalNumber(&in, &key) || !in.empty() ||
           key < next_expected) {
         bad_keys++;
         continue;
@@ -200,10 +197,11 @@ class CorruptionTest : public testing::Test {
     iter->status().PermitUncheckedError();
     delete iter;
 
-    fprintf(stderr,
-      "expected=%d..%d; got=%d; bad_keys=%d; bad_values=%d; missed=%llu\n",
-            min_expected, max_expected, correct, bad_keys, bad_values,
-            static_cast<unsigned long long>(missed));
+    fprintf(
+        stderr,
+        "expected=%d..%d; got=%d; bad_keys=%d; bad_values=%d; missed=%llu\n",
+        min_expected, max_expected, correct, bad_keys, bad_values,
+        static_cast<unsigned long long>(missed));
     ASSERT_LE(min_expected, correct);
     ASSERT_GE(max_expected, correct);
   }
@@ -217,8 +215,7 @@ class CorruptionTest : public testing::Test {
     std::string fname;
     int picked_number = -1;
     for (size_t i = 0; i < filenames.size(); i++) {
-      if (ParseFileName(filenames[i], &number, &type) &&
-          type == filetype &&
+      if (ParseFileName(filenames[i], &number, &type) && type == filetype &&
           static_cast<int>(number) > picked_number) {  // Pick latest file
         fname = dbname_ + "/" + filenames[i];
         picked_number = static_cast<int>(number);
@@ -243,7 +240,6 @@ class CorruptionTest : public testing::Test {
     }
     FAIL() << "no file found at level";
   }
-
 
   int Property(const std::string& name) {
     std::string property;

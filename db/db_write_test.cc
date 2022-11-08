@@ -170,7 +170,8 @@ TEST_P(DBWriteTest, WriteStallRemoveNoSlowdownWrite) {
 
 TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   Options options = GetOptions();
-  options.level0_stop_writes_trigger = options.level0_slowdown_writes_trigger = 4;
+  options.level0_stop_writes_trigger = options.level0_slowdown_writes_trigger =
+      4;
   std::vector<port::Thread> threads;
   std::atomic<int> thread_num(0);
   port::Mutex mutex;
@@ -195,7 +196,7 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
     Status s = dbfull()->Put(wo, key, "bar");
     ASSERT_TRUE(s.ok() || s.IsIncomplete());
   };
-  std::function<void(void *)> unblock_main_thread_func = [&](void *) {
+  std::function<void(void*)> unblock_main_thread_func = [&](void*) {
     mutex.Lock();
     ++writers;
     cv.SignalAll();
@@ -254,8 +255,9 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(nullptr));
   // This would have triggered a write stall. Unblock the write group leader
   TEST_SYNC_POINT("DBWriteTest::WriteThreadHangOnWriteStall:2");
-  // The leader is going to create missing newer links. When the leader finishes,
-  // the next leader is going to delay writes and fail writers with no_slowdown
+  // The leader is going to create missing newer links. When the leader
+  // finishes, the next leader is going to delay writes and fail writers with
+  // no_slowdown
 
   TEST_SYNC_POINT("DBWriteTest::WriteThreadHangOnWriteStall:3");
   for (auto& t : threads) {
@@ -623,42 +625,43 @@ TEST_P(DBWriteTest, LockWalInEffect) {
 }
 
 TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
-    Options options = GetOptions();
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.statistics->set_stats_level(StatsLevel::kAll);
-    Reopen(options);
-    std::string wal_key_prefix = "WAL_KEY_";
-    std::string no_wal_key_prefix = "K_";
-    // 100 KB value each for NO-WAL operation
-    std::string no_wal_value(1024 * 100, 'X');
-    // 1B value each for WAL operation
-    std::string wal_value = "0";
-    std::thread threads[10];
-    for (int t = 0; t < 10; t++) {
-        threads[t] = std::thread([t, wal_key_prefix, wal_value, no_wal_key_prefix, no_wal_value, this] {
-            for(int i = 0; i < 10; i++) {
-              ROCKSDB_NAMESPACE::WriteOptions write_option_disable;
-              write_option_disable.disableWAL = true;
-              ROCKSDB_NAMESPACE::WriteOptions write_option_default;
-              std::string no_wal_key = no_wal_key_prefix + std::to_string(t) +
-                                       "_" + std::to_string(i);
-              ASSERT_OK(
-                  this->Put(no_wal_key, no_wal_value, write_option_disable));
-              std::string wal_key =
-                  wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
-              ASSERT_OK(this->Put(wal_key, wal_value, write_option_default));
-              ASSERT_OK(dbfull()->SyncWAL());
-            }
-            return;
-        });
-    }
-    for (auto& t: threads) {
-        t.join();
-    }
-    uint64_t bytes_num = options.statistics->getTickerCount(
-        ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES);
-    // written WAL size should less than 100KB (even included HEADER & FOOTER overhead)
-    ASSERT_LE(bytes_num, 1024 * 100);
+  Options options = GetOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.statistics->set_stats_level(StatsLevel::kAll);
+  Reopen(options);
+  std::string wal_key_prefix = "WAL_KEY_";
+  std::string no_wal_key_prefix = "K_";
+  // 100 KB value each for NO-WAL operation
+  std::string no_wal_value(1024 * 100, 'X');
+  // 1B value each for WAL operation
+  std::string wal_value = "0";
+  std::thread threads[10];
+  for (int t = 0; t < 10; t++) {
+    threads[t] = std::thread([t, wal_key_prefix, wal_value, no_wal_key_prefix,
+                              no_wal_value, this] {
+      for (int i = 0; i < 10; i++) {
+        ROCKSDB_NAMESPACE::WriteOptions write_option_disable;
+        write_option_disable.disableWAL = true;
+        ROCKSDB_NAMESPACE::WriteOptions write_option_default;
+        std::string no_wal_key =
+            no_wal_key_prefix + std::to_string(t) + "_" + std::to_string(i);
+        ASSERT_OK(this->Put(no_wal_key, no_wal_value, write_option_disable));
+        std::string wal_key =
+            wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
+        ASSERT_OK(this->Put(wal_key, wal_value, write_option_default));
+        ASSERT_OK(dbfull()->SyncWAL());
+      }
+      return;
+    });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+  uint64_t bytes_num = options.statistics->getTickerCount(
+      ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES);
+  // written WAL size should less than 100KB (even included HEADER & FOOTER
+  // overhead)
+  ASSERT_LE(bytes_num, 1024 * 100);
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
