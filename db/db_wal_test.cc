@@ -1601,7 +1601,6 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
 
 TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
   Options options = CurrentOptions();
-
   options.track_and_verify_wals_in_manifest = true;
   // Set a small max_manifest_file_size to force manifest creation
   // in SyncWAL() for tet purpose
@@ -1628,19 +1627,36 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
         ASSERT_TRUE(new_manifest_created);
         sync_point_called = true;
       });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DeleteObsoleteFileImpl:AfterDeletion2", [&](void* arg) {
+        std::string* file_name = (std::string*)arg;
+        if (*file_name == wal_file_path) {
+          TEST_SYNC_POINT(
+              "DBWALTest::"
+              "FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
+              "PostDeleteWAL");
+        }
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
+        "PostDeleteWAL",
+        "DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
+        "PreConfrimWALDeleted"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Flush());
-
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-  SyncPoint::GetInstance()->DisableProcessing();
-
   ASSERT_TRUE(sync_point_called);
 
+  TEST_SYNC_POINT(
+      "DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
+      "PreConfrimWALDeleted");
   // BackgroundFlush() obsoleted and purged 4.log
   // because the memtable associated with the WAL was flushed and new WAL was
   // created (i.e, 8.log)
   ASSERT_TRUE(env_->FileExists(wal_file_path).IsNotFound());
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
 
   // To verify the corruption of "Missing WAL with log number: 4" under
   // `options.track_and_verify_wals_in_manifest = true` is fixed.
