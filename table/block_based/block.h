@@ -503,12 +503,12 @@ class DataBlockIter final : public BlockIter<Slice> {
                 uint32_t num_restarts, SequenceNumber global_seqno,
                 BlockReadAmpBitmap* read_amp_bitmap, bool block_contents_pinned,
                 DataBlockHashIndex* data_block_hash_index,
-                uint32_t protection_bytes_per_key, std::string* checksums_ptr,
+                uint32_t protection_bytes_per_key, std::string checksums,
                 int block_restart_interval)
       : DataBlockIter() {
     Initialize(raw_ucmp, data, restarts, num_restarts, global_seqno,
                read_amp_bitmap, block_contents_pinned, data_block_hash_index,
-               protection_bytes_per_key, checksums_ptr, block_restart_interval);
+               protection_bytes_per_key, checksums, block_restart_interval);
   }
   void Initialize(const Comparator* raw_ucmp, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
@@ -516,7 +516,7 @@ class DataBlockIter final : public BlockIter<Slice> {
                   BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned,
                   DataBlockHashIndex* data_block_hash_index,
-                  uint32_t protection_bytes_per_key, std::string* checksums_ptr,
+                  uint32_t protection_bytes_per_key, std::string checksums,
                   int block_restart_interval) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
@@ -525,7 +525,7 @@ class DataBlockIter final : public BlockIter<Slice> {
     last_bitmap_offset_ = current_ + 1;
     data_block_hash_index_ = data_block_hash_index;
     protection_bytes_per_key_ = protection_bytes_per_key;
-    checksums_ptr_ = checksums_ptr;
+    checksums_ = checksums;
     block_restart_interval_ = block_restart_interval;
   }
 
@@ -570,7 +570,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   void PrevImpl() override;
   void UpdateKey() override {
     BlockIter::UpdateKey();
-    if (Valid() && checksums_ptr_ != nullptr && !checksums_ptr_->empty()) {
+    if (Valid() && !checksums_.empty()) {
       VerifyEntryChecksum(key(), value());
     }
   }
@@ -603,7 +603,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   std::string prev_entries_keys_buff_;
   std::vector<CachedPrevEntry> prev_entries_;
   int32_t prev_entries_idx_{-1};
-  std::string* checksums_ptr_{nullptr};
+  std::string checksums_;
   uint32_t protection_bytes_per_key_{0};
 
   DataBlockHashIndex* data_block_hash_index_;

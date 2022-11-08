@@ -689,7 +689,7 @@ Status DataBlockIter::VerifyEntryChecksum(const Slice& key,
   bool match = true;
   uint32_t entry_position = GetCurrentEntryPosition();
   const char* checksum_ptr =
-      checksums_ptr_->data() + entry_position * protection_bytes_per_key_;
+      checksums_.data() + entry_position * protection_bytes_per_key_;
   switch (protection_bytes_per_key_) {
     case 1:
       match = static_cast<uint8_t>(*(checksum_ptr)) ==
@@ -1197,7 +1197,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
         raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
         read_amp_bitmap_.get(), block_contents_pinned,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr,
-        protection_bytes_per_key, &checksums_, block_restart_interval_);
+        protection_bytes_per_key, checksums_, block_restart_interval_);
     if (read_amp_bitmap_) {
       if (read_amp_bitmap_->GetStatistics() != stats) {
         // DB changed the Statistics pointer, we need to notify read_amp_bitmap_

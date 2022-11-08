@@ -13,6 +13,7 @@
 #include <array>
 #include <cinttypes>
 #include <cstdio>
+#include <iostream>
 #include <list>
 #include <map>
 #include <set>
@@ -2224,7 +2225,7 @@ void Version::MultiGetBlob(
   }
 }
 
-void Version::Get(const ReadOptions& read_opts, const LookupKey& k,
+void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, PinnableWideColumns* columns,
                   std::string* timestamp, Status* status,
                   MergeContext* merge_context,
@@ -2248,9 +2249,9 @@ void Version::Get(const ReadOptions& read_opts, const LookupKey& k,
     tracing_get_id = vset_->block_cache_tracer_->NextGetId();
   }
 
-  ReadOptions read_options = read_opts;
-  read_options.block_protection_bytes_per_key =
-      mutable_cf_options_.block_protection_bytes_per_key;
+  // ReadOptions read_options = read_opts;
+  // read_options.block_protection_bytes_per_key =
+  //     mutable_cf_options_.block_protection_bytes_per_key;
 
   // Note: the old StackableDB-based BlobDB passes in
   // GetImplOptions::is_blob_index; for the integrated BlobDB implementation, we
@@ -2409,12 +2410,12 @@ void Version::Get(const ReadOptions& read_opts, const LookupKey& k,
   }
 }
 
-void Version::MultiGet(const ReadOptions& read_opts, MultiGetRange* range,
+void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                        ReadCallback* callback) {
   PinnedIteratorsManager pinned_iters_mgr;
-  ReadOptions read_options = read_opts;
-  read_options.block_protection_bytes_per_key =
-      mutable_cf_options_.block_protection_bytes_per_key;
+  // ReadOptions read_options = read_opts;
+  // read_options.block_protection_bytes_per_key =
+  //     mutable_cf_options_.block_protection_bytes_per_key;
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -6451,15 +6452,20 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
 }
 
 InternalIterator* VersionSet::MakeInputIterator(
-    const ReadOptions& read_options, const Compaction* c,
+    const ReadOptions& read_opts, const Compaction* c,
     RangeDelAggregator* range_del_agg,
     const FileOptions& file_options_compactions,
     const std::optional<const Slice>& start,
     const std::optional<const Slice>& end) {
   auto cfd = c->column_family_data();
-  ReadOptions read_opts = read_options;
-  read_opts.block_protection_bytes_per_key =
-      cfd->GetCurrentMutableCFOptions()->block_protection_bytes_per_key;
+  // ReadOptions read_opts = read_options;
+  // read_opts.block_protection_bytes_per_key =
+  //    cfd->GetCurrentMutableCFOptions()->block_protection_bytes_per_key;
+  // std::cout << "cfd->GetCurrentMutableCFOptions() "
+  //           <<
+  //           cfd->GetCurrentMutableCFOptions()->block_protection_bytes_per_key
+  //           << "\n";
+  // read_opts.block_protection_bytes_per_key = 0;
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
