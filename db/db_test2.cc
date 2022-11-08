@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -28,7 +29,6 @@
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 #include "version_edit.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
@@ -7347,31 +7347,39 @@ TEST_F(DBTest2, SortL0FilesByL0EpochNumber) {
   Options options = CurrentOptions();
   options.num_levels = 1;
   options.compaction_style = kCompactionStyleUniversal;
+  // options.compression = kNoCompression;
   DestroyAndReopen(options);
+  std::cout << "Finish DestroyAndReopen" << std::endl;
 
   ASSERT_OK(Put("key1", "seq1"));
+  std::cout << "Finish Put(key1, seq1)" << std::endl;
 
-  SstFileWriter sst_file_writer{EnvOptions(), Options()};
+  SstFileWriter sst_file_writer{EnvOptions(), options};
   std::string external_file1 = dbname_ + "/test_compact_files1.sst";
   std::string external_file2 = dbname_ + "/test_compact_files2.sst";
   ASSERT_OK(sst_file_writer.Open(external_file1));
   ASSERT_OK(sst_file_writer.Put("key2", "seq0"));
   ASSERT_OK(sst_file_writer.Finish());
+  std::cout << "sst_file_writer.Finish() 1" << std::endl;
   ASSERT_OK(sst_file_writer.Open(external_file2));
   ASSERT_OK(sst_file_writer.Put("key3", "seq0"));
   ASSERT_OK(sst_file_writer.Finish());
+  std::cout << "sst_file_writer.Finish() 2" << std::endl;
 
   ASSERT_OK(Put("key4", "seq2"));
+  std::cout << "Finish Put(key4, seq2)" << std::endl;
 
   ASSERT_OK(Flush());
+  std::cout << "Finish Flush()" << std::endl;
   auto* handle = db_->DefaultColumnFamily();
   ASSERT_OK(db_->IngestExternalFile(handle, {external_file1, external_file2},
                                     IngestExternalFileOptions()));
+  std::cout << "Finish IngestExternalFile" << std::endl;
 
   // To verify L0 files are sorted by l0_epoch_number in descending order
   // instead of largest_seqno
   const std::vector<FileMetaData*> level0_files_1 = GetL0FileMetadatas();
-
+  std::cout << "Finish GetL0FileMetadatas 1" << std::endl;
   ASSERT_EQ(level0_files_1.size(), 3);
 
   EXPECT_EQ(level0_files_1[0]->l0_epoch_number, 3);
@@ -7393,7 +7401,9 @@ TEST_F(DBTest2, SortL0FilesByL0EpochNumber) {
   // To verify compacted L0 file is assigned with the minimum l0_epoch_number
   // among input files'
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  std::cout << "Finish CompactRange" << std::endl;
   const std::vector<FileMetaData*> level0_files_2 = GetL0FileMetadatas();
+  std::cout << "Finish GetL0FileMetadatas 2" << std::endl;
 
   ASSERT_EQ(level0_files_2.size(), 1);
 
@@ -7402,11 +7412,14 @@ TEST_F(DBTest2, SortL0FilesByL0EpochNumber) {
   EXPECT_TRUE(level0_files_2[0]->largest.user_key() == Slice("key4"));
   EXPECT_TRUE(level0_files_2[0]->smallest.user_key() == Slice("key1"));
   EXPECT_EQ(GetCurrentNextL0EpochNumber(), 4);
+  std::cout << "Finish GetCurrentNextL0EpochNumber 1" << std::endl;
 
   // To verify L0 files' l0_file_number and VersionSet::next_l0_file_number were
   // correctly recovered
   ASSERT_OK(TryReopen(options));
+  std::cout << "Finish TryReopen" << std::endl;
   const std::vector<FileMetaData*> level0_files_3 = GetL0FileMetadatas();
+  std::cout << "Finish GetL0FileMetadatas 3" << std::endl;
 
   ASSERT_EQ(level0_files_3.size(), 1);
 
@@ -7415,6 +7428,7 @@ TEST_F(DBTest2, SortL0FilesByL0EpochNumber) {
   EXPECT_TRUE(level0_files_3[0]->largest.user_key() == Slice("key4"));
   EXPECT_TRUE(level0_files_3[0]->smallest.user_key() == Slice("key1"));
   EXPECT_EQ(GetCurrentNextL0EpochNumber(), 2);
+  std::cout << "Finish GetCurrentNextL0EpochNumber 2" << std::endl;
 }
 #endif  // ROCKSDB_LITE
 
