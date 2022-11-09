@@ -198,6 +198,16 @@ jobs:
           paths:
             - "release"
 
+      - run:
+          # Store build artifacts so we can re-run the tests locally.
+          name: Collect artifacts
+          command: |
+            mkdir /tmp/artifacts/
+            cp release/* /tmp/artifacts/
+            cp /tmp/workspace/test-jars/*.jar /tmp/artifacts/
+
+      - store_artifacts:
+          path: /tmp/artifacts/
 
   test-linux:
     executor: linux-test
