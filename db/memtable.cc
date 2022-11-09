@@ -1066,11 +1066,21 @@ static bool SaveValue(void* arg, const char* entry) {
           assert(s->do_merge);
 
           if (s->value || s->columns) {
+            std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
-                merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, /* result_operand */ nullptr,
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, /* result_operand */ nullptr,
                 /* update_num_ops_stats */ true);
+
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(result);
+              }
+            }
           }
         } else if (s->value) {
           s->value->assign(v.data(), v.size());
@@ -1115,11 +1125,27 @@ static bool SaveValue(void* arg, const char* entry) {
         } else if (*(s->merge_in_progress)) {
           assert(s->do_merge);
 
-          if (s->value || s->columns) {
+          if (s->value) {
+            Slice value_of_default;
+            *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
+                v, value_of_default);
+            if (s->status->ok()) {
+              *(s->status) = MergeHelper::TimedFullMerge(
+                  merge_operator, s->key->user_key(), &value_of_default,
+                  merge_context->GetOperands(), s->value, s->logger,
+                  s->statistics, s->clock, /* result_operand */ nullptr,
+                  /* update_num_ops_stats */ true);
+            }
+          } else if (s->columns) {
+            std::string result;
             *(s->status) = MergeHelper::TimedFullMergeWithEntity(
                 merge_operator, s->key->user_key(), v,
-                merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, /* update_num_ops_stats */ true);
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, /* update_num_ops_stats */ true);
+
+            if (s->status->ok()) {
+              *(s->status) = s->columns->SetWideColumnValue(result);
+            }
           }
         } else if (s->value) {
           Slice value_of_default;
@@ -1150,11 +1176,21 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
           if (s->value || s->columns) {
+            std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, /* result_operand */ nullptr,
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, /* result_operand */ nullptr,
                 /* update_num_ops_stats */ true);
+
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(result);
+              }
+            }
           }
         } else {
           *(s->status) = Status::NotFound();
@@ -1180,11 +1216,21 @@ static bool SaveValue(void* arg, const char* entry) {
         if (s->do_merge && merge_operator->ShouldMerge(
                                merge_context->GetOperandsDirectionBackward())) {
           if (s->value || s->columns) {
+            std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), s->value, s->columns, s->logger,
-                s->statistics, s->clock, /* result_operand */ nullptr,
+                merge_context->GetOperands(), &result, s->logger, s->statistics,
+                s->clock, /* result_operand */ nullptr,
                 /* update_num_ops_stats */ true);
+
+            if (s->status->ok()) {
+              if (s->value) {
+                *(s->value) = std::move(result);
+              } else {
+                assert(s->columns);
+                s->columns->SetPlainValue(result);
+              }
+            }
           }
 
           *(s->found_final_value) = true;
