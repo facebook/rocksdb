@@ -112,44 +112,10 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   return Status::OK();
 }
 
-Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
-                                   const Slice& key, const Slice* base_value,
-                                   const std::vector<Slice>& operands,
-                                   std::string* value,
-                                   PinnableWideColumns* columns, Logger* logger,
-                                   Statistics* statistics, SystemClock* clock,
-                                   Slice* result_operand,
-                                   bool update_num_ops_stats) {
-  assert(value || columns);
-  assert(!value || !columns);
-
-  std::string result;
-  const Status s =
-      TimedFullMerge(merge_operator, key, base_value, operands, &result, logger,
-                     statistics, clock, result_operand, update_num_ops_stats);
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (value) {
-    *value = std::move(result);
-    return Status::OK();
-  }
-
-  assert(columns);
-  columns->SetPlainValue(result);
-
-  return Status::OK();
-}
-
 Status MergeHelper::TimedFullMergeWithEntity(
     const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
-    const std::vector<Slice>& operands, std::string* value,
-    PinnableWideColumns* columns, Logger* logger, Statistics* statistics,
-    SystemClock* clock, bool update_num_ops_stats) {
-  assert(value || columns);
-  assert(!value || !columns);
-
+    const std::vector<Slice>& operands, std::string* result, Logger* logger,
+    Statistics* statistics, SystemClock* clock, bool update_num_ops_stats) {
   WideColumns base_columns;
 
   {
@@ -168,44 +134,35 @@ Status MergeHelper::TimedFullMergeWithEntity(
     value_of_default = base_columns[0].value();
   }
 
-  std::string result;
+  std::string merge_result;
 
   {
     constexpr Slice* result_operand = nullptr;
 
     const Status s = TimedFullMerge(
-        merge_operator, key, &value_of_default, operands, &result, logger,
+        merge_operator, key, &value_of_default, operands, &merge_result, logger,
         statistics, clock, result_operand, update_num_ops_stats);
     if (!s.ok()) {
       return s;
     }
   }
 
-  if (value) {
-    *value = std::move(result);
-    return Status::OK();
-  }
-
-  assert(columns);
-
-  std::string output;
-
   if (has_default_column) {
-    base_columns[0].value() = result;
+    base_columns[0].value() = merge_result;
 
-    const Status s = WideColumnSerialization::Serialize(base_columns, output);
+    const Status s = WideColumnSerialization::Serialize(base_columns, *result);
     if (!s.ok()) {
       return s;
     }
   } else {
     const Status s =
-        WideColumnSerialization::Serialize(result, base_columns, output);
+        WideColumnSerialization::Serialize(merge_result, base_columns, *result);
     if (!s.ok()) {
       return s;
     }
   }
 
-  return columns->SetWideColumnValue(output);
+  return Status::OK();
 }
 
 // PRE:  iter points to the first merge type entry
