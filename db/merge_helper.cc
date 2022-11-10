@@ -292,7 +292,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // run compaction filter on it.
       const Slice val = iter->value();
       PinnableSlice blob_value;
-      const Slice* val_ptr;
+      const Slice* val_ptr = nullptr;
       if ((kTypeValue == ikey.type || kTypeBlobIndex == ikey.type ||
            kTypeWideColumnEntity == ikey.type) &&
           (range_del_agg == nullptr ||
@@ -335,9 +335,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         } else {
           val_ptr = &val;
         }
-      } else {
-        val_ptr = nullptr;
       }
+
       std::string merge_result;
       s = TimedFullMerge(
           user_merge_operator_, ikey.user_key, val_ptr,
