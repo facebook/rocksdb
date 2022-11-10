@@ -664,7 +664,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
     // submitted in PrefetchAsync should match with this request. Otherwise
     // buffers will be outdated.
     // Random offset called. So abort the IOs.
-    if (bufs_[curr_].offset_ != offset) {
+    if (prev_offset_ != offset) {
       AbortAllIOs();
       bufs_[curr_].buffer_.Clear();
       bufs_[curr_ ^ 1].buffer_.Clear();
