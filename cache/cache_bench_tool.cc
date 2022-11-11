@@ -13,7 +13,6 @@
 #include <set>
 #include <sstream>
 
-#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
@@ -292,13 +291,12 @@ class CacheBench {
     }
 
     if (FLAGS_cache_type == "clock_cache") {
-      cache_ = ExperimentalNewClockCache(
-          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
-          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
-      if (!cache_) {
-        fprintf(stderr, "Clock cache not supported.\n");
-        exit(1);
-      }
+      fprintf(stderr, "Old clock cache implementation has been removed.\n");
+      exit(1);
+    } else if (FLAGS_cache_type == "hyper_clock_cache") {
+      cache_ = HyperClockCacheOptions(FLAGS_cache_size, FLAGS_value_bytes,
+                                      FLAGS_num_shard_bits)
+                   .MakeSharedCache();
     } else if (FLAGS_cache_type == "fast_lru_cache") {
       cache_ = NewFastLRUCache(
           FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
@@ -441,6 +439,8 @@ class CacheBench {
     uint64_t total_key_size = 0;
     uint64_t total_charge = 0;
     uint64_t total_entry_count = 0;
+    uint64_t table_occupancy = 0;
+    uint64_t table_size = 0;
     std::set<Cache::DeleterFn> deleters;
     StopWatchNano timer(clock);
 
@@ -456,6 +456,9 @@ class CacheBench {
             std::ostringstream ostr;
             ostr << "Most recent cache entry stats:\n"
                  << "Number of entries: " << total_entry_count << "\n"
+                 << "Table occupancy: " << table_occupancy << " / "
+                 << table_size << " = "
+                 << (100.0 * table_occupancy / table_size) << "%\n"
                  << "Total charge: " << BytesToHumanString(total_charge) << "\n"
                  << "Average key size: "
                  << (1.0 * total_key_size / total_entry_count) << "\n"
@@ -492,6 +495,8 @@ class CacheBench {
       Cache::ApplyToAllEntriesOptions opts;
       opts.average_entries_per_lock = FLAGS_gather_stats_entries_per_lock;
       shared->GetCacheBench()->cache_->ApplyToAllEntries(fn, opts);
+      table_occupancy = shared->GetCacheBench()->cache_->GetOccupancyCount();
+      table_size = shared->GetCacheBench()->cache_->GetTableAddressCount();
       stats_hist->Add(timer.ElapsedNanos() / 1000);
     }
   }

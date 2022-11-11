@@ -15,10 +15,10 @@
 // Helper macros that include information about file name and line number
 #define ROCKS_LOG_STRINGIFY(x) #x
 #define ROCKS_LOG_TOSTRING(x) ROCKS_LOG_STRINGIFY(x)
-#define ROCKS_LOG_PREPEND_FILE_LINE(FMT) ("[%s:" ROCKS_LOG_TOSTRING(__LINE__) "] " FMT)
+#define ROCKS_LOG_PREPEND_FILE_LINE(FMT) \
+  ("[%s:" ROCKS_LOG_TOSTRING(__LINE__) "] " FMT)
 
-inline const char* RocksLogShorterFileName(const char* file)
-{
+inline const char* RocksLogShorterFileName(const char* file) {
   // 18 is the length of "logging/logging.h".
   // If the name of this file changed, please change this number, too.
   return file + (sizeof(__FILE__) > 18 ? sizeof(__FILE__) - 18 : 0);

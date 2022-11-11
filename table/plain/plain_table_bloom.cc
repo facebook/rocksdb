@@ -7,9 +7,9 @@
 
 #include <algorithm>
 #include <string>
-#include "util/dynamic_bloom.h"
 
 #include "memory/allocator.h"
+#include "util/dynamic_bloom.h"
 
 namespace ROCKSDB_NAMESPACE {
 

@@ -10,8 +10,8 @@
 #pragma once
 
 #include <assert.h>
-#include <cinttypes>
 
+#include <cinttypes>
 #include <list>
 #include <string>
 #include <unordered_map>

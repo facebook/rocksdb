@@ -1330,10 +1330,13 @@ class TestSecondaryCache : public SecondaryCache {
   }
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& /*key*/, const Cache::CreateCallback& /*create_cb*/,
-      bool /*wait*/, bool& is_in_sec_cache) override {
+      bool /*wait*/, bool /*advise_erase*/, bool& is_in_sec_cache) override {
     is_in_sec_cache = true;
     return nullptr;
   }
+
+  bool SupportForceErase() const override { return false; }
+
   void Erase(const Slice& /*key*/) override {}
 
   // Wait for a collection of handles to become ready

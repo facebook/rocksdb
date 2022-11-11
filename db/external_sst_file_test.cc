@@ -301,7 +301,8 @@ TEST_F(ExternalSSTFileTest, Basic) {
 
     SstFileWriter sst_file_writer(EnvOptions(), options);
 
-    // Current file size should be 0 after sst_file_writer init and before open a file.
+    // Current file size should be 0 after sst_file_writer init and before open
+    // a file.
     ASSERT_EQ(sst_file_writer.FileSize(), 0);
 
     // file1.sst (0 => 99)
@@ -2317,7 +2318,6 @@ TEST_F(ExternalSSTFileTest, SkipBloomFilter) {
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-
 
   // Create external SST file and include bloom filters
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();

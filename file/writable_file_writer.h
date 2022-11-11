@@ -286,7 +286,7 @@ class WritableFileWriter {
 
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 
-  bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
+  bool BufferIsEmpty() { return buf_.CurrentSize() == 0; }
 
   void TEST_SetFileChecksumGenerator(
       FileChecksumGenerator* checksum_generator) {

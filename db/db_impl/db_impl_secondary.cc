@@ -100,7 +100,11 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   assert(logs != nullptr);
   std::vector<std::string> filenames;
   Status s;
-  s = env_->GetChildren(immutable_db_options_.GetWalDir(), &filenames);
+  IOOptions io_opts;
+  io_opts.do_not_recurse = true;
+  s = immutable_db_options_.fs->GetChildren(immutable_db_options_.GetWalDir(),
+                                            io_opts, &filenames,
+                                            /*IODebugContext*=*/nullptr);
   if (s.IsNotFound()) {
     return Status::InvalidArgument("Failed to open wal_dir",
                                    immutable_db_options_.GetWalDir());
@@ -153,8 +157,7 @@ Status DBImplSecondary::MaybeInitLogReader(
     {
       std::unique_ptr<FSSequentialFile> file;
       Status status = fs_->NewSequentialFile(
-          fname, fs_->OptimizeForLogRead(file_options_), &file,
-          nullptr);
+          fname, fs_->OptimizeForLogRead(file_options_), &file, nullptr);
       if (!status.ok()) {
         *log_reader = nullptr;
         return status;
@@ -196,7 +199,7 @@ Status DBImplSecondary::RecoverLogFiles(
     assert(reader != nullptr);
   }
   for (auto log_number : log_numbers) {
-    auto it  = log_readers_.find(log_number);
+    auto it = log_readers_.find(log_number);
     assert(it != log_readers_.end());
     log::FragmentBufferedReader* reader = it->second->reader_;
     Status* wal_read_status = it->second->status_;

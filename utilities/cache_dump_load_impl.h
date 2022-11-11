@@ -75,7 +75,7 @@ struct DumpUnit {
   // Pointer to the block. Note that, in the dump process, it points to a memory
   // buffer copied from cache block. The buffer is freed when we process the
   // next block. In the load process, we use an std::string to store the
-  // serilized dump_unit read from the reader. So it points to the memory
+  // serialized dump_unit read from the reader. So it points to the memory
   // address of the begin of the block in this string.
   void* value;
 
@@ -103,14 +103,9 @@ class CacheDumperImpl : public CacheDumper {
   IOStatus DumpCacheEntriesToWriter() override;
 
  private:
-  IOStatus WriteRawBlock(uint64_t timestamp, CacheDumpUnitType type,
-                         const Slice& key, void* value, size_t len,
-                         uint32_t checksum);
-
+  IOStatus WriteBlock(CacheDumpUnitType type, const Slice& key,
+                      const Slice& value);
   IOStatus WriteHeader();
-
-  IOStatus WriteCacheBlock(const CacheDumpUnitType type, const Slice& key,
-                           void* value, size_t len);
   IOStatus WriteFooter();
   bool ShouldFilterOut(const Slice& key);
   std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
@@ -166,7 +161,7 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
 
   ~ToFileCacheDumpWriter() { Close().PermitUncheckedError(); }
 
-  // Write the serilized metadata to the file
+  // Write the serialized metadata to the file
   virtual IOStatus WriteMetadata(const Slice& metadata) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
@@ -179,7 +174,7 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
     return io_s;
   }
 
-  // Write the serilized data to the file
+  // Write the serialized data to the file
   virtual IOStatus WritePacket(const Slice& data) override {
     assert(file_writer_ != nullptr);
     std::string prefix;
@@ -284,7 +279,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
 // The cache dump and load helper class
 class CacheDumperHelper {
  public:
-  // serilize the dump_unit_meta to a string, it is fixed 16 bytes size.
+  // serialize the dump_unit_meta to a string, it is fixed 16 bytes size.
   static void EncodeDumpUnitMeta(const DumpUnitMeta& meta, std::string* data) {
     assert(data);
     PutFixed32(data, static_cast<uint32_t>(meta.sequence_num));
@@ -292,7 +287,7 @@ class CacheDumperHelper {
     PutFixed64(data, meta.dump_unit_size);
   }
 
-  // Serilize the dump_unit to a string.
+  // Serialize the dump_unit to a string.
   static void EncodeDumpUnit(const DumpUnit& dump_unit, std::string* data) {
     assert(data);
     PutFixed64(data, dump_unit.timestamp);
@@ -304,7 +299,7 @@ class CacheDumperHelper {
                            Slice((char*)dump_unit.value, dump_unit.value_len));
   }
 
-  // Deserilize the dump_unit_meta from a string
+  // Deserialize the dump_unit_meta from a string
   static Status DecodeDumpUnitMeta(const std::string& encoded_data,
                                    DumpUnitMeta* unit_meta) {
     assert(unit_meta != nullptr);
@@ -323,7 +318,7 @@ class CacheDumperHelper {
     return Status::OK();
   }
 
-  // Deserilize the dump_unit from a string.
+  // Deserialize the dump_unit from a string.
   static Status DecodeDumpUnit(const std::string& encoded_data,
                                DumpUnit* dump_unit) {
     assert(dump_unit != nullptr);

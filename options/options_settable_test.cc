@@ -403,6 +403,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
       {offsetof(struct ColumnFamilyOptions, preclude_last_level_data_seconds),
        sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, preserve_internal_time_seconds),
+       sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, blob_cache),
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
@@ -484,6 +486,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_write_buffer_number=84;"
       "write_buffer_size=1653;"
       "max_compaction_bytes=64;"
+      "ignore_max_compaction_bytes_for_input=true;"
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
@@ -509,6 +512,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "experimental_mempurge_threshold=0.0001;"
       "optimize_filters_for_hits=false;"
       "level_compaction_dynamic_level_bytes=false;"
+      "level_compaction_dynamic_file_size=true;"
       "inplace_update_support=false;"
       "compaction_style=kCompactionStyleFIFO;"
       "compaction_pri=kMinOverlappingRatio;"
@@ -531,6 +535,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "bottommost_temperature=kWarm;"
       "last_level_temperature=kWarm;"
       "preclude_last_level_data_seconds=86400;"
+      "preserve_internal_time_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;age_for_warm=1;};"
       "blob_cache=1M;"
@@ -607,6 +612,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);

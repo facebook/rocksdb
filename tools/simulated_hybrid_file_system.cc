@@ -6,13 +6,12 @@
 #include "util/stop_watch.h"
 #ifndef ROCKSDB_LITE
 
-#include "tools/simulated_hybrid_file_system.h"
-
 #include <algorithm>
 #include <sstream>
 #include <string>
 
 #include "rocksdb/rate_limiter.h"
+#include "tools/simulated_hybrid_file_system.h"
 
 namespace ROCKSDB_NAMESPACE {
 

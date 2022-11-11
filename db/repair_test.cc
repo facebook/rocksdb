@@ -48,7 +48,7 @@ class RepairTest : public DBTestBase {
   void ReopenWithSstIdVerify() {
     std::atomic_int verify_passed{0};
     SyncPoint::GetInstance()->SetCallBack(
-        "Version::VerifySstUniqueIds::Passed", [&](void* arg) {
+        "BlockBasedTable::Open::PassedVerifyUniqueId", [&](void* arg) {
           // override job status
           auto id = static_cast<UniqueId64x2*>(arg);
           assert(*id != kNullUniqueId64x2);
@@ -60,6 +60,7 @@ class RepairTest : public DBTestBase {
     Reopen(options);
 
     ASSERT_GT(verify_passed, 0);
+    SyncPoint::GetInstance()->DisableProcessing();
   }
 };
 
@@ -278,7 +279,7 @@ TEST_F(RepairTest, SeparateWalDir) {
       ASSERT_EQ(total_ssts_size, 0);
     }
     std::string manifest_path =
-      DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
+        DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
 
     Close();
     ASSERT_OK(env_->FileExists(manifest_path));
@@ -300,7 +301,7 @@ TEST_F(RepairTest, SeparateWalDir) {
     ASSERT_EQ(Get("key"), "val");
     ASSERT_EQ(Get("foo"), "bar");
 
- } while(ChangeWalOptions());
+  } while (ChangeWalOptions());
 }
 
 TEST_F(RepairTest, RepairMultipleColumnFamilies) {
@@ -386,8 +387,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
   ASSERT_EQ(fname_to_props.size(), 2U);
   for (const auto& fname_and_props : fname_to_props) {
     std::string comparator_name(rev_opts.comparator->Name());
-    ASSERT_EQ(comparator_name,
-              fname_and_props.second->comparator_name);
+    ASSERT_EQ(comparator_name, fname_and_props.second->comparator_name);
   }
   Close();
 
@@ -426,6 +426,7 @@ TEST_F(RepairTest, DbNameContainsTrailingSlash) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

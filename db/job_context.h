@@ -35,7 +35,7 @@ struct SuperVersionContext {
       new_superversion;  // if nullptr no new superversion
 
   explicit SuperVersionContext(bool create_superversion = false)
-    : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}
+      : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}
 
   explicit SuperVersionContext(SuperVersionContext&& other) noexcept
       : superversions_to_free(std::move(other.superversions_to_free)),
@@ -54,8 +54,7 @@ struct SuperVersionContext {
 
   inline bool HaveSomethingToDelete() const {
 #ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
-    return !superversions_to_free.empty() ||
-           !write_stall_notifications.empty();
+    return !superversions_to_free.empty() || !write_stall_notifications.empty();
 #else
     return !superversions_to_free.empty();
 #endif
@@ -77,7 +76,8 @@ struct SuperVersionContext {
     (void)new_cond;
     (void)name;
     (void)ioptions;
-#endif  // !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+#endif  // !defined(ROCKSDB_LITE) &&
+        // !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
   }
 
   void Clean() {
@@ -139,8 +139,7 @@ struct JobContext {
     CandidateFileInfo(std::string name, std::string path)
         : file_name(std::move(name)), file_path(std::move(path)) {}
     bool operator==(const CandidateFileInfo& other) const {
-      return file_name == other.file_name &&
-             file_path == other.file_path;
+      return file_name == other.file_name && file_path == other.file_path;
     }
   };
 

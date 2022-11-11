@@ -192,7 +192,7 @@ void VerifyFragmentedRangeDels(
   EXPECT_FALSE(iter->Valid());
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(RangeDelAggregatorTest, EmptyTruncatedIter) {
   auto range_del_iter = MakeRangeDelIter({});
@@ -709,6 +709,7 @@ TEST_F(RangeDelAggregatorTest,
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

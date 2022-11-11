@@ -45,6 +45,10 @@ void BlockPrefetcher::PrefetchIfNeeded(
     return;
   }
 
+  if (initial_auto_readahead_size_ > max_auto_readahead_size) {
+    initial_auto_readahead_size_ = max_auto_readahead_size;
+  }
+
   // In case of no_sequential_checking, it will skip the num_file_reads_ and
   // will always creates the FilePrefetchBuffer.
   if (no_sequential_checking) {
@@ -79,10 +83,6 @@ void BlockPrefetcher::PrefetchIfNeeded(
   num_file_reads_++;
   if (num_file_reads_ <= rep->table_options.num_file_reads_for_auto_readahead) {
     return;
-  }
-
-  if (initial_auto_readahead_size_ > max_auto_readahead_size) {
-    initial_auto_readahead_size_ = max_auto_readahead_size;
   }
 
   if (rep->file->use_direct_io()) {

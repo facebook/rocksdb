@@ -15,9 +15,11 @@ int main() {
   return 1;
 }
 #else
+#include "port/stack_trace.h"
 #include "rocksdb/db_stress_tool.h"
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   return ROCKSDB_NAMESPACE::db_stress_tool(argc, argv);
 }
 #endif  // GFLAGS

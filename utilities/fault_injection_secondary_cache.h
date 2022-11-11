@@ -36,11 +36,21 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool wait,
-      bool& is_in_sec_cache) override;
+      bool advise_erase, bool& is_in_sec_cache) override;
+
+  bool SupportForceErase() const override { return base_->SupportForceErase(); }
 
   void Erase(const Slice& key) override;
 
   void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) override;
+
+  Status SetCapacity(size_t capacity) override {
+    return base_->SetCapacity(capacity);
+  }
+
+  Status GetCapacity(size_t& capacity) override {
+    return base_->GetCapacity(capacity);
+  }
 
   std::string GetPrintableOptions() const override {
     return base_->GetPrintableOptions();

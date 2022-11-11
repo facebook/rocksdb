@@ -141,11 +141,6 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
             "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         file_range.MarkKeyDone(iter);
         continue;
-      case GetContext::kUnexpectedWideColumnEntity:
-        *status =
-            Status::NotSupported("Encountered unexpected wide-column entity");
-        file_range.MarkKeyDone(iter);
-        continue;
     }
   }
 
