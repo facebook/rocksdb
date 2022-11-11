@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fixed a regression in scan for async_io. During seek, valid buffers were getting cleared causing a regression.
+
 ## 7.7.6 (11/03/2022)
 ### Bug Fixes
 * Fix memory corruption error in scans if async_io is enabled. Memory corruption happened if there is IOError while reading the data leading to empty buffer and other buffer already in progress of async read goes again for reading.
