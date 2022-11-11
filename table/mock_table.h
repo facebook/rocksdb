@@ -72,10 +72,12 @@ class MockTableFactory : public TableFactory {
   }
 
   void SetCorruptionMode(MockCorruptionMode mode) { corrupt_mode_ = mode; }
+
+  void SetKeyValueSize(size_t size) { key_value_size_ = size; }
   // This function will assert that only a single file exists and that the
   // contents are equal to file_contents
   void AssertSingleFile(const KVVector& file_contents);
-  void AssertLatestFile(const KVVector& file_contents);
+  void AssertLatestFiles(const std::vector<KVVector>& files_contents);
 
  private:
   Status GetAndWriteNextID(WritableFileWriter* file, uint32_t* id) const;
@@ -84,6 +86,8 @@ class MockTableFactory : public TableFactory {
   mutable MockTableFileSystem file_system_;
   mutable std::atomic<uint32_t> next_id_;
   MockCorruptionMode corrupt_mode_;
+
+  size_t key_value_size_ = 1;
 };
 
 }  // namespace mock

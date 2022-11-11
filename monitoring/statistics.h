@@ -4,8 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include "rocksdb/statistics.h"
-
 #include <atomic>
 #include <map>
 #include <string>
@@ -14,6 +12,7 @@
 #include "monitoring/histogram.h"
 #include "port/likely.h"
 #include "port/port.h"
+#include "rocksdb/statistics.h"
 #include "util/core_local.h"
 #include "util/mutexlock.h"
 
@@ -94,14 +93,15 @@ class StatisticsImpl : public Statistics {
                   INTERNAL_HISTOGRAM_ENUM_MAX * sizeof(HistogramImpl)) %
                      CACHE_LINE_SIZE)] ROCKSDB_FIELD_UNUSED;
 #endif
-    void *operator new(size_t s) { return port::cacheline_aligned_alloc(s); }
-    void *operator new[](size_t s) { return port::cacheline_aligned_alloc(s); }
-    void operator delete(void *p) { port::cacheline_aligned_free(p); }
-    void operator delete[](void *p) { port::cacheline_aligned_free(p); }
+    void* operator new(size_t s) { return port::cacheline_aligned_alloc(s); }
+    void* operator new[](size_t s) { return port::cacheline_aligned_alloc(s); }
+    void operator delete(void* p) { port::cacheline_aligned_free(p); }
+    void operator delete[](void* p) { port::cacheline_aligned_free(p); }
   };
 
 #ifndef TEST_CACHE_LINE_SIZE
-  static_assert(sizeof(StatisticsData) % CACHE_LINE_SIZE == 0, "Expected " TOSTRING(CACHE_LINE_SIZE) "-byte aligned");
+  static_assert(sizeof(StatisticsData) % CACHE_LINE_SIZE == 0,
+                "Expected " TOSTRING(CACHE_LINE_SIZE) "-byte aligned");
 #endif
 
   CoreLocalArray<StatisticsData> per_core_stats_;

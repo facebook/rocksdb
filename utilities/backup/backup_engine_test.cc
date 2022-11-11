@@ -63,8 +63,11 @@ class DummyDB : public StackableDB {
  public:
   /* implicit */
   DummyDB(const Options& options, const std::string& dbname)
-     : StackableDB(nullptr), options_(options), dbname_(dbname),
-       deletions_enabled_(true), sequence_number_(0) {}
+      : StackableDB(nullptr),
+        options_(options),
+        dbname_(dbname),
+        deletions_enabled_(true),
+        sequence_number_(0) {}
 
   SequenceNumber GetLatestSequenceNumber() const override {
     return ++sequence_number_;
@@ -139,7 +142,7 @@ class DummyDB : public StackableDB {
   std::string dbname_;
   bool deletions_enabled_;
   mutable SequenceNumber sequence_number_;
-}; // DummyDB
+};  // DummyDB
 
 class TestFs : public FileSystemWrapper {
  public:
@@ -545,7 +548,7 @@ class FileManager : public EnvWrapper {
 
  private:
   Random rnd_;
-}; // FileManager
+};  // FileManager
 
 // utility functions
 namespace {
@@ -608,8 +611,8 @@ class BackupEngineTest : public testing::Test {
     kShareWithChecksum,
   };
 
-  const std::vector<ShareOption> kAllShareOptions = {
-      kNoShare, kShareNoChecksum, kShareWithChecksum};
+  const std::vector<ShareOption> kAllShareOptions = {kNoShare, kShareNoChecksum,
+                                                     kShareWithChecksum};
 
   BackupEngineTest() {
     // set up files
@@ -632,7 +635,7 @@ class BackupEngineTest : public testing::Test {
     // set up db options
     options_.create_if_missing = true;
     options_.paranoid_checks = true;
-    options_.write_buffer_size = 1 << 17; // 128KB
+    options_.write_buffer_size = 1 << 17;  // 128KB
     options_.wal_dir = dbname_;
     options_.enable_blob_files = true;
 
@@ -2082,6 +2085,10 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
         props->db_session_id = "";
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Corrupting the table properties corrupts the unique id.
+  // Ignore the unique id recorded in the manifest.
+  options_.verify_sst_unique_id_in_manifest = false;
 
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
   FillDB(db_.get(), 0, keys_iteration);
@@ -3536,107 +3543,106 @@ TEST_F(BackupEngineTest, Concurrency) {
   std::array<std::thread, 4> restore_verify_threads;
   for (uint32_t i = 0; i < read_threads.size(); ++i) {
     uint32_t sleep_micros = rng() % 100000;
-    read_threads[i] =
-        std::thread([this, i, sleep_micros, &db_opts, &be_opts,
-                     &restore_verify_threads, &limiter] {
-          test_db_env_->SleepForMicroseconds(sleep_micros);
+    read_threads[i] = std::thread([this, i, sleep_micros, &db_opts, &be_opts,
+                                   &restore_verify_threads, &limiter] {
+      test_db_env_->SleepForMicroseconds(sleep_micros);
 
-          // Whether to also re-open the BackupEngine, potentially seeing
-          // additional backups
-          bool reopen = i == 3;
-          // Whether we are going to restore "latest"
-          bool latest = i > 1;
+      // Whether to also re-open the BackupEngine, potentially seeing
+      // additional backups
+      bool reopen = i == 3;
+      // Whether we are going to restore "latest"
+      bool latest = i > 1;
 
-          BackupEngine* my_be;
-          if (reopen) {
-            ASSERT_OK(BackupEngine::Open(test_db_env_.get(), be_opts, &my_be));
-          } else {
-            my_be = backup_engine_.get();
-          }
+      BackupEngine* my_be;
+      if (reopen) {
+        ASSERT_OK(BackupEngine::Open(test_db_env_.get(), be_opts, &my_be));
+      } else {
+        my_be = backup_engine_.get();
+      }
 
-          // Verify metadata (we don't receive updates from concurrently
-          // creating a new backup)
-          std::vector<BackupInfo> infos;
-          my_be->GetBackupInfo(&infos);
-          const uint32_t count = static_cast<uint32_t>(infos.size());
-          infos.clear();
-          if (reopen) {
-            ASSERT_GE(count, 2U);
-            ASSERT_LE(count, 4U);
-            fprintf(stderr, "Reopen saw %u backups\n", count);
-          } else {
-            ASSERT_EQ(count, 2U);
-          }
-          std::vector<BackupID> ids;
-          my_be->GetCorruptedBackups(&ids);
-          ASSERT_EQ(ids.size(), 0U);
+      // Verify metadata (we don't receive updates from concurrently
+      // creating a new backup)
+      std::vector<BackupInfo> infos;
+      my_be->GetBackupInfo(&infos);
+      const uint32_t count = static_cast<uint32_t>(infos.size());
+      infos.clear();
+      if (reopen) {
+        ASSERT_GE(count, 2U);
+        ASSERT_LE(count, 4U);
+        fprintf(stderr, "Reopen saw %u backups\n", count);
+      } else {
+        ASSERT_EQ(count, 2U);
+      }
+      std::vector<BackupID> ids;
+      my_be->GetCorruptedBackups(&ids);
+      ASSERT_EQ(ids.size(), 0U);
 
-          // (Eventually, see below) Restore one of the backups, or "latest"
-          std::string restore_db_dir = dbname_ + "/restore" + std::to_string(i);
-          DestroyDir(test_db_env_.get(), restore_db_dir).PermitUncheckedError();
-          BackupID to_restore;
-          if (latest) {
-            to_restore = count;
-          } else {
-            to_restore = i + 1;
-          }
+      // (Eventually, see below) Restore one of the backups, or "latest"
+      std::string restore_db_dir = dbname_ + "/restore" + std::to_string(i);
+      DestroyDir(test_db_env_.get(), restore_db_dir).PermitUncheckedError();
+      BackupID to_restore;
+      if (latest) {
+        to_restore = count;
+      } else {
+        to_restore = i + 1;
+      }
 
-          // Open restored DB to verify its contents, but test atomic restore
-          // by doing it async and ensuring we either get OK or InvalidArgument
-          restore_verify_threads[i] =
-              std::thread([this, &db_opts, restore_db_dir, to_restore] {
-                DB* restored;
-                Status s;
-                for (;;) {
-                  s = DB::Open(db_opts, restore_db_dir, &restored);
-                  if (s.IsInvalidArgument()) {
-                    // Restore hasn't finished
-                    test_db_env_->SleepForMicroseconds(1000);
-                    continue;
-                  } else {
-                    // We should only get InvalidArgument if restore is
-                    // incomplete, or OK if complete
-                    ASSERT_OK(s);
-                    break;
-                  }
-                }
-                int factor = std::min(static_cast<int>(to_restore), max_factor);
-                AssertExists(restored, 0, factor * keys_iteration);
-                AssertEmpty(restored, factor * keys_iteration,
-                            (factor + 1) * keys_iteration);
-                delete restored;
-              });
+      // Open restored DB to verify its contents, but test atomic restore
+      // by doing it async and ensuring we either get OK or InvalidArgument
+      restore_verify_threads[i] =
+          std::thread([this, &db_opts, restore_db_dir, to_restore] {
+            DB* restored;
+            Status s;
+            for (;;) {
+              s = DB::Open(db_opts, restore_db_dir, &restored);
+              if (s.IsInvalidArgument()) {
+                // Restore hasn't finished
+                test_db_env_->SleepForMicroseconds(1000);
+                continue;
+              } else {
+                // We should only get InvalidArgument if restore is
+                // incomplete, or OK if complete
+                ASSERT_OK(s);
+                break;
+              }
+            }
+            int factor = std::min(static_cast<int>(to_restore), max_factor);
+            AssertExists(restored, 0, factor * keys_iteration);
+            AssertEmpty(restored, factor * keys_iteration,
+                        (factor + 1) * keys_iteration);
+            delete restored;
+          });
 
-          // (Ok now) Restore one of the backups, or "latest"
-          if (latest) {
-            ASSERT_OK(my_be->RestoreDBFromLatestBackup(restore_db_dir,
-                                                       restore_db_dir));
-          } else {
-            ASSERT_OK(my_be->VerifyBackup(to_restore, true));
-            ASSERT_OK(my_be->RestoreDBFromBackup(to_restore, restore_db_dir,
-                                                 restore_db_dir));
-          }
+      // (Ok now) Restore one of the backups, or "latest"
+      if (latest) {
+        ASSERT_OK(
+            my_be->RestoreDBFromLatestBackup(restore_db_dir, restore_db_dir));
+      } else {
+        ASSERT_OK(my_be->VerifyBackup(to_restore, true));
+        ASSERT_OK(my_be->RestoreDBFromBackup(to_restore, restore_db_dir,
+                                             restore_db_dir));
+      }
 
-          // Test for race condition in reconfiguring limiter
-          // FIXME: this could set to a different value in all threads, except
-          // GenericRateLimiter::SetBytesPerSecond has a write-write race
-          // reported by TSAN
-          if (i == 0) {
-            limiter->SetBytesPerSecond(2000000000);
-          }
+      // Test for race condition in reconfiguring limiter
+      // FIXME: this could set to a different value in all threads, except
+      // GenericRateLimiter::SetBytesPerSecond has a write-write race
+      // reported by TSAN
+      if (i == 0) {
+        limiter->SetBytesPerSecond(2000000000);
+      }
 
-          // Re-verify metadata (we don't receive updates from concurrently
-          // creating a new backup)
-          my_be->GetBackupInfo(&infos);
-          ASSERT_EQ(infos.size(), count);
-          my_be->GetCorruptedBackups(&ids);
-          ASSERT_EQ(ids.size(), 0);
-          // fprintf(stderr, "Finished read thread\n");
+      // Re-verify metadata (we don't receive updates from concurrently
+      // creating a new backup)
+      my_be->GetBackupInfo(&infos);
+      ASSERT_EQ(infos.size(), count);
+      my_be->GetCorruptedBackups(&ids);
+      ASSERT_EQ(ids.size(), 0);
+      // fprintf(stderr, "Finished read thread\n");
 
-          if (reopen) {
-            delete my_be;
-          }
-        });
+      if (reopen) {
+        delete my_be;
+      }
+    });
   }
 
   BackupEngine* alt_be;
@@ -4146,13 +4152,19 @@ TEST_F(BackupEngineTest, FileTemperatures) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
     // Verify requested temperatures against manifest temperatures (before
-    // backup finds out current temperatures in FileSystem)
+    // retry with kUnknown if needed, and before backup finds out current
+    // temperatures in FileSystem)
     std::vector<std::pair<uint64_t, Temperature>> requested_temps;
     my_db_fs->PopRequestedSstFileTemperatures(&requested_temps);
     std::set<uint64_t> distinct_requests;
     for (const auto& requested_temp : requested_temps) {
-      // Matching manifest temperatures
-      ASSERT_EQ(manifest_temps.at(requested_temp.first), requested_temp.second);
+      // Matching manifest temperatures, except allow retry request with
+      // kUnknown
+      auto manifest_temp = manifest_temps.at(requested_temp.first);
+      if (manifest_temp == Temperature::kUnknown ||
+          requested_temp.second != Temperature::kUnknown) {
+        ASSERT_EQ(manifest_temp, requested_temp.second);
+      }
       distinct_requests.insert(requested_temp.first);
     }
     // Two distinct requests
@@ -4186,7 +4198,7 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   }
 }
 
-}  // anon namespace
+}  // namespace
 
 }  // namespace ROCKSDB_NAMESPACE
 

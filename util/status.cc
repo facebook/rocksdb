@@ -8,11 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/status.h"
+
 #include <stdio.h>
 #ifdef OS_WIN
 #include <string.h>
 #endif
 #include <cstring>
+
 #include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {

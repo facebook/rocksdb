@@ -39,8 +39,8 @@ inline struct tm* LocalTimeR(const time_t* timep, struct tm* result) {
 }  // namespace ROCKSDB_NAMESPACE
 
 #else
-#include <time.h>
 #include <sys/time.h>
+#include <time.h>
 
 namespace ROCKSDB_NAMESPACE {
 

@@ -39,7 +39,7 @@ class LimitedStringAppendMergeOp : public StringAppendTESTOperator {
  private:
   size_t limit_ = 0;
 };
-}  // namespace
+}  // anonymous namespace
 
 class DBMergeOperandTest : public DBTestBase {
  public:

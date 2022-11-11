@@ -46,10 +46,11 @@ class LRUCacheTest : public testing::Test {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
-    new (cache_) LRUCacheShard(
-        capacity, false /*strict_capcity_limit*/, high_pri_pool_ratio,
-        low_pri_pool_ratio, use_adaptive_mutex, kDontChargeCacheMetadata,
-        24 /*max_upper_hash_bits*/, nullptr /*secondary_cache*/);
+    new (cache_) LRUCacheShard(capacity, /*strict_capacity_limit=*/false,
+                               high_pri_pool_ratio, low_pri_pool_ratio,
+                               use_adaptive_mutex, kDontChargeCacheMetadata,
+                               /*max_upper_hash_bits=*/24,
+                               /*secondary_cache=*/nullptr);
   }
 
   void Insert(const std::string& key,
@@ -66,7 +67,7 @@ class LRUCacheTest : public testing::Test {
   bool Lookup(const std::string& key) {
     auto handle = cache_->Lookup(key, 0 /*hash*/);
     if (handle) {
-      cache_->Release(handle);
+      cache_->Release(handle, true /*useful*/, false /*erase*/);
       return true;
     }
     return false;
@@ -509,6 +510,10 @@ namespace clock_cache {
 
 class ClockCacheTest : public testing::Test {
  public:
+  using Shard = HyperClockCache::Shard;
+  using Table = HyperClockTable;
+  using HandleImpl = Shard::HandleImpl;
+
   ClockCacheTest() {}
   ~ClockCacheTest() override { DeleteShard(); }
 
@@ -520,168 +525,488 @@ class ClockCacheTest : public testing::Test {
     }
   }
 
-  void NewShard(size_t capacity) {
+  void NewShard(size_t capacity, bool strict_capacity_limit = true) {
     DeleteShard();
-    shard_ = reinterpret_cast<ClockCacheShard*>(
-        port::cacheline_aligned_alloc(sizeof(ClockCacheShard)));
-    new (shard_) ClockCacheShard(capacity, 1, true /*strict_capacity_limit*/,
-                                 kDontChargeCacheMetadata);
+    shard_ =
+        reinterpret_cast<Shard*>(port::cacheline_aligned_alloc(sizeof(Shard)));
+
+    Table::Opts opts;
+    opts.estimated_value_size = 1;
+    new (shard_)
+        Shard(capacity, strict_capacity_limit, kDontChargeCacheMetadata, opts);
   }
 
-  Status Insert(const std::string& key,
+  Status Insert(const UniqueId64x2& hashed_key,
                 Cache::Priority priority = Cache::Priority::LOW) {
-    return shard_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
-                          nullptr /*deleter*/, nullptr /*handle*/, priority);
+    return shard_->Insert(TestKey(hashed_key), hashed_key, nullptr /*value*/,
+                          1 /*charge*/, nullptr /*deleter*/, nullptr /*handle*/,
+                          priority);
   }
 
   Status Insert(char key, Cache::Priority priority = Cache::Priority::LOW) {
-    return Insert(std::string(kCacheKeySize, key), priority);
+    return Insert(TestHashedKey(key), priority);
   }
 
-  Status Insert(char key, size_t len) { return Insert(std::string(len, key)); }
+  Status InsertWithLen(char key, size_t len) {
+    std::string skey(len, key);
+    return shard_->Insert(skey, TestHashedKey(key), nullptr /*value*/,
+                          1 /*charge*/, nullptr /*deleter*/, nullptr /*handle*/,
+                          Cache::Priority::LOW);
+  }
 
-  bool Lookup(const std::string& key) {
-    auto handle = shard_->Lookup(key, 0 /*hash*/);
+  bool Lookup(const Slice& key, const UniqueId64x2& hashed_key,
+              bool useful = true) {
+    auto handle = shard_->Lookup(key, hashed_key);
     if (handle) {
-      shard_->Release(handle);
+      shard_->Release(handle, useful, /*erase_if_last_ref=*/false);
       return true;
     }
     return false;
   }
 
-  bool Lookup(char key) { return Lookup(std::string(kCacheKeySize, key)); }
-
-  void Erase(const std::string& key) { shard_->Erase(key, 0 /*hash*/); }
-
-  size_t CalcEstimatedHandleChargeWrapper(
-      size_t estimated_value_size,
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    return ClockCacheShard::CalcEstimatedHandleCharge(estimated_value_size,
-                                                      metadata_charge_policy);
+  bool Lookup(const UniqueId64x2& hashed_key, bool useful = true) {
+    return Lookup(TestKey(hashed_key), hashed_key, useful);
   }
 
-  int CalcHashBitsWrapper(size_t capacity, size_t estimated_value_size,
-                          CacheMetadataChargePolicy metadata_charge_policy) {
-    return ClockCacheShard::CalcHashBits(capacity, estimated_value_size,
-                                         metadata_charge_policy);
+  bool Lookup(char key, bool useful = true) {
+    return Lookup(TestHashedKey(key), useful);
   }
 
-  // Maximum number of items that a shard can hold.
-  double CalcMaxOccupancy(size_t capacity, size_t estimated_value_size,
-                          CacheMetadataChargePolicy metadata_charge_policy) {
-    size_t handle_charge = ClockCacheShard::CalcEstimatedHandleCharge(
-        estimated_value_size, metadata_charge_policy);
-    return capacity / (kLoadFactor * handle_charge);
+  void Erase(char key) {
+    UniqueId64x2 hashed_key = TestHashedKey(key);
+    shard_->Erase(TestKey(hashed_key), hashed_key);
   }
 
-  bool TableSizeIsAppropriate(int hash_bits, double max_occupancy) {
-    if (hash_bits == 0) {
-      return max_occupancy <= 1;
-    } else {
-      return (1 << hash_bits >= max_occupancy) &&
-             (1 << (hash_bits - 1) <= max_occupancy);
-    }
+  static inline Slice TestKey(const UniqueId64x2& hashed_key) {
+    return Slice(reinterpret_cast<const char*>(&hashed_key), 16U);
   }
 
- private:
-  ClockCacheShard* shard_ = nullptr;
+  static inline UniqueId64x2 TestHashedKey(char key) {
+    // For testing hash near-collision behavior, put the variance in
+    // hashed_key in bits that are unlikely to be used as hash bits.
+    return {(static_cast<uint64_t>(key) << 56) + 1234U, 5678U};
+  }
+
+  Shard* shard_ = nullptr;
 };
 
-TEST_F(ClockCacheTest, Validate) {
+TEST_F(ClockCacheTest, Misc) {
   NewShard(3);
-  EXPECT_OK(Insert('a', 16));
-  EXPECT_NOK(Insert('b', 15));
-  EXPECT_OK(Insert('b', 16));
-  EXPECT_NOK(Insert('c', 17));
-  EXPECT_NOK(Insert('d', 1000));
-  EXPECT_NOK(Insert('e', 11));
-  EXPECT_NOK(Insert('f', 0));
+
+  // Key size stuff
+  EXPECT_OK(InsertWithLen('a', 16));
+  EXPECT_NOK(InsertWithLen('b', 15));
+  EXPECT_OK(InsertWithLen('b', 16));
+  EXPECT_NOK(InsertWithLen('c', 17));
+  EXPECT_NOK(InsertWithLen('d', 1000));
+  EXPECT_NOK(InsertWithLen('e', 11));
+  EXPECT_NOK(InsertWithLen('f', 0));
+
+  // Some of this is motivated by code coverage
+  std::string wrong_size_key(15, 'x');
+  EXPECT_FALSE(Lookup(wrong_size_key, TestHashedKey('x')));
+  EXPECT_FALSE(shard_->Ref(nullptr));
+  EXPECT_FALSE(shard_->Release(nullptr));
+  shard_->Erase(wrong_size_key, TestHashedKey('x'));  // no-op
 }
 
-TEST_F(ClockCacheTest, ClockPriorityTest) {
-  ClockHandle handle;
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::NONE);
-  handle.SetClockPriority(ClockHandle::ClockPriority::HIGH);
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::HIGH);
-  handle.DecreaseClockPriority();
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::MEDIUM);
-  handle.DecreaseClockPriority();
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::LOW);
-  handle.SetClockPriority(ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::MEDIUM);
-  handle.SetClockPriority(ClockHandle::ClockPriority::NONE);
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::NONE);
-  handle.SetClockPriority(ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::MEDIUM);
-  handle.DecreaseClockPriority();
-  handle.DecreaseClockPriority();
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::NONE);
+TEST_F(ClockCacheTest, Limits) {
+  constexpr size_t kCapacity = 3;
+  NewShard(kCapacity, false /*strict_capacity_limit*/);
+  for (bool strict_capacity_limit : {false, true, false}) {
+    SCOPED_TRACE("strict_capacity_limit = " +
+                 std::to_string(strict_capacity_limit));
+
+    // Also tests switching between strict limit and not
+    shard_->SetStrictCapacityLimit(strict_capacity_limit);
+
+    UniqueId64x2 hkey = TestHashedKey('x');
+
+    // Single entry charge beyond capacity
+    {
+      Status s = shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/,
+                                5 /*charge*/, nullptr /*deleter*/,
+                                nullptr /*handle*/, Cache::Priority::LOW);
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+    }
+
+    // Single entry fills capacity
+    {
+      HandleImpl* h;
+      ASSERT_OK(shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/,
+                               3 /*charge*/, nullptr /*deleter*/, &h,
+                               Cache::Priority::LOW));
+      // Try to insert more
+      Status s = Insert('a');
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+      // Release entry filling capacity.
+      // Cover useful = false case.
+      shard_->Release(h, false /*useful*/, false /*erase_if_last_ref*/);
+    }
+
+    // Insert more than table size can handle to exceed occupancy limit.
+    // (Cleverly using mostly zero-charge entries, but some non-zero to
+    // verify usage tracking on detached entries.)
+    {
+      size_t n = shard_->GetTableAddressCount() + 1;
+      std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [n] {} };
+      Status s;
+      for (size_t i = 0; i < n && s.ok(); ++i) {
+        hkey[1] = i;
+        s = shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/,
+                           (i + kCapacity < n) ? 0 : 1 /*charge*/,
+                           nullptr /*deleter*/, &ha[i], Cache::Priority::LOW);
+        if (i == 0) {
+          EXPECT_OK(s);
+        }
+      }
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+      // Same result if not keeping a reference
+      s = Insert('a');
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+
+      // Regardless, we didn't allow table to actually get full
+      EXPECT_LT(shard_->GetOccupancyCount(), shard_->GetTableAddressCount());
+
+      // Release handles
+      for (size_t i = 0; i < n; ++i) {
+        if (ha[i]) {
+          shard_->Release(ha[i]);
+        }
+      }
+    }
+  }
 }
 
-TEST_F(ClockCacheTest, CalcHashBitsTest) {
-  size_t capacity;
-  size_t estimated_value_size;
-  double max_occupancy;
-  int hash_bits;
-  CacheMetadataChargePolicy metadata_charge_policy;
+TEST_F(ClockCacheTest, ClockEvictionTest) {
+  for (bool strict_capacity_limit : {false, true}) {
+    SCOPED_TRACE("strict_capacity_limit = " +
+                 std::to_string(strict_capacity_limit));
 
-  // Vary the cache capacity, fix the element charge.
-  for (int i = 0; i < 2048; i++) {
-    capacity = i;
-    estimated_value_size = 0;
-    metadata_charge_policy = kFullChargeCacheMetadata;
-    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
-                                     metadata_charge_policy);
-    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                    metadata_charge_policy);
-    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+    NewShard(6, strict_capacity_limit);
+    EXPECT_OK(Insert('a', Cache::Priority::BOTTOM));
+    EXPECT_OK(Insert('b', Cache::Priority::LOW));
+    EXPECT_OK(Insert('c', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('d', Cache::Priority::BOTTOM));
+    EXPECT_OK(Insert('e', Cache::Priority::LOW));
+    EXPECT_OK(Insert('f', Cache::Priority::HIGH));
+
+    EXPECT_TRUE(Lookup('a', /*use*/ false));
+    EXPECT_TRUE(Lookup('b', /*use*/ false));
+    EXPECT_TRUE(Lookup('c', /*use*/ false));
+    EXPECT_TRUE(Lookup('d', /*use*/ false));
+    EXPECT_TRUE(Lookup('e', /*use*/ false));
+    EXPECT_TRUE(Lookup('f', /*use*/ false));
+
+    // Ensure bottom are evicted first, even if new entries are low
+    EXPECT_OK(Insert('g', Cache::Priority::LOW));
+    EXPECT_OK(Insert('h', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('a', /*use*/ false));
+    EXPECT_TRUE(Lookup('b', /*use*/ false));
+    EXPECT_TRUE(Lookup('c', /*use*/ false));
+    EXPECT_FALSE(Lookup('d', /*use*/ false));
+    EXPECT_TRUE(Lookup('e', /*use*/ false));
+    EXPECT_TRUE(Lookup('f', /*use*/ false));
+    // Mark g & h useful
+    EXPECT_TRUE(Lookup('g', /*use*/ true));
+    EXPECT_TRUE(Lookup('h', /*use*/ true));
+
+    // Then old LOW entries
+    EXPECT_OK(Insert('i', Cache::Priority::LOW));
+    EXPECT_OK(Insert('j', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('b', /*use*/ false));
+    EXPECT_TRUE(Lookup('c', /*use*/ false));
+    EXPECT_FALSE(Lookup('e', /*use*/ false));
+    EXPECT_TRUE(Lookup('f', /*use*/ false));
+    // Mark g & h useful once again
+    EXPECT_TRUE(Lookup('g', /*use*/ true));
+    EXPECT_TRUE(Lookup('h', /*use*/ true));
+    EXPECT_TRUE(Lookup('i', /*use*/ false));
+    EXPECT_TRUE(Lookup('j', /*use*/ false));
+
+    // Then old HIGH entries
+    EXPECT_OK(Insert('k', Cache::Priority::LOW));
+    EXPECT_OK(Insert('l', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('c', /*use*/ false));
+    EXPECT_FALSE(Lookup('f', /*use*/ false));
+    EXPECT_TRUE(Lookup('g', /*use*/ false));
+    EXPECT_TRUE(Lookup('h', /*use*/ false));
+    EXPECT_TRUE(Lookup('i', /*use*/ false));
+    EXPECT_TRUE(Lookup('j', /*use*/ false));
+    EXPECT_TRUE(Lookup('k', /*use*/ false));
+    EXPECT_TRUE(Lookup('l', /*use*/ false));
+
+    // Then the (roughly) least recently useful
+    EXPECT_OK(Insert('m', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('n', Cache::Priority::HIGH));
+
+    EXPECT_TRUE(Lookup('g', /*use*/ false));
+    EXPECT_TRUE(Lookup('h', /*use*/ false));
+    EXPECT_FALSE(Lookup('i', /*use*/ false));
+    EXPECT_FALSE(Lookup('j', /*use*/ false));
+    EXPECT_TRUE(Lookup('k', /*use*/ false));
+    EXPECT_TRUE(Lookup('l', /*use*/ false));
+
+    // Now try changing capacity down
+    shard_->SetCapacity(4);
+    // Insert to ensure evictions happen
+    EXPECT_OK(Insert('o', Cache::Priority::LOW));
+    EXPECT_OK(Insert('p', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('g', /*use*/ false));
+    EXPECT_FALSE(Lookup('h', /*use*/ false));
+    EXPECT_FALSE(Lookup('k', /*use*/ false));
+    EXPECT_FALSE(Lookup('l', /*use*/ false));
+    EXPECT_TRUE(Lookup('m', /*use*/ false));
+    EXPECT_TRUE(Lookup('n', /*use*/ false));
+    EXPECT_TRUE(Lookup('o', /*use*/ false));
+    EXPECT_TRUE(Lookup('p', /*use*/ false));
+
+    // Now try changing capacity up
+    EXPECT_TRUE(Lookup('m', /*use*/ true));
+    EXPECT_TRUE(Lookup('n', /*use*/ true));
+    shard_->SetCapacity(6);
+    EXPECT_OK(Insert('q', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('r', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('s', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('t', Cache::Priority::HIGH));
+
+    EXPECT_FALSE(Lookup('o', /*use*/ false));
+    EXPECT_FALSE(Lookup('p', /*use*/ false));
+    EXPECT_TRUE(Lookup('m', /*use*/ false));
+    EXPECT_TRUE(Lookup('n', /*use*/ false));
+    EXPECT_TRUE(Lookup('q', /*use*/ false));
+    EXPECT_TRUE(Lookup('r', /*use*/ false));
+    EXPECT_TRUE(Lookup('s', /*use*/ false));
+    EXPECT_TRUE(Lookup('t', /*use*/ false));
+  }
+}
+
+void IncrementIntDeleter(const Slice& /*key*/, void* value) {
+  *reinterpret_cast<int*>(value) += 1;
+}
+
+// Testing calls to CorrectNearOverflow in Release
+TEST_F(ClockCacheTest, ClockCounterOverflowTest) {
+  NewShard(6, /*strict_capacity_limit*/ false);
+  HandleImpl* h;
+  int deleted = 0;
+  UniqueId64x2 hkey = TestHashedKey('x');
+  ASSERT_OK(shard_->Insert(TestKey(hkey), hkey, &deleted, 1,
+                           IncrementIntDeleter, &h, Cache::Priority::HIGH));
+
+  // Some large number outstanding
+  shard_->TEST_RefN(h, 123456789);
+  // Simulate many lookup/ref + release, plenty to overflow counters
+  for (int i = 0; i < 10000; ++i) {
+    shard_->TEST_RefN(h, 1234567);
+    shard_->TEST_ReleaseN(h, 1234567);
+  }
+  // Mark it invisible (to reach a different CorrectNearOverflow() in Release)
+  shard_->Erase(TestKey(hkey), hkey);
+  // Simulate many more lookup/ref + release (one-by-one would be too
+  // expensive for unit test)
+  for (int i = 0; i < 10000; ++i) {
+    shard_->TEST_RefN(h, 1234567);
+    shard_->TEST_ReleaseN(h, 1234567);
+  }
+  // Free all but last 1
+  shard_->TEST_ReleaseN(h, 123456789);
+  // Still alive
+  ASSERT_EQ(deleted, 0);
+  // Free last ref, which will finalize erasure
+  shard_->Release(h);
+  // Deleted
+  ASSERT_EQ(deleted, 1);
+}
+
+// This test is mostly to exercise some corner case logic, by forcing two
+// keys to have the same hash, and more
+TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
+  NewShard(6, /*strict_capacity_limit*/ false);
+  int deleted = 0;
+  UniqueId64x2 hkey1 = TestHashedKey('x');
+  Slice key1 = TestKey(hkey1);
+  UniqueId64x2 hkey2 = TestHashedKey('y');
+  Slice key2 = TestKey(hkey2);
+  UniqueId64x2 hkey3 = TestHashedKey('z');
+  Slice key3 = TestKey(hkey3);
+  HandleImpl* h1;
+  ASSERT_OK(shard_->Insert(key1, hkey1, &deleted, 1, IncrementIntDeleter, &h1,
+                           Cache::Priority::HIGH));
+  HandleImpl* h2;
+  ASSERT_OK(shard_->Insert(key2, hkey2, &deleted, 1, IncrementIntDeleter, &h2,
+                           Cache::Priority::HIGH));
+  HandleImpl* h3;
+  ASSERT_OK(shard_->Insert(key3, hkey3, &deleted, 1, IncrementIntDeleter, &h3,
+                           Cache::Priority::HIGH));
+
+  // Can repeatedly lookup+release despite the hash collision
+  HandleImpl* tmp_h;
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key1, hkey1);
+    ASSERT_EQ(h1, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key2, hkey2);
+    ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key3, hkey3);
+    ASSERT_EQ(h3, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
   }
 
-  // Fix the cache capacity, vary the element charge.
-  for (int i = 0; i < 1024; i++) {
-    capacity = 1024;
-    estimated_value_size = i;
-    metadata_charge_policy = kFullChargeCacheMetadata;
-    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
-                                     metadata_charge_policy);
-    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                    metadata_charge_policy);
-    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+  // Make h1 invisible
+  shard_->Erase(key1, hkey1);
+  // Redundant erase
+  shard_->Erase(key1, hkey1);
+
+  // All still alive
+  ASSERT_EQ(deleted, 0);
+
+  // Invisible to Lookup
+  tmp_h = shard_->Lookup(key1, hkey1);
+  ASSERT_EQ(nullptr, tmp_h);
+
+  // Can still find h2, h3
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key2, hkey2);
+    ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key3, hkey3);
+    ASSERT_EQ(h3, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
   }
 
-  // Zero-capacity cache, and only values have charge.
-  capacity = 0;
-  estimated_value_size = 1;
-  metadata_charge_policy = kDontChargeCacheMetadata;
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
+  // Also Insert with invisible entry there
+  ASSERT_OK(shard_->Insert(key1, hkey1, &deleted, 1, IncrementIntDeleter,
+                           nullptr, Cache::Priority::HIGH));
+  tmp_h = shard_->Lookup(key1, hkey1);
+  // Found but distinct handle
+  ASSERT_NE(nullptr, tmp_h);
+  ASSERT_NE(h1, tmp_h);
+  ASSERT_TRUE(shard_->Release(tmp_h, /*erase_if_last_ref*/ true));
 
-  // Zero-capacity cache, and only metadata has charge.
-  capacity = 0;
-  estimated_value_size = 0;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
+  // tmp_h deleted
+  ASSERT_EQ(deleted--, 1);
 
-  // Small cache, large elements.
-  capacity = 1024;
-  estimated_value_size = 8192;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
+  // Release last ref on h1 (already invisible)
+  ASSERT_TRUE(shard_->Release(h1, /*erase_if_last_ref*/ false));
 
-  // Large capacity.
-  capacity = 31924172;
-  estimated_value_size = 8192;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  max_occupancy =
-      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+  // h1 deleted
+  ASSERT_EQ(deleted--, 1);
+  h1 = nullptr;
+
+  // Can still find h2, h3
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key2, hkey2);
+    ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key3, hkey3);
+    ASSERT_EQ(h3, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Release last ref on h2
+  ASSERT_FALSE(shard_->Release(h2, /*erase_if_last_ref*/ false));
+
+  // h2 still not deleted (unreferenced in cache)
+  ASSERT_EQ(deleted, 0);
+
+  // Can still find it
+  tmp_h = shard_->Lookup(key2, hkey2);
+  ASSERT_EQ(h2, tmp_h);
+
+  // Release last ref on h2, with erase
+  ASSERT_TRUE(shard_->Release(h2, /*erase_if_last_ref*/ true));
+
+  // h2 deleted
+  ASSERT_EQ(deleted--, 1);
+  tmp_h = shard_->Lookup(key2, hkey2);
+  ASSERT_EQ(nullptr, tmp_h);
+
+  // Can still find h3
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key3, hkey3);
+    ASSERT_EQ(h3, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Release last ref on h3, without erase
+  ASSERT_FALSE(shard_->Release(h3, /*erase_if_last_ref*/ false));
+
+  // h3 still not deleted (unreferenced in cache)
+  ASSERT_EQ(deleted, 0);
+
+  // Explicit erase
+  shard_->Erase(key3, hkey3);
+
+  // h3 deleted
+  ASSERT_EQ(deleted--, 1);
+  tmp_h = shard_->Lookup(key3, hkey3);
+  ASSERT_EQ(nullptr, tmp_h);
+}
+
+// This uses the public API to effectively test CalcHashBits etc.
+TEST_F(ClockCacheTest, TableSizesTest) {
+  for (size_t est_val_size : {1U, 5U, 123U, 2345U, 345678U}) {
+    SCOPED_TRACE("est_val_size = " + std::to_string(est_val_size));
+    for (double est_count : {1.1, 2.2, 511.9, 512.1, 2345.0}) {
+      SCOPED_TRACE("est_count = " + std::to_string(est_count));
+      size_t capacity = static_cast<size_t>(est_val_size * est_count);
+      // kDontChargeCacheMetadata
+      auto cache = HyperClockCacheOptions(
+                       capacity, est_val_size, /*num shard_bits*/ -1,
+                       /*strict_capacity_limit*/ false,
+                       /*memory_allocator*/ nullptr, kDontChargeCacheMetadata)
+                       .MakeSharedCache();
+      // Table sizes are currently only powers of two
+      EXPECT_GE(cache->GetTableAddressCount(), est_count / kLoadFactor);
+      EXPECT_LE(cache->GetTableAddressCount(), est_count / kLoadFactor * 2.0);
+      EXPECT_EQ(cache->GetUsage(), 0);
+
+      // kFullChargeMetaData
+      // Because table sizes are currently only powers of two, sizes get
+      // really weird when metadata is a huge portion of capacity. For example,
+      // doubling the table size could cut by 90% the space available to
+      // values. Therefore, we omit those weird cases for now.
+      if (est_val_size >= 512) {
+        cache = HyperClockCacheOptions(
+                    capacity, est_val_size, /*num shard_bits*/ -1,
+                    /*strict_capacity_limit*/ false,
+                    /*memory_allocator*/ nullptr, kFullChargeCacheMetadata)
+                    .MakeSharedCache();
+        double est_count_after_meta =
+            (capacity - cache->GetUsage()) * 1.0 / est_val_size;
+        EXPECT_GE(cache->GetTableAddressCount(),
+                  est_count_after_meta / kLoadFactor);
+        EXPECT_LE(cache->GetTableAddressCount(),
+                  est_count_after_meta / kLoadFactor * 2.0);
+      }
+    }
+  }
 }
 
 }  // namespace clock_cache
@@ -742,7 +1067,7 @@ class TestSecondaryCache : public SecondaryCache {
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-      bool& is_in_sec_cache) override {
+      bool /*advise_erase*/, bool& is_in_sec_cache) override {
     std::string key_str = key.ToString();
     TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
 
@@ -779,6 +1104,8 @@ class TestSecondaryCache : public SecondaryCache {
     }
     return secondary_handle;
   }
+
+  bool SupportForceErase() const override { return false; }
 
   void Erase(const Slice& /*key*/) override {}
 
@@ -960,7 +1287,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   TestItem* item1 = new TestItem(str1.data(), str1.length());
   ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
                           &LRUCacheSecondaryCacheTest::helper_, str1.length()));
-  std::string str2 = rnd.RandomString(1020);
+  std::string str2 = rnd.RandomString(1021);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
   ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
@@ -1046,9 +1373,11 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
   ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
                           &LRUCacheSecondaryCacheTest::helper_fail_,
                           str2.length()));
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
 
   Cache::Handle* handle;
   handle =
@@ -2378,6 +2707,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

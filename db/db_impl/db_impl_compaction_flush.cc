@@ -1055,10 +1055,10 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
       s = AtomicFlushMemTables(cfds, fo, FlushReason::kManualCompaction,
-                               false /* writes_stopped */);
+                               false /* entered_write_thread */);
     } else {
       s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction,
-                        false /* writes_stopped*/);
+                        false /* entered_write_thread */);
     }
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
@@ -1344,8 +1344,18 @@ Status DBImpl::CompactFilesImpl(
     }
   }
 
+  SequenceNumber earliest_mem_seqno = kMaxSequenceNumber;
+  if (cfd->mem() != nullptr) {
+    earliest_mem_seqno =
+        std::min(cfd->mem()->GetEarliestSequenceNumber(), earliest_mem_seqno);
+  }
+  if (cfd->imm() != nullptr && cfd->imm()->current() != nullptr) {
+    earliest_mem_seqno =
+        std::min(cfd->imm()->current()->GetEarliestSequenceNumber(false),
+                 earliest_mem_seqno);
+  }
   Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
-      &input_set, cf_meta, output_level);
+      &input_set, cf_meta, output_level, earliest_mem_seqno);
   if (!s.ok()) {
     return s;
   }
@@ -2016,9 +2026,16 @@ void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
 
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
-                             FlushReason flush_reason, bool writes_stopped) {
+                             FlushReason flush_reason,
+                             bool entered_write_thread) {
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
+  if (!flush_options.wait && write_controller_.IsStopped()) {
+    std::ostringstream oss;
+    oss << "Writes have been stopped, thus unable to perform manual flush. "
+           "Please try again later after writes are resumed";
+    return Status::TryAgain(oss.str());
+  }
   Status s;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
@@ -2029,6 +2046,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
   }
 
+  const bool needs_to_join_write_thread = !entered_write_thread;
   autovector<FlushRequest> flush_reqs;
   autovector<uint64_t> memtable_ids_to_wait;
   {
@@ -2037,7 +2055,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     WriteThread::Writer w;
     WriteThread::Writer nonmem_w;
-    if (!writes_stopped) {
+    if (needs_to_join_write_thread) {
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (two_write_queues_) {
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
@@ -2120,7 +2138,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       MaybeScheduleFlushOrCompaction();
     }
 
-    if (!writes_stopped) {
+    if (needs_to_join_write_thread) {
       write_thread_.ExitUnbatched(&w);
       if (two_write_queues_) {
         nonmem_write_thread_.ExitUnbatched(&nonmem_w);
@@ -2156,7 +2174,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 Status DBImpl::AtomicFlushMemTables(
     const autovector<ColumnFamilyData*>& column_family_datas,
     const FlushOptions& flush_options, FlushReason flush_reason,
-    bool writes_stopped) {
+    bool entered_write_thread) {
+  assert(immutable_db_options_.atomic_flush);
+  if (!flush_options.wait && write_controller_.IsStopped()) {
+    std::ostringstream oss;
+    oss << "Writes have been stopped, thus unable to perform manual flush. "
+           "Please try again later after writes are resumed";
+    return Status::TryAgain(oss.str());
+  }
   Status s;
   if (!flush_options.allow_write_stall) {
     int num_cfs_to_flush = 0;
@@ -2173,6 +2198,7 @@ Status DBImpl::AtomicFlushMemTables(
       return s;
     }
   }
+  const bool needs_to_join_write_thread = !entered_write_thread;
   FlushRequest flush_req;
   autovector<ColumnFamilyData*> cfds;
   {
@@ -2181,7 +2207,7 @@ Status DBImpl::AtomicFlushMemTables(
 
     WriteThread::Writer w;
     WriteThread::Writer nonmem_w;
-    if (!writes_stopped) {
+    if (needs_to_join_write_thread) {
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (two_write_queues_) {
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
@@ -2229,7 +2255,7 @@ Status DBImpl::AtomicFlushMemTables(
       MaybeScheduleFlushOrCompaction();
     }
 
-    if (!writes_stopped) {
+    if (needs_to_join_write_thread) {
       write_thread_.ExitUnbatched(&w);
       if (two_write_queues_) {
         nonmem_write_thread_.ExitUnbatched(&nonmem_w);
@@ -3263,7 +3289,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:BeforeCompaction",
                              c->column_family_data());
     assert(c->num_input_files(1) == 0);
-    assert(c->level() == 0);
     assert(c->column_family_data()->ioptions()->compaction_style ==
            kCompactionStyleFIFO);
 
@@ -3756,9 +3781,11 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   // triggered soon anyway.
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
   for (auto* my_cfd : *versions_->GetColumnFamilySet()) {
-    bottommost_files_mark_threshold_ = std::min(
-        bottommost_files_mark_threshold_,
-        my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
+    if (!my_cfd->ioptions()->allow_ingest_behind) {
+      bottommost_files_mark_threshold_ = std::min(
+          bottommost_files_mark_threshold_,
+          my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
+    }
   }
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or

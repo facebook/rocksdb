@@ -48,13 +48,14 @@ class VectorRep : public MemTableRep {
     std::shared_ptr<std::vector<const char*>> bucket_;
     std::vector<const char*>::const_iterator mutable cit_;
     const KeyComparator& compare_;
-    std::string tmp_;       // For passing to EncodeKey
+    std::string tmp_;  // For passing to EncodeKey
     bool mutable sorted_;
     void DoSort() const;
+
    public:
     explicit Iterator(class VectorRep* vrep,
-      std::shared_ptr<std::vector<const char*>> bucket,
-      const KeyComparator& compare);
+                      std::shared_ptr<std::vector<const char*>> bucket,
+                      const KeyComparator& compare);
 
     // Initialize an iterator over the specified collection.
     // The returned iterator is not valid.
@@ -123,12 +124,10 @@ void VectorRep::MarkReadOnly() {
 }
 
 size_t VectorRep::ApproximateMemoryUsage() {
-  return
-    sizeof(bucket_) + sizeof(*bucket_) +
-    bucket_->size() *
-    sizeof(
-      std::remove_reference<decltype(*bucket_)>::type::value_type
-    );
+  return sizeof(bucket_) + sizeof(*bucket_) +
+         bucket_->size() *
+             sizeof(
+                 std::remove_reference<decltype(*bucket_)>::type::value_type);
 }
 
 VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
@@ -142,13 +141,13 @@ VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
 }
 
 VectorRep::Iterator::Iterator(class VectorRep* vrep,
-                   std::shared_ptr<std::vector<const char*>> bucket,
-                   const KeyComparator& compare)
-: vrep_(vrep),
-  bucket_(bucket),
-  cit_(bucket_->end()),
-  compare_(compare),
-  sorted_(false) { }
+                              std::shared_ptr<std::vector<const char*>> bucket,
+                              const KeyComparator& compare)
+    : vrep_(vrep),
+      bucket_(bucket),
+      cit_(bucket_->end()),
+      compare_(compare),
+      sorted_(false) {}
 
 void VectorRep::Iterator::DoSort() const {
   // vrep is non-null means that we are working on an immutable memtable
@@ -216,12 +215,11 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
   // Do binary search to find first value not less than the target
   const char* encoded_key =
       (memtable_key != nullptr) ? memtable_key : EncodeKey(&tmp_, user_key);
-  cit_ = std::equal_range(bucket_->begin(),
-                          bucket_->end(),
-                          encoded_key,
-                          [this] (const char* a, const char* b) {
+  cit_ = std::equal_range(bucket_->begin(), bucket_->end(), encoded_key,
+                          [this](const char* a, const char* b) {
                             return compare_(a, b) < 0;
-                          }).first;
+                          })
+             .first;
 }
 
 // Advance to the first entry with a key <= target
@@ -282,7 +280,7 @@ MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
     }
   } else {
     std::shared_ptr<Bucket> tmp;
-    tmp.reset(new Bucket(*bucket_)); // make a copy
+    tmp.reset(new Bucket(*bucket_));  // make a copy
     if (arena == nullptr) {
       return new Iterator(nullptr, tmp, compare_);
     } else {
@@ -290,7 +288,7 @@ MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
     }
   }
 }
-} // anon namespace
+}  // namespace
 
 static std::unordered_map<std::string, OptionTypeInfo> vector_rep_table_info = {
     {"count",

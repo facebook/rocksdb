@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <ostream>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -70,11 +71,22 @@ inline bool operator!=(const WideColumn& lhs, const WideColumn& rhs) {
   return !(lhs == rhs);
 }
 
+inline std::ostream& operator<<(std::ostream& os, const WideColumn& column) {
+  const bool hex =
+      (os.flags() & std::ios_base::basefield) == std::ios_base::hex;
+  os << column.name().ToString(hex) << ':' << column.value().ToString(hex);
+
+  return os;
+}
+
 // A collection of wide columns.
 using WideColumns = std::vector<WideColumn>;
 
 // The anonymous default wide column (an empty Slice).
 extern const Slice kDefaultWideColumnName;
+
+// An empty set of wide columns.
+extern const WideColumns kNoWideColumns;
 
 // A self-contained collection of wide columns. Used for the results of
 // wide-column queries.

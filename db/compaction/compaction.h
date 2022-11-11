@@ -87,6 +87,15 @@ class Compaction {
                  BlobGarbageCollectionPolicy::kUseDefault,
              double blob_garbage_collection_age_cutoff = -1);
 
+  // The type of the penultimate level output range
+  enum class PenultimateOutputRangeType : int {
+    kNotSupported,  // it cannot output to the penultimate level
+    kFullRange,     // any data could be output to the penultimate level
+    kNonLastRange,  // only the keys within non_last_level compaction inputs can
+                    // be outputted to the penultimate level
+    kDisabled,      // no data can be outputted to the penultimate level
+  };
+
   // No copying allowed
   Compaction(const Compaction&) = delete;
   void operator=(const Compaction&) = delete;
@@ -162,6 +171,9 @@ class Compaction {
 
   // Maximum size of files to build during this compaction.
   uint64_t max_output_file_size() const { return max_output_file_size_; }
+
+  // Target output file size for this compaction
+  uint64_t target_output_file_size() const { return target_output_file_size_; }
 
   // What compression for output
   CompressionType output_compression() const { return output_compression_; }
@@ -307,6 +319,18 @@ class Compaction {
 
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
+  Slice GetPenultimateLevelSmallestUserKey() const {
+    return penultimate_level_smallest_user_key_;
+  }
+
+  Slice GetPenultimateLevelLargestUserKey() const {
+    return penultimate_level_largest_user_key_;
+  }
+
+  PenultimateOutputRangeType GetPenultimateOutputRangeType() const {
+    return penultimate_output_range_type_;
+  }
+
   // Return true if the compaction supports per_key_placement
   bool SupportsPerKeyPlacement() const;
 
@@ -316,6 +340,8 @@ class Compaction {
 
   // Return true if the given range is overlap with penultimate level output
   // range.
+  // Both smallest_key and largest_key include timestamps if user-defined
+  // timestamp is enabled.
   bool OverlapPenultimateLevelOutputRange(const Slice& smallest_key,
                                           const Slice& largest_key) const;
 
@@ -325,6 +351,7 @@ class Compaction {
   // If per_key_placement is not supported, always return false.
   // TODO: currently it doesn't support moving data from the last level to the
   //  penultimate level
+  //  key includes timestamp if user-defined timestamp is enabled.
   bool WithinPenultimateLevelOutputRange(const Slice& key) const;
 
   CompactionReason compaction_reason() const { return compaction_reason_; }
@@ -363,11 +390,18 @@ class Compaction {
   }
 
   static constexpr int kInvalidLevel = -1;
+
   // Evaluate penultimate output level. If the compaction supports
   // per_key_placement feature, it returns the penultimate level number.
   // Otherwise, it's set to kInvalidLevel (-1), which means
   // output_to_penultimate_level is not supported.
-  static int EvaluatePenultimateLevel(const ImmutableOptions& immutable_options,
+  // Note: even the penultimate level output is supported (PenultimateLevel !=
+  // kInvalidLevel), some key range maybe unsafe to be outputted to the
+  // penultimate level. The safe key range is populated by
+  // `PopulatePenultimateLevelOutputRange()`.
+  // Which could potentially disable all penultimate level output.
+  static int EvaluatePenultimateLevel(const VersionStorageInfo* vstorage,
+                                      const ImmutableOptions& immutable_options,
                                       const int start_level,
                                       const int output_level);
 
@@ -384,11 +418,6 @@ class Compaction {
   // populate penultimate level output range, which will be used to determine if
   // a key is safe to output to the penultimate level (details see
   // `Compaction::WithinPenultimateLevelOutputRange()`.
-  // TODO: Currently the penultimate level output range is the min/max keys of
-  //  non-last-level input files. Which is only good if there's no key moved
-  //  from the last level to the penultimate level. For a more complicated per
-  //  key placement which may move data from the last level to the penultimate
-  //  level, it needs extra check.
   void PopulatePenultimateLevelOutputRange();
 
   // Get the atomic file boundaries for all files in the compaction. Necessary
@@ -412,6 +441,7 @@ class Compaction {
 
   const int start_level_;   // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
+  uint64_t target_output_file_size_;
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
   uint32_t max_subcompactions_;
@@ -470,9 +500,11 @@ class Compaction {
   TablePropertiesCollection output_table_properties_;
 
   // smallest user keys in compaction
+  // includes timestamp if user-defined timestamp is enabled.
   Slice smallest_user_key_;
 
   // largest user keys in compaction
+  // includes timestamp if user-defined timestamp is enabled.
   Slice largest_user_key_;
 
   // Reason for compaction
@@ -493,8 +525,12 @@ class Compaction {
   const int penultimate_level_;
 
   // Key range for penultimate level output
+  // includes timestamp if user-defined timestamp is enabled.
+  // penultimate_output_range_type_ shows the range type
   Slice penultimate_level_smallest_user_key_;
   Slice penultimate_level_largest_user_key_;
+  PenultimateOutputRangeType penultimate_output_range_type_ =
+      PenultimateOutputRangeType::kNotSupported;
 };
 
 #ifndef NDEBUG

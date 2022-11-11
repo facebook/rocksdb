@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/two_level_iterator.h"
+
 #include "db/pinned_iterators_manager.h"
 #include "memory/arena.h"
 #include "rocksdb/options.h"

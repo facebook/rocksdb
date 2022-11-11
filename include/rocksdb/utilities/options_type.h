@@ -113,14 +113,14 @@ enum class OptionTypeFlags : uint32_t {
       0x10000,  // Pass the base (instead of offset) to option functions
 };
 
-inline OptionTypeFlags operator|(const OptionTypeFlags &a,
-                                 const OptionTypeFlags &b) {
+inline OptionTypeFlags operator|(const OptionTypeFlags& a,
+                                 const OptionTypeFlags& b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) |
                                       static_cast<uint32_t>(b));
 }
 
-inline OptionTypeFlags operator&(const OptionTypeFlags &a,
-                                 const OptionTypeFlags &b) {
+inline OptionTypeFlags operator&(const OptionTypeFlags& a,
+                                 const OptionTypeFlags& b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) &
                                       static_cast<uint32_t>(b));
 }

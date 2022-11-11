@@ -10,7 +10,10 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/utilities/debug.h"
+#include "test_util/mock_time_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -414,37 +417,19 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
   // No data is moved from cold tier to hot tier because no input files from L5
   // or higher, it's not safe to move data to output_to_penultimate_level level.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
 
-  // Add 2 keys in higher level, but in separated files, the keys within that
-  // range should be moved up to the penultimate level
+  // Add 2 keys in higher level, but in separated files, all keys can be moved
+  // up if it's hot
   ASSERT_OK(Put(Key(0), "value" + std::to_string(0)));
   ASSERT_OK(Flush());
   ASSERT_OK(Put(Key(50), "value" + std::to_string(0)));
   ASSERT_OK(Flush());
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
-
-  // Add an SST with a key range cover all the data we want to move from the
-  // last level to the penultimate level
-  ASSERT_OK(Put(Key(0), "value" + std::to_string(0)));
-  ASSERT_OK(Put(Key(99), "value" + std::to_string(0)));
-  ASSERT_OK(Flush());
-
-  ResetAllStats(expect_stats, expect_pl_stats);
-
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
-
-  last_stats.Add(kBasicCompStats);
-  last_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
-  last_stats.bytes_read_output_level = kHasValue;
-  last_stats.num_input_files_in_output_level = kHasValue;
-  expect_pl_stats.Add(kBasicPerKeyPlacementCompStats);
-  expect_pl_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
 
   // change to only 1 key cold, to test compaction could stop even it matches
   // size amp compaction threshold
@@ -1214,6 +1199,817 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
 
 INSTANTIATE_TEST_CASE_P(TieredCompactionTest, TieredCompactionTest,
                         testing::Bool());
+
+class PrecludeLastLevelTest : public DBTestBase {
+ public:
+  PrecludeLastLevelTest()
+      : DBTestBase("preclude_last_level_test", /*env_do_fsync=*/false) {
+    mock_clock_ = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+    mock_env_ = std::make_unique<CompositeEnvWrapper>(env_, mock_clock_);
+  }
+
+ protected:
+  std::unique_ptr<Env> mock_env_;
+  std::shared_ptr<MockSystemClock> mock_clock_;
+
+  void SetUp() override {
+    mock_clock_->InstallTimedWaitFixCallback();
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
+          auto periodic_task_scheduler_ptr =
+              reinterpret_cast<PeriodicTaskScheduler*>(arg);
+          periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock_.get());
+        });
+    mock_clock_->SetCurrentTime(0);
+  }
+};
+
+TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kKeyPerSec = 10;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preserve_internal_time_seconds = 10000;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
+
+  int sst_num = 0;
+  // Write files that are overlap and enough to trigger compaction
+  for (; sst_num < kNumTrigger; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+        mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
+      });
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  // all data is pushed to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  // enable preclude feature
+  options.preclude_last_level_data_seconds = 10000;
+  options.last_level_temperature = Temperature::kCold;
+  Reopen(options);
+
+  // all data is hot, even they're in the last level
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+
+  // Generate a sstable and trigger manual compaction
+  ASSERT_OK(Put(Key(10), "value"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // all data is moved up to the penultimate level
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+
+  // close explicitly, because the env is local variable which will be released
+  // first.
+  Close();
+}
+
+TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kKeyPerSec = 10;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preserve_internal_time_seconds = 10000;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
+
+  int sst_num = 0;
+  // Write files that are overlap and enough to trigger compaction
+  for (; sst_num < kNumTrigger; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+        mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
+      });
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  // all data is pushed to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  // enable preclude feature
+  options.preclude_last_level_data_seconds = 10000;
+  options.last_level_temperature = Temperature::kCold;
+  // make sure it won't trigger Size Amp compaction, unlike normal Size Amp
+  // compaction which is typically a last level compaction, when tiered Storage
+  // ("preclude_last_level") is enabled, size amp won't include the last level.
+  // As the last level would be in cold tier and the size would not be a
+  // problem, which also avoid frequent hot to cold storage compaction.
+  options.compaction_options_universal.max_size_amplification_percent = 400;
+  Reopen(options);
+
+  // all data is hot, even they're in the last level
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+
+  // Write more data, but still all hot until the 10th SST, as:
+  // write a key every 10 seconds, 100 keys per SST, each SST takes 1000 seconds
+  // The preclude_last_level_data_seconds is 10k
+  Random rnd(301);
+  for (; sst_num < kNumTrigger * 2 - 1; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      // the value needs to be big enough to trigger full compaction
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), rnd.RandomString(100)));
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+        mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
+      });
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->WaitForCompact(true));
+  }
+
+  // all data is moved up to the penultimate level
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+
+  // close explicitly, because the env is local variable which will be released
+  // first.
+  Close();
+}
+
+TEST_F(PrecludeLastLevelTest, MigrationFromPreserveTimePartial) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kKeyPerSec = 10;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preserve_internal_time_seconds = 2000;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
+
+  int sst_num = 0;
+  // Write files that are overlap and enough to trigger compaction
+  for (; sst_num < kNumTrigger; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+        mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
+      });
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  // all data is pushed to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  std::vector<KeyVersion> key_versions;
+  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
+
+  // make sure there're more than 300 keys and first 100 keys are having seqno
+  // zeroed out, the last 100 key seqno not zeroed out
+  ASSERT_GT(key_versions.size(), 300);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_EQ(key_versions[i].sequence, 0);
+  }
+  auto rit = key_versions.rbegin();
+  for (int i = 0; i < 100; i++) {
+    ASSERT_GT(rit->sequence, 0);
+    rit++;
+  }
+
+  // enable preclude feature
+  options.preclude_last_level_data_seconds = 2000;
+  options.last_level_temperature = Temperature::kCold;
+  Reopen(options);
+
+  // Generate a sstable and trigger manual compaction
+  ASSERT_OK(Put(Key(10), "value"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // some data are moved up, some are not
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+
+  Close();
+}
+
+TEST_F(PrecludeLastLevelTest, SmallPrecludeTime) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preclude_last_level_data_seconds = 60;
+  options.preserve_internal_time_seconds = 0;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  options.last_level_temperature = Temperature::kCold;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  dbfull()->TEST_WaitForPeridicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(10) + 1));
+  });
+
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    dbfull()->TEST_WaitForPeridicTaskRun([&] {
+      mock_clock_->MockSleepForSeconds(static_cast<int>(rnd.Uniform(2)));
+    });
+  }
+  ASSERT_OK(Flush());
+
+  TablePropertiesCollection tables_props;
+  ASSERT_OK(dbfull()->GetPropertiesOfAllTables(&tables_props));
+  ASSERT_EQ(tables_props.size(), 1);
+  ASSERT_FALSE(tables_props.begin()->second->seqno_to_time_mapping.empty());
+  SeqnoToTimeMapping tp_mapping;
+  ASSERT_OK(
+      tp_mapping.Add(tables_props.begin()->second->seqno_to_time_mapping));
+  ASSERT_OK(tp_mapping.Sort());
+  ASSERT_FALSE(tp_mapping.Empty());
+  auto seqs = tp_mapping.TEST_GetInternalMapping();
+  ASSERT_FALSE(seqs.empty());
+
+  // Wait more than preclude_last_level time, then make sure all the data is
+  // compacted to the last level even there's no write (no seqno -> time
+  // information was flushed to any SST).
+  mock_clock_->MockSleepForSeconds(100);
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  Close();
+}
+
+TEST_F(PrecludeLastLevelTest, LastLevelOnlyCompactionPartial) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kKeyPerSec = 10;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preserve_internal_time_seconds = 2000;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
+
+  int sst_num = 0;
+  // Write files that are overlap and enough to trigger compaction
+  for (; sst_num < kNumTrigger; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+        mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
+      });
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  // all data is pushed to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  // enable preclude feature
+  options.preclude_last_level_data_seconds = 2000;
+  options.last_level_temperature = Temperature::kCold;
+  Reopen(options);
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // some data are moved up, some are not
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+
+  std::vector<KeyVersion> key_versions;
+  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
+
+  // make sure there're more than 300 keys and first 100 keys are having seqno
+  // zeroed out, the last 100 key seqno not zeroed out
+  ASSERT_GT(key_versions.size(), 300);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_EQ(key_versions[i].sequence, 0);
+  }
+  auto rit = key_versions.rbegin();
+  for (int i = 0; i < 100; i++) {
+    ASSERT_GT(rit->sequence, 0);
+    rit++;
+  }
+
+  Close();
+}
+
+class PrecludeLastLevelTestWithParms
+    : public PrecludeLastLevelTest,
+      public testing::WithParamInterface<bool> {
+ public:
+  PrecludeLastLevelTestWithParms() : PrecludeLastLevelTest() {}
+};
+
+TEST_P(PrecludeLastLevelTestWithParms, LastLevelOnlyCompactionNoPreclude) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kKeyPerSec = 10;
+
+  bool enable_preclude_last_level = GetParam();
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preserve_internal_time_seconds = 2000;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
+
+  Random rnd(301);
+  int sst_num = 0;
+  // Write files that are overlap and enough to trigger compaction
+  for (; sst_num < kNumTrigger; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), rnd.RandomString(100)));
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+        mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
+      });
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  // all data is pushed to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  std::atomic_bool is_manual_compaction_running = false;
+  std::atomic_bool verified_compaction_order = false;
+
+  // Make sure the manual compaction is in progress and try to trigger a
+  // SizeRatio compaction by flushing 4 files to L0. The compaction will try to
+  // compact 4 files at L0 to L5 (the last empty level).
+  // If the preclude_last_feature is enabled, the auto triggered compaction
+  // cannot be picked. Otherwise, the auto triggered compaction can run in
+  // parallel with the last level compaction.
+  // L0: [a] [b] [c] [d]
+  // L5:     (locked if preclude_last_level is enabled)
+  // L6: [z] (locked: manual compaction in progress)
+  // TODO: in this case, L0 files should just be compacted to L4, so the 2
+  //  compactions won't be overlapped.
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing", [&](void* arg) {
+        auto compaction = static_cast<Compaction*>(arg);
+        if (compaction->is_manual_compaction()) {
+          is_manual_compaction_running = true;
+          TEST_SYNC_POINT(
+              "PrecludeLastLevelTest::LastLevelOnlyCompactionConflit:"
+              "ManualCompaction1");
+          TEST_SYNC_POINT(
+              "PrecludeLastLevelTest::LastLevelOnlyCompactionConflit:"
+              "ManualCompaction2");
+          is_manual_compaction_running = false;
+        }
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        auto compaction = static_cast<Compaction*>(arg);
+        if (enable_preclude_last_level && is_manual_compaction_running) {
+          ASSERT_TRUE(compaction == nullptr);
+          verified_compaction_order = true;
+        } else {
+          ASSERT_TRUE(compaction != nullptr);
+          verified_compaction_order = true;
+        }
+        if (!compaction || !compaction->is_manual_compaction()) {
+          TEST_SYNC_POINT(
+              "PrecludeLastLevelTest::LastLevelOnlyCompactionConflit:"
+              "AutoCompactionPicked");
+        }
+      });
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"PrecludeLastLevelTest::LastLevelOnlyCompactionConflit:"
+       "ManualCompaction1",
+       "PrecludeLastLevelTest::LastLevelOnlyCompactionConflit:StartWrite"},
+      {"PrecludeLastLevelTest::LastLevelOnlyCompactionConflit:"
+       "AutoCompactionPicked",
+       "PrecludeLastLevelTest::LastLevelOnlyCompactionConflit:"
+       "ManualCompaction2"},
+  });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // only enable if the Parameter is true
+  if (enable_preclude_last_level) {
+    options.preclude_last_level_data_seconds = 2000;
+  }
+  options.max_background_jobs = 8;
+  options.last_level_temperature = Temperature::kCold;
+  Reopen(options);
+
+  auto manual_compaction_thread = port::Thread([this]() {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    cro.exclusive_manual_compaction = false;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  });
+
+  TEST_SYNC_POINT(
+      "PrecludeLastLevelTest::LastLevelOnlyCompactionConflit:StartWrite");
+  auto stop_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
+  for (; sst_num < kNumTrigger * 2; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      // the value needs to be big enough to trigger full compaction
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
+        mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
+      });
+    }
+    ASSERT_OK(Flush());
+  }
+
+  manual_compaction_thread.join();
+
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  if (enable_preclude_last_level) {
+    ASSERT_NE("0,0,0,0,0,1,1", FilesPerLevel());
+  } else {
+    ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  }
+  ASSERT_TRUE(verified_compaction_order);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  stop_token.reset();
+
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(PrecludeLastLevelTestWithParms,
+                        PrecludeLastLevelTestWithParms, testing::Bool());
+
+// partition the SST into 3 ranges [0, 19] [20, 39] [40, ...]
+class ThreeRangesPartitioner : public SstPartitioner {
+ public:
+  const char* Name() const override { return "SingleKeySstPartitioner"; }
+
+  PartitionerResult ShouldPartition(
+      const PartitionerRequest& request) override {
+    if ((cmp->CompareWithoutTimestamp(*request.current_user_key,
+                                      DBTestBase::Key(20)) >= 0 &&
+         cmp->CompareWithoutTimestamp(*request.prev_user_key,
+                                      DBTestBase::Key(20)) < 0) ||
+        (cmp->CompareWithoutTimestamp(*request.current_user_key,
+                                      DBTestBase::Key(40)) >= 0 &&
+         cmp->CompareWithoutTimestamp(*request.prev_user_key,
+                                      DBTestBase::Key(40)) < 0)) {
+      return kRequired;
+    } else {
+      return kNotRequired;
+    }
+  }
+
+  bool CanDoTrivialMove(const Slice& /*smallest_user_key*/,
+                        const Slice& /*largest_user_key*/) override {
+    return false;
+  }
+
+  const Comparator* cmp = BytewiseComparator();
+};
+
+class ThreeRangesPartitionerFactory : public SstPartitionerFactory {
+ public:
+  static const char* kClassName() {
+    return "TombstoneTestSstPartitionerFactory";
+  }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<SstPartitioner> CreatePartitioner(
+      const SstPartitioner::Context& /* context */) const override {
+    return std::unique_ptr<SstPartitioner>(new ThreeRangesPartitioner());
+  }
+};
+
+TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kKeyPerSec = 10;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.preserve_internal_time_seconds = 10000;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+
+  Random rnd(301);
+
+  for (int i = 0; i < 300; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    dbfull()->TEST_WaitForPeridicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
+  }
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // make sure all data is compacted to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  // Create 3 L5 files
+  auto factory = std::make_shared<ThreeRangesPartitionerFactory>();
+  options.sst_partitioner_factory = factory;
+
+  Reopen(options);
+
+  for (int i = 0; i < kNumTrigger - 1; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 100 + j), rnd.RandomString(10)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  // L5: [0,19] [20,39] [40,299]
+  // L6: [0,                299]
+  ASSERT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
+
+  // enable tiered storage feature
+  options.preclude_last_level_data_seconds = 10000;
+  options.last_level_temperature = Temperature::kCold;
+  options.statistics = CreateDBStatistics();
+  Reopen(options);
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  ASSERT_EQ(meta.levels[5].files.size(), 3);
+  ASSERT_EQ(meta.levels[6].files.size(), 1);
+  ASSERT_EQ(meta.levels[6].files[0].smallestkey, Key(0));
+  ASSERT_EQ(meta.levels[6].files[0].largestkey, Key(299));
+
+  std::string file_path = meta.levels[5].files[1].db_path;
+  std::vector<std::string> files;
+  // pick 3rd file @L5 + file@L6 for compaction
+  files.push_back(file_path + "/" + meta.levels[5].files[2].name);
+  files.push_back(file_path + "/" + meta.levels[6].files[0].name);
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(), files, 6));
+
+  // The compaction only moved partial of the hot data to hot tier, range[0,39]
+  // is unsafe to move up, otherwise, they will be overlapped with the existing
+  // files@L5.
+  // The output should be:
+  //  L5: [0,19] [20,39] [40,299]    <-- Temperature::kUnknown
+  //  L6: [0,19] [20,39]             <-- Temperature::kCold
+  // L6 file is split because of the customized partitioner
+  ASSERT_EQ("0,0,0,0,0,3,2", FilesPerLevel());
+
+  // even all the data is hot, but not all data are moved to the hot tier
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  db_->GetColumnFamilyMetaData(&meta);
+  ASSERT_EQ(meta.levels[5].files.size(), 3);
+  ASSERT_EQ(meta.levels[6].files.size(), 2);
+  for (const auto& file : meta.levels[5].files) {
+    ASSERT_EQ(file.temperature, Temperature::kUnknown);
+  }
+  for (const auto& file : meta.levels[6].files) {
+    ASSERT_EQ(file.temperature, Temperature::kCold);
+  }
+  ASSERT_EQ(meta.levels[6].files[0].smallestkey, Key(0));
+  ASSERT_EQ(meta.levels[6].files[0].largestkey, Key(19));
+  ASSERT_EQ(meta.levels[6].files[1].smallestkey, Key(20));
+  ASSERT_EQ(meta.levels[6].files[1].largestkey, Key(39));
+
+  Close();
+}
+
+struct TestPropertiesCollector : public TablePropertiesCollector {
+  Status AddUserKey(const Slice& key, const Slice& /*value*/,
+                    EntryType /*type*/, SequenceNumber /*seq*/,
+                    uint64_t /*file_size*/) override {
+    if (cmp->Compare(key, DBTestBase::Key(100)) == 0) {
+      has_key_100 = true;
+    }
+    if (cmp->Compare(key, DBTestBase::Key(200)) == 0) {
+      has_key_200 = true;
+    }
+
+    return Status::OK();
+  }
+
+  const char* Name() const override { return "TestTablePropertiesCollector"; }
+
+  UserCollectedProperties GetReadableProperties() const override {
+    UserCollectedProperties ret;
+    return ret;
+  }
+
+  Status Finish(UserCollectedProperties* /*properties*/) override {
+    // The LSM tree would be like:
+    // L5: [0,19] [20,39] [40,299]
+    // L6: [0,                299]
+    // the 3rd file @L5 has both 100 and 200, which will be marked for
+    // compaction
+    // Also avoid marking flushed SST for compaction, which won't have both 100
+    // and 200
+    if (has_key_100 && has_key_200) {
+      need_compact_ = true;
+    } else {
+      need_compact_ = false;
+    }
+    has_key_100 = false;
+    has_key_200 = false;
+    return Status::OK();
+  }
+
+  bool NeedCompact() const override { return need_compact_; }
+
+  const Comparator* cmp = BytewiseComparator();
+
+ private:
+  bool has_key_100 = false;
+  bool has_key_200 = false;
+
+  bool need_compact_ = false;
+};
+
+class TestPropertiesCollectorFactory : public TablePropertiesCollectorFactory {
+ public:
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /*context*/) override {
+    return new TestPropertiesCollector;
+  }
+  const char* Name() const override { return "TestTablePropertiesCollector"; }
+};
+
+TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompactionWithRangeDel) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kKeyPerSec = 10;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.env = mock_env_.get();
+  options.level0_file_num_compaction_trigger = kNumTrigger;
+  options.preserve_internal_time_seconds = 10000;
+  options.num_levels = kNumLevels;
+  // set a small max_compaction_bytes to avoid input level expansion
+  options.max_compaction_bytes = 30000;
+  options.ignore_max_compaction_bytes_for_input = false;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+
+  Random rnd(301);
+
+  for (int i = 0; i < 300; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+    dbfull()->TEST_WaitForPeridicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
+  }
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // make sure all data is compacted to the last level
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  // Create 3 L5 files
+  auto factory = std::make_shared<ThreeRangesPartitionerFactory>();
+  options.sst_partitioner_factory = factory;
+
+  // the user defined properties_collector will mark the 3rd file for compaction
+  auto collector_factory = std::make_shared<TestPropertiesCollectorFactory>();
+  options.table_properties_collector_factories.resize(1);
+  options.table_properties_collector_factories[0] = collector_factory;
+  // enable tiered storage feature
+  options.preclude_last_level_data_seconds = 10000;
+  options.last_level_temperature = Temperature::kCold;
+  Reopen(options);
+
+  for (int i = 0; i < kNumTrigger - 2; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 100 + j), rnd.RandomString(10)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // make sure there is one and only one compaction supports per-key placement
+  // but has the penultimate level output disabled.
+  std::atomic_int per_key_comp_num = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        auto compaction = static_cast<Compaction*>(arg);
+        if (compaction->SupportsPerKeyPlacement()) {
+          ASSERT_EQ(compaction->GetPenultimateOutputRangeType(),
+                    Compaction::PenultimateOutputRangeType::kDisabled);
+          per_key_comp_num++;
+        }
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int j = 0; j < 100; j++) {
+    ASSERT_OK(Put(Key(200 + j), rnd.RandomString(10)));
+  }
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(32), Key(40)));
+  ASSERT_OK(Flush());
+
+  // Before the per-key placement compaction, the LSM tress should be like:
+  // L5: [0,19] [20,40] [40,299]
+  // L6: [0,                299]
+  // The 2nd file @L5 has the largest key 40 because of range del
+
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  ASSERT_EQ(per_key_comp_num, 1);
+
+  // the compaction won't move any data to the penultimate level
+  ASSERT_EQ("0,0,0,0,0,2,3", FilesPerLevel());
+
+  Close();
+}
 
 #endif  // !defined(ROCKSDB_LITE)
 

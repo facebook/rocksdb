@@ -204,6 +204,9 @@ class DBImpl : public DB {
   using DB::Merge;
   Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) override;
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& ts, const Slice& value) override;
+
   using DB::Delete;
   Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
                 const Slice& key) override;
@@ -222,6 +225,9 @@ class DBImpl : public DB {
   Status DeleteRange(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& begin_key,
                      const Slice& end_key) override;
+  Status DeleteRange(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key, const Slice& ts) override;
 
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
@@ -423,7 +429,7 @@ class DBImpl : public DB {
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
   virtual Status FlushWAL(bool sync) override;
-  bool TEST_WALBufferIsEmpty(bool lock = true);
+  bool WALBufferIsEmpty(bool lock = true);
   virtual Status SyncWAL() override;
   virtual Status LockWAL() override;
   virtual Status UnlockWAL() override;
@@ -565,8 +571,12 @@ class DBImpl : public DB {
 
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
-      const TraceOptions& options,
+      const TraceOptions& trace_options,
       std::unique_ptr<TraceWriter>&& trace_writer) override;
+
+  Status StartBlockCacheTrace(
+      const BlockCacheTraceOptions& options,
+      std::unique_ptr<BlockCacheTraceWriter>&& trace_writer) override;
 
   using DB::EndBlockCacheTrace;
   Status EndBlockCacheTrace() override;
@@ -1877,12 +1887,13 @@ class DBImpl : public DB {
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
-                       FlushReason flush_reason, bool writes_stopped = false);
+                       FlushReason flush_reason,
+                       bool entered_write_thread = false);
 
   Status AtomicFlushMemTables(
       const autovector<ColumnFamilyData*>& column_family_datas,
       const FlushOptions& options, FlushReason flush_reason,
-      bool writes_stopped = false);
+      bool entered_write_thread = false);
 
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
@@ -2178,11 +2189,6 @@ class DBImpl : public DB {
 
   IOStatus CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                      size_t preallocate_block_size, log::Writer** new_log);
-
-  // Verify SST file unique id between Manifest and table properties to make
-  // sure they're the same. Currently only used during DB open when
-  // `verify_sst_unique_id_in_manifest = true`.
-  Status VerifySstUniqueIdInManifest();
 
   // Validate self-consistency of DB options
   static Status ValidateOptions(const DBOptions& db_options);

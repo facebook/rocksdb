@@ -84,7 +84,8 @@ std::unique_ptr<PersistentCacheTier> NewBlockCache(
     Env* env, const std::string& path,
     const uint64_t max_size = std::numeric_limits<uint64_t>::max(),
     const bool enable_direct_writes = false) {
-  const uint32_t max_file_size = static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
+  const uint32_t max_file_size =
+      static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
   auto log = std::make_shared<ConsoleLogger>();
   PersistentCacheConfig opt(env, path, max_size, log);
   opt.cache_file_size = max_file_size;
@@ -101,7 +102,8 @@ std::unique_ptr<PersistentTieredCache> NewTieredCache(
     Env* env, const std::string& path, const uint64_t max_volatile_cache_size,
     const uint64_t max_block_cache_size =
         std::numeric_limits<uint64_t>::max()) {
-  const uint32_t max_file_size = static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
+  const uint32_t max_file_size =
+      static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
   auto log = std::make_shared<ConsoleLogger>();
   auto opt = PersistentCacheConfig(env, path, max_block_cache_size, log);
   opt.cache_file_size = max_file_size;
@@ -126,13 +128,13 @@ PersistentCacheTierTest::PersistentCacheTierTest()
 TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithFileCreateError) {
   cache_ = NewBlockCache(Env::Default(), path_,
                          /*size=*/std::numeric_limits<uint64_t>::max(),
-                         /*direct_writes=*/ false);
+                         /*direct_writes=*/false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BlockCacheTier::NewCacheFile:DeleteDir", OnDeleteDir);
 
-  RunNegativeInsertTest(/*nthreads=*/ 1,
+  RunNegativeInsertTest(/*nthreads=*/1,
                         /*max_keys*/
-                          static_cast<size_t>(10 * 1024 * kStressFactor));
+                        static_cast<size_t>(10 * 1024 * kStressFactor));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
@@ -140,7 +142,7 @@ TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithFileCreateError) {
 // Travis is unable to handle the normal version of the tests running out of
 // fds, out of space and timeouts. This is an easier version of the test
 // specifically written for Travis
-TEST_F(PersistentCacheTierTest, BasicTest) {
+TEST_F(PersistentCacheTierTest, DISABLED_BasicTest) {
   cache_ = std::make_shared<VolatileCacheTier>();
   RunInsertTest(/*nthreads=*/1, /*max_keys=*/1024);
 
@@ -171,7 +173,8 @@ TEST_F(PersistentCacheTierTest, DISABLED_VolatileCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
       cache_ = std::make_shared<VolatileCacheTier>(
-          /*compressed=*/true, /*size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
+          /*compressed=*/true,
+          /*size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
       RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -197,8 +200,9 @@ TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsert) {
 TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
-      cache_ = NewBlockCache(Env::Default(), path_,
-                             /*max_size=*/static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
+      cache_ = NewBlockCache(
+          Env::Default(), path_,
+          /*max_size=*/static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
       RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -210,8 +214,9 @@ TEST_F(PersistentCacheTierTest, DISABLED_TieredCacheInsert) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys :
          {10 * 1024 * kStressFactor, 1 * 1024 * 1024 * kStressFactor}) {
-      cache_ = NewTieredCache(Env::Default(), path_,
-                              /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
+      cache_ = NewTieredCache(
+          Env::Default(), path_,
+          /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
       RunInsertTest(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -226,7 +231,8 @@ TEST_F(PersistentCacheTierTest, DISABLED_TieredCacheInsertWithEviction) {
       cache_ = NewTieredCache(
           Env::Default(), path_,
           /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor),
-          /*block_cache_size*/ static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
+          /*block_cache_size*/
+          static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
       RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
@@ -291,14 +297,13 @@ PersistentCacheDBTest::PersistentCacheDBTest()
 void PersistentCacheDBTest::RunTest(
     const std::function<std::shared_ptr<PersistentCacheTier>(bool)>& new_pcache,
     const size_t max_keys = 100 * 1024, const size_t max_usecase = 5) {
-
   // number of insertion interations
   int num_iter = static_cast<int>(max_keys * kStressFactor);
 
   for (size_t iter = 0; iter < max_usecase; iter++) {
     Options options;
     options.write_buffer_size =
-      static_cast<size_t>(64 * 1024 * kStressFactor);  // small write buffer
+        static_cast<size_t>(64 * 1024 * kStressFactor);  // small write buffer
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options = CurrentOptions(options);
 
@@ -448,6 +453,7 @@ TEST_F(PersistentCacheDBTest, DISABLED_TieredCacheTest) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

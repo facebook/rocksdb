@@ -58,6 +58,5 @@ class LogsWithPrepTracker {
   // both logs_with_prep_ and prepared_section_completed_.
   std::unordered_map<uint64_t, uint64_t> prepared_section_completed_;
   std::mutex prepared_section_completed_mutex_;
-
 };
 }  // namespace ROCKSDB_NAMESPACE
