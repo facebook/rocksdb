@@ -12,6 +12,9 @@
 ### New Features
 * Add basic support for user-defined timestamp to Merge (#10819).
 
+### Public API changes
+* Added a `SecondaryCache::Warm()` API, with default implementation depending on `Insert()`. Some implementations might need to add a custom implementation of `Warm()`. (Details in API comments.)
+
 ## 7.8.0 (10/22/2022)
 ### New Features
 * `DeleteRange()` now supports user-defined timestamp.

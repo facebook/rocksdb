@@ -128,11 +128,10 @@ class CacheDumperImpl : public CacheDumper {
 class CacheDumpedLoaderImpl : public CacheDumpedLoader {
  public:
   CacheDumpedLoaderImpl(const CacheDumpOptions& dump_options,
-                        const BlockBasedTableOptions& toptions,
+                        const BlockBasedTableOptions& /*toptions*/,
                         const std::shared_ptr<SecondaryCache>& secondary_cache,
                         std::unique_ptr<CacheDumpReader>&& reader)
       : options_(dump_options),
-        toptions_(toptions),
         secondary_cache_(secondary_cache),
         reader_(std::move(reader)) {}
   ~CacheDumpedLoaderImpl() {}
@@ -145,7 +144,6 @@ class CacheDumpedLoaderImpl : public CacheDumpedLoader {
   IOStatus ReadCacheBlock(std::string* data, DumpUnit* dump_unit);
 
   CacheDumpOptions options_;
-  const BlockBasedTableOptions& toptions_;
   std::shared_ptr<SecondaryCache> secondary_cache_;
   std::unique_ptr<CacheDumpReader> reader_;
   UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
