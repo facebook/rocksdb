@@ -1891,6 +1891,7 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
 TEST_F(DBSecondaryCacheTest, TestSecondaryWithCompressedCache) {
   if (!Snappy_Supported()) {
     ROCKSDB_GTEST_SKIP("Compressed cache test requires snappy support");
+    return;
   }
   LRUCacheOptions opts(2000 /* capacity */, 0 /* num_shard_bits */,
                        false /* strict_capacity_limit */,
