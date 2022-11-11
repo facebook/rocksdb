@@ -175,13 +175,28 @@ Status CloudManifest::WriteToLog(std::unique_ptr<WritableFileWriter> log) {
   return writer.file()->Sync(true);
 }
 
-void CloudManifest::AddEpoch(uint64_t startFileNumber, std::string epochId) {
+bool CloudManifest::AddEpoch(uint64_t startFileNumber, std::string epochId) {
   WriteLock lck(&mutex_);
-  assert(pastEpochs_.empty() || pastEpochs_.back().first <= startFileNumber);
-  if (pastEpochs_.empty() || pastEpochs_.back().first < startFileNumber) {
-      pastEpochs_.emplace_back(startFileNumber, std::move(currentEpoch_));
-  }  // Else current epoch hasn't written any files, I can just ignore it
+  if (!pastEpochs_.empty() && startFileNumber < pastEpochs_.back().first) {
+    return false;
+  }
+
+  // Check all the epochs with same file number
+  // For each (filenum, epoch) pair in `pastEpochs_`, it means next epoch of `epoch`
+  // starts at `filenum`. So we should compare epochId with next epoch of `epoch`.
+  auto nxtEpoch = &currentEpoch_;
+  for (auto rit = pastEpochs_.rbegin(); rit != pastEpochs_.rend(); rit++) {
+    if (rit->first == startFileNumber && *nxtEpoch == epochId) {
+      return false;
+    }
+    if (rit->first < startFileNumber) {
+      break;
+    }
+    nxtEpoch = &(rit->second);
+  }
+  pastEpochs_.emplace_back(startFileNumber, std::move(currentEpoch_));
   currentEpoch_ = std::move(epochId);
+  return true;
 }
 
 std::string CloudManifest::GetEpoch(uint64_t fileNumber) {

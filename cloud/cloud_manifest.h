@@ -47,8 +47,15 @@ class CloudManifest {
 
   // Add an epoch that starts with startFileNumber and is identified by epochId.
   // GetEpoch(startFileNumber) == epochId
-  // Invalid call if finalized_ is false
-  void AddEpoch(uint64_t startFileNumber, std::string epochId);
+  //
+  // AddEpoch is idempotent, which means:
+  // - we can't add an epoch with smaller `startFileNumber`
+  // - we can't add an epoch which equals current epoch and starts at
+  // same file number
+  //
+  // Idempotency is based on the assumption that epochs added don't diverge from
+  // existing epochs(same sequence of <filenumm, epoch> is re-added)
+  bool AddEpoch(uint64_t startFileNumber, std::string epochId);
 
   std::string GetEpoch(uint64_t fileNumber);
 

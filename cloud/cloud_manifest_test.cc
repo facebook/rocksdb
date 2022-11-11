@@ -32,9 +32,9 @@ TEST_F(CloudManifestTest, BasicTest) {
   {
     std::unique_ptr<CloudManifest> manifest;
     ASSERT_OK(CloudManifest::CreateForEmptyDatabase("firstEpoch", &manifest));
-    manifest->AddEpoch(10, "secondEpoch");
-    manifest->AddEpoch(10, "thirdEpoch");
-    manifest->AddEpoch(40, "fourthEpoch");
+    EXPECT_TRUE(manifest->AddEpoch(10, "secondEpoch"));
+    EXPECT_TRUE(manifest->AddEpoch(10, "thirdEpoch"));
+    EXPECT_TRUE(manifest->AddEpoch(40, "fourthEpoch"));
 
     for (int iter = 0; iter < 2; ++iter) {
       ASSERT_EQ(manifest->GetEpoch(0), "firstEpoch");
@@ -63,6 +63,18 @@ TEST_F(CloudManifestTest, BasicTest) {
       }
     }
   }
+}
+
+TEST_F(CloudManifestTest, IdempotencyTest) {
+  std::unique_ptr<CloudManifest> manifest;
+  ASSERT_OK(CloudManifest::CreateForEmptyDatabase("epoch1", &manifest));
+  EXPECT_TRUE(manifest->AddEpoch(10, "epoch2"));
+  // file number goes back in time
+  EXPECT_FALSE(manifest->AddEpoch(9, "epoch3"));
+  // same file number, same epoch
+  EXPECT_FALSE(manifest->AddEpoch(10, "epoch2"));
+  // same file number, different epoch
+  EXPECT_TRUE(manifest->AddEpoch(10, "epoch3"));
 }
 
 }  //  namespace ROCKSDB_NAMESPACE

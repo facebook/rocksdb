@@ -349,14 +349,25 @@ class CloudTest : public testing::Test {
     return static_cast<DBImpl*>(db_->GetBaseDB());
   }
 
-  void SwitchToNewCookie(std::string new_cookie) {
+  Status SwitchToNewCookie(std::string new_cookie) {
     CloudManifestDelta delta{
       db_->GetNextFileNumber(),
       new_cookie
     };
-    ASSERT_OK(aenv_->RollNewCookie(dbname_, new_cookie, delta));
-    ASSERT_OK(aenv_->ApplyCloudManifestDelta(delta));
+    return ApplyCMDeltaToCloudDB(delta);
+  }
+
+  Status ApplyCMDeltaToCloudDB(const CloudManifestDelta& delta) {
+    auto st = aenv_->RollNewCookie(dbname_, delta.epoch, delta);
+    if (!st.ok()) {
+      return st;
+    }
+    st = aenv_->ApplyCloudManifestDelta(delta);
+    if (!st.ok()) {
+      return st;
+    }
     db_->NewManifestOnNextUpdate();
+    return st;
   }
 
  protected:
@@ -2467,7 +2478,7 @@ TEST_F(CloudTest, DisableInvisibleFileDeletionOnOpenTest) {
       MakeCloudManifestFile(dbname_, cloud_env_options_.cookie_on_open);
   auto cookie1_sst_filepath = dbname_ + pathsep + cookie1_sst_files[0];
 
-  SwitchToNewCookie(cookie2);
+  ASSERT_OK(SwitchToNewCookie(cookie2));
 
   // generate sst file with cookie2
   ASSERT_OK(db_->Put({}, "k2", "v2"));
@@ -2535,7 +2546,7 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
   WriteOptions wo;
   wo.disableWAL = true;
   OpenDB();
-  SwitchToNewCookie("");
+  ASSERT_OK(SwitchToNewCookie(""));
   db_->DisableFileDeletions();
 
   std::vector<LiveFileMetaData> files;
@@ -3144,6 +3155,57 @@ TEST_F(CloudTest,
   }
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(CloudTest, UniqueCurrentEpochAcrossDBRestart) {
+  constexpr int kNumRestarts = 3;
+  std::unordered_set<std::string> epochs;
+  for (int i = 0; i < kNumRestarts; i++) {
+    OpenDB();
+    auto [it, inserted] = epochs.emplace(
+        GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch());
+    EXPECT_TRUE(inserted);
+    CloseDB();
+  }
+}
+
+TEST_F(CloudTest, ReplayCloudManifestDeltaTest) {
+  OpenDB();
+  constexpr int kNumKeys = 3;
+  std::vector<CloudManifestDelta> deltas;
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(db_->Put({}, "k" + std::to_string(i), "v" + std::to_string(i)));
+    ASSERT_OK(db_->Flush({}));
+
+    auto cookie1 =  std::to_string(i) + "0";
+    auto filenum1 = db_->GetNextFileNumber();
+    deltas.push_back({filenum1, cookie1});
+    ASSERT_OK(SwitchToNewCookie(cookie1));
+
+    // apply again with same file number but different cookie
+    auto cookie2 = std::to_string(i) + "1";
+    auto filenum2 = db_->GetNextFileNumber();
+    EXPECT_EQ(filenum1, filenum2);
+    deltas.push_back({filenum2, cookie2});
+    ASSERT_OK(SwitchToNewCookie(cookie2));
+  }
+
+  auto currentEpoch = GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch();
+
+  // replay the deltas one more time
+  for (const auto& delta : deltas) {
+    EXPECT_TRUE(ApplyCMDeltaToCloudDB(delta).IsInvalidArgument());
+    // current epoch not changed
+    EXPECT_EQ(GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch(),
+              currentEpoch);
+  }
+
+  for (int i = 0; i < kNumKeys; i++) {
+    std::string v;
+    ASSERT_OK(db_->Get({}, "k" + std::to_string(i), &v));
+    EXPECT_EQ(v, "v" + std::to_string(i));
+  }
+  CloseDB();
 }
 
 }  //  namespace ROCKSDB_NAMESPACE

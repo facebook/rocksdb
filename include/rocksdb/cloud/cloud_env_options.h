@@ -616,6 +616,9 @@ class CloudEnv : public Env {
 
   // Apply cloud manifest delta to in-memory cloud manifest. Does not change the
   // on-disk state.
+  //
+  // Return InvalidArgument status if the delta has been applied in current
+  // CloudManifest
   virtual Status ApplyCloudManifestDelta(const CloudManifestDelta& delta) = 0;
 
   // This function does several things:
@@ -624,6 +627,9 @@ class CloudEnv : public Env {
   // * Copies MANIFEST-epoch into MANIFEST-delta.epoch
   // * Uploads both CLOUDMANIFEST-cookie and MANIFEST-delta.epoch into cloud
   // storage (if dest bucket is given).
+  //
+  // Return InvalidArgument status if the delta has been applied in current
+  // CloudManifest
   virtual Status RollNewCookie(const std::string& local_dbname,
                                const std::string& cookie,
                                const CloudManifestDelta& delta) const = 0;
