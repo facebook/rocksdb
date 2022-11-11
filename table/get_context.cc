@@ -468,10 +468,10 @@ void GetContext::Merge(const Slice* value) {
   assert(do_merge_);
   assert(!pinnable_val_ || !columns_);
 
+  std::string result;
   const Status s = MergeHelper::TimedFullMerge(
-      merge_operator_, user_key_, value, merge_context_->GetOperands(),
-      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_, logger_,
-      statistics_, clock_, /* result_operand */ nullptr,
+      merge_operator_, user_key_, value, merge_context_->GetOperands(), &result,
+      logger_, statistics_, clock_, /* result_operand */ nullptr,
       /* update_num_ops_stats */ true);
   if (!s.ok()) {
     state_ = kCorrupt;
@@ -479,25 +479,66 @@ void GetContext::Merge(const Slice* value) {
   }
 
   if (LIKELY(pinnable_val_ != nullptr)) {
+    *(pinnable_val_->GetSelf()) = std::move(result);
     pinnable_val_->PinSelf();
+    return;
   }
+
+  assert(columns_);
+  columns_->SetPlainValue(result);
 }
 
 void GetContext::MergeWithEntity(Slice entity) {
   assert(do_merge_);
   assert(!pinnable_val_ || !columns_);
 
-  const Status s = MergeHelper::TimedFullMergeWithEntity(
-      merge_operator_, user_key_, entity, merge_context_->GetOperands(),
-      pinnable_val_ ? pinnable_val_->GetSelf() : nullptr, columns_, logger_,
-      statistics_, clock_, /* update_num_ops_stats */ true);
-  if (!s.ok()) {
-    state_ = kCorrupt;
+  if (LIKELY(pinnable_val_ != nullptr)) {
+    Slice value_of_default;
+
+    {
+      const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
+          entity, value_of_default);
+      if (!s.ok()) {
+        state_ = kCorrupt;
+        return;
+      }
+    }
+
+    {
+      const Status s = MergeHelper::TimedFullMerge(
+          merge_operator_, user_key_, &value_of_default,
+          merge_context_->GetOperands(), pinnable_val_->GetSelf(), logger_,
+          statistics_, clock_, /* result_operand */ nullptr,
+          /* update_num_ops_stats */ true);
+      if (!s.ok()) {
+        state_ = kCorrupt;
+        return;
+      }
+    }
+
+    pinnable_val_->PinSelf();
     return;
   }
 
-  if (LIKELY(pinnable_val_ != nullptr)) {
-    pinnable_val_->PinSelf();
+  std::string result;
+
+  {
+    const Status s = MergeHelper::TimedFullMergeWithEntity(
+        merge_operator_, user_key_, entity, merge_context_->GetOperands(),
+        &result, logger_, statistics_, clock_, /* update_num_ops_stats */ true);
+    if (!s.ok()) {
+      state_ = kCorrupt;
+      return;
+    }
+  }
+
+  {
+    assert(columns_);
+    const Status s = columns_->SetWideColumnValue(result);
+    if (!s.ok()) {
+      state_ = kCorrupt;
+      return;
+    }
   }
 }
 

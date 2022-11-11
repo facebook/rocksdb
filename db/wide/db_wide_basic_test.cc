@@ -399,6 +399,16 @@ TEST_F(DBWideBasicTest, MergeEntity) {
   auto verify = [&]() {
     const std::string first_expected_default(
         first_columns[0].value().ToString() + delim + first_merge_operand);
+    WideColumns first_expected_columns{
+        {kDefaultWideColumnName, first_expected_default},
+        first_columns[1],
+        first_columns[2]};
+
+    const std::string second_expected_default(delim + second_merge_operand);
+    WideColumns second_expected_columns{
+        {kDefaultWideColumnName, second_expected_default},
+        second_columns[0],
+        second_columns[1]};
 
     {
       PinnableSlice result;
@@ -411,13 +421,7 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       PinnableWideColumns result;
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                first_key, &result));
-
-      WideColumns expected_columns{
-          {kDefaultWideColumnName, first_expected_default},
-          first_columns[1],
-          first_columns[2]};
-
-      ASSERT_EQ(result.columns(), expected_columns);
+      ASSERT_EQ(result.columns(), first_expected_columns);
     }
 
     {
@@ -438,8 +442,6 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       ASSERT_EQ(merge_operands[1], first_merge_operand);
     }
 
-    const std::string second_expected_default(delim + second_merge_operand);
-
     {
       PinnableSlice result;
       ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), second_key,
@@ -451,13 +453,7 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       PinnableWideColumns result;
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                second_key, &result));
-
-      WideColumns expected_columns{
-          {kDefaultWideColumnName, second_expected_default},
-          second_columns[0],
-          second_columns[1]};
-
-      ASSERT_EQ(result.columns(), expected_columns);
+      ASSERT_EQ(result.columns(), second_expected_columns);
     }
 
     {
@@ -495,18 +491,44 @@ TEST_F(DBWideBasicTest, MergeEntity) {
       ASSERT_OK(statuses[1]);
     }
 
-    // Note: Merge is currently not supported for wide-column entities in
-    // iterator
     {
       std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
 
       iter->SeekToFirst();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), first_expected_default);
+      ASSERT_EQ(iter->columns(), first_expected_columns);
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_EQ(iter->value(), second_expected_default);
+      ASSERT_EQ(iter->columns(), second_expected_columns);
+
+      iter->Next();
       ASSERT_FALSE(iter->Valid());
-      ASSERT_TRUE(iter->status().IsNotSupported());
+      ASSERT_OK(iter->status());
 
       iter->SeekToLast();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_EQ(iter->value(), second_expected_default);
+      ASSERT_EQ(iter->columns(), second_expected_columns);
+
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), first_expected_default);
+      ASSERT_EQ(iter->columns(), first_expected_columns);
+
+      iter->Prev();
       ASSERT_FALSE(iter->Valid());
-      ASSERT_TRUE(iter->status().IsNotSupported());
+      ASSERT_OK(iter->status());
     }
   };
 

@@ -2384,15 +2384,19 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
-    if (str_value || columns) {
+    if (value || columns) {
+      std::string result;
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-          str_value, columns, info_log_, db_statistics_, clock_,
+          &result, info_log_, db_statistics_, clock_,
           /* result_operand */ nullptr, /* update_num_ops_stats */ true);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
+          *(value->GetSelf()) = std::move(result);
           value->PinSelf();
+        } else {
+          assert(columns != nullptr);
+          columns->SetPlainValue(result);
         }
       }
     }
