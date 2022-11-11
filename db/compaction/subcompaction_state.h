@@ -128,21 +128,12 @@ class SubcompactionState {
         compaction_outputs_(c, /*is_penultimate_level=*/false),
         penultimate_level_outputs_(c, /*is_penultimate_level=*/true) {
     assert(compaction != nullptr);
-    const InternalKeyComparator* icmp =
-        &compaction->column_family_data()->internal_comparator();
-    const InternalKey* output_split_key = compaction->GetOutputSplitKey();
-    // Invalid output_split_key indicates that we do not need to split
-    if (output_split_key != nullptr) {
-      // We may only split the output when the cursor is in the range. Split
-      if ((!end.has_value() ||
-           icmp->user_comparator()->Compare(
-               ExtractUserKey(output_split_key->Encode()), end.value()) < 0) &&
-          (!start.has_value() || icmp->user_comparator()->Compare(
-                                     ExtractUserKey(output_split_key->Encode()),
-                                     start.value()) > 0)) {
-        local_output_split_key_ = output_split_key;
-      }
-    }
+    // Set output split key (used for RoundRobin feature) only for normal
+    // compaction_outputs, output to penultimate_level feature doesn't support
+    // RoundRobin feature (and may never going to be supported, because for
+    // RoundRobin, the data time is mostly naturally sorted, no need to have
+    // per-key placement with output_to_penultimate_level).
+    compaction_outputs_.SetOutputSlitKey(start, end);
   }
 
   SubcompactionState(SubcompactionState&& state) noexcept
@@ -155,12 +146,6 @@ class SubcompactionState {
             state.notify_on_subcompaction_completion),
         compaction_job_stats(std::move(state.compaction_job_stats)),
         sub_job_id(state.sub_job_id),
-        files_to_cut_for_ttl_(std::move(state.files_to_cut_for_ttl_)),
-        cur_files_to_cut_for_ttl_(state.cur_files_to_cut_for_ttl_),
-        next_files_to_cut_for_ttl_(state.next_files_to_cut_for_ttl_),
-        grandparent_index_(state.grandparent_index_),
-        overlapped_bytes_(state.overlapped_bytes_),
-        seen_key_(state.seen_key_),
         compaction_outputs_(std::move(state.compaction_outputs_)),
         penultimate_level_outputs_(std::move(state.penultimate_level_outputs_)),
         is_current_penultimate_level_(state.is_current_penultimate_level_),
@@ -174,12 +159,6 @@ class SubcompactionState {
     return has_penultimate_level_outputs_ ||
            penultimate_level_outputs_.HasRangeDel();
   }
-
-  void FillFilesToCutForTtl();
-
-  // Returns true iff we should stop building the current output
-  // before processing "internal_key".
-  bool ShouldStopBefore(const Slice& internal_key);
 
   bool IsCurrentPenultimateLevel() const {
     return is_current_penultimate_level_;
@@ -224,28 +203,6 @@ class SubcompactionState {
   }
 
  private:
-  // Some identified files with old oldest ancester time and the range should be
-  // isolated out so that the output file(s) in that range can be merged down
-  // for TTL and clear the timestamps for the range.
-  std::vector<FileMetaData*> files_to_cut_for_ttl_;
-  int cur_files_to_cut_for_ttl_ = -1;
-  int next_files_to_cut_for_ttl_ = 0;
-
-  // An index that used to speed up ShouldStopBefore().
-  size_t grandparent_index_ = 0;
-  // The number of bytes overlapping between the current output and
-  // grandparent files used in ShouldStopBefore().
-  uint64_t overlapped_bytes_ = 0;
-  // A flag determines whether the key has been seen in ShouldStopBefore()
-  bool seen_key_ = false;
-
-  // A flag determines if this subcompaction has been split by the cursor
-  bool is_split_ = false;
-
-  // We also maintain the output split key for each subcompaction to avoid
-  // repetitive comparison in ShouldStopBefore()
-  const InternalKey* local_output_split_key_ = nullptr;
-
   // State kept for output being generated
   CompactionOutputs compaction_outputs_;
   CompactionOutputs penultimate_level_outputs_;

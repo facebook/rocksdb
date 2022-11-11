@@ -329,6 +329,10 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_enable_compaction_filter) {
     // TODO (yanqin) enable compaction filter
   }
+#ifndef ROCKSDB_LITE
+  ProcessRecoveredPreparedTxns(shared);
+#endif
+
   ReopenAndPreloadDbIfNeeded(shared);
   // TODO (yanqin) parallelize if key space is large
   for (auto& key_gen : key_gen_for_a_) {
@@ -416,8 +420,7 @@ Status MultiOpsTxnsStressTest::TestPut(ThreadState* /*thread*/,
                                        const ReadOptions& /*read_opts*/,
                                        const std::vector<int>& /*cf_ids*/,
                                        const std::vector<int64_t>& /*keys*/,
-                                       char (&value)[100],
-                                       std::unique_ptr<MutexLock>& /*lock*/) {
+                                       char (&value)[100]) {
   (void)value;
   return Status::NotSupported();
 }
@@ -426,8 +429,7 @@ Status MultiOpsTxnsStressTest::TestPut(ThreadState* /*thread*/,
 Status MultiOpsTxnsStressTest::TestDelete(
     ThreadState* /*thread*/, WriteOptions& /*write_opts*/,
     const std::vector<int>& /*rand_column_families*/,
-    const std::vector<int64_t>& /*rand_keys*/,
-    std::unique_ptr<MutexLock>& /*lock*/) {
+    const std::vector<int64_t>& /*rand_keys*/) {
   return Status::NotSupported();
 }
 
@@ -435,15 +437,13 @@ Status MultiOpsTxnsStressTest::TestDelete(
 Status MultiOpsTxnsStressTest::TestDeleteRange(
     ThreadState* /*thread*/, WriteOptions& /*write_opts*/,
     const std::vector<int>& /*rand_column_families*/,
-    const std::vector<int64_t>& /*rand_keys*/,
-    std::unique_ptr<MutexLock>& /*lock*/) {
+    const std::vector<int64_t>& /*rand_keys*/) {
   return Status::NotSupported();
 }
 
 void MultiOpsTxnsStressTest::TestIngestExternalFile(
     ThreadState* thread, const std::vector<int>& rand_column_families,
-    const std::vector<int64_t>& /*rand_keys*/,
-    std::unique_ptr<MutexLock>& /*lock*/) {
+    const std::vector<int64_t>& /*rand_keys*/) {
   // TODO (yanqin)
   (void)thread;
   (void)rand_column_families;
@@ -1357,6 +1357,18 @@ uint32_t MultiOpsTxnsStressTest::GenerateNextC(ThreadState* thread) {
 }
 
 #ifndef ROCKSDB_LITE
+void MultiOpsTxnsStressTest::ProcessRecoveredPreparedTxnsHelper(
+    Transaction* txn, SharedState*) {
+  thread_local Random rand(static_cast<uint32_t>(FLAGS_seed));
+  if (rand.OneIn(2)) {
+    Status s = txn->Commit();
+    assert(s.ok());
+  } else {
+    Status s = txn->Rollback();
+    assert(s.ok());
+  }
+}
+
 Status MultiOpsTxnsStressTest::WriteToCommitTimeWriteBatch(Transaction& txn) {
   WriteBatch* ctwb = txn.GetCommitTimeWriteBatch();
   assert(ctwb);
@@ -1779,6 +1791,12 @@ void CheckAndSetOptionsForMultiOpsTxnStressTest() {
               "write-prepared/write-unprepared transactions\n");
       exit(1);
     }
+  }
+  if (FLAGS_sync_fault_injection == 1) {
+    fprintf(stderr,
+            "Sync fault injection is currently not supported in "
+            "-test_multi_ops_txns\n");
+    exit(1);
   }
 #else
   fprintf(stderr, "-test_multi_ops_txns not supported in ROCKSDB_LITE mode\n");

@@ -613,7 +613,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
       &new_cf_opt));
   ASSERT_NE(new_cf_opt.blob_cache, nullptr);
   ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
-  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
+  ASSERT_EQ(static_cast<ShardedCacheBase*>(new_cf_opt.blob_cache.get())
                 ->GetNumShardBits(),
             4);
   ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
@@ -1064,15 +1064,18 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
                 new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(
+                new_opt.block_cache_compressed)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
                 new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
@@ -1088,9 +1091,9 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 2*1024UL*1024UL);
   // Default values
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(),
-                GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
                 ->GetHighPriPoolRatio(),
@@ -1098,10 +1101,11 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 2*1024UL*1024UL);
   // Default values
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(),
-                GetDefaultCacheShardBits(
-                    new_opt.block_cache_compressed->GetCapacity()));
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCacheBase>(
+          new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      GetDefaultCacheShardBits(new_opt.block_cache_compressed->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -1115,15 +1119,18 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       "high_pri_pool_ratio=0.0;}",
       &new_opt));
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 0);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 5);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            5);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
                 new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 0);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 5);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(
+                new_opt.block_cache_compressed)
+                ->GetNumShardBits(),
+            5);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -1139,16 +1146,19 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
                 ->GetHighPriPoolRatio(),
             0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(
+                new_opt.block_cache_compressed)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -2322,6 +2332,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"target_file_size_multiplier", "13"},
       {"max_bytes_for_level_base", "14"},
       {"level_compaction_dynamic_level_bytes", "true"},
+      {"level_compaction_dynamic_file_size", "true"},
       {"max_bytes_for_level_multiplier", "15.0"},
       {"max_bytes_for_level_multiplier_additional", "16:17:18"},
       {"max_compaction_bytes", "21"},
@@ -2458,6 +2469,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_base, 14U);
   ASSERT_EQ(new_cf_opt.level_compaction_dynamic_level_bytes, true);
+  ASSERT_EQ(new_cf_opt.level_compaction_dynamic_file_size, true);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15.0);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional.size(), 3U);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[0], 16);
@@ -2788,7 +2800,7 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
       &new_cf_opt));
   ASSERT_NE(new_cf_opt.blob_cache, nullptr);
   ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
-  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
+  ASSERT_EQ(static_cast<ShardedCacheBase*>(new_cf_opt.blob_cache.get())
                 ->GetNumShardBits(),
             4);
   ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
@@ -2968,15 +2980,18 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
              &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
                 new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(
+                new_opt.block_cache_compressed)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
                 new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
@@ -2991,9 +3006,9 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 2*1024UL*1024UL);
   // Default values
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(),
-                GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
                 ->GetHighPriPoolRatio(),
@@ -3001,10 +3016,11 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 2*1024UL*1024UL);
   // Default values
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(),
-                GetDefaultCacheShardBits(
-                    new_opt.block_cache_compressed->GetCapacity()));
+  ASSERT_EQ(
+      std::dynamic_pointer_cast<ShardedCacheBase>(
+          new_opt.block_cache_compressed)
+          ->GetNumShardBits(),
+      GetDefaultCacheShardBits(new_opt.block_cache_compressed->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -3018,15 +3034,18 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
       "high_pri_pool_ratio=0.0;}",
       &new_opt));
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 0);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 5);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            5);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
                 new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 0);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 5);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(
+                new_opt.block_cache_compressed)
+                ->GetNumShardBits(),
+            5);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -3041,16 +3060,19 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
              &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
                 ->GetHighPriPoolRatio(),
             0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
-                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(
+                new_opt.block_cache_compressed)
+                ->GetNumShardBits(),
+            4);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
@@ -4983,6 +5005,7 @@ INSTANTIATE_TEST_CASE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);

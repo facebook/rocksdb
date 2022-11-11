@@ -137,18 +137,19 @@ class BlockReadAmpBitmap {
   uint32_t rnd_;
 };
 
-// This Block class is not for any old block: it is designed to hold only
-// uncompressed blocks containing sorted key-value pairs. It is thus
-// suitable for storing uncompressed data blocks, index blocks (including
-// partitions), range deletion blocks, properties blocks, metaindex blocks,
-// as well as the top level of the partitioned filter structure (which is
-// actually an index of the filter partitions). It is NOT suitable for
+// class Block is the uncompressed and "parsed" form for blocks containing
+// key-value pairs. (See BlockContents comments for more on terminology.)
+// This includes the in-memory representation of data blocks, index blocks
+// (including partitions), range deletion blocks, properties blocks, metaindex
+// blocks, as well as the top level of the partitioned filter structure (which
+// is actually an index of the filter partitions). It is NOT suitable for
 // compressed blocks in general, filter blocks/partitions, or compression
-// dictionaries (since the latter do not contain sorted key-value pairs).
-// Use BlockContents directly for those.
+// dictionaries.
 //
 // See https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format
 // for details of the format and the various block types.
+//
+// TODO: Rename to ParsedKvBlock?
 class Block {
  public:
   // Initialize the block with the specified contents.

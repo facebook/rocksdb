@@ -13,6 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO(cbi): parameterize the test to cover user-defined timestamp cases
 class DBRangeDelTest : public DBTestBase {
  public:
   DBRangeDelTest() : DBTestBase("db_range_del_test", /*env_do_fsync=*/false) {}
@@ -237,7 +238,8 @@ TEST_F(DBRangeDelTest, SentinelsOmittedFromOutputFile) {
   const Snapshot* snapshot = db_->GetSnapshot();
 
   // gaps between ranges creates sentinels in our internal representation
-  std::vector<std::pair<std::string, std::string>> range_dels = {{"a", "b"}, {"c", "d"}, {"e", "f"}};
+  std::vector<std::pair<std::string, std::string>> range_dels = {
+      {"a", "b"}, {"c", "d"}, {"e", "f"}};
   for (const auto& range_del : range_dels) {
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                range_del.first, range_del.second));
@@ -566,8 +568,8 @@ TEST_F(DBRangeDelTest, PutDeleteRangeMergeFlush) {
   std::string val;
   PutFixed64(&val, 1);
   ASSERT_OK(db_->Put(WriteOptions(), "key", val));
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
-                             "key", "key_"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "key",
+                             "key_"));
   ASSERT_OK(db_->Merge(WriteOptions(), "key", val));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
@@ -1029,7 +1031,11 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
   options.level0_file_num_compaction_trigger = kNumFilesPerLevel;
   options.memtable_factory.reset(
       test::NewSpecialSkipListFactory(2 /* num_entries_flush */));
-  options.target_file_size_base = kValueBytes;
+  // max file size could be 2x of target file size, so set it to half of that
+  options.target_file_size_base = kValueBytes / 2;
+  // disable dynamic_file_size, as it will cut L1 files into more files (than
+  // kNumFilesPerLevel).
+  options.level_compaction_dynamic_file_size = false;
   options.max_compaction_bytes = 1500;
   // i == 0: CompactFiles
   // i == 1: CompactRange
@@ -1100,6 +1106,12 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
       test::NewSpecialSkipListFactory(2 /* num_entries_flush */));
   options.target_file_size_base = kValueBytes;
   options.disable_auto_compactions = true;
+  // disable it for now, otherwise the L1 files are going be cut before data 1:
+  // L1: [0]   [1,4]
+  // L2: [0,0]
+  // because the grandparent file is between [0]->[1] and it's size is more than
+  // 1/8 of target size (4k).
+  options.level_compaction_dynamic_file_size = false;
 
   DestroyAndReopen(options);
 
@@ -1321,7 +1333,7 @@ TEST_F(DBRangeDelTest, UntruncatedTombstoneDoesNotDeleteNewerKey) {
   const int kFileBytes = 1 << 20;
   const int kValueBytes = 1 << 10;
   const int kNumFiles = 4;
-  const int kMaxKey = kNumFiles* kFileBytes / kValueBytes;
+  const int kMaxKey = kNumFiles * kFileBytes / kValueBytes;
   const int kKeysOverwritten = 10;
 
   Options options = CurrentOptions();
@@ -1638,7 +1650,8 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
     const auto& table_props = name_and_table_props.second;
     // The range tombstone should only be output to the second L1 SST.
     if (name.size() >= l1_metadata[1].name.size() &&
-        name.substr(name.size() - l1_metadata[1].name.size()).compare(l1_metadata[1].name) == 0) {
+        name.substr(name.size() - l1_metadata[1].name.size())
+                .compare(l1_metadata[1].name) == 0) {
       ASSERT_EQ(1, table_props->num_range_deletions);
       ++num_range_deletions;
     } else {
@@ -1723,9 +1736,8 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
 
   ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));
-  ASSERT_EQ(
-      3, NumTableFilesAtLevel(
-             2));  // L1->L2 compaction size is limited to max_compaction_bytes
+  // L1->L2 compaction size is limited to max_compaction_bytes
+  ASSERT_EQ(3, NumTableFilesAtLevel(2));
   ASSERT_EQ(0, NumTableFilesAtLevel(1));
 }
 
@@ -1974,6 +1986,40 @@ TEST_F(DBRangeDelTest, TombstoneFromCurrentLevel) {
   delete iter;
 }
 
+class TombstoneTestSstPartitioner : public SstPartitioner {
+ public:
+  const char* Name() const override { return "SingleKeySstPartitioner"; }
+
+  PartitionerResult ShouldPartition(
+      const PartitionerRequest& request) override {
+    if (cmp->Compare(*request.current_user_key, DBTestBase::Key(5)) == 0) {
+      return kRequired;
+    } else {
+      return kNotRequired;
+    }
+  }
+
+  bool CanDoTrivialMove(const Slice& /*smallest_user_key*/,
+                        const Slice& /*largest_user_key*/) override {
+    return false;
+  }
+
+  const Comparator* cmp = BytewiseComparator();
+};
+
+class TombstoneTestSstPartitionerFactory : public SstPartitionerFactory {
+ public:
+  static const char* kClassName() {
+    return "TombstoneTestSstPartitionerFactory";
+  }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<SstPartitioner> CreatePartitioner(
+      const SstPartitioner::Context& /* context */) const override {
+    return std::unique_ptr<SstPartitioner>(new TombstoneTestSstPartitioner());
+  }
+};
+
 TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
   // Verify that a range tombstone across file boundary covers keys from older
   // levels. Test set up:
@@ -1987,11 +2033,17 @@ TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
   options.target_file_size_base = 2 * 1024;
   options.max_compaction_bytes = 2 * 1024;
 
+  // Make sure L1 files are split before "5"
+  auto factory = std::make_shared<TombstoneTestSstPartitionerFactory>();
+  options.sst_partitioner_factory = factory;
+
   DestroyAndReopen(options);
 
   Random rnd(301);
   // L2
-  ASSERT_OK(db_->Put(WriteOptions(), Key(5), rnd.RandomString(1 << 10)));
+  // the file should be smaller than max_compaction_bytes, otherwise the file
+  // will be cut before 7.
+  ASSERT_OK(db_->Put(WriteOptions(), Key(5), rnd.RandomString(1 << 9)));
   ASSERT_OK(db_->Flush(FlushOptions()));
   MoveFilesToLevel(2);
   ASSERT_EQ(1, NumTableFilesAtLevel(2));
@@ -2303,7 +2355,6 @@ TEST_F(DBRangeDelTest, TombstoneOnlyLevel) {
   InternalIterator* level_iter = sv->current->TEST_GetLevelIterator(
       read_options, &merge_iter_builder, 1 /* level */, true);
   // This is needed to make LevelIterator range tombstone aware
-  merge_iter_builder.AddIterator(level_iter);
   auto miter = merge_iter_builder.Finish();
   auto k = Key(3);
   IterKey target;
@@ -2686,6 +2737,23 @@ TEST_F(DBRangeDelTest, PrefixSentinelKey) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), "aaae");
   delete iter;
+}
+
+TEST_F(DBRangeDelTest, RefreshMemtableIter) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+  ReadOptions ro;
+  ro.read_tier = kMemtableTier;
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ro)};
+  ASSERT_OK(Flush());
+  // First refresh reinits iter, which had a bug where
+  // iter.memtable_range_tombstone_iter_ was not set to nullptr, and caused
+  // subsequent refresh to double free.
+  ASSERT_OK(iter->Refresh());
+  ASSERT_OK(iter->Refresh());
 }
 
 #endif  // ROCKSDB_LITE

@@ -6,6 +6,8 @@
 #pragma once
 #include <gflags/gflags.h>
 
+#include <functional>
+
 #ifndef GFLAGS_NAMESPACE
 // in case it's not defined in old versions, that's probably because it was
 // still google by default.
@@ -16,10 +18,13 @@
 // DEFINE_uint32 does not appear in older versions of gflags. This should be
 // a sane definition for those versions.
 #include <cstdint>
-#define DEFINE_uint32(name, val, txt) \
-  namespace gflags_compat {           \
-  DEFINE_int32(name, val, txt);       \
-  }                                   \
-  uint32_t &FLAGS_##name =            \
-      *reinterpret_cast<uint32_t *>(&gflags_compat::FLAGS_##name);
-#endif
+#define DEFINE_uint32(name, val, txt)             \
+  namespace gflags_compat {                       \
+  DEFINE_int32(name, val, txt);                   \
+  }                                               \
+  std::reference_wrapper<uint32_t> FLAGS_##name = \
+      std::ref(*reinterpret_cast<uint32_t *>(&gflags_compat::FLAGS_##name));
+
+#define DECLARE_uint32(name) \
+  extern std::reference_wrapper<uint32_t> FLAGS_##name;
+#endif  // !DEFINE_uint32

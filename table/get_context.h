@@ -75,8 +75,6 @@ class GetContext {
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
     kUnexpectedBlobIndex,
-    // TODO: remove once wide-column entities are supported by Get/MultiGet
-    kUnexpectedWideColumnEntity,
   };
   GetContextStats get_context_stats_;
 
@@ -148,6 +146,14 @@ class GetContext {
     return max_covering_tombstone_seq_;
   }
 
+  bool NeedTimestamp() { return timestamp_ != nullptr; }
+
+  void SetTimestampFromRangeTombstone(const Slice& timestamp) {
+    assert(timestamp_);
+    timestamp_->assign(timestamp.data(), timestamp.size());
+    ts_from_rangetombstone_ = true;
+  }
+
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
   // If a non-null string is passed, all the SaveValue calls will be
@@ -177,6 +183,7 @@ class GetContext {
 
  private:
   void Merge(const Slice* value);
+  void MergeWithEntity(Slice entity);
   bool GetBlobValue(const Slice& blob_index, PinnableSlice* blob_value);
 
   const Comparator* ucmp_;
@@ -190,6 +197,7 @@ class GetContext {
   PinnableSlice* pinnable_val_;
   PinnableWideColumns* columns_;
   std::string* timestamp_;
+  bool ts_from_rangetombstone_{false};
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   SequenceNumber* max_covering_tombstone_seq_;

@@ -72,6 +72,13 @@ class TruncatedRangeDelIterator {
   }
 
   SequenceNumber seq() const { return iter_->seq(); }
+  Slice timestamp() const {
+    assert(icmp_->user_comparator()->timestamp_size());
+    return iter_->timestamp();
+  }
+  void SetTimestampUpperBound(const Slice* ts_upper_bound) {
+    iter_->SetTimestampUpperBound(ts_upper_bound);
+  }
 
   std::map<SequenceNumber, std::unique_ptr<TruncatedRangeDelIterator>>
   SplitBySnapshot(const std::vector<SequenceNumber>& snapshots);
@@ -332,6 +339,8 @@ class RangeDelAggregator {
       }
     }
 
+    // If user-defined timestamp is enabled, `start` and `end` are user keys
+    // with timestamp.
     bool IsRangeOverlapped(const Slice& start, const Slice& end);
 
    private:
@@ -395,8 +404,25 @@ class ReadRangeDelAggregator final : public RangeDelAggregator {
 class CompactionRangeDelAggregator : public RangeDelAggregator {
  public:
   CompactionRangeDelAggregator(const InternalKeyComparator* icmp,
-                               const std::vector<SequenceNumber>& snapshots)
-      : RangeDelAggregator(icmp), snapshots_(&snapshots) {}
+                               const std::vector<SequenceNumber>& snapshots,
+                               const std::string* full_history_ts_low = nullptr,
+                               const std::string* trim_ts = nullptr)
+      : RangeDelAggregator(icmp), snapshots_(&snapshots) {
+    if (full_history_ts_low) {
+      ts_upper_bound_ = *full_history_ts_low;
+    }
+    if (trim_ts) {
+      trim_ts_ = *trim_ts;
+      // Range tombstone newer than `trim_ts` or `full_history_ts_low` should
+      // not be considered in ShouldDelete().
+      if (ts_upper_bound_.empty()) {
+        ts_upper_bound_ = trim_ts_;
+      } else if (!trim_ts_.empty() && icmp->user_comparator()->CompareTimestamp(
+                                          trim_ts_, ts_upper_bound_) < 0) {
+        ts_upper_bound_ = trim_ts_;
+      }
+    }
+  }
   ~CompactionRangeDelAggregator() override {}
 
   void AddTombstones(
@@ -442,6 +468,9 @@ class CompactionRangeDelAggregator : public RangeDelAggregator {
   std::map<SequenceNumber, StripeRep> reps_;
 
   const std::vector<SequenceNumber>* snapshots_;
+  // min over full_history_ts_low and trim_ts_
+  Slice ts_upper_bound_{};
+  Slice trim_ts_{};
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -61,9 +61,10 @@ DeleteScheduler::~DeleteScheduler() {
 Status DeleteScheduler::DeleteFile(const std::string& file_path,
                                    const std::string& dir_to_sync,
                                    const bool force_bg) {
-  if (rate_bytes_per_sec_.load() <= 0 || (!force_bg &&
-      total_trash_size_.load() >
-          sst_file_manager_->GetTotalSize() * max_trash_db_ratio_.load())) {
+  if (rate_bytes_per_sec_.load() <= 0 ||
+      (!force_bg &&
+       total_trash_size_.load() >
+           sst_file_manager_->GetTotalSize() * max_trash_db_ratio_.load())) {
     // Rate limiting is disabled or trash size makes up more than
     // max_trash_db_ratio_ (default 25%) of the total DB size
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
@@ -141,7 +142,11 @@ Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
   Status s;
   // Check if there are any files marked as trash in this path
   std::vector<std::string> files_in_path;
-  s = env->GetChildren(path, &files_in_path);
+  const auto& fs = env->GetFileSystem();
+  IOOptions io_opts;
+  io_opts.do_not_recurse = true;
+  s = fs->GetChildren(path, io_opts, &files_in_path,
+                      /*IODebugContext*=*/nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -314,8 +319,8 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
       if (my_status.ok()) {
         if (num_hard_links == 1) {
           std::unique_ptr<FSWritableFile> wf;
-          my_status = fs_->ReopenWritableFile(path_in_trash, FileOptions(),
-                                              &wf, nullptr);
+          my_status = fs_->ReopenWritableFile(path_in_trash, FileOptions(), &wf,
+                                              nullptr);
           if (my_status.ok()) {
             my_status = wf->Truncate(file_size - bytes_max_delete_chunk_,
                                      IOOptions(), nullptr);

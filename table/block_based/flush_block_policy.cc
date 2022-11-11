@@ -16,7 +16,6 @@
 #include "table/block_based/flush_block_policy.h"
 #include "table/format.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 
 // Flush block by size
@@ -27,8 +26,7 @@ class FlushBlockBySizePolicy : public FlushBlockPolicy {
   // @params block_size_deviation: This is used to close a block before it
   //                               reaches the configured
   FlushBlockBySizePolicy(const uint64_t block_size,
-                         const uint64_t block_size_deviation,
-                         const bool align,
+                         const uint64_t block_size_deviation, const bool align,
                          const BlockBuilder& data_block_builder)
       : block_size_(block_size),
         block_size_deviation_limit_(

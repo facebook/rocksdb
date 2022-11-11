@@ -94,7 +94,9 @@ Status UpdateManifestForFilesState(
 
         std::unique_ptr<FSSequentialFile> f;
         FileOptions fopts;
-        fopts.temperature = lf->temperature;
+        // Use kUnknown to signal the FileSystem to search all tiers for the
+        // file.
+        fopts.temperature = Temperature::kUnknown;
 
         IOStatus file_ios =
             fs->NewSequentialFile(fname, fopts, &f, /*dbg*/ nullptr);

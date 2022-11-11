@@ -8,6 +8,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <assert.h>
+
 #include <list>
 #include <vector>
 

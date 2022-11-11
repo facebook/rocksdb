@@ -14,6 +14,7 @@ int main() {
 int main() { return 0; }
 #else
 #include <semaphore.h>
+
 #include <atomic>
 #include <bitset>
 #include <chrono>
@@ -281,8 +282,9 @@ struct StatsThread {
       }
       auto now = std::chrono::steady_clock::now();
       double elapsed =
-          std::chrono::duration_cast<std::chrono::duration<double> >(
-              now - tlast).count();
+          std::chrono::duration_cast<std::chrono::duration<double> >(now -
+                                                                     tlast)
+              .count();
       uint64_t w = ::stats.written.load();
       uint64_t r = ::stats.read.load();
       fprintf(stderr,
