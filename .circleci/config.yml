@@ -30,7 +30,7 @@ jobs:
           unzip -q cmake-3.16.4-win64-x64.zip
           mv cmake-3.16.4-win64-x64 cmake )
       - run: |
-          run -xe
+          set -xe
           PATH=$(cd ../deps/cmake/bin;pwd):$PATH
           ./build_tools/install_dependencies.sh ../deps jni lz4
           export --  $(cat ../deps/cmake-flags | sed 's/-D//g')
