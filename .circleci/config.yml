@@ -36,7 +36,7 @@ jobs:
           export --  $(cat ../deps/cmake-flags | sed 's/-D//g')
           TOOLS="-DWITH_TOOLS=OFF -DWITH_TRACE_TOOLS=OFF -WITH_CORE_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF"
           EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
-          cmake  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags)
+          cmake  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags) -DPORTABLE=1
           grep ^WITH build/CMakeCache.txt
           cmake --build  build -v -t  rocksdbjni-shared  --config Release -j 12
       - run: mkdir jars && cp build/java/Release/rocksdbjni-shared.dll jars/librocksdbjni-win64.dll
@@ -115,7 +115,7 @@ jobs:
           ./build_tools/install_dependencies.sh ../deps jni uring lz4
           TOOLS="-DWITH_TOOLS=OFF -DWITH_TRACE_TOOLS=OFF -WITH_CORE_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF"
           EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
-          ${CMAKE_BIN-cmake}  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags)
+          ${CMAKE_BIN-cmake}  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags) -DPORTABLE=1
           grep ^WITH build/CMakeCache.txt
           ${CMAKE_BIN-cmake} --build  build -v -t  rocksdbjni-shared  --config Release -j 12
       - run: |
