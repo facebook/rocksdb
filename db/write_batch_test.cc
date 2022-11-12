@@ -174,9 +174,10 @@ TEST_F(WriteBatchTest, Corruption) {
   Slice contents = WriteBatchInternal::Contents(&batch);
   ASSERT_OK(WriteBatchInternal::SetContents(
       &batch, Slice(contents.data(), contents.size() - 1)));
-  ASSERT_EQ("Put(foo, bar)@200"
-            "Corruption: bad WriteBatch Delete",
-            PrintContents(&batch));
+  ASSERT_EQ(
+      "Put(foo, bar)@200"
+      "Corruption: bad WriteBatch Delete",
+      PrintContents(&batch));
 }
 
 TEST_F(WriteBatchTest, Append) {
@@ -184,28 +185,28 @@ TEST_F(WriteBatchTest, Append) {
   WriteBatchInternal::SetSequence(&b1, 200);
   WriteBatchInternal::SetSequence(&b2, 300);
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("",
-            PrintContents(&b1));
+  ASSERT_EQ("", PrintContents(&b1));
   ASSERT_EQ(0u, b1.Count());
   ASSERT_OK(b2.Put("a", "va"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("Put(a, va)@200",
-            PrintContents(&b1));
+  ASSERT_EQ("Put(a, va)@200", PrintContents(&b1));
   ASSERT_EQ(1u, b1.Count());
   b2.Clear();
   ASSERT_OK(b2.Put("b", "vb"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("Put(a, va)@200"
-            "Put(b, vb)@201",
-            PrintContents(&b1));
+  ASSERT_EQ(
+      "Put(a, va)@200"
+      "Put(b, vb)@201",
+      PrintContents(&b1));
   ASSERT_EQ(2u, b1.Count());
   ASSERT_OK(b2.Delete("foo"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2));
-  ASSERT_EQ("Put(a, va)@200"
-            "Put(b, vb)@202"
-            "Put(b, vb)@201"
-            "Delete(foo)@203",
-            PrintContents(&b1));
+  ASSERT_EQ(
+      "Put(a, va)@200"
+      "Put(b, vb)@202"
+      "Put(b, vb)@201"
+      "Delete(foo)@203",
+      PrintContents(&b1));
   ASSERT_EQ(4u, b1.Count());
   b2.Clear();
   ASSERT_OK(b2.Put("c", "cc"));
@@ -247,89 +248,88 @@ TEST_F(WriteBatchTest, SingleDeletion) {
 }
 
 namespace {
-  struct TestHandler : public WriteBatch::Handler {
-    std::string seen;
-    Status PutCF(uint32_t column_family_id, const Slice& key,
+struct TestHandler : public WriteBatch::Handler {
+  std::string seen;
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
+    if (column_family_id == 0) {
+      seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
+    } else {
+      seen += "PutCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + value.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
+    if (column_family_id == 0) {
+      seen += "Delete(" + key.ToString() + ")";
+    } else {
+      seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) override {
+    if (column_family_id == 0) {
+      seen += "SingleDelete(" + key.ToString() + ")";
+    } else {
+      seen += "SingleDeleteCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+                       const Slice& end_key) override {
+    if (column_family_id == 0) {
+      seen += "DeleteRange(" + begin_key.ToString() + ", " +
+              end_key.ToString() + ")";
+    } else {
+      seen += "DeleteRangeCF(" + std::to_string(column_family_id) + ", " +
+              begin_key.ToString() + ", " + end_key.ToString() + ")";
+    }
+    return Status::OK();
+  }
+  Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
-      if (column_family_id == 0) {
-        seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
-      } else {
-        seen += "PutCF(" + std::to_string(column_family_id) + ", " +
-                key.ToString() + ", " + value.ToString() + ")";
-      }
-      return Status::OK();
+    if (column_family_id == 0) {
+      seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
+    } else {
+      seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
+              key.ToString() + ", " + value.ToString() + ")";
     }
-    Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
-      if (column_family_id == 0) {
-        seen += "Delete(" + key.ToString() + ")";
-      } else {
-        seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
-                key.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status SingleDeleteCF(uint32_t column_family_id,
-                          const Slice& key) override {
-      if (column_family_id == 0) {
-        seen += "SingleDelete(" + key.ToString() + ")";
-      } else {
-        seen += "SingleDeleteCF(" + std::to_string(column_family_id) + ", " +
-                key.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
-                         const Slice& end_key) override {
-      if (column_family_id == 0) {
-        seen += "DeleteRange(" + begin_key.ToString() + ", " +
-                end_key.ToString() + ")";
-      } else {
-        seen += "DeleteRangeCF(" + std::to_string(column_family_id) + ", " +
-                begin_key.ToString() + ", " + end_key.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    Status MergeCF(uint32_t column_family_id, const Slice& key,
-                   const Slice& value) override {
-      if (column_family_id == 0) {
-        seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
-      } else {
-        seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
-                key.ToString() + ", " + value.ToString() + ")";
-      }
-      return Status::OK();
-    }
-    void LogData(const Slice& blob) override {
-      seen += "LogData(" + blob.ToString() + ")";
-    }
-    Status MarkBeginPrepare(bool unprepare) override {
-      seen +=
-          "MarkBeginPrepare(" + std::string(unprepare ? "true" : "false") + ")";
-      return Status::OK();
-    }
-    Status MarkEndPrepare(const Slice& xid) override {
-      seen += "MarkEndPrepare(" + xid.ToString() + ")";
-      return Status::OK();
-    }
-    Status MarkNoop(bool empty_batch) override {
-      seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
-      return Status::OK();
-    }
-    Status MarkCommit(const Slice& xid) override {
-      seen += "MarkCommit(" + xid.ToString() + ")";
-      return Status::OK();
-    }
-    Status MarkCommitWithTimestamp(const Slice& xid, const Slice& ts) override {
-      seen += "MarkCommitWithTimestamp(" + xid.ToString() + ", " +
-              ts.ToString(true) + ")";
-      return Status::OK();
-    }
-    Status MarkRollback(const Slice& xid) override {
-      seen += "MarkRollback(" + xid.ToString() + ")";
-      return Status::OK();
-    }
-  };
-}
+    return Status::OK();
+  }
+  void LogData(const Slice& blob) override {
+    seen += "LogData(" + blob.ToString() + ")";
+  }
+  Status MarkBeginPrepare(bool unprepare) override {
+    seen +=
+        "MarkBeginPrepare(" + std::string(unprepare ? "true" : "false") + ")";
+    return Status::OK();
+  }
+  Status MarkEndPrepare(const Slice& xid) override {
+    seen += "MarkEndPrepare(" + xid.ToString() + ")";
+    return Status::OK();
+  }
+  Status MarkNoop(bool empty_batch) override {
+    seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
+    return Status::OK();
+  }
+  Status MarkCommit(const Slice& xid) override {
+    seen += "MarkCommit(" + xid.ToString() + ")";
+    return Status::OK();
+  }
+  Status MarkCommitWithTimestamp(const Slice& xid, const Slice& ts) override {
+    seen += "MarkCommitWithTimestamp(" + xid.ToString() + ", " +
+            ts.ToString(true) + ")";
+    return Status::OK();
+  }
+  Status MarkRollback(const Slice& xid) override {
+    seen += "MarkRollback(" + xid.ToString() + ")";
+    return Status::OK();
+  }
+};
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, PutNotImplemented) {
   WriteBatch batch;
@@ -609,24 +609,25 @@ TEST_F(WriteBatchTest, PutGatherSlices) {
   {
     // Try a write where the key is one slice but the value is two
     Slice key_slice("baz");
-    Slice value_slices[2] = { Slice("header"), Slice("payload") };
+    Slice value_slices[2] = {Slice("header"), Slice("payload")};
     ASSERT_OK(
         batch.Put(SliceParts(&key_slice, 1), SliceParts(value_slices, 2)));
   }
 
   {
     // One where the key is composite but the value is a single slice
-    Slice key_slices[3] = { Slice("key"), Slice("part2"), Slice("part3") };
+    Slice key_slices[3] = {Slice("key"), Slice("part2"), Slice("part3")};
     Slice value_slice("value");
     ASSERT_OK(
         batch.Put(SliceParts(key_slices, 3), SliceParts(&value_slice, 1)));
   }
 
   WriteBatchInternal::SetSequence(&batch, 100);
-  ASSERT_EQ("Put(baz, headerpayload)@101"
-            "Put(foo, bar)@100"
-            "Put(keypart2part3, value)@102",
-            PrintContents(&batch));
+  ASSERT_EQ(
+      "Put(baz, headerpayload)@101"
+      "Put(foo, bar)@100"
+      "Put(keypart2part3, value)@102",
+      PrintContents(&batch));
   ASSERT_EQ(3u, batch.Count());
 }
 
@@ -646,7 +647,7 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
   uint32_t id_;
   const Comparator* const ucmp_ = BytewiseComparator();
 };
-}  // namespace anonymous
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   WriteBatch batch;
@@ -948,7 +949,7 @@ Status CheckTimestampsInWriteBatch(
   TimestampChecker ts_checker(cf_to_ucmps, timestamp);
   return wb.Iterate(&ts_checker);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(WriteBatchTest, SanityChecks) {
   ColumnFamilyHandleImplDummy cf0(0,

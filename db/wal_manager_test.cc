@@ -69,7 +69,7 @@ class WalManagerTest : public testing::Test {
   // NOT thread safe
   void Put(const std::string& key, const std::string& value) {
     assert(current_log_writer_.get() != nullptr);
-    uint64_t seq =  versions_->LastSequence() + 1;
+    uint64_t seq = versions_->LastSequence() + 1;
     WriteBatch batch;
     ASSERT_OK(batch.Put(key, value));
     WriteBatchInternal::SetSequence(&batch, seq);
@@ -88,7 +88,8 @@ class WalManagerTest : public testing::Test {
     std::unique_ptr<WritableFileWriter> file_writer;
     ASSERT_OK(WritableFileWriter::Create(fs, fname, env_options_, &file_writer,
                                          nullptr));
-    current_log_writer_.reset(new log::Writer(std::move(file_writer), 0, false));
+    current_log_writer_.reset(
+        new log::Writer(std::move(file_writer), 0, false));
   }
 
   void CreateArchiveLogs(int num_logs, int entries_per_log) {
@@ -215,7 +216,7 @@ int CountRecords(TransactionLogIterator* iter) {
   EXPECT_OK(iter->status());
   return count;
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(WalManagerTest, WALArchivalSizeLimit) {
   db_options_.WAL_ttl_seconds = 0;

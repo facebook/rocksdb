@@ -192,7 +192,7 @@ void VerifyFragmentedRangeDels(
   EXPECT_FALSE(iter->Valid());
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(RangeDelAggregatorTest, EmptyTruncatedIter) {
   auto range_del_iter = MakeRangeDelIter({});

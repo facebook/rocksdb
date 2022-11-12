@@ -29,7 +29,7 @@ int64_t MaybeCurrentTime(Env* env) {
   env->GetCurrentTime(&time).PermitUncheckedError();
   return time;
 }
-}  // namespace
+}  // anonymous namespace
 
 // Special Env used to delay background operations
 
@@ -125,54 +125,54 @@ DBTestBase::~DBTestBase() {
 
 bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
 #ifdef ROCKSDB_LITE
-    // These options are not supported in ROCKSDB_LITE
-    if (option_config == kHashSkipList ||
-        option_config == kPlainTableFirstBytePrefix ||
-        option_config == kPlainTableCappedPrefix ||
-        option_config == kPlainTableCappedPrefixNonMmap ||
-        option_config == kPlainTableAllBytesPrefix ||
-        option_config == kVectorRep || option_config == kHashLinkList ||
-        option_config == kUniversalCompaction ||
-        option_config == kUniversalCompactionMultiLevel ||
-        option_config == kUniversalSubcompactions ||
-        option_config == kFIFOCompaction ||
-        option_config == kConcurrentSkipList) {
-      return true;
-    }
+  // These options are not supported in ROCKSDB_LITE
+  if (option_config == kHashSkipList ||
+      option_config == kPlainTableFirstBytePrefix ||
+      option_config == kPlainTableCappedPrefix ||
+      option_config == kPlainTableCappedPrefixNonMmap ||
+      option_config == kPlainTableAllBytesPrefix ||
+      option_config == kVectorRep || option_config == kHashLinkList ||
+      option_config == kUniversalCompaction ||
+      option_config == kUniversalCompactionMultiLevel ||
+      option_config == kUniversalSubcompactions ||
+      option_config == kFIFOCompaction ||
+      option_config == kConcurrentSkipList) {
+    return true;
+  }
 #endif
 
-    if ((skip_mask & kSkipUniversalCompaction) &&
-        (option_config == kUniversalCompaction ||
-         option_config == kUniversalCompactionMultiLevel ||
-         option_config == kUniversalSubcompactions)) {
-      return true;
-    }
-    if ((skip_mask & kSkipMergePut) && option_config == kMergePut) {
-      return true;
-    }
-    if ((skip_mask & kSkipNoSeekToLast) &&
-        (option_config == kHashLinkList || option_config == kHashSkipList)) {
-      return true;
-    }
-    if ((skip_mask & kSkipPlainTable) &&
-        (option_config == kPlainTableAllBytesPrefix ||
-         option_config == kPlainTableFirstBytePrefix ||
-         option_config == kPlainTableCappedPrefix ||
-         option_config == kPlainTableCappedPrefixNonMmap)) {
-      return true;
-    }
-    if ((skip_mask & kSkipHashIndex) &&
-        (option_config == kBlockBasedTableWithPrefixHashIndex ||
-         option_config == kBlockBasedTableWithWholeKeyHashIndex)) {
-      return true;
-    }
-    if ((skip_mask & kSkipFIFOCompaction) && option_config == kFIFOCompaction) {
-      return true;
-    }
-    if ((skip_mask & kSkipMmapReads) && option_config == kWalDirAndMmapReads) {
-      return true;
-    }
-    return false;
+  if ((skip_mask & kSkipUniversalCompaction) &&
+      (option_config == kUniversalCompaction ||
+       option_config == kUniversalCompactionMultiLevel ||
+       option_config == kUniversalSubcompactions)) {
+    return true;
+  }
+  if ((skip_mask & kSkipMergePut) && option_config == kMergePut) {
+    return true;
+  }
+  if ((skip_mask & kSkipNoSeekToLast) &&
+      (option_config == kHashLinkList || option_config == kHashSkipList)) {
+    return true;
+  }
+  if ((skip_mask & kSkipPlainTable) &&
+      (option_config == kPlainTableAllBytesPrefix ||
+       option_config == kPlainTableFirstBytePrefix ||
+       option_config == kPlainTableCappedPrefix ||
+       option_config == kPlainTableCappedPrefixNonMmap)) {
+    return true;
+  }
+  if ((skip_mask & kSkipHashIndex) &&
+      (option_config == kBlockBasedTableWithPrefixHashIndex ||
+       option_config == kBlockBasedTableWithWholeKeyHashIndex)) {
+    return true;
+  }
+  if ((skip_mask & kSkipFIFOCompaction) && option_config == kFIFOCompaction) {
+    return true;
+  }
+  if ((skip_mask & kSkipMmapReads) && option_config == kWalDirAndMmapReads) {
+    return true;
+  }
+  return false;
 }
 
 // Switch to a fresh database with the next option configuration to
@@ -424,13 +424,13 @@ Options DBTestBase::GetOptions(
       options.allow_concurrent_memtable_write = false;
       options.unordered_write = false;
       break;
-      case kDirectIO: {
-        options.use_direct_reads = true;
-        options.use_direct_io_for_flush_and_compaction = true;
-        options.compaction_readahead_size = 2 * 1024 * 1024;
-        SetupSyncPointsToMockDirectIO();
-        break;
-      }
+    case kDirectIO: {
+      options.use_direct_reads = true;
+      options.use_direct_io_for_flush_and_compaction = true;
+      options.compaction_readahead_size = 2 * 1024 * 1024;
+      SetupSyncPointsToMockDirectIO();
+      break;
+    }
 #endif  // ROCKSDB_LITE
     case kMergePut:
       options.merge_operator = MergeOperators::CreatePutOperator();
@@ -1308,12 +1308,14 @@ void DBTestBase::GetSstFiles(Env* env, std::string path,
                              std::vector<std::string>* files) {
   EXPECT_OK(env->GetChildren(path, files));
 
-  files->erase(
-      std::remove_if(files->begin(), files->end(), [](std::string name) {
-        uint64_t number;
-        FileType type;
-        return !(ParseFileName(name, &number, &type) && type == kTableFile);
-      }), files->end());
+  files->erase(std::remove_if(files->begin(), files->end(),
+                              [](std::string name) {
+                                uint64_t number;
+                                FileType type;
+                                return !(ParseFileName(name, &number, &type) &&
+                                         type == kTableFile);
+                              }),
+               files->end());
 }
 
 int DBTestBase::GetSstFileCount(std::string path) {
@@ -1583,8 +1585,8 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
-    ASSERT_EQ(data_iter, true_data.end()) << iter_cnt << " / "
-                                          << true_data.size();
+    ASSERT_EQ(data_iter, true_data.end())
+        << iter_cnt << " / " << true_data.size();
     delete iter;
 
     // Verify Iterator::Prev()
@@ -1606,8 +1608,8 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
-    ASSERT_EQ(data_rev, true_data.rend()) << iter_cnt << " / "
-                                          << true_data.size();
+    ASSERT_EQ(data_rev, true_data.rend())
+        << iter_cnt << " / " << true_data.size();
 
     // Verify Iterator::Seek()
     for (auto kv : true_data) {
@@ -1637,8 +1639,8 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       iter_cnt++;
       total_reads++;
     }
-    ASSERT_EQ(data_iter, true_data.end()) << iter_cnt << " / "
-                                          << true_data.size();
+    ASSERT_EQ(data_iter, true_data.end())
+        << iter_cnt << " / " << true_data.size();
 
     // Verify ForwardIterator::Seek()
     for (auto kv : true_data) {

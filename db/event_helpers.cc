@@ -23,7 +23,7 @@ template <class T>
 inline T SafeDivide(T a, T b) {
   return b == 0 ? 0 : a / b;
 }
-}  // namespace
+}  // anonymous namespace
 
 void EventHelpers::AppendCurrentTime(JSONWriter* jwriter) {
   *jwriter << "time_micros"

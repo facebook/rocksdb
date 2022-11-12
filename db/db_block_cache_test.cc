@@ -414,7 +414,7 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
   }
 };
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBBlockCacheTest, TestWithSameCompressed) {
   auto table_options = GetTableOptions();
@@ -1973,7 +1973,7 @@ struct CacheKeyDecoder {
                                    DownwardInvolution(decoded_session_counter));
   }
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(CacheKeyTest, Encodings) {
   // This test primarily verifies this claim from cache_key.cc:
