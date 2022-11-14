@@ -454,6 +454,7 @@ add_jar(
     SOURCES
     ${JAVA_ALL_TEST_CLASSES}
     INCLUDE_JARS ${JAVA_TESTCLASSPATH} rocksdbjni_classes
+    GENERATE_NATIVE_HEADERS rocksdbjni_test_headers DESTINATION ${JNI_OUTPUT_DIR}
   )
 
 if(NOT EXISTS ${PROJECT_SOURCE_DIR}/java/classes)
@@ -644,15 +645,13 @@ endif()
 
 set(ROCKSDBJNI_STATIC_LIB rocksdbjni${ARTIFACT_SUFFIX})
 add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
-add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers rocksdbjni_test_classes)
+add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers rocksdbjni_test_headers)
 target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
 if(NOT MINGW)
   set(ROCKSDBJNI_SHARED_LIB rocksdbjni-shared${ARTIFACT_SUFFIX})
   add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
-  ## Some test classes are also generating native functions, so need test_classes here.
-  ##  grep -rlw native java/src/test/
-  add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers rocksdbjni_test_classes)
+  add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers rocksdbjni_test_headers)
   ## Here we make a .so from .a rocksdb,and it's dependencies.
   ## the ./build_tools/install_dependencies.sh compiles dependecies with -fPIC
   ## and rocksdb staticlib is compiled with fPIC above ( POSITION_INDEPENDENT_CODE ON)
