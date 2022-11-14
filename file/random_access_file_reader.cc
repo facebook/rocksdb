@@ -581,7 +581,7 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
   }
   if (req.status.ok()) {
     RecordInHistogram(stats_, ASYNC_READ_BYTES, req.result.size());
-  } else {
+  } else if (!req.status.IsAborted()) {
     RecordTick(stats_, ASYNC_READ_ERROR_COUNT, 1);
   }
 #ifndef ROCKSDB_LITE
