@@ -15,15 +15,15 @@ public class StringAppendOperator extends MergeOperator {
         this(',');
     }
 
-    public StringAppendOperator(char delim) {
-        super(newSharedStringAppendOperator(delim));
-    }
-
-    public StringAppendOperator(String delim) {
+    public StringAppendOperator(final char delim) {
       super(newSharedStringAppendOperator(delim));
     }
 
-    private native static long newSharedStringAppendOperator(final char delim);
-    private native static long newSharedStringAppendOperator(final String delim);
+    public StringAppendOperator(final String delim) {
+      super(newSharedStringAppendOperator(delim));
+    }
+
+    private static native long newSharedStringAppendOperator(final char delim);
+    private static native long newSharedStringAppendOperator(final String delim);
     @Override protected final native void disposeInternal(final long handle);
 }

@@ -62,7 +62,7 @@ public abstract class AbstractTraceWriter
 
   private static short statusToShort(final Status.Code code,
       final Status.SubCode subCode) {
-    short result = (short)(code.getValue() << 8);
+    final short result = (short) (code.getValue() << 8);
     return (short)(result | subCode.getValue());
   }
 

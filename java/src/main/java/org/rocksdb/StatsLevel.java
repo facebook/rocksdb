@@ -23,7 +23,7 @@ public enum StatsLevel {
 
     /**
      * Collect all stats, including measuring duration of mutex operations.
-     *
+     * <p>
      * If getting time is expensive on the platform to run, it can
      * reduce scalability to more threads, especially for writes.
      */

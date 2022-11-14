@@ -31,7 +31,7 @@ public abstract class AbstractComparator
 
   /**
    * Get the type of this comparator.
-   *
+   * <p>
    * Used for determining the correct C++ cast in native code.
    *
    * @return The type of the comparator.
@@ -44,11 +44,11 @@ public abstract class AbstractComparator
    * The name of the comparator.  Used to check for comparator
    * mismatches (i.e., a DB created with one comparator is
    * accessed using a different comparator).
-   *
+   * <p>
    * A new name should be used whenever
    * the comparator implementation changes in a way that will cause
    * the relative ordering of any two keys to change.
-   *
+   * <p>
    * Names starting with "rocksdb." are reserved and should not be used.
    *
    * @return The name of this comparator implementation

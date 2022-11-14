@@ -63,7 +63,7 @@ public enum HistogramType {
 
   /**
    * number of bytes decompressed.
-   *
+   * <p>
    * number of bytes is when uncompressed; i.e. before/after respectively
    */
   BYTES_DECOMPRESSED((byte) 0x1B),
