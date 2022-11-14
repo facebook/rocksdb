@@ -436,13 +436,6 @@ elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4")
       INCLUDE_JARS ${JAVA_TESTCLASSPATH}
   )
 
-  add_jar(
-      rocksdbjni_test_classes
-      SOURCES
-      ${JAVA_ALL_TEST_CLASSES}
-      INCLUDE_JARS ${JAVA_TESTCLASSPATH} rocksdbjni_classes
-  )
-
 else ()
   # Java 1.8 or newer prepare the JAR...
   message("Preparing Jar for JDK ${Java_VERSION_STRING}")
@@ -454,14 +447,14 @@ else ()
       INCLUDE_JARS ${JAVA_TESTCLASSPATH}
       GENERATE_NATIVE_HEADERS rocksdbjni_headers DESTINATION ${JNI_OUTPUT_DIR}
   )
-  add_jar(
-      rocksdbjni_test_classes
-      SOURCES
-      ${JAVA_ALL_TEST_CLASSES}
-      INCLUDE_JARS ${JAVA_TESTCLASSPATH} rocksdbjni_classes
-  )
 
 endif()
+add_jar(
+    rocksdbjni_test_classes
+    SOURCES
+    ${JAVA_ALL_TEST_CLASSES}
+    INCLUDE_JARS ${JAVA_TESTCLASSPATH} rocksdbjni_classes
+  )
 
 if(NOT EXISTS ${PROJECT_SOURCE_DIR}/java/classes)
   file(MAKE_DIRECTORY ${PROJECT_SOURCE_DIR}/java/classes)
@@ -657,7 +650,12 @@ target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_L
 if(NOT MINGW)
   set(ROCKSDBJNI_SHARED_LIB rocksdbjni-shared${ARTIFACT_SUFFIX})
   add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
+  ## Some test classes are also generating native functions, so need test_classes here.
+  ##  grep -rlw native java/src/test/
   add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers rocksdbjni_test_classes)
+  ## Here we make a .so from .a rocksdb,and it's dependencies.
+  ## the ./build_tools/install_dependencies.sh compiles dependecies with -fPIC
+  ## and rocksdb staticlib is compiled with fPIC above ( POSITION_INDEPENDENT_CODE ON)
   target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB}
      ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
@@ -669,6 +667,10 @@ if(NOT MINGW)
   )
 endif()
 
+
+## lz4.h is indirectly included by some file in rocksjni/
+## but include_directories set in top level doesn't get
+## propogated here.
 if(WITH_LZ4)
 #  find_package(lz4 REQUIRED)
 #  add_definitions(-DLZ4)

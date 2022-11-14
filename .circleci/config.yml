@@ -187,8 +187,8 @@ jobs:
           <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
           <modelVersion>4.0.0</modelVersion>
-          <groupId>sm-rocksdb</groupId>
-          <artifactId>sm-rocksdbjni</artifactId>
+          <groupId>$GROUPID</groupId>
+          <artifactId>$ARTFACTID</artifactId>
           <version>$VERSION</version>
           </project>
           EOF
@@ -275,7 +275,7 @@ jobs:
           curl -sSf -u"${ARTIFACTORY_UPLOADER_USERNAME}:${ARTIFACTORY_UPLOADER_PASSWORD}" -T $POM_FILE $BASEURL/$REPOPATH/$POM_NAME
 
 workflows:
-  my-workflow:
+  sm-rocksdb-build:
     jobs:
       - upload:
           context: org-sightmachine
