@@ -13,6 +13,7 @@
 
 ### New Features
 * Add basic support for user-defined timestamp to Merge (#10819).
+* Add stats for ReadAsync time spent and async read errors.
 
 ### Public API Changes
 * Marked `block_cache_compressed` as a deprecated feature. Use SecondaryCache instead.
