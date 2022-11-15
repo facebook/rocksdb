@@ -60,7 +60,6 @@ public class CheckPointTest {
   @Test(expected = IllegalArgumentException.class)
   public void failIfDbIsNull() {
     try (final Checkpoint ignored = Checkpoint.create(null)) {
-
     }
   }
 

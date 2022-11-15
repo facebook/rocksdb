@@ -309,8 +309,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setBlockCacheCompressed(
-      final Cache blockCacheCompressed) {
+  public BlockBasedTableConfig setBlockCacheCompressed(final Cache blockCacheCompressed) {
     this.blockCacheCompressed = blockCacheCompressed;
     return this;
   }

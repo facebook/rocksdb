@@ -75,10 +75,9 @@ public class RocksDBTest {
 
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
       try (final RocksDB ignored = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
-        Arrays.asList(
-            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor(col1Name)),
-            cfHandles)) {
+               Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+                   new ColumnFamilyDescriptor(col1Name)),
+               cfHandles)) {
         try {
           assertThat(cfHandles.size()).isEqualTo(2);
           assertThat(cfHandles.get(1)).isNotNull();
@@ -118,11 +117,9 @@ public class RocksDBTest {
 
     cfHandles = new ArrayList<>();
     try (final RocksDB ignored = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
-        Arrays.asList(
-            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor(col1Name),
-            new ColumnFamilyDescriptor(col2Name)),
-        cfHandles)) {
+             Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+                 new ColumnFamilyDescriptor(col1Name), new ColumnFamilyDescriptor(col2Name)),
+             cfHandles)) {
       try {
         assertThat(cfHandles.size()).isEqualTo(3);
         assertThat(cfHandles.get(1)).isNotNull();
@@ -164,11 +161,9 @@ public class RocksDBTest {
 
     cfHandles = new ArrayList<>();
     try (final RocksDB ignored = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
-        Arrays.asList(
-            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor(col1Name),
-            new ColumnFamilyDescriptor(col2Name)),
-        cfHandles)) {
+             Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+                 new ColumnFamilyDescriptor(col1Name), new ColumnFamilyDescriptor(col2Name)),
+             cfHandles)) {
       try {
         assertThat(cfHandles.size()).isEqualTo(3);
         assertThat(cfHandles.get(1)).isNotNull();
@@ -814,8 +809,7 @@ public class RocksDBTest {
   }
 
   @Test
-  public void compactRangeToLevel()
-      throws RocksDBException {
+  public void compactRangeToLevel() throws RocksDBException {
     final int NUM_KEYS_PER_L0_FILE = 100;
     final int KEY_SIZE = 20;
     final int VALUE_SIZE = 300;
@@ -1172,10 +1166,12 @@ public class RocksDBTest {
       try (final RocksDB db = RocksDB.open(options, dbPath)) {
         db.put("key1".getBytes(), "value".getBytes());
       }
-      assertThat(dbFolder.getRoot().exists() && Objects.requireNonNull(dbFolder.getRoot().listFiles()).length != 0)
+      assertThat(dbFolder.getRoot().exists()
+          && Objects.requireNonNull(dbFolder.getRoot().listFiles()).length != 0)
           .isTrue();
       RocksDB.destroyDB(dbPath, options);
-      assertThat(dbFolder.getRoot().exists() && Objects.requireNonNull(dbFolder.getRoot().listFiles()).length != 0)
+      assertThat(dbFolder.getRoot().exists()
+          && Objects.requireNonNull(dbFolder.getRoot().listFiles()).length != 0)
           .isFalse();
     }
   }

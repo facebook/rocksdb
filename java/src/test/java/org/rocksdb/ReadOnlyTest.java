@@ -91,8 +91,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToCFWriteInReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB ignored = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
 
@@ -112,8 +111,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToRemoveInReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB ignored = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
 
@@ -135,8 +133,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToCFRemoveInReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB ignored = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
 
@@ -149,8 +146,7 @@ public class ReadOnlyTest {
       try (final RocksDB rDb = RocksDB.openReadOnly(
           dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
           readOnlyColumnFamilyHandleList)) {
-          rDb.delete(readOnlyColumnFamilyHandleList.get(0),
-              "key".getBytes());
+        rDb.delete(readOnlyColumnFamilyHandleList.get(0), "key".getBytes());
       }
     }
   }
@@ -158,8 +154,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToWriteBatchReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB ignored = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
 
@@ -174,8 +169,8 @@ public class ReadOnlyTest {
           readOnlyColumnFamilyHandleList);
            final WriteBatch wb = new WriteBatch();
            final WriteOptions wOpts = new WriteOptions()) {
-          wb.put("key".getBytes(), "value".getBytes());
-          rDb.write(wOpts, wb);
+        wb.put("key".getBytes(), "value".getBytes());
+        rDb.write(wOpts, wb);
       }
     }
   }
@@ -183,8 +178,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToCFWriteBatchReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB ignored = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
 
@@ -199,9 +193,8 @@ public class ReadOnlyTest {
           readOnlyColumnFamilyHandleList);
            final WriteBatch wb = new WriteBatch();
            final WriteOptions wOpts = new WriteOptions()) {
-          wb.put(readOnlyColumnFamilyHandleList.get(0), "key".getBytes(),
-              "value".getBytes());
-          rDb.write(wOpts, wb);
+        wb.put(readOnlyColumnFamilyHandleList.get(0), "key".getBytes(), "value".getBytes());
+        rDb.write(wOpts, wb);
       }
     }
   }
@@ -219,8 +212,9 @@ public class ReadOnlyTest {
 
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList = new ArrayList<>();
       try (final DBOptions options = new DBOptions();
-           final RocksDB ignored = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath(),
-               cfDescriptors, readOnlyColumnFamilyHandleList, true)) {
+           final RocksDB ignored =
+               RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
+                   readOnlyColumnFamilyHandleList, true)) {
         // no-op... should have raised an error as errorIfWalFileExists=true
       }
     }

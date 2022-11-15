@@ -15,8 +15,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 public class BackupEngineOptionsTest {
-  private static final String ARBITRARY_PATH =
-      System.getProperty("java.io.tmpdir");
+  private static final String ARBITRARY_PATH = System.getProperty("java.io.tmpdir");
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
@@ -61,13 +60,10 @@ public class BackupEngineOptionsTest {
     try (final BackupEngineOptions backupEngineOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       assertThat(backupEngineOptions.infoLog()).isNull();
 
-      try(final Options options = new Options();
-          final Logger logger = new Logger(options){
-            @Override
-            protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-
-            }
-          }) {
+      try (final Options options = new Options(); final Logger logger = new Logger(options) {
+        @Override
+        protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {}
+      }) {
         backupEngineOptions.setInfoLog(logger);
         assertThat(backupEngineOptions.infoLog()).isEqualTo(logger);
       }
@@ -291,7 +287,8 @@ public class BackupEngineOptionsTest {
     }
   }
 
-  private BackupEngineOptions setupUninitializedBackupEngineOptions(final ExpectedException exception) {
+  private BackupEngineOptions setupUninitializedBackupEngineOptions(
+      final ExpectedException exception) {
     final BackupEngineOptions backupEngineOptions = new BackupEngineOptions(ARBITRARY_PATH);
     backupEngineOptions.close();
     exception.expect(AssertionError.class);

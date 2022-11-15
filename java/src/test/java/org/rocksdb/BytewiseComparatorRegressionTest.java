@@ -61,10 +61,9 @@ public class BytewiseComparatorRegressionTest {
   @Test
   public void testCppComparator() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true).setComparator(
-            BuiltinComparator.BYTEWISE_COMPARATOR)) {
+             BuiltinComparator.BYTEWISE_COMPARATOR)) {
       performTest(options);
     }
-
   }
 
   private void performTest(final Options options) throws RocksDBException {
