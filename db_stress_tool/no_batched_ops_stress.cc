@@ -60,11 +60,8 @@ class NonBatchedOpsStressTest : public StressTest {
       constexpr int num_methods =
           static_cast<int>(VerificationMethod::kNumberOfMethods);
 
-      // Note: Merge/GetMergeOperands is currently not supported for wide-column
-      // entities
       const VerificationMethod method =
-          static_cast<VerificationMethod>(thread->rand.Uniform(
-              FLAGS_use_put_entity_one_in > 0 ? num_methods - 1 : num_methods));
+          static_cast<VerificationMethod>(thread->rand.Uniform(num_methods));
 
       if (method == VerificationMethod::kIterator) {
         std::unique_ptr<Iterator> iter(
