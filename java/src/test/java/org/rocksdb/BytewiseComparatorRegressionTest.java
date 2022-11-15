@@ -21,7 +21,7 @@ import org.rocksdb.util.BytewiseComparator;
  * by a change made between 6.2.2 and 6.22.1,
  * to wit {@link <a href="https://github.com/facebook/rocksdb/commit/7242dae7">...</a>}
  * which as part of its effect, changed the Java bytewise comparators.
- *
+ * <p>
  * {@link <a href="https://github.com/facebook/rocksdb/issues/5891">...</a>}
  * {@link <a href="https://github.com/facebook/rocksdb/issues/2001">...</a>}
  */
@@ -34,8 +34,8 @@ public class BytewiseComparatorRegressionTest {
 
   @Rule public TemporaryFolder temporarySSTFolder = new TemporaryFolder();
 
-  private final static byte[][] testData = {{10, -11, 13}, {10, 11, 12}, {10, 11, 14}};
-  private final static byte[][] orderedData = {{10, 11, 12}, {10, 11, 14}, {10, -11, 13}};
+  private static final byte[][] testData = {{10, -11, 13}, {10, 11, 12}, {10, 11, 14}};
+  private static final byte[][] orderedData = {{10, 11, 12}, {10, 11, 14}, {10, -11, 13}};
 
   /**
    * {@link <a href="https://github.com/facebook/rocksdb/issues/5891">...</a>}

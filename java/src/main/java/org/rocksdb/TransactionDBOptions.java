@@ -152,7 +152,7 @@ public class TransactionDBOptions extends RocksObject {
     assert (isOwningHandle());
     setDefaultLockTimeout(nativeHandle_, defaultLockTimeout);
     return this;
-   }
+  }
 
 //  /**
 //   * If set, the {@link TransactionDB} will use this implementation of a mutex

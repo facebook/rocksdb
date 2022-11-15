@@ -7,8 +7,6 @@ package org.rocksdb;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.io.File;
-import java.io.FilenameFilter;
 import java.util.*;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -34,35 +32,29 @@ public class BlobOptionsTest {
    */
   @SuppressWarnings("CallToStringConcatCanBeReplacedByOperator")
   private int countDBFiles(final String endsWith) {
-    return Objects
-        .requireNonNull(dbFolder.getRoot().list(new FilenameFilter() {
-          @Override
-          public boolean accept(File dir, String name) {
-            return name.endsWith(endsWith);
-          }
-        }))
+    return Objects.requireNonNull(dbFolder.getRoot().list((dir, name) -> name.endsWith(endsWith)))
         .length;
   }
 
   @SuppressWarnings("SameParameterValue")
-  private byte[] small_key(String suffix) {
+  private byte[] small_key(final String suffix) {
     return ("small_key_" + suffix).getBytes(UTF_8);
   }
 
   @SuppressWarnings("SameParameterValue")
-  private byte[] small_value(String suffix) {
+  private byte[] small_value(final String suffix) {
     return ("small_value_" + suffix).getBytes(UTF_8);
   }
 
-  private byte[] large_key(String suffix) {
+  private byte[] large_key(final String suffix) {
     return ("large_key_" + suffix).getBytes(UTF_8);
   }
 
-  private byte[] large_value(String repeat) {
+  private byte[] large_value(final String repeat) {
     final byte[] large_value = ("" + repeat + "_" + largeBlobSize + "b").getBytes(UTF_8);
     final byte[] large_buffer = new byte[largeBlobSize];
     for (int pos = 0; pos < largeBlobSize; pos += large_value.length) {
-      int numBytes = Math.min(large_value.length, large_buffer.length - pos);
+      final int numBytes = Math.min(large_value.length, large_buffer.length - pos);
       System.arraycopy(large_value, 0, large_buffer, pos, numBytes);
     }
     return large_buffer;

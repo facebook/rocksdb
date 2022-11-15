@@ -9,7 +9,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import org.junit.ClassRule;
@@ -27,11 +26,11 @@ public class ColumnFamilyOptionsTest {
 
   @Test
   public void copyConstructor() {
-    ColumnFamilyOptions origOpts = new ColumnFamilyOptions();
+    final ColumnFamilyOptions origOpts = new ColumnFamilyOptions();
     origOpts.setNumLevels(rand.nextInt(8));
     origOpts.setTargetFileSizeMultiplier(rand.nextInt(100));
     origOpts.setLevel0StopWritesTrigger(rand.nextInt(50));
-    ColumnFamilyOptions copyOpts = new ColumnFamilyOptions(origOpts);
+    final ColumnFamilyOptions copyOpts = new ColumnFamilyOptions(origOpts);
     assertThat(origOpts.numLevels()).isEqualTo(copyOpts.numLevels());
     assertThat(origOpts.targetFileSizeMultiplier()).isEqualTo(copyOpts.targetFileSizeMultiplier());
     assertThat(origOpts.level0StopWritesTrigger()).isEqualTo(copyOpts.level0StopWritesTrigger());
@@ -39,7 +38,7 @@ public class ColumnFamilyOptionsTest {
 
   @Test
   public void getColumnFamilyOptionsFromProps() {
-    Properties properties = new Properties();
+    final Properties properties = new Properties();
     properties.put("write_buffer_size", "112");
     properties.put("max_write_buffer_number", "13");
 
@@ -455,7 +454,7 @@ public class ColumnFamilyOptionsTest {
       }
       columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
       compressionTypeList = columnFamilyOptions.compressionPerLevel();
-      for (CompressionType compressionType : compressionTypeList) {
+      for (final CompressionType compressionType : compressionTypeList) {
         assertThat(compressionType).isEqualTo(
             CompressionType.NO_COMPRESSION);
       }

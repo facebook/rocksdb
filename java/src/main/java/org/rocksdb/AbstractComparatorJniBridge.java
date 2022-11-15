@@ -115,5 +115,5 @@ class AbstractComparatorJniBridge {
     }
     comparator.findShortSuccessor(key);
     return key.remaining();
-    }
+  }
 }
