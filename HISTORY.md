@@ -18,6 +18,7 @@
 * Fixed a memory safety bug when using a SecondaryCache with `block_cache_compressed`. `block_cache_compressed` no longer attempts to use SecondaryCache features.
 * Fixed a regression in scan for async_io. During seek, valid buffers were getting cleared causing a regression.
 * Tiered Storage: fixed excessive keys written to penultimate level in non-debug builds.
+* Fixed a bug that multi-level FIFO compaction deletes one file in non-L0 even when `CompactionOptionsFIFO::max_table_files_size` is no exceeded since #10348 or 7.8.0.
 
 ### New Features
 * Add basic support for user-defined timestamp to Merge (#10819).

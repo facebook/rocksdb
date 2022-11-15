@@ -233,7 +233,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
         break;
       }
     }
-  } else {
+  } else if (total_size >
+             mutable_cf_options.compaction_options_fifo.max_table_files_size) {
     // If the last level is non-L0, we actually don't know which file is
     // logically the oldest since the file creation time only represents
     // when this file was compacted to this level, which is independent
@@ -248,15 +249,27 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       inputs[0].files.push_back(f);
       char tmp_fsize[16];
       AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] FIFO compaction: picking file %" PRIu64
-                       " with size %s for deletion",
-                       cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "[%s] FIFO compaction: picking file %" PRIu64
+          " with size %s for deletion under total size %" PRIu64
+          " vs max table files size %" PRIu64,
+          cf_name.c_str(), f->fd.GetNumber(), tmp_fsize, total_size,
+          mutable_cf_options.compaction_options_fifo.max_table_files_size);
+
       if (total_size <=
           mutable_cf_options.compaction_options_fifo.max_table_files_size) {
         break;
       }
     }
+  } else {
+    ROCKS_LOG_BUFFER(
+        log_buffer,
+        "[%s] FIFO compaction: nothing to do. Total size %" PRIu64
+        ", max size %" PRIu64 "\n",
+        cf_name.c_str(), total_size,
+        mutable_cf_options.compaction_options_fifo.max_table_files_size);
+    return nullptr;
   }
 
   Compaction* c = new Compaction(
