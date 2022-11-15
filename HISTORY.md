@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.7.7 (11/15/2022)
 ### Bug Fixes
 * Fixed a regression in scan for async_io. During seek, valid buffers were getting cleared causing a regression.
 
