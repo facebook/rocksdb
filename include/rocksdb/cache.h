@@ -39,6 +39,66 @@ class Cache;
 struct ConfigOptions;
 class SecondaryCache;
 
+// Classifications of block cache entries.
+//
+// Developer notes: Adding a new enum to this class requires corresponding
+// updates to `kCacheEntryRoleToCamelString` and
+// `kCacheEntryRoleToHyphenString`. Do not add to this enum after `kMisc` since
+// `kNumCacheEntryRoles` assumes `kMisc` comes last.
+enum class CacheEntryRole {
+  // Block-based table data block
+  kDataBlock,
+  // Block-based table filter block (full or partitioned)
+  kFilterBlock,
+  // Block-based table metadata block for partitioned filter
+  kFilterMetaBlock,
+  // OBSOLETE / DEPRECATED: old/removed block-based filter
+  kDeprecatedFilterBlock,
+  // Block-based table index block
+  kIndexBlock,
+  // Other kinds of block-based table block
+  kOtherBlock,
+  // WriteBufferManager's charge to account for its memtable usage
+  kWriteBuffer,
+  // Compression dictionary building buffer's charge to account for
+  // its memory usage
+  kCompressionDictionaryBuildingBuffer,
+  // Filter's charge to account for
+  // (new) bloom and ribbon filter construction's memory usage
+  kFilterConstruction,
+  // BlockBasedTableReader's charge to account for its memory usage
+  kBlockBasedTableReader,
+  // FileMetadata's charge to account for its memory usage
+  kFileMetadata,
+  // Blob value (when using the same cache as block cache and blob cache)
+  kBlobValue,
+  // Blob cache's charge to account for its memory usage (when using a
+  // separate block cache and blob cache)
+  kBlobCache,
+  // Default bucket, for miscellaneous cache entries. Do not use for
+  // entries that could potentially add up to large usage.
+  kMisc,
+};
+constexpr uint32_t kNumCacheEntryRoles =
+    static_cast<uint32_t>(CacheEntryRole::kMisc) + 1;
+
+// Obtain a hyphen-separated, lowercase name of a `CacheEntryRole`.
+const std::string& GetCacheEntryRoleName(CacheEntryRole);
+
+// For use with `GetMapProperty()` for property
+// `DB::Properties::kBlockCacheEntryStats`. On success, the map will
+// be populated with all keys that can be obtained from these functions.
+struct BlockCacheEntryStatsMapKeys {
+  static const std::string& CacheId();
+  static const std::string& CacheCapacityBytes();
+  static const std::string& LastCollectionDurationSeconds();
+  static const std::string& LastCollectionAgeSeconds();
+
+  static std::string EntryCount(CacheEntryRole);
+  static std::string UsedBytes(CacheEntryRole);
+  static std::string UsedPercent(CacheEntryRole);
+};
+
 extern const bool kDefaultToAdaptiveMutex;
 
 enum CacheMetadataChargePolicy {
@@ -293,7 +353,11 @@ extern std::shared_ptr<Cache> NewClockCache(
         kDefaultCacheMetadataChargePolicy);
 
 class Cache {
- public:
+ public:  // opaque types
+  // Opaque handle to an entry stored in the cache.
+  struct Handle {};
+
+ public:  // type defs
   // Depending on implementation, cache entries with higher priority levels
   // could be less likely to get evicted than entries with lower priority
   // levels. The "high" priority level applies to certain SST metablocks (e.g.
@@ -367,11 +431,15 @@ class Cache {
   using CreateCallback = std::function<Status(const void* buf, size_t size,
                                               void** out_obj, size_t* charge)>;
 
+ public:  // ctor/dtor/create
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
       : memory_allocator_(std::move(allocator)) {}
   // No copying allowed
   Cache(const Cache&) = delete;
   Cache& operator=(const Cache&) = delete;
+
+  // Destroys all remaining entries by calling the associated "deleter"
+  virtual ~Cache() {}
 
   // Creates a new Cache based on the input value string and returns the result.
   // Currently, this method can be used to create LRUCaches only
@@ -388,17 +456,22 @@ class Cache {
                                  const std::string& value,
                                  std::shared_ptr<Cache>* result);
 
-  // Destroys all existing entries by calling the "deleter"
-  // function that was passed via the Insert() function.
-  //
-  // @See Insert
-  virtual ~Cache() {}
-
-  // Opaque handle to an entry stored in the cache.
-  struct Handle {};
-
+ public:  // functions
   // The type of the Cache
   virtual const char* Name() const = 0;
+
+  // EXPERIMENTAL SecondaryCache support:
+  // Some APIs here are experimental and might change in the future.
+  // The Insert and Lookup APIs below are intended to allow cached objects
+  // to be demoted/promoted between the primary block cache and a secondary
+  // cache. The secondary cache could be a non-volatile cache, and will
+  // likely store the object in a different representation. They rely on a
+  // per object CacheItemHelper to do the conversions.
+  // The secondary cache may persist across process and system restarts,
+  // and may even be moved between hosts. Therefore, the cache key must
+  // be repeatable across restarts/reboots, and globally unique if
+  // multiple DBs share the same cache and the set of DBs can change
+  // over time.
 
   // Insert a mapping from key->value into the volatile cache only
   // and assign it with the specified charge against the total cache capacity.
@@ -421,6 +494,45 @@ class Cache {
                         DeleterFn deleter, Handle** handle = nullptr,
                         Priority priority = Priority::LOW) = 0;
 
+  // EXPERIMENTAL
+  // Insert a mapping from key->value into the cache and assign it
+  // the specified charge against the total cache capacity. If
+  // strict_capacity_limit is true and cache reaches its full capacity,
+  // return Status::MemoryLimit. `value` must be non-nullptr for this
+  // Insert() because Value() == nullptr is reserved for indicating failure
+  // with secondary-cache-compatible mappings.
+  //
+  // The helper argument is saved by the cache and will be used when the
+  // inserted object is evicted or promoted to the secondary cache. It,
+  // therefore, must outlive the cache.
+  //
+  // If handle is not nullptr, returns a handle that corresponds to the
+  // mapping. The caller must call this->Release(handle) when the returned
+  // mapping is no longer needed. In case of error caller is responsible to
+  // cleanup the value (i.e. calling "deleter").
+  //
+  // If handle is nullptr, it is as if Release is called immediately after
+  // insert. In case of error value will be cleanup.
+  //
+  // Regardless of whether the item was inserted into the cache,
+  // it will attempt to insert it into the secondary cache if one is
+  // configured, and the helper supports it.
+  // The cache implementation must support a secondary cache, otherwise
+  // the item is only inserted into the primary cache. It may
+  // defer the insertion to the secondary cache as it sees fit.
+  //
+  // When the inserted entry is no longer needed, the key and
+  // value will be passed to "deleter".
+  virtual Status Insert(const Slice& key, void* value,
+                        const CacheItemHelper* helper, size_t charge,
+                        Handle** handle = nullptr,
+                        Priority priority = Priority::LOW) {
+    if (!helper) {
+      return Status::InvalidArgument();
+    }
+    return Insert(key, value, charge, helper->del_cb, handle, priority);
+  }
+
   // If the cache has no mapping for "key", returns nullptr.
   //
   // Else return a handle that corresponds to the mapping.  The caller
@@ -429,6 +541,54 @@ class Cache {
   // If stats is not nullptr, relative tickers could be used inside the
   // function.
   virtual Handle* Lookup(const Slice& key, Statistics* stats = nullptr) = 0;
+
+  // EXPERIMENTAL
+  // Lookup the key in the primary and secondary caches (if one is configured).
+  // The create_cb callback function object will be used to contruct the
+  // cached object.
+  // If none of the caches have the mapping for the key, returns nullptr.
+  // Else, returns a handle that corresponds to the mapping.
+  //
+  // This call may promote the object from the secondary cache (if one is
+  // configured, and has the given key) to the primary cache.
+  //
+  // The helper argument should be provided if the caller wants the lookup
+  // to include the secondary cache (if one is configured) and the object,
+  // if it exists, to be promoted to the primary cache. The helper may be
+  // saved and used later when the object is evicted. Therefore, it must
+  // outlive the cache.
+  //
+  // ======================== Async Lookup (wait=false) ======================
+  // When wait=false, the handle returned might be in any of three states:
+  // * Present - If Value() != nullptr, then the result is present and
+  // the handle can be used just as if wait=true.
+  // * Pending, not ready (IsReady() == false) - secondary cache is still
+  // working to retrieve the value. Might become ready any time.
+  // * Pending, ready (IsReady() == true) - secondary cache has the value
+  // but it has not been loaded into primary cache. Call to Wait()/WaitAll()
+  // will not block.
+  //
+  // IMPORTANT: Pending handles are not thread-safe, and only these functions
+  // are allowed on them: Value(), IsReady(), Wait(), WaitAll(). Even Release()
+  // can only come after Wait() or WaitAll() even though a reference is held.
+  //
+  // Only Wait()/WaitAll() gets a Handle out of a Pending state. (Waiting is
+  // safe and has no effect on other handle states.) After waiting on a Handle,
+  // it is in one of two states:
+  // * Present - if Value() != nullptr
+  // * Failed - if Value() == nullptr, such as if the secondary cache
+  // initially thought it had the value but actually did not.
+  //
+  // Note that given an arbitrary Handle, the only way to distinguish the
+  // Pending+ready state from the Failed state is to Wait() on it. A cache
+  // entry not compatible with secondary cache can also have Value()==nullptr
+  // like the Failed state, but this is not generally a concern.
+  virtual Handle* Lookup(const Slice& key, const CacheItemHelper* /*helper_cb*/,
+                         const CreateCallback& /*create_cb*/,
+                         Priority /*priority*/, bool /*wait*/,
+                         Statistics* stats = nullptr) {
+    return Lookup(key, stats);
+  }
 
   // Increments the reference count for the handle if it refers to an entry in
   // the cache. Returns true if refcount was incremented; otherwise, returns
@@ -556,103 +716,6 @@ class Cache {
   MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
 
   // EXPERIMENTAL
-  // The following APIs are experimental and might change in the future.
-  // The Insert and Lookup APIs below are intended to allow cached objects
-  // to be demoted/promoted between the primary block cache and a secondary
-  // cache. The secondary cache could be a non-volatile cache, and will
-  // likely store the object in a different representation. They rely on a
-  // per object CacheItemHelper to do the conversions.
-  // The secondary cache may persist across process and system restarts,
-  // and may even be moved between hosts. Therefore, the cache key must
-  // be repeatable across restarts/reboots, and globally unique if
-  // multiple DBs share the same cache and the set of DBs can change
-  // over time.
-
-  // Insert a mapping from key->value into the cache and assign it
-  // the specified charge against the total cache capacity. If
-  // strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::MemoryLimit. `value` must be non-nullptr for this
-  // Insert() because Value() == nullptr is reserved for indicating failure
-  // with secondary-cache-compatible mappings.
-  //
-  // The helper argument is saved by the cache and will be used when the
-  // inserted object is evicted or promoted to the secondary cache. It,
-  // therefore, must outlive the cache.
-  //
-  // If handle is not nullptr, returns a handle that corresponds to the
-  // mapping. The caller must call this->Release(handle) when the returned
-  // mapping is no longer needed. In case of error caller is responsible to
-  // cleanup the value (i.e. calling "deleter").
-  //
-  // If handle is nullptr, it is as if Release is called immediately after
-  // insert. In case of error value will be cleanup.
-  //
-  // Regardless of whether the item was inserted into the cache,
-  // it will attempt to insert it into the secondary cache if one is
-  // configured, and the helper supports it.
-  // The cache implementation must support a secondary cache, otherwise
-  // the item is only inserted into the primary cache. It may
-  // defer the insertion to the secondary cache as it sees fit.
-  //
-  // When the inserted entry is no longer needed, the key and
-  // value will be passed to "deleter".
-  virtual Status Insert(const Slice& key, void* value,
-                        const CacheItemHelper* helper, size_t charge,
-                        Handle** handle = nullptr,
-                        Priority priority = Priority::LOW) {
-    if (!helper) {
-      return Status::InvalidArgument();
-    }
-    return Insert(key, value, charge, helper->del_cb, handle, priority);
-  }
-
-  // Lookup the key in the primary and secondary caches (if one is configured).
-  // The create_cb callback function object will be used to contruct the
-  // cached object.
-  // If none of the caches have the mapping for the key, returns nullptr.
-  // Else, returns a handle that corresponds to the mapping.
-  //
-  // This call may promote the object from the secondary cache (if one is
-  // configured, and has the given key) to the primary cache.
-  //
-  // The helper argument should be provided if the caller wants the lookup
-  // to include the secondary cache (if one is configured) and the object,
-  // if it exists, to be promoted to the primary cache. The helper may be
-  // saved and used later when the object is evicted. Therefore, it must
-  // outlive the cache.
-  //
-  // ======================== Async Lookup (wait=false) ======================
-  // When wait=false, the handle returned might be in any of three states:
-  // * Present - If Value() != nullptr, then the result is present and
-  // the handle can be used just as if wait=true.
-  // * Pending, not ready (IsReady() == false) - secondary cache is still
-  // working to retrieve the value. Might become ready any time.
-  // * Pending, ready (IsReady() == true) - secondary cache has the value
-  // but it has not been loaded into primary cache. Call to Wait()/WaitAll()
-  // will not block.
-  //
-  // IMPORTANT: Pending handles are not thread-safe, and only these functions
-  // are allowed on them: Value(), IsReady(), Wait(), WaitAll(). Even Release()
-  // can only come after Wait() or WaitAll() even though a reference is held.
-  //
-  // Only Wait()/WaitAll() gets a Handle out of a Pending state. (Waiting is
-  // safe and has no effect on other handle states.) After waiting on a Handle,
-  // it is in one of two states:
-  // * Present - if Value() != nullptr
-  // * Failed - if Value() == nullptr, such as if the secondary cache
-  // initially thought it had the value but actually did not.
-  //
-  // Note that given an arbitrary Handle, the only way to distinguish the
-  // Pending+ready state from the Failed state is to Wait() on it. A cache
-  // entry not compatible with secondary cache can also have Value()==nullptr
-  // like the Failed state, but this is not generally a concern.
-  virtual Handle* Lookup(const Slice& key, const CacheItemHelper* /*helper_cb*/,
-                         const CreateCallback& /*create_cb*/,
-                         Priority /*priority*/, bool /*wait*/,
-                         Statistics* stats = nullptr) {
-    return Lookup(key, stats);
-  }
-
   // Release a mapping returned by a previous Lookup(). The "useful"
   // parameter specifies whether the data was actually used or not,
   // which may be used by the cache implementation to decide whether
@@ -663,12 +726,14 @@ class Cache {
     return Release(handle, erase_if_last_ref);
   }
 
+  // EXPERIMENTAL
   // Determines if the handle returned by Lookup() can give a value without
   // blocking, though Wait()/WaitAll() might be required to publish it to
   // Value(). See secondary cache compatible Lookup() above for details.
   // This call is not thread safe on "pending" handles.
   virtual bool IsReady(Handle* /*handle*/) { return true; }
 
+  // EXPERIMENTAL
   // Convert a "pending" handle into a full thread-shareable handle by
   // * If necessary, wait until secondary cache finishes loading the value.
   // * Construct the value for primary cache and set it in the handle.
@@ -678,6 +743,7 @@ class Cache {
   // See secondary cache compatible Lookup() above for details.
   virtual void Wait(Handle* /*handle*/) {}
 
+  // EXPERIMENTAL
   // Wait for a vector of handles to become ready. As with Wait(), the user
   // should check the Value() of each handle for nullptr. This call is not
   // thread-safe on pending handles.
@@ -687,64 +753,5 @@ class Cache {
   std::shared_ptr<MemoryAllocator> memory_allocator_;
 };
 
-// Classifications of block cache entries.
-//
-// Developer notes: Adding a new enum to this class requires corresponding
-// updates to `kCacheEntryRoleToCamelString` and
-// `kCacheEntryRoleToHyphenString`. Do not add to this enum after `kMisc` since
-// `kNumCacheEntryRoles` assumes `kMisc` comes last.
-enum class CacheEntryRole {
-  // Block-based table data block
-  kDataBlock,
-  // Block-based table filter block (full or partitioned)
-  kFilterBlock,
-  // Block-based table metadata block for partitioned filter
-  kFilterMetaBlock,
-  // OBSOLETE / DEPRECATED: old/removed block-based filter
-  kDeprecatedFilterBlock,
-  // Block-based table index block
-  kIndexBlock,
-  // Other kinds of block-based table block
-  kOtherBlock,
-  // WriteBufferManager's charge to account for its memtable usage
-  kWriteBuffer,
-  // Compression dictionary building buffer's charge to account for
-  // its memory usage
-  kCompressionDictionaryBuildingBuffer,
-  // Filter's charge to account for
-  // (new) bloom and ribbon filter construction's memory usage
-  kFilterConstruction,
-  // BlockBasedTableReader's charge to account for its memory usage
-  kBlockBasedTableReader,
-  // FileMetadata's charge to account for its memory usage
-  kFileMetadata,
-  // Blob value (when using the same cache as block cache and blob cache)
-  kBlobValue,
-  // Blob cache's charge to account for its memory usage (when using a
-  // separate block cache and blob cache)
-  kBlobCache,
-  // Default bucket, for miscellaneous cache entries. Do not use for
-  // entries that could potentially add up to large usage.
-  kMisc,
-};
-constexpr uint32_t kNumCacheEntryRoles =
-    static_cast<uint32_t>(CacheEntryRole::kMisc) + 1;
-
-// Obtain a hyphen-separated, lowercase name of a `CacheEntryRole`.
-const std::string& GetCacheEntryRoleName(CacheEntryRole);
-
-// For use with `GetMapProperty()` for property
-// `DB::Properties::kBlockCacheEntryStats`. On success, the map will
-// be populated with all keys that can be obtained from these functions.
-struct BlockCacheEntryStatsMapKeys {
-  static const std::string& CacheId();
-  static const std::string& CacheCapacityBytes();
-  static const std::string& LastCollectionDurationSeconds();
-  static const std::string& LastCollectionAgeSeconds();
-
-  static std::string EntryCount(CacheEntryRole);
-  static std::string UsedBytes(CacheEntryRole);
-  static std::string UsedPercent(CacheEntryRole);
-};
 
 }  // namespace ROCKSDB_NAMESPACE
