@@ -224,14 +224,18 @@ public class BlobOptionsTest {
 
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.put(small_key("default"), small_value("default"));
-      db.flush(new FlushOptions().setWaitForFlush(true));
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
 
       // check there are no blobs in the database
       assertThat(countDBFiles(".sst")).isEqualTo(1);
       assertThat(countDBFiles(".blob")).isEqualTo(0);
 
       db.put(large_key("default"), large_value("default"));
-      db.flush(new FlushOptions().setWaitForFlush(true));
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
 
       // wrote and flushed a value larger than the blobbing threshold
       // check there is a single blob in the database
@@ -269,7 +273,9 @@ public class BlobOptionsTest {
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
       db.put(columnFamilyHandles.get(0), small_key("default"), small_value("default"));
-      db.flush(new FlushOptions().setWaitForFlush(true));
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
 
       assertThat(countDBFiles(".blob")).isEqualTo(0);
 
@@ -330,12 +336,16 @@ public class BlobOptionsTest {
 
         db.put(columnFamilyHandles.get(1), large_key("column_family_1_k2"),
             large_value("column_family_1_k2"));
-        db.flush(new FlushOptions().setWaitForFlush(true), columnFamilyHandles.get(1));
+        try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+          db.flush(flushOptions, columnFamilyHandles.get(1));
+        }
         assertThat(countDBFiles(".blob")).isEqualTo(1);
 
         db.put(columnFamilyHandles.get(2), large_key("column_family_2_k2"),
             large_value("column_family_2_k2"));
-        db.flush(new FlushOptions().setWaitForFlush(true), columnFamilyHandles.get(2));
+        try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+          db.flush(flushOptions, columnFamilyHandles.get(2));
+        }
         assertThat(countDBFiles(".blob")).isEqualTo(1);
       }
     }

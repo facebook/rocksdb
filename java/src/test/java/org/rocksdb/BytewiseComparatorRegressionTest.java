@@ -43,12 +43,16 @@ public class BytewiseComparatorRegressionTest {
   @Test
   public void testJavaComparator() throws RocksDBException {
     final BytewiseComparator comparator = new BytewiseComparator(new ComparatorOptions());
-    performTest(new Options().setCreateIfMissing(true).setComparator(comparator));
+    try (final Options options = new Options().setCreateIfMissing(true).setComparator(comparator)) {
+      performTest(options);
+    }
   }
 
   @Test
   public void testDefaultComparator() throws RocksDBException {
-    performTest(new Options().setCreateIfMissing(true));
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      performTest(options);
+    }
   }
 
   /**
@@ -56,8 +60,11 @@ public class BytewiseComparatorRegressionTest {
    */
   @Test
   public void testCppComparator() throws RocksDBException {
-    performTest(new Options().setCreateIfMissing(true).setComparator(
-        BuiltinComparator.BYTEWISE_COMPARATOR));
+    try (final Options options = new Options().setCreateIfMissing(true).setComparator(
+            BuiltinComparator.BYTEWISE_COMPARATOR)) {
+      performTest(options);
+    }
+
   }
 
   private void performTest(final Options options) throws RocksDBException {

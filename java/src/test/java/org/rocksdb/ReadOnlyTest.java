@@ -70,7 +70,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToWriteInReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true)) {
-      try (final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      try (final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
         // no-op
       }
     }
@@ -91,7 +91,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToCFWriteInReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options,
+         final RocksDB ignored = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
@@ -112,7 +112,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToRemoveInReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options,
+         final RocksDB ignored = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
@@ -135,7 +135,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToCFRemoveInReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options,
+         final RocksDB ignored = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
@@ -158,7 +158,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToWriteBatchReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options,
+         final RocksDB ignored = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
@@ -183,7 +183,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void failToCFWriteBatchReadOnly() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options,
+         final RocksDB ignored = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
       //no-op
     }
@@ -209,7 +209,7 @@ public class ReadOnlyTest {
   @Test(expected = RocksDBException.class)
   public void errorIfWalFileExists() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       // no-op
     }
 
@@ -219,7 +219,7 @@ public class ReadOnlyTest {
 
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList = new ArrayList<>();
       try (final DBOptions options = new DBOptions();
-           final RocksDB rDb = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath(),
+           final RocksDB ignored = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath(),
                cfDescriptors, readOnlyColumnFamilyHandleList, true)) {
         // no-op... should have raised an error as errorIfWalFileExists=true
       }

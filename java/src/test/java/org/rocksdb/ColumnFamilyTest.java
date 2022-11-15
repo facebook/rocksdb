@@ -53,7 +53,7 @@ public class ColumnFamilyTest {
   @Test
   public void listColumnFamilies() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
-         final RocksDB db = RocksDB.open(options,
+         final RocksDB ignored = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
       // Test listColumnFamilies
       final List<byte[]> columnFamilyNames = RocksDB.listColumnFamilies(options,

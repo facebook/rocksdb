@@ -154,7 +154,7 @@ public class BlockBasedTableConfigTest {
     options.setCreateIfMissing(true);
     final String dbPath = dbFolder.getRoot().getAbsolutePath();
     final String result;
-    try (final RocksDB db = RocksDB.open(options, dbPath);
+    try (final RocksDB ignored = RocksDB.open(options, dbPath);
          final Stream<Path> pathStream = Files.walk(Paths.get(dbPath))) {
       final Path optionsPath =
           pathStream.filter(p -> p.getFileName().toString().startsWith("OPTIONS"))
@@ -356,7 +356,7 @@ public class BlockBasedTableConfigTest {
         new BlockBasedTableConfig().setFormatVersion(99999);
 
     try (final Options options = new Options().setTableFormatConfig(blockBasedTableConfig);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       fail("Opening the database with an invalid format_version should have raised an exception");
     }
   }

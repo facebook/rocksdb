@@ -48,8 +48,8 @@ public class RocksDBTest {
   public void openWhenOpen() throws RocksDBException {
     final String dbPath = dbFolder.getRoot().getAbsolutePath();
 
-    try (final RocksDB db1 = RocksDB.open(dbPath)) {
-      try (final RocksDB db2 = RocksDB.open(dbPath)) {
+    try (final RocksDB ignored = RocksDB.open(dbPath)) {
+      try (final RocksDB ignored1 = RocksDB.open(dbPath)) {
         fail("Should have thrown an exception when opening the same db twice");
       } catch (final RocksDBException e) {
         assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.IOError);
@@ -74,7 +74,7 @@ public class RocksDBTest {
       }
 
       final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
-      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
+      try (final RocksDB ignored = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
         Arrays.asList(
             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
             new ColumnFamilyDescriptor(col1Name)),
@@ -117,7 +117,7 @@ public class RocksDBTest {
     }
 
     cfHandles = new ArrayList<>();
-    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
+    try (final RocksDB ignored = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
         Arrays.asList(
             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
             new ColumnFamilyDescriptor(col1Name),
@@ -163,7 +163,7 @@ public class RocksDBTest {
     }
 
     cfHandles = new ArrayList<>();
-    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
+    try (final RocksDB ignored = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
         Arrays.asList(
             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
             new ColumnFamilyDescriptor(col1Name),
@@ -698,7 +698,9 @@ public class RocksDBTest {
         rand.nextBytes(b);
         db.put((String.valueOf(i)).getBytes(), b);
       }
-      db.flush(new FlushOptions().setWaitForFlush(true));
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
       try (final CompactRangeOptions compactRangeOpts = new CompactRangeOptions()
             .setChangeLevel(true)
             .setTargetLevel(-1)
@@ -813,7 +815,7 @@ public class RocksDBTest {
 
   @Test
   public void compactRangeToLevel()
-      throws RocksDBException, InterruptedException {
+      throws RocksDBException {
     final int NUM_KEYS_PER_L0_FILE = 100;
     final int KEY_SIZE = 20;
     final int VALUE_SIZE = 300;
@@ -854,7 +856,9 @@ public class RocksDBTest {
             db.put(String.format("%020d", int_key).getBytes(),
                 value);
           }
-          db.flush(new FlushOptions().setWaitForFlush(true));
+          try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+            db.flush(flushOptions);
+          }
           // Make sure we do create one more L0 files.
           assertThat(
               db.getProperty("rocksdb.num-files-at-level0")).
@@ -887,7 +891,7 @@ public class RocksDBTest {
   }
 
   @Test
-  public void deleteFilesInRange() throws RocksDBException, InterruptedException {
+  public void deleteFilesInRange() throws RocksDBException {
     final int KEY_SIZE = 20;
     final int VALUE_SIZE = 1000;
     final int FILE_SIZE = 64000;
@@ -922,7 +926,9 @@ public class RocksDBTest {
           db.put(String.format("%020d", int_key).getBytes(), value);
         }
       }
-      db.flush(new FlushOptions().setWaitForFlush(true));
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
       db.compactRange();
       // Make sure we do create one more L0 files.
       assertThat(db.getProperty("rocksdb.num-files-at-level0")).isEqualTo("0");
@@ -1000,8 +1006,9 @@ public class RocksDBTest {
                     String.format("%020d", int_key).getBytes(),
                     value);
               }
-              db.flush(new FlushOptions().setWaitForFlush(true),
-                  columnFamilyHandles.get(1));
+              try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+                db.flush(flushOptions, columnFamilyHandles.get(1));
+              }
               // Make sure we do create one more L0 files.
               assertThat(
                   db.getProperty(columnFamilyHandles.get(1),
@@ -1069,7 +1076,9 @@ public class RocksDBTest {
           db.cancelAllBackgroundWork(true);
           try {
             db.put(new byte[KEY_SIZE], new byte[VALUE_SIZE]);
-            db.flush(new FlushOptions().setWaitForFlush(true));
+            try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+              db.flush(flushOptions);
+            }
             fail("Expected RocksDBException to be thrown if we attempt to trigger a flush after" +
                 " all background work is cancelled.");
           } catch (final RocksDBException ignored) {
@@ -1163,10 +1172,10 @@ public class RocksDBTest {
       try (final RocksDB db = RocksDB.open(options, dbPath)) {
         db.put("key1".getBytes(), "value".getBytes());
       }
-      assertThat(dbFolder.getRoot().exists() && dbFolder.getRoot().listFiles().length != 0)
+      assertThat(dbFolder.getRoot().exists() && Objects.requireNonNull(dbFolder.getRoot().listFiles()).length != 0)
           .isTrue();
       RocksDB.destroyDB(dbPath, options);
-      assertThat(dbFolder.getRoot().exists() && dbFolder.getRoot().listFiles().length != 0)
+      assertThat(dbFolder.getRoot().exists() && Objects.requireNonNull(dbFolder.getRoot().listFiles()).length != 0)
           .isFalse();
     }
   }
@@ -1175,7 +1184,7 @@ public class RocksDBTest {
   public void destroyDBFailIfOpen() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true)) {
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
-      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+      try (final RocksDB ignored = RocksDB.open(options, dbPath)) {
         // Fails as the db is open and locked.
         RocksDB.destroyDB(dbPath, options);
       }

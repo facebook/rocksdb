@@ -89,14 +89,14 @@ public class ColumnFamilyOptionsTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void failColumnFamilyOptionsFromPropsWithNullValue() {
-    try (final ColumnFamilyOptions opt =
+    try (final ColumnFamilyOptions ignored =
              ColumnFamilyOptions.getColumnFamilyOptionsFromProps(null)) {
     }
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void failColumnFamilyOptionsFromPropsWithEmptyProps() {
-    try (final ColumnFamilyOptions opt =
+    try (final ColumnFamilyOptions ignored =
              ColumnFamilyOptions.getColumnFamilyOptionsFromProps(
                  new Properties())) {
     }
