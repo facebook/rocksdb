@@ -19,36 +19,57 @@ class InstrumentedCondVar;
 // for collecting stats and instrumentation.
 class InstrumentedMutex {
  public:
-  explicit InstrumentedMutex(bool adaptive = false)
-      : mutex_(adaptive), stats_(nullptr), clock_(nullptr), stats_code_(0) {}
-
-  explicit InstrumentedMutex(SystemClock* clock, bool adaptive = false)
-      : mutex_(adaptive), stats_(nullptr), clock_(clock), stats_code_(0) {}
-
-  InstrumentedMutex(Statistics* stats, SystemClock* clock, int stats_code,
-                    bool adaptive = false)
+  explicit InstrumentedMutex(bool adaptive = false, bool track_owner = false)
       : mutex_(adaptive),
-        stats_(stats),
-        clock_(clock),
-        stats_code_(stats_code) {}
+        stats_(nullptr),
+        clock_(nullptr),
+        stats_code_(0),
+        track_owner_(track_owner) {}
 
-#ifdef COERCE_CONTEXT_SWITCH
+  explicit InstrumentedMutex(SystemClock* clock, bool adaptive = false,
+                             bool track_owner = false)
+      : mutex_(adaptive),
+        stats_(nullptr),
+        clock_(clock),
+        stats_code_(0),
+        track_owner_(track_owner) {}
+
   InstrumentedMutex(Statistics* stats, SystemClock* clock, int stats_code,
-                    InstrumentedCondVar* bg_cv, bool adaptive = false)
+                    bool adaptive = false, bool track_owner = false)
       : mutex_(adaptive),
         stats_(stats),
         clock_(clock),
         stats_code_(stats_code),
-        bg_cv_(bg_cv) {}
+        track_owner_(track_owner) {}
+
+#ifdef COERCE_CONTEXT_SWITCH
+  InstrumentedMutex(Statistics* stats, SystemClock* clock, int stats_code,
+                    InstrumentedCondVar* bg_cv, bool adaptive = false,
+                    bool track_owner = false)
+      : mutex_(adaptive),
+        stats_(stats),
+        clock_(clock),
+        stats_code_(stats_code),
+        bg_cv_(bg_cv),
+        track_owner_(track_owner) {}
 #endif
 
   void Lock();
 
-  void Unlock() { mutex_.Unlock(); }
+  void Unlock();
 
   void AssertHeld() { mutex_.AssertHeld(); }
 
+  bool LockedByThisThread();
+
  private:
+  // Assumption: a default-constructed std::thread::id does not correspond to
+  // the id of any thread. See
+  // https://en.cppreference.com/w/cpp/thread/thread/id/id:
+  // "Default-constructs a new thread identifier. The identifier does not
+  // represent a thread."
+  static const std::thread::id dummy_owner_;
+
   void LockInternal();
   friend class InstrumentedCondVar;
   port::Mutex mutex_;
@@ -58,6 +79,10 @@ class InstrumentedMutex {
 #ifdef COERCE_CONTEXT_SWITCH
   InstrumentedCondVar* bg_cv_ = nullptr;
 #endif
+  const bool track_owner_ = false;
+  // Invariant: if any thread is holding mutex_, then owner_ is set to the
+  // result of calling `std::this_thread::get_id()` within that thread.
+  std::atomic<std::thread::id> owner_{dummy_owner_};
 };
 
 class ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedInstrumentedMutex

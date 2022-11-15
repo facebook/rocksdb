@@ -24,6 +24,8 @@ Statistics* stats_for_report(SystemClock* clock, Statistics* stats) {
 #endif  // NPERF_CONTEXT
 }  // namespace
 
+const std::thread::id InstrumentedMutex::dummy_owner_{};
+
 void InstrumentedMutex::Lock() {
   PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
       db_mutex_lock_nanos, stats_code_ == DB_MUTEX_WAIT_MICROS,
@@ -53,6 +55,27 @@ void InstrumentedMutex::LockInternal() {
   }
 #endif
   mutex_.Lock();
+  if (track_owner_) {
+    std::thread::id my_tid = std::this_thread::get_id();
+    owner_.store(my_tid);
+  }
+}
+
+void InstrumentedMutex::Unlock() {
+  if (track_owner_) {
+    std::thread::id orig_id = owner_.load();
+    std::thread::id my_tid = std::this_thread::get_id();
+    if (orig_id == my_tid) {
+      owner_.store(dummy_owner_);
+    }
+  }
+  mutex_.Unlock();
+}
+
+bool InstrumentedMutex::LockedByThisThread() {
+  std::thread::id my_tid = std::this_thread::get_id();
+  std::thread::id owner_id = owner_.load();
+  return my_tid == owner_id;
 }
 
 void InstrumentedCondVar::Wait() {

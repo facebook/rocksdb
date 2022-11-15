@@ -275,14 +275,20 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
   });
 
+  const bool acquire_log_write_mutex = !log_write_mutex_.LockedByThisThread();
+
   // logs_ is empty when called during recovery, in which case there can't yet
   // be any tracked obsolete logs
-  log_write_mutex_.Lock();
+  if (acquire_log_write_mutex) {
+    log_write_mutex_.Lock();
+  }
 
   if (alive_log_files_.empty() || logs_.empty()) {
     mutex_.AssertHeld();
     // We may reach here if the db is DBImplSecondary
-    log_write_mutex_.Unlock();
+    if (acquire_log_write_mutex) {
+      log_write_mutex_.Unlock();
+    }
     return;
   }
 
@@ -313,9 +319,13 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       // number < MinLogNumber().
       assert(alive_log_files_.size());
     }
-    log_write_mutex_.Unlock();
+    if (acquire_log_write_mutex) {
+      log_write_mutex_.Unlock();
+    }
     mutex_.Unlock();
-    log_write_mutex_.Lock();
+    if (acquire_log_write_mutex) {
+      log_write_mutex_.Lock();
+    }
     while (!logs_.empty() && logs_.front().number < min_log_number) {
       auto& log = logs_.front();
       if (log.IsSyncing()) {
@@ -335,7 +345,9 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->logs_to_free = logs_to_free_;
 
   logs_to_free_.clear();
-  log_write_mutex_.Unlock();
+  if (acquire_log_write_mutex) {
+    log_write_mutex_.Unlock();
+  }
   mutex_.Lock();
   job_context->log_recycle_files.assign(log_recycle_files_.begin(),
                                         log_recycle_files_.end());
