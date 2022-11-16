@@ -164,9 +164,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
                                     ColumnFamilyData* cfd,
                                     bool force_create_version);
 
-  Status LoadTables(ColumnFamilyData* cfd,
-                    bool prefetch_index_and_filter_in_cache,
-                    bool is_initial_load);
+  virtual Status LoadTables(ColumnFamilyData* cfd,
+                            bool prefetch_index_and_filter_in_cache,
+                            bool is_initial_load);
 
   virtual bool MustOpenAllColumnFamilies() const { return !read_only_; }
 
@@ -217,6 +217,10 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
                             const FileMetaData& fmeta);
   virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
                                 const BlobFileAddition& blob_addition);
+
+  Status LoadTables(ColumnFamilyData* cfd,
+                    bool prefetch_index_and_filter_in_cache,
+                    bool is_initial_load) override;
 
   std::unordered_map<uint32_t, Version*> versions_;
 };

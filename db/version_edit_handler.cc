@@ -843,6 +843,28 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
   return s;
 }
 
+Status VersionEditHandlerPointInTime::LoadTables(
+    ColumnFamilyData* cfd, bool prefetch_index_and_filter_in_cache,
+    bool is_initial_load) {
+  if (skip_load_table_files_) {
+    return Status::OK();
+  }
+  assert(cfd != nullptr);
+  assert(!cfd->IsDropped());
+  Version* version = cfd->current();
+  assert(version);
+  Status s = version->LoadTableHandlers(
+      cfd->internal_stats(),
+      version_set_->db_options_->max_file_opening_threads,
+      prefetch_index_and_filter_in_cache, is_initial_load,
+      cfd->GetLatestMutableCFOptions()->prefix_extractor,
+      MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
+  if (!s.ok() && !version_set_->db_options_->paranoid_checks) {
+    s = Status::OK();
+  }
+  return s;
+}
+
 Status ManifestTailer::Initialize() {
   if (Mode::kRecovery == mode_) {
     return VersionEditHandler::Initialize();
