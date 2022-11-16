@@ -279,7 +279,8 @@ class CloudEnvImpl : public CloudEnv {
 
   // Apply cloud manifest delta to in-memory cloud manifest. Does not change the
   // on-disk state.
-  Status ApplyCloudManifestDelta(const CloudManifestDelta& delta) override;
+  Status ApplyCloudManifestDelta(const CloudManifestDelta& delta,
+                                 bool* delta_applied) override;
 
   // See comments in the parent class
   Status RollNewCookie(const std::string& local_dbname,

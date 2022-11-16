@@ -362,7 +362,9 @@ class CloudTest : public testing::Test {
     if (!st.ok()) {
       return st;
     }
-    st = aenv_->ApplyCloudManifestDelta(delta);
+    bool applied = false;
+    st = aenv_->ApplyCloudManifestDelta(delta, &applied);
+    assert(applied);
     if (!st.ok()) {
       return st;
     }
@@ -2063,7 +2065,9 @@ TEST_F(CloudTest, LiveFilesConsistentAfterApplyCloudManifestDeltaTest) {
   std::string new_epoch = "dca7f3e19212c4b3";
   auto delta = CloudManifestDelta{GetDBImpl()->GetNextFileNumber(), new_epoch};
   ASSERT_OK(GetCloudEnvImpl()->RollNewCookie(dbname_, new_cookie, delta));
-  ASSERT_OK(GetCloudEnvImpl()->ApplyCloudManifestDelta(delta));
+  bool applied = false;
+  ASSERT_OK(GetCloudEnvImpl()->ApplyCloudManifestDelta(delta, &applied));
+  ASSERT_TRUE(applied);
 
   std::vector<std::string> live_sst_files2;
   std::string manifest_file2;
@@ -2090,7 +2094,9 @@ TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
 
   auto delta = CloudManifestDelta{GetDBImpl()->GetNextFileNumber(), new_epoch};
   ASSERT_OK(GetCloudEnvImpl()->RollNewCookie(dbname_, new_cookie, delta));
-  ASSERT_OK(GetCloudEnvImpl()->ApplyCloudManifestDelta(delta));
+  bool applied = false;
+  ASSERT_OK(GetCloudEnvImpl()->ApplyCloudManifestDelta(delta, &applied));
+  ASSERT_TRUE(applied);
   GetDBImpl()->NewManifestOnNextUpdate();
 
   // following writes are not visible for old cookie
@@ -3194,7 +3200,10 @@ TEST_F(CloudTest, ReplayCloudManifestDeltaTest) {
 
   // replay the deltas one more time
   for (const auto& delta : deltas) {
-    EXPECT_TRUE(ApplyCMDeltaToCloudDB(delta).IsInvalidArgument());
+    EXPECT_TRUE(aenv_->RollNewCookie(dbname_, delta.epoch, delta).IsInvalidArgument());
+    bool applied = false;
+    ASSERT_OK(aenv_->ApplyCloudManifestDelta(delta, &applied));
+    EXPECT_FALSE(applied);
     // current epoch not changed
     EXPECT_EQ(GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch(),
               currentEpoch);

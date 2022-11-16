@@ -18,6 +18,33 @@ class CloudManifestTest : public testing::Test {
   }
 
  protected:
+  Status DumpToRandomFile(const CloudManifest* manifest, std::string *filepath) {
+    Random rnd(301);
+    std::string filename = "CLOUDMANIFEST" + rnd.RandomString(7);
+    *filepath = tmp_dir_ + "/" + filename;
+    std::unique_ptr<WritableFileWriter> writer;
+    Status st = WritableFileWriter::Create(env_->GetFileSystem(), *filepath,
+                                         FileOptions(), &writer, nullptr);
+    if (!st.ok()) {
+      return st;
+    }
+
+    st = manifest->WriteToLog(std::move(writer));
+    return st;
+  }
+
+  Status LoadFromFile(const std::string& filepath,
+                      std::unique_ptr<CloudManifest>* manifest) {
+    std::unique_ptr<SequentialFileReader> reader;
+    Status st = SequentialFileReader::Create(env_->GetFileSystem(), filepath,
+                                           FileOptions(), &reader, nullptr);
+    if (!st.ok()) {
+      return st;
+    }
+    st = CloudManifest::LoadFromLog(std::move(reader), manifest);
+    return st;
+  }
+
   std::string tmp_dir_;
   Env* env_;
 };
@@ -45,22 +72,10 @@ TEST_F(CloudManifestTest, BasicTest) {
       ASSERT_EQ(manifest->GetEpoch(40), "fourthEpoch");
       ASSERT_EQ(manifest->GetEpoch(41), "fourthEpoch");
 
-      // serialize and deserialize
-      auto tmpfile = tmp_dir_ + "/cloudmanifest";
-      {
-        std::unique_ptr<WritableFileWriter> writer;
-        ASSERT_OK(WritableFileWriter::Create(env_->GetFileSystem(), tmpfile,
-                                             FileOptions(), &writer, nullptr));
-        ASSERT_OK(manifest->WriteToLog(std::move(writer)));
-      }
-
+      std::string filepath;
+      ASSERT_OK(DumpToRandomFile(manifest.get(), &filepath));
       manifest.reset();
-      {
-        std::unique_ptr<SequentialFileReader> reader;
-        ASSERT_OK(SequentialFileReader::Create(
-            env_->GetFileSystem(), tmpfile, FileOptions(), &reader, nullptr));
-        ASSERT_OK(CloudManifest::LoadFromLog(std::move(reader), &manifest));
-      }
+      ASSERT_OK(LoadFromFile(filepath, &manifest));
     }
   }
 }
@@ -73,8 +88,33 @@ TEST_F(CloudManifestTest, IdempotencyTest) {
   EXPECT_FALSE(manifest->AddEpoch(9, "epoch3"));
   // same file number, same epoch
   EXPECT_FALSE(manifest->AddEpoch(10, "epoch2"));
+
+  EXPECT_EQ(manifest->GetCurrentEpoch(), "epoch2");
+
   // same file number, different epoch
   EXPECT_TRUE(manifest->AddEpoch(10, "epoch3"));
+  EXPECT_EQ(manifest->GetCurrentEpoch(), "epoch3");
+
+  // idempotency for old cm delta
+  EXPECT_FALSE(manifest->AddEpoch(10, "epoch2"));
+  EXPECT_EQ(manifest->GetCurrentEpoch(), "epoch3");
+
+  EXPECT_TRUE(manifest->AddEpoch(11, "epoch4"));
+
+  EXPECT_EQ(manifest->GetCurrentEpoch(), "epoch4");
+
+  std::vector<std::pair<uint64_t, std::string>> pastEpochs{{10, "epoch1"},
+                                                           {10, "epoch2"},
+                                                           {11, "epoch3"}};
+  EXPECT_EQ(manifest->TEST_GetPastEpochs(), pastEpochs);
+
+  EXPECT_EQ(manifest->GetEpoch(9), "epoch1");
+  EXPECT_EQ(manifest->GetEpoch(10), "epoch3");
+
+  std::string filepath;
+  ASSERT_OK(DumpToRandomFile(manifest.get(), &filepath));
+  manifest.reset();
+  ASSERT_OK(LoadFromFile(filepath, &manifest));
 }
 
 }  //  namespace ROCKSDB_NAMESPACE

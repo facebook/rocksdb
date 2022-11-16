@@ -43,7 +43,7 @@ class CloudManifest {
 
   std::unique_ptr<CloudManifest> clone() const;
 
-  Status WriteToLog(std::unique_ptr<WritableFileWriter> log);
+  Status WriteToLog(std::unique_ptr<WritableFileWriter> log) const;
 
   // Add an epoch that starts with startFileNumber and is identified by epochId.
   // GetEpoch(startFileNumber) == epochId
@@ -61,6 +61,7 @@ class CloudManifest {
 
   std::string GetCurrentEpoch();
   std::string ToString(bool include_past_epochs=false);
+  std::vector<std::pair<uint64_t, std::string>> TEST_GetPastEpochs() const;
 
  private:
   CloudManifest(std::vector<std::pair<uint64_t, std::string>> pastEpochs,

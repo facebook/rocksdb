@@ -617,9 +617,10 @@ class CloudEnv : public Env {
   // Apply cloud manifest delta to in-memory cloud manifest. Does not change the
   // on-disk state.
   //
-  // Return InvalidArgument status if the delta has been applied in current
-  // CloudManifest
-  virtual Status ApplyCloudManifestDelta(const CloudManifestDelta& delta) = 0;
+  // If delta has already been applied in cloud manifest, delta_applied would be
+  // `false`
+  virtual Status ApplyCloudManifestDelta(const CloudManifestDelta& delta,
+                                         bool* delta_applied) = 0;
 
   // This function does several things:
   // * Writes CLOUDMANIFEST-cookie file based on existing in-memory
