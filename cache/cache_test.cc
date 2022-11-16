@@ -15,15 +15,14 @@
 #include <string>
 #include <vector>
 
-#include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
-// FastLRUCache and HyperClockCache only support 16-byte keys, so some of
-// the tests originally wrote for LRUCache do not work on the other caches.
+// HyperClockCache only supports 16-byte keys, so some of the tests
+// originally written for LRUCache do not work on the other caches.
 // Those tests were adapted to use 16-byte keys. We kept the original ones.
 // TODO: Remove the original tests if they ever become unused.
 
@@ -76,7 +75,6 @@ void EraseDeleter2(const Slice& /*key*/, void* value) {
 
 const std::string kLRU = "lru";
 const std::string kHyperClock = "hyper_clock";
-const std::string kFast = "fast";
 
 }  // anonymous namespace
 
@@ -86,7 +84,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
   static std::string type_;
 
   static void Deleter(const Slice& key, void* v) {
-    if (type_ == kFast || type_ == kHyperClock) {
+    if (type_ == kHyperClock) {
       current_->deleted_keys_.push_back(DecodeKey16Bytes(key));
     } else {
       current_->deleted_keys_.push_back(DecodeKey32Bits(key));
@@ -126,11 +124,6 @@ class CacheTest : public testing::TestWithParam<std::string> {
                  capacity, estimated_value_size_ /*estimated_value_size*/)
           .MakeSharedCache();
     }
-    if (type == kFast) {
-      return NewFastLRUCache(
-          capacity, estimated_value_size_, -1 /*num_shard_bits*/,
-          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
-    }
     return nullptr;
   }
 
@@ -153,11 +146,6 @@ class CacheTest : public testing::TestWithParam<std::string> {
                                     nullptr /*allocator*/, charge_policy)
           .MakeSharedCache();
     }
-    if (type == kFast) {
-      return NewFastLRUCache(capacity, 1 /*estimated_value_size*/,
-                             num_shard_bits, strict_capacity_limit,
-                             charge_policy);
-    }
     return nullptr;
   }
 
@@ -167,7 +155,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
   // LRUCache doesn't, so the encoding depends on the cache type.
   std::string EncodeKey(int k) {
     auto type = GetParam();
-    if (type == kFast || type == kHyperClock) {
+    if (type == kHyperClock) {
       return EncodeKey16Bytes(k);
     } else {
       return EncodeKey32Bits(k);
@@ -176,7 +164,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   int DecodeKey(const Slice& k) {
     auto type = GetParam();
-    if (type == kFast || type == kHyperClock) {
+    if (type == kHyperClock) {
       return DecodeKey16Bytes(k);
     } else {
       return DecodeKey32Bits(k);
@@ -733,7 +721,7 @@ TEST_P(CacheTest, ReleaseWithoutErase) {
 
 TEST_P(CacheTest, SetCapacity) {
   auto type = GetParam();
-  if (type == kFast || type == kHyperClock) {
+  if (type == kHyperClock) {
     ROCKSDB_GTEST_BYPASS(
         "FastLRUCache and HyperClockCache don't support arbitrary capacity "
         "adjustments.");
@@ -787,14 +775,6 @@ TEST_P(CacheTest, SetCapacity) {
 }
 
 TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
-  auto type = GetParam();
-  if (type == kFast) {
-    ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache only supports a limited number of "
-        "inserts beyond "
-        "capacity.");
-    return;
-  }
   // test1: set the flag to false. Insert more keys than capacity. See if they
   // all go through.
   std::shared_ptr<Cache> cache = NewCache(5, 0, false);
@@ -1045,9 +1025,8 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
 }
 
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(kLRU, kHyperClock, kFast));
-INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,
-                        testing::Values(kLRU, kFast));
+                        testing::Values(kLRU, kHyperClock));
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest, testing::Values(kLRU));
 
 }  // namespace ROCKSDB_NAMESPACE
 

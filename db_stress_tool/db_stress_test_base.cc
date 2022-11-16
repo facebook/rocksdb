@@ -12,7 +12,6 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
-#include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
@@ -124,10 +123,6 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
                                   FLAGS_block_size /*estimated_entry_charge*/,
                                   num_shard_bits)
         .MakeSharedCache();
-  } else if (FLAGS_cache_type == "fast_lru_cache") {
-    return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
-                           num_shard_bits, false /*strict_capacity_limit*/,
-                           kDefaultCacheMetadataChargePolicy);
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
