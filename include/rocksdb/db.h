@@ -1445,11 +1445,14 @@ class DB {
   virtual Status SyncWAL() = 0;
 
   // Lock the WAL. Also flushes the WAL after locking.
+  // If return status is non-ok, WAL lock is not held.
   virtual Status LockWAL() {
     return Status::NotSupported("LockWAL not implemented");
   }
 
   // Unlock the WAL.
+  // IMPORTANT: call UnlockWAL() if and only if a matching LockWAL() returns
+  // success.
   virtual Status UnlockWAL() {
     return Status::NotSupported("UnlockWAL not implemented");
   }

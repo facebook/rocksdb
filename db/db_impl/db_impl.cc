@@ -1571,6 +1571,16 @@ Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
 }
 
 Status DBImpl::LockWAL() {
+  Status deletions_disabled = DisableFileDeletions();
+  if (!deletions_disabled.ok()) {
+    return deletions_disabled;
+  }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    while (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0) {
+      bg_cv_.Wait();
+    }
+  }
   log_write_mutex_.Lock();
   auto cur_log_writer = logs_.back().writer;
   IOStatus status = cur_log_writer->WriteBuffer();
@@ -1580,13 +1590,17 @@ Status DBImpl::LockWAL() {
     // In case there is a fs error we should set it globally to prevent the
     // future writes
     WriteStatusCheck(status);
+    log_write_mutex_.Unlock();
+    Status deletions_enabled = EnableFileDeletions(/*force=*/false);
+    deletions_enabled.PermitUncheckedError();
   }
   return static_cast<Status>(status);
 }
 
 Status DBImpl::UnlockWAL() {
   log_write_mutex_.Unlock();
-  return Status::OK();
+  Status deletions_enabled = EnableFileDeletions(/*force=*/false);
+  return deletions_enabled;
 }
 
 void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
