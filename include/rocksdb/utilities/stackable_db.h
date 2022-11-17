@@ -372,7 +372,9 @@ class StackableDB : public DB {
 
   virtual Status FlushWAL(bool sync) override { return db_->FlushWAL(sync); }
 
-  virtual Status LockWAL() override { return db_->LockWAL(); }
+  virtual Status LockWAL(std::vector<uint64_t>* required_by_manifest) override {
+    return db_->LockWAL(required_by_manifest);
+  }
 
   virtual Status UnlockWAL() override { return db_->UnlockWAL(); }
 
@@ -471,6 +473,13 @@ class StackableDB : public DB {
 
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return db_->GetSortedWalFiles(files);
+  }
+
+  Status GetSortedWalFilesWithFileDeletionDisabled(
+      const std::vector<uint64_t>& required_by_manifest,
+      VectorLogPtr& files) override {
+    return db_->GetSortedWalFilesWithFileDeletionDisabled(required_by_manifest,
+                                                          files);
   }
 
   virtual Status GetCurrentWalFile(

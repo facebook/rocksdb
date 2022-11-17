@@ -431,7 +431,7 @@ class DBImpl : public DB {
   virtual Status FlushWAL(bool sync) override;
   bool WALBufferIsEmpty(bool lock = true);
   virtual Status SyncWAL() override;
-  virtual Status LockWAL() override;
+  virtual Status LockWAL(std::vector<uint64_t>* required_by_manifest) override;
   virtual Status UnlockWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
@@ -476,6 +476,9 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) override;
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
+  Status GetSortedWalFilesWithFileDeletionDisabled(
+      const std::vector<uint64_t>& required_by_manifest,
+      VectorLogPtr& files) override;
   virtual Status GetCurrentWalFile(
       std::unique_ptr<LogFile>* current_log_file) override;
   virtual Status GetCreationTimeOfOldestFile(

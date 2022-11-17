@@ -1570,7 +1570,7 @@ Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
   return status;
 }
 
-Status DBImpl::LockWAL() {
+Status DBImpl::LockWAL(std::vector<uint64_t>* required_by_manifest) {
   Status deletions_disabled = DisableFileDeletions();
   if (!deletions_disabled.ok()) {
     return deletions_disabled;
@@ -1579,6 +1579,14 @@ Status DBImpl::LockWAL() {
     InstrumentedMutexLock l(&mutex_);
     while (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0) {
       bg_cv_.Wait();
+    }
+    if (required_by_manifest) {
+      // Record tracked WALs as a (minimum) cross-check for directory scan
+      const auto& manifest_wals = versions_->GetWalSet().GetWals();
+      required_by_manifest->reserve(manifest_wals.size());
+      for (const auto& wal : manifest_wals) {
+        required_by_manifest->push_back(wal.first);
+      }
     }
   }
   log_write_mutex_.Lock();

@@ -185,6 +185,35 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   return s;
 }
 
+Status DBImpl::GetSortedWalFilesWithFileDeletionDisabled(
+    const std::vector<uint64_t>& required_by_manifest, VectorLogPtr& files) {
+  Status s = wal_manager_.GetSortedWalFiles(files);
+
+  if (s.ok()) {
+    // Verify includes those required by manifest (one sorted list is superset
+    // of the other)
+    auto required = required_by_manifest.begin();
+    auto included = files.begin();
+
+    while (required != required_by_manifest.end()) {
+      if (included == files.end() || *required < (*included)->LogNumber()) {
+        // FAIL - did not find
+        return Status::Corruption(
+            "WAL file " + std::to_string(*required) +
+            " required by manifest but not in directory list");
+      }
+      if (*required == (*included)->LogNumber()) {
+        ++required;
+        ++included;
+      } else {
+        assert(*required > (*included)->LogNumber());
+        ++included;
+      }
+    }
+  }
+  return s;
+}
+
 Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
   uint64_t current_logfile_number;
   {

@@ -618,10 +618,12 @@ TEST_F(DBWALTest, LockWal) {
     DestroyAndReopen(options);
     ASSERT_OK(Put("foo", "v"));
     ASSERT_OK(Put("bar", "v"));
-    ASSERT_OK(db_->LockWAL());
+    std::vector<uint64_t> wals_required_by_manifest;
+    ASSERT_OK(db_->LockWAL(&wals_required_by_manifest));
     {
       VectorLogPtr wals;
-      ASSERT_OK(db_->GetSortedWalFiles(wals));
+      ASSERT_OK(db_->GetSortedWalFilesWithFileDeletionDisabled(
+          wals_required_by_manifest, wals));
       ASSERT_FALSE(wals.empty());
     }
     ASSERT_OK(db_->UnlockWAL());

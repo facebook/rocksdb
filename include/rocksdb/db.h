@@ -1446,7 +1446,7 @@ class DB {
 
   // Lock the WAL. Also flushes the WAL after locking.
   // If return status is non-ok, WAL lock is not held.
-  virtual Status LockWAL() {
+  virtual Status LockWAL(std::vector<uint64_t>* /*required_by_manifest*/) {
     return Status::NotSupported("LockWAL not implemented");
   }
 
@@ -1591,6 +1591,11 @@ class DB {
 
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
+
+  // Retrieve the sorted list of all wal files with earliest file first.
+  virtual Status GetSortedWalFilesWithFileDeletionDisabled(
+      const std::vector<uint64_t>& required_by_manifest,
+      VectorLogPtr& files) = 0;
 
   // Retrieve information about the current wal file
   //

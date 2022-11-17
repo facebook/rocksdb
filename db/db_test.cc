@@ -3351,6 +3351,12 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetSortedWalFilesWithFileDeletionDisabled(
+      const std::vector<uint64_t>& /*requried_by_manifest*/,
+      VectorLogPtr& /*files*/) override {
+    return Status::OK();
+  }
+
   Status GetCurrentWalFile(
       std::unique_ptr<LogFile>* /*current_log_file*/) override {
     return Status::OK();

@@ -612,14 +612,14 @@ TEST_P(DBWriteTest, LockWalInEffect) {
   // try the 1st WAL created during open
   ASSERT_OK(Put("key" + std::to_string(0), "value"));
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
+  ASSERT_OK(dbfull()->LockWAL(nullptr));
   ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
   ASSERT_OK(dbfull()->UnlockWAL());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
   ASSERT_OK(Put("key" + std::to_string(0), "value"));
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
+  ASSERT_OK(dbfull()->LockWAL(nullptr));
   ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
   ASSERT_OK(dbfull()->UnlockWAL());
 }
