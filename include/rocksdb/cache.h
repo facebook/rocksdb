@@ -287,11 +287,21 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
 
-// HyperClockCache - EXPERIMENTAL
-//
-// A lock-free Cache alternative for RocksDB block cache that offers much
-// improved CPU efficiency under high parallel load or high contention, with
-// some caveats.
+// HyperClockCache - A lock-free Cache alternative for RocksDB block cache
+// that offers much improved CPU efficiency vs. LRUCache under high parallel
+// load or high contention, with some caveats:
+// * Not a general Cache implementation: can only be used for
+// BlockBasedTableOptions::block_cache, which RocksDB uses in a way that is
+// compatible with HyperClockCache.
+// * Requires an extra tuning parameter: see estimated_entry_charge below.
+// Similarly, substantially changing the capacity with SetCapacity could
+// harm efficiency.
+// * SecondaryCache is not yet supported.
+// * Cache priorities are less aggressively enforced, which could cause
+// cache dilution from long range scans (unless they use fill_cache=false).
+// * Can be worse for small caches, because if almost all of a cache shard is
+// pinned (more likely with non-partitioned filters), then CLOCK eviction
+// becomes very CPU intensive.
 //
 // See internal cache/clock_cache.h for full description.
 struct HyperClockCacheOptions : public ShardedCacheOptions {
