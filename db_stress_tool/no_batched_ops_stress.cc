@@ -64,7 +64,9 @@ class NonBatchedOpsStressTest : public StressTest {
       // entities
       const VerificationMethod method =
           static_cast<VerificationMethod>(thread->rand.Uniform(
-              FLAGS_use_put_entity_one_in > 0 ? num_methods - 1 : num_methods));
+              (FLAGS_use_put_entity_one_in > 0 || FLAGS_user_timestamp_size > 0)
+                  ? num_methods - 1
+                  : num_methods));
 
       if (method == VerificationMethod::kIterator) {
         std::unique_ptr<Iterator> iter(
