@@ -610,6 +610,7 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBWALTest, LockWal) {
   do {
     Options options = CurrentOptions();
@@ -626,6 +627,7 @@ TEST_F(DBWALTest, LockWal) {
     ASSERT_OK(db_->UnlockWAL());
   } while (ChangeWalOptions());
 }
+#endif  // !ROCKSDB_LITE
 
 class DBRecoveryTestBlobError
     : public DBWALTest,
