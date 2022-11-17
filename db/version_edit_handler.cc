@@ -442,6 +442,13 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       if (!s->ok()) {
         break;
       }
+      *s = LoadTables(cfd, false, true);
+      if (!s->ok()) {
+        if (s->IsPathNotFound()) {
+          *s = Status::Corruption();
+        }
+        break;
+      }
     }
   }
   if (s->ok()) {
@@ -851,7 +858,11 @@ Status VersionEditHandlerPointInTime::LoadTables(
   }
   assert(cfd != nullptr);
   assert(!cfd->IsDropped());
-  Version* version = cfd->current();
+  auto v_iter = versions_.find(cfd->GetID());
+  if (v_iter == versions_.end()) {
+    return Status::OK();
+  }
+  Version* version = v_iter->second;
   assert(version);
   Status s = version->LoadTableHandlers(
       cfd->internal_stats(),
