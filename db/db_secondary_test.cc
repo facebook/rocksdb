@@ -430,7 +430,7 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
     ASSERT_EQ(foo_val, value);
     ASSERT_OK(db_secondary_->Get(ropts, "bar", &value));
     ASSERT_EQ(bar_val, value);
-    std::unique_ptr<Iterator> iter(db_secondary_->NewIterator(ropts));
+    Iterator* iter = db_secondary_->NewIterator(ropts);
     ASSERT_NE(nullptr, iter);
     iter->Seek("foo");
     ASSERT_TRUE(iter->Valid());
@@ -445,6 +445,7 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
       ++count;
     }
     ASSERT_EQ(2, count);
+    delete iter;
   };
 
   verify_db_func("foo_value2", "bar_value2");
@@ -537,7 +538,7 @@ TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
 
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
-  ASSERT_EQ(5, static_cast<TraceFileEnv*>(traced_env.get())->files_closed());
+  ASSERT_EQ(2, static_cast<TraceFileEnv*>(traced_env.get())->files_closed());
 
   Status s = db_secondary_->SetDBOptions({{"max_open_files", "-1"}});
   ASSERT_TRUE(s.IsNotSupported());

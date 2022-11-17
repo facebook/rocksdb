@@ -442,13 +442,6 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       if (!s->ok()) {
         break;
       }
-      *s = LoadTables(cfd, false, true);
-      if (!s->ok()) {
-        if (s->IsPathNotFound()) {
-          *s = Status::Corruption();
-        }
-        break;
-      }
     }
   }
   if (s->ok()) {
@@ -811,6 +804,15 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
                                 *cfd->GetLatestMutableCFOptions(), io_tracer_,
                                 version_set_->current_version_number_++);
+    s = builder->LoadTableHandlers(
+        cfd->internal_stats(),
+        version_set_->db_options_->max_file_opening_threads, false, true,
+        cfd->GetLatestMutableCFOptions()->prefix_extractor,
+        MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
+    if (!s.ok()) {
+      delete version;
+      return s;
+    }
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {
       version->PrepareAppend(
@@ -851,29 +853,9 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
 }
 
 Status VersionEditHandlerPointInTime::LoadTables(
-    ColumnFamilyData* cfd, bool prefetch_index_and_filter_in_cache,
-    bool is_initial_load) {
-  if (skip_load_table_files_) {
-    return Status::OK();
-  }
-  assert(cfd != nullptr);
-  assert(!cfd->IsDropped());
-  auto v_iter = versions_.find(cfd->GetID());
-  if (v_iter == versions_.end()) {
-    return Status::OK();
-  }
-  Version* version = v_iter->second;
-  assert(version);
-  Status s = version->LoadTableHandlers(
-      cfd->internal_stats(),
-      version_set_->db_options_->max_file_opening_threads,
-      prefetch_index_and_filter_in_cache, is_initial_load,
-      cfd->GetLatestMutableCFOptions()->prefix_extractor,
-      MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
-  if (!s.ok() && !version_set_->db_options_->paranoid_checks) {
-    s = Status::OK();
-  }
-  return s;
+    ColumnFamilyData* /*cfd*/, bool /*prefetch_index_and_filter_in_cache*/,
+    bool /*is_initial_load*/) {
+  return Status::OK();
 }
 
 Status ManifestTailer::Initialize() {
