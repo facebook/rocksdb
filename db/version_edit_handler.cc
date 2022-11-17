@@ -811,6 +811,9 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
         MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
     if (!s.ok()) {
       delete version;
+      if (s.IsCorruption()) {
+        s = Status::OK();
+      }
       return s;
     }
     s = builder->SaveTo(version->storage_info());

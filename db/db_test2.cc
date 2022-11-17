@@ -7509,6 +7509,72 @@ TEST_F(DBTest2, SstUniqueIdVerifyMultiCFs) {
   ASSERT_TRUE(s.IsCorruption());
 }
 
+TEST_F(DBTest2, BestEffortsRecoveryWithSstUniqueIdVerification) {
+  const int num_l0_compaction_trigger = 4;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = num_l0_compaction_trigger;
+  // Allow mismatch for now
+  options.verify_sst_unique_id_in_manifest = false;
+
+  DestroyAndReopen(options);
+
+  const auto tamper_with_uniq_id = [&](void* arg) {
+    auto props = static_cast<TableProperties*>(arg);
+    assert(props);
+    // update table property session_id to a different one
+    props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+  };
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", tamper_with_uniq_id);
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr size_t num_keys_per_file = 10;
+  for (int i = 0; i < num_l0_compaction_trigger / 2; ++i) {
+    for (size_t j = 0; j < num_keys_per_file; ++j) {
+      ASSERT_OK(Put(std::to_string(j), "v0"));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  options.verify_sst_unique_id_in_manifest = true;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+
+  options.best_efforts_recovery = true;
+  Reopen(options);
+
+  const auto assert_db_empty = [&]() {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    size_t cnt = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++cnt) {
+    }
+    ASSERT_EQ(0, cnt);
+  };
+  // DB is empty
+  assert_db_empty();
+
+  // Reopen with regular recovery
+  options.best_efforts_recovery = false;
+  Reopen(options);
+  assert_db_empty();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  for (size_t i = 0; i < num_keys_per_file; ++i) {
+    ASSERT_OK(Put(std::to_string(i), "v1"));
+  }
+  ASSERT_OK(Flush());
+  Reopen(options);
+  {
+    for (size_t i = 0; i < num_keys_per_file; ++i) {
+      ASSERT_EQ("v1", Get(std::to_string(i)));
+    }
+  }
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   Destroy(last_options_);
