@@ -13,7 +13,6 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
-#include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
@@ -944,10 +943,7 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
             capacity,
             BlockBasedTableOptions().block_size /*estimated_value_size*/,
             num_shard_bits)
-            .MakeSharedCache(),
-        NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
-                        false /*strict_capacity_limit*/,
-                        kDefaultCacheMetadataChargePolicy)}) {
+            .MakeSharedCache()}) {
     if (!base_cache) {
       // Skip clock cache when not supported
       continue;

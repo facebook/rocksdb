@@ -343,9 +343,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                            /* result_operand */ nullptr,
                            /* update_num_ops_stats */ false);
       } else if (ikey.type == kTypeWideColumnEntity) {
-        // TODO: support wide-column entities
-        return Status::NotSupported(
-            "Merge currently not supported for wide-column entities");
+        s = TimedFullMergeWithEntity(
+            user_merge_operator_, ikey.user_key, iter->value(),
+            merge_context_.GetOperands(), &merge_result, logger_, stats_,
+            clock_, /* update_num_ops_stats */ false);
       } else {
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, nullptr,
                            merge_context_.GetOperands(), &merge_result, logger_,
@@ -359,7 +360,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       if (s.ok()) {
         // The original key encountered
         original_key = std::move(keys_.back());
-        orig_ikey.type = kTypeValue;
+        orig_ikey.type = ikey.type == kTypeWideColumnEntity
+                             ? kTypeWideColumnEntity
+                             : kTypeValue;
         UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
         keys_.clear();
         merge_context_.Clear();

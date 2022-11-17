@@ -10,7 +10,6 @@
 
 #include "cache/cache_key.h"
 #include "cache/clock_cache.h"
-#include "cache/fast_lru_cache.h"
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
@@ -363,148 +362,6 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ASSERT_TRUE(Lookup("m"));
   ValidateLRUList({"x", "y", "g", "z", "d", "m"}, 2, 2, 2);
 }
-
-// TODO: FastLRUCache and ClockCache use the same tests. We can probably remove
-// them from FastLRUCache after ClockCache becomes productive, and we don't plan
-// to use or maintain FastLRUCache any more.
-namespace fast_lru_cache {
-
-// TODO(guido) Replicate LRU policy tests from LRUCache here.
-class FastLRUCacheTest : public testing::Test {
- public:
-  FastLRUCacheTest() {}
-  ~FastLRUCacheTest() override { DeleteCache(); }
-
-  void DeleteCache() {
-    if (cache_ != nullptr) {
-      cache_->~LRUCacheShard();
-      port::cacheline_aligned_free(cache_);
-      cache_ = nullptr;
-    }
-  }
-
-  void NewCache(size_t capacity) {
-    DeleteCache();
-    cache_ = reinterpret_cast<LRUCacheShard*>(
-        port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
-    new (cache_) LRUCacheShard(capacity, 1 /*estimated_value_size*/,
-                               false /*strict_capacity_limit*/,
-                               kDontChargeCacheMetadata);
-  }
-
-  Status Insert(const std::string& key) {
-    return cache_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
-                          nullptr /*deleter*/, nullptr /*handle*/,
-                          Cache::Priority::LOW);
-  }
-
-  Status Insert(char key, size_t len) { return Insert(std::string(len, key)); }
-
-  size_t CalcEstimatedHandleChargeWrapper(
-      size_t estimated_value_size,
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    return LRUCacheShard::CalcEstimatedHandleCharge(estimated_value_size,
-                                                    metadata_charge_policy);
-  }
-
-  int CalcHashBitsWrapper(size_t capacity, size_t estimated_value_size,
-                          CacheMetadataChargePolicy metadata_charge_policy) {
-    return LRUCacheShard::CalcHashBits(capacity, estimated_value_size,
-                                       metadata_charge_policy);
-  }
-
-  // Maximum number of items that a shard can hold.
-  double CalcMaxOccupancy(size_t capacity, size_t estimated_value_size,
-                          CacheMetadataChargePolicy metadata_charge_policy) {
-    size_t handle_charge = LRUCacheShard::CalcEstimatedHandleCharge(
-        estimated_value_size, metadata_charge_policy);
-    return capacity / (kLoadFactor * handle_charge);
-  }
-  bool TableSizeIsAppropriate(int hash_bits, double max_occupancy) {
-    if (hash_bits == 0) {
-      return max_occupancy <= 1;
-    } else {
-      return (1 << hash_bits >= max_occupancy) &&
-             (1 << (hash_bits - 1) <= max_occupancy);
-    }
-  }
-
- private:
-  LRUCacheShard* cache_ = nullptr;
-};
-
-TEST_F(FastLRUCacheTest, ValidateKeySize) {
-  NewCache(3);
-  EXPECT_OK(Insert('a', 16));
-  EXPECT_NOK(Insert('b', 15));
-  EXPECT_OK(Insert('b', 16));
-  EXPECT_NOK(Insert('c', 17));
-  EXPECT_NOK(Insert('d', 1000));
-  EXPECT_NOK(Insert('e', 11));
-  EXPECT_NOK(Insert('f', 0));
-}
-
-TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
-  size_t capacity;
-  size_t estimated_value_size;
-  double max_occupancy;
-  int hash_bits;
-  CacheMetadataChargePolicy metadata_charge_policy;
-  // Vary the cache capacity, fix the element charge.
-  for (int i = 0; i < 2048; i++) {
-    capacity = i;
-    estimated_value_size = 0;
-    metadata_charge_policy = kFullChargeCacheMetadata;
-    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
-                                     metadata_charge_policy);
-    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                    metadata_charge_policy);
-    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
-  }
-  // Fix the cache capacity, vary the element charge.
-  for (int i = 0; i < 1024; i++) {
-    capacity = 1024;
-    estimated_value_size = i;
-    metadata_charge_policy = kFullChargeCacheMetadata;
-    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
-                                     metadata_charge_policy);
-    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                    metadata_charge_policy);
-    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
-  }
-  // Zero-capacity cache, and only values have charge.
-  capacity = 0;
-  estimated_value_size = 1;
-  metadata_charge_policy = kDontChargeCacheMetadata;
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
-  // Zero-capacity cache, and only metadata has charge.
-  capacity = 0;
-  estimated_value_size = 0;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
-  // Small cache, large elements.
-  capacity = 1024;
-  estimated_value_size = 8192;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
-  // Large capacity.
-  capacity = 31924172;
-  estimated_value_size = 8192;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  max_occupancy =
-      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
-}
-
-}  // namespace fast_lru_cache
 
 namespace clock_cache {
 
@@ -1886,6 +1743,43 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   secondary_cache->ResetInjectFailure();
 
   Destroy(options);
+}
+
+TEST_F(DBSecondaryCacheTest, TestSecondaryWithCompressedCache) {
+  if (!Snappy_Supported()) {
+    ROCKSDB_GTEST_SKIP("Compressed cache test requires snappy support");
+    return;
+  }
+  LRUCacheOptions opts(2000 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache(
+      new TestSecondaryCache(2048 * 1024));
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache_compressed = cache;
+  table_options.no_block_cache = true;
+  table_options.block_size = 1234;
+  Options options = GetDefaultOptions();
+  options.compression = kSnappyCompression;
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 6;
+  for (int i = 0; i < N; i++) {
+    // Partly compressible
+    std::string p_v = rnd.RandomString(507) + std::string(500, ' ');
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+  ASSERT_OK(Flush());
+  for (int i = 0; i < 2 * N; i++) {
+    std::string v = Get(Key(i % N));
+    ASSERT_EQ(1007, v.size());
+  }
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {

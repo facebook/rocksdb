@@ -237,6 +237,7 @@ class FilePrefetchBuffer {
     }
     prev_offset_ = offset;
     prev_len_ = len;
+    explicit_prefetch_submitted_ = false;
   }
 
   void GetReadaheadState(ReadaheadFileInfo::ReadaheadInfo* readahead_info) {

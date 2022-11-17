@@ -1331,18 +1331,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   assert(!cache_key.empty());
   BlockContents contents;
-  if (rep_->ioptions.lowest_used_cache_tier ==
-      CacheTier::kNonVolatileBlockTier) {
-    Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
-        read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
-    block_cache_compressed_handle = block_cache_compressed->Lookup(
-        cache_key,
-        BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
-        create_cb_special, priority, true);
-  } else {
-    block_cache_compressed_handle =
-        block_cache_compressed->Lookup(cache_key, statistics);
-  }
+  block_cache_compressed_handle =
+      block_cache_compressed->Lookup(cache_key, statistics);
 
   // if we found in the compressed cache, then uncompress and insert into
   // uncompressed cache
@@ -1466,15 +1456,15 @@ Status BlockBasedTable::PutDataBlockToCache(
     auto block_cont_for_comp_cache =
         std::make_unique<BlockContents>(std::move(block_contents));
     size_t charge = block_cont_for_comp_cache->ApproximateMemoryUsage();
-    s = InsertEntryToCache(
-        rep_->ioptions.lowest_used_cache_tier, block_cache_compressed,
-        cache_key,
-        BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
-        std::move(block_cont_for_comp_cache), charge, nullptr,
+
+    s = block_cache_compressed->Insert(
+        cache_key, block_cont_for_comp_cache.get(), charge,
+        &DeleteCacheEntry<BlockContents>, nullptr /*handle*/,
         Cache::Priority::LOW);
 
     if (s.ok()) {
-      // Avoid the following code to delete this cached block.
+      // Cache took ownership
+      block_cont_for_comp_cache.release();
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
     } else {
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
@@ -1843,16 +1833,8 @@ Status BlockBasedTable::RetrieveBlock(
   return s;
 }
 
-// Explicitly instantiate templates for both "blocklike" types we use.
+// Explicitly instantiate templates for each "blocklike" type we use.
 // This makes it possible to keep the template definitions in the .cc file.
-template Status BlockBasedTable::RetrieveBlock<BlockContents>(
-    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
-    const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-    CachableEntry<BlockContents>* out_parsed_block, BlockType block_type,
-    GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    bool for_compaction, bool use_cache, bool wait_for_cache,
-    bool async_read) const;
-
 template Status BlockBasedTable::RetrieveBlock<ParsedFullFilterBlock>(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,

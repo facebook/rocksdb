@@ -32,7 +32,8 @@ namespace clock_cache {
 // Forward declaration of friend class.
 class ClockCacheTest;
 
-// HyperClockCache is an experimental alternative to LRUCache.
+// HyperClockCache is an alternative to LRUCache specifically tailored for
+// use as BlockBasedTableOptions::block_cache
 //
 // Benefits
 // --------
