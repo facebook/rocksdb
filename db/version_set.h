@@ -1022,13 +1022,6 @@ class Version {
           mget_stats);
 #endif
 
-  // TODO(yanqin): dedup with VersionBuilder::LoadTableHandlers
-  Status LoadTableHandlers(
-      InternalStats* internal_stats, int max_threads,
-      bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      size_t max_file_size_for_l0_meta_pin);
-
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
   Statistics* db_statistics_;
