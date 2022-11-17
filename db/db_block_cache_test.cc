@@ -1302,11 +1302,6 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
               capacity,
               BlockBasedTableOptions().block_size /*estimated_value_size*/)
               .MakeSharedCache()}) {
-      if (!cache) {
-        // Skip clock cache when not supported
-        continue;
-      }
-
       ++iterations_tested;
 
       Options options = CurrentOptions();
@@ -1537,6 +1532,124 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
     }
     EXPECT_GE(iterations_tested, 1);
   }
+}
+
+namespace {
+
+void DummyFillCache(Cache& cache, size_t entry_size,
+                    std::vector<CacheHandleGuard<void>>& handles) {
+  // fprintf(stderr, "Entry size: %zu\n", entry_size);
+  handles.clear();
+  cache.EraseUnRefEntries();
+  void* fake_value = &cache;
+  size_t capacity = cache.GetCapacity();
+  OffsetableCacheKey ck{"abc", "abc", 42};
+  for (size_t my_usage = 0; my_usage < capacity;) {
+    size_t charge = std::min(entry_size, capacity - my_usage);
+    Cache::Handle* handle;
+    Status st = cache.Insert(ck.WithOffset(my_usage).AsSlice(), fake_value,
+                             charge, /*deleter*/ nullptr, &handle);
+    ASSERT_OK(st);
+    handles.emplace_back(&cache, handle);
+    my_usage += charge;
+  }
+}
+
+class CountingLogger : public Logger {
+ public:
+  ~CountingLogger() override {}
+  using Logger::Logv;
+  void Logv(const InfoLogLevel log_level, const char* format,
+            va_list /*ap*/) override {
+    if (std::strstr(format, "HyperClockCache") == nullptr) {
+      // Not a match
+      return;
+    }
+    // static StderrLogger debug;
+    // debug.Logv(log_level, format, ap);
+    if (log_level == InfoLogLevel::INFO_LEVEL) {
+      ++info_count_;
+    } else if (log_level == InfoLogLevel::WARN_LEVEL) {
+      ++warn_count_;
+    } else if (log_level == InfoLogLevel::ERROR_LEVEL) {
+      ++error_count_;
+    }
+  }
+
+  std::array<int, 3> PopCounts() {
+    std::array<int, 3> rv{{info_count_, warn_count_, error_count_}};
+    info_count_ = warn_count_ = error_count_ = 0;
+    return rv;
+  }
+
+ private:
+  int info_count_{};
+  int warn_count_{};
+  int error_count_{};
+};
+
+}  // namespace
+
+TEST_F(DBBlockCacheTest, HyperClockCacheReportProblems) {
+  size_t capacity = 1024 * 1024;
+  size_t value_size_est = 8 * 1024;
+  HyperClockCacheOptions hcc_opts{capacity, value_size_est};
+  hcc_opts.num_shard_bits = 2;  // 4 shards
+  hcc_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<Cache> cache = hcc_opts.MakeSharedCache();
+  std::shared_ptr<CountingLogger> logger = std::make_shared<CountingLogger>();
+
+  auto table_options = GetTableOptions();
+  auto options = GetOptions(table_options);
+  table_options.block_cache = cache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.info_log = logger;
+  // Going to sample more directly
+  options.stats_dump_period_sec = 0;
+  Reopen(options);
+
+  std::vector<CacheHandleGuard<void>> handles;
+
+  // Clear anything from DB startup
+  logger->PopCounts();
+
+  // Fill cache based on expected size and check that when we
+  // don't report anything relevant in periodic stats dump
+  DummyFillCache(*cache, value_size_est, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 0, 0}}));
+
+  // Same, within reasonable bounds
+  DummyFillCache(*cache, value_size_est - value_size_est / 4, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 0, 0}}));
+
+  DummyFillCache(*cache, value_size_est + value_size_est / 3, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 0, 0}}));
+
+  // Estimate too high (value size too low) eventually reports ERROR
+  DummyFillCache(*cache, value_size_est / 2, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 1, 0}}));
+
+  DummyFillCache(*cache, value_size_est / 3, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 0, 1}}));
+
+  // Estimate too low (value size too high) starts with INFO
+  // and is only WARNING in the worst case
+  DummyFillCache(*cache, value_size_est * 2, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{1, 0, 0}}));
+
+  DummyFillCache(*cache, value_size_est * 3, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 1, 0}}));
+
+  DummyFillCache(*cache, value_size_est * 20, handles);
+  dbfull()->DumpStats();
+  EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 1, 0}}));
 }
 
 #endif  // ROCKSDB_LITE
