@@ -68,7 +68,7 @@ class InstrumentedMutex {
   // https://en.cppreference.com/w/cpp/thread/thread/id/id:
   // "Default-constructs a new thread identifier. The identifier does not
   // represent a thread."
-  static const std::thread::id dummy_owner_;
+  static const std::thread::id& dummy_owner();
 
   void LockInternal();
   friend class InstrumentedCondVar;
@@ -82,7 +82,7 @@ class InstrumentedMutex {
   const bool track_owner_ = false;
   // Invariant: if any thread is holding mutex_, then owner_ is set to the
   // result of calling `std::this_thread::get_id()` within that thread.
-  std::atomic<std::thread::id> owner_{dummy_owner_};
+  std::atomic<std::thread::id> owner_{dummy_owner()};
 };
 
 class ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedInstrumentedMutex

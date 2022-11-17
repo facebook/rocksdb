@@ -24,7 +24,10 @@ Statistics* stats_for_report(SystemClock* clock, Statistics* stats) {
 #endif  // NPERF_CONTEXT
 }  // namespace
 
-const std::thread::id InstrumentedMutex::dummy_owner_{};
+const std::thread::id& InstrumentedMutex::dummy_owner() {
+  static const std::thread::id s_dummy_owner{};
+  return s_dummy_owner;
+}
 
 void InstrumentedMutex::Lock() {
   PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
@@ -66,7 +69,7 @@ void InstrumentedMutex::Unlock() {
     std::thread::id orig_id = owner_.load();
     std::thread::id my_tid = std::this_thread::get_id();
     if (orig_id == my_tid) {
-      owner_.store(dummy_owner_);
+      owner_.store(dummy_owner());
     }
   }
   mutex_.Unlock();
