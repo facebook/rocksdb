@@ -657,9 +657,19 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
     for (size_t level = 0; level < starting_level; ++level) {
       if (range_tombstone_iters_[level] &&
           range_tombstone_iters_[level]->Valid()) {
-        assert(static_cast<bool>(active_.count(level)) ==
-               (pinned_heap_item_[level].type == HeapItem::DELETE_RANGE_END));
-        minHeap_.push(&pinned_heap_item_[level]);
+        // use an iterator on active_ if performance becomes an issue here
+        if (active_.count(level) > 0) {
+          assert(pinned_heap_item_[level].type == HeapItem::DELETE_RANGE_END);
+          // if it was active, then start key must be within upper_bound,
+          // so we can add to minHeap_ directly.
+          minHeap_.push(&pinned_heap_item_[level]);
+        } else {
+          // this takes care of checking iterate_upper_bound, but with an extra
+          // key comparison if range_tombstone_iters_[level] was already out of
+          // bound. Consider using a new HeapItem type of some flag to remember
+          // boundary checking result.
+          InsertRangeTombstoneToMinHeap(level);
+        }
       } else {
         assert(!active_.count(level));
       }
