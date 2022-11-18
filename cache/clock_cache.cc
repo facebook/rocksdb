@@ -1253,7 +1253,7 @@ namespace {
 // or actual occupancy very close to limit (>95% of limit).
 // Also, for each shard compute the recommended estimated_entry_charge,
 // and keep the minimum one for use as overall recommendation.
-void AddShardEvaluation(HyperClockCache::Shard& shard,
+void AddShardEvaluation(const HyperClockCache::Shard& shard,
                         std::vector<double>& predicted_load_factors,
                         size_t& min_recommendation) {
   size_t usage = shard.GetUsage() - shard.GetDetachedUsage();
@@ -1275,7 +1275,7 @@ void AddShardEvaluation(HyperClockCache::Shard& shard,
   predicted_load_factors.push_back(lf);
 
   // Update min_recommendation also
-  size_t recommendation = usage / shard.GetOccupancyCount();
+  size_t recommendation = usage / occupancy;
   min_recommendation = std::min(min_recommendation, recommendation);
 }
 
@@ -1299,8 +1299,12 @@ void HyperClockCache::ReportProblems(
 
   // First, if the average load factor is within spec, we aren't going to
   // complain about a few shards being out of spec.
+  // NOTE: this is only the average among cache shards operating "at limit,"
+  // which should be representative of what we care about. It it normal, even
+  // desirable, for a cache to operate "at limit" so this should not create
+  // selection bias. See AddShardEvaluation().
   // TODO: Consider detecting cases where decreasing the number of shards
-  // would be good.
+  // would be good, e.g. serious imbalance among shards.
   double average_load_factor =
       std::accumulate(predicted_load_factors.begin(),
                       predicted_load_factors.end(), 0.0) /
