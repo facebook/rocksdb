@@ -476,6 +476,8 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) override;
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
+  // GetSortedWalFilesWithFileDeletionDisabled() should not try to acquire the
+  // db mutex, i.e. `mutex_`.
   Status GetSortedWalFilesWithFileDeletionDisabled(
       const std::vector<uint64_t>& required_by_manifest,
       VectorLogPtr& files) override;

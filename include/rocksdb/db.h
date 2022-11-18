@@ -1444,13 +1444,27 @@ class DB {
   // Currently only works if allow_mmap_writes = false in Options.
   virtual Status SyncWAL() = 0;
 
-  // Lock the WAL. Also flushes the WAL after locking.
-  // If return status is non-ok, WAL lock is not held.
+  // Lock the WAL.
+  // If returns ok, then WAL is also flushed and file deletion is disabled.
+  // Otherwise, WAL is not locked and file deletion is not disabled.
+  //
+  // required_by_manifest is the optional output argument storing the list of
+  // WAL files tracked by the MANIFEST if track_and_verify_wals_in_manifest is
+  // true. It can be later passed to
+  // GetSortedWalFilesWithFileDeletionDisabled() for verification with the
+  // actual WAL files on storage to make sure that all elements in
+  // `required_by_manifest` correspond to an actual WAL file.
+  //
+  // IMPORTANT: after locking the WAL, the application should not call any
+  // other API that may potentially try to acquire the db mutex.
+  // GetSortedWalFilesWithFileDeletionDisabled() is an API that does not
+  // acquire the db mutex.
   virtual Status LockWAL(std::vector<uint64_t>* /*required_by_manifest*/) {
     return Status::NotSupported("LockWAL not implemented");
   }
 
-  // Unlock the WAL.
+  // Unlock the WAL and re-enable file deletion that has been disabled by
+  // a prior LockWAL().
   // IMPORTANT: call UnlockWAL() if and only if a matching LockWAL() returns
   // success.
   virtual Status UnlockWAL() {
@@ -1593,6 +1607,9 @@ class DB {
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
   // Retrieve the sorted list of all wal files with earliest file first.
+  // IMPORTANT: this method cannot acquire the db mutex. It's intended to be
+  // called by the application after LockWAL() returns ok. For other use cases
+  // that try to collect WAL files, use the GetSortedWalFiles() API.
   virtual Status GetSortedWalFilesWithFileDeletionDisabled(
       const std::vector<uint64_t>& required_by_manifest,
       VectorLogPtr& files) = 0;
