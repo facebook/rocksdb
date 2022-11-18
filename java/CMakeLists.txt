@@ -643,26 +643,20 @@ if(NOT MSVC)
   set_property(TARGET ${ROCKSDB_STATIC_LIB} PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
-set(ROCKSDBJNI_STATIC_LIB rocksdbjni${ARTIFACT_SUFFIX})
-add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
-add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers rocksdbjni_test_headers)
-target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
-
-if(NOT MINGW)
-  set(ROCKSDBJNI_SHARED_LIB rocksdbjni-shared${ARTIFACT_SUFFIX})
-  add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
-  add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers rocksdbjni_test_headers)
-  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB})
-
-  set_target_properties(
-    ${ROCKSDBJNI_SHARED_LIB}
-    PROPERTIES
-    COMPILE_PDB_OUTPUT_DIRECTORY ${CMAKE_CFG_INTDIR}
-    COMPILE_PDB_NAME ${ROCKSDBJNI_STATIC_LIB}.pdb
-  )
+if(MINGW)
+  message("The rocksdbjni build is not known to work on MinGW")
 endif()
 
-
+set(ROCKSDBJNI_SHARED_LIB rocksdbjni${ARTIFACT_SUFFIX})
+add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
+add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers rocksdbjni_test_headers)
+target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB})
+set_target_properties(
+  ${ROCKSDBJNI_SHARED_LIB}
+  PROPERTIES
+  COMPILE_PDB_OUTPUT_DIRECTORY ${CMAKE_CFG_INTDIR}
+  COMPILE_PDB_NAME ${ROCKSDBJNI_STATIC_LIB}.pdb
+)
 
 
 #list( TRANSFORM JAVA_TEST_CLASSES REPLACE  "src/test/java/([^ ]*).java" "\\1" OUTPUT_VARIABLE testfilebase )

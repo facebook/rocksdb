@@ -42,12 +42,12 @@ jobs:
             EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
             cmake  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags) -DPORTABLE=1
             grep ^WITH build/CMakeCache.txt
-            cmake --build  build -v -t  rocksdbjni-shared  --config Release -j 12
+            cmake --build  build -v -t rocksdbjni  --config Release -j 12
       - run:
           name: Copy dll
           command: |
             set -xe
-            mkdir jars && cp build/java/Release/rocksdbjni-shared.dll jars/librocksdbjni-win64.dll
+            mkdir jars && cp build/java/Release/rocksdbjni.dll jars/librocksdbjni-win64.dll
       - persist_to_workspace:
           root: .
           paths:
@@ -81,12 +81,12 @@ jobs:
             EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
             ${CMAKE_BIN-cmake}  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags) -DCMAKE_OSX_ARCHITECTURES=$ARCH -DPORTABLE=1
             grep ^WITH build/CMakeCache.txt
-            ${CMAKE_BIN-cmake} --build  build -v -t  rocksdbjni-shared  --config Release -j 12
+            ${CMAKE_BIN-cmake} --build  build -v -t rocksdbjni  --config Release -j 12
       - run:
           name: Copy jnilib
           command: |
             set -xe
-            mkdir -p jars && cp build/java/librocksdbjni-shared.dylib jars/librocksdbjni-osx-$ARCH.jnilib
+            mkdir -p jars && cp build/java/librocksdbjni.dylib jars/librocksdbjni-osx-$ARCH.jnilib
 
       - persist_to_workspace:
           root: .
@@ -121,12 +121,12 @@ jobs:
             EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
             ${CMAKE_BIN-cmake}  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags) -DCMAKE_OSX_ARCHITECTURES=$ARCH -DPORTABLE=1 -DHAS_ARMV8_CRC=1
             grep ^WITH build/CMakeCache.txt
-            ${CMAKE_BIN-cmake} --build  build -v -t  rocksdbjni-shared  --config Release -j 12
+            ${CMAKE_BIN-cmake} --build  build -v -t rocksdbjni  --config Release -j 12
       - run:
           name: Copy jnilib
           command: |
             set -xe
-            mkdir -p jars && cp build/java/librocksdbjni-shared.dylib jars/librocksdbjni-osx-$ARCH.jnilib
+            mkdir -p jars && cp build/java/librocksdbjni.dylib jars/librocksdbjni-osx-$ARCH.jnilib
 
       - persist_to_workspace:
           root: .
@@ -147,13 +147,13 @@ jobs:
             EXTRA="-DROCKSDB_BUILD_SHARED=ON -DFAIL_ON_WARNINGS=OFF"
             ${CMAKE_BIN-cmake}  -B build $TOOLS -DCMAKE_BUILD_TYPE=Release  $(cat ../deps/cmake-flags) -DPORTABLE=1
             grep ^WITH build/CMakeCache.txt
-            ${CMAKE_BIN-cmake} --build  build -v -t  rocksdbjni-shared  --config Release -j 12
+            ${CMAKE_BIN-cmake} --build  build -v -t rocksdbjni  --config Release -j 12
       - run:
           name: Copy dll and test jars
           command: |
             set -xe
             mkdir jars
-            cp build/java/librocksdbjni-shared.so jars/librocksdbjni-linux64.so
+            cp build/java/librocksdbjni.so jars/librocksdbjni-linux64.so
             cp build/java/rocksdbjni_classes.jar jars/
             mkdir test-jars/
             cp java/test-libs/*.jar test-jars/
