@@ -734,12 +734,13 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   assert(!cfd->ioptions()->cf_paths.empty());
   Status s;
   for (const auto& elem : edit.GetNewFiles()) {
-    const FileMetaData& meta = elem.second;
+    int level = elem.first;
+    FileMetaData meta = elem.second;
     const FileDescriptor& fd = meta.fd;
     uint64_t file_num = fd.GetNumber();
     const std::string fpath =
         MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_num);
-    s = VerifyFile(fpath, meta);
+    s = VerifyFile(cfd, fpath, level, meta);
     if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
       missing_files.insert(file_num);
       s = Status::OK();
@@ -835,9 +836,11 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   return s;
 }
 
-Status VersionEditHandlerPointInTime::VerifyFile(const std::string& fpath,
-                                                 const FileMetaData& fmeta) {
-  return version_set_->VerifyFileMetadata(fpath, fmeta);
+Status VersionEditHandlerPointInTime::VerifyFile(ColumnFamilyData* cfd,
+                                                 const std::string& fpath,
+                                                 int level,
+                                                 FileMetaData& fmeta) {
+  return version_set_->VerifyFileMetadata(cfd, fpath, level, fmeta);
 }
 
 Status VersionEditHandlerPointInTime::VerifyBlobFile(
@@ -948,9 +951,11 @@ void ManifestTailer::CheckIterationResult(const log::Reader& reader,
   }
 }
 
-Status ManifestTailer::VerifyFile(const std::string& fpath,
-                                  const FileMetaData& fmeta) {
-  Status s = VersionEditHandlerPointInTime::VerifyFile(fpath, fmeta);
+Status ManifestTailer::VerifyFile(ColumnFamilyData* cfd,
+                                  const std::string& fpath, int level,
+                                  FileMetaData& fmeta) {
+  Status s =
+      VersionEditHandlerPointInTime::VerifyFile(cfd, fpath, level, fmeta);
   // TODO: Open file or create hard link to prevent the file from being
   // deleted.
   return s;

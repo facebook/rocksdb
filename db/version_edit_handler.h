@@ -213,8 +213,8 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
   Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
                             bool force_create_version) override;
-  virtual Status VerifyFile(const std::string& fpath,
-                            const FileMetaData& fmeta);
+  virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
+                            int level, FileMetaData& fmeta);
   virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
                                 const BlobFileAddition& blob_addition);
 
@@ -254,8 +254,8 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
 
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
 
-  Status VerifyFile(const std::string& fpath,
-                    const FileMetaData& fmeta) override;
+  Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
+                    FileMetaData& fmeta) override;
 
   enum Mode : uint8_t {
     kRecovery = 0,
