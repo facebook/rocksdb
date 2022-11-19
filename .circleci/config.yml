@@ -158,6 +158,8 @@ jobs:
             mkdir test-jars/
             cp java/test-libs/*.jar test-jars/
             cp build/java/rocksdbjni_test_classes.jar test-jars/
+            rm test-jars/*junit-4*
+            curl --fail --silent --show-error --output test-jars/junit-platform-console-standalone-1.9.1.jar --location https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/1.9.1/junit-platform-console-standalone-1.9.1.jar
       - run:
           name: Prepare version information.
           command: |
@@ -261,7 +263,7 @@ jobs:
             /usr/bin/find /tmp/workspace
             ## junit includes hamrest so need some deterministic jar order
             CP=$(find /tmp/workspace/test-jars /tmp/workspace/release -name '*.jar' | sort  | tr '\n' ':')
-            $JAVA_HOME/bin/java -ea -Xcheck:jni -cp $CP org.rocksdb.test.SMRocksJunitRunner
+            $JAVA_HOME/bin/java -ea -Xcheck:jni -cp $CP org.junit.platform.console.ConsoleLauncher  --fail-if-no-tests --disable-ansi-colors --scan-classpath=/tmp/workspace/test-jars/rocksdbjni_test_classes.jar
 
 
   test-macos:
@@ -284,7 +286,7 @@ jobs:
             /usr/bin/find /tmp/workspace
             ## junit includes hamrest so need some deterministic jar order
             CP=$(find /tmp/workspace/test-jars /tmp/workspace/release -name '*.jar' | sort  | tr '\n' ':')
-            $JAVA_HOME/bin/java -ea -Xcheck:jni -cp $CP org.rocksdb.test.SMRocksJunitRunner
+            $JAVA_HOME/bin/java -ea -Xcheck:jni -cp $CP org.junit.platform.console.ConsoleLauncher  --fail-if-no-tests --disable-ansi-colors --scan-classpath=/tmp/workspace/test-jars/rocksdbjni_test_classes.jar
 
 
   test-windows:
@@ -299,7 +301,7 @@ jobs:
             /usr/bin/find tmp/workspace
             ## junit includes hamrest so need some deterministic jar order
             CP=$(/usr/bin/find tmp/workspace/test-jars tmp/workspace/release -name '*.jar' | sort  | tr '\r\n' ';')
-            java -ea -Xcheck:jni -cp $CP org.rocksdb.test.SMRocksJunitRunner
+            "$JAVA_HOME/bin/java" -ea -Xcheck:jni -cp $CP org.junit.platform.console.ConsoleLauncher --fail-if-no-tests --disable-ansi-colors --scan-classpath=tmp/workspace/test-jars/rocksdbjni_test_classes.jar
 
   upload:
     executor: linux-test

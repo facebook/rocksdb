@@ -390,7 +390,6 @@ set(JAVA_ALL_TEST_CLASSES
   src/test/java/org/rocksdb/Types.java
   src/test/java/org/rocksdb/test/RemoveEmptyValueCompactionFilterFactory.java
   src/test/java/org/rocksdb/test/RocksJunitRunner.java
-  src/test/java/org/rocksdb/test/SMRocksJunitRunner.java
   src/test/java/org/rocksdb/util/ByteBufferAllocator.java
   src/test/java/org/rocksdb/util/DirectByteBufferAllocator.java
   src/test/java/org/rocksdb/util/HeapByteBufferAllocator.java
