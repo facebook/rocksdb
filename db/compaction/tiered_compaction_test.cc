@@ -1902,7 +1902,7 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   // Key(0) .. Key(14)
   // --- snap1 ---
   // Key(3) .. Key(17)
-  static const auto verify_db = [&]() {
+  const auto verify_db = [&]() {
     for (int i = 0; i < kNumKeys; i++) {
       std::string value;
       auto s = db_->Get(ReadOptions(), Key(i), &value);
