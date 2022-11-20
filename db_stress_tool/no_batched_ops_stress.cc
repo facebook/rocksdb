@@ -60,11 +60,9 @@ class NonBatchedOpsStressTest : public StressTest {
       constexpr int num_methods =
           static_cast<int>(VerificationMethod::kNumberOfMethods);
 
-      // Note: Merge/GetMergeOperands is currently not supported for wide-column
-      // entities
       const VerificationMethod method =
           static_cast<VerificationMethod>(thread->rand.Uniform(
-              FLAGS_use_put_entity_one_in > 0 ? num_methods - 1 : num_methods));
+              (FLAGS_user_timestamp_size > 0) ? num_methods - 1 : num_methods));
 
       if (method == VerificationMethod::kIterator) {
         std::unique_ptr<Iterator> iter(
@@ -808,7 +806,11 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (FLAGS_use_merge) {
       if (!FLAGS_use_txn) {
-        s = db_->Merge(write_opts, cfh, k, v);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->Merge(write_opts, cfh, k, v);
+        } else {
+          s = db_->Merge(write_opts, cfh, k, write_ts, v);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
