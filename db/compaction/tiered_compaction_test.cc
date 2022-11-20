@@ -1977,7 +1977,8 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   std::string begin_key_buf = Key(kNumKeysPerFile + 1),
               end_key_buf = Key(kNumKeysPerFile + 2);
   Slice begin_key(begin_key_buf), end_key(end_key_buf);
-  db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key, &end_key);
+  ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
+                                     &end_key));
   ASSERT_OK(dbfull()->WaitForCompact(true));
   ASSERT_EQ("0,0,0,0,0,3,3", FilesPerLevel());
   ASSERT_EQ(1, per_key_comp_num);
@@ -1986,7 +1987,8 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   // Rewrite the middle file again after releasing snap2. Still file endpoints
   // should not change.
   db_->ReleaseSnapshot(snap2);
-  db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key, &end_key);
+  ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
+                                     &end_key));
   ASSERT_OK(dbfull()->WaitForCompact(true));
   ASSERT_EQ("0,0,0,0,0,3,3", FilesPerLevel());
   ASSERT_EQ(2, per_key_comp_num);
@@ -1995,7 +1997,8 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   // Middle file once more after releasing snap1. This time the data in the
   // middle L5 file can all be compacted to the last level.
   db_->ReleaseSnapshot(snap1);
-  db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key, &end_key);
+  ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
+                                     &end_key));
   ASSERT_OK(dbfull()->WaitForCompact(true));
   ASSERT_EQ("0,0,0,0,0,2,3", FilesPerLevel());
   ASSERT_EQ(3, per_key_comp_num);
