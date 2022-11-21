@@ -111,23 +111,17 @@ UntrackStatus PointLockTracker::Untrack(const PointLockRequest& r) {
 void PointLockTracker::Merge(const LockTracker& tracker) {
   const PointLockTracker& t = static_cast<const PointLockTracker&>(tracker);
   for (const auto& cf_keys : t.tracked_keys_) {
-    ColumnFamilyId cf = cf_keys.first;
     const auto& keys = cf_keys.second;
 
-    auto current_cf_keys = tracked_keys_.find(cf);
-    if (current_cf_keys == tracked_keys_.end()) {
-      tracked_keys_.emplace(cf_keys);
-    } else {
+    auto [current_cf_keys, insert_cf_ok] = tracked_keys_.emplace(cf_keys);
+    if (!insert_cf_ok) {  // cf existed, do merge
       auto& current_keys = current_cf_keys->second;
       for (const auto& key_info : keys) {
-        const std::string& key = key_info.first;
         const TrackedKeyInfo& info = key_info.second;
         // If key was not previously tracked, just copy the whole struct over.
         // Otherwise, some merging needs to occur.
-        auto current_info = current_keys.find(key);
-        if (current_info == current_keys.end()) {
-          current_keys.emplace(key_info);
-        } else {
+        auto [current_info, insert_ok] = current_keys.emplace(key_info);
+        if (!insert_ok) {
           current_info->second.Merge(info);
         }
       }

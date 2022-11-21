@@ -371,7 +371,8 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
   uint32_t column_family_id = cfh->GetID();
 
   InstrumentedMutexLock l(&ltree_map_mutex_);
-  if (ltree_map_.find(column_family_id) == ltree_map_.end()) {
+  auto [it, success] = ltree_map_.insert({column_family_id, nullptr});
+  if (success) {
     DICTIONARY_ID dict_id = {.dictid = column_family_id};
     toku::comparator cmp;
     cmp.create(CompareDbtEndpoints, (void*)cfh->GetComparator());
@@ -381,7 +382,7 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
     // This is ok to because get_lt has copied the comparator:
     cmp.destroy();
 
-    ltree_map_.insert({column_family_id, MakeLockTreePtr(ltree)});
+    it->second = MakeLockTreePtr(ltree);
   }
 }
 

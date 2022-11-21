@@ -64,10 +64,10 @@ void RangeLockList::Append(ColumnFamilyId cf_id, const DBT *left_key,
   // The same thread does the lock release, so we can be certain nobody is
   // releasing the locks concurrently.
   assert(!releasing_locks_.load());
-  auto it = buffers_.find(cf_id);
-  if (it == buffers_.end()) {
+  auto [it, success] = buffers_.emplace(cf_id, nullptr);
+  if (success) {
     // create a new one
-    it = buffers_.emplace(cf_id, std::make_shared<toku::range_buffer>()).first;
+    it->second = std::make_shared<toku::range_buffer>();
     it->second->create();
   }
   it->second->append(left_key, right_key);
