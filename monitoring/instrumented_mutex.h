@@ -63,12 +63,19 @@ class InstrumentedMutex {
   bool LockedByThisThread();
 
  private:
+#if defined(OS_WIN) && !defined(_POSIX_THREADS)
+  // https://learn.microsoft.com/en-us/windows/win32/procthread/thread-handles-and-identifiers
+  // "Note that no thread identifier will ever be 0."
+  // Therefore, we use 0 here as the dummy owner.
+  static constexpr port::ThreadId kDummyOwner = 0;
+#else
   // Assumption: a default-constructed std::thread::id does not correspond to
   // the id of any thread. See
   // https://en.cppreference.com/w/cpp/thread/thread/id/id:
   // "Default-constructs a new thread identifier. The identifier does not
   // represent a thread."
   static const std::thread::id& dummy_owner();
+#endif  // !defined(OS_WIN) || defined(_POSIX_THREADS)
 
   void LockInternal();
   friend class InstrumentedCondVar;
@@ -80,9 +87,14 @@ class InstrumentedMutex {
   InstrumentedCondVar* bg_cv_ = nullptr;
 #endif
   const bool track_owner_ = false;
+
+#if defined(OS_WIN) && !defined(_POSIX_THREADS)
+  std::atomic<port::ThreadId> owner_{kDummyOwner};
+#else
   // Invariant: if any thread is holding mutex_, then owner_ is set to the
   // result of calling `std::this_thread::get_id()` within that thread.
   std::atomic<std::thread::id> owner_{dummy_owner()};
+#endif  // !defined(OS_WIN) || defined(_POSIX_THREADS)
 };
 
 class ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedInstrumentedMutex

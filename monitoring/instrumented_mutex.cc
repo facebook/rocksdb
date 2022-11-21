@@ -24,10 +24,12 @@ Statistics* stats_for_report(SystemClock* clock, Statistics* stats) {
 #endif  // NPERF_CONTEXT
 }  // namespace
 
+#if !defined(OS_WIN) || defined(_POSIX_THREADS)
 const std::thread::id& InstrumentedMutex::dummy_owner() {
   static const std::thread::id s_dummy_owner{};
   return s_dummy_owner;
 }
+#endif  // !defined(OS_WIN) || defined(_POSIX_THREADS)
 
 void InstrumentedMutex::Lock() {
   PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
@@ -59,25 +61,33 @@ void InstrumentedMutex::LockInternal() {
 #endif
   mutex_.Lock();
   if (track_owner_) {
+#if !defined(OS_WIN) || defined(_POSIX_THREADS)
     std::thread::id my_tid = std::this_thread::get_id();
+#else
+    auto my_tid = static_cast<port::ThreadId>(GetCurrentThreadId());
+#endif  // defined(OS_WIN) && !defined(_POSIX_THREADS)
     owner_.store(my_tid);
   }
 }
 
 void InstrumentedMutex::Unlock() {
   if (track_owner_) {
-    std::thread::id orig_id = owner_.load();
-    std::thread::id my_tid = std::this_thread::get_id();
-    if (orig_id == my_tid) {
-      owner_.store(dummy_owner());
-    }
+#if !defined(OS_WIN) || defined(_POSIX_THREADS)
+    owner_.store(dummy_owner());
+#else
+    owner_.store(kDummyOwner);
+#endif  // defined(OS_WIN) && !defined(_POSIX_THREADS)
   }
   mutex_.Unlock();
 }
 
 bool InstrumentedMutex::LockedByThisThread() {
+#if !defined(OS_WIN) || defined(_POSIX_THREADS)
   std::thread::id my_tid = std::this_thread::get_id();
-  std::thread::id owner_id = owner_.load();
+#else
+  auto my_tid = static_cast<port::ThreadId>(GetCurrentThreadId());
+#endif  // defined(OS_WIN) && !defined(_POSIX_THREADS)
+  auto owner_id = owner_.load();
   return my_tid == owner_id;
 }
 
