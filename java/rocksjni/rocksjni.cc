@@ -1066,7 +1066,8 @@ jint rocksdb_get_helper_direct(
     s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
   } else {
     // backwards compatibility
-    s = db->Get(read_options, db->DefaultColumnFamily(), key_slice, &pinnable_value);
+    s = db->Get(read_options, db->DefaultColumnFamily(), key_slice,
+                &pinnable_value);
   }
 
   if (s.IsNotFound()) {
@@ -1429,7 +1430,8 @@ jbyteArray rocksdb_get_helper(
   if (column_family_handle != nullptr) {
     s = db->Get(read_opt, column_family_handle, key_slice, &pinnable_value);
   } else {
-    s = db->Get(read_opt, db->DefaultColumnFamily(), key_slice, &pinnable_value);
+    s = db->Get(read_opt, db->DefaultColumnFamily(), key_slice,
+                &pinnable_value);
   }
 
   // cleanup
@@ -1440,7 +1442,8 @@ jbyteArray rocksdb_get_helper(
   }
 
   if (s.ok()) {
-    jbyteArray jret_value = ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, pinnable_value);
+    jbyteArray jret_value =
+        ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, pinnable_value);
     pinnable_value.Reset();
     if (jret_value == nullptr) {
       // exception occurred
@@ -1555,7 +1558,8 @@ jint rocksdb_get_helper(
   if (column_family_handle != nullptr) {
     s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
   } else {
-    s = db->Get(read_options, db->DefaultColumnFamily(), key_slice, &pinnable_value);
+    s = db->Get(read_options, db->DefaultColumnFamily(), key_slice,
+                &pinnable_value);
   }
 
   // cleanup
@@ -1581,9 +1585,9 @@ jint rocksdb_get_helper(
   const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
   const jint length = std::min(jval_len, pinnable_value_len);
 
-  env->SetByteArrayRegion(
-      jval, jval_off, length,
-      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(pinnable_value.data())));
+  env->SetByteArrayRegion(jval, jval_off, length,
+                          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(
+                              pinnable_value.data())));
   pinnable_value.Reset();
   if (env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError

@@ -31,8 +31,7 @@ public class GetBenchmarks {
   })
   String columnFamilyTestType;
 
-  @Param({"1000", "100000"})
-  int keyCount;
+  @Param({"1000", "100000"}) int keyCount;
 
   @Param({"12", "64", "128"}) int keySize;
 
