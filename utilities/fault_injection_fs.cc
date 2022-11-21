@@ -814,22 +814,14 @@ void FaultInjectionTestFS::WritableFileClosed(const FSFileState& state) {
 void FaultInjectionTestFS::WritableFileSynced(const FSFileState& state) {
   MutexLock l(&mutex_);
   if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
-    if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
-      db_file_state_.insert(std::make_pair(state.filename_, state));
-    } else {
-      db_file_state_[state.filename_] = state;
-    }
+    db_file_state_[state.filename_] = state;
   }
 }
 
 void FaultInjectionTestFS::WritableFileAppended(const FSFileState& state) {
   MutexLock l(&mutex_);
   if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
-    if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
-      db_file_state_.insert(std::make_pair(state.filename_, state));
-    } else {
-      db_file_state_[state.filename_] = state;
-    }
+    db_file_state_[state.filename_] = state;
   }
 }
 

@@ -59,14 +59,8 @@ Status FileChecksumListImpl::SearchOneFileChecksum(
 Status FileChecksumListImpl::InsertOneFileChecksum(
     uint64_t file_number, const std::string& checksum,
     const std::string& checksum_func_name) {
-  auto it = checksum_map_.find(file_number);
-  if (it == checksum_map_.end()) {
-    checksum_map_.insert(std::make_pair(
-        file_number, std::make_pair(checksum, checksum_func_name)));
-  } else {
-    it->second.first = checksum;
-    it->second.second = checksum_func_name;
-  }
+  // overwrite existing
+  checksum_map_[file_number] = {checksum, checksum_func_name};
   return Status::OK();
 }
 

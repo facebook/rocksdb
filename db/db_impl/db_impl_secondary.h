@@ -282,10 +282,7 @@ class DBImplSecondary : public DBImpl {
     std::unordered_set<uint32_t> column_family_ids_;
 
     Status AddColumnFamilyId(uint32_t column_family_id) {
-      if (column_family_ids_.find(column_family_id) ==
-          column_family_ids_.end()) {
-        column_family_ids_.insert(column_family_id);
-      }
+      column_family_ids_.insert(column_family_id);
       return Status::OK();
     }
 

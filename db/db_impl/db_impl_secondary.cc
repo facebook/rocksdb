@@ -291,11 +291,8 @@ Status DBImplSecondary::RecoverLogFiles(
           if (cfd == nullptr) {
             continue;
           }
-          std::unordered_map<ColumnFamilyData*, uint64_t>::iterator iter =
-              cfd_to_current_log_.find(cfd);
-          if (iter == cfd_to_current_log_.end()) {
-            cfd_to_current_log_.insert({cfd, log_number});
-          } else if (log_number > iter->second) {
+          auto [iter, success] = cfd_to_current_log_.emplace(cfd, log_number);
+          if (!success && log_number > iter->second) {
             iter->second = log_number;
           }
         }

@@ -186,10 +186,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       for (size_t path_id = 0; path_id < cfd->ioptions()->cf_paths.size();
            path_id++) {
         auto& path = cfd->ioptions()->cf_paths[path_id].path;
-
-        if (paths.find(path) == paths.end()) {
-          paths.insert(path);
-        }
+        paths.insert(path);
       }
     }
 
@@ -986,9 +983,7 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
       // path ends with '/' or '\\'
       const std::string normalized_fpath = path + fname;
       largest_file_number = std::max(largest_file_number, number);
-      if (type == kTableFile && number >= next_file_number &&
-          recovery_ctx->files_to_delete_.find(normalized_fpath) ==
-              recovery_ctx->files_to_delete_.end()) {
+      if (type == kTableFile && number >= next_file_number) {
         recovery_ctx->files_to_delete_.emplace(normalized_fpath);
       }
     }
