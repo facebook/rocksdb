@@ -56,12 +56,17 @@ class SecondaryCache : public Customizable {
                                  const std::string& id,
                                  std::shared_ptr<SecondaryCache>* result);
 
-  // Insert the given value into this cache. The value is not written
-  // directly. Rather, the SaveToCallback provided by helper will be
-  // used to extract value's persistable data (typically uncompressed block),
-  // which will be written to this tier. The implementation may or may not
-  // write it to cache depending on the admission control policy, even if the
-  // return status is success.
+  // Insert the given value into this cache. Ownership of `value` is
+  // transferred to the callee, who is reponsible for deleting the value
+  // with helper->del_cb if del_cb is not nullptr. Unlike Cache::Insert(),
+  // the callee is responsible for such cleanup even in case of non-OK
+  // Status.
+  // Typically, the value is not saved directly but the implementation
+  // uses the SaveToCallback provided by helper to extract value's
+  // persistable data (typically uncompressed block), which will be written
+  // to this tier. The implementation may or may not write it to cache
+  // depending on the admission control policy, even if the return status
+  // is success (OK).
   //
   // If the implementation is asynchronous or otherwise uses `value` after
   // the call returns, then InsertSaved() must be overridden not to rely on
