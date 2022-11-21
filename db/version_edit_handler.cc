@@ -99,8 +99,9 @@ Status ListColumnFamiliesHandler::ApplyVersionEdit(
     VersionEdit& edit, ColumnFamilyData** /*unused*/) {
   Status s;
   if (edit.is_column_family_add_) {
-    auto [iter, success] = column_family_names_.insert(
-        {edit.column_family_, edit.column_family_name_});
+    auto success = column_family_names_
+                       .insert({edit.column_family_, edit.column_family_name_})
+                       .second;
     if (!success) {
       s = Status::Corruption("Manifest adding the same column family twice");
     }
