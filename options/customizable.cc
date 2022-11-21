@@ -20,8 +20,7 @@ std::string Customizable::GetOptionName(const std::string& long_name) const {
   const std::string& name = Name();
   size_t name_len = name.size();
   if (long_name.size() > name_len + 1 &&
-      long_name.compare(0, name_len, name) == 0 &&
-      long_name.at(name_len) == '.') {
+      long_name.compare(0, name_len, name) == 0 && long_name[name_len] == '.') {
     return long_name.substr(name_len + 1);
   } else {
     return Configurable::GetOptionName(long_name);

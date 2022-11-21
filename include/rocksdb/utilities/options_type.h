@@ -1047,7 +1047,7 @@ Status SerializeArray(const ConfigOptions& config_options,
   }
   if (result.find("=") != std::string::npos) {
     *value = "{" + result + "}";
-  } else if (printed > 1 && result.at(0) == '{') {
+  } else if (printed > 1 && result[0] == '{') {
     *value = "{" + result + "}";
   } else {
     *value = result;
@@ -1179,7 +1179,7 @@ Status SerializeVector(const ConfigOptions& config_options,
   }
   if (result.find("=") != std::string::npos) {
     *value = "{" + result + "}";
-  } else if (printed > 1 && result.at(0) == '{') {
+  } else if (printed > 1 && result[0] == '{') {
     *value = "{" + result + "}";
   } else {
     *value = result;

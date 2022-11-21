@@ -409,7 +409,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   // List of RocksDB SST file without corruption
   std::vector<std::string> valid_sst_files;
   for (size_t i = 0; i < filenames.size(); i++) {
-    std::string filename = filenames.at(i);
+    std::string filename = filenames[i];
     if (filename.length() <= 4 ||
         filename.rfind(".sst") != filename.length() - 4) {
       // ignore

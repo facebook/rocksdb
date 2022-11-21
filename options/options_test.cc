@@ -4244,7 +4244,7 @@ static void TestAndCompareOption(const ConfigOptions& config_options,
   std::string result, mismatch;
   ASSERT_OK(opt_info.Serialize(config_options, opt_name, base_ptr, &result));
   if (strip) {
-    ASSERT_EQ(result.at(0), '{');
+    ASSERT_EQ(result[0], '{');
     ASSERT_EQ(result.at(result.size() - 1), '}');
     result = result.substr(1, result.size() - 2);
   }

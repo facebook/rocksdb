@@ -390,7 +390,7 @@ TEST_P(EnvMoreTestWithParam, GetChildrenIgnoresDotAndDotDot) {
 
   // expect only one file named `test_data`, i.e. no `.` or `..` names
   ASSERT_EQ(result.size(), 1);
-  ASSERT_EQ(result.at(0), "test_file");
+  ASSERT_EQ(result[0], "test_file");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

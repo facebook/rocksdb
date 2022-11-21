@@ -2746,7 +2746,7 @@ GetCommand::GetCommand(const std::vector<std::string>& params,
     exec_state_ = LDBCommandExecuteResult::Failed(
         "<key> must be specified for the get command");
   } else {
-    key_ = params.at(0);
+    key_ = params[0];
   }
 
   if (is_key_hex_) {
@@ -2852,8 +2852,8 @@ BatchPutCommand::BatchPutCommand(
         "Equal number of <key>s and <value>s must be specified for batchput.");
   } else {
     for (size_t i = 0; i < params.size(); i += 2) {
-      std::string key = params.at(i);
-      std::string value = params.at(i + 1);
+      std::string key = params[i];
+      std::string value = params[i + 1];
       key_values_.push_back(std::pair<std::string, std::string>(
           is_key_hex_ ? HexToString(key) : key,
           is_value_hex_ ? HexToString(value) : value));
@@ -3071,7 +3071,7 @@ DeleteCommand::DeleteCommand(const std::vector<std::string>& params,
     exec_state_ = LDBCommandExecuteResult::Failed(
         "KEY must be specified for the delete command");
   } else {
-    key_ = params.at(0);
+    key_ = params[0];
     if (is_key_hex_) {
       key_ = HexToString(key_);
     }
@@ -3107,7 +3107,7 @@ SingleDeleteCommand::SingleDeleteCommand(
     exec_state_ = LDBCommandExecuteResult::Failed(
         "KEY must be specified for the single delete command");
   } else {
-    key_ = params.at(0);
+    key_ = params[0];
     if (is_key_hex_) {
       key_ = HexToString(key_);
     }
@@ -3143,8 +3143,8 @@ DeleteRangeCommand::DeleteRangeCommand(
     exec_state_ = LDBCommandExecuteResult::Failed(
         "begin and end keys must be specified for the delete command");
   } else {
-    begin_key_ = params.at(0);
-    end_key_ = params.at(1);
+    begin_key_ = params[0];
+    end_key_ = params[1];
     if (is_key_hex_) {
       begin_key_ = HexToString(begin_key_);
       end_key_ = HexToString(end_key_);
@@ -3182,8 +3182,8 @@ PutCommand::PutCommand(const std::vector<std::string>& params,
     exec_state_ = LDBCommandExecuteResult::Failed(
         "<key> and <value> must be specified for the put command");
   } else {
-    key_ = params.at(0);
-    value_ = params.at(1);
+    key_ = params[0];
+    value_ = params[1];
   }
 
   if (is_key_hex_) {
@@ -3918,7 +3918,7 @@ WriteExternalSstFilesCommand::WriteExternalSstFilesCommand(
     exec_state_ = LDBCommandExecuteResult::Failed(
         "output SST file path must be specified");
   } else {
-    output_sst_path_ = params.at(0);
+    output_sst_path_ = params[0];
   }
 }
 
@@ -4057,7 +4057,7 @@ IngestExternalSstFilesCommand::IngestExternalSstFilesCommand(
     exec_state_ =
         LDBCommandExecuteResult::Failed("input SST path must be specified");
   } else {
-    input_sst_path_ = params.at(0);
+    input_sst_path_ = params[0];
   }
 }
 
@@ -4160,10 +4160,10 @@ UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
         LDBCommandExecuteResult::Failed("SST file number must be specified");
   } else {
     char* endptr = nullptr;
-    sst_file_number_ = strtoull(params.at(0).c_str(), &endptr, 10 /* base */);
+    sst_file_number_ = strtoull(params[0].c_str(), &endptr, 10 /* base */);
     if (endptr == nullptr || *endptr != '\0') {
       exec_state_ = LDBCommandExecuteResult::Failed(
-          "Failed to parse SST file number " + params.at(0));
+          "Failed to parse SST file number " + params[0]);
     }
   }
 }

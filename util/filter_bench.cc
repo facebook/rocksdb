@@ -300,7 +300,7 @@ const std::shared_ptr<const FilterPolicy> &GetPolicy() {
   static std::shared_ptr<const FilterPolicy> policy;
   if (!policy) {
     policy = BloomLikeFilterPolicy::Create(
-        BloomLikeFilterPolicy::GetAllFixedImpls().at(FLAGS_impl),
+        BloomLikeFilterPolicy::GetAllFixedImpls()[FLAGS_impl],
         FLAGS_bits_per_key);
   }
   return policy;

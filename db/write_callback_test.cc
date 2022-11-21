@@ -284,7 +284,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
              threads_verified.load() < write_group.size() - 1) {
       }
 
-      auto& write_op = write_group.at(i);
+      auto& write_op = write_group[i];
       write_op.Clear();
       write_op.callback_.allow_batching_ = allow_batching_;
 

@@ -640,9 +640,9 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
     int sz = len - write;
     int ret;
     char sztxt[16];
-    AppendHumanBytes(files.at(i)->fd.GetFileSize(), sztxt, 16);
+    AppendHumanBytes(files[i]->fd.GetFileSize(), sztxt, 16);
     ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ",
-                   files.at(i)->fd.GetNumber(), sztxt);
+                   files[i]->fd.GetNumber(), sztxt);
     if (ret < 0 || ret >= sz) break;
     write += ret;
   }

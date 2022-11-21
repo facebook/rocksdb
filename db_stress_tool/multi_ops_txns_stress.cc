@@ -672,7 +672,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
 
   s = CommitAndCreateTimestampedSnapshotIfNeeded(thread, *txn);
 
-  auto& key_gen = key_gen_for_a_.at(thread->tid);
+  auto& key_gen = key_gen_for_a_[thread->tid];
   if (s.ok()) {
     delete txn;
     key_gen->Replace(old_a, old_a_pos, new_a);
@@ -880,7 +880,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
 
   if (s.ok()) {
     delete txn;
-    auto& key_gen = key_gen_for_c_.at(thread->tid);
+    auto& key_gen = key_gen_for_c_[thread->tid];
     key_gen->Replace(old_c, old_c_pos, new_c);
   }
 
@@ -1333,26 +1333,26 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
 std::pair<uint32_t, uint32_t> MultiOpsTxnsStressTest::ChooseExistingA(
     ThreadState* thread) {
   uint32_t tid = thread->tid;
-  auto& key_gen = key_gen_for_a_.at(tid);
+  auto& key_gen = key_gen_for_a_[tid];
   return key_gen->ChooseExisting();
 }
 
 uint32_t MultiOpsTxnsStressTest::GenerateNextA(ThreadState* thread) {
   uint32_t tid = thread->tid;
-  auto& key_gen = key_gen_for_a_.at(tid);
+  auto& key_gen = key_gen_for_a_[tid];
   return key_gen->Allocate();
 }
 
 std::pair<uint32_t, uint32_t> MultiOpsTxnsStressTest::ChooseExistingC(
     ThreadState* thread) {
   uint32_t tid = thread->tid;
-  auto& key_gen = key_gen_for_c_.at(tid);
+  auto& key_gen = key_gen_for_c_[tid];
   return key_gen->ChooseExisting();
 }
 
 uint32_t MultiOpsTxnsStressTest::GenerateNextC(ThreadState* thread) {
   uint32_t tid = thread->tid;
-  auto& key_gen = key_gen_for_c_.at(tid);
+  auto& key_gen = key_gen_for_c_[tid];
   return key_gen->Allocate();
 }
 

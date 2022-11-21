@@ -65,7 +65,7 @@ class CompactionStatsCollector : public EventListener {
     int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
     int k = static_cast<int>(reason);
     assert(k >= 0 && k < num_of_reasons);
-    return compaction_completed_.at(k).load();
+    return compaction_completed_[k].load();
   }
 
  private:

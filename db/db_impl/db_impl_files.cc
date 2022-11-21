@@ -640,7 +640,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     size_t end =
         old_info_log_file_count - immutable_db_options_.keep_log_file_num;
     for (unsigned int i = 0; i <= end; i++) {
-      std::string& to_delete = old_info_log_files.at(i);
+      std::string& to_delete = old_info_log_files[i];
       std::string full_path_to_delete =
           (immutable_db_options_.db_log_dir.empty()
                ? dbname_

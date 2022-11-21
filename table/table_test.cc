@@ -2671,7 +2671,7 @@ class CustomFlushBlockPolicy : public FlushBlockPolicyFactory,
   }
 
   bool Update(const Slice&, const Slice&) override {
-    if (keys_in_current_block_ >= keys_per_block_.at(current_block_idx_)) {
+    if (keys_in_current_block_ >= keys_per_block_[current_block_idx_]) {
       ++current_block_idx_;
       keys_in_current_block_ = 1;
       return true;

@@ -2790,7 +2790,7 @@ Status Version::MultiGetAsync(
     batches.reserve(batches.size() + 1);
 
     size_t idx = to_process.front();
-    FilePickerMultiGet* batch = &batches.at(idx);
+    FilePickerMultiGet* batch = &batches[idx];
     unsigned int num_tasks_queued = 0;
     to_process.pop_front();
     if (batch->IsSearchEnded() || batch->GetRange().empty()) {
@@ -2836,7 +2836,7 @@ Status Version::MultiGetAsync(
         }
 
         for (size_t wait_idx : waiting) {
-          FilePickerMultiGet& fp = batches.at(wait_idx);
+          FilePickerMultiGet& fp = batches[wait_idx];
           // 1. If fp.GetHitFile() is non-null, then there could be more
           // overlap in this level. So skip preparing next level.
           // 2. If fp.GetRange() is empty, then this batch is completed

@@ -481,7 +481,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
 #ifndef ROCKSDB_LITE
   for (int i = 0; i != num_cfs; ++i) {
-    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
+    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options[i];
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
                        job_context->job_id);
@@ -533,9 +533,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
            static_cast<long unsigned int>(num_cfs));
     // TODO (yanqin): parallelize jobs with threads.
     for (int i = 1; i != num_cfs; ++i) {
-      exec_status[i].second =
-          jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i],
-                       &(switched_to_mempurge.at(i)));
+      exec_status[i].second = jobs[i]->Run(
+          &logs_with_prep_tracker_, &file_meta[i], &(switched_to_mempurge[i]));
       exec_status[i].first = true;
     }
     if (num_cfs > 1) {
@@ -548,7 +547,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     assert(!file_meta.empty());
     exec_status[0].second = jobs[0]->Run(
         &logs_with_prep_tracker_, file_meta.data() /* &file_meta[0] */,
-        switched_to_mempurge.empty() ? nullptr : &(switched_to_mempurge.at(0)));
+        switched_to_mempurge.empty() ? nullptr : &(switched_to_mempurge[0]));
     exec_status[0].first = true;
 
     Status error_status;
