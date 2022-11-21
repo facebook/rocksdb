@@ -448,6 +448,11 @@ enum Tickers : uint32_t {
   // # of bytes written into blob cache.
   BLOB_DB_CACHE_BYTES_WRITE,
 
+  // Time spent in the ReadAsync file system call
+  READ_ASYNC_MICROS,
+  // Number of errors returned to the async read callback
+  ASYNC_READ_ERROR_COUNT,
+
   TICKER_ENUM_MAX
 };
 

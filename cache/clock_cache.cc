@@ -11,8 +11,10 @@
 
 #include <cassert>
 #include <functional>
+#include <numeric>
 
 #include "cache/cache_key.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/lang.h"
@@ -1153,6 +1155,16 @@ size_t ClockCacheShard<Table>::GetUsage() const {
 }
 
 template <class Table>
+size_t ClockCacheShard<Table>::GetDetachedUsage() const {
+  return table_.GetDetachedUsage();
+}
+
+template <class Table>
+size_t ClockCacheShard<Table>::GetCapacity() const {
+  return capacity_;
+}
+
+template <class Table>
 size_t ClockCacheShard<Table>::GetPinnedUsage() const {
   // Computes the pinned usage by scanning the whole hash table. This
   // is slow, but avoids keeping an exact counter on the clock usage,
@@ -1184,6 +1196,11 @@ size_t ClockCacheShard<Table>::GetPinnedUsage() const {
 template <class Table>
 size_t ClockCacheShard<Table>::GetOccupancyCount() const {
   return table_.GetOccupancy();
+}
+
+template <class Table>
+size_t ClockCacheShard<Table>::GetOccupancyLimit() const {
+  return table_.GetOccupancyLimit();
 }
 
 template <class Table>
@@ -1225,6 +1242,135 @@ size_t HyperClockCache::GetCharge(Handle* handle) const {
 Cache::DeleterFn HyperClockCache::GetDeleter(Handle* handle) const {
   auto h = reinterpret_cast<const HandleImpl*>(handle);
   return h->deleter;
+}
+
+namespace {
+
+// For each cache shard, estimate what the table load factor would be if
+// cache filled to capacity with average entries. This is considered
+// indicative of a potential problem if the shard is essentially operating
+// "at limit", which we define as high actual usage (>80% of capacity)
+// or actual occupancy very close to limit (>95% of limit).
+// Also, for each shard compute the recommended estimated_entry_charge,
+// and keep the minimum one for use as overall recommendation.
+void AddShardEvaluation(const HyperClockCache::Shard& shard,
+                        std::vector<double>& predicted_load_factors,
+                        size_t& min_recommendation) {
+  size_t usage = shard.GetUsage() - shard.GetDetachedUsage();
+  size_t capacity = shard.GetCapacity();
+  double usage_ratio = 1.0 * usage / capacity;
+
+  size_t occupancy = shard.GetOccupancyCount();
+  size_t occ_limit = shard.GetOccupancyLimit();
+  double occ_ratio = 1.0 * occupancy / occ_limit;
+  if (usage == 0 || occupancy == 0 || (usage_ratio < 0.8 && occ_ratio < 0.95)) {
+    // Skip as described above
+    return;
+  }
+
+  // If filled to capacity, what would the occupancy ratio be?
+  double ratio = occ_ratio / usage_ratio;
+  // Given max load factor, what that load factor be?
+  double lf = ratio * kStrictLoadFactor;
+  predicted_load_factors.push_back(lf);
+
+  // Update min_recommendation also
+  size_t recommendation = usage / occupancy;
+  min_recommendation = std::min(min_recommendation, recommendation);
+}
+
+}  // namespace
+
+void HyperClockCache::ReportProblems(
+    const std::shared_ptr<Logger>& info_log) const {
+  uint32_t shard_count = GetNumShards();
+  std::vector<double> predicted_load_factors;
+  size_t min_recommendation = SIZE_MAX;
+  const_cast<HyperClockCache*>(this)->ForEachShard(
+      [&](HyperClockCache::Shard* shard) {
+        AddShardEvaluation(*shard, predicted_load_factors, min_recommendation);
+      });
+
+  if (predicted_load_factors.empty()) {
+    // None operating "at limit" -> nothing to report
+    return;
+  }
+  std::sort(predicted_load_factors.begin(), predicted_load_factors.end());
+
+  // First, if the average load factor is within spec, we aren't going to
+  // complain about a few shards being out of spec.
+  // NOTE: this is only the average among cache shards operating "at limit,"
+  // which should be representative of what we care about. It it normal, even
+  // desirable, for a cache to operate "at limit" so this should not create
+  // selection bias. See AddShardEvaluation().
+  // TODO: Consider detecting cases where decreasing the number of shards
+  // would be good, e.g. serious imbalance among shards.
+  double average_load_factor =
+      std::accumulate(predicted_load_factors.begin(),
+                      predicted_load_factors.end(), 0.0) /
+      shard_count;
+
+  constexpr double kLowSpecLoadFactor = kLoadFactor / 2;
+  constexpr double kMidSpecLoadFactor = kLoadFactor / 1.414;
+  if (average_load_factor > kLoadFactor) {
+    // Out of spec => Consider reporting load factor too high
+    // Estimate effective overall capacity loss due to enforcing occupancy limit
+    double lost_portion = 0.0;
+    int over_count = 0;
+    for (double lf : predicted_load_factors) {
+      if (lf > kStrictLoadFactor) {
+        ++over_count;
+        lost_portion += (lf - kStrictLoadFactor) / lf / shard_count;
+      }
+    }
+    // >= 20% loss -> error
+    // >= 10% loss -> consistent warning
+    // >= 1% loss -> intermittent warning
+    InfoLogLevel level = InfoLogLevel::INFO_LEVEL;
+    bool report = true;
+    if (lost_portion > 0.2) {
+      level = InfoLogLevel::ERROR_LEVEL;
+    } else if (lost_portion > 0.1) {
+      level = InfoLogLevel::WARN_LEVEL;
+    } else if (lost_portion > 0.01) {
+      int report_percent = static_cast<int>(lost_portion * 100.0);
+      if (Random::GetTLSInstance()->PercentTrue(report_percent)) {
+        level = InfoLogLevel::WARN_LEVEL;
+      }
+    } else {
+      // don't report
+      report = false;
+    }
+    if (report) {
+      ROCKS_LOG_AT_LEVEL(
+          info_log, level,
+          "HyperClockCache@%p unable to use estimated %.1f%% capacity because "
+          "of "
+          "full occupancy in %d/%u cache shards (estimated_entry_charge too "
+          "high). Recommend estimated_entry_charge=%zu",
+          this, lost_portion * 100.0, over_count, (unsigned)shard_count,
+          min_recommendation);
+    }
+  } else if (average_load_factor < kLowSpecLoadFactor) {
+    // Out of spec => Consider reporting load factor too low
+    // But cautiously because low is not as big of a problem.
+
+    // Only report if highest occupancy shard is also below
+    // spec and only if average is substantially out of spec
+    if (predicted_load_factors.back() < kLowSpecLoadFactor &&
+        average_load_factor < kLowSpecLoadFactor / 1.414) {
+      InfoLogLevel level = InfoLogLevel::INFO_LEVEL;
+      if (average_load_factor < kLowSpecLoadFactor / 2) {
+        level = InfoLogLevel::WARN_LEVEL;
+      }
+      ROCKS_LOG_AT_LEVEL(
+          info_log, level,
+          "HyperClockCache@%p table has low occupancy at full capacity. Higher "
+          "estimated_entry_charge (about %.1fx) would likely improve "
+          "performance. Recommend estimated_entry_charge=%zu",
+          this, kMidSpecLoadFactor / average_load_factor, min_recommendation);
+    }
+  }
 }
 
 }  // namespace clock_cache
