@@ -282,22 +282,9 @@ set(JAVA_MAIN_CLASSES
 )
 
 set(JAVA_TEST_CLASSES
-  src/test/java/org/rocksdb/BackupEngineTest.java
-  src/test/java/org/rocksdb/IngestExternalFileOptionsTest.java
-  src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
-  src/test/java/org/rocksdb/PlatformRandomHelper.java
-  src/test/java/org/rocksdb/RocksDBExceptionTest.java
-  src/test/java/org/rocksdb/RocksNativeLibraryResource.java
-  src/test/java/org/rocksdb/SnapshotTest.java
-  src/test/java/org/rocksdb/WriteBatchTest.java
-  src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
-  src/test/java/org/rocksdb/util/WriteBatchGetter.java
-  src/test/java/org/rocksdb/test/TestableEventListener.java
-)
-
-set(JAVA_ALL_TEST_CLASSES
-  ## From Makefile
+  src/test/java/org/rocksdb/AbstractTransactionTest.java
   src/test/java/org/rocksdb/BackupEngineOptionsTest.java
+  src/test/java/org/rocksdb/BackupEngineTest.java
   src/test/java/org/rocksdb/BlobOptionsTest.java
   src/test/java/org/rocksdb/BlockBasedTableConfigTest.java
   src/test/java/org/rocksdb/BuiltinComparatorTest.java
@@ -306,6 +293,7 @@ set(JAVA_ALL_TEST_CLASSES
   src/test/java/org/rocksdb/ClockCacheTest.java
   src/test/java/org/rocksdb/ColumnFamilyOptionsTest.java
   src/test/java/org/rocksdb/ColumnFamilyTest.java
+  src/test/java/org/rocksdb/CompactRangeOptionsTest.java
   src/test/java/org/rocksdb/CompactionFilterFactoryTest.java
   src/test/java/org/rocksdb/CompactionJobInfoTest.java
   src/test/java/org/rocksdb/CompactionJobStatsTest.java
@@ -324,8 +312,10 @@ set(JAVA_ALL_TEST_CLASSES
   src/test/java/org/rocksdb/EnvOptionsTest.java
   src/test/java/org/rocksdb/EventListenerTest.java
   src/test/java/org/rocksdb/FilterTest.java
+  src/test/java/org/rocksdb/FlushOptionsTest.java
   src/test/java/org/rocksdb/FlushTest.java
   src/test/java/org/rocksdb/InfoLogLevelTest.java
+  src/test/java/org/rocksdb/IngestExternalFileOptionsTest.java
   src/test/java/org/rocksdb/KeyMayExistTest.java
   src/test/java/org/rocksdb/LRUCacheTest.java
   src/test/java/org/rocksdb/LoggerTest.java
@@ -338,6 +328,7 @@ set(JAVA_ALL_TEST_CLASSES
   src/test/java/org/rocksdb/MutableColumnFamilyOptionsTest.java
   src/test/java/org/rocksdb/MutableDBOptionsTest.java
   src/test/java/org/rocksdb/MutableOptionsGetSetTest.java
+  src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
   src/test/java/org/rocksdb/NativeLibraryLoaderTest.java
   src/test/java/org/rocksdb/OptimisticTransactionDBTest.java
   src/test/java/org/rocksdb/OptimisticTransactionOptionsTest.java
@@ -345,20 +336,25 @@ set(JAVA_ALL_TEST_CLASSES
   src/test/java/org/rocksdb/OptionsTest.java
   src/test/java/org/rocksdb/OptionsUtilTest.java
   src/test/java/org/rocksdb/PlainTableConfigTest.java
+  src/test/java/org/rocksdb/PlatformRandomHelper.java
   src/test/java/org/rocksdb/RateLimiterTest.java
   src/test/java/org/rocksdb/ReadOnlyTest.java
   src/test/java/org/rocksdb/ReadOptionsTest.java
+  src/test/java/org/rocksdb/RocksDBExceptionTest.java
   src/test/java/org/rocksdb/RocksDBTest.java
   src/test/java/org/rocksdb/RocksIteratorTest.java
   src/test/java/org/rocksdb/RocksMemEnvTest.java
+  src/test/java/org/rocksdb/RocksNativeLibraryResource.java
   src/test/java/org/rocksdb/SecondaryDBTest.java
   src/test/java/org/rocksdb/SliceTest.java
+  src/test/java/org/rocksdb/SnapshotTest.java
   src/test/java/org/rocksdb/SstFileManagerTest.java
   src/test/java/org/rocksdb/SstFileReaderTest.java
   src/test/java/org/rocksdb/SstFileWriterTest.java
   src/test/java/org/rocksdb/SstPartitionerTest.java
   src/test/java/org/rocksdb/StatisticsCollectorTest.java
   src/test/java/org/rocksdb/StatisticsTest.java
+  src/test/java/org/rocksdb/StatsCallbackMock.java
   src/test/java/org/rocksdb/TableFilterTest.java
   src/test/java/org/rocksdb/TimedEnvTest.java
   src/test/java/org/rocksdb/TransactionDBOptionsTest.java
@@ -367,34 +363,30 @@ set(JAVA_ALL_TEST_CLASSES
   src/test/java/org/rocksdb/TransactionOptionsTest.java
   src/test/java/org/rocksdb/TransactionTest.java
   src/test/java/org/rocksdb/TtlDBTest.java
+  src/test/java/org/rocksdb/Types.java
   src/test/java/org/rocksdb/VerifyChecksumsTest.java
   src/test/java/org/rocksdb/WALRecoveryModeTest.java
   src/test/java/org/rocksdb/WalFilterTest.java
   src/test/java/org/rocksdb/WriteBatchHandlerTest.java
+  src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/WriteBatchThreadedTest.java
   src/test/java/org/rocksdb/WriteBatchWithIndexTest.java
   src/test/java/org/rocksdb/WriteOptionsTest.java
+  src/test/java/org/rocksdb/test/RemoveEmptyValueCompactionFilterFactory.java
+  src/test/java/org/rocksdb/test/TestableEventListener.java
+  src/test/java/org/rocksdb/util/ByteBufferAllocator.java
   src/test/java/org/rocksdb/util/BytewiseComparatorIntTest.java
   src/test/java/org/rocksdb/util/BytewiseComparatorTest.java
+  src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
+  src/test/java/org/rocksdb/util/DirectByteBufferAllocator.java
   src/test/java/org/rocksdb/util/EnvironmentTest.java
+  src/test/java/org/rocksdb/util/HeapByteBufferAllocator.java
   src/test/java/org/rocksdb/util/IntComparatorTest.java
   src/test/java/org/rocksdb/util/JNIComparatorTest.java
   src/test/java/org/rocksdb/util/ReverseBytewiseComparatorIntTest.java
   src/test/java/org/rocksdb/util/SizeUnitTest.java
-
-  ## From file system:
-  src/test/java/org/rocksdb/AbstractTransactionTest.java
-  src/test/java/org/rocksdb/CompactRangeOptionsTest.java
-  src/test/java/org/rocksdb/FlushOptionsTest.java
-  src/test/java/org/rocksdb/StatsCallbackMock.java
-  src/test/java/org/rocksdb/Types.java
-  src/test/java/org/rocksdb/test/RemoveEmptyValueCompactionFilterFactory.java
-  src/test/java/org/rocksdb/test/RocksJunitRunner.java
-  src/test/java/org/rocksdb/util/ByteBufferAllocator.java
-  src/test/java/org/rocksdb/util/DirectByteBufferAllocator.java
-  src/test/java/org/rocksdb/util/HeapByteBufferAllocator.java
   src/test/java/org/rocksdb/util/TestUtil.java
-
+  src/test/java/org/rocksdb/util/WriteBatchGetter.java
 )
 
 include(FindJava)
@@ -431,7 +423,6 @@ elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4")
       rocksdbjni_classes
       SOURCES
       ${JAVA_MAIN_CLASSES}
-      ${JAVA_TEST_CLASSES}
       INCLUDE_JARS ${JAVA_TESTCLASSPATH}
   )
 
@@ -442,7 +433,6 @@ else ()
       rocksdbjni_classes
       SOURCES
       ${JAVA_MAIN_CLASSES}
-      ${JAVA_TEST_CLASSES}
       INCLUDE_JARS ${JAVA_TESTCLASSPATH}
       GENERATE_NATIVE_HEADERS rocksdbjni_headers DESTINATION ${JNI_OUTPUT_DIR}
   )
@@ -451,7 +441,7 @@ endif()
 add_jar(
     rocksdbjni_test_classes
     SOURCES
-    ${JAVA_ALL_TEST_CLASSES}
+    ${JAVA_TEST_CLASSES}
     INCLUDE_JARS ${JAVA_TESTCLASSPATH} rocksdbjni_classes
     GENERATE_NATIVE_HEADERS rocksdbjni_test_headers DESTINATION ${JNI_OUTPUT_DIR}
   )
