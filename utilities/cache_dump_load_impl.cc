@@ -295,7 +295,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     // (There is no block trailer here compatible with block-based SST file.)
     Slice content =
         Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len);
-    Status s = secondary_cache_->Warm(dump_unit.key, content);
+    Status s = secondary_cache_->InsertSaved(dump_unit.key, content);
     if (!s.ok()) {
       io_s = status_to_io_status(std::move(s));
     }

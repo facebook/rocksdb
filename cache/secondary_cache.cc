@@ -24,10 +24,11 @@ Status SliceSaveTo(void* from_obj, size_t from_offset, size_t length,
 
 }  // namespace
 
-Status SecondaryCache::Warm(const Slice& key, const Slice& block) {
+Status SecondaryCache::InsertSaved(const Slice& key, const Slice& saved) {
   static Cache::CacheItemHelper helper{
       &SliceSize, &SliceSaveTo, GetNoopDeleterForRole<CacheEntryRole::kMisc>()};
-  return Insert(key, const_cast<Slice*>(&block), &helper);
+  // NOTE: depends on Insert() being synchronous, not keeping pointer `&saved`
+  return Insert(key, const_cast<Slice*>(&saved), &helper);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

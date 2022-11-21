@@ -1143,7 +1143,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   Random rnd(301);
   // Start with warming k3
   std::string str3 = rnd.RandomString(1021);
-  ASSERT_OK(secondary_cache->Warm(k3.AsSlice(), str3));
+  ASSERT_OK(secondary_cache->InsertSaved(k3.AsSlice(), str3));
 
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
