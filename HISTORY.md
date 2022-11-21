@@ -10,6 +10,7 @@
 * Fixed an issue where the `READ_NUM_MERGE_OPERANDS` ticker was not updated when the base key-value or tombstone was read from an SST file.
 * Fixed a memory safety bug when using a SecondaryCache with `block_cache_compressed`. `block_cache_compressed` no longer attempts to use SecondaryCache features.
 * Fixed a regression in scan for async_io. During seek, valid buffers were getting cleared causing a regression.
+* Tiered Storage: fixed excessive keys written to penultimate level in non-debug builds.
 
 ### New Features
 * Add basic support for user-defined timestamp to Merge (#10819).
