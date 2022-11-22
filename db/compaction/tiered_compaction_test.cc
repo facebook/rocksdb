@@ -663,8 +663,19 @@ TEST_P(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown),
-            0);  // tombstone has no size, even it's in hot tier
+  // range tombstone is not in cold tier
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  // range tombstone is in the penultimate level
+  const int penultimate_level = kNumLevels - 2;
+  ASSERT_EQ(level_to_files[penultimate_level].size(), 1);
+  ASSERT_EQ(level_to_files[penultimate_level][0].num_entries, 1);
+  ASSERT_EQ(level_to_files[penultimate_level][0].num_deletions, 1);
+  ASSERT_EQ(level_to_files[penultimate_level][0].temperature,
+            Temperature::kUnknown);
+
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
   ASSERT_EQ("0,1,10",
             FilesPerLevel());  // one file is at the penultimate level which
