@@ -1502,7 +1502,7 @@ class VersionSet {
                                        const VersionEdit* edit);
 
   Status VerifyFileMetadata(ColumnFamilyData* cfd, const std::string& fpath,
-                            int level, FileMetaData& meta);
+                            int level, const FileMetaData& meta);
 
   // Protected by DB mutex.
   WalSet wals_;

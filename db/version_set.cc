@@ -6706,7 +6706,7 @@ uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
 
 Status VersionSet::VerifyFileMetadata(ColumnFamilyData* cfd,
                                       const std::string& fpath, int level,
-                                      FileMetaData& meta) {
+                                      const FileMetaData& meta) {
   uint64_t fsize = 0;
   Status status = fs_->GetFileSize(fpath, IOOptions(), &fsize, nullptr);
   if (status.ok()) {
@@ -6734,14 +6734,16 @@ Status VersionSet::VerifyFileMetadata(ColumnFamilyData* cfd,
 
     InternalStats* internal_stats = cfd->internal_stats();
 
+    FileMetaData meta_copy = meta;
     status = table_cache->FindTable(
-        ReadOptions(), file_opts, *icmp, meta, &(meta.table_reader_handle), pe,
+        ReadOptions(), file_opts, *icmp, meta_copy,
+        &(meta_copy.table_reader_handle), pe,
         /*no_io=*/false, /*record_read_stats=*/true,
         internal_stats->GetFileReadHist(level), false, level,
         /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
-        meta.temperature);
-    if (meta.table_reader_handle) {
-      table_cache->ReleaseHandle(meta.table_reader_handle);
+        meta_copy.temperature);
+    if (meta_copy.table_reader_handle) {
+      table_cache->ReleaseHandle(meta_copy.table_reader_handle);
     }
   }
   return status;

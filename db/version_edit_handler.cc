@@ -839,7 +839,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
 Status VersionEditHandlerPointInTime::VerifyFile(ColumnFamilyData* cfd,
                                                  const std::string& fpath,
                                                  int level,
-                                                 FileMetaData& fmeta) {
+                                                 const FileMetaData& fmeta) {
   return version_set_->VerifyFileMetadata(cfd, fpath, level, fmeta);
 }
 
@@ -953,7 +953,7 @@ void ManifestTailer::CheckIterationResult(const log::Reader& reader,
 
 Status ManifestTailer::VerifyFile(ColumnFamilyData* cfd,
                                   const std::string& fpath, int level,
-                                  FileMetaData& fmeta) {
+                                  const FileMetaData& fmeta) {
   Status s =
       VersionEditHandlerPointInTime::VerifyFile(cfd, fpath, level, fmeta);
   // TODO: Open file or create hard link to prevent the file from being
