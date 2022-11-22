@@ -2769,8 +2769,8 @@ TEST_F(DBRangeDelTest, RangeTombstoneRespectIterateUpperBound) {
   ASSERT_OK(
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "b", "bz"));
 
-  // I could not find a cleaner way to test this with replying on
-  // implementation detail. Tried to test
+  // I could not find a cleaner way to test this without relying on
+  // implementation detail. Tried to test the value of
   // `internal_range_del_reseek_count` but that did not work
   // since BlockBasedTable iterator becomes !Valid() when point key
   // is out of bound and that reseek only happens when a point key

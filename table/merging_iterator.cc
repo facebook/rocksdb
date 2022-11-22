@@ -217,13 +217,12 @@ class MergingIterator : public InternalIterator {
         }
         return;
       }
-      pinned_heap_item_[level].SetTombstoneKey(
-          range_tombstone_iters_[level]->start_key());
+      pinned_heap_item_[level].SetTombstoneKey(std::move(pik));
       pinned_heap_item_[level].type = HeapItem::DELETE_RANGE_START;
       assert(active_.count(level) == 0);
     } else {
-      // allow end key ot go over upper bound (if present) since start key is
-      // before upper bound, which means the range tombstone could still cover a
+      // allow end key to go over upper bound (if present) since start key is
+      // before upper bound and the range tombstone could still cover a
       // range before upper bound.
       pinned_heap_item_[level].SetTombstoneKey(
           range_tombstone_iters_[level]->end_key());
@@ -593,7 +592,7 @@ class MergingIterator : public InternalIterator {
   PinnedIteratorsManager* pinned_iters_mgr_;
 
   // Used to bound range tombstones. For point keys, DBIter and SSTable iterator
-  // takes care of boundary check.
+  // take care of boundary checking.
   const Slice* iterate_upper_bound_;
 
   // In forward direction, process a child that is not in the min heap.
@@ -666,7 +665,7 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
         } else {
           // this takes care of checking iterate_upper_bound, but with an extra
           // key comparison if range_tombstone_iters_[level] was already out of
-          // bound. Consider using a new HeapItem type of some flag to remember
+          // bound. Consider using a new HeapItem type or some flag to remember
           // boundary checking result.
           InsertRangeTombstoneToMinHeap(level);
         }
