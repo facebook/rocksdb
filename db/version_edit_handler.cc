@@ -106,11 +106,11 @@ Status ListColumnFamiliesHandler::ApplyVersionEdit(
       s = Status::Corruption("Manifest adding the same column family twice");
     }
   } else if (edit.is_column_family_drop_) {
-    if (column_family_names_.find(edit.column_family_) ==
-        column_family_names_.end()) {
+    auto iter = column_family_names_.find(edit.column_family_);
+    if (iter == column_family_names_.end()) {
       s = Status::Corruption("Manifest - dropping non-existing column family");
     } else {
-      column_family_names_.erase(edit.column_family_);
+      column_family_names_.erase(iter);
     }
   }
   return s;
