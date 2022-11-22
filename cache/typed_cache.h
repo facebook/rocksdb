@@ -120,7 +120,7 @@ template <class TValue, CacheEntryRole kRole>
 class BasicTypedCacheHelper : public BasicTypedCacheHelperFns<TValue> {
  public:
   static constexpr Cache::CacheItemHelper kBasicHelper{
-      kRole, BasicTypedCacheHelperFns<TValue>::Delete};
+      kRole, &BasicTypedCacheHelper::Delete};
 };
 
 template <class TValue, CacheEntryRole kRole = TValue::kCacheEntryRole,
@@ -178,7 +178,7 @@ using BasicTypedSharedCacheInterface =
 // TValue must implement ContentSlice() and ~TValue
 // TCreateContext must implement Create(std::unique_ptr<TValue>*, ...)
 template <class TValue, class TCreateContext>
-class FullTypedCacheHelperFns : BasicTypedCacheHelperFns<TValue> {
+class FullTypedCacheHelperFns : public BasicTypedCacheHelperFns<TValue> {
  public:
   CACHE_TYPE_DEFS();
 
@@ -225,10 +225,8 @@ class FullTypedCacheHelper
     : public FullTypedCacheHelperFns<TValue, TCreateContext> {
  public:
   static constexpr Cache::CacheItemHelper kFullHelper{
-      kRole, BasicTypedCacheHelperFns<TValue>::Delete,
-      FullTypedCacheHelperFns<TValue, TCreateContext>::Size,
-      FullTypedCacheHelperFns<TValue, TCreateContext>::SaveTo,
-      FullTypedCacheHelperFns<TValue, TCreateContext>::Create};
+      kRole, &FullTypedCacheHelper::Delete, &FullTypedCacheHelper::Size,
+      &FullTypedCacheHelper::SaveTo, &FullTypedCacheHelper::Create};
 };
 
 template <class TValue, class TCreateContext,

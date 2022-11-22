@@ -151,10 +151,12 @@ CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
     // FIXME: reduce copying
     size_t len = helper->size_cb(value);
     buf.assign(len, '\0');
-    helper->saveto_cb(value, /*start*/ 0, len, buf.data());
+    Status s = helper->saveto_cb(value, /*start*/ 0, len, buf.data());
 
-    // Write it out
-    WriteBlock(type, key, buf).PermitUncheckedError();
+    if (s.ok()) {
+      // Write it out
+      WriteBlock(type, key, buf).PermitUncheckedError();
+    }
   };
 }
 
