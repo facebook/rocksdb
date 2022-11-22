@@ -21,6 +21,7 @@
 
 ### Public API Changes
 * Marked `block_cache_compressed` as a deprecated feature. Use SecondaryCache instead.
+* Added a `SecondaryCache::InsertSaved()` API, with default implementation depending on `Insert()`. Some implementations might need to add a custom implementation of `InsertSaved()`. (Details in API comments.)
 
 ## 7.8.0 (10/22/2022)
 ### New Features
