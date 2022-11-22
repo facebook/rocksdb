@@ -1086,7 +1086,9 @@ void CompactionIterator::DecideOutputLevel() {
   TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
                            &context);
   output_to_penultimate_level_ = context.output_to_penultimate_level;
-#endif /* !NDEBUG */
+#else
+  output_to_penultimate_level_ = false;
+#endif  // NDEBUG
 
   // if the key is newer than the cutoff sequence or within the earliest
   // snapshot, it should output to the penultimate level.
