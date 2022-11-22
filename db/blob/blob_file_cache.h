@@ -8,6 +8,7 @@
 #include <cinttypes>
 
 #include "cache/typed_cache.h"
+#include "db/blob/blob_file_reader.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "util/mutexlock.h"
 
@@ -18,7 +19,6 @@ struct ImmutableOptions;
 struct FileOptions;
 class HistogramImpl;
 class Status;
-class BlobFileReader;
 class Slice;
 class IOTracer;
 

@@ -3,6 +3,24 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+// APIs for accessing Cache in a type-safe and convenient way. Cache is kept
+// at a low, thin level of abstraction so that different implementations can
+// be plugged in, but these wrappers provide clean, convenient access to the
+// most common operations.
+//
+// A number of template classes are needed for sharing common structure. The
+// key classes are these:
+//
+// * PlaceholderCacheInterface - Used for making cache reservations, with
+// entries that have a charge but no value.
+// * BasicTypedCacheInterface<TValue> - Used for primary cache storage of
+// objects of type TValue.
+// * FullTypedCacheHelper<TValue, TCreateContext> - Used for secondary cache
+// compatible storage of objects of type TValue.
+// * For each of these, there's a "Shared" version
+// (e.g. FullTypedSharedCacheInterface) that holds a shared_ptr to the Cache,
+// rather than assuming external ownership by holding only a raw `Cache*`.
+
 #pragma once
 
 #include <algorithm>
@@ -55,6 +73,9 @@ class BaseCacheInterface {
   CachePtr cache_;
 };
 
+// PlaceholderCacheInterface - Used for making cache reservations, with
+// entries that have a charge but no value. CacheEntryRole is required as
+// a template parameter.
 template <CacheEntryRole kRole, typename CachePtr = Cache*>
 class PlaceholderCacheInterface : public BaseCacheInterface<CachePtr> {
  public:
@@ -123,6 +144,10 @@ class BasicTypedCacheHelper : public BasicTypedCacheHelperFns<TValue> {
       kRole, &BasicTypedCacheHelper::Delete};
 };
 
+// BasicTypedCacheInterface - Used for primary cache storage of objects of
+// type TValue, which can be cleaned up with std::default_delete<TValue>. The
+// role is provided by TValue::kCacheEntryRole or given in an optional
+// template parameter.
 template <class TValue, CacheEntryRole kRole = TValue::kCacheEntryRole,
           typename CachePtr = Cache*>
 class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
@@ -171,6 +196,8 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
   }
 };
 
+// BasicTypedSharedCacheInterface - Like BasicTypedCacheInterface but with a
+// shared_ptr<Cache> for keeping Cache alive.
 template <class TValue, CacheEntryRole kRole = TValue::kCacheEntryRole>
 using BasicTypedSharedCacheInterface =
     BasicTypedCacheInterface<TValue, kRole, std::shared_ptr<Cache>>;
@@ -229,6 +256,15 @@ class FullTypedCacheHelper
       &FullTypedCacheHelper::SaveTo, &FullTypedCacheHelper::Create};
 };
 
+// FullTypedCacheHelper - Used for secondary cache compatible storage of
+// objects of type TValue. In addition to BasicTypedCacheInterface constraints,
+// we require TValue::ContentSlice() to return persistable data. This
+// simplifies usage for the normal case of simple secondary cache compatibility
+// (can give you a Slice to the data already in memory). In addition to
+// TCreateContext performing the role of Cache::CreateContext, it is also
+// expected to provide a function Create(std::unique_ptr<TValue>* value,
+// size_t* out_charge, const Slice& data, MemoryAllocator* allocator) for
+// creating new TValue.
 template <class TValue, class TCreateContext,
           CacheEntryRole kRole = TValue::kCacheEntryRole,
           typename CachePtr = Cache*>
@@ -247,6 +283,8 @@ class FullTypedCacheInterface
   using BasicTypedCacheInterface<TValue, kRole,
                                  CachePtr>::BasicTypedCacheInterface;
 
+  // Insert with SecondaryCache compatibility (subject to CacheTier).
+  // (Basic Insert() also inherited.)
   inline Status InsertFull(
       const Slice& key, TValuePtr value, size_t charge,
       TypedHandle** handle = nullptr, Priority priority = Priority::LOW,
@@ -259,7 +297,9 @@ class FullTypedCacheInterface
                                 untyped_handle, priority);
   }
 
-  inline Status Warm(
+  // Like SecondaryCache::InsertSaved, with SecondaryCache compatibility
+  // (subject to CacheTier).
+  inline Status InsertSaved(
       const Slice& key, const Slice& data, TCreateContext* create_context,
       Priority priority = Priority::LOW,
       CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier,
@@ -281,6 +321,8 @@ class FullTypedCacheInterface
     return st;
   }
 
+  // Lookup with SecondaryCache support (subject to CacheTier).
+  // (Basic Lookup() also inherited.)
   inline TypedHandle* LookupFull(
       const Slice& key, TCreateContext* create_context = nullptr,
       Priority priority = Priority::LOW, bool wait = true,
@@ -296,6 +338,8 @@ class FullTypedCacheInterface
   }
 };
 
+// FullTypedSharedCacheInterface - Like FullTypedCacheInterface but with a
+// shared_ptr<Cache> for keeping Cache alive.
 template <class TValue, class TCreateContext,
           CacheEntryRole kRole = TValue::kCacheEntryRole>
 using FullTypedSharedCacheInterface =

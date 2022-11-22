@@ -3,6 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+// Code supporting block cache (Cache) access for block-based table, based on
+// the convenient APIs in typed_cache.h
+
 #pragma once
 
 #include <type_traits>
@@ -16,7 +19,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Metaprogramming wrappers for Block, to give each type a single role.
+// Metaprogramming wrappers for Block, to give each type a single role when
+// used with FullTypedCacheInterface.
 // (NOTE: previous attempts to create actual derived classes of Block with
 // virtual calls resulted in performance regression)
 
@@ -53,6 +57,8 @@ class Block_kRangeDeletion : public Block {
   static constexpr BlockType kBlockType = BlockType::kRangeDeletion;
 };
 
+// Useful for creating the Block even though meta index blocks are not
+// yet stored in block cache
 class Block_kMetaIndex : public Block {
  public:
   using Block::Block;
@@ -97,17 +103,24 @@ struct BlockCreateContext : public Cache::CreateContext {
               BlockContents&& block);
 };
 
+// Convenient cache interface to use with block_cache_compressed
 using CompressedBlockCacheInterface =
     BasicTypedCacheInterface<BlockContents, CacheEntryRole::kOtherBlock>;
 
+// Convenient cache interface to use for block_cache, with support for
+// SecondaryCache.
 template <typename TBlocklike>
 using BlockCacheInterface =
     FullTypedCacheInterface<TBlocklike, BlockCreateContext>;
 
+// Shortcut name for cache handles under BlockCacheInterface
 template <typename TBlocklike>
 using BlockCacheTypedHandle =
     typename BlockCacheInterface<TBlocklike>::TypedHandle;
 
+// For getting SecondaryCache-compatible helpers from a BlockType. This is
+// useful for accessing block cache in untyped contexts, such as for generic
+// cache warming in table builder.
 static constexpr std::array<const Cache::CacheItemHelper*,
                             static_cast<unsigned>(BlockType::kInvalid) + 1>
     kCacheItemFullHelperForBlockType{{
@@ -119,11 +132,12 @@ static constexpr std::array<const Cache::CacheItemHelper*,
         &BlockCacheInterface<Block_kRangeDeletion>::kFullHelper,
         nullptr,  // kHashIndexPrefixes
         nullptr,  // kHashIndexMetadata
-        nullptr,  // kMetaIndex
+        nullptr,  // kMetaIndex (not yet stored in block cache)
         &BlockCacheInterface<Block_kIndex>::kFullHelper,
         nullptr,  // kInvalid
     }};
 
+// For getting basic helpers from a BlockType (no SecondaryCache support)
 static constexpr std::array<const Cache::CacheItemHelper*,
                             static_cast<unsigned>(BlockType::kInvalid) + 1>
     kCacheItemBasicHelperForBlockType{{
@@ -135,11 +149,12 @@ static constexpr std::array<const Cache::CacheItemHelper*,
         &BlockCacheInterface<Block_kRangeDeletion>::kBasicHelper,
         nullptr,  // kHashIndexPrefixes
         nullptr,  // kHashIndexMetadata
-        nullptr,  // kMetaIndex
+        nullptr,  // kMetaIndex (not yet stored in block cache)
         &BlockCacheInterface<Block_kIndex>::kBasicHelper,
         nullptr,  // kInvalid
     }};
 
+// Selects the right helper based on BlockType and CacheTier
 const Cache::CacheItemHelper* GetCacheItemHelper(
     BlockType block_type,
     CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier);

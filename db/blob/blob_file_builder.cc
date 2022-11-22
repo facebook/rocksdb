@@ -408,8 +408,8 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
 
     const Cache::Priority priority = Cache::Priority::BOTTOM;
 
-    s = blob_cache.Warm(key, blob, nullptr /*context*/, priority,
-                        immutable_options_->lowest_used_cache_tier);
+    s = blob_cache.InsertSaved(key, blob, nullptr /*context*/, priority,
+                               immutable_options_->lowest_used_cache_tier);
 
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);
