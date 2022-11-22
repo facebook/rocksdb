@@ -1871,7 +1871,7 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
 
 TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   const int kNumLevels = 7;
-  const int kKeyPerSec = 10;
+  const int kSecondsPerKey = 10;
   const int kNumFiles = 3;
   const int kValueBytes = 4 << 10;
   const int kFileBytes = 4 * kValueBytes;
@@ -1892,8 +1892,9 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
+  dbfull()->TEST_WaitForPeridicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(kSecondsPerKey));
+  });
 
   // Flush an L0 file with the following contents (new to old):
   //
@@ -1917,16 +1918,15 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(Put(Key(i + 3), rnd.RandomString(kValueBytes)));
     dbfull()->TEST_WaitForPeridicTaskRun(
-        [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
+        [&] { mock_clock_->MockSleepForSeconds(kSecondsPerKey); });
   }
   auto* snap1 = db_->GetSnapshot();
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(kValueBytes)));
     dbfull()->TEST_WaitForPeridicTaskRun(
-        [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
+        [&] { mock_clock_->MockSleepForSeconds(kSecondsPerKey); });
   }
   auto* snap2 = db_->GetSnapshot();
-  assert(kNumKeysPerFile >= 5);
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                              Key(kNumKeysPerFile - 1),
                              Key(kNumKeysPerFile + 1)));
@@ -1938,7 +1938,7 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
                              Key(2 * kNumKeysPerFile + 1)));
   ASSERT_OK(Flush());
   dbfull()->TEST_WaitForPeridicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
+      [&] { mock_clock_->MockSleepForSeconds(kSecondsPerKey); });
   verify_db();
 
   // Count compactions supporting per-key placement
