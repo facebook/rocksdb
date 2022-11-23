@@ -1869,155 +1869,145 @@ TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
   Close();
 }
 
-struct TestPropertiesCollector : public TablePropertiesCollector {
-  Status AddUserKey(const Slice& key, const Slice& /*value*/,
-                    EntryType /*type*/, SequenceNumber /*seq*/,
-                    uint64_t /*file_size*/) override {
-    if (cmp->Compare(key, DBTestBase::Key(100)) == 0) {
-      has_key_100 = true;
-    }
-    if (cmp->Compare(key, DBTestBase::Key(200)) == 0) {
-      has_key_200 = true;
-    }
-
-    return Status::OK();
-  }
-
-  const char* Name() const override { return "TestTablePropertiesCollector"; }
-
-  UserCollectedProperties GetReadableProperties() const override {
-    UserCollectedProperties ret;
-    return ret;
-  }
-
-  Status Finish(UserCollectedProperties* /*properties*/) override {
-    // The LSM tree would be like:
-    // L5: [0,19] [20,39] [40,299]
-    // L6: [0,                299]
-    // the 3rd file @L5 has both 100 and 200, which will be marked for
-    // compaction
-    // Also avoid marking flushed SST for compaction, which won't have both 100
-    // and 200
-    if (has_key_100 && has_key_200) {
-      need_compact_ = true;
-    } else {
-      need_compact_ = false;
-    }
-    has_key_100 = false;
-    has_key_200 = false;
-    return Status::OK();
-  }
-
-  bool NeedCompact() const override { return need_compact_; }
-
-  const Comparator* cmp = BytewiseComparator();
-
- private:
-  bool has_key_100 = false;
-  bool has_key_200 = false;
-
-  bool need_compact_ = false;
-};
-
-class TestPropertiesCollectorFactory : public TablePropertiesCollectorFactory {
- public:
-  TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context /*context*/) override {
-    return new TestPropertiesCollector;
-  }
-  const char* Name() const override { return "TestTablePropertiesCollector"; }
-};
-
-TEST_F(PrecludeLastLevelTest, PartialPenultimateLevelCompactionWithRangeDel) {
-  const int kNumTrigger = 4;
+TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   const int kNumLevels = 7;
-  const int kKeyPerSec = 10;
+  const int kSecondsPerKey = 10;
+  const int kNumFiles = 3;
+  const int kValueBytes = 4 << 10;
+  const int kFileBytes = 4 * kValueBytes;
+  // `kNumKeysPerFile == 5` is determined by the current file cutting heuristics
+  // for this choice of `kValueBytes` and `kFileBytes`.
+  const int kNumKeysPerFile = 5;
+  const int kNumKeys = kNumFiles * kNumKeysPerFile;
 
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.env = mock_env_.get();
-  options.level0_file_num_compaction_trigger = kNumTrigger;
-  options.preserve_internal_time_seconds = 10000;
+  options.last_level_temperature = Temperature::kCold;
+  options.preserve_internal_time_seconds = 600;
+  options.preclude_last_level_data_seconds = 1;
   options.num_levels = kNumLevels;
-  // set a small max_compaction_bytes to avoid input level expansion
-  options.max_compaction_bytes = 30000;
-  options.ignore_max_compaction_bytes_for_input = false;
+  options.target_file_size_base = kFileBytes;
   DestroyAndReopen(options);
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicTaskRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+  dbfull()->TEST_WaitForPeridicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(kSecondsPerKey));
+  });
 
-  Random rnd(301);
-
-  for (int i = 0; i < 300; i++) {
-    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
-    dbfull()->TEST_WaitForPeridicTaskRun(
-        [&] { mock_clock_->MockSleepForSeconds(kKeyPerSec); });
-  }
-  ASSERT_OK(Flush());
-  CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-
-  // make sure all data is compacted to the last level
-  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
-
-  // Create 3 L5 files
-  auto factory = std::make_shared<ThreeRangesPartitionerFactory>();
-  options.sst_partitioner_factory = factory;
-
-  // the user defined properties_collector will mark the 3rd file for compaction
-  auto collector_factory = std::make_shared<TestPropertiesCollectorFactory>();
-  options.table_properties_collector_factories.resize(1);
-  options.table_properties_collector_factories[0] = collector_factory;
-  // enable tiered storage feature
-  options.preclude_last_level_data_seconds = 10000;
-  options.last_level_temperature = Temperature::kCold;
-  Reopen(options);
-
-  for (int i = 0; i < kNumTrigger - 2; i++) {
-    for (int j = 0; j < 100; j++) {
-      ASSERT_OK(Put(Key(i * 100 + j), rnd.RandomString(10)));
+  // Flush an L0 file with the following contents (new to old):
+  //
+  // Range deletions [4, 6) [7, 8) [9, 11)
+  // --- snap2 ---
+  // Key(0) .. Key(14)
+  // --- snap1 ---
+  // Key(3) .. Key(17)
+  const auto verify_db = [&]() {
+    for (int i = 0; i < kNumKeys; i++) {
+      std::string value;
+      auto s = db_->Get(ReadOptions(), Key(i), &value);
+      if (i == 4 || i == 5 || i == 7 || i == 9 || i == 10) {
+        ASSERT_TRUE(s.IsNotFound());
+      } else {
+        ASSERT_OK(s);
+      }
     }
-    ASSERT_OK(Flush());
+  };
+  Random rnd(301);
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i + 3), rnd.RandomString(kValueBytes)));
+    dbfull()->TEST_WaitForPeridicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kSecondsPerKey); });
   }
+  auto* snap1 = db_->GetSnapshot();
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(kValueBytes)));
+    dbfull()->TEST_WaitForPeridicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(kSecondsPerKey); });
+  }
+  auto* snap2 = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(kNumKeysPerFile - 1),
+                             Key(kNumKeysPerFile + 1)));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(kNumKeysPerFile + 2),
+                             Key(kNumKeysPerFile + 3)));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(2 * kNumKeysPerFile - 1),
+                             Key(2 * kNumKeysPerFile + 1)));
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForPeridicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(kSecondsPerKey); });
+  verify_db();
 
-  // make sure there is one and only one compaction supports per-key placement
-  // but has the penultimate level output disabled.
+  // Count compactions supporting per-key placement
   std::atomic_int per_key_comp_num = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
         auto compaction = static_cast<Compaction*>(arg);
         if (compaction->SupportsPerKeyPlacement()) {
           ASSERT_EQ(compaction->GetPenultimateOutputRangeType(),
-                    Compaction::PenultimateOutputRangeType::kDisabled);
+                    Compaction::PenultimateOutputRangeType::kNonLastRange);
           per_key_comp_num++;
         }
       });
-
   SyncPoint::GetInstance()->EnableProcessing();
 
-  for (int j = 0; j < 100; j++) {
-    ASSERT_OK(Put(Key(200 + j), rnd.RandomString(10)));
-  }
-  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
-                             Key(32), Key(40)));
-  ASSERT_OK(Flush());
+  // The `CompactRange()` writes the following files to L5.
+  //
+  //   [key000000#16,kTypeValue,
+  //    key000005#kMaxSequenceNumber,kTypeRangeDeletion]
+  //   [key000005#21,kTypeValue,
+  //    key000010#kMaxSequenceNumber,kTypeRangeDeletion]
+  //   [key000010#26,kTypeValue, key000014#30,kTypeValue]
+  //
+  // And it writes the following files to L6.
+  //
+  //   [key000003#1,kTypeValue, key000007#5,kTypeValue]
+  //   [key000008#6,kTypeValue, key000012#10,kTypeValue]
+  //   [key000013#11,kTypeValue, key000017#15,kTypeValue]
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,3,3", FilesPerLevel());
+  verify_db();
 
-  // Before the per-key placement compaction, the LSM tress should be like:
-  // L5: [0,19] [20,40] [40,299]
-  // L6: [0,                299]
-  // The 2nd file @L5 has the largest key 40 because of range del
-
+  // Rewrite the middle file only. File endpoints should not change.
+  std::string begin_key_buf = Key(kNumKeysPerFile + 1),
+              end_key_buf = Key(kNumKeysPerFile + 2);
+  Slice begin_key(begin_key_buf), end_key(end_key_buf);
+  ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
+                                     &end_key));
   ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_EQ("0,0,0,0,0,3,3", FilesPerLevel());
+  ASSERT_EQ(1, per_key_comp_num);
+  verify_db();
 
-  ASSERT_EQ(per_key_comp_num, 1);
+  // Rewrite the middle file again after releasing snap2. Still file endpoints
+  // should not change.
+  db_->ReleaseSnapshot(snap2);
+  ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
+                                     &end_key));
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_EQ("0,0,0,0,0,3,3", FilesPerLevel());
+  ASSERT_EQ(2, per_key_comp_num);
+  verify_db();
 
-  // the compaction won't move any data to the penultimate level
+  // Middle file once more after releasing snap1. This time the data in the
+  // middle L5 file can all be compacted to the last level.
+  db_->ReleaseSnapshot(snap1);
+  ASSERT_OK(db_->SuggestCompactRange(db_->DefaultColumnFamily(), &begin_key,
+                                     &end_key));
+  ASSERT_OK(dbfull()->WaitForCompact(true));
   ASSERT_EQ("0,0,0,0,0,2,3", FilesPerLevel());
+  ASSERT_EQ(3, per_key_comp_num);
+  verify_db();
+
+  // Finish off the penultimate level.
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,0,0,0,3", FilesPerLevel());
+  verify_db();
 
   Close();
 }
