@@ -1480,7 +1480,7 @@ struct ReadOptions {
   const Slice* iterate_lower_bound;
 
   // "iterate_upper_bound" defines the extent up to which the forward iterator
-  // can returns entries. Once the bound is reached, Valid() will be false.
+  // can return entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry. If prefix_extractor is not null:
   // 1. If options.auto_prefix_mode = true, iterate_upper_bound will be used
