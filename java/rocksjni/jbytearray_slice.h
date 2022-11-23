@@ -18,33 +18,62 @@
 
 #pragma once
 
+#include<iostream>
 #include <jni.h>
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class CharArrayPinnableSlice : public PinnableSlice {
+ public:
+  explicit CharArrayPinnableSlice(char* jval, jint jval_len)
+      : jval_(jval), jval_len_(jval_len){};
+
+  inline virtual void PinSelf(const Slice& slice) {
+    assert(!pinned_);
+
+    size_ = slice.size();
+    std::cout << "CharArrayPinnableSlice PinSelf size_ " << size_ << std::endl;
+    const jint copy_size = std::min(jval_len_, static_cast<jint>(size_));
+    std::cout << "CharArrayPinnableSlice PinSelf copy_size " << copy_size << std::endl;
+
+    memcpy(jval_, slice.data(), copy_size);
+    assert(!pinned_);
+  };
+
+  inline virtual void PinSelf() { 
+    assert(!pinned_); 
+    std::cout << "CharArrayPinnableSlice PinSelf() !!! ???" << size_ << std::endl;
+  };
+
+ private:
+  char* jval_;
+  jint jval_len_;
+};
 
 class JByteArrayPinnableSlice : public PinnableSlice {
  public:
   explicit JByteArrayPinnableSlice(JNIEnv* jenv, jbyteArray jval,
     jint jval_off, jint jval_len) : jenv_(jenv), jval_(jval), jval_off_(jval_off), jval_len_(jval_len) {};
 
-  inline void PinSelf(const Slice& slice) {
+  inline virtual void PinSelf(const Slice& slice) {
     assert(!pinned_);
 
     size_ = slice.size();
-    const jint slice_len = static_cast<jint>(size_);
-    const jint length = std::min(jval_len_, slice_len);
+    std::cout << "JByteArrayPinnableSlice size_ " << size_ << std::endl;
+    const jint copy_size = std::min(jval_len_, static_cast<jint>(size_));
+    std::cout << "JByteArrayPinnableSlice copy_size " << copy_size << std::endl;
 
-    jenv_->SetByteArrayRegion(jval_, jval_off_, length,
-                          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(
-                              slice.data())));
-    jval_len_ = length;
+    jenv_->SetByteArrayRegion(
+        jval_, jval_off_, copy_size,
+        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(slice.data())));
 
     assert(!pinned_);
   };
 
-  inline void PinSelf() {
+  inline virtual void PinSelf() {
     assert(!pinned_);
+    std::cout << "JByteArrayPinnableSlice PinSelf() !!! ???" << size_ << std::endl;
   };
 
  private:
