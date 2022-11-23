@@ -6704,13 +6704,46 @@ uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
   return all_versions_blob_file_size;
 }
 
-Status VersionSet::VerifyFileMetadata(const std::string& fpath,
-                                      const FileMetaData& meta) const {
+Status VersionSet::VerifyFileMetadata(ColumnFamilyData* cfd,
+                                      const std::string& fpath, int level,
+                                      const FileMetaData& meta) {
   uint64_t fsize = 0;
   Status status = fs_->GetFileSize(fpath, IOOptions(), &fsize, nullptr);
   if (status.ok()) {
     if (fsize != meta.fd.GetFileSize()) {
       status = Status::Corruption("File size mismatch: " + fpath);
+    }
+  }
+  if (status.ok() && db_options_->verify_sst_unique_id_in_manifest) {
+    assert(cfd);
+    TableCache* table_cache = cfd->table_cache();
+    assert(table_cache);
+
+    const MutableCFOptions* const cf_opts = cfd->GetLatestMutableCFOptions();
+    assert(cf_opts);
+    std::shared_ptr<const SliceTransform> pe = cf_opts->prefix_extractor;
+    size_t max_sz_for_l0_meta_pin = MaxFileSizeForL0MetaPin(*cf_opts);
+
+    const FileOptions& file_opts = file_options();
+
+    Version* version = cfd->current();
+    assert(version);
+    VersionStorageInfo& storage_info = version->storage_info_;
+    const InternalKeyComparator* icmp = storage_info.InternalComparator();
+    assert(icmp);
+
+    InternalStats* internal_stats = cfd->internal_stats();
+
+    FileMetaData meta_copy = meta;
+    status = table_cache->FindTable(
+        ReadOptions(), file_opts, *icmp, meta_copy,
+        &(meta_copy.table_reader_handle), pe,
+        /*no_io=*/false, /*record_read_stats=*/true,
+        internal_stats->GetFileReadHist(level), false, level,
+        /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
+        meta_copy.temperature);
+    if (meta_copy.table_reader_handle) {
+      table_cache->ReleaseHandle(meta_copy.table_reader_handle);
     }
   }
   return status;
