@@ -3,6 +3,9 @@
 ### Behavior changes
 * Make best-efforts recovery verify SST unique ID before Version construction (#10962)
 
+### Bug Fixes
+* Fixed a regression in iterator where range tombstones after `iterate_upper_bound` is processed.
+
 ## 7.9.0 (11/21/2022)
 ### Performance Improvements
 * Fixed an iterator performance regression for delete range users when scanning through a consecutive sequence of range tombstones (#10877).
