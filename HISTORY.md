@@ -5,6 +5,9 @@
 * Tiered Storage: fixed excessive keys written to penultimate level in non-debug builds.
 * Fixed a regression in iterator where range tombstones after `iterate_upper_bound` is processed.
 
+### Behavior changes
+* Make best-efforts recovery verify SST unique ID before Version construction (#10962)
+
 ## 7.7.7 (11/15/2022)
 ### Bug Fixes
 * Fixed a regression in scan for async_io. During seek, valid buffers were getting cleared causing a regression.
