@@ -1,5 +1,8 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.8.2 (11/23/2022)
+### Behavior changes
+* Make best-efforts recovery verify SST unique ID before Version construction (#10962)
+
 ### Bug Fixes
 * Fixed a regression in scan for async_io. During seek, valid buffers were getting cleared causing a regression.
 
