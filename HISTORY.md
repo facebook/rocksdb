@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Behavior changes
+* Make best-efforts recovery verify SST unique ID before Version construction (#10962)
 
 ## 7.9.0 (11/21/2022)
 ### Performance Improvements

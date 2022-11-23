@@ -734,12 +734,13 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   assert(!cfd->ioptions()->cf_paths.empty());
   Status s;
   for (const auto& elem : edit.GetNewFiles()) {
+    int level = elem.first;
     const FileMetaData& meta = elem.second;
     const FileDescriptor& fd = meta.fd;
     uint64_t file_num = fd.GetNumber();
     const std::string fpath =
         MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_num);
-    s = VerifyFile(fpath, meta);
+    s = VerifyFile(cfd, fpath, level, meta);
     if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
       missing_files.insert(file_num);
       s = Status::OK();
@@ -804,6 +805,18 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
                                 *cfd->GetLatestMutableCFOptions(), io_tracer_,
                                 version_set_->current_version_number_++);
+    s = builder->LoadTableHandlers(
+        cfd->internal_stats(),
+        version_set_->db_options_->max_file_opening_threads, false, true,
+        cfd->GetLatestMutableCFOptions()->prefix_extractor,
+        MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
+    if (!s.ok()) {
+      delete version;
+      if (s.IsCorruption()) {
+        s = Status::OK();
+      }
+      return s;
+    }
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {
       version->PrepareAppend(
@@ -823,9 +836,11 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   return s;
 }
 
-Status VersionEditHandlerPointInTime::VerifyFile(const std::string& fpath,
+Status VersionEditHandlerPointInTime::VerifyFile(ColumnFamilyData* cfd,
+                                                 const std::string& fpath,
+                                                 int level,
                                                  const FileMetaData& fmeta) {
-  return version_set_->VerifyFileMetadata(fpath, fmeta);
+  return version_set_->VerifyFileMetadata(cfd, fpath, level, fmeta);
 }
 
 Status VersionEditHandlerPointInTime::VerifyBlobFile(
@@ -841,6 +856,12 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
   // TODO: verify checksum
   (void)blob_addition;
   return s;
+}
+
+Status VersionEditHandlerPointInTime::LoadTables(
+    ColumnFamilyData* /*cfd*/, bool /*prefetch_index_and_filter_in_cache*/,
+    bool /*is_initial_load*/) {
+  return Status::OK();
 }
 
 Status ManifestTailer::Initialize() {
@@ -930,9 +951,11 @@ void ManifestTailer::CheckIterationResult(const log::Reader& reader,
   }
 }
 
-Status ManifestTailer::VerifyFile(const std::string& fpath,
+Status ManifestTailer::VerifyFile(ColumnFamilyData* cfd,
+                                  const std::string& fpath, int level,
                                   const FileMetaData& fmeta) {
-  Status s = VersionEditHandlerPointInTime::VerifyFile(fpath, fmeta);
+  Status s =
+      VersionEditHandlerPointInTime::VerifyFile(cfd, fpath, level, fmeta);
   // TODO: Open file or create hard link to prevent the file from being
   // deleted.
   return s;

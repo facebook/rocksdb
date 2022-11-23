@@ -164,9 +164,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
                                     ColumnFamilyData* cfd,
                                     bool force_create_version);
 
-  Status LoadTables(ColumnFamilyData* cfd,
-                    bool prefetch_index_and_filter_in_cache,
-                    bool is_initial_load);
+  virtual Status LoadTables(ColumnFamilyData* cfd,
+                            bool prefetch_index_and_filter_in_cache,
+                            bool is_initial_load);
 
   virtual bool MustOpenAllColumnFamilies() const { return !read_only_; }
 
@@ -213,10 +213,14 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
   Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
                             bool force_create_version) override;
-  virtual Status VerifyFile(const std::string& fpath,
-                            const FileMetaData& fmeta);
+  virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
+                            int level, const FileMetaData& fmeta);
   virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
                                 const BlobFileAddition& blob_addition);
+
+  Status LoadTables(ColumnFamilyData* cfd,
+                    bool prefetch_index_and_filter_in_cache,
+                    bool is_initial_load) override;
 
   std::unordered_map<uint32_t, Version*> versions_;
 };
@@ -250,7 +254,7 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
 
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
 
-  Status VerifyFile(const std::string& fpath,
+  Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
                     const FileMetaData& fmeta) override;
 
   enum Mode : uint8_t {

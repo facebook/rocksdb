@@ -7509,6 +7509,80 @@ TEST_F(DBTest2, SstUniqueIdVerifyMultiCFs) {
   ASSERT_TRUE(s.IsCorruption());
 }
 
+TEST_F(DBTest2, BestEffortsRecoveryWithSstUniqueIdVerification) {
+  const auto tamper_with_uniq_id = [&](void* arg) {
+    auto props = static_cast<TableProperties*>(arg);
+    assert(props);
+    // update table property session_id to a different one
+    props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+  };
+
+  const auto assert_db = [&](size_t expected_count,
+                             const std::string& expected_v) {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    size_t cnt = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++cnt) {
+      ASSERT_EQ(std::to_string(cnt), it->key());
+      ASSERT_EQ(expected_v, it->value());
+    }
+    ASSERT_EQ(expected_count, cnt);
+  };
+
+  const int num_l0_compaction_trigger = 8;
+  const int num_l0 = num_l0_compaction_trigger - 1;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = num_l0_compaction_trigger;
+
+  for (int k = 0; k < num_l0; ++k) {
+    // Allow mismatch for now
+    options.verify_sst_unique_id_in_manifest = false;
+
+    DestroyAndReopen(options);
+
+    constexpr size_t num_keys_per_file = 10;
+    for (int i = 0; i < num_l0; ++i) {
+      for (size_t j = 0; j < num_keys_per_file; ++j) {
+        ASSERT_OK(Put(std::to_string(j), "v" + std::to_string(i)));
+      }
+      if (i == k) {
+        SyncPoint::GetInstance()->DisableProcessing();
+        SyncPoint::GetInstance()->SetCallBack(
+            "PropertyBlockBuilder::AddTableProperty:Start",
+            tamper_with_uniq_id);
+        SyncPoint::GetInstance()->EnableProcessing();
+      }
+      ASSERT_OK(Flush());
+    }
+
+    options.verify_sst_unique_id_in_manifest = true;
+    Status s = TryReopen(options);
+    ASSERT_TRUE(s.IsCorruption());
+
+    options.best_efforts_recovery = true;
+    Reopen(options);
+    assert_db(k == 0 ? 0 : num_keys_per_file, "v" + std::to_string(k - 1));
+
+    // Reopen with regular recovery
+    options.best_efforts_recovery = false;
+    Reopen(options);
+    assert_db(k == 0 ? 0 : num_keys_per_file, "v" + std::to_string(k - 1));
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    for (size_t i = 0; i < num_keys_per_file; ++i) {
+      ASSERT_OK(Put(std::to_string(i), "v"));
+    }
+    ASSERT_OK(Flush());
+    Reopen(options);
+    {
+      for (size_t i = 0; i < num_keys_per_file; ++i) {
+        ASSERT_EQ("v", Get(std::to_string(i)));
+      }
+    }
+  }
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   Destroy(last_options_);
