@@ -178,7 +178,7 @@ class PinnableSlice : public Slice, public Cleanable {
     assert(!pinned_);
   }
 
-  inline void PinSelf() {
+  inline virtual void PinSelf() {
     assert(!pinned_);
     data_ = buf_->data();
     size_ = buf_->size();
