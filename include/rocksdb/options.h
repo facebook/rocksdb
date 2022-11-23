@@ -1296,6 +1296,7 @@ struct DBOptions {
   // such a version, all valid table/blob files referenced have the expected
   // file size. For table files, their unique id table property match the
   // MANIFEST.
+  //
   // Best-efforts recovery does not need a valid CURRENT file, and tries to
   // recover the database using one of the available MANIFEST files in the db
   // directory.
@@ -1313,7 +1314,9 @@ struct DBOptions {
   // Furthermore, WAL files will not be used for recovery if
   // best_efforts_recovery is true. Also requires either 1) LOCK file exists or
   // 2) underlying env's LockFile() call returns ok even for non-existing LOCK
-  // file. Default: false
+  // file.
+  //
+  // Default: false
   bool best_efforts_recovery = false;
 
   // It defines how many times db resume is called by a separate thread when
