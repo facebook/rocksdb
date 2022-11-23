@@ -1285,30 +1285,37 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 
-  // By default, RocksDB recovery fails if any table/blob file referenced in
+  // By default, RocksDB recovery fails if any table/blob file referenced in the
+  // final version reconstructed from the
   // MANIFEST are missing after scanning the MANIFEST pointed to by the
-  // CURRENT file.
-  // Best-efforts recovery is another recovery mode that tolerates missing or
-  // corrupted table or blob files.
+  // CURRENT file. It can also fail if verification of unique SST id fails.
+  // Best-efforts recovery is another recovery mode that does not necessarily
+  // fail when certain table/blob files are missing/corrupted or have mismatched
+  // unique id table property. Instead, best-efforts recovery recovers each
+  // column family to a point in the MANIFEST that corresponds to a version. In
+  // such a version, all valid table/blob files referenced have the expected
+  // file size. For table files, their unique id table property match the
+  // MANIFEST.
+  //
   // Best-efforts recovery does not need a valid CURRENT file, and tries to
   // recover the database using one of the available MANIFEST files in the db
   // directory.
-  // Best-efforts recovery recovers database to a state in which the database
-  // includes only table and blob files whose actual sizes match the
-  // information in the chosen MANIFEST without holes in the history.
   // Best-efforts recovery tries the available MANIFEST files from high file
   // numbers (newer) to low file numbers (older), and stops after finding the
   // first MANIFEST file from which the db can be recovered to a state without
-  // invalid (missing/file-mismatch) table and blob files.
-  // It is possible that the database can be restored to an empty state with no
-  // table or blob files.
-  // Regardless of this option, the IDENTITY file is updated if needed during
-  // recovery to match the DB ID in the MANIFEST (if previously using
-  // write_dbid_to_manifest) or to be in some valid state (non-empty DB ID).
-  // Currently, not compatible with atomic flush. Furthermore, WAL files will
-  // not be used for recovery if best_efforts_recovery is true.
-  // Also requires either 1) LOCK file exists or 2) underlying env's LockFile()
-  // call returns ok even for non-existing LOCK file.
+  // invalid (missing/filesize-mismatch/unique-id-mismatch) table and blob
+  // files. It is possible that the database can be restored to an empty state
+  // with no table or blob files.
+  //
+  // Regardless of this option, the IDENTITY file
+  // is updated if needed during recovery to match the DB ID in the MANIFEST (if
+  // previously using write_dbid_to_manifest) or to be in some valid state
+  // (non-empty DB ID). Currently, not compatible with atomic flush.
+  // Furthermore, WAL files will not be used for recovery if
+  // best_efforts_recovery is true. Also requires either 1) LOCK file exists or
+  // 2) underlying env's LockFile() call returns ok even for non-existing LOCK
+  // file.
+  //
   // Default: false
   bool best_efforts_recovery = false;
 
