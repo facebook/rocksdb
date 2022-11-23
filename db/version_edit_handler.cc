@@ -735,7 +735,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   Status s;
   for (const auto& elem : edit.GetNewFiles()) {
     int level = elem.first;
-    FileMetaData meta = elem.second;
+    const FileMetaData& meta = elem.second;
     const FileDescriptor& fd = meta.fd;
     uint64_t file_num = fd.GetNumber();
     const std::string fpath =
