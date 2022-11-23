@@ -147,6 +147,8 @@ class PinnableSlice : public Slice, public Cleanable {
   PinnableSlice(PinnableSlice&) = delete;
   PinnableSlice& operator=(PinnableSlice&) = delete;
 
+  virtual ~PinnableSlice() = default;
+
   inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
                        void* arg2) {
     assert(!pinned_);
@@ -168,7 +170,7 @@ class PinnableSlice : public Slice, public Cleanable {
     assert(pinned_);
   }
 
-  inline void PinSelf(const Slice& slice) {
+  inline virtual void PinSelf(const Slice& slice) {
     assert(!pinned_);
     buf_->assign(slice.data(), slice.size());
     data_ = buf_->data();
@@ -218,6 +220,8 @@ class PinnableSlice : public Slice, public Cleanable {
   friend class PinnableSlice4Test;
   std::string self_space_;
   std::string* buf_;
+
+ protected:
   bool pinned_ = false;
 };
 
