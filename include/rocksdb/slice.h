@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include<iostream>
+
 #include <cassert>
 #include <cstddef>
 #include <cstdio>
@@ -172,6 +174,7 @@ class PinnableSlice : public Slice, public Cleanable {
 
   inline virtual void PinSelf(const Slice& slice) {
     assert(!pinned_);
+    std::cout << "PinnableSlice PinSelf slice.size() " << slice.size() << std::endl;
     buf_->assign(slice.data(), slice.size());
     data_ = buf_->data();
     size_ = buf_->size();
@@ -180,6 +183,7 @@ class PinnableSlice : public Slice, public Cleanable {
 
   inline virtual void PinSelf() {
     assert(!pinned_);
+    std::cout << "PinnableSlice PinSelf() !!! " << std::endl;
     data_ = buf_->data();
     size_ = buf_->size();
     assert(!pinned_);
