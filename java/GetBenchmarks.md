@@ -1,5 +1,7 @@
 # RocksDB Get Performance Benchmarks
 
+Results associated with [Improve Java API `get()` performance by reducing copies](https://github.com/facebook/rocksdb/pull/10970)
+
 ## Build/Run
 
 Mac
