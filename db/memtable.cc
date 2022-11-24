@@ -887,7 +887,7 @@ struct Saver {
   const LookupKey* key;
   bool* found_final_value;  // Is value set correctly? Used by KeyMayExist
   bool* merge_in_progress;
-  std::string* value;
+  ROCKSDB_NAMESPACE::ValueSink& value;
   PinnableWideColumns* columns;
   SequenceNumber seq;
   std::string* timestamp;
@@ -1065,7 +1065,7 @@ static bool SaveValue(void* arg, const char* entry) {
         } else if (*(s->merge_in_progress)) {
           assert(s->do_merge);
 
-          if (s->value || s->columns) {
+          if (s->value->non_null() || s->columns) {
             std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
@@ -1074,7 +1074,7 @@ static bool SaveValue(void* arg, const char* entry) {
                 /* update_num_ops_stats */ true);
 
             if (s->status->ok()) {
-              if (s->value) {
+              if (s->value->non_null()) {
                 *(s->value) = std::move(result);
               } else {
                 assert(s->columns);
@@ -1082,7 +1082,7 @@ static bool SaveValue(void* arg, const char* entry) {
               }
             }
           }
-        } else if (s->value) {
+        } else if (s->value->non_null()) {
           s->value->assign(v.data(), v.size());
         } else if (s->columns) {
           s->columns->SetPlainValue(v);
@@ -1257,7 +1257,7 @@ static bool SaveValue(void* arg, const char* entry) {
   return false;
 }
 
-bool MemTable::Get(const LookupKey& key, std::string* value,
+bool MemTable::Get(const LookupKey& key, ROCKSDB_NAMESPACE::ValueSink& value,
                    PinnableWideColumns* columns, std::string* timestamp,
                    Status* s, MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
@@ -1333,14 +1333,12 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   return found_final_value;
 }
 
-void MemTable::GetFromTable(const LookupKey& key,
-                            SequenceNumber max_covering_tombstone_seq,
-                            bool do_merge, ReadCallback* callback,
-                            bool* is_blob_index, std::string* value,
-                            PinnableWideColumns* columns,
-                            std::string* timestamp, Status* s,
-                            MergeContext* merge_context, SequenceNumber* seq,
-                            bool* found_final_value, bool* merge_in_progress) {
+void MemTable::GetFromTable(
+    const LookupKey& key, SequenceNumber max_covering_tombstone_seq,
+    bool do_merge, ReadCallback* callback, bool* is_blob_index,
+    ROCKSDB_NAMESPACE::ValueSink& value, PinnableWideColumns* columns,
+    std::string* timestamp, Status* s, MergeContext* merge_context,
+    SequenceNumber* seq, bool* found_final_value, bool* merge_in_progress) {
   Saver saver;
   saver.status = s;
   saver.found_final_value = found_final_value;

@@ -57,14 +57,14 @@ class MemTableListVersion {
   // If any operation was found for this key, its most recent sequence number
   // will be stored in *seq on success (regardless of whether true/false is
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
-  bool Get(const LookupKey& key, std::string* value,
+  bool Get(const LookupKey& key, ROCKSDB_NAMESPACE::ValueSink& value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr);
 
-  bool Get(const LookupKey& key, std::string* value,
+  bool Get(const LookupKey& key, ROCKSDB_NAMESPACE::ValueSink& value,
            PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,

@@ -2373,13 +2373,14 @@ std::vector<Status> DBImpl::MultiGet(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
+      ROCKSDB_NAMESPACE::ValueSink assignable(value);
       if (super_version->mem->Get(
-              lkey, value, /*columns=*/nullptr, timestamp, &s, &merge_context,
-              &max_covering_tombstone_seq, read_options,
+              lkey, &assignable, /*columns=*/nullptr, timestamp, &s,
+              &merge_context, &max_covering_tombstone_seq, read_options,
               false /* immutable_memtable */, read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
-      } else if (super_version->imm->Get(lkey, value, /*columns=*/nullptr,
+      } else if (super_version->imm->Get(lkey, &assignable, /*columns=*/nullptr,
                                          timestamp, &s, &merge_context,
                                          &max_covering_tombstone_seq,
                                          read_options, read_callback)) {

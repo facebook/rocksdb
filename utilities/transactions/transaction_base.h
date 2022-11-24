@@ -68,7 +68,7 @@ class TransactionBaseImpl : public Transaction {
   using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
-                      std::string* value, bool exclusive,
+                      ROCKSDB_NAMESPACE::ValueSink& value, bool exclusive,
                       const bool do_validate) override;
 
   Status GetForUpdate(const ReadOptions& options,
@@ -77,7 +77,7 @@ class TransactionBaseImpl : public Transaction {
                       const bool do_validate) override;
 
   Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                      std::string* value, bool exclusive,
+                      ROCKSDB_NAMESPACE::ValueSink& value, bool exclusive,
                       const bool do_validate) override {
     return GetForUpdate(options, db_->DefaultColumnFamily(), key, value,
                         exclusive, do_validate);

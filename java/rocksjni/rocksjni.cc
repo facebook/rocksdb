@@ -1096,9 +1096,10 @@ jint rocksdb_get_helper_direct(
     pinnable_value.Reset();
   }  // else jval already has received the slice contents, via
      // db->Get(pinnable_value)
-     else {
-      std::cout << "Should have seen a CharArrayPinnableSlice::PinSelf(Slice&)" << std::endl;
-     }
+  else {
+    std::cout << "Should have seen a CharArrayPinnableSlice::PinSelf(Slice&)"
+              << std::endl;
+  }
 
   *has_exception = false;
   return pinnable_value_len;
@@ -1601,9 +1602,10 @@ jint rocksdb_get_helper(
     pinnable_value.Reset();
   }  // else jval already has received the slice contents, via
      // db->Get(pinnable_value)
-          else {
-      std::cout << "Should have seen a JByteArrayPinnableSlice::PinSelf(Slice&)" << std::endl;
-     }
+  else {
+    std::cout << "Should have seen a JByteArrayPinnableSlice::PinSelf(Slice&)"
+              << std::endl;
+  }
 
   if (env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError

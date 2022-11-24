@@ -226,7 +226,7 @@ class WriteCommittedTxn : public PessimisticTransaction {
   using TransactionBaseImpl::GetForUpdate;
   Status GetForUpdate(const ReadOptions& read_options,
                       ColumnFamilyHandle* column_family, const Slice& key,
-                      std::string* value, bool exclusive,
+                      ROCKSDB_NAMESPACE::ValueSink& value, bool exclusive,
                       const bool do_validate) override;
   Status GetForUpdate(const ReadOptions& read_options,
                       ColumnFamilyHandle* column_family, const Slice& key,

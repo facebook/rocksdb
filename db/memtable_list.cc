@@ -104,7 +104,8 @@ int MemTableList::NumFlushed() const {
 // Search all the memtables starting from the most recent one.
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
-bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
+bool MemTableListVersion::Get(const LookupKey& key,
+                              ROCKSDB_NAMESPACE::ValueSink& value,
                               PinnableWideColumns* columns,
                               std::string* timestamp, Status* s,
                               MergeContext* merge_context,
@@ -154,11 +155,11 @@ bool MemTableListVersion::GetFromHistory(
 }
 
 bool MemTableListVersion::GetFromList(
-    std::list<MemTable*>* list, const LookupKey& key, std::string* value,
-    PinnableWideColumns* columns, std::string* timestamp, Status* s,
-    MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
-    SequenceNumber* seq, const ReadOptions& read_opts, ReadCallback* callback,
-    bool* is_blob_index) {
+    std::list<MemTable*>* list, const LookupKey& key,
+    ROCKSDB_NAMESPACE::ValueSink& value, PinnableWideColumns* columns,
+    std::string* timestamp, Status* s, MergeContext* merge_context,
+    SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
+    const ReadOptions& read_opts, ReadCallback* callback, bool* is_blob_index) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {

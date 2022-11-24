@@ -255,7 +255,8 @@ Status TransactionBaseImpl::Get(const ReadOptions& read_options,
 
 Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                                          ColumnFamilyHandle* column_family,
-                                         const Slice& key, std::string* value,
+                                         const Slice& key,
+                                         ROCKSDB_NAMESPACE::ValueSink& value,
                                          bool exclusive,
                                          const bool do_validate) {
   if (!do_validate && read_options.snapshot != nullptr) {

@@ -294,7 +294,7 @@ class Transaction {
   // regardless).
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) = 0;
+                     ValueSink& value) = 0;
 
   // An overload of the above method that receives a PinnableSlice
   // For backward compatibility a default implementation is provided
@@ -308,7 +308,7 @@ class Transaction {
   }
 
   virtual Status Get(const ReadOptions& options, const Slice& key,
-                     std::string* value) = 0;
+                     ValueSink& value) = 0;
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      PinnableSlice* pinnable_val) {
     assert(pinnable_val != nullptr);
@@ -369,7 +369,8 @@ class Transaction {
   // or other errors if this key could not be read.
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* column_family,
-                              const Slice& key, std::string* value,
+                              const Slice& key,
+                              ROCKSDB_NAMESPACE::ValueSink& value,
                               bool exclusive = true,
                               const bool do_validate = true) = 0;
 
@@ -381,9 +382,9 @@ class Transaction {
                               bool exclusive = true,
                               const bool do_validate = true) {
     if (pinnable_val == nullptr) {
-      std::string* null_str = nullptr;
-      return GetForUpdate(options, column_family, key, null_str, exclusive,
-                          do_validate);
+      ValueSink& null_assignable = nullptr;
+      return GetForUpdate(options, column_family, key, null_assignable,
+                          exclusive, do_validate);
     } else {
       auto s = GetForUpdate(options, column_family, key,
                             pinnable_val->GetSelf(), exclusive, do_validate);
@@ -399,7 +400,8 @@ class Transaction {
   }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                              std::string* value, bool exclusive = true,
+                              ROCKSDB_NAMESPACE::ValueSink& value,
+                              bool exclusive = true,
                               const bool do_validate = true) = 0;
 
   virtual std::vector<Status> MultiGetForUpdate(

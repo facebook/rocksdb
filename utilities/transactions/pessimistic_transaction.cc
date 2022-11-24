@@ -148,7 +148,8 @@ WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
 
 Status WriteCommittedTxn::GetForUpdate(const ReadOptions& read_options,
                                        ColumnFamilyHandle* column_family,
-                                       const Slice& key, std::string* value,
+                                       const Slice& key,
+                                       ROCKSDB_NAMESPACE::ValueSink& value,
                                        bool exclusive, const bool do_validate) {
   return GetForUpdateImpl(read_options, column_family, key, value, exclusive,
                           do_validate);

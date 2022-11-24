@@ -18,32 +18,45 @@
 
 #pragma once
 
-#include<iostream>
 #include <jni.h>
+
+#include <iostream>
+
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class CharArrayValueSink : public ValueSink {
+  // TODO (AP) implement, replacing below..
+};
 
 class CharArrayPinnableSlice : public PinnableSlice {
  public:
   explicit CharArrayPinnableSlice(char* jval, jint jval_len)
       : jval_(jval), jval_len_(jval_len){};
 
-  inline virtual void PinSelf(const Slice& slice) {
+  inline std::string* GetSelf() {
+    std::cout << "CharArrayPinnableSlice GetSelf() " << std::endl;
+    return buf_;
+  }
+
+  inline void PinSelf(const Slice& slice) {
     assert(!pinned_);
 
     size_ = slice.size();
-    std::cout << "CharArrayPinnableSlice PinSelf size_ " << size_ << std::endl;
+    std::cout << "CharArrayPinnableSlice PinSelf size_=" << size_ << std::endl;
     const jint copy_size = std::min(jval_len_, static_cast<jint>(size_));
-    std::cout << "CharArrayPinnableSlice PinSelf copy_size " << copy_size << std::endl;
+    std::cout << "CharArrayPinnableSlice PinSelf copy_size=" << copy_size
+              << std::endl;
 
     memcpy(jval_, slice.data(), copy_size);
     assert(!pinned_);
   };
 
-  inline virtual void PinSelf() { 
-    assert(!pinned_); 
-    std::cout << "CharArrayPinnableSlice PinSelf() !!! ???" << size_ << std::endl;
+  inline void PinSelf() {
+    assert(!pinned_);
+    std::cout << "CharArrayPinnableSlice PinSelf() size=" << buf_->size()
+              << std::endl;
   };
 
  private:
@@ -51,18 +64,29 @@ class CharArrayPinnableSlice : public PinnableSlice {
   jint jval_len_;
 };
 
+class JByteArrayValueSink : public ValueSink {
+  // TODO (AP) implement, replacing below..
+};
+
 class JByteArrayPinnableSlice : public PinnableSlice {
  public:
-  explicit JByteArrayPinnableSlice(JNIEnv* jenv, jbyteArray jval,
-    jint jval_off, jint jval_len) : jenv_(jenv), jval_(jval), jval_off_(jval_off), jval_len_(jval_len) {};
+  explicit JByteArrayPinnableSlice(JNIEnv* jenv, jbyteArray jval, jint jval_off,
+                                   jint jval_len)
+      : jenv_(jenv), jval_(jval), jval_off_(jval_off), jval_len_(jval_len){};
 
-  inline virtual void PinSelf(const Slice& slice) {
+  inline std::string* GetSelf() {
+    std::cout << "JByteArrayPinnableSlice GetSelf() " << std::endl;
+    return buf_;
+  }
+
+  inline void PinSelf(const Slice& slice) {
     assert(!pinned_);
 
     size_ = slice.size();
-    std::cout << "JByteArrayPinnableSlice size_ " << size_ << std::endl;
+    std::cout << "JByteArrayPinnableSlice PinSelf() size=" << size_
+              << std::endl;
     const jint copy_size = std::min(jval_len_, static_cast<jint>(size_));
-    std::cout << "JByteArrayPinnableSlice copy_size " << copy_size << std::endl;
+    std::cout << "JByteArrayPinnableSlice copy_size=" << copy_size << std::endl;
 
     jenv_->SetByteArrayRegion(
         jval_, jval_off_, copy_size,
@@ -71,9 +95,10 @@ class JByteArrayPinnableSlice : public PinnableSlice {
     assert(!pinned_);
   };
 
-  inline virtual void PinSelf() {
+  inline void PinSelf() {
     assert(!pinned_);
-    std::cout << "JByteArrayPinnableSlice PinSelf() !!! ???" << size_ << std::endl;
+    std::cout << "JByteArrayPinnableSlice PinSelf() size=" << buf_->size()
+              << std::endl;
   };
 
  private:
@@ -82,4 +107,4 @@ class JByteArrayPinnableSlice : public PinnableSlice {
   jint jval_off_;
   jint jval_len_;
 };
-}
+}  // namespace ROCKSDB_NAMESPACE
