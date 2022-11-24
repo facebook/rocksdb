@@ -5,6 +5,7 @@
 
 ### Bug Fixes
 * Fixed a regression in scan for async_io. During seek, valid buffers were getting cleared causing a regression.
+* Fixed a performance regression in iterator where range tombstones after `iterate_upper_bound` is processed.
 
 ## 7.8.1 (11/2/2022)
 ### Bug Fixes
