@@ -133,6 +133,16 @@ static inline tokutime_t toku_time_now(void) {
   return result;
 #elif defined(__powerpc__)
   return __ppc_get_timebase();
+#elif defined(__POWERPC__)
+  uint32_t upper, lower, tmp;
+  #define mftbu(r) __asm__ volatile("mftbu %0" : "=r"(r))
+  #define mftb(r)  __asm__ volatile("mftb  %0" : "=r"(r))
+  do {
+    mftbu(upper);
+    mftb(lower);
+    mftbu(tmp);
+  } while (tmp != upper);
+  return ((uint64_t)upper << 32) | lower;
 #elif defined(__s390x__)
   uint64_t result;
   asm volatile("stckf %0" : "=Q"(result) : : "cc");
