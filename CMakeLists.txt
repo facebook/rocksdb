@@ -353,6 +353,7 @@ int main() {
   if (NOT BUILTIN_ATOMIC)
     #TODO: Check if -latomic exists
     list(APPEND THIRDPARTY_LIBS atomic)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -latomic")
   endif()
 endif()
 
