@@ -477,7 +477,70 @@ Status ExternalSstFileIngestionJob::Run() {
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
+
+  for (const auto& pair : edit_.GetNewFiles()) {
+    int output_level = pair.first;
+    const FileMetaData& f_metadata = pair.second;
+
+    std::vector<CompactionInputFiles>& input =
+        output_level_to_file_ingesting_compaction_input_[output_level];
+    if (input.empty()) {
+      input.emplace_back();
+      // Treat the source level of ingested files to be level 0
+      input[0].level = 0;
+    }
+
+    compaction_input_metdatas_.push_back(new FileMetaData(f_metadata));
+    input[0].files.push_back(compaction_input_metdatas_.back());
+  }
+
+  for (const auto& pair : output_level_to_file_ingesting_compaction_input_) {
+    int output_level = pair.first;
+    const std::vector<CompactionInputFiles>& input = pair.second;
+
+    const auto& mutable_cf_options = *(cfd_->GetLatestMutableCFOptions());
+    file_ingesting_compactions_.push_back(new Compaction(
+        cfd_->current()->storage_info(), *cfd_->ioptions(), mutable_cf_options,
+        mutable_db_options_, {input}, output_level,
+        MaxFileSizeForLevel(
+            mutable_cf_options, output_level,
+            cfd_->ioptions()->compaction_style) /* output file size
+            limit,
+                                                 * not applicable
+                                                 */
+        ,
+        LLONG_MAX /* max compaction bytes, not applicable */,
+        0 /* output path ID, not applicable */, mutable_cf_options.compression,
+        mutable_cf_options.compression_opts, Temperature::kUnknown,
+        0 /* max_subcompaction, not applicable */,
+        {} /* grandparents, not applicable */, false /* is manual */,
+        "" /* trim_ts */, -1 /* score, not applicable */,
+        false /* is deletion compaction, not applicable */,
+        files_overlap_ /* l0_files_might_overlap, not applicable */,
+        CompactionReason::kExternalSstIngestion));
+  }
   return status;
+}
+
+void ExternalSstFileIngestionJob::RegisterRange() {
+  for (const auto& c : file_ingesting_compactions_) {
+    cfd_->compaction_picker()->RegisterCompaction(c);
+  }
+}
+
+void ExternalSstFileIngestionJob::UnregisterRange() {
+  for (const auto& c : file_ingesting_compactions_) {
+    cfd_->compaction_picker()->UnregisterCompaction(c);
+    delete c;
+  }
+  file_ingesting_compactions_.clear();
+
+  output_level_to_file_ingesting_compaction_input_.clear();
+
+  for (const auto& f : compaction_input_metdatas_) {
+    delete f;
+  }
+  compaction_input_metdatas_.clear();
 }
 
 void ExternalSstFileIngestionJob::UpdateStats() {
@@ -798,8 +861,16 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;
     }
-
-    if (vstorage->NumLevelFiles(lvl) > 0) {
+    if (cfd_->RangeOverlapWithCompaction(
+            file_to_ingest->smallest_internal_key.user_key(),
+            file_to_ingest->largest_internal_key.user_key(), lvl)) {
+      // We must use L0 or any level higher than `lvl` to be able to overwrite
+      // the compaction output keys that we overlap with in this level, We also
+      // need to assign this file a seqno to overwrite the compaction output
+      // keys in level `lvl`
+      overlap_with_db = true;
+      break;
+    } else if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = sv->current->OverlapWithLevelIterator(
           ro, env_options_, file_to_ingest->smallest_internal_key.user_key(),
@@ -856,6 +927,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       target_level < cfd_->NumberLevels() - 1) {
     status = Status::TryAgain(
         "Files cannot be ingested to Lmax. Please make sure key range of Lmax "
+        "and ongoing compaction's output to Lmax"
         "does not overlap with files to ingest.");
     return status;
   }
@@ -1004,7 +1076,7 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
     return false;
   }
 
-  // File did not overlap with level files, our compaction output
+  // File did not overlap with level files, nor compaction output
   return true;
 }
 

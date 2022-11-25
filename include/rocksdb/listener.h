@@ -151,6 +151,8 @@ enum class CompactionReason : int {
   // A special TTL compaction for RoundRobin policy, which basically the same as
   // kLevelMaxLevelSize, but the goal is to compact TTLed files.
   kRoundRobinTtl,
+  // Compaction by calling DBImpl::ReFitLevel
+  kRefitLevel,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
