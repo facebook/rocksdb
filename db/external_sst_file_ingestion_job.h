@@ -18,6 +18,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
+#include "version_edit.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -78,7 +79,8 @@ class ExternalSstFileIngestionJob {
  public:
   ExternalSstFileIngestionJob(
       VersionSet* versions, ColumnFamilyData* cfd,
-      const ImmutableDBOptions& db_options, const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options,
+      const MutableDBOptions& mutable_db_options, const EnvOptions& env_options,
       SnapshotList* db_snapshots,
       const IngestExternalFileOptions& ingestion_options,
       Directories* directories, EventLogger* event_logger,
@@ -88,6 +90,7 @@ class ExternalSstFileIngestionJob {
         versions_(versions),
         cfd_(cfd),
         db_options_(db_options),
+        mutable_db_options_(mutable_db_options),
         env_options_(env_options),
         db_snapshots_(db_snapshots),
         ingestion_options_(ingestion_options),
@@ -119,6 +122,12 @@ class ExternalSstFileIngestionJob {
   // Will execute the ingestion job and prepare edit() to be applied.
   // REQUIRES: Mutex held
   Status Run();
+
+  //
+  void RegisterRange();
+
+  //
+  void UnregisterRange();
 
   // Update column family stats.
   // REQUIRES: Mutex held
@@ -180,6 +189,7 @@ class ExternalSstFileIngestionJob {
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
+  const MutableDBOptions& mutable_db_options_;
   const EnvOptions& env_options_;
   SnapshotList* db_snapshots_;
   autovector<IngestedFileInfo> files_to_ingest_;
@@ -196,6 +206,11 @@ class ExternalSstFileIngestionJob {
   // file_checksum_gen_factory is set, DB will generate checksum each file.
   bool need_generate_file_checksum_{true};
   std::shared_ptr<IOTracer> io_tracer_;
+
+  std::vector<std::unique_ptr<FileMetaData>> compaction_input_metdata_guards_;
+  std::map<int, std::vector<CompactionInputFiles>>
+      output_level_to_file_ingesting_compaction_input_;
+  std::vector<std::unique_ptr<Compaction>> file_ingesting_compactions_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

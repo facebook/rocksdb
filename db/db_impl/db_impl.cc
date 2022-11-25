@@ -5189,8 +5189,9 @@ Status DBImpl::IngestExternalFiles(
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
-                                file_options_, &snapshots_, arg.options,
-                                &directories_, &event_logger_, io_tracer_);
+                                mutable_db_options_, file_options_, &snapshots_,
+                                arg.options, &directories_, &event_logger_,
+                                io_tracer_);
   }
 
   // TODO(yanqin) maybe make jobs run in parallel
@@ -5325,6 +5326,11 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
+      for (auto& job : ingestion_jobs) {
+        job.RegisterRange();
+      }
+    }
+    if (status.ok()) {
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
       autovector<autovector<VersionEdit*>> edit_lists;
@@ -5354,6 +5360,11 @@ Status DBImpl::IngestExternalFiles(
       status =
           versions_->LogAndApply(cfds_to_commit, mutable_cf_options_list,
                                  edit_lists, &mutex_, directories_.GetDbDir());
+      if (status.ok()) {
+        for (auto& job : ingestion_jobs) {
+          job.UnregisterRange();
+        }
+      }
       // It is safe to update VersionSet last seqno here after LogAndApply since
       // LogAndApply persists last sequence number from VersionEdits,
       // which are from file's largest seqno and not from VersionSet.
