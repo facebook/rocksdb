@@ -498,29 +498,29 @@ Status ExternalSstFileIngestionJob::Run() {
     const std::vector<CompactionInputFiles>& input = pair.second;
 
     const auto& mutable_cf_options = *cfd_->GetLatestMutableCFOptions();
-    file_ingesting_compactions_.emplace_back(
-        std::unique_ptr<Compaction>(new Compaction(
-            cfd_->current()->storage_info() /* not applicable */,
-            *cfd_->ioptions() /* not applicable */,
-            mutable_cf_options /* not applicable */,
-            mutable_db_options_ /* not applicable */, {input}, output_level,
-            MaxFileSizeForLevel(
-                mutable_cf_options, output_level,
-                cfd_->ioptions()->compaction_style) /* output file size
-                limit,
-                                                     * not applicable
-                                                     */
-            ,
-            LLONG_MAX /* max compaction bytes, not applicable */,
-            0 /* output path ID, not applicable */,
-            mutable_cf_options.compression /* not applicable */,
-            mutable_cf_options.compression_opts /* not applicable */,
-            Temperature::kUnknown, 0 /* max_subcompaction, not applicable */,
-            {} /* grandparents, not applicable*/, false /* is manual */,
-            "" /* trim_ts */, -1 /* score, not applicable */,
-            false /* is deletion compaction, not applicable */,
-            files_overlap_ /* l0_files_might_overlap, not applicable */,
-            CompactionReason::kExternalSstIngestion)));
+    // file_ingesting_compactions_.emplace_back(
+    //     std::unique_ptr<Compaction>(new Compaction(
+    //         cfd_->current()->storage_info() /* not applicable */,
+    //         *cfd_->ioptions() /* not applicable */,
+    //         mutable_cf_options /* not applicable */,
+    //         mutable_db_options_ /* not applicable */, {input}, output_level,
+    //         MaxFileSizeForLevel(
+    //             mutable_cf_options, output_level,
+    //             cfd_->ioptions()->compaction_style) /* output file size
+    //             limit,
+    //                                                  * not applicable
+    //                                                  */
+    //         ,
+    //         LLONG_MAX /* max compaction bytes, not applicable */,
+    //         0 /* output path ID, not applicable */,
+    //         mutable_cf_options.compression /* not applicable */,
+    //         mutable_cf_options.compression_opts /* not applicable */,
+    //         Temperature::kUnknown, 0 /* max_subcompaction, not applicable */,
+    //         {} /* grandparents, not applicable*/, false /* is manual */,
+    //         "" /* trim_ts */, -1 /* score, not applicable */,
+    //         false /* is deletion compaction, not applicable */,
+    //         files_overlap_ /* l0_files_might_overlap, not applicable */,
+    //         CompactionReason::kExternalSstIngestion)));
 
     // Compaction c(
     //     cfd_->current()->storage_info() /* input_version, not applicable */,
@@ -547,19 +547,47 @@ Status ExternalSstFileIngestionJob::Run() {
     //         kUseDefault /* blob_garbage_collection_policy, not applicable */,
     //     -1 /* blob_garbage_collection_age_cutoff, not applicable*/);
     // file_ingesting_compactions_.emplace_back(c);
+
+    Compaction* c = new Compaction(
+        cfd_->current()->storage_info() /* not applicable */,
+        *cfd_->ioptions() /* not applicable */,
+        mutable_cf_options /* not applicable */,
+        mutable_db_options_ /* not applicable */, {input}, output_level,
+        MaxFileSizeForLevel(
+            mutable_cf_options, output_level,
+            cfd_->ioptions()->compaction_style) /* output file size
+            limit,
+                                                 * not applicable
+                                                 */
+        ,
+        LLONG_MAX /* max compaction bytes, not applicable */,
+        0 /* output path ID, not applicable */,
+        mutable_cf_options.compression /* not applicable */,
+        mutable_cf_options.compression_opts /* not applicable */,
+        Temperature::kUnknown, 0 /* max_subcompaction, not applicable */,
+        {} /* grandparents, not applicable*/, false /* is manual */,
+        "" /* trim_ts */, -1 /* score, not applicable */,
+        false /* is deletion compaction, not applicable */,
+        files_overlap_ /* l0_files_might_overlap, not applicable */,
+        CompactionReason::kExternalSstIngestion);
+
+    file_ingesting_compactions_.push_back(c);
   }
   return status;
 }
 
 void ExternalSstFileIngestionJob::RegisterRange() {
   for (const auto& c : file_ingesting_compactions_) {
-    cfd_->compaction_picker()->RegisterCompaction(c.get());
+    // cfd_->compaction_picker()->RegisterCompaction(c.get());
+    cfd_->compaction_picker()->RegisterCompaction(c);
   }
 }
 
 void ExternalSstFileIngestionJob::UnregisterRange() {
   for (const auto& c : file_ingesting_compactions_) {
-    cfd_->compaction_picker()->UnregisterCompaction(c.get());
+    // cfd_->compaction_picker()->UnregisterCompaction(c.get());
+    cfd_->compaction_picker()->UnregisterCompaction(c);
+    delete c;
   }
   file_ingesting_compactions_.clear();
   output_level_to_file_ingesting_compaction_input_.clear();
