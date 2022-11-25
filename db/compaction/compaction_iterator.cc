@@ -168,7 +168,12 @@ void CompactionIterator::Next() {
       }
 
       // Keep current_key_ in sync.
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      if (0 == timestamp_size_) {
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      } else {
+        Slice ts = ikey_.GetTimestamp(timestamp_size_);
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type, &ts);
+      }
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
       validity_info_.SetValid(ValidContext::kMerge1);
@@ -877,8 +882,8 @@ void CompactionIterator::NextFromInput() {
       // object to minimize change to the existing flow.
       Status s = merge_helper_->MergeUntil(
           &input_, range_del_agg_, prev_snapshot, bottommost_level_,
-          allow_data_in_errors_, blob_fetcher_.get(), prefetch_buffers_.get(),
-          &iter_stats_);
+          allow_data_in_errors_, blob_fetcher_.get(), full_history_ts_low_,
+          prefetch_buffers_.get(), &iter_stats_);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {
@@ -1100,7 +1105,9 @@ void CompactionIterator::DecideOutputLevel() {
   TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
                            &context);
   output_to_penultimate_level_ = context.output_to_penultimate_level;
-#endif /* !NDEBUG */
+#else
+  output_to_penultimate_level_ = false;
+#endif  // NDEBUG
 
   // if the key is newer than the cutoff sequence or within the earliest
   // snapshot, it should output to the penultimate level.

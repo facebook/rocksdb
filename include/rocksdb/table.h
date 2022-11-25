@@ -266,6 +266,9 @@ struct BlockBasedTableOptions {
   // IF NULL, no page cache is used
   std::shared_ptr<PersistentCache> persistent_cache = nullptr;
 
+  // DEPRECATED: This feature is planned for removal in a future release.
+  // Use SecondaryCache instead.
+  //
   // If non-NULL use the specified cache for compressed blocks.
   // If NULL, rocksdb will not use a compressed block cache.
   // Note: though it looks similar to `block_cache`, RocksDB doesn't put the
