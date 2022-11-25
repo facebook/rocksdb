@@ -209,7 +209,8 @@ class ExternalSstFileIngestionJob {
 
   // std::vector<std::unique_ptr<FileMetaData>>
   // compaction_input_metdata_guards_;
-  std::vector<FileMetaData> compaction_input_metdatas_;
+  // std::vector<FileMetaData> compaction_input_metdatas_;
+  std::vector<FileMetaData*> compaction_input_metdatas_;
   std::map<int, std::vector<CompactionInputFiles>>
       output_level_to_file_ingesting_compaction_input_;
   // std::vector<std::unique_ptr<Compaction>> file_ingesting_compactions_;
