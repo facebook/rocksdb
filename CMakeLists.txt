@@ -1031,11 +1031,11 @@ if(HAVE_SSE42 AND NOT MSVC)
     PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT APPLE)
   list(APPEND SOURCES
     util/crc32c_ppc.c
     util/crc32c_ppc_asm.S)
-endif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT APPLE)
 
 if(HAS_ARMV8_CRC)
   list(APPEND SOURCES
