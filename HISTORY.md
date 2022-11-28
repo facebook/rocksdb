@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## Unreleased
+* Revert an internal change in 7.8.0 associated with some memory usage churn.
+
 ## 7.8.2 (11/27/2022)
 ### Behavior changes
 * Make best-efforts recovery verify SST unique ID before Version construction (#10962)
