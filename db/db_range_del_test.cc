@@ -2704,6 +2704,46 @@ TEST_F(DBRangeDelTest, RefreshMemtableIter) {
   ASSERT_OK(iter->Refresh());
 }
 
+TEST_F(DBRangeDelTest, RangeTombstoneRespectIterateUpperBound) {
+  // Memtable: a, [b, bz)
+  // Do a Seek on `a` with iterate_upper_bound being az
+  // range tombstone [b, bz) should not be processed (added to and
+  // popped from the min_heap in MergingIterator).
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "bar"));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "b", "bz"));
+
+  // I could not find a cleaner way to test this without relying on
+  // implementation detail. Tried to test the value of
+  // `internal_range_del_reseek_count` but that did not work
+  // since BlockBasedTable iterator becomes !Valid() when point key
+  // is out of bound and that reseek only happens when a point key
+  // is covered by some range tombstone.
+  SyncPoint::GetInstance()->SetCallBack("MergeIterator::PopDeleteRangeStart",
+                                        [](void*) {
+                                          // there should not be any range
+                                          // tombstone in the heap.
+                                          FAIL();
+                                        });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions read_opts;
+  std::string upper_bound = "az";
+  Slice upper_bound_slice = upper_bound;
+  read_opts.iterate_upper_bound = &upper_bound_slice;
+  std::unique_ptr<Iterator> iter{db_->NewIterator(read_opts)};
+  iter->Seek("a");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), "a");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
