@@ -2084,7 +2084,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       if (sv->mem->Get(
               lkey,
               get_impl_options.value ? get_impl_options.value->GetSelf()
-                                     : nullptr,
+                                     : ROCKSDB_NAMESPACE::empty_value_sink,
               get_impl_options.columns, timestamp, &s, &merge_context,
               &max_covering_tombstone_seq, read_options,
               false /* immutable_memtable */, get_impl_options.callback,
@@ -2100,7 +2100,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                  sv->imm->Get(lkey,
                               get_impl_options.value
                                   ? get_impl_options.value->GetSelf()
-                                  : nullptr,
+                                  : ROCKSDB_NAMESPACE::empty_value_sink,
                               get_impl_options.columns, timestamp, &s,
                               &merge_context, &max_covering_tombstone_seq,
                               read_options, get_impl_options.callback,
@@ -2116,7 +2116,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     } else {
       // Get Merge Operands associated with key, Merge Operands should not be
       // merged and raw values should be returned to the user.
-      if (sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr,
+      if (sv->mem->Get(lkey, /*value=*/ROCKSDB_NAMESPACE::empty_value_sink, /*columns=*/nullptr,
                        /*timestamp=*/nullptr, &s, &merge_context,
                        &max_covering_tombstone_seq, read_options,
                        false /* immutable_memtable */, nullptr, nullptr,
@@ -2373,14 +2373,14 @@ std::vector<Status> DBImpl::MultiGet(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
-      ROCKSDB_NAMESPACE::ValueSink assignable(value);
+      ROCKSDB_NAMESPACE::StringValueSink value_sink(value);
       if (super_version->mem->Get(
-              lkey, &assignable, /*columns=*/nullptr, timestamp, &s,
+              lkey, value_sink, /*columns=*/nullptr, timestamp, &s,
               &merge_context, &max_covering_tombstone_seq, read_options,
               false /* immutable_memtable */, read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
-      } else if (super_version->imm->Get(lkey, &assignable, /*columns=*/nullptr,
+      } else if (super_version->imm->Get(lkey, value_sink, /*columns=*/nullptr,
                                          timestamp, &s, &merge_context,
                                          &max_covering_tombstone_seq,
                                          read_options, read_callback)) {
@@ -5003,7 +5003,7 @@ Status DBImpl::GetLatestSequenceForKey(
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
+  sv->mem->Get(lkey, /*value=*/ROCKSDB_NAMESPACE::empty_value_sink, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
                false /* immutable_memtable */, nullptr /*read_callback*/,
                is_blob_index);
@@ -5037,7 +5037,7 @@ Status DBImpl::GetLatestSequenceForKey(
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
+  sv->imm->Get(lkey, /*value=*/ROCKSDB_NAMESPACE::empty_value_sink, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
                nullptr /*read_callback*/, is_blob_index);
 

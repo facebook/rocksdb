@@ -138,16 +138,13 @@ class ValueSink {
  public:
   virtual ~ValueSink() = default;
 
-  virtual void assign(const char* /*data*/, size_t /*size*/) = 0;
-  virtual void move(const std::string&& /* buf */) = 0;
-  virtual bool empty() = 0;
+  virtual void Assign(const char* /*data*/, size_t /*size*/) = 0;
+  virtual void Move(const std::string&& /* buf */) = 0;
+  virtual bool IsEmpty() = 0;
 
  protected:
   friend class PinnableSlice;
 };
-
-class ValueSink : public ValueSink {
-  static std::unique_ptr<StringValueSink> empty_value_sink(nullptr);
 
   /**
    * @brief value sink where the target is a std::string
@@ -164,115 +161,120 @@ class ValueSink : public ValueSink {
    public:
     StringValueSink(std::string* buf) : s_(buf){};
 
-    inline void assign(const char* data, size_t size) {
-      buf_->assign(data, size);
+    inline void Assign(const char* data, size_t size) {
+      s_->assign(data, size);
     };
-    inline void move(const std::string&& buf) = { assert(s_ != nullptr);
-    *s_ = std::move(buf);
+    inline void Move(const std::string&& buf) {
+      assert(s_ != nullptr);
+      *s_ = std::move(buf);
+    };
+
+    inline bool IsEmpty() { return (s_ == nullptr); };
   };
-  inline bool empty() = { return s == nullptr;
-};
-};
 
-/**
- * A Slice that can be pinned with some cleanup tasks, which will be run upon
- * ::Reset() or object destruction, whichever is invoked first. This can be used
- * to avoid memcpy by having the PinnableSlice object referring to the data
- * that is locked in the memory and release them after the data is consumed.
- */
-class PinnableSlice : public Slice, public Cleanable {
- public:
-  PinnableSlice() : value_sink_(empty_value_sink.get()){};
-  explicit PinnableSlice(ValueSink* value_sink) : value_sink_(value_sink){};
+  static StringValueSink empty_value_sink(nullptr);
 
-  PinnableSlice(PinnableSlice&& other);
-  PinnableSlice& operator=(PinnableSlice&& other);
+  /**
+   * A Slice that can be pinned with some cleanup tasks, which will be run upon
+   * ::Reset() or object destruction, whichever is invoked first. This can be
+   * used to avoid memcpy by having the PinnableSlice object referring to the
+   * data that is locked in the memory and release them after the data is
+   * consumed.
+   */
+  class PinnableSlice : public Slice, public Cleanable {
+   public:
+    PinnableSlice() : value_sink_(&empty_value_sink){};
+    explicit PinnableSlice(ValueSink* value_sink) : value_sink_(value_sink){};
 
-  // No copy constructor and copy assignment allowed.
-  PinnableSlice(PinnableSlice&) = delete;
-  PinnableSlice& operator=(PinnableSlice&) = delete;
+    PinnableSlice(PinnableSlice&& other);
+    PinnableSlice& operator=(PinnableSlice&& other);
 
-  inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
-                       void* arg2) {
-    assert(!pinned_);
-    pinned_ = true;
-    data_ = s.data();
-    size_ = s.size();
-    RegisterCleanup(f, arg1, arg2);
-    assert(pinned_);
-  }
+    // No copy constructor and copy assignment allowed.
+    PinnableSlice(PinnableSlice&) = delete;
+    PinnableSlice& operator=(PinnableSlice&) = delete;
 
-  inline void PinSlice(const Slice& s, Cleanable* cleanable) {
-    assert(!pinned_);
-    pinned_ = true;
-    data_ = s.data();
-    size_ = s.size();
-    if (cleanable != nullptr) {
-      cleanable->DelegateCleanupsTo(this);
+    inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
+                         void* arg2) {
+      assert(!pinned_);
+      pinned_ = true;
+      data_ = s.data();
+      size_ = s.size();
+      RegisterCleanup(f, arg1, arg2);
+      assert(pinned_);
     }
-    assert(pinned_);
-  }
 
-  inline void PinSelf(const Slice& slice) {
-    assert(!pinned_);
-    std::cout << "PinnableSlice PinSelf slice.size() " << slice.size()
-              << std::endl;
-    buf_->assign(slice.data(), slice.size());
-    data_ = buf_->data();
-    size_ = buf_->size();
-    assert(!pinned_);
-  }
-
-  inline void PinSelf() {
-    assert(!pinned_);
-    std::cout << "PinnableSlice PinSelf() !!! " << std::endl;
-    data_ = buf_->data();
-    size_ = buf_->size();
-    assert(!pinned_);
-  }
-
-  void remove_suffix(size_t n) {
-    assert(n <= size());
-    if (pinned_) {
-      size_ -= n;
-    } else {
-      buf_->erase(size() - n, n);
-      PinSelf();
+    inline void PinSlice(const Slice& s, Cleanable* cleanable) {
+      assert(!pinned_);
+      pinned_ = true;
+      data_ = s.data();
+      size_ = s.size();
+      if (cleanable != nullptr) {
+        cleanable->DelegateCleanupsTo(this);
+      }
+      assert(pinned_);
     }
-  }
 
-  void remove_prefix(size_t n) {
-    assert(n <= size());
-    if (pinned_) {
-      data_ += n;
-      size_ -= n;
-    } else {
-      buf_->erase(0, n);
-      PinSelf();
+    inline void PinSelf(const Slice& slice) {
+      assert(!pinned_);
+      std::cout << "PinnableSlice PinSelf slice.size() " << slice.size()
+                << std::endl;
+      buf_->assign(slice.data(), slice.size());
+      data_ = buf_->data();
+      size_ = buf_->size();
+      assert(!pinned_);
     }
-  }
 
-  void Reset() {
-    Cleanable::Reset();
-    pinned_ = false;
-    size_ = 0;
-  }
+    inline void PinSelf() {
+      assert(!pinned_);
+      std::cout << "PinnableSlice PinSelf() !!! " << std::endl;
+      data_ = buf_->data();
+      size_ = buf_->size();
+      assert(!pinned_);
+    }
 
-  inline ValueSink& GetSelf() { return assignable_; }
+    void remove_suffix(size_t n) {
+      assert(n <= size());
+      if (pinned_) {
+        size_ -= n;
+      } else {
+        buf_->erase(size() - n, n);
+        PinSelf();
+      }
+    }
 
-  inline bool IsPinned() const { return pinned_; }
+    void remove_prefix(size_t n) {
+      assert(n <= size());
+      if (pinned_) {
+        data_ += n;
+        size_ -= n;
+      } else {
+        buf_->erase(0, n);
+        PinSelf();
+      }
+    }
 
- private:
-  friend class PinnableSlice4Test;
-  std::string self_space_;
-  ValueSink* value_sink_;
+    void Reset() {
+      Cleanable::Reset();
+      pinned_ = false;
+      size_ = 0;
+    }
 
-  // TODO (AP) remove this, it is just letting wrong code compile temporarily..
-  std::string* buf_;
+    inline ValueSink& GetSelf() { return *value_sink_; }
 
- protected:
-  bool pinned_ = false;
-};
+    inline bool IsPinned() const { return pinned_; }
+
+   private:
+    friend class PinnableSlice4Test;
+    std::string self_space_;
+    ValueSink* value_sink_;
+
+    // TODO (AP) remove this, it is just letting wrong code compile
+    // temporarily..
+    std::string* buf_;
+
+   protected:
+    bool pinned_ = false;
+  };
 
 // A set of Slices that are virtually concatenated together.  'parts' points
 // to an array of Slices.  The number of elements in the array is 'num_parts'.

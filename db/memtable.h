@@ -627,7 +627,7 @@ class MemTable {
   void GetFromTable(const LookupKey& key,
                     SequenceNumber max_covering_tombstone_seq, bool do_merge,
                     ReadCallback* callback, bool* is_blob_index,
-                    std::string* value, PinnableWideColumns* columns,
+                    ROCKSDB_NAMESPACE::ValueSink& value, PinnableWideColumns* columns,
                     std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress);

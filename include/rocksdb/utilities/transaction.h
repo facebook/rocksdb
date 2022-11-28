@@ -382,8 +382,7 @@ class Transaction {
                               bool exclusive = true,
                               const bool do_validate = true) {
     if (pinnable_val == nullptr) {
-      ValueSink& null_assignable = nullptr;
-      return GetForUpdate(options, column_family, key, null_assignable,
+      return GetForUpdate(options, column_family, key, ROCKSDB_NAMESPACE::empty_value_sink,
                           exclusive, do_validate);
     } else {
       auto s = GetForUpdate(options, column_family, key,

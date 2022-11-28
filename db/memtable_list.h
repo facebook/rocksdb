@@ -161,7 +161,7 @@ class MemTableListVersion {
   bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
-                   std::string* value, PinnableWideColumns* columns,
+                   ROCKSDB_NAMESPACE::ValueSink& value, PinnableWideColumns* columns,
                    std::string* timestamp, Status* s,
                    MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,

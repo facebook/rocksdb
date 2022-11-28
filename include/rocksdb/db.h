@@ -523,12 +523,12 @@ class DB {
   virtual inline Status Get(const ReadOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             ValueSink& value) {
-    assert(value);
-    PinnableSlice pinnable_val(value);
+    assert(!value.IsEmpty());
+    PinnableSlice pinnable_val(&value);
     assert(!pinnable_val.IsPinned());
     auto s = Get(options, column_family, key, &pinnable_val);
     if (s.ok() && pinnable_val.IsPinned()) {
-      value->assign(pinnable_val.data(), pinnable_val.size());
+      value.Assign(pinnable_val.data(), pinnable_val.size());
     }  // else value is already assigned
     return s;
   }
@@ -545,12 +545,12 @@ class DB {
   virtual inline Status Get(const ReadOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             ValueSink& value, std::string* timestamp) {
-    assert(value != nullptr);
-    PinnableSlice pinnable_val(value);
+    assert(!value.IsEmpty());
+    PinnableSlice pinnable_val(&value);
     assert(!pinnable_val.IsPinned());
     auto s = Get(options, column_family, key, &pinnable_val, timestamp);
     if (s.ok() && pinnable_val.IsPinned()) {
-      value->assign(pinnable_val.data(), pinnable_val.size());
+      value.Assign(pinnable_val.data(), pinnable_val.size());
     }  // else value is already assigned
     return s;
   }

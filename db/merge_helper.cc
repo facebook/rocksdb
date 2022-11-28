@@ -135,7 +135,7 @@ Status MergeHelper::TimedFullMergeWithEntity(
   }
 
   std::string merge_result;
-
+  
   {
     constexpr Slice* result_operand = nullptr;
 
