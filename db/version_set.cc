@@ -5101,22 +5101,7 @@ Status VersionSet::ProcessManifestWrites(
           break;
         }
       }
-      // Version edit records above may contain WAL addition for WAL
-      // that already has deletion record in the manifest.
-      // Such addition record should be offsetted by a deletion record.
-      VersionEdit wal_deletions;
-      wal_deletions.DeleteWalsBefore(min_log_number_to_keep());
-      std::string wal_deletions_record;
-      if (!wal_deletions.EncodeTo(&wal_deletions_record)) {
-        s = Status::Corruption("Unable to Encode VersionEdit: " +
-                               wal_deletions.DebugString(true));
-      }
-      if (s.ok()) {
-        io_s = descriptor_log_->AddRecord(wal_deletions_record);
-        if (!io_s.ok()) {
-          s = io_s;
-        }
-      }
+
       if (s.ok()) {
         io_s = SyncManifest(db_options_, descriptor_log_->file());
         manifest_io_status = io_s;
@@ -5524,7 +5509,8 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool no_error_if_files_missing) {
-  // Read "CURRENT" file, which contains a pointer to the current manifest file
+  // Read "CURRENT" file, which contains a pointer to the current manifest
+  // file
   std::string manifest_path;
   Status s = GetCurrentManifestPath(dbname_, fs_.get(), &manifest_path,
                                     &manifest_file_number_);
@@ -6053,21 +6039,22 @@ Status VersionSet::WriteCurrentStateToManifest(
     if (!io_s.ok()) {
       return io_s;
     }
+  }
 
-    // WAL addition records above may contain entry for WAL
-    // that already has deletion record in the manifest.
-    // Such addition record should be offsetted by a deletion record.
-    VersionEdit wal_deletions;
-    wal_deletions.DeleteWalsBefore(min_log_number_to_keep());
-    std::string wal_deletions_record;
-    if (!wal_deletions.EncodeTo(&wal_deletions_record)) {
-      return Status::Corruption("Unable to Encode VersionEdit: " +
-                                wal_deletions.DebugString(true));
-    }
-    io_s = log->AddRecord(wal_deletions_record);
-    if (!io_s.ok()) {
-      return io_s;
-    }
+  // New manifest should rollover the WAL deletion record from previous
+  // manifest. Otherwise, when an addition record of a deleted WAL gets added to
+  // this new manifest later (which can happens in e.g, SyncWAL()), this new
+  // manifest creates an illusion that such WAL hasn't been deleted.
+  VersionEdit wal_deletions;
+  wal_deletions.DeleteWalsBefore(min_log_number_to_keep());
+  std::string wal_deletions_record;
+  if (!wal_deletions.EncodeTo(&wal_deletions_record)) {
+    return Status::Corruption("Unable to Encode VersionEdit: " +
+                              wal_deletions.DebugString(true));
+  }
+  io_s = log->AddRecord(wal_deletions_record);
+  if (!io_s.ok()) {
+    return io_s;
   }
 
   for (auto cfd : *column_family_set_) {

@@ -1605,15 +1605,25 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
   // Set a small max_manifest_file_size to force manifest creation
   // in SyncWAL() for tet purpose
   options.max_manifest_file_size = 170;
-
   DestroyAndReopen(options);
 
   // Accumulate memtable m1 and create the 1st wal (i.e, 4.log)
   ASSERT_OK(Put(Key(1), ""));
   ASSERT_OK(Put(Key(2), ""));
   ASSERT_OK(Put(Key(3), ""));
+
   const std::string wal_file_path = db_->GetName() + "/000004.log";
 
+  // Coerce the following sequence of events:
+  // (1) Flush() marks 4.log to be obsoleted, 8.log to be the latest (i.e,
+  // active) log and release the lock
+  // (2) SyncWAL() proceeds with the lock. It
+  // creates a new manifest and syncs all the inactive wals before the latest
+  // (i.e, active log), which is 4.log. SyncWAL() is not aware of the fact
+  // that 4.log has marked as to be obseleted.
+  // Prior to the fix, such wal sync will then add a WAL addition record of
+  // 4.log to the new manifest without any special treatment.
+  // (3) BackgroundFlush() will eventually purge 4.log.
   bool sync_point_called = false;
   bool new_manifest_created = false;
   SyncPoint::GetInstance()->SetCallBack(
@@ -1623,10 +1633,13 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
         SyncPoint::GetInstance()->SetCallBack(
             "VersionSet::ProcessManifestWrites:BeforeNewManifest",
             [&](void*) { new_manifest_created = true; });
+
         ASSERT_OK(db_->SyncWAL());
         ASSERT_TRUE(new_manifest_created);
+
         sync_point_called = true;
       });
+
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DeleteObsoleteFileImpl:AfterDeletion2", [&](void* arg) {
         std::string* file_name = (std::string*)arg;
@@ -1642,6 +1655,7 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
         "PostDeleteWAL",
         "DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
         "PreConfrimWALDeleted"}});
+
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Flush());
@@ -1650,7 +1664,8 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
   TEST_SYNC_POINT(
       "DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
       "PreConfrimWALDeleted");
-  // BackgroundFlush() obsoleted and purged 4.log
+
+  // BackgroundFlush() purged 4.log
   // because the memtable associated with the WAL was flushed and new WAL was
   // created (i.e, 8.log)
   ASSERT_TRUE(env_->FileExists(wal_file_path).IsNotFound());
@@ -1662,8 +1677,8 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
   // `options.track_and_verify_wals_in_manifest = true` is fixed.
   //
   // Before the fix, `db_->SyncWAL()` will sync and record WAL addtion of the
-  // obseleted WAL 4.log in a new manifest, which will result in the corruption
-  // in DB::Reopen().
+  // obseleted WAL 4.log in a new manifest without any special treament.
+  // This will result in missing-wal corruption in DB::Reopen().
   Status s = TryReopen(options);
   EXPECT_OK(s);
 }
