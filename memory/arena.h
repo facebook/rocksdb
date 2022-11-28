@@ -64,7 +64,7 @@ class Arena : public Allocator {
   // by the arena (exclude the space allocated but not yet used for future
   // allocations).
   size_t ApproximateMemoryUsage() const {
-    return blocks_memory_ + blocks_.size() * sizeof(char*) -
+    return blocks_memory_ + blocks_.capacity() * sizeof(blocks_[0]) -
            alloc_bytes_remaining_;
   }
 
@@ -92,9 +92,9 @@ class Arena : public Allocator {
   // Number of bytes allocated in one block
   const size_t kBlockSize;
   // Allocated memory blocks
-  std::deque<std::unique_ptr<char[]>> blocks_;
+  std::vector<std::unique_ptr<char[]>> blocks_;
   // Huge page allocations
-  std::deque<MemMapping> huge_blocks_;
+  std::vector<MemMapping> huge_blocks_;
   size_t irregular_block_num = 0;
 
   // Stats for current active block.
