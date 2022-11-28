@@ -54,16 +54,7 @@ struct HeapItem {
   }
 
   void SetTombstoneKey(ParsedInternalKey&& pik) {
-    // Range tombstone end key is exclusive. If a point internal key has the
-    // same user key and sequence number as the start or end key of a range
-    // tombstone, the order will be start < end key < internal key with the
-    // following op_type change. This is helpful to ensure keys popped from
-    // heap are in expected order since range tombstone start/end keys will
-    // be distinct from point internal keys. Strictly speaking, this is only
-    // needed for tombstone end points that are truncated in
-    // TruncatedRangeDelIterator since untruncated tombstone end points always
-    // have kMaxSequenceNumber and kTypeRangeDeletion (see
-    // TruncatedRangeDelIterator::start_key()/end_key()).
+    // op_type is already initialized in MergingIterator::Finish().
     parsed_ikey.user_key = pik.user_key;
     parsed_ikey.sequence = pik.sequence;
   }
@@ -87,13 +78,13 @@ class MinHeapItemComparator {
       : comparator_(comparator) {}
   bool operator()(HeapItem* a, HeapItem* b) const {
     if (LIKELY(a->type == HeapItem::ITERATOR)) {
-      if LIKELY (b->type == HeapItem::ITERATOR) {
+      if (LIKELY(b->type == HeapItem::ITERATOR)) {
         return comparator_->Compare(a->key(), b->key()) > 0;
       } else {
         return comparator_->Compare(a->key(), b->parsed_ikey) > 0;
       }
     } else {
-      if LIKELY (b->type == HeapItem::ITERATOR) {
+      if (LIKELY(b->type == HeapItem::ITERATOR)) {
         return comparator_->Compare(a->parsed_ikey, b->key()) > 0;
       } else {
         return comparator_->Compare(a->parsed_ikey, b->parsed_ikey) > 0;
@@ -111,13 +102,13 @@ class MaxHeapItemComparator {
       : comparator_(comparator) {}
   bool operator()(HeapItem* a, HeapItem* b) const {
     if (LIKELY(a->type == HeapItem::ITERATOR)) {
-      if LIKELY (b->type == HeapItem::ITERATOR) {
+      if (LIKELY(b->type == HeapItem::ITERATOR)) {
         return comparator_->Compare(a->key(), b->key()) < 0;
       } else {
         return comparator_->Compare(a->key(), b->parsed_ikey) < 0;
       }
     } else {
-      if LIKELY (b->type == HeapItem::ITERATOR) {
+      if (LIKELY(b->type == HeapItem::ITERATOR)) {
         return comparator_->Compare(a->parsed_ikey, b->key()) < 0;
       } else {
         return comparator_->Compare(a->parsed_ikey, b->parsed_ikey) < 0;
@@ -198,6 +189,16 @@ class MergingIterator : public InternalIterator {
       pinned_heap_item_.resize(range_tombstone_iters_.size());
       for (size_t i = 0; i < range_tombstone_iters_.size(); ++i) {
         pinned_heap_item_[i].level = i;
+        // Range tombstone end key is exclusive. If a point internal key has the
+        // same user key and sequence number as the start or end key of a range
+        // tombstone, the order will be start < end key < internal key with the
+        // following op_type change. This is helpful to ensure keys popped from
+        // heap are in expected order since range tombstone start/end keys will
+        // be distinct from point internal keys. Strictly speaking, this is only
+        // needed for tombstone end points that are truncated in
+        // TruncatedRangeDelIterator since untruncated tombstone end points
+        // always have kMaxSequenceNumber and kTypeRangeDeletion (see
+        // TruncatedRangeDelIterator::start_key()/end_key()).
         pinned_heap_item_[i].parsed_ikey.type = kTypeMaxValid;
       }
     }
