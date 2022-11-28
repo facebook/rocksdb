@@ -49,9 +49,6 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-// In case defined by Windows headers
-#undef small
-
 namespace ROCKSDB_NAMESPACE {
 class MockEnv;
 
