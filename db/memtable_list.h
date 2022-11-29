@@ -90,13 +90,13 @@ class MemTableListVersion {
   // have already been flushed.  Should only be used from in-memory only
   // queries (such as Transaction validation) as the history may contain
   // writes that are also present in the SST files.
-  bool GetFromHistory(const LookupKey& key, std::string* value,
+  bool GetFromHistory(const LookupKey& key, ROCKSDB_NAMESPACE::ValueSink& value,
                       PinnableWideColumns* columns, std::string* timestamp,
                       Status* s, MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,
                       SequenceNumber* seq, const ReadOptions& read_opts,
                       bool* is_blob_index = nullptr);
-  bool GetFromHistory(const LookupKey& key, std::string* value,
+  bool GetFromHistory(const LookupKey& key, ROCKSDB_NAMESPACE::ValueSink& value,
                       PinnableWideColumns* columns, std::string* timestamp,
                       Status* s, MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,

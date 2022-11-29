@@ -167,7 +167,7 @@ Status WriteCommittedTxn::GetForUpdate(const ReadOptions& read_options,
 template <typename TValue>
 inline Status WriteCommittedTxn::GetForUpdateImpl(
     const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-    const Slice& key, TValue* value, bool exclusive, const bool do_validate) {
+    const Slice& key, TValue value, bool exclusive, const bool do_validate) {
   column_family =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
   assert(column_family);

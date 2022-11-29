@@ -1140,6 +1140,7 @@ static bool SaveValue(void* arg, const char* entry) {
                   /* update_num_ops_stats */ true);
               if (s->status->ok()) {
                 s->value.Move(std::move(value));
+              }
             }
           } else if (s->columns) {
             std::string result;

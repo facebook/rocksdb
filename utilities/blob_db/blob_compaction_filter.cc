@@ -387,7 +387,8 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
     }
     if (blob_db_impl->bdb_options_.compression != kNoCompression) {
       blob_db_impl->GetCompressedSlice(blob, &compression_output);
-      blob = PinnableSlice(&compression_output);
+      ROCKSDB_NAMESPACE::StringValueSink compression_output_sink(&compression_output);
+      blob = PinnableSlice(&compression_output_sink);
       blob.PinSelf();
     }
   }

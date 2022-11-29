@@ -283,7 +283,7 @@ class WriteCommittedTxn : public PessimisticTransaction {
   template <typename TValue>
   Status GetForUpdateImpl(const ReadOptions& read_options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          TValue* value, bool exclusive,
+                          TValue value, bool exclusive,
                           const bool do_validate);
 
   template <typename TKey, typename TOperation>

@@ -65,7 +65,8 @@ Status TraceExecutionHandler::Handle(
   uint64_t start = clock_->NowMicros();
 
   std::string value;
-  Status s = db_->Get(read_opts_, it->second, record.GetKey(), &value);
+  ROCKSDB_NAMESPACE::StringValueSink value_sink(&value);
+  Status s = db_->Get(read_opts_, it->second, record.GetKey(), value_sink);
 
   uint64_t end = clock_->NowMicros();
 

@@ -2043,6 +2043,7 @@ class MemTableInserter : public WriteBatch::Handler {
         ropts.snapshot = &read_from_snapshot;
 
         std::string prev_value;
+        ROCKSDB_NAMESPACE::StringValueSink prev_value_sink(&prev_value);
         std::string merged_value;
 
         auto cf_handle = cf_mems_->GetColumnFamilyHandle();
@@ -2052,7 +2053,7 @@ class MemTableInserter : public WriteBatch::Handler {
             cf_handle = db_->DefaultColumnFamily();
           }
           // TODO (yanqin): fix when user-defined timestamp is enabled.
-          get_status = db_->Get(ropts, cf_handle, key, &prev_value);
+          get_status = db_->Get(ropts, cf_handle, key, prev_value_sink);
         }
         // Intentionally overwrites the `NotFound` in `ret_status`.
         if (!get_status.ok() && !get_status.IsNotFound()) {
@@ -2475,6 +2476,7 @@ class MemTableInserter : public WriteBatch::Handler {
     if (perform_merge) {
       // 1) Get the existing value
       std::string get_value;
+      ROCKSDB_NAMESPACE::StringValueSink get_value_sink(&get_value);
 
       // Pass in the sequence number so that we also include previous merge
       // operations in the same batch.
@@ -2487,7 +2489,7 @@ class MemTableInserter : public WriteBatch::Handler {
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
       }
-      Status get_status = db_->Get(read_options, cf_handle, key, &get_value);
+      Status get_status = db_->Get(read_options, cf_handle, key, get_value_sink);
       if (!get_status.ok()) {
         // Failed to read a key we know exists. Store the delta in memtable.
         perform_merge = false;

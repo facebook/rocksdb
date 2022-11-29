@@ -55,13 +55,13 @@ class TransactionBaseImpl : public Transaction {
 
   using Transaction::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, std::string* value) override;
+             const Slice& key, ROCKSDB_NAMESPACE::ValueSink& value) override;
 
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
   Status Get(const ReadOptions& options, const Slice& key,
-             std::string* value) override {
+             ROCKSDB_NAMESPACE::ValueSink& value) override {
     return Get(options, db_->DefaultColumnFamily(), key, value);
   }
 

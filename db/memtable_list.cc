@@ -134,7 +134,7 @@ bool MemTableListVersion::GetMergeOperands(
     SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {
   for (MemTable* memtable : memlist_) {
     bool done = memtable->Get(
-        key, /*value=*/nullptr, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
+        key, /*value=*/ROCKSDB_NAMESPACE::empty_value_sink, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
         merge_context, max_covering_tombstone_seq, read_opts,
         true /* immutable_memtable */, nullptr, nullptr, false);
     if (done) {
@@ -145,7 +145,7 @@ bool MemTableListVersion::GetMergeOperands(
 }
 
 bool MemTableListVersion::GetFromHistory(
-    const LookupKey& key, std::string* value, PinnableWideColumns* columns,
+    const LookupKey& key, ROCKSDB_NAMESPACE::ValueSink& value, PinnableWideColumns* columns,
     std::string* timestamp, Status* s, MergeContext* merge_context,
     SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
     const ReadOptions& read_opts, bool* is_blob_index) {

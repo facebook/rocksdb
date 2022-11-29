@@ -5069,7 +5069,7 @@ Status DBImpl::GetLatestSequenceForKey(
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->GetFromHistory(lkey, /*value=*/nullptr, /*columns=*/nullptr,
+  sv->imm->GetFromHistory(lkey, /*value=*/ROCKSDB_NAMESPACE::empty_value_sink, /*columns=*/nullptr,
                           timestamp, &s, &merge_context,
                           &max_covering_tombstone_seq, seq, read_options,
                           is_blob_index);
