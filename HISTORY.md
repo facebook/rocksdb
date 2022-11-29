@@ -18,6 +18,7 @@
 * Fixed a regression in scan for async_io. During seek, valid buffers were getting cleared causing a regression.
 * Tiered Storage: fixed excessive keys written to penultimate level in non-debug builds.
 * Fixed a bug that multi-level FIFO compaction deletes one file in non-L0 even when `CompactionOptionsFIFO::max_table_files_size` is no exceeded since #10348 or 7.8.0.
+* Fixed a bug caused by `DB::SyncWAL()` affecting `track_and_verify_wals_in_manifest`. Without the fix, application may see "open error: Corruption: Missing WAL with log number" while trying to open the db. The corruption is a false alarm but prevents DB open (#10892).
 
 ### New Features
 * Add basic support for user-defined timestamp to Merge (#10819).
