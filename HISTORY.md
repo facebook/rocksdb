@@ -1,12 +1,13 @@
 # Rocksdb Change Log
+## 7.7.9 (11/29/2022)
+### Behavior Changes
+* Make best-efforts recovery verify SST unique ID before Version construction (#10962)
+
 ## 7.7.8 (11/27/2022)
 ### Bug Fixes
 * Fix failed memtable flush retry bug that could cause wrongly ordered updates, which would surface to writers as `Status::Corruption` in case of `force_consistency_checks=true` (default). It affects use cases that enable both parallel flush (`max_background_flushes > 1` or `max_background_jobs >= 8`) and non-default memtable count (`max_write_buffer_number > 2`).
 * Tiered Storage: fixed excessive keys written to penultimate level in non-debug builds.
 * Fixed a regression in iterator where range tombstones after `iterate_upper_bound` is processed.
-
-### Behavior changes
-* Make best-efforts recovery verify SST unique ID before Version construction (#10962)
 
 ## 7.7.7 (11/15/2022)
 ### Bug Fixes
