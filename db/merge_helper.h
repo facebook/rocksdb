@@ -52,10 +52,22 @@ class MergeHelper {
   static Status TimedFullMerge(const MergeOperator* merge_operator,
                                const Slice& key, const Slice* value,
                                const std::vector<Slice>& operands,
-                               std::string* result, Logger* logger,
+                               ValueSink& result, Logger* logger,
                                Statistics* statistics, SystemClock* clock,
                                Slice* result_operand,
                                bool update_num_ops_stats);
+
+  // Legacy helper for methods not passing a ValueSink. TODO (AP) - can all such calls be rewritten ?
+  inline static Status TimedFullMerge(const MergeOperator* merge_operator,
+                               const Slice& key, const Slice* value,
+                               const std::vector<Slice>& operands,
+                               std::string* result, Logger* logger,
+                               Statistics* statistics, SystemClock* clock,
+                               Slice* result_operand,
+                               bool update_num_ops_stats) {
+StringValueSink result_sink(result);
+return TimedFullMerge(merge_operator, key, value, operands, result_sink, logger, statistics, clock, result_operand, update_num_ops_stats);
+                               };                       
 
   static Status TimedFullMergeWithEntity(
       const MergeOperator* merge_operator, const Slice& key, Slice base_entity,

@@ -55,20 +55,20 @@ class TransactionBaseImpl : public Transaction {
 
   using Transaction::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, std::string* value) override;
+             const Slice& key, ValueSink& value) override;
 
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
   Status Get(const ReadOptions& options, const Slice& key,
-             std::string* value) override {
+             ValueSink& value) override {
     return Get(options, db_->DefaultColumnFamily(), key, value);
   }
 
   using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
-                      std::string* value, bool exclusive,
+                      ValueSink& value, bool exclusive,
                       const bool do_validate) override;
 
   Status GetForUpdate(const ReadOptions& options,
@@ -77,7 +77,7 @@ class TransactionBaseImpl : public Transaction {
                       const bool do_validate) override;
 
   Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                      std::string* value, bool exclusive,
+                      ValueSink& value, bool exclusive,
                       const bool do_validate) override {
     return GetForUpdate(options, db_->DefaultColumnFamily(), key, value,
                         exclusive, do_validate);

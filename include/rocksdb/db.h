@@ -522,13 +522,13 @@ class DB {
   // there is no entry for "key". Returns some other non-OK status on error.
   virtual inline Status Get(const ReadOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
-                            std::string* value) {
-    assert(value != nullptr);
-    PinnableSlice pinnable_val(value);
+                            ValueSink& value) {
+    assert(!value.IsEmpty());
+    PinnableSlice pinnable_val(&value);
     assert(!pinnable_val.IsPinned());
     auto s = Get(options, column_family, key, &pinnable_val);
     if (s.ok() && pinnable_val.IsPinned()) {
-      value->assign(pinnable_val.data(), pinnable_val.size());
+      value.Assign(pinnable_val.data(), pinnable_val.size());
     }  // else value is already assigned
     return s;
   }
@@ -536,7 +536,7 @@ class DB {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) = 0;
   virtual Status Get(const ReadOptions& options, const Slice& key,
-                     std::string* value) {
+                     ValueSink& value) {
     return Get(options, DefaultColumnFamily(), key, value);
   }
 
@@ -544,13 +544,13 @@ class DB {
   // about this group of methods if they don't care about timestamp feature.
   virtual inline Status Get(const ReadOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
-                            std::string* value, std::string* timestamp) {
-    assert(value != nullptr);
-    PinnableSlice pinnable_val(value);
+                            ValueSink& value, std::string* timestamp) {
+    assert(!value.IsEmpty());
+    PinnableSlice pinnable_val(&value);
     assert(!pinnable_val.IsPinned());
     auto s = Get(options, column_family, key, &pinnable_val, timestamp);
     if (s.ok() && pinnable_val.IsPinned()) {
-      value->assign(pinnable_val.data(), pinnable_val.size());
+      value.Assign(pinnable_val.data(), pinnable_val.size());
     }  // else value is already assigned
     return s;
   }
@@ -562,7 +562,7 @@ class DB {
         "Get() that returns timestamp is not implemented.");
   }
   virtual Status Get(const ReadOptions& options, const Slice& key,
-                     std::string* value, std::string* timestamp) {
+                     ValueSink& value, std::string* timestamp) {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 

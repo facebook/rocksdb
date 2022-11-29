@@ -657,6 +657,7 @@ bool FlushJob::MemPurgeDecider(double threshold) {
   ParsedInternalKey res;
   SnapshotImpl min_snapshot;
   std::string vget;
+  ROCKSDB_NAMESPACE::StringValueSink vget_sink(&vget);
   Status mget_s, parse_s;
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0, sqno = 0,
@@ -730,7 +731,7 @@ bool FlushJob::MemPurgeDecider(double threshold) {
           min_seqno_snapshot < kMaxSequenceNumber ? &min_snapshot : nullptr;
 
       // Estimate if the sample entry is valid or not.
-      get_res = mt->Get(lkey, &vget, /*columns=*/nullptr, /*timestamp=*/nullptr,
+      get_res = mt->Get(lkey, vget_sink, /*columns=*/nullptr, /*timestamp=*/nullptr,
                         &mget_s, &merge_context, &max_covering_tombstone_seq,
                         &sqno, ro, true /* immutable_memtable */);
       if (!get_res) {
@@ -772,7 +773,7 @@ bool FlushJob::MemPurgeDecider(double threshold) {
         for (auto next_mem_iter = mem_iter + 1;
              next_mem_iter != std::end(mems_); next_mem_iter++) {
           if ((*next_mem_iter)
-                  ->Get(lkey, &vget, /*columns=*/nullptr, /*timestamp=*/nullptr,
+                  ->Get(lkey, vget_sink, /*columns=*/nullptr, /*timestamp=*/nullptr,
                         &mget_s, &merge_context, &max_covering_tombstone_seq,
                         &sqno, ro, true /* immutable_memtable */)) {
             not_in_next_mems = false;

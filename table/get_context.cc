@@ -479,7 +479,7 @@ void GetContext::Merge(const Slice* value) {
   }
 
   if (LIKELY(pinnable_val_ != nullptr)) {
-    *(pinnable_val_->GetSelf()) = std::move(result);
+    pinnable_val_->GetSelf().Move(std::move(result));
     pinnable_val_->PinSelf();
     return;
   }

@@ -2392,7 +2392,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           /* result_operand */ nullptr, /* update_num_ops_stats */ true);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
-          *(value->GetSelf()) = std::move(result);
+          value->GetSelf().Move(std::move(result));
           value->PinSelf();
         } else {
           assert(columns != nullptr);
@@ -2629,11 +2629,9 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
       // merge_operands are in saver and we hit the beginning of the key history
       // do a final merge of nullptr and operands;
-      std::string* str_value =
-          iter->value != nullptr ? iter->value->GetSelf() : nullptr;
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
-          str_value, info_log_, db_statistics_, clock_,
+          iter->value->GetSelf(), info_log_, db_statistics_, clock_,
           /* result_operand */ nullptr, /* update_num_ops_stats */ true);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();

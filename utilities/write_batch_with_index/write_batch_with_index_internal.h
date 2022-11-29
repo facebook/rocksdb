@@ -315,20 +315,20 @@ class WriteBatchWithIndexInternal {
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
   WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
-                                        const Slice& key, std::string* value,
+                                        const Slice& key, ValueSink& value,
                                         Status* s) {
     return GetFromBatch(batch, key, &merge_context_, value, s);
   }
   WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
                                         const Slice& key,
                                         MergeContext* merge_context,
-                                        std::string* value, Status* s);
+                                        ValueSink& value, Status* s);
   Status MergeKey(const Slice& key, const Slice* value,
-                  std::string* result) const {
+                  ValueSink& result) const {
     return MergeKey(key, value, merge_context_, result);
   }
   Status MergeKey(const Slice& key, const Slice* value,
-                  const MergeContext& context, std::string* result) const;
+                  const MergeContext& context, ValueSink& result) const;
   size_t GetNumOperands() const { return merge_context_.GetNumOperands(); }
   MergeContext* GetMergeContext() { return &merge_context_; }
   Slice GetOperand(int index) const { return merge_context_.GetOperand(index); }

@@ -104,7 +104,7 @@ int MemTableList::NumFlushed() const {
 // Search all the memtables starting from the most recent one.
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
-bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
+bool MemTableListVersion::Get(const LookupKey& key, ROCKSDB_NAMESPACE::ValueSink&value,
                               PinnableWideColumns* columns,
                               std::string* timestamp, Status* s,
                               MergeContext* merge_context,
@@ -133,7 +133,7 @@ bool MemTableListVersion::GetMergeOperands(
     SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {
   for (MemTable* memtable : memlist_) {
     bool done = memtable->Get(
-        key, /*value=*/nullptr, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
+        key, /*value=*/ROCKSDB_NAMESPACE::empty_value_sink, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
         merge_context, max_covering_tombstone_seq, read_opts,
         true /* immutable_memtable */, nullptr, nullptr, false);
     if (done) {
@@ -148,13 +148,14 @@ bool MemTableListVersion::GetFromHistory(
     std::string* timestamp, Status* s, MergeContext* merge_context,
     SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
     const ReadOptions& read_opts, bool* is_blob_index) {
-  return GetFromList(&memlist_history_, key, value, columns, timestamp, s,
+  ROCKSDB_NAMESPACE::StringValueSink value_sink(value);
+  return GetFromList(&memlist_history_, key, value_sink, columns, timestamp, s,
                      merge_context, max_covering_tombstone_seq, seq, read_opts,
                      nullptr /*read_callback*/, is_blob_index);
 }
 
 bool MemTableListVersion::GetFromList(
-    std::list<MemTable*>* list, const LookupKey& key, std::string* value,
+    std::list<MemTable*>* list, const LookupKey& key, ROCKSDB_NAMESPACE::ValueSink& value,
     PinnableWideColumns* columns, std::string* timestamp, Status* s,
     MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
     SequenceNumber* seq, const ReadOptions& read_opts, ReadCallback* callback,

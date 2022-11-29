@@ -101,14 +101,15 @@ Status RandomTransactionInserter::DBGet(
   Slice key(*full_key);
 
   std::string value;
+  ROCKSDB_NAMESPACE::StringValueSink value_sink(&value);
   if (txn != nullptr) {
     if (get_for_update) {
-      s = txn->GetForUpdate(read_options, key, &value);
+      s = txn->GetForUpdate(read_options, key, value_sink);
     } else {
-      s = txn->Get(read_options, key, &value);
+      s = txn->Get(read_options, key, value_sink);
     }
   } else {
-    s = db->Get(read_options, key, &value);
+    s = db->Get(read_options, key, value_sink);
   }
 
   if (s.ok()) {

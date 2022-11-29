@@ -2083,8 +2083,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     if (get_impl_options.get_value) {
       if (sv->mem->Get(
               lkey,
-              get_impl_options.value ? get_impl_options.value->GetSelf()
-                                     : nullptr,
+              get_impl_options.value->GetSelf(),
               get_impl_options.columns, timestamp, &s, &merge_context,
               &max_covering_tombstone_seq, read_options,
               false /* immutable_memtable */, get_impl_options.callback,
@@ -2098,9 +2097,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
                  sv->imm->Get(lkey,
-                              get_impl_options.value
-                                  ? get_impl_options.value->GetSelf()
-                                  : nullptr,
+                              get_impl_options.value->GetSelf(),
                               get_impl_options.columns, timestamp, &s,
                               &merge_context, &max_covering_tombstone_seq,
                               read_options, get_impl_options.callback,
@@ -2116,7 +2113,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     } else {
       // Get Merge Operands associated with key, Merge Operands should not be
       // merged and raw values should be returned to the user.
-      if (sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr,
+      if (sv->mem->Get(lkey, /*value=*/ROCKSDB_NAMESPACE::empty_value_sink, /*columns=*/nullptr,
                        /*timestamp=*/nullptr, &s, &merge_context,
                        &max_covering_tombstone_seq, read_options,
                        false /* immutable_memtable */, nullptr, nullptr,
@@ -2358,6 +2355,7 @@ std::vector<Status> DBImpl::MultiGet(
     merge_context.Clear();
     Status& s = stat_list[keys_read];
     std::string* value = &(*values)[keys_read];
+    ROCKSDB_NAMESPACE::StringValueSink value_sink(value);
     std::string* timestamp = timestamps ? &(*timestamps)[keys_read] : nullptr;
 
     LookupKey lkey(keys[keys_read], consistent_seqnum, read_options.timestamp);
@@ -2374,12 +2372,12 @@ std::vector<Status> DBImpl::MultiGet(
     bool done = false;
     if (!skip_memtable) {
       if (super_version->mem->Get(
-              lkey, value, /*columns=*/nullptr, timestamp, &s, &merge_context,
+              lkey, value_sink, /*columns=*/nullptr, timestamp, &s, &merge_context,
               &max_covering_tombstone_seq, read_options,
               false /* immutable_memtable */, read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
-      } else if (super_version->imm->Get(lkey, value, /*columns=*/nullptr,
+      } else if (super_version->imm->Get(lkey, value_sink, /*columns=*/nullptr,
                                          timestamp, &s, &merge_context,
                                          &max_covering_tombstone_seq,
                                          read_options, read_callback)) {
@@ -5002,7 +5000,7 @@ Status DBImpl::GetLatestSequenceForKey(
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
+  sv->mem->Get(lkey, /*value=*/ROCKSDB_NAMESPACE::empty_value_sink, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
                false /* immutable_memtable */, nullptr /*read_callback*/,
                is_blob_index);
@@ -5036,7 +5034,7 @@ Status DBImpl::GetLatestSequenceForKey(
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
+  sv->imm->Get(lkey, /*value=*/ROCKSDB_NAMESPACE::empty_value_sink, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
                nullptr /*read_callback*/, is_blob_index);
 

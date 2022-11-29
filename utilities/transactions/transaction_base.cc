@@ -235,13 +235,13 @@ Status TransactionBaseImpl::PopSavePoint() {
 
 Status TransactionBaseImpl::Get(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
-                                const Slice& key, std::string* value) {
-  assert(value != nullptr);
-  PinnableSlice pinnable_val(value);
+                                const Slice& key, ValueSink& value) {
+  assert(!value.IsEmpty());
+  PinnableSlice pinnable_val(&value);
   assert(!pinnable_val.IsPinned());
   auto s = Get(read_options, column_family, key, &pinnable_val);
   if (s.ok() && pinnable_val.IsPinned()) {
-    value->assign(pinnable_val.data(), pinnable_val.size());
+    value.Assign(pinnable_val.data(), pinnable_val.size());
   }  // else value is already assigned
   return s;
 }
@@ -255,7 +255,7 @@ Status TransactionBaseImpl::Get(const ReadOptions& read_options,
 
 Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
                                          ColumnFamilyHandle* column_family,
-                                         const Slice& key, std::string* value,
+                                         const Slice& key, ValueSink& value,
                                          bool exclusive,
                                          const bool do_validate) {
   if (!do_validate && read_options.snapshot != nullptr) {
@@ -266,13 +266,13 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
   Status s =
       TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
 
-  if (s.ok() && value != nullptr) {
-    assert(value != nullptr);
-    PinnableSlice pinnable_val(value);
+  if (s.ok() && !value.IsEmpty()) {
+    assert(!value.IsEmpty());
+    PinnableSlice pinnable_val(&value);
     assert(!pinnable_val.IsPinned());
     s = Get(read_options, column_family, key, &pinnable_val);
     if (s.ok() && pinnable_val.IsPinned()) {
-      value->assign(pinnable_val.data(), pinnable_val.size());
+      value.Assign(pinnable_val.data(), pinnable_val.size());
     }  // else value is already assigned
   }
   return s;
@@ -307,7 +307,8 @@ std::vector<Status> TransactionBaseImpl::MultiGet(
 
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = Get(read_options, column_family[i], keys[i], &(*values)[i]);
+    ROCKSDB_NAMESPACE::StringValueSink value_sink(&(*values)[i]);
+    stat_list[i] = Get(read_options, column_family[i], keys[i], value_sink);
   }
 
   return stat_list;
@@ -344,7 +345,8 @@ std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
   // TODO(agiardullo): optimize multiget?
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = Get(read_options, column_family[i], keys[i], &(*values)[i]);
+    ROCKSDB_NAMESPACE::StringValueSink value_sink(&(*values)[i]);
+    stat_list[i] = Get(read_options, column_family[i], keys[i], value_sink);
   }
 
   return stat_list;

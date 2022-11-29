@@ -369,6 +369,7 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   PinnableSlice blob;
   CompressionType compression_type = kNoCompression;
   std::string compression_output;
+  ROCKSDB_NAMESPACE::StringValueSink compression_output_sink(&compression_output);
   if (!ReadBlobFromOldFile(key, blob_index, &blob, false, &compression_type)) {
     gc_stats_.SetError();
     return BlobDecision::kIOError;
@@ -387,7 +388,7 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
     }
     if (blob_db_impl->bdb_options_.compression != kNoCompression) {
       blob_db_impl->GetCompressedSlice(blob, &compression_output);
-      blob = PinnableSlice(&compression_output);
+      blob = PinnableSlice(&compression_output_sink);
       blob.PinSelf();
     }
   }

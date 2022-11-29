@@ -805,7 +805,8 @@ std::string DBTestBase::Get(const std::string& k, const Snapshot* snapshot) {
   options.verify_checksums = true;
   options.snapshot = snapshot;
   std::string result;
-  Status s = db_->Get(options, k, &result);
+  ROCKSDB_NAMESPACE::StringValueSink result_sink(&result);
+  Status s = db_->Get(options, k, result_sink);
   if (s.IsNotFound()) {
     result = "NOT_FOUND";
   } else if (!s.ok()) {
@@ -820,7 +821,8 @@ std::string DBTestBase::Get(int cf, const std::string& k,
   options.verify_checksums = true;
   options.snapshot = snapshot;
   std::string result;
-  Status s = db_->Get(options, handles_[cf], k, &result);
+  ROCKSDB_NAMESPACE::StringValueSink result_sink(&result);
+  Status s = db_->Get(options, handles_[cf], k, result_sink);
   if (s.IsNotFound()) {
     result = "NOT_FOUND";
   } else if (!s.ok()) {
@@ -1557,7 +1559,8 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       ASSERT_EQ(Get(kv.first), kv.second);
     } else {
       std::string value;
-      ASSERT_EQ(s, db_->Get(ReadOptions(), kv.first, &value));
+      ROCKSDB_NAMESPACE::StringValueSink value_sink(&value);
+      ASSERT_EQ(s, db_->Get(ReadOptions(), kv.first, value_sink));
     }
     total_reads++;
   }

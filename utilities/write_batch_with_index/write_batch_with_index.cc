@@ -432,7 +432,8 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
                                          const Slice& key, std::string* value) {
   Status s;
   WriteBatchWithIndexInternal wbwii(&options, column_family);
-  auto result = wbwii.GetFromBatch(this, key, value, &s);
+  ROCKSDB_NAMESPACE::StringValueSink value_sink(value);
+  auto result = wbwii.GetFromBatch(this, key, value_sink, &s);
 
   switch (result) {
     case WBWIIteratorImpl::kFound:
@@ -458,7 +459,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                                               const Slice& key,
                                               std::string* value) {
   assert(value != nullptr);
-  PinnableSlice pinnable_val(value);
+  ROCKSDB_NAMESPACE::StringValueSink value_sink(value);
+  PinnableSlice pinnable_val(&value_sink);
   assert(!pinnable_val.IsPinned());
   auto s = GetFromBatchAndDB(db, read_options, db->DefaultColumnFamily(), key,
                              &pinnable_val);
@@ -482,7 +484,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                                               const Slice& key,
                                               std::string* value) {
   assert(value != nullptr);
-  PinnableSlice pinnable_val(value);
+  ROCKSDB_NAMESPACE::StringValueSink value_sink(value);
+  PinnableSlice pinnable_val(&value_sink);
   assert(!pinnable_val.IsPinned());
   auto s =
       GetFromBatchAndDB(db, read_options, column_family, key, &pinnable_val);
@@ -516,10 +519,12 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
   // after the transaction finishes.
-  std::string& batch_value = *pinnable_val->GetSelf();
-  auto result = wbwii.GetFromBatch(this, key, &batch_value, &s);
+  std::string batch_value;
+  ROCKSDB_NAMESPACE::StringValueSink batch_value_sink(&batch_value);
+  auto result = wbwii.GetFromBatch(this, key, batch_value_sink, &s);
 
   if (result == WBWIIteratorImpl::kFound) {
+    pinnable_val->GetSelf().Move(std::move(batch_value));
     pinnable_val->PinSelf();
     return s;
   } else if (!s.ok() || result == WBWIIteratorImpl::kError) {
@@ -546,14 +551,15 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     if (result == WBWIIteratorImpl::kMergeInProgress) {
       // Merge result from DB with merges in Batch
       std::string merge_result;
+      ROCKSDB_NAMESPACE::StringValueSink merge_result_sink(&merge_result);
       if (s.ok()) {
-        s = wbwii.MergeKey(key, pinnable_val, &merge_result);
+        s = wbwii.MergeKey(key, pinnable_val, merge_result_sink);
       } else {  // Key not present in db (s.IsNotFound())
-        s = wbwii.MergeKey(key, nullptr, &merge_result);
+        s = wbwii.MergeKey(key, nullptr, merge_result_sink);
       }
       if (s.ok()) {
         pinnable_val->Reset();
-        *pinnable_val->GetSelf() = std::move(merge_result);
+        pinnable_val->GetSelf().Move(std::move(merge_result));
         pinnable_val->PinSelf();
       }
     }
@@ -597,14 +603,15 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
   for (size_t i = 0; i < num_keys; ++i) {
     MergeContext merge_context;
     std::string batch_value;
+    ROCKSDB_NAMESPACE::StringValueSink batch_value_sink(&batch_value);
     Status* s = &statuses[i];
     PinnableSlice* pinnable_val = &values[i];
     pinnable_val->Reset();
     auto result =
-        wbwii.GetFromBatch(this, keys[i], &merge_context, &batch_value, s);
+        wbwii.GetFromBatch(this, keys[i], &merge_context, batch_value_sink, s);
 
     if (result == WBWIIteratorImpl::kFound) {
-      *pinnable_val->GetSelf() = std::move(batch_value);
+      pinnable_val->GetSelf().Move(std::move(batch_value));
       pinnable_val->PinSelf();
       continue;
     }
@@ -641,17 +648,18 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
           merges[index];
       if (merge_result.first == WBWIIteratorImpl::kMergeInProgress) {
         std::string merged_value;
+        ROCKSDB_NAMESPACE::StringValueSink merged_value_sink(&merged_value);
         // Merge result from DB with merges in Batch
         if (key.s->ok()) {
           *key.s = wbwii.MergeKey(*key.key, iter->value, merge_result.second,
-                                  &merged_value);
+                                  merged_value_sink);
         } else {  // Key not present in db (s.IsNotFound())
           *key.s = wbwii.MergeKey(*key.key, nullptr, merge_result.second,
-                                  &merged_value);
+                                  merged_value_sink);
         }
         if (key.s->ok()) {
           key.value->Reset();
-          *key.value->GetSelf() = std::move(merged_value);
+          key.value->GetSelf().Move(std::move(merged_value));
           key.value->PinSelf();
         }
       }

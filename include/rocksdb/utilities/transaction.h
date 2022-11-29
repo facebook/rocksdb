@@ -294,7 +294,7 @@ class Transaction {
   // regardless).
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) = 0;
+                     ValueSink& value) = 0;
 
   // An overload of the above method that receives a PinnableSlice
   // For backward compatibility a default implementation is provided
@@ -308,7 +308,7 @@ class Transaction {
   }
 
   virtual Status Get(const ReadOptions& options, const Slice& key,
-                     std::string* value) = 0;
+                     ValueSink& value) = 0;
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      PinnableSlice* pinnable_val) {
     assert(pinnable_val != nullptr);
@@ -369,7 +369,7 @@ class Transaction {
   // or other errors if this key could not be read.
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* column_family,
-                              const Slice& key, std::string* value,
+                              const Slice& key, ValueSink& value,
                               bool exclusive = true,
                               const bool do_validate = true) = 0;
 
@@ -392,6 +392,20 @@ class Transaction {
     }
   }
 
+  // An overload of the above method that receives a std::string
+  // For clients which expect a std::string
+  // We simply wrap the std::string in a [String]ValueSink
+  // The result will then appear in the std::string
+  virtual Status GetForUpdate(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key, std::string* value,
+                              bool exclusive = true,
+                              const bool do_validate = true) {
+    StringValueSink value_sink(value);
+    return GetForUpdate(options, column_family, key, value_sink, exclusive,
+                        do_validate);
+  }
+
   // Get a range lock on [start_endpoint; end_endpoint].
   virtual Status GetRangeLock(ColumnFamilyHandle*, const Endpoint&,
                               const Endpoint&) {
@@ -399,7 +413,7 @@ class Transaction {
   }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                              std::string* value, bool exclusive = true,
+                              ValueSink& value, bool exclusive = true,
                               const bool do_validate = true) = 0;
 
   virtual std::vector<Status> MultiGetForUpdate(

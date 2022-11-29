@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <iostream>
 #include <string>
 #include <string_view>  // RocksDB now requires C++17 support
 
@@ -130,15 +131,58 @@ class Slice {
 };
 
 /**
+ * @brief abstraction of target for data copy into an unpinnable slice
+ *
+ */
+class ValueSink {
+ public:
+  virtual ~ValueSink() = default;
+
+  virtual void Assign(const char* /*data*/, size_t /*size*/) = 0;
+  virtual void Move(const std::string&& /* buf */) = 0;
+  virtual bool IsEmpty() = 0;
+
+ protected:
+  friend class PinnableSlice;
+};
+
+/**
+ * @brief value sink where the target is a std::string
+ * std::string used always to be the target
+ * we can do better for other cases, e.g. Java API, where we previously needed
+ * to go via a std::string to end up copying the data into a Java byte array
+ * or ByteBuffer
+ *
+ */
+class StringValueSink : public ValueSink {
+ private:
+  std::string* s_;
+
+ public:
+  StringValueSink(std::string* buf) : s_(buf){};
+
+  inline void Assign(const char* data, size_t size) { s_->assign(data, size); };
+  inline void Move(const std::string&& buf) {
+    assert(s_ != nullptr);
+    *s_ = std::move(buf);
+  };
+
+  inline bool IsEmpty() { return (s_ == nullptr); };
+};
+
+static StringValueSink empty_value_sink(nullptr);
+
+/**
  * A Slice that can be pinned with some cleanup tasks, which will be run upon
- * ::Reset() or object destruction, whichever is invoked first. This can be used
- * to avoid memcpy by having the PinnableSlice object referring to the data
- * that is locked in the memory and release them after the data is consumed.
+ * ::Reset() or object destruction, whichever is invoked first. This can be
+ * used to avoid memcpy by having the PinnableSlice object referring to the
+ * data that is locked in the memory and release them after the data is
+ * consumed.
  */
 class PinnableSlice : public Slice, public Cleanable {
  public:
-  PinnableSlice() { buf_ = &self_space_; }
-  explicit PinnableSlice(std::string* buf) { buf_ = buf; }
+  PinnableSlice() : value_sink_(&empty_value_sink){};
+  explicit PinnableSlice(ValueSink* value_sink) : value_sink_(value_sink){};
 
   PinnableSlice(PinnableSlice&& other);
   PinnableSlice& operator=(PinnableSlice&& other);
@@ -170,6 +214,8 @@ class PinnableSlice : public Slice, public Cleanable {
 
   inline void PinSelf(const Slice& slice) {
     assert(!pinned_);
+    std::cout << "PinnableSlice PinSelf slice.size() " << slice.size()
+              << std::endl;
     buf_->assign(slice.data(), slice.size());
     data_ = buf_->data();
     size_ = buf_->size();
@@ -178,6 +224,7 @@ class PinnableSlice : public Slice, public Cleanable {
 
   inline void PinSelf() {
     assert(!pinned_);
+    std::cout << "PinnableSlice PinSelf() !!! " << std::endl;
     data_ = buf_->data();
     size_ = buf_->size();
     assert(!pinned_);
@@ -210,14 +257,20 @@ class PinnableSlice : public Slice, public Cleanable {
     size_ = 0;
   }
 
-  inline std::string* GetSelf() { return buf_; }
+  inline ValueSink& GetSelf() { return *value_sink_; }
 
   inline bool IsPinned() const { return pinned_; }
 
  private:
   friend class PinnableSlice4Test;
   std::string self_space_;
+  ValueSink* value_sink_;
+
+  // TODO (AP) remove this, it is just letting wrong code compile
+  // temporarily..
   std::string* buf_;
+
+ protected:
   bool pinned_ = false;
 };
 

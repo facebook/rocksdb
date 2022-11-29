@@ -2768,7 +2768,8 @@ void GetCommand::DoCommand() {
     return;
   }
   std::string value;
-  Status st = db_->Get(ReadOptions(), GetCfHandle(), key_, &value);
+  ROCKSDB_NAMESPACE::StringValueSink value_sink(&value);
+  Status st = db_->Get(ReadOptions(), GetCfHandle(), key_, value_sink);
   if (st.ok()) {
     fprintf(stdout, "%s\n",
             (is_value_hex_ ? StringToHex(value) : value).c_str());
@@ -3263,6 +3264,7 @@ void DBQuerierCommand::DoCommand() {
   std::string line;
   std::string key;
   std::string value;
+  ROCKSDB_NAMESPACE::StringValueSink value_sink(&value);
   Status s;
   std::stringstream oss;
   while (s.ok() && getline(std::cin, line, '\n')) {
@@ -3306,7 +3308,7 @@ void DBQuerierCommand::DoCommand() {
       }
     } else if (cmd == GET_CMD && tokens.size() == 2) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
-      s = db_->Get(read_options, GetCfHandle(), Slice(key), &value);
+      s = db_->Get(read_options, GetCfHandle(), Slice(key), value_sink);
       if (s.ok()) {
         fprintf(stdout, "%s\n",
                 PrintKeyValue(key, value, is_key_hex_, is_value_hex_).c_str());

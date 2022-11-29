@@ -59,15 +59,15 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
 Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                                    const Slice& key, const Slice* value,
                                    const std::vector<Slice>& operands,
-                                   std::string* result, Logger* logger,
+                                   ROCKSDB_NAMESPACE::ValueSink& result_sink, Logger* logger,
                                    Statistics* statistics, SystemClock* clock,
                                    Slice* result_operand,
                                    bool update_num_ops_stats) {
   assert(merge_operator != nullptr);
 
   if (operands.empty()) {
-    assert(value != nullptr && result != nullptr);
-    result->assign(value->data(), value->size());
+    assert(value != nullptr && !result_sink.IsEmpty());
+    result_sink.Assign(value->data(), value->size());
     return Status::OK();
   }
 
@@ -80,7 +80,8 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   Slice tmp_result_operand(nullptr, 0);
   const MergeOperator::MergeOperationInput merge_in(key, value, operands,
                                                     logger);
-  MergeOperator::MergeOperationOutput merge_out(*result, tmp_result_operand);
+  std::string result;                                                   
+  MergeOperator::MergeOperationOutput merge_out(result, tmp_result_operand);
   {
     // Setup to time the merge
     StopWatchNano timer(clock, statistics != nullptr);
@@ -94,11 +95,13 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
       if (result_operand != nullptr) {
         *result_operand = tmp_result_operand;
       } else {
-        result->assign(tmp_result_operand.data(), tmp_result_operand.size());
+        result.assign(tmp_result_operand.data(), tmp_result_operand.size());
       }
     } else if (result_operand) {
       *result_operand = Slice(nullptr, 0);
     }
+
+    result_sink.Move(std::move(result));
 
     RecordTick(statistics, MERGE_OPERATION_TOTAL_TIME,
                statistics ? timer.ElapsedNanos() : 0);

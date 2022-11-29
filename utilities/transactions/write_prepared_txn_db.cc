@@ -319,7 +319,8 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
 
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    stat_list[i] = this->Get(options, column_family[i], keys[i], &(*values)[i]);
+    ROCKSDB_NAMESPACE::StringValueSink value_sink(&(*values)[i]);
+    stat_list[i] = this->Get(options, column_family[i], keys[i], value_sink);
   }
   return stat_list;
 }

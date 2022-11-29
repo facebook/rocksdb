@@ -887,7 +887,7 @@ struct Saver {
   const LookupKey* key;
   bool* found_final_value;  // Is value set correctly? Used by KeyMayExist
   bool* merge_in_progress;
-  std::string* value;
+  ROCKSDB_NAMESPACE::ValueSink& value;
   PinnableWideColumns* columns;
   SequenceNumber seq;
   std::string* timestamp;
@@ -912,6 +912,8 @@ struct Saver {
     }
     return true;
   }
+
+  Saver(ROCKSDB_NAMESPACE::ValueSink& v) : value(v) {};
 };
 }  // anonymous namespace
 
@@ -919,7 +921,7 @@ static bool SaveValue(void* arg, const char* entry) {
   TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
   Saver* s = reinterpret_cast<Saver*>(arg);
   assert(s != nullptr);
-  assert(!s->value || !s->columns);
+  assert(s->value.IsEmpty() || !s->columns);
 
   if (s->protection_bytes_per_key > 0) {
     *(s->status) = MemTable::VerifyEntryChecksum(
@@ -1030,8 +1032,8 @@ static bool SaveValue(void* arg, const char* entry) {
 
         *(s->status) = Status::OK();
 
-        if (s->value) {
-          s->value->assign(v.data(), v.size());
+        if (!s->value.IsEmpty()) {
+          s->value.Assign(v.data(), v.size());
         } else if (s->columns) {
           s->columns->SetPlainValue(v);
         }
@@ -1065,7 +1067,7 @@ static bool SaveValue(void* arg, const char* entry) {
         } else if (*(s->merge_in_progress)) {
           assert(s->do_merge);
 
-          if (s->value || s->columns) {
+          if (!s->value.IsEmpty() || s->columns) {
             std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
@@ -1074,16 +1076,16 @@ static bool SaveValue(void* arg, const char* entry) {
                 /* update_num_ops_stats */ true);
 
             if (s->status->ok()) {
-              if (s->value) {
-                *(s->value) = std::move(result);
+              if (!s->value.IsEmpty()) {
+                (s->value).Move(std::move(result));
               } else {
                 assert(s->columns);
                 s->columns->SetPlainValue(result);
               }
             }
           }
-        } else if (s->value) {
-          s->value->assign(v.data(), v.size());
+        } else if (!s->value.IsEmpty()) {
+          s->value.Assign(v.data(), v.size());
         } else if (s->columns) {
           s->columns->SetPlainValue(v);
         }
@@ -1125,7 +1127,7 @@ static bool SaveValue(void* arg, const char* entry) {
         } else if (*(s->merge_in_progress)) {
           assert(s->do_merge);
 
-          if (s->value) {
+          if (!s->value.IsEmpty()) {
             Slice value_of_default;
             *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
                 v, value_of_default);
@@ -1147,12 +1149,12 @@ static bool SaveValue(void* arg, const char* entry) {
               *(s->status) = s->columns->SetWideColumnValue(result);
             }
           }
-        } else if (s->value) {
+        } else if (!s->value.IsEmpty()) {
           Slice value_of_default;
           *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
               v, value_of_default);
           if (s->status->ok()) {
-            s->value->assign(value_of_default.data(), value_of_default.size());
+            s->value.Assign(value_of_default.data(), value_of_default.size());
           }
         } else if (s->columns) {
           *(s->status) = s->columns->SetWideColumnValue(v);
@@ -1175,7 +1177,7 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          if (s->value || s->columns) {
+          if (!s->value.IsEmpty() || s->columns) {
             std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
@@ -1184,8 +1186,8 @@ static bool SaveValue(void* arg, const char* entry) {
                 /* update_num_ops_stats */ true);
 
             if (s->status->ok()) {
-              if (s->value) {
-                *(s->value) = std::move(result);
+              if (!s->value.IsEmpty()) {
+                (s->value).Move(std::move(result));
               } else {
                 assert(s->columns);
                 s->columns->SetPlainValue(result);
@@ -1215,7 +1217,7 @@ static bool SaveValue(void* arg, const char* entry) {
             v, s->inplace_update_support == false /* operand_pinned */);
         if (s->do_merge && merge_operator->ShouldMerge(
                                merge_context->GetOperandsDirectionBackward())) {
-          if (s->value || s->columns) {
+          if (!s->value.IsEmpty() || s->columns) {
             std::string result;
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
@@ -1224,8 +1226,8 @@ static bool SaveValue(void* arg, const char* entry) {
                 /* update_num_ops_stats */ true);
 
             if (s->status->ok()) {
-              if (s->value) {
-                *(s->value) = std::move(result);
+              if (!s->value.IsEmpty()) {
+                (s->value).Move(std::move(result));
               } else {
                 assert(s->columns);
                 s->columns->SetPlainValue(result);
@@ -1257,7 +1259,7 @@ static bool SaveValue(void* arg, const char* entry) {
   return false;
 }
 
-bool MemTable::Get(const LookupKey& key, std::string* value,
+bool MemTable::Get(const LookupKey& key, ROCKSDB_NAMESPACE::ValueSink& value,
                    PinnableWideColumns* columns, std::string* timestamp,
                    Status* s, MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
@@ -1336,17 +1338,16 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
 void MemTable::GetFromTable(const LookupKey& key,
                             SequenceNumber max_covering_tombstone_seq,
                             bool do_merge, ReadCallback* callback,
-                            bool* is_blob_index, std::string* value,
+                            bool* is_blob_index, ROCKSDB_NAMESPACE::ValueSink& value,
                             PinnableWideColumns* columns,
                             std::string* timestamp, Status* s,
                             MergeContext* merge_context, SequenceNumber* seq,
                             bool* found_final_value, bool* merge_in_progress) {
-  Saver saver;
+  Saver saver(value);
   saver.status = s;
   saver.found_final_value = found_final_value;
   saver.merge_in_progress = merge_in_progress;
   saver.key = &key;
-  saver.value = value;
   saver.columns = columns;
   saver.timestamp = timestamp;
   saver.seq = kMaxSequenceNumber;

@@ -650,7 +650,7 @@ WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
 Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
                                              const Slice* value,
                                              const MergeContext& context,
-                                             std::string* result) const {
+                                             ValueSink& result) const {
   if (column_family_ != nullptr) {
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family_);
     const auto merge_operator = cfh->cfd()->ioptions()->merge_operator.get();
@@ -691,7 +691,7 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
 
 WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
     WriteBatchWithIndex* batch, const Slice& key, MergeContext* context,
-    std::string* value, Status* s) {
+    ValueSink& value, Status* s) {
   *s = Status::OK();
 
   std::unique_ptr<WBWIIteratorImpl> iter(
@@ -715,7 +715,7 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
         result = WBWIIteratorImpl::Result::kError;
       }
     } else {
-      value->assign(entry_value.data(), entry_value.size());
+      value.Assign(entry_value.data(), entry_value.size());
     }
   } else if (result == WBWIIteratorImpl::kDeleted) {
     if (context->GetNumOperands() > 0) {

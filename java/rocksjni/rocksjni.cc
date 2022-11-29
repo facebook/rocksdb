@@ -25,6 +25,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/jbytearray_slice.h"
 #include "rocksjni/portal.h"
 
 #ifdef min
@@ -1060,7 +1061,7 @@ jint rocksdb_get_helper_direct(
 
   ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
 
-  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
+  ROCKSDB_NAMESPACE::CharArrayPinnableSlice pinnable_value(value, jval_len);
   ROCKSDB_NAMESPACE::Status s;
   if (column_family_handle != nullptr) {
     s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
@@ -1088,10 +1089,17 @@ jint rocksdb_get_helper_direct(
   }
 
   const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
-  const jint length = std::min(jval_len, pinnable_value_len);
+  if (pinnable_value.IsPinned()) {
+    const jint length = std::min(jval_len, pinnable_value_len);
 
-  memcpy(value, pinnable_value.data(), length);
-  pinnable_value.Reset();
+    memcpy(value, pinnable_value.data(), length);
+    pinnable_value.Reset();
+  }  // else jval already has received the slice contents, via
+     // db->Get(pinnable_value)
+  else {
+    std::cout << "Should have seen a CharArrayPinnableSlice::PinSelf(Slice&)"
+              << std::endl;
+  }
 
   *has_exception = false;
   return pinnable_value_len;
@@ -1553,7 +1561,8 @@ jint rocksdb_get_helper(
   }
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
-  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
+  ROCKSDB_NAMESPACE::JByteArrayPinnableSlice pinnable_value(env, jval, jval_off,
+                                                            jval_len);
   ROCKSDB_NAMESPACE::Status s;
   if (column_family_handle != nullptr) {
     s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
@@ -1583,12 +1592,21 @@ jint rocksdb_get_helper(
   }
 
   const jint pinnable_value_len = static_cast<jint>(pinnable_value.size());
-  const jint length = std::min(jval_len, pinnable_value_len);
 
-  env->SetByteArrayRegion(jval, jval_off, length,
-                          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(
-                              pinnable_value.data())));
-  pinnable_value.Reset();
+  if (pinnable_value.IsPinned()) {
+    const jint length = std::min(jval_len, pinnable_value_len);
+
+    env->SetByteArrayRegion(jval, jval_off, length,
+                            const_cast<jbyte*>(reinterpret_cast<const jbyte*>(
+                                pinnable_value.data())));
+    pinnable_value.Reset();
+  }  // else jval already has received the slice contents, via
+     // db->Get(pinnable_value)
+  else {
+    std::cout << "Should have seen a JByteArrayPinnableSlice::PinSelf(Slice&)"
+              << std::endl;
+  }
+
   if (env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
     *has_exception = true;
