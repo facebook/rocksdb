@@ -139,7 +139,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
 Compaction* FIFOCompactionPicker::PickSizeCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) {
+    LogBuffer* log_buffer) {
   // compute the total size and identify the last non-empty level
   int last_level = 0;
   uint64_t total_size = 0;
@@ -176,8 +176,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
                   .level0_file_num_compaction_trigger /* min_files_to_compact */
               ,
               max_compact_bytes_per_del_file,
-              mutable_cf_options.max_compaction_bytes, &comp_inputs,
-              earliest_mem_seqno)) {
+              mutable_cf_options.max_compaction_bytes, &comp_inputs)) {
         Compaction* c = new Compaction(
             vstorage, ioptions_, mutable_cf_options, mutable_db_options,
             {comp_inputs}, 0, 16 * 1024 * 1024 /* output file size limit */,
@@ -276,8 +275,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 Compaction* FIFOCompactionPicker::PickCompactionToWarm(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) {
-  TEST_SYNC_POINT("PickCompactionToWarm");
+    LogBuffer* log_buffer) {
   if (mutable_cf_options.compaction_options_fifo.age_for_warm == 0) {
     return nullptr;
   }
@@ -301,8 +299,6 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
                      cf_name.c_str(), status.ToString().c_str());
     return nullptr;
   }
-  TEST_SYNC_POINT_CALLBACK("PickCompactionToWarm::BeforeGetCurrentTime",
-                           &_current_time);
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
   if (!level0_compactions_in_progress_.empty()) {
@@ -349,8 +345,7 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
         // for warm tier.
         break;
       }
-      if (prev_file != nullptr &&
-          prev_file->fd.largest_seqno <= earliest_mem_seqno) {
+      if (prev_file != nullptr) {
         compaction_size += prev_file->fd.GetFileSize();
         if (compaction_size > mutable_cf_options.max_compaction_bytes) {
           break;
@@ -394,7 +389,7 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, const SequenceNumber earliest_mem_seqno) {
+    LogBuffer* log_buffer, SequenceNumber /*earliest_memtable_seqno*/) {
   Compaction* c = nullptr;
   if (mutable_cf_options.ttl > 0) {
     c = PickTTLCompaction(cf_name, mutable_cf_options, mutable_db_options,
@@ -402,11 +397,11 @@ Compaction* FIFOCompactionPicker::PickCompaction(
   }
   if (c == nullptr) {
     c = PickSizeCompaction(cf_name, mutable_cf_options, mutable_db_options,
-                           vstorage, log_buffer, earliest_mem_seqno);
+                           vstorage, log_buffer);
   }
   if (c == nullptr) {
     c = PickCompactionToWarm(cf_name, mutable_cf_options, mutable_db_options,
-                             vstorage, log_buffer, earliest_mem_seqno);
+                             vstorage, log_buffer);
   }
   RegisterCompaction(c);
   return c;
@@ -419,8 +414,7 @@ Compaction* FIFOCompactionPicker::CompactRange(
     const CompactRangeOptions& /*compact_range_options*/,
     const InternalKey* /*begin*/, const InternalKey* /*end*/,
     InternalKey** compaction_end, bool* /*manual_conflict*/,
-    uint64_t /*max_file_num_to_ignore*/, const std::string& /*trim_ts*/,
-    const SequenceNumber earliest_mem_seqno) {
+    uint64_t /*max_file_num_to_ignore*/, const std::string& /*trim_ts*/) {
 #ifdef NDEBUG
   (void)input_level;
   (void)output_level;
@@ -429,9 +423,8 @@ Compaction* FIFOCompactionPicker::CompactRange(
   assert(output_level == 0);
   *compaction_end = nullptr;
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.logger);
-  Compaction* c =
-      PickCompaction(cf_name, mutable_cf_options, mutable_db_options, vstorage,
-                     &log_buffer, earliest_mem_seqno);
+  Compaction* c = PickCompaction(cf_name, mutable_cf_options,
+                                 mutable_db_options, vstorage, &log_buffer);
   log_buffer.FlushBufferToLog();
   return c;
 }
