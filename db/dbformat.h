@@ -283,6 +283,8 @@ class InternalKeyComparator
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
+  int Compare(const Slice& a, const ParsedInternalKey& b) const;
+  int Compare(const ParsedInternalKey& a, const Slice& b) const;
   // In this `Compare()` overload, the sequence numbers provided in
   // `a_global_seqno` and `b_global_seqno` override the sequence numbers in `a`
   // and `b`, respectively. To disable sequence number override(s), provide the
