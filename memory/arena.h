@@ -92,7 +92,7 @@ class Arena : public Allocator {
   // Number of bytes allocated in one block
   const size_t kBlockSize;
   // Allocated memory blocks
-  std::deque<std::unique_ptr<char[]>> blocks_;
+  std::deque<char*> blocks_;
   // Huge page allocations
   std::deque<MemMapping> huge_blocks_;
   size_t irregular_block_num = 0;

@@ -58,6 +58,9 @@ Arena::~Arena() {
     assert(tracker_->is_freed());
     tracker_->FreeMem();
   }
+  for (const auto& block : blocks_) {
+    delete[] block;
+  }
 }
 
 char* Arena::AllocateFallback(size_t bytes, bool aligned) {
@@ -143,10 +146,17 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 }
 
 char* Arena::AllocateNewBlock(size_t block_bytes) {
-  auto uniq = std::make_unique<char[]>(block_bytes);
-  char* block = uniq.get();
-  blocks_.push_back(std::move(uniq));
+  // Reserve space in `blocks_` before allocating memory via new.
+  // Use `emplace_back()` instead of `reserve()` to let std::vector manage its
+  // own memory and do fewer reallocations.
+  //
+  // - If `emplace_back` throws, no memory leaks because we haven't called `new`
+  //   yet.
+  // - If `new` throws, no memory leaks because the vector will be cleaned up
+  //   via RAII.
+  blocks_.emplace_back(nullptr);
 
+  char* block = new char[block_bytes];
   size_t allocated_size;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
   allocated_size = malloc_usable_size(block);
@@ -163,6 +173,7 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
   if (tracker_ != nullptr) {
     tracker_->Allocate(allocated_size);
   }
+  blocks_.back() = block;
   return block;
 }
 
