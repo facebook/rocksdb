@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.8.3 (11/29/2022)
 * Revert an internal change in 7.8.0 associated with some memory usage churn.
 
 ## 7.8.2 (11/27/2022)
