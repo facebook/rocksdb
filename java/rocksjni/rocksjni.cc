@@ -1097,10 +1097,6 @@ jint rocksdb_get_helper_direct(
     pinnable_value.Reset();
   }  // else jval already has received the slice contents, via
      // db->Get(pinnable_value)
-  else {
-    std::cout << "Should have seen a CharArrayPinnableSlice::PinSelf(Slice&)"
-              << std::endl;
-  }
 
   *has_exception = false;
   return pinnable_value_len;
