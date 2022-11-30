@@ -385,17 +385,9 @@ PinnableSlice& PinnableSlice::operator=(PinnableSlice&& other) {
       data_ = other.data_;
       // When it's pinned, buf should no longer be of use.
     } else {
-      if (other.buf_ == &other.self_space_) {
-        self_space_ = std::move(other.self_space_);
-        buf_ = &self_space_;
-        data_ = buf_->data();
-      } else {
-        buf_ = other.buf_;
-        data_ = other.data_;
-      }
+      value_sink_ = other.value_sink_;
     }
-    other.self_space_.clear();
-    other.buf_ = &other.self_space_;
+    other.value_sink_ = nullptr;
     other.pinned_ = false;
     other.PinSelf();
   }

@@ -155,7 +155,7 @@ void Java_org_rocksdb_Transaction_rollbackToSavePoint(JNIEnv* env,
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
     const ROCKSDB_NAMESPACE::ReadOptions&, const ROCKSDB_NAMESPACE::Slice&,
-    std::string*)>
+    ROCKSDB_NAMESPACE::ValueSink&)>
     FnGet;
 
 // TODO(AR) consider refactoring to share this between here and rocksjni.cc
@@ -173,7 +173,8 @@ jbyteArray txn_get_helper(JNIEnv* env, const FnGet& fn_get,
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
   std::string value;
-  ROCKSDB_NAMESPACE::Status s = fn_get(*read_options, key_slice, &value);
+  ROCKSDB_NAMESPACE::StringValueSink value_sink(&value);
+  ROCKSDB_NAMESPACE::Status s = fn_get(*read_options, key_slice, value_sink);
 
   // trigger java unref on key.
   // by passing JNI_ABORT, it will simply release the reference without
@@ -220,7 +221,7 @@ jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BIJ(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*)>(
+          const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::ValueSink&)>(
           &ROCKSDB_NAMESPACE::Transaction::Get, txn, std::placeholders::_1,
           column_family_handle, std::placeholders::_2, std::placeholders::_3);
   return txn_get_helper(env, fn_get, jread_options_handle, jkey, jkey_part_len);
@@ -238,7 +239,7 @@ jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BI(
   FnGet fn_get =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*)>(
+          const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::ValueSink&)>(
           &ROCKSDB_NAMESPACE::Transaction::Get, txn, std::placeholders::_1,
           std::placeholders::_2, std::placeholders::_3);
   return txn_get_helper(env, fn_get, jread_options_handle, jkey, jkey_part_len);
@@ -442,7 +443,7 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZZ(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*, bool, bool)>(
+          const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::ValueSink&, bool, bool)>(
           &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
           std::placeholders::_1, column_family_handle, std::placeholders::_2,
           std::placeholders::_3, jexclusive, jdo_validate);
@@ -463,7 +464,7 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIZZ(
   FnGet fn_get_for_update =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*, bool, bool)>(
+          const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::ValueSink&, bool, bool)>(
           &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
           std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
           jexclusive, jdo_validate);

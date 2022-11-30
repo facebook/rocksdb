@@ -54,11 +54,13 @@ class Slice {
   // buf must exist as long as the returned Slice exists.
   Slice(const struct SliceParts& parts, std::string* buf);
 
+  virtual ~Slice() = default;
+
   // Return a pointer to the beginning of the referenced data
-  const char* data() const { return data_; }
+  virtual const char* data() const { return data_; }
 
   // Return the length (in bytes) of the referenced data
-  size_t size() const { return size_; }
+  virtual size_t size() const { return size_; }
 
   // Return true iff the length of the referenced data is zero
   bool empty() const { return size_ == 0; }
@@ -140,7 +142,11 @@ class ValueSink {
 
   virtual void Assign(const char* /*data*/, size_t /*size*/) = 0;
   virtual void Move(const std::string&& /* buf */) = 0;
+  virtual void RemovePrefix(size_t len) = 0;
+  virtual void RemoveSuffix(size_t len) = 0;
   virtual bool IsEmpty() = 0;
+  virtual size_t Size() = 0;
+  virtual const char* Data() = 0;
 
  protected:
   friend class PinnableSlice;
@@ -166,8 +172,22 @@ class StringValueSink : public ValueSink {
     assert(s_ != nullptr);
     *s_ = std::move(buf);
   };
+  inline void Erase(size_t pos, size_t len) {
+    s_->erase(pos, len);
+  }
+  inline void RemovePrefix(size_t len) {
+    s_->erase(0, len);
+  };
+  virtual void RemoveSuffix(size_t len) {
+    s_->erase(s_->size() - len, len);
+  };
+  
 
   inline bool IsEmpty() { return (s_ == nullptr); };
+
+  inline size_t Size() { return s_->size(); };
+
+  inline const char* Data() { return s_->data(); };
 };
 
 static StringValueSink empty_value_sink(nullptr);
@@ -214,19 +234,14 @@ class PinnableSlice : public Slice, public Cleanable {
 
   inline void PinSelf(const Slice& slice) {
     assert(!pinned_);
-    std::cout << "PinnableSlice PinSelf slice.size() " << slice.size()
-              << std::endl;
-    buf_->assign(slice.data(), slice.size());
-    data_ = buf_->data();
-    size_ = buf_->size();
+    value_sink_->Assign(slice.data(), slice.size());
+    size_ = value_sink_->Size();
     assert(!pinned_);
   }
 
   inline void PinSelf() {
     assert(!pinned_);
-    std::cout << "PinnableSlice PinSelf() !!! " << std::endl;
-    data_ = buf_->data();
-    size_ = buf_->size();
+    size_ = value_sink_->Size();
     assert(!pinned_);
   }
 
@@ -235,7 +250,7 @@ class PinnableSlice : public Slice, public Cleanable {
     if (pinned_) {
       size_ -= n;
     } else {
-      buf_->erase(size() - n, n);
+      value_sink_->RemoveSuffix(n);
       PinSelf();
     }
   }
@@ -246,7 +261,7 @@ class PinnableSlice : public Slice, public Cleanable {
       data_ += n;
       size_ -= n;
     } else {
-      buf_->erase(0, n);
+      value_sink_->RemovePrefix(n);
       PinSelf();
     }
   }
@@ -257,18 +272,28 @@ class PinnableSlice : public Slice, public Cleanable {
     size_ = 0;
   }
 
+  // Return a pointer to the beginning of the referenced data
+  const char* data() const { if (pinned_) {
+    return data_;
+  } else {
+    return value_sink_->Data(); }
+  }
+
+  // Return the length (in bytes) of the referenced data
+  size_t size() const { if (pinned_) {
+    return size_;
+  } else {
+    return value_sink_->Size();
+  }
+  }
+
   inline ValueSink& GetSelf() { return *value_sink_; }
 
   inline bool IsPinned() const { return pinned_; }
 
  private:
   friend class PinnableSlice4Test;
-  std::string self_space_;
   ValueSink* value_sink_;
-
-  // TODO (AP) remove this, it is just letting wrong code compile
-  // temporarily..
-  std::string* buf_;
 
  protected:
   bool pinned_ = false;

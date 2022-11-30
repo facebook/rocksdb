@@ -27,84 +27,93 @@
 namespace ROCKSDB_NAMESPACE {
 
 class CharArrayValueSink : public ValueSink {
-  // TODO (AP) implement, replacing below..
-};
-
-class CharArrayPinnableSlice : public PinnableSlice {
- public:
-  explicit CharArrayPinnableSlice(char* jval, jint jval_len)
-      : jval_(jval), jval_len_(jval_len){};
-
-  inline std::string* GetSelf() {
-    std::cout << "CharArrayPinnableSlice GetSelf() " << std::endl;
-    return buf_;
-  }
-
-  inline void PinSelf(const Slice& slice) {
-    assert(!pinned_);
-
-    size_ = slice.size();
-    std::cout << "CharArrayPinnableSlice PinSelf size_=" << size_ << std::endl;
-    const jint copy_size = std::min(jval_len_, static_cast<jint>(size_));
-    std::cout << "CharArrayPinnableSlice PinSelf copy_size=" << copy_size
-              << std::endl;
-
-    memcpy(jval_, slice.data(), copy_size);
-    assert(!pinned_);
-  };
-
-  inline void PinSelf() {
-    assert(!pinned_);
-    std::cout << "CharArrayPinnableSlice PinSelf() size=" << buf_->size()
-              << std::endl;
-  };
-
  private:
   char* jval_;
   jint jval_len_;
+
+  jint pos_ = 0;
+  jint size_ = 0;
+
+  public:
+   explicit CharArrayValueSink(char* jval, jint jval_len)
+      : jval_(jval), jval_len_(jval_len){};
+
+  inline void Assign(const char* data, size_t size) { 
+    const jint copy_size = std::min(jval_len_, static_cast<jint>(size));
+    memcpy(jval_, data, copy_size);
+    pos_ = 0;
+    size_ = copy_size;
+  };
+
+  inline void Move(const std::string&& buf) {
+    // Move to this cannot std::move, but must assign, as this is not a std::string
+    Assign(buf.data(), buf.size());
+  };
+
+  inline void RemovePrefix(size_t len) {
+    pos_ += std::min(size_, static_cast<jint>(len));
+    size_ -= std::min(size_, static_cast<jint>(len));
+  };
+
+  inline void RemoveSuffix(size_t len) {
+    size_ -= std::min(size_, static_cast<jint>(len));
+  };
+
+  inline bool IsEmpty() { return false; };
+
+  inline size_t Size() { return size_; };
+
+  inline const char* Data() { return jval_ + pos_; };
+
 };
 
 class JByteArrayValueSink : public ValueSink {
-  // TODO (AP) implement, replacing below..
-};
-
-class JByteArrayPinnableSlice : public PinnableSlice {
- public:
-  explicit JByteArrayPinnableSlice(JNIEnv* jenv, jbyteArray jval, jint jval_off,
-                                   jint jval_len)
-      : jenv_(jenv), jval_(jval), jval_off_(jval_off), jval_len_(jval_len){};
-
-  inline std::string* GetSelf() {
-    std::cout << "JByteArrayPinnableSlice GetSelf() " << std::endl;
-    return buf_;
-  }
-
-  inline void PinSelf(const Slice& slice) {
-    assert(!pinned_);
-
-    size_ = slice.size();
-    std::cout << "JByteArrayPinnableSlice PinSelf() size=" << size_
-              << std::endl;
-    const jint copy_size = std::min(jval_len_, static_cast<jint>(size_));
-    std::cout << "JByteArrayPinnableSlice copy_size=" << copy_size << std::endl;
-
-    jenv_->SetByteArrayRegion(
-        jval_, jval_off_, copy_size,
-        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(slice.data())));
-
-    assert(!pinned_);
-  };
-
-  inline void PinSelf() {
-    assert(!pinned_);
-    std::cout << "JByteArrayPinnableSlice PinSelf() size=" << buf_->size()
-              << std::endl;
-  };
-
  private:
   JNIEnv* jenv_;
   jbyteArray jval_;
   jint jval_off_;
   jint jval_len_;
+
+  jint pos_ = 0;
+  jint size_ = 0;
+
+ public:
+  explicit JByteArrayValueSink(JNIEnv* jenv, jbyteArray jval, jint jval_off,
+                                   jint jval_len)
+      : jenv_(jenv), jval_(jval), jval_off_(jval_off), jval_len_(jval_len){};
+
+  inline void Assign(const char* data, size_t size) { 
+    const jint copy_size = std::min(jval_len_, static_cast<jint>(size));
+    jenv_->SetByteArrayRegion(
+        jval_, jval_off_, copy_size,
+        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(data)));
+    pos_ = 0;
+    size_ = copy_size;
+  };
+
+  inline void Move(const std::string&& buf) {
+    // Move to this cannot std::move, but must assign, as this is not a std::string
+    Assign(buf.data(), buf.size());
+  };
+
+  inline void RemovePrefix(size_t len) {
+    pos_ += std::min(size_, static_cast<jint>(len));
+    size_ -= std::min(size_, static_cast<jint>(len));
+  };
+
+  inline void RemoveSuffix(size_t len) {
+    size_ -= std::min(size_, static_cast<jint>(len));
+  };
+
+  inline bool IsEmpty() { return false; };
+
+  inline size_t Size() { return size_; };
+
+  //TODO (AP) is this ever needed ? let's find out..
+  inline const char* Data() { 
+    assert(false);
+    return nullptr; 
+  };
 };
+
 }  // namespace ROCKSDB_NAMESPACE

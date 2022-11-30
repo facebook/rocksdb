@@ -1061,7 +1061,8 @@ jint rocksdb_get_helper_direct(
 
   ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
 
-  ROCKSDB_NAMESPACE::CharArrayPinnableSlice pinnable_value(value, jval_len);
+  ROCKSDB_NAMESPACE::CharArrayValueSink value_sink(value, jval_len);
+  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value(&value_sink);
   ROCKSDB_NAMESPACE::Status s;
   if (column_family_handle != nullptr) {
     s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
@@ -1561,8 +1562,8 @@ jint rocksdb_get_helper(
   }
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
-  ROCKSDB_NAMESPACE::JByteArrayPinnableSlice pinnable_value(env, jval, jval_off,
-                                                            jval_len);
+  ROCKSDB_NAMESPACE::JByteArrayValueSink value_sink(env, jval, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::PinnableSlice pinnable_value(&value_sink);
   ROCKSDB_NAMESPACE::Status s;
   if (column_family_handle != nullptr) {
     s = db->Get(read_options, column_family_handle, key_slice, &pinnable_value);
@@ -1601,11 +1602,7 @@ jint rocksdb_get_helper(
                                 pinnable_value.data())));
     pinnable_value.Reset();
   }  // else jval already has received the slice contents, via
-     // db->Get(pinnable_value)
-  else {
-    std::cout << "Should have seen a JByteArrayPinnableSlice::PinSelf(Slice&)"
-              << std::endl;
-  }
+     // db->Get(pinnable_value) }
 
   if (env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
