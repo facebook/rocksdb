@@ -42,7 +42,7 @@ class CharArrayValueSink : public ValueSink {
     const jint copy_size = std::min(jval_len_, static_cast<jint>(size));
     memcpy(jval_, data, copy_size);
     pos_ = 0;
-    size_ = copy_size;
+    size_ = static_cast<jint>(size);
   };
 
   inline void Move(const std::string&& buf) {
@@ -88,7 +88,7 @@ class JByteArrayValueSink : public ValueSink {
         jval_, jval_off_, copy_size,
         const_cast<jbyte*>(reinterpret_cast<const jbyte*>(data)));
     pos_ = 0;
-    size_ = copy_size;
+    size_ = static_cast<jint>(size);
   };
 
   inline void Move(const std::string&& buf) {
