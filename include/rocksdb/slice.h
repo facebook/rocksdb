@@ -201,7 +201,10 @@ static StringValueSink empty_value_sink(nullptr);
  */
 class PinnableSlice : public Slice, public Cleanable {
  public:
-  PinnableSlice() : value_sink_(&empty_value_sink){};
+  PinnableSlice()
+      : my_string_(std::make_unique<std::string>("")),
+        my_value_sink_(std::make_unique<StringValueSink>(my_string_.get())),
+        value_sink_(my_value_sink_.get()){};
   explicit PinnableSlice(ValueSink* value_sink) : value_sink_(value_sink){};
 
   PinnableSlice(PinnableSlice&& other);
@@ -293,6 +296,8 @@ class PinnableSlice : public Slice, public Cleanable {
 
  private:
   friend class PinnableSlice4Test;
+  std::unique_ptr<std::string> my_string_;
+  std::unique_ptr<StringValueSink> my_value_sink_;
   ValueSink* value_sink_;
 
  protected:
