@@ -280,7 +280,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
 
   // Step 3: read out the rest of the blocks from the reader. The loop will stop
   // either I/O status is not ok or we reach to the the end.
-  while (io_s.ok() && dump_unit.type != CacheDumpUnitType::kFooter) {
+  while (io_s.ok()) {
     dump_unit.reset();
     data.clear();
     // read the content and store in the dump_unit
@@ -288,74 +288,14 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     if (!io_s.ok()) {
       break;
     }
+    if (dump_unit.type == CacheDumpUnitType::kFooter) {
+      break;
+    }
     // Create the uncompressed_block based on the information in the dump_unit
     // (There is no block trailer here compatible with block-based SST file.)
-    BlockContents uncompressed_block(
-        Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len));
-    Cache::CacheItemHelper* helper = nullptr;
-    Statistics* statistics = nullptr;
-    Status s = Status::OK();
-    // according to the block type, get the helper callback function and create
-    // the corresponding block
-    switch (dump_unit.type) {
-      case CacheDumpUnitType::kFilter: {
-        helper = BlocklikeTraits<ParsedFullFilterBlock>::GetCacheItemHelper(
-            BlockType::kFilter);
-        std::unique_ptr<ParsedFullFilterBlock> block_holder;
-        block_holder.reset(BlocklikeTraits<ParsedFullFilterBlock>::Create(
-            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
-            statistics, false, toptions_.filter_policy.get()));
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
-      case CacheDumpUnitType::kData: {
-        helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kData);
-        std::unique_ptr<Block> block_holder;
-        block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
-            statistics, false, toptions_.filter_policy.get()));
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
-      case CacheDumpUnitType::kIndex: {
-        helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kIndex);
-        std::unique_ptr<Block> block_holder;
-        block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(uncompressed_block), 0, statistics, false,
-            toptions_.filter_policy.get()));
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
-      case CacheDumpUnitType::kFilterMetaBlock: {
-        helper = BlocklikeTraits<Block>::GetCacheItemHelper(
-            BlockType::kFilterPartitionIndex);
-        std::unique_ptr<Block> block_holder;
-        block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
-            statistics, false, toptions_.filter_policy.get()));
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
-      case CacheDumpUnitType::kFooter:
-        break;
-      case CacheDumpUnitType::kDeprecatedFilterBlock:
-        // Obsolete
-        break;
-      default:
-        continue;
-    }
+    Slice content =
+        Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len);
+    Status s = secondary_cache_->InsertSaved(dump_unit.key, content);
     if (!s.ok()) {
       io_s = status_to_io_status(std::move(s));
     }

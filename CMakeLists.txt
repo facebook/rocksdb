@@ -654,6 +654,7 @@ set(SOURCES
         cache/clock_cache.cc
         cache/compressed_secondary_cache.cc
         cache/lru_cache.cc
+        cache/secondary_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_contents.cc

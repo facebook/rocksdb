@@ -37,6 +37,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 struct ConfigOptions;
+class Logger;
 class SecondaryCache;
 
 // Classifications of block cache entries.
@@ -722,6 +723,13 @@ class Cache {
   virtual void EraseUnRefEntries() = 0;
 
   virtual std::string GetPrintableOptions() const { return ""; }
+
+  // Check for any warnings or errors in the operation of the cache and
+  // report them to the logger. This is intended only to be called
+  // periodically so does not need to be very efficient. (Obscure calling
+  // conventions for Logger inherited from env.h)
+  virtual void ReportProblems(
+      const std::shared_ptr<Logger>& /*info_log*/) const {}
 
   MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
 

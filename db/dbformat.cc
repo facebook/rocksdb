@@ -150,6 +150,31 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
   return r;
 }
 
+int InternalKeyComparator::Compare(const Slice& a,
+                                   const ParsedInternalKey& b) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  //    decreasing type (though sequence# should be enough to disambiguate)
+  int r = user_comparator_.Compare(ExtractUserKey(a), b.user_key);
+  if (r == 0) {
+    const uint64_t anum =
+        DecodeFixed64(a.data() + a.size() - kNumInternalBytes);
+    const uint64_t bnum = (b.sequence << 8) | b.type;
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+int InternalKeyComparator::Compare(const ParsedInternalKey& a,
+                                   const Slice& b) const {
+  return -Compare(b, a);
+}
+
 LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,
                      const Slice* ts) {
   size_t usize = _user_key.size();

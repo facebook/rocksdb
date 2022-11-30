@@ -4523,7 +4523,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(replayer->Prepare());
   // Replay using 1 thread, 1x speed.
   ASSERT_OK(replayer->Replay(ReplayOptions(1, 1.0), res_cb));
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 8);
   ASSERT_EQ(res_handler.GetNumGets(), 3);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 2);
@@ -4549,7 +4549,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   // Re-replay using 2 threads, 2x speed.
   ASSERT_OK(replayer->Prepare());
   ASSERT_OK(replayer->Replay(ReplayOptions(2, 2.0), res_cb));
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 8);
   ASSERT_EQ(res_handler.GetNumGets(), 3);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 2);
@@ -4559,7 +4559,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   // Re-replay using 2 threads, 1/2 speed.
   ASSERT_OK(replayer->Prepare());
   ASSERT_OK(replayer->Replay(ReplayOptions(2, 0.5), res_cb));
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 8);
   ASSERT_EQ(res_handler.GetNumGets(), 3);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 2);
@@ -4757,7 +4757,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
     // end, or Prepare() was not called.
     ASSERT_TRUE(s.IsIncomplete());
     ASSERT_TRUE(replayer->Next(nullptr).IsIncomplete());
-    ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+    ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
     ASSERT_EQ(res_handler.GetNumWrites(), 9);
     ASSERT_EQ(res_handler.GetNumGets(), 3);
     ASSERT_EQ(res_handler.GetNumIterSeeks(), 8);
@@ -4791,7 +4791,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   ASSERT_EQ("write1", value);
   ASSERT_OK(db2->Get(ro, handles[0], "trace-record-write2", &value));
   ASSERT_EQ("write2", value);
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 1);
   ASSERT_EQ(res_handler.GetNumGets(), 0);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 0);
@@ -4816,7 +4816,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   record.reset(new GetQueryTraceRecord(invalid_cf_id, "whatever", fake_ts++));
   ASSERT_TRUE(replayer->Execute(record, &result).IsCorruption());
   ASSERT_TRUE(result == nullptr);
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 0);
   ASSERT_EQ(res_handler.GetNumGets(), 2);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 0);
@@ -4845,7 +4845,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
     ASSERT_TRUE(replayer->Execute(record, &result).IsCorruption());
     ASSERT_TRUE(result == nullptr);
   }
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 0);
   ASSERT_EQ(res_handler.GetNumGets(), 0);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 4);  // Seek x 2 in two iterations
@@ -4900,7 +4900,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
       std::vector<std::string>({"a"}), fake_ts++));
   ASSERT_TRUE(replayer->Execute(record, &result).IsInvalidArgument());
   ASSERT_TRUE(result == nullptr);
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 0);
   ASSERT_EQ(res_handler.GetNumGets(), 0);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 0);
@@ -7507,6 +7507,80 @@ TEST_F(DBTest2, SstUniqueIdVerifyMultiCFs) {
   options.verify_sst_unique_id_in_manifest = true;
   auto s = TryReopenWithColumnFamilies({"default", "one", "two"}, options);
   ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(DBTest2, BestEffortsRecoveryWithSstUniqueIdVerification) {
+  const auto tamper_with_uniq_id = [&](void* arg) {
+    auto props = static_cast<TableProperties*>(arg);
+    assert(props);
+    // update table property session_id to a different one
+    props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+  };
+
+  const auto assert_db = [&](size_t expected_count,
+                             const std::string& expected_v) {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    size_t cnt = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++cnt) {
+      ASSERT_EQ(std::to_string(cnt), it->key());
+      ASSERT_EQ(expected_v, it->value());
+    }
+    ASSERT_EQ(expected_count, cnt);
+  };
+
+  const int num_l0_compaction_trigger = 8;
+  const int num_l0 = num_l0_compaction_trigger - 1;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = num_l0_compaction_trigger;
+
+  for (int k = 0; k < num_l0; ++k) {
+    // Allow mismatch for now
+    options.verify_sst_unique_id_in_manifest = false;
+
+    DestroyAndReopen(options);
+
+    constexpr size_t num_keys_per_file = 10;
+    for (int i = 0; i < num_l0; ++i) {
+      for (size_t j = 0; j < num_keys_per_file; ++j) {
+        ASSERT_OK(Put(std::to_string(j), "v" + std::to_string(i)));
+      }
+      if (i == k) {
+        SyncPoint::GetInstance()->DisableProcessing();
+        SyncPoint::GetInstance()->SetCallBack(
+            "PropertyBlockBuilder::AddTableProperty:Start",
+            tamper_with_uniq_id);
+        SyncPoint::GetInstance()->EnableProcessing();
+      }
+      ASSERT_OK(Flush());
+    }
+
+    options.verify_sst_unique_id_in_manifest = true;
+    Status s = TryReopen(options);
+    ASSERT_TRUE(s.IsCorruption());
+
+    options.best_efforts_recovery = true;
+    Reopen(options);
+    assert_db(k == 0 ? 0 : num_keys_per_file, "v" + std::to_string(k - 1));
+
+    // Reopen with regular recovery
+    options.best_efforts_recovery = false;
+    Reopen(options);
+    assert_db(k == 0 ? 0 : num_keys_per_file, "v" + std::to_string(k - 1));
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    for (size_t i = 0; i < num_keys_per_file; ++i) {
+      ASSERT_OK(Put(std::to_string(i), "v"));
+    }
+    ASSERT_OK(Flush());
+    Reopen(options);
+    {
+      for (size_t i = 0; i < num_keys_per_file; ++i) {
+        ASSERT_EQ("v", Get(std::to_string(i)));
+      }
+    }
+  }
 }
 
 #ifndef ROCKSDB_LITE

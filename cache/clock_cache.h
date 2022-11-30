@@ -440,6 +440,8 @@ class HyperClockTable {
     return occupancy_.load(std::memory_order_relaxed);
   }
 
+  size_t GetOccupancyLimit() const { return occupancy_limit_; }
+
   size_t GetUsage() const { return usage_.load(std::memory_order_relaxed); }
 
   size_t GetDetachedUsage() const {
@@ -612,11 +614,17 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
 
   void Erase(const Slice& key, const UniqueId64x2& hashed_key);
 
+  size_t GetCapacity() const;
+
   size_t GetUsage() const;
+
+  size_t GetDetachedUsage() const;
 
   size_t GetPinnedUsage() const;
 
   size_t GetOccupancyCount() const;
+
+  size_t GetOccupancyLimit() const;
 
   size_t GetTableAddressCount() const;
 
@@ -683,6 +691,9 @@ class HyperClockCache
   size_t GetCharge(Handle* handle) const override;
 
   DeleterFn GetDeleter(Handle* handle) const override;
+
+  void ReportProblems(
+      const std::shared_ptr<Logger>& /*info_log*/) const override;
 };  // class HyperClockCache
 
 }  // namespace clock_cache

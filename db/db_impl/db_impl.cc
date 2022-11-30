@@ -1059,16 +1059,31 @@ void DBImpl::DumpStats() {
     return;
   }
 
+  // Also probe block cache(s) for problems, dump to info log
+  UnorderedSet<Cache*> probed_caches;
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
     for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-      if (cfd->initialized()) {
-        // Release DB mutex for gathering cache entry stats. Pass over all
-        // column families for this first so that other stats are dumped
-        // near-atomically.
-        InstrumentedMutexUnlock u(&mutex_);
-        cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+      if (!cfd->initialized()) {
+        continue;
+      }
+
+      // Release DB mutex for gathering cache entry stats. Pass over all
+      // column families for this first so that other stats are dumped
+      // near-atomically.
+      InstrumentedMutexUnlock u(&mutex_);
+      cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+
+      // Probe block cache for problems (if not already via another CF)
+      if (immutable_db_options_.info_log) {
+        auto* table_factory = cfd->ioptions()->table_factory.get();
+        assert(table_factory != nullptr);
+        Cache* cache =
+            table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
+        if (cache && probed_caches.insert(cache).second) {
+          cache->ReportProblems(immutable_db_options_.info_log);
+        }
       }
     }
 
@@ -1808,7 +1823,8 @@ InternalIterator* DBImpl::NewInternalIterator(
   MergeIteratorBuilder merge_iter_builder(
       &cfd->internal_comparator(), arena,
       !read_options.total_order_seek &&
-          super_version->mutable_cf_options.prefix_extractor != nullptr);
+          super_version->mutable_cf_options.prefix_extractor != nullptr,
+      read_options.iterate_upper_bound);
   // Collect iterator for mutable memtable
   auto mem_iter = super_version->mem->NewIterator(read_options, arena);
   Status s;

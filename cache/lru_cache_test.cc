@@ -1132,14 +1132,19 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
                        nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
-      std::make_shared<TestSecondaryCache>(2048);
+      std::make_shared<TestSecondaryCache>(4096);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
   std::shared_ptr<Statistics> stats = CreateDBStatistics();
   CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
   CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k3 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
+  // Start with warming k3
+  std::string str3 = rnd.RandomString(1021);
+  ASSERT_OK(secondary_cache->InsertSaved(k3.AsSlice(), str3));
+
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
   ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
@@ -1156,15 +1161,27 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
       cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                     test_item_creator, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
+  ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str2.size());
   cache->Release(handle);
+
   // This lookup should promote k1 and demote k2
   handle =
       cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                     test_item_creator, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
+  ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str1.size());
   cache->Release(handle);
-  ASSERT_EQ(secondary_cache->num_inserts(), 2u);
-  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+  // This lookup should promote k3 and demote k1
+  handle =
+      cache->Lookup(k3.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+                    test_item_creator, Cache::Priority::LOW, true, stats.get());
+  ASSERT_NE(handle, nullptr);
+  ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str3.size());
+  cache->Release(handle);
+
+  ASSERT_EQ(secondary_cache->num_inserts(), 3u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
   ASSERT_EQ(stats->getTickerCount(SECONDARY_CACHE_HITS),
             secondary_cache->num_lookups());
   PerfContext perf_ctx = *get_perf_context();
