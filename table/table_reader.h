@@ -15,10 +15,10 @@
 #include "folly/experimental/coro/Task.h"
 #endif
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/table_reader_caller.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/multiget_context.h"
-#include "table/table_reader_caller.h"
 
 namespace ROCKSDB_NAMESPACE {
 
