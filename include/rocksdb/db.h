@@ -566,6 +566,31 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
+  // Legacy std::string* value Get() variants
+  //
+  virtual inline Status Get(const ReadOptions& options, const Slice& key,
+                     std::string* value, std::string* timestamp) {
+                      StringValueSink value_sink(value);
+                      return Get(options, DefaultColumnFamily(), key, value_sink, timestamp);
+                     };
+  virtual inline Status Get(const ReadOptions& options, const Slice& key,
+                     std::string* value) {
+                      StringValueSink value_sink(value);
+    return Get(options, DefaultColumnFamily(), key, value_sink);
+  }
+  virtual inline Status Get(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value) {
+                              StringValueSink value_sink(value);
+                              return Get(options, column_family, key, value_sink);
+                            };
+  virtual inline Status Get(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value, std::string* timestamp) {
+                              StringValueSink value_sink(value);
+                              return Get(options, column_family, key, value_sink, timestamp);
+                            };
+
   // If the column family specified by "column_family" contains an entry for
   // "key", return it as a wide-column entity in "*columns". If the entry is a
   // wide-column entity, return it as-is; if it is a plain key-value, return it

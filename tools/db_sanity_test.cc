@@ -69,8 +69,7 @@ class SanityTest {
       std::string k = "key" + std::to_string(i);
       std::string v = "value" + std::to_string(i);
       std::string result;
-      ROCKSDB_NAMESPACE::StringValueSink result_sink(&result);
-      s = db->Get(ReadOptions(), Slice(k), result_sink);
+      s = db->Get(ReadOptions(), Slice(k), &result);
       if (!s.ok()) {
         return s;
       }
