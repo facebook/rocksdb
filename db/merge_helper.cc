@@ -59,9 +59,9 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
 Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                                    const Slice& key, const Slice* value,
                                    const std::vector<Slice>& operands,
-                                   ROCKSDB_NAMESPACE::ValueSink& result_sink, Logger* logger,
-                                   Statistics* statistics, SystemClock* clock,
-                                   Slice* result_operand,
+                                   ROCKSDB_NAMESPACE::ValueSink& result_sink,
+                                   Logger* logger, Statistics* statistics,
+                                   SystemClock* clock, Slice* result_operand,
                                    bool update_num_ops_stats) {
   assert(merge_operator != nullptr);
 
@@ -80,7 +80,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   Slice tmp_result_operand(nullptr, 0);
   const MergeOperator::MergeOperationInput merge_in(key, value, operands,
                                                     logger);
-  std::string result;                                                   
+  std::string result;
   MergeOperator::MergeOperationOutput merge_out(result, tmp_result_operand);
   {
     // Setup to time the merge

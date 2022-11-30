@@ -1263,8 +1263,8 @@ char* rocksdb_get_cf(rocksdb_t* db, const rocksdb_readoptions_t* options,
   char* result = nullptr;
   std::string tmp;
   ROCKSDB_NAMESPACE::StringValueSink value_sink(&tmp);
-  Status s =
-      db->rep->Get(options->rep, column_family->rep, Slice(key, keylen), value_sink);
+  Status s = db->rep->Get(options->rep, column_family->rep, Slice(key, keylen),
+                          value_sink);
   if (s.ok()) {
     *vallen = tmp.size();
     result = CopyString(tmp);
@@ -1284,7 +1284,8 @@ char* rocksdb_get_with_ts(rocksdb_t* db, const rocksdb_readoptions_t* options,
   std::string tmp_val;
   ROCKSDB_NAMESPACE::StringValueSink value_sink(&tmp_val);
   std::string tmp_ts;
-  Status s = db->rep->Get(options->rep, Slice(key, keylen), value_sink, &tmp_ts);
+  Status s =
+      db->rep->Get(options->rep, Slice(key, keylen), value_sink, &tmp_ts);
   if (s.ok()) {
     *vallen = tmp_val.size();
     result = CopyString(tmp_val);
@@ -5633,8 +5634,8 @@ char* rocksdb_transaction_get_cf(rocksdb_transaction_t* txn,
   char* result = nullptr;
   std::string tmp;
   ROCKSDB_NAMESPACE::StringValueSink value_sink(&tmp);
-  Status s =
-      txn->rep->Get(options->rep, column_family->rep, Slice(key, klen), value_sink);
+  Status s = txn->rep->Get(options->rep, column_family->rep, Slice(key, klen),
+                           value_sink);
   if (s.ok()) {
     *vlen = tmp.size();
     result = CopyString(tmp);
@@ -5673,8 +5674,8 @@ char* rocksdb_transaction_get_for_update(rocksdb_transaction_t* txn,
   char* result = nullptr;
   std::string tmp;
   ROCKSDB_NAMESPACE::StringValueSink value_sink(&tmp);
-  Status s =
-      txn->rep->GetForUpdate(options->rep, Slice(key, klen), value_sink, exclusive);
+  Status s = txn->rep->GetForUpdate(options->rep, Slice(key, klen), value_sink,
+                                    exclusive);
   if (s.ok()) {
     *vlen = tmp.size();
     result = CopyString(tmp);

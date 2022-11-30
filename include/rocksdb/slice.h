@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>  // RocksDB now requires C++17 support
 
@@ -172,16 +173,9 @@ class StringValueSink : public ValueSink {
     assert(s_ != nullptr);
     *s_ = std::move(buf);
   };
-  inline void Erase(size_t pos, size_t len) {
-    s_->erase(pos, len);
-  }
-  inline void RemovePrefix(size_t len) {
-    s_->erase(0, len);
-  };
-  virtual void RemoveSuffix(size_t len) {
-    s_->erase(s_->size() - len, len);
-  };
-  
+  inline void Erase(size_t pos, size_t len) { s_->erase(pos, len); }
+  inline void RemovePrefix(size_t len) { s_->erase(0, len); };
+  virtual void RemoveSuffix(size_t len) { s_->erase(s_->size() - len, len); };
 
   inline bool IsEmpty() { return (s_ == nullptr); };
 
@@ -276,18 +270,21 @@ class PinnableSlice : public Slice, public Cleanable {
   }
 
   // Return a pointer to the beginning of the referenced data
-  const char* data() const { if (pinned_) {
-    return data_;
-  } else {
-    return value_sink_->Data(); }
+  const char* data() const {
+    if (pinned_) {
+      return data_;
+    } else {
+      return value_sink_->Data();
+    }
   }
 
   // Return the length (in bytes) of the referenced data
-  size_t size() const { if (pinned_) {
-    return size_;
-  } else {
-    return value_sink_->Size();
-  }
+  size_t size() const {
+    if (pinned_) {
+      return size_;
+    } else {
+      return value_sink_->Size();
+    }
   }
 
   inline ValueSink& GetSelf() { return *value_sink_; }

@@ -443,10 +443,11 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZZ(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::ValueSink&, bool, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
-          std::placeholders::_1, column_family_handle, std::placeholders::_2,
-          std::placeholders::_3, jexclusive, jdo_validate);
+          const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::ValueSink&, bool,
+          bool)>(&ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
+                 std::placeholders::_1, column_family_handle,
+                 std::placeholders::_2, std::placeholders::_3, jexclusive,
+                 jdo_validate);
   return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
                         jkey_part_len);
 }
@@ -464,10 +465,10 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIZZ(
   FnGet fn_get_for_update =
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::ReadOptions&,
-          const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::ValueSink&, bool, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
-          std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
-          jexclusive, jdo_validate);
+          const ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::ValueSink&, bool,
+          bool)>(&ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
+                 std::placeholders::_1, std::placeholders::_2,
+                 std::placeholders::_3, jexclusive, jdo_validate);
   return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
                         jkey_part_len);
 }

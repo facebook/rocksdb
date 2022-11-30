@@ -1558,7 +1558,8 @@ jint rocksdb_get_helper(
   }
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
-  ROCKSDB_NAMESPACE::JByteArrayValueSink value_sink(env, jval, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::JByteArrayValueSink value_sink(env, jval, jval_off,
+                                                    jval_len);
   ROCKSDB_NAMESPACE::PinnableSlice pinnable_value(&value_sink);
   ROCKSDB_NAMESPACE::Status s;
   if (column_family_handle != nullptr) {

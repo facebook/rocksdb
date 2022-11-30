@@ -2489,7 +2489,8 @@ class MemTableInserter : public WriteBatch::Handler {
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
       }
-      Status get_status = db_->Get(read_options, cf_handle, key, get_value_sink);
+      Status get_status =
+          db_->Get(read_options, cf_handle, key, get_value_sink);
       if (!get_status.ok()) {
         // Failed to read a key we know exists. Store the delta in memtable.
         perform_merge = false;

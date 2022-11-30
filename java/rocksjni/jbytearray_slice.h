@@ -34,11 +34,11 @@ class CharArrayValueSink : public ValueSink {
   jint pos_ = 0;
   jint size_ = 0;
 
-  public:
-   explicit CharArrayValueSink(char* jval, jint jval_len)
+ public:
+  explicit CharArrayValueSink(char* jval, jint jval_len)
       : jval_(jval), jval_len_(jval_len){};
 
-  inline void Assign(const char* data, size_t size) { 
+  inline void Assign(const char* data, size_t size) {
     const jint copy_size = std::min(jval_len_, static_cast<jint>(size));
     memcpy(jval_, data, copy_size);
     pos_ = 0;
@@ -46,7 +46,8 @@ class CharArrayValueSink : public ValueSink {
   };
 
   inline void Move(const std::string&& buf) {
-    // Move to this cannot std::move, but must assign, as this is not a std::string
+    // Move to this cannot std::move, but must assign, as this is not a
+    // std::string
     Assign(buf.data(), buf.size());
   };
 
@@ -64,7 +65,6 @@ class CharArrayValueSink : public ValueSink {
   inline size_t Size() { return size_; };
 
   inline const char* Data() { return jval_ + pos_; };
-
 };
 
 class JByteArrayValueSink : public ValueSink {
@@ -79,10 +79,10 @@ class JByteArrayValueSink : public ValueSink {
 
  public:
   explicit JByteArrayValueSink(JNIEnv* jenv, jbyteArray jval, jint jval_off,
-                                   jint jval_len)
+                               jint jval_len)
       : jenv_(jenv), jval_(jval), jval_off_(jval_off), jval_len_(jval_len){};
 
-  inline void Assign(const char* data, size_t size) { 
+  inline void Assign(const char* data, size_t size) {
     const jint copy_size = std::min(jval_len_, static_cast<jint>(size));
     jenv_->SetByteArrayRegion(
         jval_, jval_off_, copy_size,
@@ -92,7 +92,8 @@ class JByteArrayValueSink : public ValueSink {
   };
 
   inline void Move(const std::string&& buf) {
-    // Move to this cannot std::move, but must assign, as this is not a std::string
+    // Move to this cannot std::move, but must assign, as this is not a
+    // std::string
     Assign(buf.data(), buf.size());
   };
 
@@ -109,10 +110,10 @@ class JByteArrayValueSink : public ValueSink {
 
   inline size_t Size() { return size_; };
 
-  //TODO (AP) is this ever needed ? let's find out..
-  inline const char* Data() { 
+  // TODO (AP) is this ever needed ? let's find out..
+  inline const char* Data() {
     assert(false);
-    return nullptr; 
+    return nullptr;
   };
 };
 
