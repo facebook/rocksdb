@@ -1430,6 +1430,10 @@ jbyteArray rocksdb_get_helper(
 
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
+  // TODO (AP) - re https://github.com/facebook/rocksdb/pull/11007
+  // This is less efficient than the version of rocksdb_get_helper which receives a jbyteArray for value
+  // We could fix this by implementing another variant on JByteArrayValueSink which allocates the array on Assign()
+  // i.e. by wrapping/adapting what happens in the copyBytes call, below.
   ROCKSDB_NAMESPACE::PinnableSlice pinnable_value;
   ROCKSDB_NAMESPACE::Status s;
   if (column_family_handle != nullptr) {
