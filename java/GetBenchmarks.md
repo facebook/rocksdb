@@ -59,6 +59,14 @@ Benchmark                                (columnFamilyTestType)  (keyCount)  (ke
 GetBenchmarks.get                              no_column_family        1000        128             N/A        32768  thrpt   25     150389.259 ±   1371.473  ops/s
 GetBenchmarks.preallocatedByteBufferGet        no_column_family        1000        128             N/A        32768  thrpt   25     179919.468 ±   1670.714  ops/s
 GetBenchmarks.preallocatedGet                  no_column_family        1000        128             N/A        32768  thrpt   25     178261.938 ±   2630.571  ops/s
+
+### ValueSink - further copy reduction - https://github.com/facebook/rocksdb/pull/11007
+
+Benchmark                                (columnFamilyTestType)  (keyCount)  (keySize)  (multiGetSize)  (valueSize)   Mode  Cnt          Score         Error  Units
+GetBenchmarks.get                              no_column_family        1000        128             N/A        32768  thrpt   25     148898.630 ±    2873.367  ops/s
+GetBenchmarks.preallocatedByteBufferGet        no_column_family        1000        128             N/A        32768  thrpt   25     185709.579 ±    2703.668  ops/s
+GetBenchmarks.preallocatedGet                  no_column_family        1000        128             N/A        32768  thrpt   25     182654.819 ±    3953.447  ops/s
+
 ## Results (Ubuntu, big runs)
 These take 3-4 hours
 ```
