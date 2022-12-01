@@ -15,7 +15,7 @@ mvn install:install-file -Dfile=./java/target/rocksdbjni-7.10.0-SNAPSHOT-osx.jar
 Linux
 ```
 make clean jclean
-DEBUG_LEVEL=0 make -j12 rocksdbjava
+DEBUG_LEVEL=0 make -j8 rocksdbjava
 (cd java/target; cp rocksdbjni-7.10.0-linux64.jar rocksdbjni-7.10.0-SNAPSHOT-linux64.jar)
 mvn install:install-file -Dfile=./java/target/rocksdbjni-7.10.0-SNAPSHOT-linux64.jar -DgroupId=org.rocksdb -DartifactId=rocksdbjni -Dversion=7.10.0-SNAPSHOT -Dpackaging=jar
 ```
