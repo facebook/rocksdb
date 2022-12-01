@@ -135,8 +135,9 @@ class BlobCountingIterator : public InternalIterator {
       status_ = iter_->status();
       return;
     } else if (iter_->IsDeleteRangeSentinelKey()) {
-      // CompactionMergingIterator emits range tombstones
-      // that may have start key with type kTypeBlobIndex if truncated.
+      // CompactionMergingIterator emits range tombstones, and range tombstone
+      // keys can be truncated at file boundaries. This means the range
+      // tombstone keys can have op_type kTypeBlobIndex.
       // This could crash the ProcessInFlow() call below since
       // value is empty for these keys.
       return;

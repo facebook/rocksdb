@@ -108,8 +108,7 @@ struct HeapItem {
   IteratorWrapper iter;
   size_t level = 0;
   ParsedInternalKey parsed_ikey;
-  std::string pinned_key;
-  std::string pinned_value;
+  std::string range_tombstone_key;
   // Will be overwritten before use, initialize here so compiler does not
   // complain.
   Type type = ITERATOR;
@@ -126,27 +125,15 @@ struct HeapItem {
   }
 
   void SetTombstoneForCompaction(const ParsedInternalKey&& pik) {
-    pinned_key.clear();
-    AppendInternalKey(&pinned_key, pik);
+    range_tombstone_key.clear();
+    AppendInternalKey(&range_tombstone_key, pik);
   }
 
   Slice key() const {
     if (LIKELY(type == ITERATOR)) {
       return iter.key();
     }
-    return pinned_key;
-  }
-
-//  Slice key() const {
-//    assert(type == ITERATOR);
-//    return iter.key();
-//  }
-
-  Slice value() const {
-    if (LIKELY(type == ITERATOR)) {
-      return iter.value();
-    }
-    return pinned_value;
+    return range_tombstone_key;
   }
 
   bool IsDeleteRangeSentinelKey() const {
@@ -164,13 +151,13 @@ class MinHeapItemComparator {
   bool operator()(HeapItem* a, HeapItem* b) const {
     if (LIKELY(a->type == HeapItem::ITERATOR)) {
       if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->key(), b->key()) > 0;
+        return comparator_->Compare(a->iter.key(), b->iter.key()) > 0;
       } else {
-        return comparator_->Compare(a->key(), b->parsed_ikey) > 0;
+        return comparator_->Compare(a->iter.key(), b->parsed_ikey) > 0;
       }
     } else {
       if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->parsed_ikey, b->key()) > 0;
+        return comparator_->Compare(a->parsed_ikey, b->iter.key()) > 0;
       } else {
         return comparator_->Compare(a->parsed_ikey, b->parsed_ikey) > 0;
       }

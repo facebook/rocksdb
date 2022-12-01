@@ -74,11 +74,16 @@ void CompactionMergingIterator::Next() {
     }
   } else {
     assert(current_->type == HeapItem::DELETE_RANGE_START);
-    minHeap_.pop();
     size_t level = current_->level;
     assert(range_tombstone_iters_[level]);
     range_tombstone_iters_[level]->Next();
-    InsertRangeTombstoneAtLevel(level);
+    if (range_tombstone_iters_[level]->Valid()) {
+      pinned_heap_item_[level].SetTombstoneForCompaction(
+          range_tombstone_iters_[level]->start_key());
+      minHeap_.replace_top(&pinned_heap_item_[level]);
+    } else {
+      minHeap_.pop();
+    }
   }
   FindNextVisibleKey();
   current_ = CurrentForward();

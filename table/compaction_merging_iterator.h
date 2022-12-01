@@ -123,7 +123,11 @@ class CompactionMergingIterator : public InternalIterator {
 
   Slice value() const override {
     assert(Valid());
-    return current_->value();
+    if (LIKELY(current_->type == HeapItem::ITERATOR)) {
+      return current_->iter.value();
+    } else {
+      return dummy_tombstone_val;
+    }
   }
 
   // Here we simply relay MayBeOutOfLowerBound/MayBeOutOfUpperBound result
@@ -195,6 +199,8 @@ class CompactionMergingIterator : public InternalIterator {
   // tombstones (or the current SSTable does not have range tombstones in the
   // case of LevelIterator).
   std::vector<TruncatedRangeDelIterator*> range_tombstone_iters_;
+  // Used as value for range tombstone keys
+  std::string dummy_tombstone_val{};
 
   // Skip file boundary sentinel keys.
   void FindNextVisibleKey();

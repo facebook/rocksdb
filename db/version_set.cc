@@ -6585,7 +6585,7 @@ InternalIterator* VersionSet::MakeInputIterator(
   const size_t space = (c->level() == 0 ? c->input_levels(0)->num_files +
                                               c->num_input_levels() - 1
                                         : c->num_input_levels());
-  InternalIterator** list = new InternalIterator* [space];
+  InternalIterator** list = new InternalIterator*[space];
   // First item in the pair is a pointer to range tombstones.
   // Second item is a pointer to a member of a LevelIterator,
   // that will be initialized to where CompactionMergingIterator stores

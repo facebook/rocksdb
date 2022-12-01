@@ -177,8 +177,6 @@ void CompactionIterator::Next() {
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
       validity_info_.SetValid(ValidContext::kMerge1);
-      // merge output is not range del key
-      is_range_del_ = false;
     } else {
       // We consumed all pinned merge operands, release pinned iterators
       pinned_iters_mgr_.ReleasePinnedData();
@@ -1125,6 +1123,7 @@ void CompactionIterator::DecideOutputLevel() {
 #else
   output_to_penultimate_level_ = false;
 #endif  // NDEBUG
+
   // if the key is newer than the cutoff sequence or within the earliest
   // snapshot, it should output to the penultimate level.
   if (ikey_.sequence > preclude_last_level_min_seqno_ ||
@@ -1172,8 +1171,6 @@ void CompactionIterator::PrepareOutput() {
     }
 
     if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
-      // compaction_->SupportsPerKeyPlacement() is true only when compaction
-      // output level is last level
       DecideOutputLevel();
     }
 

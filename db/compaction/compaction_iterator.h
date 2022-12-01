@@ -246,7 +246,12 @@ class CompactionIterator {
   const Status& status() const { return status_; }
   const ParsedInternalKey& ikey() const { return ikey_; }
   inline bool Valid() const { return validity_info_.IsValid(); }
-  const Slice& user_key() const { return current_user_key_; }
+  const Slice& user_key() const {
+    if (UNLIKELY(is_range_del_)) {
+      return ikey_.user_key;
+    }
+    return current_user_key_;
+  }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
   uint64_t num_input_entry_scanned() const { return input_.num_itered(); }
   // If the current key should be placed on penultimate level, only valid if

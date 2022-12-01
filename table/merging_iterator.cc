@@ -19,13 +19,13 @@ class MaxHeapItemComparator {
   bool operator()(HeapItem* a, HeapItem* b) const {
     if (LIKELY(a->type == HeapItem::ITERATOR)) {
       if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->key(), b->key()) < 0;
+        return comparator_->Compare(a->iter.key(), b->iter.key()) < 0;
       } else {
-        return comparator_->Compare(a->key(), b->parsed_ikey) < 0;
+        return comparator_->Compare(a->iter.key(), b->parsed_ikey) < 0;
       }
     } else {
       if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->parsed_ikey, b->key()) < 0;
+        return comparator_->Compare(a->parsed_ikey, b->iter.key()) < 0;
       } else {
         return comparator_->Compare(a->parsed_ikey, b->parsed_ikey) < 0;
       }
@@ -1092,7 +1092,7 @@ void MergingIterator::SwitchToForward() {
       if (child.iter.status() == Status::TryAgain()) {
         continue;
       }
-      if (child.iter.Valid() && comparator_->Equal(target, child.key())) {
+      if (child.iter.Valid() && comparator_->Equal(target, child.iter.key())) {
         assert(child.iter.status().ok());
         child.iter.Next();
       }
@@ -1103,7 +1103,7 @@ void MergingIterator::SwitchToForward() {
   for (auto& child : children_) {
     if (child.iter.status() == Status::TryAgain()) {
       child.iter.Seek(target);
-      if (child.iter.Valid() && comparator_->Equal(target, child.key())) {
+      if (child.iter.Valid() && comparator_->Equal(target, child.iter.key())) {
         assert(child.iter.status().ok());
         child.iter.Next();
       }
@@ -1154,7 +1154,7 @@ void MergingIterator::SwitchToBackward() {
     if (&child.iter != current_) {
       child.iter.SeekForPrev(target);
       TEST_SYNC_POINT_CALLBACK("MergeIterator::Prev:BeforePrev", &child);
-      if (child.iter.Valid() && comparator_->Equal(target, child.key())) {
+      if (child.iter.Valid() && comparator_->Equal(target, child.iter.key())) {
         assert(child.iter.status().ok());
         child.iter.Prev();
       }
