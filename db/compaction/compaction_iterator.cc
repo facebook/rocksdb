@@ -1122,12 +1122,9 @@ void CompactionIterator::DecideOutputLevel() {
   TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
                            &context);
   output_to_penultimate_level_ = context.output_to_penultimate_level;
-#endif /* !NDEBUG */
-  if (is_range_del_) {
-    // range tombstones are in penultimate level only
-    output_to_penultimate_level_ = true;
-    return;
-  }
+#else
+  output_to_penultimate_level_ = false;
+#endif  // NDEBUG
   // if the key is newer than the cutoff sequence or within the earliest
   // snapshot, it should output to the penultimate level.
   if (ikey_.sequence > preclude_last_level_min_seqno_ ||
@@ -1175,6 +1172,8 @@ void CompactionIterator::PrepareOutput() {
     }
 
     if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
+      // compaction_->SupportsPerKeyPlacement() is true only when compaction
+      // output level is last level
       DecideOutputLevel();
     }
 

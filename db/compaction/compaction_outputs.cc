@@ -335,8 +335,12 @@ Status CompactionOutputs::AddToOutput(
     const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func) {
   Status s;
-  const Slice& key = c_iter.key();
   bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
+  if (is_range_del && compaction_->bottommost_level()) {
+    // there is no grandparent and hence no overlap to consider.
+    return s;
+  }
+  const Slice& key = c_iter.key();
   if (ShouldStopBefore(c_iter, is_range_del) && HasBuilder()) {
     s = close_file_func(*this, c_iter.InputStatus(), key);
     if (!s.ok()) {
