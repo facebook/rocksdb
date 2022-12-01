@@ -32,7 +32,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            uint64_t max_compact_bytes_per_del_file,
                            uint64_t max_compaction_bytes,
                            CompactionInputFiles* comp_inputs,
-                           const SequenceNumber earliest_mem_seqno) {
+                           SequenceNumber earliest_mem_seqno) {
   // Do not pick ingested file when there is at least one memtable not flushed
   // which of seqno is overlap with the sst.
   TEST_SYNC_POINT("FindIntraL0Compaction");
@@ -613,8 +613,7 @@ Compaction* CompactionPicker::CompactRange(
     int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const InternalKey* begin,
     const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
-    uint64_t max_file_num_to_ignore, const std::string& trim_ts,
-    const SequenceNumber /*earliest_mem_seqno*/) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
@@ -919,8 +918,7 @@ bool HaveOverlappingKeyRanges(const Comparator* c, const SstFileMetaData& a,
 
 Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
     std::unordered_set<uint64_t>* input_files,
-    const ColumnFamilyMetaData& cf_meta, const int output_level,
-    const SequenceNumber earliest_mem_seqno) const {
+    const ColumnFamilyMetaData& cf_meta, const int output_level) const {
   auto& levels = cf_meta.levels;
   auto comparator = icmp_->user_comparator();
 
@@ -997,13 +995,6 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
                                current_files[f].name +
                                " is currently being compacted.");
       }
-      if (output_level == 0 &&
-          current_files[f].largest_seqno > earliest_mem_seqno) {
-        return Status::Aborted(
-            "Necessary compaction input file " + current_files[f].name +
-            " has overlapping seqnos with earliest memtable seqnos.");
-      }
-
       input_files->insert(TableFileNameToNumber(current_files[f].name));
     }
 
@@ -1060,14 +1051,12 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
         "A running compaction is writing to the same output level in an "
         "overlapping key range");
   }
-
   return Status::OK();
 }
 
 Status CompactionPicker::SanitizeCompactionInputFiles(
     std::unordered_set<uint64_t>* input_files,
-    const ColumnFamilyMetaData& cf_meta, const int output_level,
-    const SequenceNumber earliest_mem_seqno) const {
+    const ColumnFamilyMetaData& cf_meta, const int output_level) const {
   assert(static_cast<int>(cf_meta.levels.size()) - 1 ==
          cf_meta.levels[cf_meta.levels.size() - 1].level);
   if (output_level >= static_cast<int>(cf_meta.levels.size())) {
@@ -1093,8 +1082,8 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
         "A compaction must contain at least one file.");
   }
 
-  Status s = SanitizeCompactionInputFilesForAllLevels(
-      input_files, cf_meta, output_level, earliest_mem_seqno);
+  Status s = SanitizeCompactionInputFilesForAllLevels(input_files, cf_meta,
+                                                      output_level);
 
   if (!s.ok()) {
     return s;
