@@ -69,6 +69,13 @@ Status::Status(Code _code, SubCode _subcode, const Slice& msg,
   state_.reset(result);
 }
 
+Status Status::CopyAppendMessage(const Status& s, const Slice& delim,
+                                 const Slice& msg) {
+  // (No attempt at efficiency)
+  return Status(s.code(), s.subcode(), s.severity(),
+                std::string(s.getState()) + delim.ToString() + msg.ToString());
+}
+
 std::string Status::ToString() const {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
   checked_ = true;

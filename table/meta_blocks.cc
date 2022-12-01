@@ -479,8 +479,8 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
                                 Footer* footer_out) {
   Footer footer;
   IOOptions opts;
-  auto s = ReadFooterFromFile(opts, file, prefetch_buffer, file_size, &footer,
-                              table_magic_number);
+  auto s = ReadFooterFromFile(opts, file, *ioptions.fs, prefetch_buffer,
+                              file_size, &footer, table_magic_number);
   if (!s.ok()) {
     return s;
   }
