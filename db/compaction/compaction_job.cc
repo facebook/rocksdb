@@ -1287,7 +1287,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
     assert(!end.has_value() || cfd->user_comparator()->Compare(
-                                   c_iter->ikey().user_key, end.value()) < 0);
+                                   c_iter->user_key(), end.value()) < 0);
 
     if (c_iter_stats.num_input_records % kRecordStatsEvery ==
         kRecordStatsEvery - 1) {

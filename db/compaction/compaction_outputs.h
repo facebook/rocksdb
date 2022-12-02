@@ -211,9 +211,7 @@ class CompactionOutputs {
 
   // Returns true iff we should stop building the current output
   // before processing the current key in compaction iterator.
-  // @param is_range_del whether current key from c_iter is a range tombstone
-  // start key.
-  bool ShouldStopBefore(const CompactionIterator& c_iter, bool is_range_del);
+  bool ShouldStopBefore(const CompactionIterator& c_iter);
 
   void Cleanup() {
     if (builder_ != nullptr) {
@@ -309,6 +307,7 @@ class CompactionOutputs {
   std::unique_ptr<SstPartitioner> partitioner_;
 
   // A flag determines if this subcompaction has been split by the cursor
+  // for RoundRobin compaction
   bool is_split_ = false;
 
   // We also maintain the output split key for each subcompaction to avoid

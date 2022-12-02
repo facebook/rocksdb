@@ -90,6 +90,7 @@ void CompactionMergingIterator::Next() {
 }
 
 void CompactionMergingIterator::FindNextVisibleKey() {
+  // IsDeleteRangeSentinelKey() here means file boundary sentinel keys.
   while (!minHeap_.empty() && minHeap_.top()->IsDeleteRangeSentinelKey()) {
     HeapItem* current = minHeap_.top();
     // range tombstone start keys from the same SSTable should have been

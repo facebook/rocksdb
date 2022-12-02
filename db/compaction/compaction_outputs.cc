@@ -183,8 +183,7 @@ uint64_t CompactionOutputs::GetCurrentKeyGrandparentOverlappedBytes(
   return overlapped_bytes;
 }
 
-bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter,
-                                         bool is_range_del) {
+bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   assert(c_iter.Valid());
 
   // always update grandparent information like overlapped file number, size
@@ -199,10 +198,9 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter,
   }
 
   // If there's user defined partitioner, check that first
-  if (partitioner_ && !is_range_del &&
-      partitioner_->ShouldPartition(
-          PartitionerRequest(last_key_for_partitioner_, c_iter.user_key(),
-                             current_output_file_size_)) == kRequired) {
+  if (partitioner_ && partitioner_->ShouldPartition(PartitionerRequest(
+                          last_key_for_partitioner_, c_iter.user_key(),
+                          current_output_file_size_)) == kRequired) {
     return true;
   }
 
@@ -221,7 +219,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter,
 
   // Check if it needs to split for RoundRobin
   // Invalid local_output_split_key indicates that we do not need to split
-  if (local_output_split_key_ != nullptr && !is_split_ && !is_range_del) {
+  if (local_output_split_key_ != nullptr && !is_split_) {
     // Split occurs when the next key is larger than/equal to the cursor
     if (icmp->Compare(internal_key, local_output_split_key_->Encode()) >= 0) {
       is_split_ = true;
@@ -293,7 +291,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter,
   }
 
   // check ttl file boundaries if there's any
-  if (!files_to_cut_for_ttl_.empty() && !is_range_del) {
+  if (!files_to_cut_for_ttl_.empty()) {
     if (cur_files_to_cut_for_ttl_ != -1) {
       // Previous key is inside the range of a file
       if (icmp->Compare(internal_key,
@@ -341,7 +339,7 @@ Status CompactionOutputs::AddToOutput(
     return s;
   }
   const Slice& key = c_iter.key();
-  if (ShouldStopBefore(c_iter, is_range_del) && HasBuilder()) {
+  if (ShouldStopBefore(c_iter) && HasBuilder()) {
     s = close_file_func(*this, c_iter.InputStatus(), key);
     if (!s.ok()) {
       return s;
@@ -365,6 +363,13 @@ Status CompactionOutputs::AddToOutput(
     if (!s.ok()) {
       return s;
     }
+  }
+
+  // c_iter may emit range deletion keys, so update `last_key_for_partitioner_`
+  // here before returning below when `is_range_del` is true
+  if (partitioner_) {
+    last_key_for_partitioner_.assign(c_iter.user_key().data_,
+                                     c_iter.user_key().size_);
   }
 
   if (UNLIKELY(is_range_del)) {
@@ -393,11 +398,6 @@ Status CompactionOutputs::AddToOutput(
   const ParsedInternalKey& ikey = c_iter.ikey();
   s = current_output().meta.UpdateBoundaries(key, value, ikey.sequence,
                                              ikey.type);
-
-  if (partitioner_) {
-    last_key_for_partitioner_.assign(c_iter.user_key().data_,
-                                     c_iter.user_key().size_);
-  }
 
   return s;
 }
@@ -556,14 +556,22 @@ Status CompactionOutputs::AddRangeDels(
               InternalKey(*lower_bound, tombstone.seq_, kTypeRangeDeletion);
         }
       } else if (lower_bound_from_range_tombstone) {
-        // There are two cases depending on whether the lower bound is a
-        // truncated range tombstone start key. If it is not truncated, then the
-        // sequence number would be kMaxSequenceNumber. In that case, the
-        // previous file's largest key could be the same as this lower_bound
-        // (with kMaxSequenceNumber, see the upperbound logic below). So for
-        // this file, we use the range tombstone's sequence number instead. If
-        // this is a truncated range tombstone start key, we use it as the lower
-        // bound directly.
+        // Range tombstone keys can be truncated at file boundaries of the files
+        // that contain them.
+        //
+        // If this lower bound is from a range tombstone key that is not
+        // truncated, i.e., it was not truncated when reading from the input
+        // files, then its sequence number and `op_type` will be
+        // kMaxSequenceNumber and kTypeRangeDeletion (see
+        // TruncatedRangeDelIterator::start_key()). In this case, when this key
+        // was used as the upper bound to cut the previous compaction output
+        // file, the previous file's largest key could have the same value as
+        // this key (see the upperbound logic below). To guarantee
+        // non-overlapping ranges between output files, we use the range
+        // tombstone's actual sequence number (tombstone.seq_) for the lower
+        // bound of this file. If this range tombstone key is truncated, then
+        // the previous file's largest key will be smaller than this range
+        // tombstone key, so we can use it as the lower bound directly.
         if (ExtractInternalKeyFooter(range_tombstone_lower_bound_.Encode()) ==
             kRangeTombstoneSentinel) {
           if (ts_sz) {

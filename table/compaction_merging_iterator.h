@@ -39,19 +39,24 @@ class CompactionHeapItemComparator {
 
 using CompactionMinHeap = BinaryHeap<HeapItem*, CompactionHeapItemComparator>;
 /*
- * This is a simplified version of MergingIterator that is specifically used for
+ * This is a simplified version of MergingIterator and is specifically used for
  * compaction. It merges the input `children` iterators into a sorted stream of
- * keys. Range tombstones are also emitted to prevent oversize compaction caused
- * by them. For example, consider an L1 file with content [a, b), y, z, where
- * [a, b) is a range tombstone and y and z are point keys. This could cause an
- * oversize compaction as it can overlap with a wide range of key space in L2.
+ * keys. Range tombstone start keys are also emitted to prevent oversize
+ * compactions. For example, consider an L1 file with content [a, b), y, z,
+ * where [a, b) is a range tombstone and y and z are point keys. This could
+ * cause an oversize compaction as it can overlap with a wide range of key space
+ * in L2.
  *
  * CompactionMergingIterator emits range tombstone start keys from each LSM
- * level's range tombstone iterator through
- * TruncatedRangeDelIterator::start_key(). So for a range tombstones
- * [start,end)@seqno, the key is start@kMaxSequenceNumber unless truncated at
- * file boundary.
+ * level's range tombstone iterator, and for each range tombstone
+ * [start,end)@seqno, the key will be start@kMaxSequenceNumber unless truncated
+ * at file boundary (see detail TruncatedRangeDelIterator::start_key()).
  *
+ * Caller should use CompactionMergingIterator::IsDeleteRangeSentinelKey() to
+ * check if the current key is a range tombstone key.
+ * TODO(cbi): IsDeleteRangeSentinelKey() is used for two kinds of keys at
+ * different layers: file boundary and range tombstone keys. Separate them into
+ * two APIs for clarity.
  */
 class CompactionMergingIterator : public InternalIterator {
  public:
