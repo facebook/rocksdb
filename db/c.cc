@@ -7,8 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
-
 #include "rocksdb/c.h"
 
 #include <cstdlib>
@@ -36,29 +34,37 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/universal_compaction.h"
+#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#endif
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
+#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#endif
 #include "rocksdb/write_batch.h"
 #include "utilities/merge_operators.h"
 
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::BackupEngine;
 using ROCKSDB_NAMESPACE::BackupEngineOptions;
 using ROCKSDB_NAMESPACE::BackupID;
 using ROCKSDB_NAMESPACE::BackupInfo;
+#endif
 using ROCKSDB_NAMESPACE::BatchResult;
 using ROCKSDB_NAMESPACE::BlockBasedTableOptions;
 using ROCKSDB_NAMESPACE::BottommostLevelCompaction;
 using ROCKSDB_NAMESPACE::BytewiseComparator;
 using ROCKSDB_NAMESPACE::Cache;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::Checkpoint;
+#endif
 using ROCKSDB_NAMESPACE::ColumnFamilyDescriptor;
 using ROCKSDB_NAMESPACE::ColumnFamilyHandle;
 using ROCKSDB_NAMESPACE::ColumnFamilyMetaData;
@@ -69,7 +75,9 @@ using ROCKSDB_NAMESPACE::CompactionOptionsFIFO;
 using ROCKSDB_NAMESPACE::CompactRangeOptions;
 using ROCKSDB_NAMESPACE::Comparator;
 using ROCKSDB_NAMESPACE::CompressionType;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::CuckooTableOptions;
+#endif
 using ROCKSDB_NAMESPACE::DB;
 using ROCKSDB_NAMESPACE::DBOptions;
 using ROCKSDB_NAMESPACE::DbPath;
@@ -86,15 +94,21 @@ using ROCKSDB_NAMESPACE::LiveFileMetaData;
 using ROCKSDB_NAMESPACE::Logger;
 using ROCKSDB_NAMESPACE::LRUCacheOptions;
 using ROCKSDB_NAMESPACE::MemoryAllocator;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::MemoryUtil;
+#endif
 using ROCKSDB_NAMESPACE::MergeOperator;
 using ROCKSDB_NAMESPACE::NewBloomFilterPolicy;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::NewCompactOnDeletionCollectorFactory;
+#endif
 using ROCKSDB_NAMESPACE::NewGenericRateLimiter;
 using ROCKSDB_NAMESPACE::NewLRUCache;
 using ROCKSDB_NAMESPACE::NewRibbonFilterPolicy;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
 using ROCKSDB_NAMESPACE::OptimisticTransactionOptions;
+#endif
 using ROCKSDB_NAMESPACE::Options;
 using ROCKSDB_NAMESPACE::PerfContext;
 using ROCKSDB_NAMESPACE::PerfLevel;
@@ -104,25 +118,35 @@ using ROCKSDB_NAMESPACE::RandomAccessFile;
 using ROCKSDB_NAMESPACE::Range;
 using ROCKSDB_NAMESPACE::RateLimiter;
 using ROCKSDB_NAMESPACE::ReadOptions;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::RestoreOptions;
+#endif
 using ROCKSDB_NAMESPACE::SequentialFile;
 using ROCKSDB_NAMESPACE::Slice;
 using ROCKSDB_NAMESPACE::SliceParts;
 using ROCKSDB_NAMESPACE::SliceTransform;
 using ROCKSDB_NAMESPACE::Snapshot;
 using ROCKSDB_NAMESPACE::SstFileMetaData;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::SstFileWriter;
+#endif
 using ROCKSDB_NAMESPACE::Status;
 using ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
 using ROCKSDB_NAMESPACE::TransactionDBOptions;
+#endif
 using ROCKSDB_NAMESPACE::TransactionLogIterator;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::TransactionOptions;
+#endif
 using ROCKSDB_NAMESPACE::WALRecoveryMode;
 using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
+#ifndef ROCKSDB_LITE
 using ROCKSDB_NAMESPACE::WriteBatchWithIndex;
+#endif
 using ROCKSDB_NAMESPACE::WriteOptions;
 
 using std::unordered_set;
@@ -133,6 +157,7 @@ extern "C" {
 struct rocksdb_t {
   DB* rep;
 };
+#ifndef ROCKSDB_LITE
 struct rocksdb_backup_engine_t {
   BackupEngine* rep;
 };
@@ -142,15 +167,18 @@ struct rocksdb_backup_engine_info_t {
 struct rocksdb_restore_options_t {
   RestoreOptions rep;
 };
+#endif
 struct rocksdb_iterator_t {
   Iterator* rep;
 };
 struct rocksdb_writebatch_t {
   WriteBatch rep;
 };
+#ifndef ROCKSDB_LITE
 struct rocksdb_writebatch_wi_t {
   WriteBatchWithIndex* rep;
 };
+#endif
 struct rocksdb_snapshot_t {
   const Snapshot* rep;
 };
@@ -181,9 +209,11 @@ struct rocksdb_compactoptions_t {
 struct rocksdb_block_based_table_options_t {
   BlockBasedTableOptions rep;
 };
+#ifndef ROCKSDB_LITE
 struct rocksdb_cuckoo_table_options_t {
   CuckooTableOptions rep;
 };
+#endif
 struct rocksdb_seqfile_t {
   SequentialFile* rep;
 };
@@ -235,9 +265,11 @@ struct rocksdb_envoptions_t {
 struct rocksdb_ingestexternalfileoptions_t {
   IngestExternalFileOptions rep;
 };
+#ifndef ROCKSDB_LITE
 struct rocksdb_sstfilewriter_t {
   SstFileWriter* rep;
 };
+#endif
 struct rocksdb_ratelimiter_t {
   std::shared_ptr<RateLimiter> rep;
 };
@@ -247,6 +279,7 @@ struct rocksdb_perfcontext_t {
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;
 };
+#ifndef ROCKSDB_LITE
 struct rocksdb_transactiondb_options_t {
   TransactionDBOptions rep;
 };
@@ -271,7 +304,7 @@ struct rocksdb_optimistictransactiondb_t {
 struct rocksdb_optimistictransaction_options_t {
   OptimisticTransactionOptions rep;
 };
-
+#endif
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
 };
@@ -542,6 +575,7 @@ rocksdb_t* rocksdb_open(const rocksdb_options_t* options, const char* name,
   return result;
 }
 
+#ifndef ROCKSDB_LITE
 rocksdb_t* rocksdb_open_with_ttl(const rocksdb_options_t* options,
                                  const char* name, int ttl, char** errptr) {
   ROCKSDB_NAMESPACE::DBWithTTL* db;
@@ -553,6 +587,7 @@ rocksdb_t* rocksdb_open_with_ttl(const rocksdb_options_t* options,
   result->rep = db;
   return result;
 }
+#endif
 
 rocksdb_t* rocksdb_open_for_read_only(const rocksdb_options_t* options,
                                       const char* name,
@@ -583,6 +618,7 @@ rocksdb_t* rocksdb_open_as_secondary(const rocksdb_options_t* options,
   return result;
 }
 
+#ifndef ROCKSDB_LITE
 rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr) {
   BackupEngine* be;
@@ -847,6 +883,7 @@ void rocksdb_checkpoint_object_destroy(rocksdb_checkpoint_t* checkpoint) {
   delete checkpoint->rep;
   delete checkpoint;
 }
+#endif
 
 void rocksdb_close(rocksdb_t* db) {
   delete db->rep;
@@ -922,6 +959,7 @@ rocksdb_t* rocksdb_open_column_families(
   return result;
 }
 
+#ifndef ROCKSDB_LITE
 rocksdb_t* rocksdb_open_column_families_with_ttl(
     const rocksdb_options_t* db_options, const char* name,
     int num_column_families, const char* const* column_family_names,
@@ -956,6 +994,7 @@ rocksdb_t* rocksdb_open_column_families_with_ttl(
   result->rep = db;
   return result;
 }
+#endif
 
 rocksdb_t* rocksdb_open_for_read_only_column_families(
     const rocksdb_options_t* db_options, const char* name,
@@ -1054,6 +1093,7 @@ rocksdb_column_family_handle_t* rocksdb_create_column_family(
   return handle;
 }
 
+#ifndef ROCKSDB_LITE
 rocksdb_column_family_handle_t* rocksdb_create_column_family_with_ttl(
     rocksdb_t* db, const rocksdb_options_t* column_family_options,
     const char* column_family_name, int ttl, char** errptr) {
@@ -1065,6 +1105,7 @@ rocksdb_column_family_handle_t* rocksdb_create_column_family_with_ttl(
                         std::string(column_family_name), &(handle->rep), ttl));
   return handle;
 }
+#endif
 
 void rocksdb_drop_column_family(rocksdb_t* db,
                                 rocksdb_column_family_handle_t* handle,
@@ -1548,6 +1589,8 @@ rocksdb_iterator_t* rocksdb_create_iterator(
   return result;
 }
 
+
+#ifndef ROCKSDB_LITE
 rocksdb_wal_iterator_t* rocksdb_get_updates_since(
     rocksdb_t* db, uint64_t seq_number,
     const rocksdb_wal_readoptions_t* options, char** errptr) {
@@ -1590,6 +1633,7 @@ rocksdb_writebatch_t* rocksdb_wal_iter_get_batch(
   }
   return result;
 }
+#endif
 
 uint64_t rocksdb_get_latest_sequence_number(rocksdb_t* db) {
   return db->rep->GetLatestSequenceNumber();
@@ -1713,7 +1757,7 @@ void rocksdb_approximate_sizes_cf(
   }
   delete[] ranges;
 }
-
+#ifndef ROCKSDB_LITE
 void rocksdb_delete_file(rocksdb_t* db, const char* name) {
   db->rep->DeleteFile(name);
 }
@@ -1723,6 +1767,7 @@ const rocksdb_livefiles_t* rocksdb_livefiles(rocksdb_t* db) {
   db->rep->GetLiveFilesMetaData(&result->rep);
   return result;
 }
+#endif
 
 void rocksdb_compact_range(rocksdb_t* db, const char* start_key,
                            size_t start_key_len, const char* limit_key,
@@ -1747,6 +1792,7 @@ void rocksdb_compact_range_cf(rocksdb_t* db,
       (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
 }
 
+#ifndef ROCKSDB_LITE
 void rocksdb_suggest_compact_range(rocksdb_t* db, const char* start_key,
                                    size_t start_key_len, const char* limit_key,
                                    size_t limit_key_len, char** errptr) {
@@ -1769,6 +1815,7 @@ void rocksdb_suggest_compact_range_cf(
       (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
   SaveError(errptr, s);
 }
+#endif
 
 void rocksdb_compact_range_opt(rocksdb_t* db, rocksdb_compactoptions_t* opt,
                                const char* start_key, size_t start_key_len,
@@ -1823,10 +1870,12 @@ void rocksdb_destroy_db(const rocksdb_options_t* options, const char* name,
   SaveError(errptr, DestroyDB(name, options->rep));
 }
 
+#ifndef ROCKSDB_LITE
 void rocksdb_repair_db(const rocksdb_options_t* options, const char* name,
                        char** errptr) {
   SaveError(errptr, RepairDB(name, options->rep));
 }
+#endif
 
 void rocksdb_iter_destroy(rocksdb_iterator_t* iter) {
   delete iter->rep;
@@ -2149,6 +2198,7 @@ void rocksdb_writebatch_pop_save_point(rocksdb_writebatch_t* b, char** errptr) {
   SaveError(errptr, b->rep.PopSavePoint());
 }
 
+#ifndef ROCKSDB_LITE
 rocksdb_writebatch_wi_t* rocksdb_writebatch_wi_create(
     size_t reserved_bytes, unsigned char overwrite_key) {
   rocksdb_writebatch_wi_t* b = new rocksdb_writebatch_wi_t;
@@ -2540,6 +2590,7 @@ void rocksdb_load_latest_options_destroy(
     free(list_column_family_options);
   }
 }
+#endif
 
 rocksdb_block_based_table_options_t* rocksdb_block_based_options_create() {
   return new rocksdb_block_based_table_options_t;
@@ -2677,6 +2728,7 @@ void rocksdb_options_set_block_based_table_factory(
   }
 }
 
+#ifndef ROCKSDB_LITE
 rocksdb_cuckoo_table_options_t* rocksdb_cuckoo_options_create() {
   return new rocksdb_cuckoo_table_options_t;
 }
@@ -2717,6 +2769,7 @@ void rocksdb_options_set_cuckoo_table_factory(
         ROCKSDB_NAMESPACE::NewCuckooTableFactory(table_options->rep));
   }
 }
+#endif
 
 void rocksdb_set_options(rocksdb_t* db, int count, const char* const keys[],
                          const char* const values[], char** errptr) {
@@ -2742,10 +2795,12 @@ rocksdb_options_t* rocksdb_options_create_copy(rocksdb_options_t* options) {
   return new rocksdb_options_t(*options);
 }
 
+#ifndef ROCKSDB_LITE
 void rocksdb_options_increase_parallelism(rocksdb_options_t* opt,
                                           int total_threads) {
   opt->rep.IncreaseParallelism(total_threads);
 }
+#endif
 
 void rocksdb_options_optimize_for_point_lookup(rocksdb_options_t* opt,
                                                uint64_t block_cache_size_mb) {
@@ -3685,9 +3740,11 @@ void rocksdb_options_prepare_for_bulk_load(rocksdb_options_t* opt) {
   opt->rep.PrepareForBulkLoad();
 }
 
+#ifndef ROCKSDB_LITE
 void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t* opt) {
-  opt->rep.memtable_factory.reset(new ROCKSDB_NAMESPACE::VectorRepFactory);
+q  opt->rep.memtable_factory.reset(new ROCKSDB_NAMESPACE::VectorRepFactory);
 }
+#endif
 
 void rocksdb_options_set_memtable_prefix_bloom_size_ratio(
     rocksdb_options_t* opt, double v) {
@@ -3708,6 +3765,7 @@ size_t rocksdb_options_get_memtable_huge_page_size(rocksdb_options_t* opt) {
   return opt->rep.memtable_huge_page_size;
 }
 
+#ifndef ROCKSDB_LITE
 void rocksdb_options_set_hash_skip_list_rep(rocksdb_options_t* opt,
                                             size_t bucket_count,
                                             int32_t skiplist_height,
@@ -3739,6 +3797,7 @@ void rocksdb_options_set_plain_table_factory(rocksdb_options_t* opt,
       ROCKSDB_NAMESPACE::NewPlainTableFactory(options);
   opt->rep.table_factory.reset(factory);
 }
+#endif
 
 void rocksdb_options_set_max_successive_merges(rocksdb_options_t* opt,
                                                size_t v) {
@@ -3864,6 +3923,7 @@ void rocksdb_options_set_row_cache(rocksdb_options_t* opt,
   }
 }
 
+#ifndef ROCKSDB_LITE
 void rocksdb_options_add_compact_on_deletion_collector_factory(
     rocksdb_options_t* opt, size_t window_size, size_t num_dels_trigger) {
   std::shared_ptr<ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory>
@@ -3871,7 +3931,8 @@ void rocksdb_options_add_compact_on_deletion_collector_factory(
           NewCompactOnDeletionCollectorFactory(window_size, num_dels_trigger);
   opt->rep.table_properties_collector_factories.emplace_back(compact_on_del);
 }
-
+#endif
+  
 void rocksdb_set_perf_level(int v) {
   PerfLevel level = static_cast<PerfLevel>(v);
   SetPerfLevel(level);
@@ -4775,18 +4836,21 @@ rocksdb_envoptions_t* rocksdb_envoptions_create() {
 
 void rocksdb_envoptions_destroy(rocksdb_envoptions_t* opt) { delete opt; }
 
+#ifndef ROCKSDB_LITE
 rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create(
     const rocksdb_envoptions_t* env, const rocksdb_options_t* io_options) {
   rocksdb_sstfilewriter_t* writer = new rocksdb_sstfilewriter_t;
   writer->rep = new SstFileWriter(env->rep, io_options->rep);
   return writer;
 }
+#endif
 
 void rocksdb_create_dir_if_missing(rocksdb_env_t* env, const char* path,
                                    char** errptr) {
   SaveError(errptr, env->rep->CreateDirIfMissing(std::string(path)));
 }
 
+#ifndef ROCKSDB_LITE
 rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create_with_comparator(
     const rocksdb_envoptions_t* env, const rocksdb_options_t* io_options,
     const rocksdb_comparator_t* /*comparator*/) {
@@ -4929,6 +4993,7 @@ void rocksdb_ingest_external_file_cf(
 void rocksdb_try_catch_up_with_primary(rocksdb_t* db, char** errptr) {
   SaveError(errptr, db->rep->TryCatchUpWithPrimary());
 }
+#endif
 
 rocksdb_slicetransform_t* rocksdb_slicetransform_create(
     void* state, void (*destructor)(void*),
@@ -5135,6 +5200,7 @@ extern void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) {
   delete lf;
 }
 
+#ifndef ROCKSDB_LITE
 void rocksdb_get_options_from_string(const rocksdb_options_t* base_options,
                                      const char* opts_str,
                                      rocksdb_options_t* new_options,
@@ -5209,6 +5275,7 @@ size_t rocksdb_column_family_metadata_get_level_count(
     rocksdb_column_family_metadata_t* cf_meta) {
   return cf_meta->rep.levels.size();
 }
+#endif
 
 rocksdb_level_metadata_t* rocksdb_column_family_metadata_get_level_metadata(
     rocksdb_column_family_metadata_t* cf_meta, size_t i) {
@@ -5280,6 +5347,7 @@ char* rocksdb_sst_file_metadata_get_largestkey(
   return CopyString(file_meta->rep->largestkey);
 }
 
+#ifndef ROCKSDB_LITE
 /* Transactions */
 
 rocksdb_transactiondb_options_t* rocksdb_transactiondb_options_create() {
@@ -6212,6 +6280,7 @@ rocksdb_checkpoint_t* rocksdb_optimistictransactiondb_checkpoint_object_create(
   result->rep = checkpoint;
   return result;
 }
+#endif
 
 void rocksdb_free(void* ptr) { free(ptr); }
 
@@ -6261,6 +6330,7 @@ const char* rocksdb_pinnableslice_value(const rocksdb_pinnableslice_t* v,
   return v->rep.data();
 }
 
+#ifndef ROCKSDB_LITE
 // container to keep databases and caches in order to use
 // ROCKSDB_NAMESPACE::MemoryUtil
 struct rocksdb_memory_consumers_t {
@@ -6347,6 +6417,7 @@ uint64_t rocksdb_approximate_memory_usage_get_cache_total(
     rocksdb_memory_usage_t* memory_usage) {
   return memory_usage->cache_total;
 }
+#endif
 
 void rocksdb_options_set_dump_malloc_stats(rocksdb_options_t* opt,
                                            unsigned char val) {
@@ -6368,6 +6439,7 @@ unsigned char rocksdb_options_get_avoid_unnecessary_blocking_io(
   return opt->rep.avoid_unnecessary_blocking_io;
 }
 
+#ifndef ROCKSDB_LITE
 // deletes container with memory usage estimates
 void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
   delete usage;
@@ -6376,6 +6448,7 @@ void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
 void rocksdb_cancel_all_background_work(rocksdb_t* db, unsigned char wait) {
   CancelAllBackgroundWork(db->rep, wait);
 }
+#endif
 
 void rocksdb_disable_manual_compaction(rocksdb_t* db) {
   db->rep->DisableManualCompaction();
@@ -6387,4 +6460,4 @@ void rocksdb_enable_manual_compaction(rocksdb_t* db) {
 
 }  // end extern "C"
 
-#endif  // !ROCKSDB_LITE
+
