@@ -129,6 +129,45 @@ GetBenchmarks.preallocatedGet                20_column_families        1000     
 GetBenchmarks.preallocatedGet                20_column_families       50000        128         1024  thrpt   25   256057.801 ±   954.621  ops/s
 GetBenchmarks.preallocatedGet                20_column_families       50000        128        16384  thrpt   25    13319.380 ±  2126.654  ops/s
 
+### Speculative PinnableSlice/ValueSink Changes
+
+[Changes in this PR](https://github.com/facebook/rocksdb/pull/11007)
+
+Benchmark                                (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt        Score       Error  Units
+GetBenchmarks.get                               1_column_family        1000        128         1024  thrpt   25   853886.522 ± 12949.511  ops/s
+GetBenchmarks.get                               1_column_family        1000        128        16384  thrpt   25   198380.948 ±  1603.386  ops/s
+GetBenchmarks.get                               1_column_family       50000        128         1024  thrpt   25   623515.246 ±  8662.069  ops/s
+GetBenchmarks.get                               1_column_family       50000        128        16384  thrpt   25    50941.670 ±   809.291  ops/s
+GetBenchmarks.get                            20_column_families        1000        128         1024  thrpt   25   519444.789 ±  7203.180  ops/s
+GetBenchmarks.get                            20_column_families        1000        128        16384  thrpt   25   118473.612 ±   662.425  ops/s
+GetBenchmarks.get                            20_column_families       50000        128         1024  thrpt   25   229864.426 ±  2013.767  ops/s
+GetBenchmarks.get                            20_column_families       50000        128        16384  thrpt   25    12384.413 ±  2048.519  ops/s
+GetBenchmarks.preallocatedByteBufferGet         1_column_family        1000        128         1024  thrpt   25  1101586.715 ± 13840.786  ops/s
+GetBenchmarks.preallocatedByteBufferGet         1_column_family        1000        128        16384  thrpt   25   505878.675 ±  6693.931  ops/s
+GetBenchmarks.preallocatedByteBufferGet         1_column_family       50000        128         1024  thrpt   25   769062.444 ± 17317.931  ops/s
+GetBenchmarks.preallocatedByteBufferGet         1_column_family       50000        128        16384  thrpt   25    60118.840 ±  1133.880  ops/s
+GetBenchmarks.preallocatedByteBufferGet      20_column_families        1000        128         1024  thrpt   25   704747.708 ±  9697.570  ops/s
+GetBenchmarks.preallocatedByteBufferGet      20_column_families        1000        128        16384  thrpt   25   189432.603 ±  1006.659  ops/s
+GetBenchmarks.preallocatedByteBufferGet      20_column_families       50000        128         1024  thrpt   25   255668.693 ±  1313.681  ops/s
+GetBenchmarks.preallocatedByteBufferGet      20_column_families       50000        128        16384  thrpt   25    13945.716 ±  2653.643  ops/s
+GetBenchmarks.preallocatedGet                   1_column_family        1000        128         1024  thrpt   25  1061386.824 ± 30646.299  ops/s
+GetBenchmarks.preallocatedGet                   1_column_family        1000        128        16384  thrpt   25   489747.623 ±  6022.271  ops/s
+GetBenchmarks.preallocatedGet                   1_column_family       50000        128         1024  thrpt   25   758040.203 ± 13096.904  ops/s
+GetBenchmarks.preallocatedGet                   1_column_family       50000        128        16384  thrpt   25    58722.016 ±   826.739  ops/s
+GetBenchmarks.preallocatedGet                20_column_families        1000        128         1024  thrpt   25   664222.293 ±  9529.337  ops/s
+GetBenchmarks.preallocatedGet                20_column_families        1000        128        16384  thrpt   25   188575.688 ±   990.178  ops/s
+GetBenchmarks.preallocatedGet                20_column_families       50000        128         1024  thrpt   25   249404.913 ±  1507.420  ops/s
+GetBenchmarks.preallocatedGet                20_column_families       50000        128        16384  thrpt   25    13699.803 ±  2483.295  ops/s
+\\\more/// 
+GetBenchmarks.get                               1_column_family        1000        128        65536  thrpt   25  23430.936 ± 209.277  ops/s
+GetBenchmarks.get                               1_column_family       50000        128        65536  thrpt   25  23024.266 ± 227.984  ops/s
+GetBenchmarks.preallocatedByteBufferGet         1_column_family        1000        128        65536  thrpt   25  30939.125 ± 330.003  ops/s
+GetBenchmarks.preallocatedByteBufferGet         1_column_family       50000        128        65536  thrpt   25  29323.118 ± 397.040  ops/s
+GetBenchmarks.preallocatedGet                   1_column_family        1000        128        65536  thrpt   25  30084.026 ± 458.611  ops/s
+GetBenchmarks.preallocatedGet                   1_column_family       50000        128        65536  thrpt   25  28777.727 ± 277.421  ops/s
+
+
+
 ### Comparison
 
 It does at least look best when the data is cached. That is to say, smallest number of column families, and least keys.
