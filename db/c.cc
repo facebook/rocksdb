@@ -3742,7 +3742,7 @@ void rocksdb_options_prepare_for_bulk_load(rocksdb_options_t* opt) {
 
 #ifndef ROCKSDB_LITE
 void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t* opt) {
-q  opt->rep.memtable_factory.reset(new ROCKSDB_NAMESPACE::VectorRepFactory);
+  opt->rep.memtable_factory.reset(new ROCKSDB_NAMESPACE::VectorRepFactory);
 }
 #endif
 
