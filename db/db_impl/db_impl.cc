@@ -1570,7 +1570,11 @@ Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
 }
 
 Status DBImpl::LockWAL() {
-  log_write_mutex_.Lock();
+  {
+    InstrumentedMutexLock lock(&mutex_);
+    lock_wal_write_token_ = write_controller_.GetStopToken();
+  }
+  InstrumentedMutexLock lock_wal(&log_write_mutex_);
   auto cur_log_writer = logs_.back().writer;
   IOStatus status = cur_log_writer->WriteBuffer();
   if (!status.ok()) {
@@ -1584,7 +1588,11 @@ Status DBImpl::LockWAL() {
 }
 
 Status DBImpl::UnlockWAL() {
-  log_write_mutex_.Unlock();
+  {
+    InstrumentedMutexLock lock(&mutex_);
+    lock_wal_write_token_.reset();
+  }
+  bg_cv_.SignalAll();
   return Status::OK();
 }
 

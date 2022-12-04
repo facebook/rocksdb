@@ -924,6 +924,38 @@ Status DBImpl::WriteImplWALOnly(
       write_thread->ExitAsBatchGroupLeader(write_group, status);
       return status;
     }
+  } else {
+    // TODO(yanqin): maybe move this block into a refactored version of
+    // DelayWrite() so that we account for manually-injected write stalls and
+    // other write stalls separately.
+    Status status;
+    InstrumentedMutexLock lock(&mutex_);
+    while (error_handler_.GetBGError().ok() && write_controller_.IsStopped() &&
+           !shutting_down_.load(std::memory_order_relaxed)) {
+      if (write_options.no_slowdown) {
+        status = Status::Incomplete("write stall");
+        break;
+      }
+      write_thread->BeginWriteStall();
+      bg_cv_.Wait();
+      write_thread->EndWriteStall();
+    }
+    if (write_controller_.IsStopped()) {
+      if (!shutting_down_.load(std::memory_order_relaxed)) {
+        status = Status::Incomplete(error_handler_.GetBGError().ToString());
+      } else {
+        status = Status::ShutdownInProgress("stalled writes");
+      }
+    }
+    if (error_handler_.IsDBStopped()) {
+      status = error_handler_.GetBGError();
+    }
+    if (!status.ok()) {
+      WriteThread::WriteGroup write_group;
+      write_thread->EnterAsBatchGroupLeader(&w, &write_group);
+      write_thread->ExitAsBatchGroupLeader(write_group, status);
+      return status;
+    }
   }
 
   WriteThread::WriteGroup write_group;
