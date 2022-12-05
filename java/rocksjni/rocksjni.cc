@@ -27,6 +27,7 @@
 #include "rocksdb/version.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
+#include "rocksjni/kv_helper.h"
 
 #ifdef min
 #undef min
@@ -600,55 +601,6 @@ void Java_org_rocksdb_RocksDB_dropColumnFamilies(
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DB::Put
 
-/**
- * @return true if the put succeeded, false if a Java Exception was thrown
- */
-bool rocksdb_put_helper(JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
-                        const ROCKSDB_NAMESPACE::WriteOptions& write_options,
-                        ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle,
-                        jbyteArray jkey, jint jkey_off, jint jkey_len,
-                        jbyteArray jval, jint jval_off, jint jval_len) {
-  jbyte* key = new jbyte[jkey_len];
-  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
-  if (env->ExceptionCheck()) {
-    // exception thrown: ArrayIndexOutOfBoundsException
-    delete[] key;
-    return false;
-  }
-
-  jbyte* value = new jbyte[jval_len];
-  env->GetByteArrayRegion(jval, jval_off, jval_len, value);
-  if (env->ExceptionCheck()) {
-    // exception thrown: ArrayIndexOutOfBoundsException
-    delete[] value;
-    delete[] key;
-    return false;
-  }
-
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-  ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value),
-                                       jval_len);
-
-  ROCKSDB_NAMESPACE::Status s;
-  if (cf_handle != nullptr) {
-    s = db->Put(write_options, cf_handle, key_slice, value_slice);
-  } else {
-    // backwards compatibility
-    s = db->Put(write_options, key_slice, value_slice);
-  }
-
-  // cleanup
-  delete[] value;
-  delete[] key;
-
-  if (s.ok()) {
-    return true;
-  } else {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-    return false;
-  }
-}
-
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    put
@@ -662,8 +614,11 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BII(JNIEnv* env, jobject,
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
-  rocksdb_put_helper(env, db, default_write_options, nullptr, jkey, jkey_off,
-                     jkey_len, jval, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value](){
+    return db->Put(default_write_options, key.slice(), value.slice());
+  });
 }
 
 /*
@@ -682,14 +637,19 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BIIJ(JNIEnv* env, jobject,
       ROCKSDB_NAMESPACE::WriteOptions();
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    rocksdb_put_helper(env, db, default_write_options, cf_handle, jkey,
-                       jkey_off, jkey_len, jval, jval_off, jval_len);
-  } else {
+  if (cf_handle == nullptr) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
                  "Invalid ColumnFamilyHandle."));
+    return;
   }
+
+  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value](){
+    return db->Put(default_write_options, cf_handle,
+                                            key.slice(), value.slice());
+  });
 }
 
 /*
@@ -706,8 +666,12 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BII(JNIEnv* env, jobject,
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  rocksdb_put_helper(env, db, *write_options, nullptr, jkey, jkey_off, jkey_len,
-                     jval, jval_off, jval_len);
+
+  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value](){
+    return db->Put(*write_options, key.slice(), value.slice());
+  });
 }
 
 /*
@@ -724,14 +688,18 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BIIJ(
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    rocksdb_put_helper(env, db, *write_options, cf_handle, jkey, jkey_off,
-                       jkey_len, jval, jval_off, jval_len);
-  } else {
+  if (cf_handle == nullptr) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
                  "Invalid ColumnFamilyHandle."));
+    return;
   }
+
+  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value](){
+    return db->Put(*write_options, cf_handle, key.slice(), value.slice());
+  });
 }
 
 /*
