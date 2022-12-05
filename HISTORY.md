@@ -5,6 +5,7 @@
 
 ### Bug Fixes
 * Fixed a regression in iterator where range tombstones after `iterate_upper_bound` is processed.
+* Fixed a memory leak in MultiGet with async_io read option, caused by IO errors during table file open
 
 ## 7.9.0 (11/21/2022)
 ### Performance Improvements
