@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 7.9.1 (12/8/2022)
+### Bug Fixes
+* Fixed a memory leak in MultiGet with async_io read option, caused by IO errors during table file open
+
 ## 7.9.0 (11/21/2022)
 ### Performance Improvements
 * Fixed an iterator performance regression for delete range users when scanning through a consecutive sequence of range tombstones (#10877).

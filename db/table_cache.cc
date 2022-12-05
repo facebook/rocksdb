@@ -127,6 +127,8 @@ Status TableCache::GetTableReader(
   FileOptions fopts = file_options;
   fopts.temperature = file_temperature;
   Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
+  TEST_SYNC_POINT_CALLBACK("TableCache::GetTableReader:BeforeOpenFile",
+                           const_cast<Status*>(&s));
   if (s.ok()) {
     s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
