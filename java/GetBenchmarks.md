@@ -100,6 +100,15 @@ GetBenchmarks.preallocatedGet                20_column_families        1000     
 GetBenchmarks.preallocatedGet                20_column_families        1000        128        16384  thrpt   25   172383.593 ±   841.679  ops/s
 GetBenchmarks.preallocatedGet                20_column_families       50000        128         1024  thrpt   25   257447.351 ±  1388.667  ops/s
 GetBenchmarks.preallocatedGet                20_column_families       50000        128        16384  thrpt   25    13418.522 ±  2418.619  ops/s
+\\\more///
+Benchmark                                (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt      Score     Error  Units
+GetBenchmarks.get                               1_column_family        1000        128        65536  thrpt   25  23449.709 ± 164.499  ops/s
+GetBenchmarks.get                               1_column_family       50000        128        65536  thrpt   25  23216.742 ± 174.191  ops/s
+GetBenchmarks.preallocatedByteBufferGet         1_column_family        1000        128        65536  thrpt   25  31013.042 ± 143.675  ops/s
+GetBenchmarks.preallocatedByteBufferGet         1_column_family       50000        128        65536  thrpt   25  29567.939 ± 246.885  ops/s
+GetBenchmarks.preallocatedGet                   1_column_family        1000        128        65536  thrpt   25  30123.361 ± 137.527  ops/s
+GetBenchmarks.preallocatedGet                   1_column_family       50000        128        65536  thrpt   25  29013.625 ± 252.394  ops/s
+
 
 ### Baseline (no fixes)
 
