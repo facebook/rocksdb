@@ -2549,7 +2549,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           if (s.ok()) {
             for (Status stat : statuses) {
               if (!stat.ok()) {
-                s = stat;
+                s = std::move(stat);
+                break;
               }
             }
           }
@@ -2831,7 +2832,7 @@ Status Version::MultiGetAsync(
         if (s.ok()) {
           for (Status stat : statuses) {
             if (!stat.ok()) {
-              s = stat;
+              s = std::move(stat);
               break;
             }
           }
