@@ -1405,6 +1405,40 @@ void Java_org_rocksdb_RocksDB_merge__JJ_3BII_3BIIJ(
   }
 }
 
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    mergeDirect
+ * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)V
+ */
+void Java_org_rocksdb_RocksDB_mergeDirect(
+    JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jlong jwrite_options_handle,
+    jobject jkey, jint jkey_off, jint jkey_len, jobject jval, jint jval_off,
+    jint jval_len, jlong jcf_handle) {
+        auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* write_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+  auto merge = [&env, &db, &cf_handle, &write_options](
+                 ROCKSDB_NAMESPACE::Slice& key,
+                 ROCKSDB_NAMESPACE::Slice& value) {
+    ROCKSDB_NAMESPACE::Status s;
+    if (cf_handle == nullptr) {
+      s = db->Merge(*write_options, key, value);
+    } else {
+      s = db->Merge(*write_options, cf_handle, key, value);
+    }
+    if (s.ok()) {
+      return;
+    }
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct(merge, env, jkey, jkey_off, jkey_len,
+                                           jval, jval_off, jval_len);
+
+  }
+
 jlong rocksdb_iterator_helper(
     ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ReadOptions read_options,
     ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle) {
