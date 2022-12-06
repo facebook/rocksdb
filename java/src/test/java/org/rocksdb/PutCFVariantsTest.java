@@ -13,6 +13,7 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -34,6 +35,17 @@ public class PutCFVariantsTest {
         return Arrays.asList(
                 RocksDB::put,
                 (db, cfh, left, right) -> db.put(cfh, new WriteOptions(), left, right),
+                (db, cfh, left, right) -> {
+                    final byte[] left0 = ("1234567" + new String(left, StandardCharsets.UTF_8) + "890").getBytes();
+                    final byte[] right0 = ("1234" + new String(right, StandardCharsets.UTF_8) + "567890ab").getBytes();
+                    db.put(cfh, left0, 7, left.length, right0, 4, right.length);
+                },
+                (db, cfh, left, right) -> {
+                    final byte[] left0 = ("1234567" + new String(left, StandardCharsets.UTF_8) + "890").getBytes();
+                    final byte[] right0 = ("1234" + new String(right, StandardCharsets.UTF_8) + "567890ab").getBytes();
+                    db.put(cfh, new WriteOptions(), left0, 7, left.length, right0, 4, right.length);
+                },
+
                 (db, cfh, left, right) -> {
                     final ByteBuffer bbLeft = ByteBuffer.allocateDirect(100);
                     final ByteBuffer bbRight = ByteBuffer.allocateDirect(100);
