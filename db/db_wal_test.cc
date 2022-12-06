@@ -1621,7 +1621,7 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
   // sync will then add a WAL addition record of 4.log to the new manifest
   // without any special treatment.
   // (3) BackgroundFlush() will eventually purge 4.log.
-  bool sync_point_called = false;
+  bool wal_synced = false;
   SyncPoint::GetInstance()->SetCallBack(
       "FindObsoleteFiles::PostMutexUnlock", [&](void*) {
         ASSERT_OK(env_->FileExists(wal_file_path));
@@ -1635,7 +1635,7 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
             });
 
         ASSERT_OK(db_->SyncWAL());
-        sync_point_called = true;
+        wal_synced = true;
       });
 
   SyncPoint::GetInstance()->SetCallBack(
@@ -1648,21 +1648,22 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
               "PostDeleteWAL");
         }
       });
+
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
+      {{"DBImpl::BackgroundCallFlush:FilesFound",
+        "PreConfrimObsoletedWALSynced"},
+       {"DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
         "PostDeleteWAL",
-        "DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
         "PreConfrimWALDeleted"}});
 
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Flush());
-  ASSERT_TRUE(sync_point_called);
 
-  TEST_SYNC_POINT(
-      "DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
-      "PreConfrimWALDeleted");
+  TEST_SYNC_POINT("PreConfrimObsoletedWALSynced");
+  ASSERT_TRUE(wal_synced);
 
+  TEST_SYNC_POINT("PreConfrimWALDeleted");
   // BackgroundFlush() purged 4.log
   // because the memtable associated with the WAL was flushed and new WAL was
   // created (i.e, 8.log)
