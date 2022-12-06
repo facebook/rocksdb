@@ -8,35 +8,35 @@
 
 #pragma once
 
-#include <functional>
-#include <cstring>
-
 #include <jni.h>
 
+#include <cstring>
+#include <functional>
+
 #include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/status.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 class JByteArraySlice {
  public:
-  JByteArraySlice(JNIEnv* env, const jbyteArray& jarray, const jint jarray_off, const jint jarray_len) : array_(new jbyte[jarray_len]),
-  slice_(reinterpret_cast<char*>(array_), jarray_len) {
+  JByteArraySlice(JNIEnv* env, const jbyteArray& jarray, const jint jarray_off,
+                  const jint jarray_len)
+      : array_(new jbyte[jarray_len]),
+        slice_(reinterpret_cast<char*>(array_), jarray_len) {
     env->GetByteArrayRegion(jarray, jarray_off, jarray_len, array_);
     if (env->ExceptionCheck()) {
-        slice_.clear();
-        delete[] array_;
+      slice_.clear();
+      delete[] array_;
     }
   };
 
- ~JByteArraySlice() {
+  ~JByteArraySlice() {
     slice_.clear();
     delete[] array_;
- };
+  };
 
- Slice& slice() {
-   return slice_;
- }
+  Slice& slice() { return slice_; }
 
  private:
   jbyte* array_;
@@ -47,15 +47,15 @@ class KVHelperJNI {
  public:
   static bool IfEnvOK(JNIEnv* env, std::function<Status()> fn) {
     if (env->ExceptionCheck()) {
-        return false;
+      return false;
     }
     auto status = fn();
     if (status.ok()) {
-        return true;
+      return true;
     }
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
     return false;
   }
 };
 
-}
+}  // namespace ROCKSDB_NAMESPACE

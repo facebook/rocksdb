@@ -1033,16 +1033,16 @@ public class RocksDB extends RocksObject {
       final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     if (key.isDirect() && value.isDirect()) {
       putDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(), value,
-              value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
+          value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
-      put(nativeHandle_, writeOpts.nativeHandle_,
-              key.array(), key.arrayOffset() + key.position(), key.remaining(),
-              value.array(), value.arrayOffset() + value.position(), value.remaining(),
-              columnFamilyHandle.nativeHandle_);
+      put(nativeHandle_, writeOpts.nativeHandle_, key.array(), key.arrayOffset() + key.position(),
+          key.remaining(), value.array(), value.arrayOffset() + value.position(), value.remaining(),
+          columnFamilyHandle.nativeHandle_);
     } else {
-      throw new RocksDBException("ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -1067,15 +1067,16 @@ public class RocksDB extends RocksObject {
       throws RocksDBException {
     if (key.isDirect() && value.isDirect()) {
       putDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(), value,
-              value.position(), value.remaining(), 0);
-    } else if (!key.isDirect() && !value.isDirect()){
+          value.position(), value.remaining(), 0);
+    } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
-      put(nativeHandle_, writeOpts.nativeHandle_,
-              key.array(), key.arrayOffset() + key.position(), key.remaining(),
-              value.array(), value.arrayOffset() + value.position(), value.remaining());
+      put(nativeHandle_, writeOpts.nativeHandle_, key.array(), key.arrayOffset() + key.position(),
+          key.remaining(), value.array(), value.arrayOffset() + value.position(),
+          value.remaining());
     } else {
-      throw new RocksDBException("ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -1674,37 +1675,38 @@ public class RocksDB extends RocksObject {
   }
 
   public void merge(final WriteOptions writeOpts, final ByteBuffer key, final ByteBuffer value)
-          throws RocksDBException {
+      throws RocksDBException {
     if (key.isDirect() && value.isDirect()) {
-      mergeDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(), value,
-              value.position(), value.remaining(), 0);
+      mergeDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(),
+          value, value.position(), value.remaining(), 0);
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
-      merge(nativeHandle_, writeOpts.nativeHandle_,
-              key.array(), key.arrayOffset() + key.position(), key.remaining(),
-              value.array(), value.arrayOffset() + value.position(), value.remaining());
+      merge(nativeHandle_, writeOpts.nativeHandle_, key.array(), key.arrayOffset() + key.position(),
+          key.remaining(), value.array(), value.arrayOffset() + value.position(),
+          value.remaining());
     } else {
-      throw new RocksDBException("ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
     }
     key.position(key.limit());
     value.position(value.limit());
   }
 
   public void merge(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpts,
-                  final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
+      final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     if (key.isDirect() && value.isDirect()) {
-      mergeDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(), value,
-              value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
+      mergeDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(),
+          value, value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
-      merge(nativeHandle_, writeOpts.nativeHandle_,
-              key.array(), key.arrayOffset() + key.position(), key.remaining(),
-              value.array(), value.arrayOffset() + value.position(), value.remaining(),
-              columnFamilyHandle.nativeHandle_);
+      merge(nativeHandle_, writeOpts.nativeHandle_, key.array(), key.arrayOffset() + key.position(),
+          key.remaining(), value.array(), value.arrayOffset() + value.position(), value.remaining(),
+          columnFamilyHandle.nativeHandle_);
     } else {
-      throw new RocksDBException("ByteBuffer parameters must all be direct, or must all be indirect");
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
     }
     key.position(key.limit());
     value.position(value.limit());
@@ -4890,8 +4892,8 @@ public class RocksDB extends RocksObject {
       final byte[] value, final int valueOffset, final int valueLength,
       final long cfHandle) throws RocksDBException;
   private native void mergeDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
-                                int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
-          throws RocksDBException;
+      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
+      throws RocksDBException;
 
   private native void write0(final long handle, final long writeOptHandle,
       final long wbHandle) throws RocksDBException;

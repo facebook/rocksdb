@@ -26,8 +26,8 @@
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
 #include "rocksjni/kv_helper.h"
+#include "rocksjni/portal.h"
 
 #ifdef min
 #undef min
@@ -616,7 +616,7 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BII(JNIEnv* env, jobject,
       ROCKSDB_NAMESPACE::WriteOptions();
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value](){
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
     return db->Put(default_write_options, key.slice(), value.slice());
   });
 }
@@ -646,9 +646,9 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BIIJ(JNIEnv* env, jobject,
 
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value](){
-    return db->Put(default_write_options, cf_handle,
-                                            key.slice(), value.slice());
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+    return db->Put(default_write_options, cf_handle, key.slice(),
+                   value.slice());
   });
 }
 
@@ -669,7 +669,7 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BII(JNIEnv* env, jobject,
 
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value](){
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
     return db->Put(*write_options, key.slice(), value.slice());
   });
 }
@@ -697,7 +697,7 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BIIJ(
 
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value](){
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
     return db->Put(*write_options, cf_handle, key.slice(), value.slice());
   });
 }
@@ -1414,15 +1414,15 @@ void Java_org_rocksdb_RocksDB_mergeDirect(
     JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jlong jwrite_options_handle,
     jobject jkey, jint jkey_off, jint jkey_len, jobject jval, jint jval_off,
     jint jval_len, jlong jcf_handle) {
-        auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
 
   auto merge = [&env, &db, &cf_handle, &write_options](
-                 ROCKSDB_NAMESPACE::Slice& key,
-                 ROCKSDB_NAMESPACE::Slice& value) {
+                   ROCKSDB_NAMESPACE::Slice& key,
+                   ROCKSDB_NAMESPACE::Slice& value) {
     ROCKSDB_NAMESPACE::Status s;
     if (cf_handle == nullptr) {
       s = db->Merge(*write_options, key, value);
@@ -1436,8 +1436,7 @@ void Java_org_rocksdb_RocksDB_mergeDirect(
   };
   ROCKSDB_NAMESPACE::JniUtil::kv_op_direct(merge, env, jkey, jkey_off, jkey_len,
                                            jval, jval_off, jval_len);
-
-  }
+}
 
 jlong rocksdb_iterator_helper(
     ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ReadOptions read_options,
