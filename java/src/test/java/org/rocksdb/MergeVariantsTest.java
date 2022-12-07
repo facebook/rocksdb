@@ -65,12 +65,8 @@ public class MergeVariantsTest {
         });
   }
 
-  private final MergeVariantsTest.FunctionMerge<RocksDB, byte[], byte[]> mergeFunction;
-
-  public MergeVariantsTest(
-      final MergeVariantsTest.FunctionMerge<RocksDB, byte[], byte[]> mergeFunction) {
-    this.mergeFunction = mergeFunction;
-  }
+  @Parameterized.Parameter
+  public MergeVariantsTest.FunctionMerge<RocksDB, byte[], byte[]> mergeFunction;
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =

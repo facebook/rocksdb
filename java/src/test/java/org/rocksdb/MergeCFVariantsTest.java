@@ -67,12 +67,8 @@ public class MergeCFVariantsTest {
         });
   }
 
-  private final FunctionMerge<RocksDB, ColumnFamilyHandle, byte[], byte[]> mergeFunction;
-
-  public MergeCFVariantsTest(
-      final FunctionMerge<RocksDB, ColumnFamilyHandle, byte[], byte[]> mergeFunction) {
-    this.mergeFunction = mergeFunction;
-  }
+  @Parameterized.Parameter
+  public FunctionMerge<RocksDB, ColumnFamilyHandle, byte[], byte[]> mergeFunction;
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
