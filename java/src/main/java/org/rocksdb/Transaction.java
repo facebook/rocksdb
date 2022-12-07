@@ -7,6 +7,9 @@ package org.rocksdb;
 
 import static org.rocksdb.RocksDB.PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD;
 
+import static org.rocksdb.RocksDB.NOT_FOUND;
+
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -278,7 +281,7 @@ public class Transaction extends RocksObject {
   public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions, final byte[] key) throws RocksDBException {
     assert(isOwningHandle());
-    return get(nativeHandle_, readOptions.nativeHandle_, key, key.length,
+    return get(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_);
   }
 
@@ -310,7 +313,84 @@ public class Transaction extends RocksObject {
   public byte[] get(final ReadOptions readOptions, final byte[] key)
       throws RocksDBException {
     assert(isOwningHandle());
-    return get(nativeHandle_, readOptions.nativeHandle_, key, key.length);
+    return get(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length);
+  }
+
+  /**
+   * Get the value associated with the specified key.
+   *
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param key the key to retrieve the value.
+   * @param value the out-value to receive the retrieved value.
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public int get(final ReadOptions opt, final byte[] key, final byte[] value)
+      throws RocksDBException {
+    return get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value, 0, value.length, 0);
+  }
+
+  /**
+   * Get the value associated with the specified key within column family.
+   *
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param key the key to retrieve the value. It is using position and limit.
+   *     Supports direct buffer only.
+   * @param value the out-value to receive the retrieved value.
+   *     It is using position and limit. Limit is set according to value size.
+   *     Supports direct buffer only.
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public int get(final ReadOptions opt, final ColumnFamilyHandle columnFamilyHandle,
+      final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
+    if (columnFamilyHandle.nativeHandle_ == 0) {
+      throw new RocksDBException("Column Family Handle is 0/closed");
+    }
+    return get(opt, columnFamilyHandle.nativeHandle_, key, value);
+  }
+
+  public int get(final ReadOptions opt, final ByteBuffer key, final ByteBuffer value)
+      throws RocksDBException {
+    return get(opt, 0, key, value);
+  }
+
+  private int get(final ReadOptions opt, final long columnFamilyNativeHandle_, final ByteBuffer key,
+      final ByteBuffer value) throws RocksDBException {
+    final int result;
+    if (key.isDirect() && value.isDirect()) {
+      result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(),
+          key.remaining(), value, value.position(), value.remaining(),
+          columnFamilyNativeHandle_);
+      if (result != NOT_FOUND) {
+        value.limit(Math.min(value.limit(), value.position() + result));
+      }
+    } else if (!key.isDirect() && !value.isDirect()) {
+      assert key.hasArray();
+      assert value.hasArray();
+      result = get(nativeHandle_, opt.nativeHandle_, key.array(),
+          key.arrayOffset() + key.position(), key.remaining(), value.array(),
+          value.arrayOffset() + value.position(), value.remaining(), columnFamilyNativeHandle_);
+    } else {
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
+    }
+    key.position(key.limit());
+    return result;
   }
 
   /**
@@ -823,8 +903,8 @@ public class Transaction extends RocksObject {
   public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value, final boolean assumeTracked) throws RocksDBException {
     assert (isOwningHandle());
-    put(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_, assumeTracked);
+    put(nativeHandle_, key, 0, key.length, value, 0, value.length, columnFamilyHandle.nativeHandle_,
+        assumeTracked);
   }
 
   /**
@@ -855,8 +935,8 @@ public class Transaction extends RocksObject {
   public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value) throws RocksDBException {
     assert(isOwningHandle());
-    put(nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_, false);
+    put(nativeHandle_, key, 0, key.length, value, 0, value.length, columnFamilyHandle.nativeHandle_,
+        false);
   }
 
   /**
@@ -884,7 +964,7 @@ public class Transaction extends RocksObject {
   public void put(final byte[] key, final byte[] value)
       throws RocksDBException {
     assert(isOwningHandle());
-    put(nativeHandle_, key, key.length, value, value.length);
+    put(nativeHandle_, key, 0, key.length, value, 0, value.length);
   }
 
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
@@ -935,7 +1015,96 @@ public class Transaction extends RocksObject {
         columnFamilyHandle.nativeHandle_, false);
   }
 
-  //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
+  /**
+   * Similar to {@link RocksDB#put(byte[], byte[])}, but
+   * will also perform conflict checking on the keys be written.
+   *
+   * If this Transaction was created on an {@link OptimisticTransactionDB},
+   * these functions should always succeed.
+   *
+   *  If this Transaction was created on a {@link TransactionDB}, an
+   *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   *  when:
+   *    {@link Status.Code#Busy} if there is a write conflict,
+   *    {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *    {@link Status.Code#TryAgain} if the memtable history size is not large
+   *       enough. See
+   *       {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *
+   * @param key the specified key to be inserted.
+   * @param value the value associated with the specified key.
+   *
+   * @throws RocksDBException when one of the TransactionalDB conditions
+   *     described above occurs, or in the case of an unexpected error
+   */
+  public void put(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
+    assert (isOwningHandle());
+    if (key.isDirect() && value.isDirect()) {
+      putDirect(nativeHandle_, key, key.position(), key.remaining(), value,
+          value.position(), value.remaining());
+    } else if (!key.isDirect() && !value.isDirect()) {
+      assert key.hasArray();
+      assert value.hasArray();
+      put(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining(),
+          value.array(), value.arrayOffset() + value.position(), value.remaining());
+    } else {
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
+    }
+  }
+
+  /**
+   * Similar to {@link RocksDB#put(byte[], byte[])}, but
+   * will also perform conflict checking on the keys be written.
+   *
+   * If this Transaction was created on an {@link OptimisticTransactionDB},
+   * these functions should always succeed.
+   *
+   *  If this Transaction was created on a {@link TransactionDB}, an
+   *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   *  when:
+   *    {@link Status.Code#Busy} if there is a write conflict,
+   *    {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *    {@link Status.Code#TryAgain} if the memtable history size is not large
+   *       enough. See
+   *       {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *
+   * @param columnFamilyHandle The column family to put the key/value into
+   * @param key the specified key to be inserted.
+   * @param value the value associated with the specified key.
+   * @param assumeTracked true when it is expected that the key is already
+   *     tracked. More specifically, it means the the key was previous tracked
+   *     in the same savepoint, with the same exclusive flag, and at a lower
+   *     sequence number. If valid then it skips ValidateSnapshot,
+   *     throws an error otherwise.
+   *
+   * @throws RocksDBException when one of the TransactionalDB conditions
+   *     described above occurs, or in the case of an unexpected error
+   */
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
+      final ByteBuffer value, final boolean assumeTracked) throws RocksDBException {
+    assert (isOwningHandle());
+    if (key.isDirect() && value.isDirect()) {
+      putDirect(nativeHandle_, key, key.position(), key.remaining(), value,
+          value.position(), value.remaining(),
+          columnFamilyHandle.nativeHandle_, assumeTracked);
+    } else if (!key.isDirect() && !value.isDirect()) {
+      assert key.hasArray();
+      assert value.hasArray();
+      put(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining(),
+          value.array(), value.arrayOffset() + value.position(), value.remaining(),
+          columnFamilyHandle.nativeHandle_, assumeTracked);
+    } else {
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
+    }
+  }
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
+      final ByteBuffer value) throws RocksDBException {
+    put(columnFamilyHandle, key, value, false);
+  }
+
+  // TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
   /**
    * Similar to {@link #put(byte[], byte[])} but allows
    * you to specify the key and value in several parts that will be
@@ -986,7 +1155,7 @@ public class Transaction extends RocksObject {
       final byte[] key, final byte[] value, final boolean assumeTracked)
       throws RocksDBException {
     assert (isOwningHandle());
-    merge(nativeHandle_, key, key.length, value, value.length,
+    merge(nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_, assumeTracked);
   }
 
@@ -1018,7 +1187,7 @@ public class Transaction extends RocksObject {
   public void merge(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value) throws RocksDBException {
     assert(isOwningHandle());
-    merge(nativeHandle_, key, key.length, value, value.length,
+    merge(nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_, false);
   }
 
@@ -1047,7 +1216,93 @@ public class Transaction extends RocksObject {
   public void merge(final byte[] key, final byte[] value)
       throws RocksDBException {
     assert(isOwningHandle());
-    merge(nativeHandle_, key, key.length, value, value.length);
+    merge(nativeHandle_, key, 0, key.length, value, 0, value.length);
+  }
+
+  /**
+   * Similar to {@link RocksDB#merge(byte[], byte[])}, but
+   * will also perform conflict checking on the keys be written.
+   *
+   * If this Transaction was created on an {@link OptimisticTransactionDB},
+   * these functions should always succeed.
+   *
+   *  If this Transaction was created on a {@link TransactionDB}, an
+   *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   *  when:
+   *    {@link Status.Code#Busy} if there is a write conflict,
+   *    {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *    {@link Status.Code#TryAgain} if the memtable history size is not large
+   *       enough. See
+   *       {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *
+   * @param key the specified key to be merged.
+   * @param value the value associated with the specified key.
+   *
+   * @throws RocksDBException when one of the TransactionalDB conditions
+   *     described above occurs, or in the case of an unexpected error
+   */
+  public void merge(final ByteBuffer key, final ByteBuffer value)
+      throws RocksDBException {
+    assert (isOwningHandle());
+    if (key.isDirect() && value.isDirect()) {
+      mergeDirect(nativeHandle_, key, key.position(), key.remaining(), value,
+          value.arrayOffset() + value.position(), value.remaining());
+    } else if (!key.isDirect() && !value.isDirect()) {
+      assert key.hasArray();
+      assert value.hasArray();
+      merge(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining(),
+          value.array(), value.arrayOffset() + value.position(), value.remaining());
+    } else {
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
+    }
+  }
+
+  /**
+   * Similar to {@link RocksDB#merge(byte[], byte[])}, but
+   * will also perform conflict checking on the keys be written.
+   *
+   * If this Transaction was created on an {@link OptimisticTransactionDB},
+   * these functions should always succeed.
+   *
+   *  If this Transaction was created on a {@link TransactionDB}, an
+   *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   *  when:
+   *    {@link Status.Code#Busy} if there is a write conflict,
+   *    {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *    {@link Status.Code#TryAgain} if the memtable history size is not large
+   *       enough. See
+   *       {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *
+   * @param columnFamilyHandle in which to apply the merge
+   * @param key the specified key to be merged.
+   * @param value the value associated with the specified key.
+   *
+   * @throws RocksDBException when one of the TransactionalDB conditions
+   *     described above occurs, or in the case of an unexpected error
+   */
+  public void merge(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
+      final ByteBuffer value, final boolean assumeTracked) throws RocksDBException {
+    assert (isOwningHandle());
+    if (key.isDirect() && value.isDirect()) {
+      mergeDirect(nativeHandle_, key, key.position(), key.remaining(), value,
+          value.position(), value.remaining(),
+          columnFamilyHandle.nativeHandle_, assumeTracked);
+    } else if (!key.isDirect() && !value.isDirect()) {
+      assert key.hasArray();
+      assert value.hasArray();
+      merge(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining(),
+          value.array(), value.arrayOffset() + value.position(), value.remaining(),
+          columnFamilyHandle.nativeHandle_, assumeTracked);
+    } else {
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
+    }
+  }
+
+  public void merge(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
+      final ByteBuffer value) throws RocksDBException {
+    merge(columnFamilyHandle, key, value, false);
   }
 
   /**
@@ -2041,12 +2296,19 @@ public class Transaction extends RocksObject {
   private native void rollbackToSavePoint(final long handle)
       throws RocksDBException;
   private native byte[] get(final long handle, final long readOptionsHandle, final byte[] key,
-      final int keyLength, final long columnFamilyHandle) throws RocksDBException;
+      final int keyOffset, final int keyLength, final long columnFamilyHandle) throws RocksDBException;
   private native byte[] get(final long handle, final long readOptionsHandle, final byte[] key,
-      final int keyLen) throws RocksDBException;
-  private native byte[][] multiGet(final long handle,
-      final long readOptionsHandle, final byte[][] keys,
-      final long[] columnFamilyHandles) throws RocksDBException;
+      final int keyOffset, final int keyLen) throws RocksDBException;
+  private native int get(final long handle, final long readOptionsHandle, final byte[] key,
+      final int keyOffset, final int keyLen, final byte[] value, final int valueOffset,
+      final int valueLen, final long columnFamilyHandle) throws RocksDBException;
+  private native int getDirect(final long handle, final long readOptionsHandle,
+      final ByteBuffer key, final int keyOffset, final int keyLength, final ByteBuffer value,
+      final int valueOffset, final int valueLength, final long columnFamilyHandle)
+      throws RocksDBException;
+
+  private native byte[][] multiGet(final long handle, final long readOptionsHandle,
+      final byte[][] keys, final long[] columnFamilyHandles) throws RocksDBException;
   private native byte[][] multiGet(final long handle,
       final long readOptionsHandle, final byte[][] keys)
       throws RocksDBException;
@@ -2066,24 +2328,36 @@ public class Transaction extends RocksObject {
       final long readOptionsHandle);
   private native long getIterator(final long handle,
       final long readOptionsHandle, final long columnFamilyHandle);
-  private native void put(final long handle, final byte[] key, final int keyLength,
-      final byte[] value, final int valueLength, final long columnFamilyHandle,
-      final boolean assumeTracked) throws RocksDBException;
-  private native void put(final long handle, final byte[] key,
-      final int keyLength, final byte[] value, final int valueLength)
-      throws RocksDBException;
-  private native void put(final long handle, final byte[][] keys, final int keysLength,
+    private native void put(final long handle, final byte[] key, final int keyOffset,
+                            final int keyLength, final byte[] value, final int valueOffset, final int valueLength) throws RocksDBException;
+    private native void put(final long handle, final byte[] key, final int keyOffset,
+                            final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
+                            final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
+    private native void put(final long handle, final byte[][] keys, final int keysLength,
       final byte[][] values, final int valuesLength, final long columnFamilyHandle,
       final boolean assumeTracked) throws RocksDBException;
   private native void put(final long handle, final byte[][] keys,
       final int keysLength, final byte[][] values, final int valuesLength)
       throws RocksDBException;
-  private native void merge(final long handle, final byte[] key, final int keyLength,
-      final byte[] value, final int valueLength, final long columnFamilyHandle,
+  private native void putDirect(long handle, ByteBuffer key, int keyOffset, int keyLength,
+      ByteBuffer value, int valueOffset, int valueLength, long cfHandle,
       final boolean assumeTracked) throws RocksDBException;
-  private native void merge(final long handle, final byte[] key,
-      final int keyLength, final byte[] value, final int valueLength)
+  private native void putDirect(long handle, ByteBuffer key, int keyOffset, int keyLength,
+      ByteBuffer value, int valueOffset, int valueLength)
       throws RocksDBException;
+
+  private native void merge(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
+      final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
+  private native void mergeDirect(long handle, ByteBuffer key, int keyOffset, int keyLength,
+      ByteBuffer value, int valueOffset, int valueLength, long cfHandle, boolean assumeTracked)
+      throws RocksDBException;
+  private native void mergeDirect(long handle, ByteBuffer key, int keyOffset, int keyLength,
+      ByteBuffer value, int valueOffset, int valueLength)
+      throws RocksDBException;
+
+  private native void merge(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength) throws RocksDBException;
   private native void delete(final long handle, final byte[] key, final int keyLength,
       final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
   private native void delete(final long handle, final byte[] key,

@@ -12,6 +12,7 @@
 
 #include <cstring>
 #include <functional>
+#include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
@@ -42,6 +43,30 @@ class JByteArraySlice {
  private:
   jbyte* array_;
   Slice slice_;
+};
+
+class JByteBufferSlice {
+ public:
+  JByteBufferSlice(JNIEnv* env, const jobject& jbuffer, const jint jbuffer_off,
+                  const jint jbuffer_len) : slice_(static_cast<char *>(env->GetDirectBufferAddress(jbuffer)), jbuffer_len) {
+if (env->ExceptionCheck()) {
+  slice_.clear();
+  return;
+}
+jlong capacity = env->GetDirectBufferCapacity(jbuffer);
+if (capacity < jbuffer_off + jbuffer_len) {
+  auto message = "Direct buffer offset " + std::to_string(jbuffer_off) + " + length " + std::to_string(jbuffer_len) +
+  " exceeds capacity " + std::to_string(capacity);
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, message);
+  slice_.clear();
+}
+                  }
+
+  Slice& slice() { return slice_; }
+
+ private:
+  Slice slice_;
+ 
 };
 
 class KVHelperJNI {
