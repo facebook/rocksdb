@@ -4983,6 +4983,9 @@ Status VersionSet::ProcessManifestWrites(
   } else {
     pending_manifest_file_number_ = manifest_file_number_;
   }
+  TEST_SYNC_POINT_CALLBACK(
+      "VersionSet::ProcessManifestWrites:PostDecidingCreateNewManifestOrNot",
+      &new_descriptor_log);
 
   // Local cached copy of state variable(s). WriteCurrentStateToManifest()
   // reads its content after releasing db mutex to avoid race with
