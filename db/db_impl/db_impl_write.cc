@@ -940,14 +940,14 @@ Status DBImpl::WriteImplWALOnly(
       bg_cv_.Wait();
       write_thread->EndWriteStall();
     }
-    if (write_controller_.IsStopped()) {
+    if (status.ok() && write_controller_.IsStopped()) {
       if (!shutting_down_.load(std::memory_order_relaxed)) {
         status = Status::Incomplete(error_handler_.GetBGError().ToString());
       } else {
         status = Status::ShutdownInProgress("stalled writes");
       }
     }
-    if (error_handler_.IsDBStopped()) {
+    if (status.ok() && error_handler_.IsDBStopped()) {
       status = error_handler_.GetBGError();
     }
     if (!status.ok()) {
