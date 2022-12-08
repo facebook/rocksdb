@@ -1246,7 +1246,7 @@ public class Transaction extends RocksObject {
     assert (isOwningHandle());
     if (key.isDirect() && value.isDirect()) {
       mergeDirect(nativeHandle_, key, key.position(), key.remaining(), value,
-          value.arrayOffset() + value.position(), value.remaining());
+          value.position(), value.remaining());
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();

@@ -823,6 +823,47 @@ void Java_org_rocksdb_Transaction_merge__J_3BII_3BII(
   });
 }
 
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    mergeDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJZ)V
+ */
+JNIEXPORT void JNICALL Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_ByteBuffer_2IILjava_nio_ByteBuffer_2IIJZ
+  (JNIEnv *env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off, jint jkey_len,
+  jobject jval_bb, jint jval_off, jint jval_len,
+  jlong jcolumn_family_handle, jboolean jassume_tracked) {
+
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+  ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+    return txn->Merge(column_family_handle, key.slice(), value.slice(),
+                      jassume_tracked);
+  });
+  }
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    mergeDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;II)V
+ */
+JNIEXPORT void JNICALL Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_ByteBuffer_2IILjava_nio_ByteBuffer_2II
+  (JNIEnv *env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off, jint jkey_len,
+  jobject jval_bb, jint jval_off, jint jval_len) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+    return txn->Merge(key.slice(), value.slice());
+  });
+
+  }
+
+
+
 typedef std::function<ROCKSDB_NAMESPACE::Status(
     const ROCKSDB_NAMESPACE::Slice&)>
     FnWriteK;
