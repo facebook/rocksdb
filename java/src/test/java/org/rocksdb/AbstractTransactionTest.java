@@ -215,12 +215,15 @@ public abstract class AbstractTransactionTest {
          final ReadOptions readOptions = new ReadOptions();
          final Transaction txn = dbContainer.beginTransaction()) {
       final ByteBuffer vGet = ByteBuffer.allocateDirect(100);
-      assertThat(txn.get(readOptions, k1, vGet)).isLessThan(0);
+      assertThat(txn.get(readOptions, k1, vGet).status.getCode()).isEqualTo(Status.Code.NotFound);
       txn.put(k1, v1);
       vGet.put("12345".getBytes(UTF_8));
       txn.get(readOptions, k1, vGet);
       vGet.put("67890".getBytes(UTF_8));
-      assertThat(vGet.toString()).isEqualTo("wibble");
+      vGet.flip();
+      final byte[] bytes = new byte[vGet.limit()];
+      vGet.get(bytes);
+      assertThat(new String(bytes, UTF_8)).isEqualTo("12345value167890");
     }
   }
 
@@ -235,12 +238,15 @@ public abstract class AbstractTransactionTest {
          final ReadOptions readOptions = new ReadOptions();
          final Transaction txn = dbContainer.beginTransaction()) {
       final ByteBuffer vGet = ByteBuffer.allocate(100);
-      assertThat(txn.get(readOptions, k1, vGet)).isLessThan(0);
+      assertThat(txn.get(readOptions, k1, vGet).status.getCode()).isEqualTo(Status.Code.NotFound);
       txn.put(k1, v1);
       vGet.put("12345".getBytes(UTF_8));
       txn.get(readOptions, k1, vGet);
       vGet.put("67890".getBytes(UTF_8));
-      assertThat(vGet.toString()).isEqualTo("wibble");
+      vGet.flip();
+      final byte[] bytes = new byte[vGet.limit()];
+      vGet.get(bytes);
+      assertThat(new String(bytes, UTF_8)).isEqualTo("12345value167890");
     }
   }
 
@@ -256,12 +262,16 @@ public abstract class AbstractTransactionTest {
          final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       final ByteBuffer vGet = ByteBuffer.allocateDirect(100);
-      assertThat(txn.get(readOptions, testCf, k1, vGet)).isEqualTo(Status.Code.NotFound);
+      assertThat(txn.get(readOptions, testCf, k1, vGet).status.getCode())
+          .isEqualTo(Status.Code.NotFound);
       txn.put(testCf, k1, v1);
       vGet.put("12345".getBytes(UTF_8));
       txn.get(readOptions, testCf, k1, vGet);
       vGet.put("67890".getBytes(UTF_8));
-      assertThat(vGet.toString()).isEqualTo("wibble");
+      vGet.flip();
+      final byte[] bytes = new byte[vGet.limit()];
+      vGet.get(bytes);
+      assertThat(new String(bytes, UTF_8)).isEqualTo("12345value167890");
     }
   }
 
@@ -277,12 +287,16 @@ public abstract class AbstractTransactionTest {
          final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       final ByteBuffer vGet = ByteBuffer.allocate(100);
-      assertThat(txn.get(readOptions, testCf, k1, vGet)).isEqualTo(Status.Code.NotFound);
+      assertThat(txn.get(readOptions, testCf, k1, vGet).status.getCode())
+          .isEqualTo(Status.Code.NotFound);
       txn.put(testCf, k1, v1);
       vGet.put("12345".getBytes(UTF_8));
       txn.get(readOptions, testCf, k1, vGet);
       vGet.put("67890".getBytes(UTF_8));
-      assertThat(vGet.toString()).isEqualTo("wibble");
+      vGet.flip();
+      final byte[] bytes = new byte[vGet.limit()];
+      vGet.get(bytes);
+      assertThat(new String(bytes, UTF_8)).isEqualTo("12345value167890");
     }
   }
 

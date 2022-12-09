@@ -29,9 +29,7 @@ public class GetStatus {
     this.requiredSize = requiredSize;
   }
 
-  static GetStatus fromStatusCode(final byte code, final int requiredSize) {
-    return new GetStatus(
-        new Status(Status.Code.getCode(code), Status.SubCode.getSubCode((byte) 0), null),
-        requiredSize);
+  static GetStatus fromStatusCode(final Status.Code code, final int requiredSize) {
+    return new GetStatus(new Status(code, Status.SubCode.getSubCode((byte) 0), null), requiredSize);
   }
 }

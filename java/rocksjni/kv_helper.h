@@ -20,6 +20,51 @@
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class KVHelperJNI {
+ public:
+  static const int kNotFound = -1;
+  static const int kStatusError = -2;
+
+  static bool DoWrite(JNIEnv* env, std::function<Status()> fn) {
+    if (env->ExceptionCheck()) {
+      return false;
+    }
+    auto status = fn();
+    if (status.ok()) {
+      return true;
+    }
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
+    return false;
+  }
+
+  template <typename TPinnableWrapper>
+  static jint DoRead(JNIEnv* env, TPinnableWrapper& pinnable,
+                     std::function<Status()> fn) {
+    if (env->ExceptionCheck()) {
+      return kStatusError;
+    }
+    auto status = fn();
+    if (status.IsNotFound()) {
+      return kNotFound;
+    }
+    if (!status.ok()) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
+      // There's a Java exception, but C++ doesn't know that,
+      // and it needs us to return something; it will be ignored by Java
+      return kStatusError;
+    }
+
+    return pinnable.Retrieve();
+  }
+};
+
+/**
+ * @brief Construct a slice with the contents of a Java byte array
+ *
+ * The slice refers to an array into which the Java byte array's whole region is
+ * copied
+ */
 class JByteArraySlice {
  public:
   JByteArraySlice(JNIEnv* env, const jbyteArray& jarray, const jint jarray_off,
@@ -45,6 +90,12 @@ class JByteArraySlice {
   Slice slice_;
 };
 
+/**
+ * @brief Construct a slice with the contents of a direct Java ByterBuffer
+ *
+ * The slice refers directly to the contents of the buffer, no copy is made.
+ *
+ */
 class JByteBufferSlice {
  public:
   JByteBufferSlice(JNIEnv* env, const jobject& jbuffer, const jint jbuffer_off,
@@ -75,6 +126,12 @@ class JByteBufferSlice {
  
 };
 
+/**
+ * @brief Wrap a pinnable slice with a method to retrieve the contents back into
+ * Java
+ *
+ * The Java Byte Array version sets the byte array's region from the slice
+ */
 class JByteArrayPinnableSlice {
  public:
   JByteArrayPinnableSlice(JNIEnv* env, const jbyteArray& jbuffer,
@@ -95,7 +152,7 @@ class JByteArrayPinnableSlice {
    */
   jint Retrieve() {
     if (env_->ExceptionCheck()) {
-      return -1;
+      return ROCKSDB_NAMESPACE::KVHelperJNI::kStatusError;
     }
     const jint pinnable_len = static_cast<jint>(pinnable_slice_.size());
     const jint result_len = std::min(jbuffer_len_, pinnable_len);
@@ -115,6 +172,12 @@ class JByteArrayPinnableSlice {
   PinnableSlice pinnable_slice_;
 };
 
+/**
+ * @brief Wrap a pinnable slice with a method to retrieve the contents back into
+ * Java
+ *
+ * The Java Byte Buffer version copies the memory of the buffer from the slice
+ */
 class JByteBufferPinnableSlice {
  public:
   JByteBufferPinnableSlice(JNIEnv* env, const jobject& jbuffer,
@@ -144,7 +207,7 @@ class JByteBufferPinnableSlice {
    */
   jint Retrieve() {
     if (env_->ExceptionCheck()) {
-      return -1;
+      return ROCKSDB_NAMESPACE::KVHelperJNI::kStatusError;
     }
     const jint pinnable_len = static_cast<jint>(pinnable_slice_.size());
     const jint result_len = std::min(jbuffer_len_, pinnable_len);
@@ -159,21 +222,6 @@ class JByteBufferPinnableSlice {
   char* buffer_;
   jint jbuffer_len_;
   PinnableSlice pinnable_slice_;
-};
-
-class KVHelperJNI {
- public:
-  static bool IfEnvOK(JNIEnv* env, std::function<Status()> fn) {
-    if (env->ExceptionCheck()) {
-      return false;
-    }
-    auto status = fn();
-    if (status.ok()) {
-      return true;
-    }
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
-    return false;
-  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

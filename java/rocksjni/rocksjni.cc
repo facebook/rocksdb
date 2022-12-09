@@ -616,7 +616,7 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BII(JNIEnv* env, jobject,
       ROCKSDB_NAMESPACE::WriteOptions();
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return db->Put(default_write_options, key.slice(), value.slice());
   });
 }
@@ -646,7 +646,7 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BIIJ(JNIEnv* env, jobject,
 
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return db->Put(default_write_options, cf_handle, key.slice(),
                    value.slice());
   });
@@ -669,7 +669,7 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BII(JNIEnv* env, jobject,
 
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return db->Put(*write_options, key.slice(), value.slice());
   });
 }
@@ -697,7 +697,7 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BIIJ(
 
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return db->Put(*write_options, cf_handle, key.slice(), value.slice());
   });
 }

@@ -35,6 +35,7 @@ public class Transaction extends RocksObject {
       "For each key there must be a ColumnFamilyHandle.";
 
   private final RocksDB parent;
+  private final ColumnFamilyHandle defaultColumnFamilyHandle;
 
   /**
    * Intentionally package private
@@ -50,6 +51,7 @@ public class Transaction extends RocksObject {
   Transaction(final RocksDB parent, final long transactionHandle) {
     super(transactionHandle);
     this.parent = parent;
+    this.defaultColumnFamilyHandle = parent.getDefaultColumnFamily();
   }
 
   /**
@@ -334,10 +336,13 @@ public class Transaction extends RocksObject {
    */
   public GetStatus get(final ReadOptions opt, final byte[] key, final byte[] value)
       throws RocksDBException {
-    final byte[] resultStatus = new byte[1];
-    final int dataSize = get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value, 0,
-        value.length, 0, resultStatus);
-    return GetStatus.fromStatusCode(resultStatus[0], dataSize);
+    final int result =
+        get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value, 0, value.length, 0);
+    if (result < 0) {
+      return GetStatus.fromStatusCode(Status.Code.NotFound, 0);
+    } else {
+      return GetStatus.fromStatusCode(Status.Code.Ok, result);
+    }
   }
 
   /**
@@ -369,35 +374,33 @@ public class Transaction extends RocksObject {
 
   public GetStatus get(final ReadOptions opt, final ByteBuffer key, final ByteBuffer value)
       throws RocksDBException {
-    return get(opt, 0, key, value);
+    return get(opt, this.defaultColumnFamilyHandle, key, value);
   }
 
   private GetStatus get(final ReadOptions opt, final long columnFamilyNativeHandle_,
       final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
-    final int dataSize;
-    final byte[] resultStatus = new byte[1];
+    final int result;
     if (key.isDirect() && value.isDirect()) {
-      dataSize = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
-          value, value.position(), value.remaining(), columnFamilyNativeHandle_, resultStatus);
+      result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
+          value, value.position(), value.remaining(), columnFamilyNativeHandle_);
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
-      dataSize =
-          get(nativeHandle_, opt.nativeHandle_, key.array(), key.arrayOffset() + key.position(),
-              key.remaining(), value.array(), value.arrayOffset() + value.position(),
-              value.remaining(), columnFamilyNativeHandle_, resultStatus);
-      return GetStatus.fromStatusCode(resultStatus[0], dataSize);
+      result = get(nativeHandle_, opt.nativeHandle_, key.array(),
+          key.arrayOffset() + key.position(), key.remaining(), value.array(),
+          value.arrayOffset() + value.position(), value.remaining(), columnFamilyNativeHandle_);
     } else {
       throw new RocksDBException(
           "ByteBuffer parameters must all be direct, or must all be indirect");
     }
-    final GetStatus getStatus = GetStatus.fromStatusCode(resultStatus[0], dataSize);
-    key.position(key.limit());
-    if (Status.Code.Ok.equals(getStatus.status.getCode())) {
-      value.limit(Math.min(value.limit(), value.position() + getStatus.requiredSize));
-    }
 
-    return getStatus;
+    key.position(key.limit());
+    if (result < 0) {
+      return GetStatus.fromStatusCode(Status.Code.NotFound, 0);
+    } else {
+      value.position(Math.min(value.limit(), value.position() + result));
+      return GetStatus.fromStatusCode(Status.Code.Ok, result);
+    }
   }
 
   /**
@@ -2308,12 +2311,11 @@ public class Transaction extends RocksObject {
       final int keyOffset, final int keyLen) throws RocksDBException;
   private native int get(final long handle, final long readOptionsHandle, final byte[] key,
       final int keyOffset, final int keyLen, final byte[] value, final int valueOffset,
-      final int valueLen, final long columnFamilyHandle, final byte[] statusCode)
-      throws RocksDBException;
+      final int valueLen, final long columnFamilyHandle) throws RocksDBException;
   private native int getDirect(final long handle, final long readOptionsHandle,
       final ByteBuffer key, final int keyOffset, final int keyLength, final ByteBuffer value,
-      final int valueOffset, final int valueLength, final long columnFamilyHandle,
-      final byte[] statusCode) throws RocksDBException;
+      final int valueOffset, final int valueLength, final long columnFamilyHandle)
+      throws RocksDBException;
 
   private native byte[][] multiGet(final long handle, final long readOptionsHandle,
       final byte[][] keys, final long[] columnFamilyHandles) throws RocksDBException;

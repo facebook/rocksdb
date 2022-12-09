@@ -253,13 +253,12 @@ jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BII(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    get
- * Signature: (JJ[BII[BIIJ[B)I
+ * Signature: (JJ[BII[BIIJ)I
  */
-jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ_3B(
+jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_off, jint jkey_part_len, jbyteArray jval,
-    jint jval_off, jint jval_part_len, jlong jcolumn_family_handle,
-    jbyteArray jstatus_array) {
+    jint jval_off, jint jval_part_len, jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
@@ -269,30 +268,24 @@ jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ_3B(
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
   ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
                                                    jval_part_len);
-  if (ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
-        auto status = txn->Get(*read_options, column_family_handle, key.slice(),
-                               &value.pinnable_slice());
-        jbyte code = status.code();
-        env->SetByteArrayRegion(jstatus_array, 0, 1, &code);
-        return status;
-      })) {
-    return value.Retrieve();
-  }
-  return 0;
+  return ROCKSDB_NAMESPACE::KVHelperJNI::DoRead(
+      env, value, [=, &key, &value]() {
+        return txn->Get(*read_options, column_family_handle, key.slice(),
+                        &value.pinnable_slice());
+      });
 }
 
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    getDirect
- * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ[B)I
+ * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)I
  */
 jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jobject, jlong jhandle,
                                             jlong jread_options_handle,
                                             jobject jkey_bb, jint jkey_off,
                                             jint jkey_part_len, jobject jval_bb,
                                             jint jval_off, jint jval_part_len,
-                                            jlong jcolumn_family_handle,
-                                            jbyteArray jstatus_array) {
+                                            jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
@@ -304,16 +297,11 @@ jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jobject, jlong jhandle,
                                           jkey_part_len);
   ROCKSDB_NAMESPACE::JByteBufferPinnableSlice value(env, jval_bb, jval_off,
                                                     jval_part_len);
-  if (ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  return ROCKSDB_NAMESPACE::KVHelperJNI::DoRead(
+      env, value, [=, &key, &value]() {
         return txn->Get(*read_options, column_family_handle, key.slice(),
                         &value.pinnable_slice());
-        jbyte code = status.code();
-        env->SetByteArrayRegion(jstatus_array, 0, 1, &code);
-        return status;
-      })) {
-    return value.Retrieve();
-  };
-  return 0;
+      });
 }
 
 // TODO(AR) consider refactoring to share this between here and rocksjni.cc
@@ -639,7 +627,7 @@ void Java_org_rocksdb_Transaction_put__J_3BII_3BIIJZ(
           jcolumn_family_handle);
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Put(column_family_handle, key.slice(), value.slice(),
                     jassume_tracked);
   });
@@ -660,7 +648,7 @@ void Java_org_rocksdb_Transaction_put__J_3BII_3BII(JNIEnv* env, jobject /*jobj*/
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Put(key.slice(), value.slice());
   });
 }
@@ -680,11 +668,10 @@ void Java_org_rocksdb_Transaction_putDirect__JLjava_nio_ByteBuffer_2IILjava_nio_
           jcolumn_family_handle);
   ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Put(column_family_handle, key.slice(), value.slice(),
                     jassume_tracked);
   });
-
   }
 
 /*
@@ -699,10 +686,9 @@ void Java_org_rocksdb_Transaction_putDirect__JLjava_nio_ByteBuffer_2IILjava_nio_
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Put(key.slice(), value.slice());
   });
-
   }
 
 
@@ -867,7 +853,7 @@ void Java_org_rocksdb_Transaction_merge__J_3BII_3BIIJZ(
           jcolumn_family_handle);
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Merge(column_family_handle, key.slice(), value.slice(),
                       jassume_tracked);
   });
@@ -884,7 +870,7 @@ void Java_org_rocksdb_Transaction_merge__J_3BII_3BII(
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Merge(key.slice(), value.slice());
   });
 }
@@ -905,7 +891,7 @@ JNIEXPORT void JNICALL Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_Byte
           jcolumn_family_handle);
   ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Merge(column_family_handle, key.slice(), value.slice(),
                       jassume_tracked);
   });
@@ -922,10 +908,9 @@ JNIEXPORT void JNICALL Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_Byte
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
   ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Merge(key.slice(), value.slice());
   });
-
   }
 
 
@@ -1180,7 +1165,7 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BIJ(
           jcolumn_family_handle);
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->PutUntracked(column_family_handle, key.slice(), value.slice());
   });
 }
@@ -1196,7 +1181,7 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BI(
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->PutUntracked(key.slice(), value.slice());
   });
 }
@@ -1257,7 +1242,7 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BIJ(
           jcolumn_family_handle);
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->MergeUntracked(column_family_handle, key.slice(),
                                value.slice());
   });
@@ -1274,7 +1259,7 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BI(
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
   ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->MergeUntracked(key.slice(), value.slice());
   });
 }
