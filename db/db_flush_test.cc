@@ -3139,6 +3139,36 @@ TEST_F(DBFlushTest, AutoCompactionBeforeEnablingFlush) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBFlushTest, NoStopWritesWhenAutoFlushDisabled) {
+  Options options = CurrentOptions();
+  options.max_write_buffer_number = 2;
+  options.write_buffer_size = 65536;
+  options.disable_auto_flush = true;
+
+  Reopen(options);
+
+  auto cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd();
+
+  // generate the immutable memtables
+  db_->PauseBackgroundWork();
+
+  for (int i = 1; i <= options.max_write_buffer_number; i++) {
+    ASSERT_OK(Put("k" + std::to_string(i), "v" + std::to_string(i)));
+    FlushOptions opts;
+    opts.wait = false;
+    opts.allow_write_stall = true;
+    db_->Flush(opts);
+  }
+
+  EXPECT_EQ(cfd->imm()->NumNotFlushed(), options.max_write_buffer_number);
+
+  EXPECT_OK(Put("k0", "v"));
+
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 

@@ -848,7 +848,8 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
     uint64_t num_compaction_needed_bytes,
     const MutableCFOptions& mutable_cf_options,
     const ImmutableCFOptions& immutable_cf_options) {
-  if (num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
+  if (!mutable_cf_options.disable_auto_flush &&
+      num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
     return {WriteStallCondition::kStopped, WriteStallCause::kMemtableLimit};
   } else if (!mutable_cf_options.disable_auto_compactions &&
              num_l0_files >= mutable_cf_options.level0_stop_writes_trigger) {
