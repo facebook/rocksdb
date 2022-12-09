@@ -38,6 +38,10 @@ class ImportColumnFamilyJob {
         db_options_(db_options),
         fs_(db_options_.fs, io_tracer),
         env_options_(env_options),
+        vstorage_(&cfd_->internal_comparator(), cfd_->user_comparator(),
+                  cfd_->NumberLevels(), cfd_->ioptions()->compaction_style,
+                  nullptr /* src_vstorage */,
+                  cfd_->ioptions()->force_consistency_checks),
         import_options_(import_options),
         metadata_(metadata),
         io_tracer_(io_tracer) {}
@@ -74,6 +78,7 @@ class ImportColumnFamilyJob {
   const EnvOptions& env_options_;
   autovector<IngestedFileInfo> files_to_import_;
   VersionEdit edit_;
+  VersionStorageInfo vstorage_;
   const ImportColumnFamilyOptions& import_options_;
   std::vector<LiveFileMetaData> metadata_;
   const std::shared_ptr<IOTracer> io_tracer_;
