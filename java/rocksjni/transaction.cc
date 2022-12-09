@@ -297,10 +297,10 @@ jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jobject, jlong jhandle,
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
 
-  ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off,
-                                          jkey_part_len);
-  ROCKSDB_NAMESPACE::JByteBufferPinnableSlice value(env, jval_bb, jval_off,
-                                                    jval_part_len);
+  ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off,
+                                            jkey_part_len);
+  ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval_bb, jval_off,
+                                                      jval_part_len);
   return ROCKSDB_NAMESPACE::KVHelperJNI::DoRead(
       env, value, [=, &key, &value]() {
         return txn->Get(*read_options, column_family_handle, key.slice(),
@@ -667,8 +667,8 @@ void Java_org_rocksdb_Transaction_putDirect__JLjava_nio_ByteBuffer_2IILjava_nio_
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
-  ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off, jval_len);
   ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Put(column_family_handle, key.slice(), value.slice(),
                     jassume_tracked);
@@ -684,8 +684,8 @@ void Java_org_rocksdb_Transaction_putDirect__JLjava_nio_ByteBuffer_2IILjava_nio_
     JNIEnv* env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off,
     jint jkey_len, jobject jval_bb, jint jval_off, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
-  ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off, jval_len);
   ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Put(key.slice(), value.slice());
   });
@@ -888,8 +888,8 @@ Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_ByteBuffer_2IILjava_nio_Byt
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
-  ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off, jval_len);
   ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Merge(column_family_handle, key.slice(), value.slice(),
                       jassume_tracked);
@@ -906,8 +906,8 @@ Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_ByteBuffer_2IILjava_nio_Byt
     JNIEnv* env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off,
     jint jkey_len, jobject jval_bb, jint jval_off, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
-  ROCKSDB_NAMESPACE::JByteBufferSlice value(env, jval_bb, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+  ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off, jval_len);
   ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
     return txn->Merge(key.slice(), value.slice());
   });

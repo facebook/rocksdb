@@ -96,10 +96,10 @@ class JByteArraySlice {
  * The slice refers directly to the contents of the buffer, no copy is made.
  *
  */
-class JByteBufferSlice {
+class JDirectBufferSlice {
  public:
-  JByteBufferSlice(JNIEnv* env, const jobject& jbuffer, const jint jbuffer_off,
-                   const jint jbuffer_len)
+  JDirectBufferSlice(JNIEnv* env, const jobject& jbuffer,
+                     const jint jbuffer_off, const jint jbuffer_len)
       : slice_(static_cast<char*>(env->GetDirectBufferAddress(jbuffer)) +
                    jbuffer_off,
                jbuffer_len) {
@@ -117,7 +117,7 @@ class JByteBufferSlice {
     }
   }
 
-  ~JByteBufferSlice() { slice_.clear(); };
+  ~JDirectBufferSlice() { slice_.clear(); };
 
   Slice& slice() { return slice_; }
 
@@ -177,26 +177,30 @@ class JByteArrayPinnableSlice {
  *
  * The Java Byte Buffer version copies the memory of the buffer from the slice
  */
-class JByteBufferPinnableSlice {
+class JDirectBufferPinnableSlice {
  public:
-  JByteBufferPinnableSlice(JNIEnv* env, const jobject& jbuffer,
-                           const jint jbuffer_off, const jint jbuffer_len)
+  JDirectBufferPinnableSlice(JNIEnv* env, const jobject& jbuffer,
+                             const jint jbuffer_off, const jint jbuffer_len)
       : env_(env),
         buffer_(static_cast<char*>(env->GetDirectBufferAddress(jbuffer)) +
                 jbuffer_off),
         jbuffer_len_(jbuffer_len) {
     jlong capacity = env->GetDirectBufferCapacity(jbuffer);
     if (capacity < jbuffer_off + jbuffer_len) {
-      auto message = "Direct buffer offset " + std::to_string(jbuffer_off) +
-                     " + length " + std::to_string(jbuffer_len) +
-                     " exceeds capacity " + std::to_string(capacity);
+      auto message =
+          "Invalid value argument. Capacity is less than requested region. "
+          "offset " +
+          std::to_string(jbuffer_off) + " + length " +
+          std::to_string(jbuffer_len) + " exceeds capacity " +
+          std::to_string(capacity);
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, message);
     }
-  };
+  }
+};
 
   PinnableSlice& pinnable_slice() { return pinnable_slice_; }
 
-  ~JByteBufferPinnableSlice() { pinnable_slice_.Reset(); };
+  ~JDirectBufferPinnableSlice() { pinnable_slice_.Reset(); };
 
   /**
    * @brief copy back contents of the pinnable slice into the Java ByteBuffer
