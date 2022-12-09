@@ -1834,12 +1834,14 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   }
 
   // Initialize a SubcompactionState::Output and add it to sub_compact->outputs
+  uint64_t epoch_number = sub_compact->compaction->MinInputFileEpochNumber();
   {
     FileMetaData meta;
     meta.fd = FileDescriptor(file_number,
                              sub_compact->compaction->output_path_id(), 0);
     meta.oldest_ancester_time = oldest_ancester_time;
     meta.file_creation_time = current_time;
+    meta.epoch_number = epoch_number;
     meta.temperature = temperature;
     assert(!db_id_.empty());
     assert(!db_session_id_.empty());

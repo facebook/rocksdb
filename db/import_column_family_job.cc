@@ -4,6 +4,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/version_builder.h"
 #ifndef ROCKSDB_LITE
 
 #include "db/import_column_family_job.h"
@@ -139,7 +140,7 @@ Status ImportColumnFamilyJob::Run() {
         f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
         file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
         file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+        current_time, file_metadata.epoch_number, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         f.unique_id);
     s = version_builder.Apply(&version_edit);
   }
@@ -300,6 +301,70 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   return status;
 }
 
+bool ImportColumnFamilyJob::HasMissingEpochNumber() const {
+  for (std::size_t i = 0; i < metadata_.size(); ++i) {
+    const LiveFileMetaData& live_file_metadata = metadata_[i];
+    if (live_file_metadata.epoch_number == kUnknownEpochNumber) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void ImportColumnFamilyJob::InferMissingEpochNumber() {
+  if (metadata_.empty()) {
+    return;
+  }
+
+  std::vector<std::vector<LiveFileMetaData*>> files_by_level(
+      cfd_->NumberLevels());
+
+  for (std::size_t i = 0; i < metadata_.size(); ++i) {
+    auto& live_file_metadata = metadata_[i];
+    assert(live_file_metadata.level >= 0 &&
+           live_file_metadata.level < static_cast<int>(files_by_level.size()));
+    files_by_level[live_file_metadata.level].push_back(&live_file_metadata);
+  }
+
+  for (int level = static_cast<int>(files_by_level.size()) - 1; level >= 1;
+       --level) {
+    auto& files = files_by_level[level];
+    if (files.empty()) {
+      continue;
+    }
+    uint64_t next_epoch_number = cfd_->NewEpochNumber();
+    for (LiveFileMetaData* f : files) {
+      f->epoch_number = next_epoch_number;
+    }
+  }
+
+  NewestFirstBySeqNo cmp;
+  assert(files_by_level.size() >= 1);
+  std::sort(files_by_level[0].begin(), files_by_level[0].end(), cmp);
+  for (auto iter = files_by_level[0].rbegin(); iter != files_by_level[0].rend();
+       iter++) {
+    LiveFileMetaData* f = *iter;
+    f->epoch_number = cfd_->NewEpochNumber();
+  }
+
+  ROCKS_LOG_WARN(versions_->db_options()->info_log,
+                 "Imported CF(%d)'s epoch numbers are inferred based on seqno",
+                 cfd_->GetID());
+}
+
+void ImportColumnFamilyJob::RecoverEpochNumbers() {
+  if (HasMissingEpochNumber()) {
+    InferMissingEpochNumber();
+  } else {
+    uint64_t max_epoch_number = kUnknownEpochNumber;
+    for (std::size_t i = 0; i < metadata_.size(); ++i) {
+      const LiveFileMetaData& live_file_metadata = metadata_[i];
+      max_epoch_number =
+          std::max(max_epoch_number, live_file_metadata.epoch_number);
+    }
+    cfd_->SetNextEpochNumber(max_epoch_number + 1);
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

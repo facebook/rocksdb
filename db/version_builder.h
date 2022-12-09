@@ -11,7 +11,9 @@
 
 #include <memory>
 
+#include "db/version_edit.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/metadata.h"
 #include "rocksdb/slice_transform.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -67,6 +69,59 @@ class BaseReferencedVersionBuilder {
  private:
   std::unique_ptr<VersionBuilder> version_builder_;
   Version* version_;
+};
+
+class NewestFirstBySeqNo {
+ public:
+  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+    assert(lhs);
+    assert(rhs);
+
+    if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
+      return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
+    }
+
+    if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
+      return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
+    }
+
+    // Break ties by file number
+    return lhs->fd.GetNumber() > rhs->fd.GetNumber();
+  }
+
+  bool operator()(const LiveFileMetaData* lhs,
+                  const LiveFileMetaData* rhs) const {
+    assert(lhs);
+    assert(rhs);
+
+    if (lhs->largest_seqno != rhs->largest_seqno) {
+      return lhs->largest_seqno > rhs->largest_seqno;
+    }
+
+    if (lhs->smallest_seqno != rhs->smallest_seqno) {
+      return lhs->smallest_seqno > rhs->smallest_seqno;
+    }
+
+    // Break ties by file number
+    return lhs->file_number > rhs->file_number;
+  }
+};
+
+class NewestFirstByEpochNumber {
+ private:
+  inline static const NewestFirstBySeqNo seqno_cmp;
+
+ public:
+  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+    assert(lhs);
+    assert(rhs);
+
+    if (lhs->epoch_number != rhs->epoch_number) {
+      return lhs->epoch_number > rhs->epoch_number;
+    } else {
+      return seqno_cmp(lhs, rhs);
+    }
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

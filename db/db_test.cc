@@ -1203,6 +1203,8 @@ void CheckColumnFamilyMeta(
                 file_meta_from_files.file_creation_time);
       ASSERT_GE(file_meta_from_cf.file_creation_time, start_time);
       ASSERT_LE(file_meta_from_cf.file_creation_time, end_time);
+      ASSERT_EQ(file_meta_from_cf.epoch_number,
+                file_meta_from_files.epoch_number);
       ASSERT_GE(file_meta_from_cf.oldest_ancester_time, start_time);
       ASSERT_LE(file_meta_from_cf.oldest_ancester_time, end_time);
       // More from FileStorageInfo
@@ -1253,6 +1255,7 @@ void CheckLiveFilesMeta(
     ASSERT_EQ(meta.largestkey, expected_meta.largest.user_key().ToString());
     ASSERT_EQ(meta.oldest_blob_file_number,
               expected_meta.oldest_blob_file_number);
+    ASSERT_EQ(meta.epoch_number, expected_meta.epoch_number);
 
     // More from FileStorageInfo
     ASSERT_EQ(meta.file_type, kTableFile);

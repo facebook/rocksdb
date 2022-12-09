@@ -112,7 +112,7 @@ Status UpdateManifestForFilesState(
                   lf->smallest, lf->largest, lf->fd.smallest_seqno,
                   lf->fd.largest_seqno, lf->marked_for_compaction, temp,
                   lf->oldest_blob_file_number, lf->oldest_ancester_time,
-                  lf->file_creation_time, lf->file_checksum,
+                  lf->file_creation_time, lf->epoch_number, lf->file_checksum,
                   lf->file_checksum_func_name, lf->unique_id);
             }
           }

@@ -59,6 +59,7 @@
 //   Store per-table metadata (smallest, largest, largest-seq#, ...)
 //   in the table's meta section to speed up ScanTable.
 
+#include "db/version_builder.h"
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
@@ -624,8 +625,44 @@ class Repairer {
     return status;
   }
 
+  // Recover the next epoch number of `cfd` and epoch number
+  // of its files (if missing)
+  void RecoverEpochNumbers(ColumnFamilyData* cfd,
+                           std::vector<TableInfo*>& tables) {
+    bool has_missing_epoch_number = false;
+    for (const auto& table : tables) {
+      if (table->meta.epoch_number == kUnknownEpochNumber) {
+        has_missing_epoch_number = true;
+        break;
+      }
+    }
+
+    if (has_missing_epoch_number) {
+      std::vector<FileMetaData*> files;
+      for (auto& table : tables) {
+        files.push_back(&(table->meta));
+      }
+      NewestFirstBySeqNo cmp;
+      std::sort(files.begin(), files.end(), cmp);
+      for (auto iter = files.rbegin(); iter != files.rend(); iter++) {
+        FileMetaData* f = *iter;
+        f->epoch_number = cfd->NewEpochNumber();
+      }
+      ROCKS_LOG_WARN(
+          cfd->ioptions()->info_log,
+          "Repaired CF(%d)'s epoch numbers are inferred based on seqno",
+          cfd->GetID());
+    } else {
+      uint64_t max_epoch_number = kUnknownEpochNumber;
+      for (const auto& table : tables) {
+        max_epoch_number = std::max(max_epoch_number, table->meta.epoch_number);
+      }
+      cfd->SetNextEpochNumber(max_epoch_number + 1);
+    }
+  }
+
   Status AddTables() {
-    std::unordered_map<uint32_t, std::vector<const TableInfo*>> cf_id_to_tables;
+    std::unordered_map<uint32_t, std::vector<TableInfo*>> cf_id_to_tables;
     SequenceNumber max_sequence = 0;
     for (size_t i = 0; i < tables_.size(); i++) {
       cf_id_to_tables[tables_[i].column_family_id].push_back(&tables_[i]);
@@ -637,9 +674,12 @@ class Repairer {
     vset_.SetLastPublishedSequence(max_sequence);
     vset_.SetLastSequence(max_sequence);
 
-    for (const auto& cf_id_and_tables : cf_id_to_tables) {
+    for (auto& cf_id_and_tables : cf_id_to_tables) {
       auto* cfd =
           vset_.GetColumnFamilySet()->GetColumnFamily(cf_id_and_tables.first);
+
+      RecoverEpochNumbers(cfd, cf_id_and_tables.second);
+
       VersionEdit edit;
       edit.SetComparatorName(cfd->user_comparator()->Name());
       edit.SetLogNumber(0);
@@ -655,8 +695,8 @@ class Repairer {
             table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
             table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
-            table->meta.file_checksum, table->meta.file_checksum_func_name,
-            table->meta.unique_id);
+            table->meta.epoch_number, table->meta.file_checksum,
+            table->meta.file_checksum_func_name, table->meta.unique_id);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);
