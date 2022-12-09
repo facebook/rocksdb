@@ -93,15 +93,33 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
     }
   }
 
+  return status;
+}
+
+// REQUIRES: we have become the only writer by entering both write_thread_ and
+// nonmem_write_thread_
+Status ImportColumnFamilyJob::Run() {
+  // We use the import time as the ancester time. This is the time the data
+  // is written to the database.
+  int64_t temp_current_time = 0;
+  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+  uint64_t current_time = kUnknownOldestAncesterTime;
+  if (clock_->GetCurrentTime(&temp_current_time).ok()) {
+    current_time = oldest_ancester_time =
+        static_cast<uint64_t>(temp_current_time);
+  }
+
   VersionBuilder version_builder(
       cfd_->current()->version_set()->file_options(), cfd_->ioptions(),
       cfd_->table_cache(), cfd_->current()->storage_info(),
       cfd_->current()->version_set(),
       cfd_->GetFileMetadataCacheReservationManager());
-  for (size_t i = 0; i < num_files; ++i) {
-    uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
-    uint64_t current_time = kUnknownOldestAncesterTime;
-
+  VersionStorageInfo vstorage(
+      &cfd_->internal_comparator(), cfd_->user_comparator(),
+      cfd_->NumberLevels(), cfd_->ioptions()->compaction_style,
+      nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks);
+  Status s;
+  for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
 
@@ -113,45 +131,35 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
         current_time, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         f.unique_id);
-    status = version_builder.Apply(&version_edit);
-    if (!status.ok()) {
-      return status;
-    }
+    s = version_builder.Apply(&version_edit);
   }
-  return version_builder.SaveTo(&vstorage_);
-}
-
-// REQUIRES: we have become the only writer by entering both write_thread_ and
-// nonmem_write_thread_
-Status ImportColumnFamilyJob::Run() {
-  Status status;
-  edit_.SetColumnFamily(cfd_->GetID());
-
-  // We use the import time as the ancester time. This is the time the data
-  // is written to the database.
-  int64_t temp_current_time = 0;
-  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
-  uint64_t current_time = kUnknownOldestAncesterTime;
-  if (clock_->GetCurrentTime(&temp_current_time).ok()) {
-    current_time = oldest_ancester_time =
-        static_cast<uint64_t>(temp_current_time);
+  if (s.ok()) {
+    s = version_builder.SaveTo(&vstorage);
   }
+  if (s.ok()) {
+    edit_.SetColumnFamily(cfd_->GetID());
 
-  for (int level = 0; level < vstorage_.num_levels(); level++) {
-    for (FileMetaData* file_meta : vstorage_.LevelFiles(level)) {
-      file_meta->oldest_ancester_time = oldest_ancester_time;
-      file_meta->file_creation_time = current_time;
-      edit_.AddFile(level, *file_meta);
-      // If incoming sequence number is higher, update local sequence number.
-      if (file_meta->fd.largest_seqno > versions_->LastSequence()) {
-        versions_->SetLastAllocatedSequence(file_meta->fd.largest_seqno);
-        versions_->SetLastPublishedSequence(file_meta->fd.largest_seqno);
-        versions_->SetLastSequence(file_meta->fd.largest_seqno);
+    for (int level = 0; level < vstorage.num_levels(); level++) {
+      for (FileMetaData* file_meta : vstorage.LevelFiles(level)) {
+        edit_.AddFile(level, *file_meta);
+        // If incoming sequence number is higher, update local sequence number.
+        if (file_meta->fd.largest_seqno > versions_->LastSequence()) {
+          versions_->SetLastAllocatedSequence(file_meta->fd.largest_seqno);
+          versions_->SetLastPublishedSequence(file_meta->fd.largest_seqno);
+          versions_->SetLastSequence(file_meta->fd.largest_seqno);
+        }
       }
     }
   }
-
-  return status;
+  for (int level = 0; level < vstorage.num_levels(); level++) {
+    for (FileMetaData* file_meta : vstorage.LevelFiles(level)) {
+      file_meta->refs--;
+      if (file_meta->refs <= 0) {
+        delete file_meta;
+      }
+    }
+  }
+  return s;
 }
 
 void ImportColumnFamilyJob::Cleanup(const Status& status) {
