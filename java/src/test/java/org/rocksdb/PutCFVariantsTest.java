@@ -70,9 +70,7 @@ public class PutCFVariantsTest {
   }
 
   @Parameterized.Parameter
-          public
-  PutCFVariantsTest
-      .FunctionCFPut<RocksDB, ColumnFamilyHandle, byte[], byte[]> putFunction;
+  public PutCFVariantsTest.FunctionCFPut<RocksDB, ColumnFamilyHandle, byte[], byte[]> putFunction;
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =

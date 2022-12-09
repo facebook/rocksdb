@@ -66,8 +66,7 @@ public class PutVariantsTest {
         });
   }
 
-  @Parameterized.Parameter
-  public PutVariantsTest.FunctionPut<RocksDB, byte[], byte[]> putFunction;
+  @Parameterized.Parameter public PutVariantsTest.FunctionPut<RocksDB, byte[], byte[]> putFunction;
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =

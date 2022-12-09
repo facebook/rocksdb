@@ -17,9 +17,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
  * Base class of {@link TransactionTest} and {@link OptimisticTransactionTest}
  */

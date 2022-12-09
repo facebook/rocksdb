@@ -123,7 +123,6 @@ class JByteBufferSlice {
 
  private:
   Slice slice_;
- 
 };
 
 /**

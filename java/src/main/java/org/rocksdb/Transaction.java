@@ -1050,8 +1050,8 @@ public class Transaction extends RocksObject {
   public void put(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     assert (isOwningHandle());
     if (key.isDirect() && value.isDirect()) {
-      putDirect(nativeHandle_, key, key.position(), key.remaining(), value,
-          value.position(), value.remaining());
+      putDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
+          value.remaining());
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
@@ -1095,9 +1095,8 @@ public class Transaction extends RocksObject {
       final ByteBuffer value, final boolean assumeTracked) throws RocksDBException {
     assert (isOwningHandle());
     if (key.isDirect() && value.isDirect()) {
-      putDirect(nativeHandle_, key, key.position(), key.remaining(), value,
-          value.position(), value.remaining(),
-          columnFamilyHandle.nativeHandle_, assumeTracked);
+      putDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
+          value.remaining(), columnFamilyHandle.nativeHandle_, assumeTracked);
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
@@ -1251,12 +1250,11 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
    */
-  public void merge(final ByteBuffer key, final ByteBuffer value)
-      throws RocksDBException {
+  public void merge(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     assert (isOwningHandle());
     if (key.isDirect() && value.isDirect()) {
-      mergeDirect(nativeHandle_, key, key.position(), key.remaining(), value,
-          value.position(), value.remaining());
+      mergeDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
+          value.remaining());
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
@@ -1295,9 +1293,8 @@ public class Transaction extends RocksObject {
       final ByteBuffer value, final boolean assumeTracked) throws RocksDBException {
     assert (isOwningHandle());
     if (key.isDirect() && value.isDirect()) {
-      mergeDirect(nativeHandle_, key, key.position(), key.remaining(), value,
-          value.position(), value.remaining(),
-          columnFamilyHandle.nativeHandle_, assumeTracked);
+      mergeDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
+          value.remaining(), columnFamilyHandle.nativeHandle_, assumeTracked);
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
@@ -2306,7 +2303,8 @@ public class Transaction extends RocksObject {
   private native void rollbackToSavePoint(final long handle)
       throws RocksDBException;
   private native byte[] get(final long handle, final long readOptionsHandle, final byte[] key,
-      final int keyOffset, final int keyLength, final long columnFamilyHandle) throws RocksDBException;
+      final int keyOffset, final int keyLength, final long columnFamilyHandle)
+      throws RocksDBException;
   private native byte[] get(final long handle, final long readOptionsHandle, final byte[] key,
       final int keyOffset, final int keyLen) throws RocksDBException;
   private native int get(final long handle, final long readOptionsHandle, final byte[] key,
@@ -2338,12 +2336,13 @@ public class Transaction extends RocksObject {
       final long readOptionsHandle);
   private native long getIterator(final long handle,
       final long readOptionsHandle, final long columnFamilyHandle);
-    private native void put(final long handle, final byte[] key, final int keyOffset,
-                            final int keyLength, final byte[] value, final int valueOffset, final int valueLength) throws RocksDBException;
-    private native void put(final long handle, final byte[] key, final int keyOffset,
-                            final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
-                            final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
-    private native void put(final long handle, final byte[][] keys, final int keysLength,
+  private native void put(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength)
+      throws RocksDBException;
+  private native void put(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
+      final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
+  private native void put(final long handle, final byte[][] keys, final int keysLength,
       final byte[][] values, final int valuesLength, final long columnFamilyHandle,
       final boolean assumeTracked) throws RocksDBException;
   private native void put(final long handle, final byte[][] keys,
@@ -2353,8 +2352,7 @@ public class Transaction extends RocksObject {
       ByteBuffer value, int valueOffset, int valueLength, long cfHandle,
       final boolean assumeTracked) throws RocksDBException;
   private native void putDirect(long handle, ByteBuffer key, int keyOffset, int keyLength,
-      ByteBuffer value, int valueOffset, int valueLength)
-      throws RocksDBException;
+      ByteBuffer value, int valueOffset, int valueLength) throws RocksDBException;
 
   private native void merge(final long handle, final byte[] key, final int keyOffset,
       final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
@@ -2363,11 +2361,11 @@ public class Transaction extends RocksObject {
       ByteBuffer value, int valueOffset, int valueLength, long cfHandle, boolean assumeTracked)
       throws RocksDBException;
   private native void mergeDirect(long handle, ByteBuffer key, int keyOffset, int keyLength,
-      ByteBuffer value, int valueOffset, int valueLength)
-      throws RocksDBException;
+      ByteBuffer value, int valueOffset, int valueLength) throws RocksDBException;
 
   private native void merge(final long handle, final byte[] key, final int keyOffset,
-      final int keyLength, final byte[] value, final int valueOffset, final int valueLength) throws RocksDBException;
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength)
+      throws RocksDBException;
   private native void delete(final long handle, final byte[] key, final int keyLength,
       final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
   private native void delete(final long handle, final byte[] key,
