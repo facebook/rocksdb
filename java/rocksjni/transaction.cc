@@ -250,6 +250,72 @@ jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BII(
   return txn_get_helper(env, fn_get, jread_options_handle, jkey, jkey_off, jkey_part_len);
 }
 
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    get
+ * Signature: (JJ[BII[BIIJ[B)I
+ */
+jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ_3B(
+    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
+    jbyteArray jkey, jint jkey_off, jint jkey_part_len, jbyteArray jval,
+    jint jval_off, jint jval_part_len, jlong jcolumn_family_handle,
+    jbyteArray jstatus_array) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+  ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
+                                                   jval_part_len);
+  if (ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+        auto status = txn->Get(*read_options, column_family_handle, key.slice(),
+                               &value.pinnable_slice());
+        jbyte code = status.code();
+        env->SetByteArrayRegion(jstatus_array, 0, 1, &code);
+        return status;
+      })) {
+    return value.Retrieve();
+  }
+  return 0;
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    getDirect
+ * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ[B)I
+ */
+jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jobject, jlong jhandle,
+                                            jlong jread_options_handle,
+                                            jobject jkey_bb, jint jkey_off,
+                                            jint jkey_part_len, jobject jval_bb,
+                                            jint jval_off, jint jval_part_len,
+                                            jlong jcolumn_family_handle,
+                                            jbyteArray jstatus_array) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
+
+  ROCKSDB_NAMESPACE::JByteBufferSlice key(env, jkey_bb, jkey_off,
+                                          jkey_part_len);
+  ROCKSDB_NAMESPACE::JByteBufferPinnableSlice value(env, jval_bb, jval_off,
+                                                    jval_part_len);
+  if (ROCKSDB_NAMESPACE::KVHelperJNI::IfEnvOK(env, [=, &key, &value]() {
+        return txn->Get(*read_options, column_family_handle, key.slice(),
+                        &value.pinnable_slice());
+        jbyte code = status.code();
+        env->SetByteArrayRegion(jstatus_array, 0, 1, &code);
+        return status;
+      })) {
+    return value.Retrieve();
+  };
+  return 0;
+}
+
 // TODO(AR) consider refactoring to share this between here and rocksjni.cc
 // used by txn_multi_get_helper below
 std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> txn_column_families_helper(

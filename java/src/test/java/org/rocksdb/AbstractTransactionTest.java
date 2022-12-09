@@ -256,7 +256,7 @@ public abstract class AbstractTransactionTest {
          final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       final ByteBuffer vGet = ByteBuffer.allocateDirect(100);
-      assertThat(txn.get(readOptions, testCf, k1, vGet)).isLessThan(0);
+      assertThat(txn.get(readOptions, testCf, k1, vGet)).isEqualTo(Status.Code.NotFound);
       txn.put(testCf, k1, v1);
       vGet.put("12345".getBytes(UTF_8));
       txn.get(readOptions, testCf, k1, vGet);
@@ -277,7 +277,7 @@ public abstract class AbstractTransactionTest {
          final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       final ByteBuffer vGet = ByteBuffer.allocate(100);
-      assertThat(txn.get(readOptions, testCf, k1, vGet)).isLessThan(0);
+      assertThat(txn.get(readOptions, testCf, k1, vGet)).isEqualTo(Status.Code.NotFound);
       txn.put(testCf, k1, v1);
       vGet.put("12345".getBytes(UTF_8));
       txn.get(readOptions, testCf, k1, vGet);
