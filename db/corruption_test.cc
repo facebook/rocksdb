@@ -223,7 +223,8 @@ class CorruptionTest : public testing::Test {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    ASSERT_OK(test::CorruptFile(env_, fname, offset, bytes_to_corrupt));
+    ASSERT_OK(test::CorruptFile(env_, fname, offset, bytes_to_corrupt,
+                                /*verify_checksum*/ filetype == kTableFile));
   }
 
   // corrupts exactly one file at level `level`. if no file found at level,
@@ -516,6 +517,90 @@ TEST_F(CorruptionTest, TableFileIndexData) {
 
   // In paranoid mode, the db cannot be opened due to the corrupted file.
   ASSERT_TRUE(TryReopen().IsCorruption());
+}
+
+TEST_F(CorruptionTest, TableFileFooterMagic) {
+  Build(100);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  Check(100, 100);
+  // Corrupt the whole footer
+  Corrupt(kTableFile, -100, 100);
+  Status s = TryReopen();
+  ASSERT_TRUE(s.IsCorruption());
+  // Contains useful message, and magic number should be the first thing
+  // reported as corrupt.
+  ASSERT_TRUE(s.ToString().find("magic number") != std::string::npos);
+  // with file name
+  ASSERT_TRUE(s.ToString().find(".sst") != std::string::npos);
+}
+
+TEST_F(CorruptionTest, TableFileFooterNotMagic) {
+  Build(100);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  Check(100, 100);
+  // Corrupt footer except magic number
+  Corrupt(kTableFile, -100, 92);
+  Status s = TryReopen();
+  ASSERT_TRUE(s.IsCorruption());
+  // The next thing checked after magic number is format_version
+  ASSERT_TRUE(s.ToString().find("format_version") != std::string::npos);
+  // with file name
+  ASSERT_TRUE(s.ToString().find(".sst") != std::string::npos);
+}
+
+TEST_F(CorruptionTest, TableFileWrongSize) {
+  Build(100);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  Check(100, 100);
+
+  // ********************************************
+  // Make the file bigger by appending to it
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(1U, metadata.size());
+  std::string filename = dbname_ + metadata[0].name;
+  const auto& fs = options_.env->GetFileSystem();
+  {
+    std::unique_ptr<FSWritableFile> f;
+    ASSERT_OK(fs->ReopenWritableFile(filename, FileOptions(), &f, nullptr));
+    ASSERT_OK(f->Append("blahblah", IOOptions(), nullptr));
+    ASSERT_OK(f->Close(IOOptions(), nullptr));
+  }
+
+  // DB actually accepts this without paranoid checks, relying on size
+  // recorded in manifest to locate the SST footer.
+  options_.paranoid_checks = false;
+  options_.skip_checking_sst_file_sizes_on_db_open = false;
+  Reopen();
+  Check(100, 100);
+
+  // But reports the issue with paranoid checks
+  options_.paranoid_checks = true;
+  Status s = TryReopen();
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("file size mismatch") != std::string::npos);
+
+  // ********************************************
+  // Make the file smaller with truncation.
+  // First leaving a partial footer, and then completely removing footer.
+  for (size_t bytes_lost : {8, 100}) {
+    ASSERT_OK(
+        test::TruncateFile(env_, filename, metadata[0].size - bytes_lost));
+
+    // Reported well with paranoid checks
+    options_.paranoid_checks = true;
+    s = TryReopen();
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("file size mismatch") != std::string::npos);
+
+    // Without paranoid checks, not reported until read
+    options_.paranoid_checks = false;
+    Reopen();
+    Check(0, 0);  // Missing data
+  }
 }
 
 TEST_F(CorruptionTest, MissingDescriptor) {

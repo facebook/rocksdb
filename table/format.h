@@ -138,7 +138,10 @@ class Footer {
   // Deserialize a footer (populate fields) from `input` and check for various
   // corruptions. `input_offset` is the offset within the target file of
   // `input` buffer (future use).
-  Status DecodeFrom(Slice input, uint64_t input_offset);
+  // If enforce_table_magic_number != 0, will return corruption if table magic
+  // number is not equal to enforce_table_magic_number.
+  Status DecodeFrom(Slice input, uint64_t input_offset,
+                    uint64_t enforce_table_magic_number = 0);
 
   // Table magic number identifies file as RocksDB SST file and which kind of
   // SST format is use.
@@ -238,7 +241,7 @@ class FooterBuilder {
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
 Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
-                          FilePrefetchBuffer* prefetch_buffer,
+                          FileSystem& fs, FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 

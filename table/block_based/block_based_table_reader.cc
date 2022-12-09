@@ -638,8 +638,9 @@ Status BlockBasedTable::Open(
   IOOptions opts;
   s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
-    s = ReadFooterFromFile(opts, file.get(), prefetch_buffer.get(), file_size,
-                           &footer, kBlockBasedTableMagicNumber);
+    s = ReadFooterFromFile(opts, file.get(), *ioptions.fs,
+                           prefetch_buffer.get(), file_size, &footer,
+                           kBlockBasedTableMagicNumber);
   }
   if (!s.ok()) {
     return s;

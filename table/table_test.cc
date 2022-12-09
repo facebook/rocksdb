@@ -2256,8 +2256,9 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
   const MutableCFOptions new_moptions(options);
   Status s = c.Reopen(new_ioptions, new_moptions);
   ASSERT_NOK(s);
+  // "test" is file name
   ASSERT_EQ(s.ToString(),
-            "Corruption: Corrupt or unsupported checksum type: 123");
+            "Corruption: Corrupt or unsupported checksum type: 123 in test");
 }
 
 namespace {
@@ -4806,9 +4807,9 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     Footer footer;
     IOOptions opts;
-    ASSERT_OK(ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
-                                 file_size, &footer,
-                                 kBlockBasedTableMagicNumber));
+    ASSERT_OK(ReadFooterFromFile(opts, file, *FileSystem::Default(),
+                                 nullptr /* prefetch_buffer */, file_size,
+                                 &footer, kBlockBasedTableMagicNumber));
 
     auto BlockFetchHelper = [&](const BlockHandle& handle, BlockType block_type,
                                 BlockContents* contents) {
@@ -4892,7 +4893,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   // read footer
   Footer footer;
   IOOptions opts;
-  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(),
+  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(), *FileSystem::Default(),
                                nullptr /* prefetch_buffer */, table_size,
                                &footer, kBlockBasedTableMagicNumber));
 
@@ -4970,7 +4971,7 @@ TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
   // read footer
   Footer footer;
   IOOptions opts;
-  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(),
+  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(), *FileSystem::Default(),
                                nullptr /* prefetch_buffer */, table_size,
                                &footer, kBlockBasedTableMagicNumber));
 
