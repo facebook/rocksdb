@@ -335,7 +335,9 @@ Status CompactionOutputs::AddToOutput(
   Status s;
   bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
   if (is_range_del && compaction_->bottommost_level()) {
-    // there is no grandparent and hence no overlap to consider.
+    // We don't consider range tombstone for bottommost level since:
+    // 1. there is no grandparent and hence no overlap to consider
+    // 2. range tombstone may be dropped at bottommost level.
     return s;
   }
   const Slice& key = c_iter.key();
