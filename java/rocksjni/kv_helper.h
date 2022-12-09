@@ -67,26 +67,26 @@ class KVHelperJNI {
  */
 class JByteArraySlice {
  public:
-  JByteArraySlice(JNIEnv* env, const jbyteArray& jarray, const jint jarray_off,
-                  const jint jarray_len)
-      : array_(new jbyte[jarray_len]),
-        slice_(reinterpret_cast<char*>(array_), jarray_len) {
-    env->GetByteArrayRegion(jarray, jarray_off, jarray_len, array_);
+  JByteArraySlice(JNIEnv* env, const jbyteArray& jarr, const jint jarr_off,
+                  const jint jarr_len)
+      : arr_(new jbyte[jarr_len]),
+        slice_(reinterpret_cast<char*>(arr_), jarr_len) {
+    env->GetByteArrayRegion(jarr, jarr_off, jarr_len, arr_);
     if (env->ExceptionCheck()) {
       slice_.clear();
-      delete[] array_;
+      delete[] arr_;
     }
   };
 
   ~JByteArraySlice() {
     slice_.clear();
-    delete[] array_;
+    delete[] arr_;
   };
 
   Slice& slice() { return slice_; }
 
  private:
-  jbyte* array_;
+  jbyte* arr_;
   Slice slice_;
 };
 
