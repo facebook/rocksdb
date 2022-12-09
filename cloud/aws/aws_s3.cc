@@ -118,7 +118,10 @@ class AwsS3ClientWrapper {
     if (cloud_options.s3_client_factory) {
       client_ = cloud_options.s3_client_factory(creds, config);
     } else if (creds) {
-      client_ = std::make_shared<Aws::S3::S3Client>(creds, config);
+      client_ = std::make_shared<Aws::S3::S3Client>(
+          creds, config,
+          Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+          true /* useVirtualAddressing */);
     } else {
       client_ = std::make_shared<Aws::S3::S3Client>(config);
     }
