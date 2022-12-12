@@ -4223,13 +4223,18 @@ TEST_F(BackupEngineTest, FileTemperatures) {
 }
 
 TEST_F(BackupEngineTest, ExcludeFiles) {
-  const int keys_iteration = 5000;
-
   // Required for excluding files
   engine_options_->schema_version = 2;
 
+  // Need a sufficent set of file numbers
+  options_.level0_file_num_compaction_trigger = 100;
+
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
-  FillDB(db_.get(), 0, keys_iteration);
+  // Need a sufficent set of file numbers
+  const int keys_iteration = 5000;
+  FillDB(db_.get(), 0, keys_iteration / 3);
+  FillDB(db_.get(), keys_iteration / 3, keys_iteration * 2 / 3);
+  FillDB(db_.get(), keys_iteration * 2 / 3, keys_iteration);
   CloseAndReopenDB();
 
   BackupEngine* alt_backup_engine;
@@ -4358,8 +4363,9 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
         std::make_pair(alt_backup_engine, backup_engine_.get())}) {
     RestoreOptions ro;
     ro.alternate_dirs.push_front(be_pair.second);
-    ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
-                    .IsInvalidArgument());
+    Status s = be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro);
+    fprintf(stderr, "%s\n", s.ToString().c_str());
+    ASSERT_TRUE(s.IsInvalidArgument());
   }
 
   // Close & Re-open (no crash, etc.)
