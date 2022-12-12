@@ -11,6 +11,7 @@
 #include <jni.h>
 
 #include <cstring>
+#include <exception>
 #include <functional>
 #include <string>
 
@@ -21,41 +22,90 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+/**
+ * @brief Exception class used to make the flow of key/value (Put(), Get(),
+ * Merge(), ...) calls clearer.
+ *
+ * This class is used by Java API JNI methods in try { save/fetch } catch { ...
+ * } style.
+ *
+ */
+class KVException : public std::exception {
+ public:
+  // These values are expected on Java API calls to represent the result of a
+  // Get() which has failed; a negative length is returned to indicate an error.
+  static const int kNotFound = -1;  // the key was not found in RocksDB
+  static const int kStatusError =
+      -2;  // there was some other error fetching the value for the key
+
+  /**
+   * @brief Throw a KVException (and potentially a Java exception) if the
+   * RocksDB status is "bad"
+   *
+   * @param env JNI environment needed to create a Java exception
+   * @param status RocksDB status to examine
+   */
+  static void ThrowOnError(JNIEnv* env, const Status& status) {
+    if (status.ok()) {
+      return;
+    }
+    if (status.IsNotFound()) {
+      // IsNotFound does not generate a Java Exception, any other bad status
+      // does..
+      throw KVException(kNotFound);
+    }
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
+    throw KVException(kStatusError);
+  }
+
+  /**
+   * @brief Throw a KVException and a Java exception
+   *
+   * @param env JNI environment needed to create a Java exception
+   * @param message content of the exception we will throw
+   */
+  static void ThrowNew(JNIEnv* env, const std::string& message) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, message);
+    throw KVException(kStatusError);
+  }
+
+  /**
+   * @brief Throw a KVException if there is already a Java exception in the JNI
+   * enviroment
+   *
+   * @param env
+   */
+  static void ThrowOnError(JNIEnv* env) {
+    if (env->ExceptionCheck()) {
+      throw KVException(kStatusError);
+    }
+  }
+
+  KVException(jint code) : kCode_(code){};
+
+  virtual const char* what() const throw() {
+    return "Exception raised by JNI. There may be a Java exception in the "
+           "JNIEnv. Please check!";
+  }
+
+  jint Code() { return kCode_; }
+
+ private:
+  jint kCode_;
+};
+
 class KVHelperJNI {
  public:
-  static const int kNotFound = -1;
-  static const int kStatusError = -2;
-
-  static bool DoWrite(JNIEnv* env, std::function<Status()> fn) {
+  static bool DoWrite(JNIEnv* env, std::function<Status()> fn_write) {
     if (env->ExceptionCheck()) {
       return false;
     }
-    auto status = fn();
+    auto status = fn_write();
     if (status.ok()) {
       return true;
     }
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
     return false;
-  }
-
-  template <typename TPinnableWrapper>
-  static jint DoRead(JNIEnv* env, TPinnableWrapper& pinnable,
-                     std::function<Status()> fn) {
-    if (env->ExceptionCheck()) {
-      return kStatusError;
-    }
-    auto status = fn();
-    if (status.IsNotFound()) {
-      return kNotFound;
-    }
-    if (!status.ok()) {
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
-      // There's a Java exception, but C++ doesn't know that,
-      // and it needs us to return something; it will be ignored by Java
-      return kStatusError;
-    }
-
-    return pinnable.Retrieve();
   }
 };
 
@@ -72,10 +122,7 @@ class JByteArraySlice {
       : arr_(new jbyte[jarr_len]),
         slice_(reinterpret_cast<char*>(arr_), jarr_len) {
     env->GetByteArrayRegion(jarr, jarr_off, jarr_len, arr_);
-    if (env->ExceptionCheck()) {
-      slice_.clear();
-      delete[] arr_;
-    }
+    KVException::ThrowOnError(env);
   };
 
   ~JByteArraySlice() {
@@ -103,16 +150,13 @@ class JDirectBufferSlice {
       : slice_(static_cast<char*>(env->GetDirectBufferAddress(jbuffer)) +
                    jbuffer_off,
                jbuffer_len) {
-    if (env->ExceptionCheck()) {
-      slice_.clear();
-      return;
-    }
+    KVException::ThrowOnError(env);
     jlong capacity = env->GetDirectBufferCapacity(jbuffer);
     if (capacity < jbuffer_off + jbuffer_len) {
       auto message = "Direct buffer offset " + std::to_string(jbuffer_off) +
                      " + length " + std::to_string(jbuffer_len) +
                      " exceeds capacity " + std::to_string(capacity);
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, message);
+      KVException::ThrowNew(env, message);
       slice_.clear();
     }
   }
@@ -133,12 +177,28 @@ class JDirectBufferSlice {
  */
 class JByteArrayPinnableSlice {
  public:
+  /**
+   * @brief Construct a new JByteArrayPinnableSlice object referring to an
+   * existing  java byte buffer
+   *
+   * @param env
+   * @param jbuffer
+   * @param jbuffer_off
+   * @param jbuffer_len
+   */
   JByteArrayPinnableSlice(JNIEnv* env, const jbyteArray& jbuffer,
                           const jint jbuffer_off, const jint jbuffer_len)
       : env_(env),
         jbuffer_(jbuffer),
         jbuffer_off_(jbuffer_off),
         jbuffer_len_(jbuffer_len){};
+
+  /**
+   * @brief Construct an empty new JByteArrayPinnableSlice object
+   *
+   */
+  JByteArrayPinnableSlice(JNIEnv* env) : env_(env){};
+
   PinnableSlice& pinnable_slice() { return pinnable_slice_; }
 
   ~JByteArrayPinnableSlice() { pinnable_slice_.Reset(); };
@@ -149,19 +209,35 @@ class JByteArrayPinnableSlice {
    * @return jint min of size of buffer and number of bytes in value for
    * requested key
    */
-  jint Retrieve() {
-    if (env_->ExceptionCheck()) {
-      return ROCKSDB_NAMESPACE::KVHelperJNI::kStatusError;
-    }
+  jint Fetch() {
     const jint pinnable_len = static_cast<jint>(pinnable_slice_.size());
     const jint result_len = std::min(jbuffer_len_, pinnable_len);
-
     env_->SetByteArrayRegion(
         jbuffer_, jbuffer_off_, result_len,
         reinterpret_cast<const jbyte*>(pinnable_slice_.data()));
-    pinnable_slice_.Reset();
+    KVException::ThrowOnError(
+        env_);  // exception thrown: ArrayIndexOutOfBoundsException
+
     return result_len;
   };
+
+  /**
+   * @brief create a new Java buffer and copy the result into it
+   *
+   * @return jbyteArray the java buffer holding the result
+   */
+  jbyteArray NewByteArray() {
+    const jint pinnable_len = static_cast<jint>(pinnable_slice_.size());
+    jbyteArray jbuffer = env_->NewByteArray(static_cast<jsize>(pinnable_len));
+    KVException::ThrowOnError(env_);  // OutOfMemoryError
+
+    env_->SetByteArrayRegion(
+        jbuffer, 0, pinnable_len,
+        reinterpret_cast<const jbyte*>(pinnable_slice_.data()));
+    KVException::ThrowOnError(env_);  // ArrayIndexOutOfBoundsException
+
+    return jbuffer;
+  }
 
  private:
   JNIEnv* env_;
@@ -175,14 +251,13 @@ class JByteArrayPinnableSlice {
  * @brief Wrap a pinnable slice with a method to retrieve the contents back into
  * Java
  *
- * The Java Byte Buffer version copies the memory of the buffer from the slice
+ * The Java Direct Buffer version copies the memory of the buffer from the slice
  */
 class JDirectBufferPinnableSlice {
  public:
   JDirectBufferPinnableSlice(JNIEnv* env, const jobject& jbuffer,
                              const jint jbuffer_off, const jint jbuffer_len)
-      : env_(env),
-        buffer_(static_cast<char*>(env->GetDirectBufferAddress(jbuffer)) +
+      : buffer_(static_cast<char*>(env->GetDirectBufferAddress(jbuffer)) +
                 jbuffer_off),
         jbuffer_len_(jbuffer_len) {
     jlong capacity = env->GetDirectBufferCapacity(jbuffer);
@@ -193,35 +268,29 @@ class JDirectBufferPinnableSlice {
           std::to_string(jbuffer_off) + " + length " +
           std::to_string(jbuffer_len) + " exceeds capacity " +
           std::to_string(capacity);
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, message);
+      KVException::ThrowNew(env, message);
     }
   }
-};
 
   PinnableSlice& pinnable_slice() { return pinnable_slice_; }
 
   ~JDirectBufferPinnableSlice() { pinnable_slice_.Reset(); };
 
   /**
-   * @brief copy back contents of the pinnable slice into the Java ByteBuffer
+   * @brief copy back contents of the pinnable slice into the Java DirectBuffer
    *
    * @return jint min of size of buffer and number of bytes in value for
    * requested key
    */
-  jint Retrieve() {
-    if (env_->ExceptionCheck()) {
-      return ROCKSDB_NAMESPACE::KVHelperJNI::kStatusError;
-    }
+  jint Fetch() {
     const jint pinnable_len = static_cast<jint>(pinnable_slice_.size());
     const jint result_len = std::min(jbuffer_len_, pinnable_len);
 
     memcpy(buffer_, pinnable_slice_.data(), result_len);
-    pinnable_slice_.Reset();
     return result_len;
   };
 
  private:
-  JNIEnv* env_;
   char* buffer_;
   jint jbuffer_len_;
   PinnableSlice pinnable_slice_;
