@@ -1087,6 +1087,22 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     {
       SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
       Version* current_version = super_version->current;
+
+      // Might need to query the partitioner
+      SstPartitionerFactory* partitioner_factory =
+          current_version->cfd()->ioptions()->sst_partitioner_factory.get();
+      std::unique_ptr<SstPartitioner> partitioner;
+      if (partitioner_factory && begin != nullptr && end != nullptr) {
+        SstPartitioner::Context context;
+        context.is_full_compaction = false;
+        context.is_manual_compaction = true;
+        context.output_level = /*unknown*/ -1;
+        // Small lies aobut compaction range
+        context.smallest_user_key = *begin;
+        context.largest_user_key = *end;
+        partitioner = partitioner_factory->CreatePartitioner(context);
+      }
+
       ReadOptions ro;
       ro.total_order_seek = true;
       bool overlap;
@@ -1094,14 +1110,37 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
            level < current_version->storage_info()->num_non_empty_levels();
            level++) {
         overlap = true;
+
+        bool check_overlap_within_file = false;
         if (begin != nullptr && end != nullptr) {
+          // Typically checking overlap within files in this case
+          check_overlap_within_file = true;
+          if (partitioner) {
+            // Especially if the partitioner is new, the manual compaction
+            // might be used to enforce the partitioning. So if there is a
+            // partitioner and the compaction range crosses a partitioning
+            // boundary, then file-level overlap info is sufficient for
+            // deciding whether to consider the level as overlapping.
+            // (Proof idea: we want to consider overlapping if some file
+            // crosses a boundary in range; otherwise, if there's a boundary
+            // in range and some actual entries overlap in range, then a file
+            // smallest or largest must be in range.
+
+            // Use a hypothetical trivial move query to check for partition
+            // boundary in range.
+            if (!partitioner->CanDoTrivialMove(*begin, *end)) {
+              check_overlap_within_file = false;
+            }
+          }
+        }
+        if (check_overlap_within_file) {
           Status status = current_version->OverlapWithLevelIterator(
               ro, file_options_, *begin, *end, level, &overlap);
           if (!status.ok()) {
-            overlap = current_version->storage_info()->OverlapInLevel(
-                level, begin, end);
+            check_overlap_within_file = false;
           }
-        } else {
+        }
+        if (!check_overlap_within_file) {
           overlap = current_version->storage_info()->OverlapInLevel(level,
                                                                     begin, end);
         }
