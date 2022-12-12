@@ -4501,6 +4501,56 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
   return false;
 }
 
+VersionEdit VersionStorageInfo::RecordState(
+    uint32_t cf_id, uint64_t log_number, const std::string& full_history_ts_low,
+    SequenceNumber descriptor_last_sequence) const {
+  VersionEdit edit;
+  edit.SetColumnFamily(cf_id);
+  for (int level = 0; level < num_levels(); level++) {
+    const auto& level_files = LevelFiles(level);
+
+    for (const auto& f : level_files) {
+      assert(f);
+
+      edit.AddFile(
+          level, f->fd.GetNumber(), f->fd.GetPathId(), f->fd.GetFileSize(),
+          f->smallest, f->largest, f->fd.smallest_seqno, f->fd.largest_seqno,
+          f->marked_for_compaction, f->temperature, f->oldest_blob_file_number,
+          f->oldest_ancester_time, f->file_creation_time, f->file_checksum,
+          f->file_checksum_func_name, f->unique_id);
+      descriptor_last_sequence =
+          std::max(descriptor_last_sequence, f->fd.largest_seqno);
+    }
+  }
+
+  edit.SetCompactCursors(GetCompactCursors());
+
+  const auto& blob_files = GetBlobFiles();
+  for (const auto& meta : blob_files) {
+    assert(meta);
+
+    const uint64_t blob_file_number = meta->GetBlobFileNumber();
+
+    edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
+                     meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
+                     meta->GetChecksumValue());
+    if (meta->GetGarbageBlobCount() > 0) {
+      edit.AddBlobFileGarbage(blob_file_number, meta->GetGarbageBlobCount(),
+                              meta->GetGarbageBlobBytes());
+    }
+  }
+
+  edit.SetLogNumber(log_number);
+
+  if (!full_history_ts_low.empty()) {
+    edit.SetFullHistoryTsLow(full_history_ts_low);
+  }
+
+  edit.SetLastSequence(descriptor_last_sequence);
+
+  return edit;
+}
+
 void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
                            std::vector<uint64_t>* live_blob_files) const {
   assert(live_table_files);
@@ -6059,7 +6109,11 @@ Status VersionSet::WriteCurrentStateToManifest(
   // this new manifest later (which can happens in e.g, SyncWAL()), this new
   // manifest creates an illusion that such WAL hasn't been deleted.
   VersionEdit wal_deletions;
-  wal_deletions.DeleteWalsBefore(min_log_number_to_keep());
+  uint64_t min_log = min_log_number_to_keep();
+  wal_deletions.DeleteWalsBefore(min_log);
+  if (min_log != 0) {
+    wal_deletions.SetMinLogNumberToKeep(min_log);
+  }
   std::string wal_deletions_record;
   if (!wal_deletions.EncodeTo(&wal_deletions_record)) {
     return Status::Corruption("Unable to Encode VersionEdit: " +
@@ -6099,82 +6153,18 @@ Status VersionSet::WriteCurrentStateToManifest(
       }
     }
 
-    {
-      // Save files
-      VersionEdit edit;
-      edit.SetColumnFamily(cfd->GetID());
-
-      const auto* current = cfd->current();
-      assert(current);
-
-      const auto* vstorage = current->storage_info();
-      assert(vstorage);
-
-      for (int level = 0; level < cfd->NumberLevels(); level++) {
-        const auto& level_files = vstorage->LevelFiles(level);
-
-        for (const auto& f : level_files) {
-          assert(f);
-
-          edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
-                       f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction, f->temperature,
-                       f->oldest_blob_file_number, f->oldest_ancester_time,
-                       f->file_creation_time, f->file_checksum,
-                       f->file_checksum_func_name, f->unique_id);
-        }
-      }
-
-      edit.SetCompactCursors(vstorage->GetCompactCursors());
-
-      const auto& blob_files = vstorage->GetBlobFiles();
-      for (const auto& meta : blob_files) {
-        assert(meta);
-
-        const uint64_t blob_file_number = meta->GetBlobFileNumber();
-
-        edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
-                         meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
-                         meta->GetChecksumValue());
-        if (meta->GetGarbageBlobCount() > 0) {
-          edit.AddBlobFileGarbage(blob_file_number, meta->GetGarbageBlobCount(),
-                                  meta->GetGarbageBlobBytes());
-        }
-      }
-
-      const auto iter = curr_state.find(cfd->GetID());
-      assert(iter != curr_state.end());
-      uint64_t log_number = iter->second.log_number;
-      edit.SetLogNumber(log_number);
-
-      if (cfd->GetID() == 0) {
-        // min_log_number_to_keep is for the whole db, not for specific column
-        // family. So it does not need to be set for every column family, just
-        // need to be set once. Since default CF can never be dropped, we set
-        // the min_log to the default CF here.
-        uint64_t min_log = min_log_number_to_keep();
-        if (min_log != 0) {
-          edit.SetMinLogNumberToKeep(min_log);
-        }
-      }
-
-      const std::string& full_history_ts_low = iter->second.full_history_ts_low;
-      if (!full_history_ts_low.empty()) {
-        edit.SetFullHistoryTsLow(full_history_ts_low);
-      }
-
-      edit.SetLastSequence(descriptor_last_sequence_);
-
-      std::string record;
-      if (!edit.EncodeTo(&record)) {
-        return Status::Corruption("Unable to Encode VersionEdit:" +
-                                  edit.DebugString(true));
-      }
-      io_s = log->AddRecord(record);
-      if (!io_s.ok()) {
-        return io_s;
-      }
+    const auto& cf_state = curr_state.find(cfd->GetID())->second;
+    VersionEdit edit = cfd->current()->storage_info()->RecordState(
+        cfd->GetID(), cf_state.log_number, cf_state.full_history_ts_low,
+        descriptor_last_sequence_);
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit:" +
+                                edit.DebugString(true));
+    }
+    io_s = log->AddRecord(record);
+    if (!io_s.ok()) {
+      return io_s;
     }
   }
   return Status::OK();

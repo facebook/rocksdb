@@ -579,6 +579,14 @@ class VersionStorageInfo {
                                      const Slice& largest_user_key,
                                      int last_level, int last_l0_idx);
 
+  // Returns the `VersionEdit` to apply to rebuild a column family with this
+  // storage info.
+  //
+  // REQUIRES: DB mutex is held.
+  VersionEdit RecordState(uint32_t cf_id, uint64_t log_number,
+                          const std::string& full_history_ts_low,
+                          SequenceNumber descriptor_last_sequence) const;
+
  private:
   void ComputeCompensatedSizes();
   void UpdateNumNonEmptyLevels();
@@ -1259,6 +1267,9 @@ class VersionSet {
   uint64_t LastPublishedSequence() const {
     return last_published_sequence_.load(std::memory_order_seq_cst);
   }
+
+  // REQUIRES: DB mutex is held.
+  uint64_t DescriptorLastSequence() const { return descriptor_last_sequence_; }
 
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {

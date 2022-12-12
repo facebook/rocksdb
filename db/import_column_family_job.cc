@@ -147,18 +147,15 @@ Status ImportColumnFamilyJob::Run() {
     s = version_builder.SaveTo(&vstorage);
   }
   if (s.ok()) {
-    edit_.SetColumnFamily(cfd_->GetID());
-
-    for (int level = 0; level < vstorage.num_levels(); level++) {
-      for (FileMetaData* file_meta : vstorage.LevelFiles(level)) {
-        edit_.AddFile(level, *file_meta);
-        // If incoming sequence number is higher, update local sequence number.
-        if (file_meta->fd.largest_seqno > versions_->LastSequence()) {
-          versions_->SetLastAllocatedSequence(file_meta->fd.largest_seqno);
-          versions_->SetLastPublishedSequence(file_meta->fd.largest_seqno);
-          versions_->SetLastSequence(file_meta->fd.largest_seqno);
-        }
-      }
+    edit_ = vstorage.RecordState(cfd_->GetID(), cfd_->GetLogNumber(),
+                                 cfd_->GetFullHistoryTsLow(),
+                                 versions_->DescriptorLastSequence());
+    if (edit_.GetLastSequence() > versions_->LastSequence()) {
+      // If incoming sequence number is higher, update local sequence number.
+      // These won't get updated by LogAndApply() so do it here.
+      versions_->SetLastPublishedSequence(edit_.GetLastSequence());
+      versions_->SetLastAllocatedSequence(edit_.GetLastSequence());
+      versions_->SetLastSequence(edit_.GetLastSequence());
     }
   }
   for (int level = 0; level < vstorage.num_levels(); level++) {
