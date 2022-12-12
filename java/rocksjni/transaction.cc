@@ -233,7 +233,7 @@ jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BIIJ(
         env, txn->Get(*read_options, column_family_handle, key.slice(),
                       &value.pinnable_slice()));
     return value.NewByteArray();
-  } catch (ROCKSDB_NAMESPACE::KVException e) {
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
     return nullptr;
   }
 }
@@ -280,7 +280,7 @@ jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ(
         env, txn->Get(*read_options, column_family_handle, key.slice(),
                       &value.pinnable_slice()));
     return value.Fetch();
-  } catch (ROCKSDB_NAMESPACE::KVException e) {
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();
   }
 }
@@ -312,7 +312,7 @@ jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jobject, jlong jhandle,
         env, txn->Get(*read_options, column_family_handle, key.slice(),
                       &value.pinnable_slice()));
     return value.Fetch();
-  } catch (ROCKSDB_NAMESPACE::KVException e) {
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();
   }
 }
