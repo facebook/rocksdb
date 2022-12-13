@@ -572,12 +572,15 @@ void Java_org_rocksdb_Transaction_put__J_3BII_3BIIJZ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
-  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->Put(column_family_handle, key.slice(), value.slice(),
-                    jassume_tracked);
-  });
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Put(column_family_handle, key.slice(), value.slice(),
+                      jassume_tracked));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -590,11 +593,14 @@ void Java_org_rocksdb_Transaction_put__J_3BII_3BII(
     jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
     jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
-  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->Put(key.slice(), value.slice());
-  });
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Put(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -610,12 +616,16 @@ void Java_org_rocksdb_Transaction_putDirect__JLjava_nio_ByteBuffer_2IILjava_nio_
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
-  ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->Put(column_family_handle, key.slice(), value.slice(),
-                    jassume_tracked);
-  });
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off,
+                                                jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Put(column_family_handle, key.slice(), value.slice(),
+                      jassume_tracked));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -627,11 +637,15 @@ void Java_org_rocksdb_Transaction_putDirect__JLjava_nio_ByteBuffer_2IILjava_nio_
     JNIEnv* env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off,
     jint jkey_len, jobject jval_bb, jint jval_off, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
-  ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->Put(key.slice(), value.slice());
-  });
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off,
+                                                jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Put(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
@@ -792,12 +806,15 @@ void Java_org_rocksdb_Transaction_merge__J_3BII_3BIIJZ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
-  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->Merge(column_family_handle, key.slice(), value.slice(),
-                      jassume_tracked);
-  });
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Merge(column_family_handle, key.slice(), value.slice(),
+                        jassume_tracked));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -810,11 +827,14 @@ void Java_org_rocksdb_Transaction_merge__J_3BII_3BII(
     jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
     jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
-  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->Merge(key.slice(), value.slice());
-  });
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Merge(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -831,12 +851,16 @@ Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_ByteBuffer_2IILjava_nio_Byt
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
-  ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->Merge(column_family_handle, key.slice(), value.slice(),
-                      jassume_tracked);
-  });
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off,
+                                                jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Merge(column_family_handle, key.slice(), value.slice(),
+                        jassume_tracked));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -849,11 +873,15 @@ Java_org_rocksdb_Transaction_mergeDirect__JLjava_nio_ByteBuffer_2IILjava_nio_Byt
     JNIEnv* env, jobject, jlong jhandle, jobject jkey_bb, jint jkey_off,
     jint jkey_len, jobject jval_bb, jint jval_off, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
-  ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->Merge(key.slice(), value.slice());
-  });
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey_bb, jkey_off, jkey_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval_bb, jval_off,
+                                                jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Merge(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
@@ -1104,11 +1132,15 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BIJ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
-  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->PutUntracked(column_family_handle, key.slice(), value.slice());
-  });
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->PutUntracked(column_family_handle, key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -1120,11 +1152,14 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
-  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->PutUntracked(key.slice(), value.slice());
-  });
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->PutUntracked(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -1181,12 +1216,15 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BIJ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
-  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->MergeUntracked(column_family_handle, key.slice(),
-                               value.slice());
-  });
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->MergeUntracked(column_family_handle, key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
@@ -1198,11 +1236,14 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
-  ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
-  ROCKSDB_NAMESPACE::KVHelperJNI::DoWrite(env, [=, &key, &value]() {
-    return txn->MergeUntracked(key.slice(), value.slice());
-  });
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->MergeUntracked(key.slice(), value.slice()));
+  } catch (ROCKSDB_NAMESPACE::KVException&) {
+    return;
+  }
 }
 
 /*
