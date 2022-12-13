@@ -619,6 +619,8 @@ TEST_F(DBWALTest, LockWal) {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->LoadDependency(
         {{"DBWALTest::LockWal:AfterLockWal",
+          "DBWALTest::LockWal:BeforeFlush:1"},
+         {"DBWALTest::LockWal:AfterGetSortedWal",
           "DBWALTest::LockWal:BeforeFlush:1"}});
     SyncPoint::GetInstance()->EnableProcessing();
 
@@ -640,6 +642,7 @@ TEST_F(DBWALTest, LockWal) {
     {
       VectorLogPtr wals;
       ASSERT_OK(db_->GetSortedWalFiles(wals));
+      TEST_SYNC_POINT("DBWALTest::LockWal:AfterGetSortedWal");
       ASSERT_FALSE(wals.empty());
     }
     FlushOptions flush_opts;
