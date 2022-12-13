@@ -946,7 +946,7 @@ class BackupEngineImplThreadSafe : public BackupEngine,
     std::list<const BackupEngineImpl*> locked_restore_from_dirs;
     std::vector<port::RWMutex*> mutexes;
 
-    // Add this
+    // Add `this`
     locked_restore_from_dirs.emplace_back(&impl_);
     mutexes.push_back(&mutex_);
 
