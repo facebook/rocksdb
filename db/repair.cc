@@ -625,44 +625,8 @@ class Repairer {
     return status;
   }
 
-  // Recover the next epoch number of `cfd` and epoch number
-  // of its files (if missing)
-  void RecoverEpochNumbers(ColumnFamilyData* cfd,
-                           std::vector<TableInfo*>& tables) {
-    bool has_missing_epoch_number = false;
-    for (const auto& table : tables) {
-      if (table->meta.epoch_number == kUnknownEpochNumber) {
-        has_missing_epoch_number = true;
-        break;
-      }
-    }
-
-    if (has_missing_epoch_number) {
-      std::vector<FileMetaData*> files;
-      for (auto& table : tables) {
-        files.push_back(&(table->meta));
-      }
-      NewestFirstBySeqNo cmp;
-      std::sort(files.begin(), files.end(), cmp);
-      for (auto iter = files.rbegin(); iter != files.rend(); iter++) {
-        FileMetaData* f = *iter;
-        f->epoch_number = cfd->NewEpochNumber();
-      }
-      ROCKS_LOG_WARN(
-          cfd->ioptions()->info_log,
-          "Repaired CF(%d)'s epoch numbers are inferred based on seqno",
-          cfd->GetID());
-    } else {
-      uint64_t max_epoch_number = kUnknownEpochNumber;
-      for (const auto& table : tables) {
-        max_epoch_number = std::max(max_epoch_number, table->meta.epoch_number);
-      }
-      cfd->SetNextEpochNumber(max_epoch_number + 1);
-    }
-  }
-
   Status AddTables() {
-    std::unordered_map<uint32_t, std::vector<TableInfo*>> cf_id_to_tables;
+    std::unordered_map<uint32_t, std::vector<const TableInfo*>> cf_id_to_tables;
     SequenceNumber max_sequence = 0;
     for (size_t i = 0; i < tables_.size(); i++) {
       cf_id_to_tables[tables_[i].column_family_id].push_back(&tables_[i]);
@@ -674,21 +638,26 @@ class Repairer {
     vset_.SetLastPublishedSequence(max_sequence);
     vset_.SetLastSequence(max_sequence);
 
-    for (auto& cf_id_and_tables : cf_id_to_tables) {
+    for (const auto& cf_id_and_tables : cf_id_to_tables) {
       auto* cfd =
           vset_.GetColumnFamilySet()->GetColumnFamily(cf_id_and_tables.first);
 
-      RecoverEpochNumbers(cfd, cf_id_and_tables.second);
-
-      VersionEdit edit;
-      edit.SetComparatorName(cfd->user_comparator()->Name());
-      edit.SetLogNumber(0);
-      edit.SetNextFile(next_file_number_);
-      edit.SetColumnFamily(cfd->GetID());
-
-      // TODO(opt): separate out into multiple levels
+      // Recover files' epoch number using dummy VersionStorageInfo
+      VersionBuilder dummy_version_builder(
+          cfd->current()->version_set()->file_options(), cfd->ioptions(),
+          cfd->table_cache(), cfd->current()->storage_info(),
+          cfd->current()->version_set(),
+          cfd->GetFileMetadataCacheReservationManager());
+      VersionStorageInfo dummy_vstorage(
+          &cfd->internal_comparator(), cfd->user_comparator(),
+          cfd->NumberLevels(), cfd->ioptions()->compaction_style,
+          nullptr /* src_vstorage */, cfd->ioptions()->force_consistency_checks,
+          EpochNumberRequirement::kMightMissing);
+      Status s;
+      VersionEdit dummy_edit;
       for (const auto* table : cf_id_and_tables.second) {
-        edit.AddFile(
+        // TODO(opt): separate out into multiple levels
+        dummy_edit.AddFile(
             0, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
             table->meta.fd.GetFileSize(), table->meta.smallest,
             table->meta.largest, table->meta.fd.smallest_seqno,
@@ -698,20 +667,53 @@ class Repairer {
             table->meta.epoch_number, table->meta.file_checksum,
             table->meta.file_checksum_func_name, table->meta.unique_id);
       }
-      assert(next_file_number_ > 0);
-      vset_.MarkFileNumberUsed(next_file_number_ - 1);
-      mutex_.Lock();
-      std::unique_ptr<FSDirectory> db_dir;
-      Status status = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(),
-                                                          &db_dir, nullptr);
-      if (status.ok()) {
-        status = vset_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                   &edit, &mutex_, db_dir.get(),
-                                   false /* new_descriptor_log */);
+      s = dummy_version_builder.Apply(&dummy_edit);
+      if (s.ok()) {
+        s = dummy_version_builder.SaveTo(&dummy_vstorage);
       }
-      mutex_.Unlock();
-      if (!status.ok()) {
-        return status;
+      if (s.ok()) {
+        dummy_vstorage.RecoverEpochNumbers(cfd);
+      }
+      if (s.ok()) {
+        // Record changes from this repair in VersionEdit, including files with
+        // recovered epoch numbers
+        VersionEdit edit;
+        edit.SetComparatorName(cfd->user_comparator()->Name());
+        edit.SetLogNumber(0);
+        edit.SetNextFile(next_file_number_);
+        edit.SetColumnFamily(cfd->GetID());
+        for (int level = 0; level < dummy_vstorage.num_levels(); ++level) {
+          for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
+            edit.AddFile(level, *file_meta);
+          }
+        }
+
+        // Release resources occupied by the dummy VersionStorageInfo
+        for (int level = 0; level < dummy_vstorage.num_levels(); ++level) {
+          for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
+            file_meta->refs--;
+            if (file_meta->refs <= 0) {
+              delete file_meta;
+            }
+          }
+        }
+
+        // Persist record of changes
+        assert(next_file_number_ > 0);
+        vset_.MarkFileNumberUsed(next_file_number_ - 1);
+        mutex_.Lock();
+        std::unique_ptr<FSDirectory> db_dir;
+        s = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(), &db_dir,
+                                                nullptr);
+        if (s.ok()) {
+          s = vset_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
+                                &mutex_, db_dir.get(),
+                                false /* new_descriptor_log */);
+        }
+        mutex_.Unlock();
+      }
+      if (!s.ok()) {
+        return s;
       }
     }
     return Status::OK();

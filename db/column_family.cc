@@ -1522,36 +1522,7 @@ void ColumnFamilyData::RecoverEpochNumbers() {
   assert(current_);
   auto* vstorage = current_->storage_info();
   assert(vstorage);
-
-  if (vstorage->HasMissingEpochNumber()) {
-    assert(vstorage->GetEpochNumberRequirement() ==
-           EpochNumberRequirement::kMightMissing);
-
-    for (int level = vstorage->num_levels() - 1; level >= 1; --level) {
-      auto& files_at_level = vstorage->LevelFiles(level);
-      if (files_at_level.empty()) {
-        continue;
-      }
-      for (FileMetaData* f : files_at_level) {
-        f->epoch_number = next_epoch_number_;
-      }
-      next_epoch_number_++;
-    }
-    for (auto file_meta_iter = vstorage->LevelFiles(0 /* level */).rbegin();
-         file_meta_iter != vstorage->LevelFiles(0 /* level */).rend();
-         file_meta_iter++) {
-      FileMetaData* f = *file_meta_iter;
-      f->epoch_number = next_epoch_number_++;
-    }
-
-    ROCKS_LOG_WARN(ioptions_.info_log.get(),
-                   "CF(%d)'s epoch numbers are inferred based on seqno", id_);
-    vstorage->SetEpochNumberRequirement(EpochNumberRequirement::kMustPresent);
-  } else {
-    assert(vstorage->GetEpochNumberRequirement() ==
-           EpochNumberRequirement::kMustPresent);
-    next_epoch_number_.store(vstorage->GetMaxEpochNumberOfFiles() + 1);
-  }
+  vstorage->RecoverEpochNumbers(this);
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,

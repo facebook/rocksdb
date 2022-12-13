@@ -66,12 +66,6 @@ class ImportColumnFamilyJob {
                              IngestedFileInfo* file_to_import,
                              SuperVersion* sv);
 
-  // Recover the next epoch number of this imported CF and epoch number
-  // of its files (if missing)
-  void RecoverEpochNumbers();
-  bool HasMissingEpochNumber() const;
-  void InferMissingEpochNumber();
-
   SystemClock* clock_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;

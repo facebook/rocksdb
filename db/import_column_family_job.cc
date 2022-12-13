@@ -120,38 +120,46 @@ Status ImportColumnFamilyJob::Run() {
         static_cast<uint64_t>(temp_current_time);
   }
 
-  VersionBuilder version_builder(
+  // Recover files' epoch number using dummy VersionStorageInfo
+  VersionBuilder dummy_version_builder(
       cfd_->current()->version_set()->file_options(), cfd_->ioptions(),
       cfd_->table_cache(), cfd_->current()->storage_info(),
       cfd_->current()->version_set(),
       cfd_->GetFileMetadataCacheReservationManager());
-  VersionStorageInfo vstorage(
+  VersionStorageInfo dummy_vstorage(
       &cfd_->internal_comparator(), cfd_->user_comparator(),
       cfd_->NumberLevels(), cfd_->ioptions()->compaction_style,
-      nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks);
+      nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
+      EpochNumberRequirement::kMightMissing);
   Status s;
   for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
 
-    VersionEdit version_edit;
-    version_edit.AddFile(
+    VersionEdit dummy_version_edit;
+    dummy_version_edit.AddFile(
         file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
         f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
         file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
         file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, file_metadata.epoch_number, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        f.unique_id);
-    s = version_builder.Apply(&version_edit);
+        current_time, file_metadata.epoch_number, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, f.unique_id);
+    s = dummy_version_builder.Apply(&dummy_version_edit);
   }
   if (s.ok()) {
-    s = version_builder.SaveTo(&vstorage);
+    s = dummy_version_builder.SaveTo(&dummy_vstorage);
   }
+  if (s.ok()) {
+    dummy_vstorage.RecoverEpochNumbers(cfd_);
+  }
+
+  // Record changes from this CF import in VersionEdit, including files with
+  // recovered epoch numbers
   if (s.ok()) {
     edit_.SetColumnFamily(cfd_->GetID());
 
-    for (int level = 0; level < vstorage.num_levels(); level++) {
-      for (FileMetaData* file_meta : vstorage.LevelFiles(level)) {
+    for (int level = 0; level < dummy_vstorage.num_levels(); level++) {
+      for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
         edit_.AddFile(level, *file_meta);
         // If incoming sequence number is higher, update local sequence number.
         if (file_meta->fd.largest_seqno > versions_->LastSequence()) {
@@ -162,8 +170,10 @@ Status ImportColumnFamilyJob::Run() {
       }
     }
   }
-  for (int level = 0; level < vstorage.num_levels(); level++) {
-    for (FileMetaData* file_meta : vstorage.LevelFiles(level)) {
+
+  // Release resources occupied by the dummy VersionStorageInfo
+  for (int level = 0; level < dummy_vstorage.num_levels(); level++) {
+    for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
       file_meta->refs--;
       if (file_meta->refs <= 0) {
         delete file_meta;
@@ -299,71 +309,6 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   }
 
   return status;
-}
-
-bool ImportColumnFamilyJob::HasMissingEpochNumber() const {
-  for (std::size_t i = 0; i < metadata_.size(); ++i) {
-    const LiveFileMetaData& live_file_metadata = metadata_[i];
-    if (live_file_metadata.epoch_number == kUnknownEpochNumber) {
-      return true;
-    }
-  }
-  return false;
-}
-
-void ImportColumnFamilyJob::InferMissingEpochNumber() {
-  if (metadata_.empty()) {
-    return;
-  }
-
-  std::vector<std::vector<LiveFileMetaData*>> files_by_level(
-      cfd_->NumberLevels());
-
-  for (std::size_t i = 0; i < metadata_.size(); ++i) {
-    auto& live_file_metadata = metadata_[i];
-    assert(live_file_metadata.level >= 0 &&
-           live_file_metadata.level < static_cast<int>(files_by_level.size()));
-    files_by_level[live_file_metadata.level].push_back(&live_file_metadata);
-  }
-
-  for (int level = static_cast<int>(files_by_level.size()) - 1; level >= 1;
-       --level) {
-    auto& files = files_by_level[level];
-    if (files.empty()) {
-      continue;
-    }
-    uint64_t next_epoch_number = cfd_->NewEpochNumber();
-    for (LiveFileMetaData* f : files) {
-      f->epoch_number = next_epoch_number;
-    }
-  }
-
-  NewestFirstBySeqNo cmp;
-  assert(files_by_level.size() >= 1);
-  std::sort(files_by_level[0].begin(), files_by_level[0].end(), cmp);
-  for (auto iter = files_by_level[0].rbegin(); iter != files_by_level[0].rend();
-       iter++) {
-    LiveFileMetaData* f = *iter;
-    f->epoch_number = cfd_->NewEpochNumber();
-  }
-
-  ROCKS_LOG_WARN(versions_->db_options()->info_log,
-                 "Imported CF(%d)'s epoch numbers are inferred based on seqno",
-                 cfd_->GetID());
-}
-
-void ImportColumnFamilyJob::RecoverEpochNumbers() {
-  if (HasMissingEpochNumber()) {
-    InferMissingEpochNumber();
-  } else {
-    uint64_t max_epoch_number = kUnknownEpochNumber;
-    for (std::size_t i = 0; i < metadata_.size(); ++i) {
-      const LiveFileMetaData& live_file_metadata = metadata_[i];
-      max_epoch_number =
-          std::max(max_epoch_number, live_file_metadata.epoch_number);
-    }
-    cfd_->SetNextEpochNumber(max_epoch_number + 1);
-  }
 }
 }  // namespace ROCKSDB_NAMESPACE
 

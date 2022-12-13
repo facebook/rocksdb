@@ -104,6 +104,9 @@ constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 constexpr uint64_t kUnknownEpochNumber = 0;
+// If `Options::allow_ingest_behind` is true, this epoch number
+// will be dedicated to files ingested behind.
+constexpr uint64_t kReservedEpochNumberForFileIngestedBehind = 1;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 

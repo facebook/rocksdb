@@ -37,6 +37,22 @@
 namespace ROCKSDB_NAMESPACE {
 
 class VersionBuilder::Rep {
+  class NewestFirstByEpochNumber {
+   private:
+    inline static const NewestFirstBySeqNo seqno_cmp;
+
+   public:
+    bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+      assert(lhs);
+      assert(rhs);
+
+      if (lhs->epoch_number != rhs->epoch_number) {
+        return lhs->epoch_number > rhs->epoch_number;
+      } else {
+        return seqno_cmp(lhs, rhs);
+      }
+    }
+  };
   class BySmallestKey {
    public:
     explicit BySmallestKey(const InternalKeyComparator* cmp) : cmp_(cmp) {}
@@ -391,22 +407,6 @@ class VersionBuilder::Rep {
             }
           } else if (epoch_number_requirement ==
                      EpochNumberRequirement::kMustPresent) {
-            if (lhs->epoch_number == kUnknownEpochNumber) {
-              std::ostringstream oss;
-              oss << "L0 file is not assigned with valid epoch number: files #"
-                  << lhs->fd.GetNumber() << " with epoch number "
-                  << lhs->epoch_number;
-              return Status::Corruption("VersionBuilder", oss.str());
-            }
-
-            if (rhs->epoch_number == kUnknownEpochNumber) {
-              std::ostringstream oss;
-              oss << "L0 file is not assigned with valid epoch number: files #"
-                  << rhs->fd.GetNumber() << " with epoch number "
-                  << rhs->epoch_number;
-              return Status::Corruption("VersionBuilder", oss.str());
-            }
-
             if (lhs->epoch_number == rhs->epoch_number) {
               bool range_overlapped =
                   icmp->Compare(lhs->smallest, rhs->largest) <= 0 &&

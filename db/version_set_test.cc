@@ -3329,11 +3329,16 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
 
 TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
   std::vector<SstInfo> existing_files = {
-      SstInfo(100, kDefaultColumnFamilyName, "a", 100 /* epoch_number */),
-      SstInfo(102, kDefaultColumnFamilyName, "b", 102 /* epoch_number */),
-      SstInfo(103, kDefaultColumnFamilyName, "c", 103 /* epoch_number */),
-      SstInfo(107, kDefaultColumnFamilyName, "d", 107 /* epoch_number */),
-      SstInfo(110, kDefaultColumnFamilyName, "e", 110 /* epoch_number */)};
+      SstInfo(100, kDefaultColumnFamilyName, "a", 0 /* level */,
+              100 /* epoch_number */),
+      SstInfo(102, kDefaultColumnFamilyName, "b", 0 /* level */,
+              102 /* epoch_number */),
+      SstInfo(103, kDefaultColumnFamilyName, "c", 0 /* level */,
+              103 /* epoch_number */),
+      SstInfo(107, kDefaultColumnFamilyName, "d", 0 /* level */,
+              107 /* epoch_number */),
+      SstInfo(110, kDefaultColumnFamilyName, "e", 0 /* level */,
+              110 /* epoch_number */)};
   std::vector<FileMetaData> file_metas;
   CreateDummyTableFiles(existing_files, &file_metas);
 
@@ -3390,11 +3395,16 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
 
 TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
   std::vector<SstInfo> existing_files = {
-      SstInfo(100, kDefaultColumnFamilyName, "a", 100 /* epoch_number */),
-      SstInfo(102, kDefaultColumnFamilyName, "b", 102 /* epoch_number */),
-      SstInfo(103, kDefaultColumnFamilyName, "c", 103 /* epoch_number */),
-      SstInfo(107, kDefaultColumnFamilyName, "d", 107 /* epoch_number */),
-      SstInfo(110, kDefaultColumnFamilyName, "e", 110 /* epoch_number */)};
+      SstInfo(100, kDefaultColumnFamilyName, "a", 0 /* level */,
+              100 /* epoch_number */),
+      SstInfo(102, kDefaultColumnFamilyName, "b", 0 /* level */,
+              102 /* epoch_number */),
+      SstInfo(103, kDefaultColumnFamilyName, "c", 0 /* level */,
+              103 /* epoch_number */),
+      SstInfo(107, kDefaultColumnFamilyName, "d", 0 /* level */,
+              107 /* epoch_number */),
+      SstInfo(110, kDefaultColumnFamilyName, "e", 0 /* level */,
+              110 /* epoch_number */)};
   std::vector<FileMetaData> file_metas;
   CreateDummyTableFiles(existing_files, &file_metas);
 
@@ -3444,7 +3454,8 @@ TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
   db_options_.allow_2pc = true;
   NewDB();
 
-  SstInfo sst(100, kDefaultColumnFamilyName, "a", 100 /* epoch_number */);
+  SstInfo sst(100, kDefaultColumnFamilyName, "a", 0 /* level */,
+              100 /* epoch_number */);
   std::vector<FileMetaData> file_metas;
   CreateDummyTableFiles({sst}, &file_metas);
 

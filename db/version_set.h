@@ -334,6 +334,7 @@ class VersionStorageInfo {
       EpochNumberRequirement epoch_number_requirement) {
     epoch_number_requirement_ = epoch_number_requirement;
   }
+  void RecoverEpochNumbers(ColumnFamilyData* cfd);
 
   class FileLocation {
    public:

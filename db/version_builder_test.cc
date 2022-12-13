@@ -1697,45 +1697,11 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
 }
 
 TEST_F(VersionBuilderTest, CheckConsistencyForL0FilesSortedByEpochNumber) {
-  // To verify L0 file of invalid epoch_number is caught as corrupted
-  VersionEdit version_edit_1;
-  version_edit_1.AddFile(
-      /* level */ 0, /* file_number */ 1U, /* path_id */ 0,
-      /* file_size */ 100, /* smallest */ GetInternalKey("a", 1),
-      /* largest */ GetInternalKey("a", 1), /* smallest_seqno */ 1,
-      /* largest_seqno */ 1, /* marked_for_compaction */ false,
-      Temperature::kUnknown,
-      /* oldest_blob_file_number */ kInvalidBlobFileNumber,
-      kUnknownOldestAncesterTime, kUnknownFileCreationTime, kUnknownEpochNumber,
-      kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
-  version_edit_1.AddFile(
-      /* level */ 0, /* file_number */ 2U, /* path_id */ 0,
-      /* file_size */ 100, /* smallest */ GetInternalKey("b", 2),
-      /* largest */ GetInternalKey("b", 2), /* smallest_seqno */ 2,
-      /* largest_seqno */ 2, /* marked_for_compaction */ false,
-      Temperature::kUnknown,
-      /* oldest_blob_file_number */ kInvalidBlobFileNumber,
-      kUnknownOldestAncesterTime, kUnknownFileCreationTime, kUnknownEpochNumber,
-      kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
-
-  VersionBuilder version_builder_1(EnvOptions(), &ioptions_,
-                                   nullptr /* table_cache */, &vstorage_,
-                                   nullptr /* file_metadata_cache_res_mgr */);
-  VersionStorageInfo new_vstorage_1(
-      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
-      nullptr /* src_vstorage */, true /* force_consistency_checks */);
-
-  ASSERT_OK(version_builder_1.Apply(&version_edit_1));
-  Status s = version_builder_1.SaveTo(&new_vstorage_1);
-  EXPECT_TRUE(s.IsCorruption());
-  EXPECT_TRUE(std::strstr(s.getState(),
-                          "L0 file is not assigned with valid epoch number"));
-  UnrefFilesInVersion(&new_vstorage_1);
-
+  Status s;
   // To verify files of same epoch number of overlapping ranges are caught as
   // corrupted
-  VersionEdit version_edit_2;
-  version_edit_2.AddFile(
+  VersionEdit version_edit_1;
+  version_edit_1.AddFile(
       /* level */ 0, /* file_number */ 1U, /* path_id */ 0,
       /* file_size */ 100, /* smallest */ GetInternalKey("a", 1),
       /* largest */ GetInternalKey("c", 3), /* smallest_seqno */ 1,
@@ -1745,7 +1711,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForL0FilesSortedByEpochNumber) {
       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
       1 /* epoch_number */, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
       kNullUniqueId64x2);
-  version_edit_2.AddFile(
+  version_edit_1.AddFile(
       /* level */ 0, /* file_number */ 2U, /* path_id */ 0,
       /* file_size */ 100, /* smallest */ GetInternalKey("b", 2),
       /* largest */ GetInternalKey("d", 4), /* smallest_seqno */ 2,
@@ -1754,6 +1720,43 @@ TEST_F(VersionBuilderTest, CheckConsistencyForL0FilesSortedByEpochNumber) {
       /* oldest_blob_file_number */ kInvalidBlobFileNumber,
       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
       1 /* epoch_number */, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+      kNullUniqueId64x2);
+
+  VersionBuilder version_builder_1(EnvOptions(), &ioptions_,
+                                   nullptr /* table_cache */, &vstorage_,
+                                   nullptr /* file_metadata_cache_res_mgr */);
+  VersionStorageInfo new_vstorage_1(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
+      nullptr /* src_vstorage */, true /* force_consistency_checks */);
+
+  ASSERT_OK(version_builder_1.Apply(&version_edit_1));
+  s = version_builder_1.SaveTo(&new_vstorage_1);
+  EXPECT_TRUE(s.IsCorruption());
+  EXPECT_TRUE(std::strstr(
+      s.getState(), "L0 files of same epoch number but overlapping range"));
+  UnrefFilesInVersion(&new_vstorage_1);
+
+  // To verify L0 files not sorted by epoch_number are caught as corrupted
+  VersionEdit version_edit_2;
+  version_edit_2.AddFile(
+      /* level */ 0, /* file_number */ 1U, /* path_id */ 0,
+      /* file_size */ 100, /* smallest */ GetInternalKey("a", 1),
+      /* largest */ GetInternalKey("a", 1), /* smallest_seqno */ 1,
+      /* largest_seqno */ 1, /* marked_for_compaction */ false,
+      Temperature::kUnknown,
+      /* oldest_blob_file_number */ kInvalidBlobFileNumber,
+      kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+      1 /* epoch_number */, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+      kNullUniqueId64x2);
+  version_edit_2.AddFile(
+      /* level */ 0, /* file_number */ 2U, /* path_id */ 0,
+      /* file_size */ 100, /* smallest */ GetInternalKey("b", 2),
+      /* largest */ GetInternalKey("b", 2), /* smallest_seqno */ 2,
+      /* largest_seqno */ 2, /* marked_for_compaction */ false,
+      Temperature::kUnknown,
+      /* oldest_blob_file_number */ kInvalidBlobFileNumber,
+      kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+      2 /* epoch_number */, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
       kNullUniqueId64x2);
 
   VersionBuilder version_builder_2(EnvOptions(), &ioptions_,
@@ -1765,46 +1768,9 @@ TEST_F(VersionBuilderTest, CheckConsistencyForL0FilesSortedByEpochNumber) {
 
   ASSERT_OK(version_builder_2.Apply(&version_edit_2));
   s = version_builder_2.SaveTo(&new_vstorage_2);
-  EXPECT_TRUE(s.IsCorruption());
-  EXPECT_TRUE(std::strstr(
-      s.getState(), "L0 files of same epoch number but overlapping range"));
-  UnrefFilesInVersion(&new_vstorage_2);
-
-  // To verify L0 files not sorted by epoch_number are caught as corrupted
-  VersionEdit version_edit_3;
-  version_edit_3.AddFile(
-      /* level */ 0, /* file_number */ 1U, /* path_id */ 0,
-      /* file_size */ 100, /* smallest */ GetInternalKey("a", 1),
-      /* largest */ GetInternalKey("a", 1), /* smallest_seqno */ 1,
-      /* largest_seqno */ 1, /* marked_for_compaction */ false,
-      Temperature::kUnknown,
-      /* oldest_blob_file_number */ kInvalidBlobFileNumber,
-      kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-      1 /* epoch_number */, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-      kNullUniqueId64x2);
-  version_edit_3.AddFile(
-      /* level */ 0, /* file_number */ 2U, /* path_id */ 0,
-      /* file_size */ 100, /* smallest */ GetInternalKey("b", 2),
-      /* largest */ GetInternalKey("b", 2), /* smallest_seqno */ 2,
-      /* largest_seqno */ 2, /* marked_for_compaction */ false,
-      Temperature::kUnknown,
-      /* oldest_blob_file_number */ kInvalidBlobFileNumber,
-      kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-      2 /* epoch_number */, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-      kNullUniqueId64x2);
-
-  VersionBuilder version_builder_3(EnvOptions(), &ioptions_,
-                                   nullptr /* table_cache */, &vstorage_,
-                                   nullptr /* file_metadata_cache_res_mgr */);
-  VersionStorageInfo new_vstorage_3(
-      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
-      nullptr /* src_vstorage */, true /* force_consistency_checks */);
-
-  ASSERT_OK(version_builder_3.Apply(&version_edit_3));
-  s = version_builder_3.SaveTo(&new_vstorage_3);
   ASSERT_TRUE(s.ok());
 
-  const std::vector<FileMetaData*>& l0_files = new_vstorage_3.LevelFiles(0);
+  const std::vector<FileMetaData*>& l0_files = new_vstorage_2.LevelFiles(0);
   ASSERT_EQ(l0_files.size(), 2);
   // Manually corrupt L0 files's epoch_number
   l0_files[0]->epoch_number = 1;
@@ -1816,11 +1782,11 @@ TEST_F(VersionBuilderTest, CheckConsistencyForL0FilesSortedByEpochNumber) {
       EnvOptions(), &ioptions_, nullptr /* table_cache */, &vstorage_,
       nullptr /* file_metadata_cache_res_mgr */);
   ASSERT_OK(dummy_version_builder.Apply(&dummy_version_edit));
-  s = dummy_version_builder.SaveTo(&new_vstorage_3);
+  s = dummy_version_builder.SaveTo(&new_vstorage_2);
   EXPECT_TRUE(s.IsCorruption());
   EXPECT_TRUE(std::strstr(s.getState(), "L0 files are not sorted properly"));
 
-  UnrefFilesInVersion(&new_vstorage_3);
+  UnrefFilesInVersion(&new_vstorage_2);
 }
 
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {

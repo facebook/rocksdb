@@ -7436,81 +7436,116 @@ TEST_F(DBTest2, SameEpochNumberAfterCompactRangeChangeLevel) {
 }
 
 TEST_F(DBTest2, RecoverEpochNumber) {
-  Options options = CurrentOptions();
-  options.num_levels = 7;
-  options.compaction_style = kCompactionStyleLevel;
-  options.disable_auto_compactions = true;
-  DestroyAndReopen(options);
-  CreateAndReopenWithCF({"cf1"}, options);
-  VersionSet* versions = dbfull()->GetVersionSet();
-  assert(versions);
-  const ColumnFamilyData* default_cf =
-      versions->GetColumnFamilySet()->GetDefault();
-  const ColumnFamilyData* cf1 =
-      versions->GetColumnFamilySet()->GetColumnFamily("cf1");
+  for (bool allow_ingest_behind : {true, false}) {
+    Options options = CurrentOptions();
+    options.allow_ingest_behind = allow_ingest_behind;
+    options.num_levels = 7;
+    options.compaction_style = kCompactionStyleLevel;
+    options.disable_auto_compactions = true;
+    DestroyAndReopen(options);
+    CreateAndReopenWithCF({"cf1"}, options);
+    VersionSet* versions = dbfull()->GetVersionSet();
+    assert(versions);
+    const ColumnFamilyData* default_cf =
+        versions->GetColumnFamilySet()->GetDefault();
+    const ColumnFamilyData* cf1 =
+        versions->GetColumnFamilySet()->GetColumnFamily("cf1");
 
-  // Set up files in default CF to recover in later step
-  ASSERT_OK(Put("key1", "epoch1"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(1 /* level*/, 0 /* cf*/);
-  ASSERT_OK(Put("key2", "epoch2"));
-  ASSERT_OK(Flush());
+    // Set up files in default CF to recover in later step
+    ASSERT_OK(Put("key1", "epoch1"));
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(1 /* level*/, 0 /* cf*/);
+    ASSERT_OK(Put("key2", "epoch2"));
+    ASSERT_OK(Flush());
 
-  std::vector<FileMetaData*> level0_files = GetLevelFileMetadatas(0 /* level*/);
-  ASSERT_EQ(level0_files.size(), 1);
-  ASSERT_EQ(level0_files[0]->epoch_number, 2);
-  ASSERT_EQ(level0_files[0]->num_entries, 1);
-  ASSERT_TRUE(level0_files[0]->largest.user_key() == Slice("key2"));
+    std::vector<FileMetaData*> level0_files =
+        GetLevelFileMetadatas(0 /* level*/);
+    ASSERT_EQ(level0_files.size(), 1);
+    ASSERT_EQ(level0_files[0]->epoch_number,
+              allow_ingest_behind
+                  ? 2 + kReservedEpochNumberForFileIngestedBehind
+                  : 2);
+    ASSERT_EQ(level0_files[0]->num_entries, 1);
+    ASSERT_TRUE(level0_files[0]->largest.user_key() == Slice("key2"));
 
-  std::vector<FileMetaData*> level1_files = GetLevelFileMetadatas(1 /* level*/);
-  ASSERT_EQ(level1_files.size(), 1);
-  ASSERT_EQ(level1_files[0]->epoch_number, 1);
-  ASSERT_EQ(level1_files[0]->num_entries, 1);
-  ASSERT_TRUE(level1_files[0]->largest.user_key() == Slice("key1"));
-  ASSERT_EQ(default_cf->GetNextEpochNumber(), 3);
+    std::vector<FileMetaData*> level1_files =
+        GetLevelFileMetadatas(1 /* level*/);
+    ASSERT_EQ(level1_files.size(), 1);
+    ASSERT_EQ(level1_files[0]->epoch_number,
+              allow_ingest_behind
+                  ? 1 + kReservedEpochNumberForFileIngestedBehind
+                  : 1);
+    ASSERT_EQ(level1_files[0]->num_entries, 1);
+    ASSERT_TRUE(level1_files[0]->largest.user_key() == Slice("key1"));
 
-  // Set up files in cf1 to recover in later step
-  ASSERT_OK(Put(1 /* cf */, "cf1_key1", "epoch1"));
-  ASSERT_OK(Flush(1 /* cf */));
+    // Set up files in cf1 to recover in later step
+    ASSERT_OK(Put(1 /* cf */, "cf1_key1", "epoch1"));
+    ASSERT_OK(Flush(1 /* cf */));
 
-  std::vector<FileMetaData*> level0_files_cf1 =
-      GetLevelFileMetadatas(0 /* level*/, 1 /* cf*/);
-  ASSERT_EQ(level0_files_cf1.size(), 1);
-  ASSERT_EQ(level0_files_cf1[0]->epoch_number, 1);
-  ASSERT_EQ(level0_files_cf1[0]->num_entries, 1);
-  ASSERT_TRUE(level0_files_cf1[0]->largest.user_key() == Slice("cf1_key1"));
+    std::vector<FileMetaData*> level0_files_cf1 =
+        GetLevelFileMetadatas(0 /* level*/, 1 /* cf*/);
+    ASSERT_EQ(level0_files_cf1.size(), 1);
+    ASSERT_EQ(level0_files_cf1[0]->epoch_number,
+              allow_ingest_behind
+                  ? 1 + kReservedEpochNumberForFileIngestedBehind
+                  : 1);
+    ASSERT_EQ(level0_files_cf1[0]->num_entries, 1);
+    ASSERT_TRUE(level0_files_cf1[0]->largest.user_key() == Slice("cf1_key1"));
 
-  ASSERT_EQ(cf1->GetNextEpochNumber(), 2);
+    ASSERT_EQ(default_cf->GetNextEpochNumber(),
+              allow_ingest_behind
+                  ? 3 + kReservedEpochNumberForFileIngestedBehind
+                  : 3);
+    ASSERT_EQ(cf1->GetNextEpochNumber(),
+              allow_ingest_behind
+                  ? 2 + kReservedEpochNumberForFileIngestedBehind
+                  : 2);
 
-  // To verify epoch_number of files of different levels/CFs are
-  // persisted and recovered correctly
-  ReopenWithColumnFamilies({"default", "cf1"}, options);
-  versions = dbfull()->GetVersionSet();
-  assert(versions);
-  default_cf = versions->GetColumnFamilySet()->GetDefault();
-  cf1 = versions->GetColumnFamilySet()->GetColumnFamily("cf1");
+    // To verify epoch_number of files of different levels/CFs are
+    // persisted and recovered correctly
+    ReopenWithColumnFamilies({"default", "cf1"}, options);
+    versions = dbfull()->GetVersionSet();
+    assert(versions);
+    default_cf = versions->GetColumnFamilySet()->GetDefault();
+    cf1 = versions->GetColumnFamilySet()->GetColumnFamily("cf1");
 
-  level0_files = GetLevelFileMetadatas(0 /* level*/);
-  ASSERT_EQ(level0_files.size(), 1);
-  EXPECT_EQ(level0_files[0]->epoch_number, 2);
-  ASSERT_EQ(level0_files[0]->num_entries, 1);
-  ASSERT_TRUE(level0_files[0]->largest.user_key() == Slice("key2"));
+    level0_files = GetLevelFileMetadatas(0 /* level*/);
+    ASSERT_EQ(level0_files.size(), 1);
+    EXPECT_EQ(level0_files[0]->epoch_number,
+              allow_ingest_behind
+                  ? 2 + kReservedEpochNumberForFileIngestedBehind
+                  : 2);
+    ASSERT_EQ(level0_files[0]->num_entries, 1);
+    ASSERT_TRUE(level0_files[0]->largest.user_key() == Slice("key2"));
 
-  level1_files = GetLevelFileMetadatas(1 /* level*/);
-  ASSERT_EQ(level1_files.size(), 1);
-  EXPECT_EQ(level1_files[0]->epoch_number, 1);
-  ASSERT_EQ(level1_files[0]->num_entries, 1);
-  ASSERT_TRUE(level1_files[0]->largest.user_key() == Slice("key1"));
+    level1_files = GetLevelFileMetadatas(1 /* level*/);
+    ASSERT_EQ(level1_files.size(), 1);
+    EXPECT_EQ(level1_files[0]->epoch_number,
+              allow_ingest_behind
+                  ? 1 + kReservedEpochNumberForFileIngestedBehind
+                  : 1);
+    ASSERT_EQ(level1_files[0]->num_entries, 1);
+    ASSERT_TRUE(level1_files[0]->largest.user_key() == Slice("key1"));
 
-  level0_files_cf1 = GetLevelFileMetadatas(0 /* level*/, 1 /* cf*/);
-  ASSERT_EQ(level0_files_cf1.size(), 1);
-  EXPECT_EQ(level0_files_cf1[0]->epoch_number, 1);
-  ASSERT_EQ(level0_files_cf1[0]->num_entries, 1);
-  ASSERT_TRUE(level0_files_cf1[0]->largest.user_key() == Slice("cf1_key1"));
+    level0_files_cf1 = GetLevelFileMetadatas(0 /* level*/, 1 /* cf*/);
+    ASSERT_EQ(level0_files_cf1.size(), 1);
+    EXPECT_EQ(level0_files_cf1[0]->epoch_number,
+              allow_ingest_behind
+                  ? 1 + kReservedEpochNumberForFileIngestedBehind
+                  : 1);
+    ASSERT_EQ(level0_files_cf1[0]->num_entries, 1);
+    ASSERT_TRUE(level0_files_cf1[0]->largest.user_key() == Slice("cf1_key1"));
 
-  // To verify next epoch number is recovered correctly
-  EXPECT_EQ(default_cf->GetNextEpochNumber(), 3);
-  EXPECT_EQ(cf1->GetNextEpochNumber(), 2);
+    // To verify next epoch number is recovered correctly
+    EXPECT_EQ(default_cf->GetNextEpochNumber(),
+              allow_ingest_behind
+                  ? 3 + kReservedEpochNumberForFileIngestedBehind
+                  : 3);
+    EXPECT_EQ(cf1->GetNextEpochNumber(),
+              allow_ingest_behind
+                  ? 2 + kReservedEpochNumberForFileIngestedBehind
+                  : 2);
+  }
 }
 
 #endif  // ROCKSDB_LITE
