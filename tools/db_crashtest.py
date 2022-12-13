@@ -87,6 +87,7 @@ default_params = {
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "ingest_external_file_one_in": 1000000,
+    "allow_ingest_behind": lambda: random.randint(0, 1),
     "iterpercent": 10,
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,

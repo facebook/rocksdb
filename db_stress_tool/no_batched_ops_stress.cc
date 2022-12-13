@@ -1109,8 +1109,13 @@ class NonBatchedOpsStressTest : public StressTest {
       s = sst_file_writer.Finish();
     }
     if (s.ok()) {
+      IngestExternalFileOptions ingest_external_file_options;
+      if (FLAGS_allow_ingest_behind) {
+        ingest_external_file_options.ingest_behind =
+            thread->rand.OneIn(2) ? true : false;
+      }
       s = db_->IngestExternalFile(column_families_[column_family],
-                                  {sst_filename}, IngestExternalFileOptions());
+                                  {sst_filename}, ingest_external_file_options);
     }
     if (!s.ok()) {
       fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
