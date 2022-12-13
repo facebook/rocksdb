@@ -110,10 +110,13 @@ class VersionEditHandler : public VersionEditHandlerBase {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,
       bool no_error_if_files_missing,
-      const std::shared_ptr<IOTracer>& io_tracer)
+      const std::shared_ptr<IOTracer>& io_tracer,
+      EpochNumberRequirement epoch_number_requirement =
+          EpochNumberRequirement::kMustPresent)
       : VersionEditHandler(read_only, column_families, version_set,
                            track_missing_files, no_error_if_files_missing,
-                           io_tracer, /*skip_load_table_files=*/false) {}
+                           io_tracer, /*skip_load_table_files=*/false,
+                           epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
 
@@ -134,7 +137,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
       VersionSet* version_set, bool track_missing_files,
       bool no_error_if_files_missing,
-      const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files);
+      const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files,
+      EpochNumberRequirement epoch_number_requirement =
+          EpochNumberRequirement::kMustPresent);
 
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
@@ -189,6 +194,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
   bool skip_load_table_files_;
   bool initialized_;
   std::unique_ptr<std::unordered_map<uint32_t, std::string>> cf_to_cmp_names_;
+  EpochNumberRequirement epoch_number_requirement_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
@@ -205,7 +211,9 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
  public:
   VersionEditHandlerPointInTime(
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
-      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer);
+      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
+      EpochNumberRequirement epoch_number_requirement =
+          EpochNumberRequirement::kMustPresent);
   ~VersionEditHandlerPointInTime() override;
 
  protected:
@@ -229,9 +237,12 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
  public:
   explicit ManifestTailer(std::vector<ColumnFamilyDescriptor> column_families,
                           VersionSet* version_set,
-                          const std::shared_ptr<IOTracer>& io_tracer)
+                          const std::shared_ptr<IOTracer>& io_tracer,
+                          EpochNumberRequirement epoch_number_requirement =
+                              EpochNumberRequirement::kMustPresent)
       : VersionEditHandlerPointInTime(/*read_only=*/false, column_families,
-                                      version_set, io_tracer),
+                                      version_set, io_tracer,
+                                      epoch_number_requirement),
         mode_(Mode::kRecovery) {}
 
   void PrepareToReadNewManifest() {

@@ -1771,8 +1771,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->temperature,
           file->oldest_blob_file_number, file->TryGetOldestAncesterTime(),
-          file->TryGetFileCreationTime(), file->file_checksum,
-          file->file_checksum_func_name);
+          file->TryGetFileCreationTime(), file->epoch_number,
+          file->file_checksum, file->file_checksum_func_name);
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -2036,7 +2036,8 @@ VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
-    bool _force_consistency_checks)
+    bool _force_consistency_checks,
+    EpochNumberRequirement epoch_number_requirement)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -2064,7 +2065,8 @@ VersionStorageInfo::VersionStorageInfo(
       current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
       finalized_(false),
-      force_consistency_checks_(_force_consistency_checks) {
+      force_consistency_checks_(_force_consistency_checks),
+      epoch_number_requirement_(epoch_number_requirement) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
     accumulated_raw_key_size_ = ref_vstorage->accumulated_raw_key_size_;
@@ -2085,7 +2087,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                  const FileOptions& file_opt,
                  const MutableCFOptions mutable_cf_options,
                  const std::shared_ptr<IOTracer>& io_tracer,
-                 uint64_t version_number)
+                 uint64_t version_number,
+                 EpochNumberRequirement epoch_number_requirement)
     : env_(vset->env_),
       clock_(vset->clock_),
       cfd_(column_family_data),
@@ -2104,7 +2107,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           (cfd_ == nullptr || cfd_->current() == nullptr)
               ? nullptr
               : cfd_->current()->storage_info(),
-          cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks),
+          cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks,
+          epoch_number_requirement),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -4280,6 +4284,74 @@ const char* VersionStorageInfo::LevelFileSummary(FileSummaryStorage* scratch,
   return scratch->buffer;
 }
 
+bool VersionStorageInfo::HasMissingEpochNumber() const {
+  for (int level = 0; level < num_levels_; ++level) {
+    for (const FileMetaData* f : files_[level]) {
+      if (f->epoch_number == kUnknownEpochNumber) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+uint64_t VersionStorageInfo::GetMaxEpochNumberOfFiles() const {
+  uint64_t max_epoch_number = kUnknownEpochNumber;
+  for (int level = 0; level < num_levels_; ++level) {
+    for (const FileMetaData* f : files_[level]) {
+      max_epoch_number = std::max(max_epoch_number, f->epoch_number);
+    }
+  }
+  return max_epoch_number;
+}
+
+void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd) {
+  cfd->ResetNextEpochNumber();
+
+  bool reserve_epoch_num_for_file_ingested_behind =
+      cfd->ioptions()->allow_ingest_behind;
+  if (reserve_epoch_num_for_file_ingested_behind) {
+    uint64_t reserved_epoch_number = cfd->NewEpochNumber();
+    assert(reserved_epoch_number == kReservedEpochNumberForFileIngestedBehind);
+    ROCKS_LOG_INFO(cfd->ioptions()->info_log.get(),
+                   "[%s]CF has reserved epoch number %" PRIu64
+                   " for files ingested "
+                   "behind since `Options::allow_ingest_behind` is true",
+                   cfd->GetName().c_str(), reserved_epoch_number);
+  }
+
+  if (HasMissingEpochNumber()) {
+    assert(epoch_number_requirement_ == EpochNumberRequirement::kMightMissing);
+    assert(num_levels_ >= 1);
+
+    for (int level = num_levels_ - 1; level >= 1; --level) {
+      auto& files_at_level = files_[level];
+      if (files_at_level.empty()) {
+        continue;
+      }
+      uint64_t next_epoch_number = cfd->NewEpochNumber();
+      for (FileMetaData* f : files_at_level) {
+        f->epoch_number = next_epoch_number;
+      }
+    }
+
+    for (auto file_meta_iter = files_[0].rbegin();
+         file_meta_iter != files_[0].rend(); file_meta_iter++) {
+      FileMetaData* f = *file_meta_iter;
+      f->epoch_number = cfd->NewEpochNumber();
+    }
+
+    ROCKS_LOG_WARN(cfd->ioptions()->info_log.get(),
+                   "[%s]CF's epoch numbers are inferred based on seqno",
+                   cfd->GetName().c_str());
+    epoch_number_requirement_ = EpochNumberRequirement::kMustPresent;
+  } else {
+    assert(epoch_number_requirement_ == EpochNumberRequirement::kMustPresent);
+    cfd->SetNextEpochNumber(
+        std::max(GetMaxEpochNumberOfFiles() + 1, cfd->GetNextEpochNumber()));
+  }
+}
+
 uint64_t VersionStorageInfo::MaxNextLevelOverlappingBytes() {
   uint64_t result = 0;
   std::vector<FileMetaData*> overlaps;
@@ -5557,7 +5629,8 @@ Status VersionSet::Recover(
                        true /* checksum */, 0 /* log_number */);
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
-        /*track_missing_files=*/false, no_error_if_files_missing, io_tracer_);
+        /*track_missing_files=*/false, no_error_if_files_missing, io_tracer_,
+        EpochNumberRequirement::kMightMissing);
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
@@ -5565,6 +5638,9 @@ Status VersionSet::Recover(
       current_manifest_file_size = reader.GetReadOffset();
       assert(current_manifest_file_size != 0);
       handler.GetDbId(db_id);
+    }
+    if (s.ok()) {
+      RecoverEpochNumbers();
     }
   }
 
@@ -5725,7 +5801,8 @@ Status VersionSet::TryRecoverFromOneManifest(
   log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                      /*checksum=*/true, /*log_num=*/0);
   VersionEditHandlerPointInTime handler_pit(
-      read_only, column_families, const_cast<VersionSet*>(this), io_tracer_);
+      read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
+      EpochNumberRequirement::kMightMissing);
 
   handler_pit.Iterate(reader, &s);
 
@@ -5734,7 +5811,21 @@ Status VersionSet::TryRecoverFromOneManifest(
   assert(nullptr != has_missing_table_file);
   *has_missing_table_file = handler_pit.HasMissingFiles();
 
-  return handler_pit.status();
+  s = handler_pit.status();
+  if (s.ok()) {
+    RecoverEpochNumbers();
+  }
+  return s;
+}
+
+void VersionSet::RecoverEpochNumbers() {
+  for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    assert(cfd->initialized());
+    cfd->RecoverEpochNumbers();
+  }
 }
 
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
@@ -6121,7 +6212,7 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->temperature,
                        f->oldest_blob_file_number, f->oldest_ancester_time,
-                       f->file_creation_time, f->file_checksum,
+                       f->file_creation_time, f->epoch_number, f->file_checksum,
                        f->file_checksum_func_name, f->unique_id);
         }
       }
@@ -6612,6 +6703,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.temperature = file->temperature;
         filemetadata.oldest_ancester_time = file->TryGetOldestAncesterTime();
         filemetadata.file_creation_time = file->TryGetFileCreationTime();
+        filemetadata.epoch_number = file->epoch_number;
         metadata->push_back(filemetadata);
       }
     }
@@ -6814,12 +6906,17 @@ Status ReactiveVersionSet::Recover(
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
-  manifest_tailer_.reset(new ManifestTailer(
-      column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_));
+  manifest_tailer_.reset(
+      new ManifestTailer(column_families, const_cast<ReactiveVersionSet*>(this),
+                         io_tracer_, EpochNumberRequirement::kMightMissing));
 
   manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
 
-  return manifest_tailer_->status();
+  s = manifest_tailer_->status();
+  if (s.ok()) {
+    RecoverEpochNumbers();
+  }
+  return s;
 }
 
 Status ReactiveVersionSet::ReadAndApply(

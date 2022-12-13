@@ -50,7 +50,6 @@ class LevelCompactionBuilder {
  public:
   LevelCompactionBuilder(const std::string& cf_name,
                          VersionStorageInfo* vstorage,
-                         SequenceNumber earliest_mem_seqno,
                          CompactionPicker* compaction_picker,
                          LogBuffer* log_buffer,
                          const MutableCFOptions& mutable_cf_options,
@@ -58,7 +57,6 @@ class LevelCompactionBuilder {
                          const MutableDBOptions& mutable_db_options)
       : cf_name_(cf_name),
         vstorage_(vstorage),
-        earliest_mem_seqno_(earliest_mem_seqno),
         compaction_picker_(compaction_picker),
         log_buffer_(log_buffer),
         mutable_cf_options_(mutable_cf_options),
@@ -122,7 +120,6 @@ class LevelCompactionBuilder {
 
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
-  SequenceNumber earliest_mem_seqno_;
   CompactionPicker* compaction_picker_;
   LogBuffer* log_buffer_;
   int start_level_ = -1;
@@ -196,7 +193,10 @@ void LevelCompactionBuilder::SetupInitialFiles() {
       }
       output_level_ =
           (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
-      if (PickFileToCompact()) {
+      bool picked_file_to_compact = PickFileToCompact();
+      TEST_SYNC_POINT_CALLBACK("PostPickFileToCompact",
+                               &picked_file_to_compact);
+      if (picked_file_to_compact) {
         // found the compaction!
         if (start_level_ == 0) {
           // L0 score = `num L0 files` / `level0_file_num_compaction_trigger`
@@ -825,16 +825,16 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
   return FindIntraL0Compaction(level_files, kMinFilesForIntraL0Compaction,
                                std::numeric_limits<uint64_t>::max(),
                                mutable_cf_options_.max_compaction_bytes,
-                               &start_level_inputs_, earliest_mem_seqno_);
+                               &start_level_inputs_);
 }
 }  // namespace
 
 Compaction* LevelCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, SequenceNumber earliest_mem_seqno) {
-  LevelCompactionBuilder builder(cf_name, vstorage, earliest_mem_seqno, this,
-                                 log_buffer, mutable_cf_options, ioptions_,
+    LogBuffer* log_buffer) {
+  LevelCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
+                                 mutable_cf_options, ioptions_,
                                  mutable_db_options);
   return builder.PickCompaction();
 }

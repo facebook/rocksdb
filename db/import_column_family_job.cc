@@ -4,6 +4,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/version_builder.h"
 #ifndef ROCKSDB_LITE
 
 #include "db/import_column_family_job.h"
@@ -119,38 +120,46 @@ Status ImportColumnFamilyJob::Run() {
         static_cast<uint64_t>(temp_current_time);
   }
 
-  VersionBuilder version_builder(
+  // Recover files' epoch number using dummy VersionStorageInfo
+  VersionBuilder dummy_version_builder(
       cfd_->current()->version_set()->file_options(), cfd_->ioptions(),
       cfd_->table_cache(), cfd_->current()->storage_info(),
       cfd_->current()->version_set(),
       cfd_->GetFileMetadataCacheReservationManager());
-  VersionStorageInfo vstorage(
+  VersionStorageInfo dummy_vstorage(
       &cfd_->internal_comparator(), cfd_->user_comparator(),
       cfd_->NumberLevels(), cfd_->ioptions()->compaction_style,
-      nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks);
+      nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
+      EpochNumberRequirement::kMightMissing);
   Status s;
   for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
 
-    VersionEdit version_edit;
-    version_edit.AddFile(
+    VersionEdit dummy_version_edit;
+    dummy_version_edit.AddFile(
         file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
         f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
         file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
         file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        f.unique_id);
-    s = version_builder.Apply(&version_edit);
+        current_time, file_metadata.epoch_number, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, f.unique_id);
+    s = dummy_version_builder.Apply(&dummy_version_edit);
   }
   if (s.ok()) {
-    s = version_builder.SaveTo(&vstorage);
+    s = dummy_version_builder.SaveTo(&dummy_vstorage);
   }
+  if (s.ok()) {
+    dummy_vstorage.RecoverEpochNumbers(cfd_);
+  }
+
+  // Record changes from this CF import in VersionEdit, including files with
+  // recovered epoch numbers
   if (s.ok()) {
     edit_.SetColumnFamily(cfd_->GetID());
 
-    for (int level = 0; level < vstorage.num_levels(); level++) {
-      for (FileMetaData* file_meta : vstorage.LevelFiles(level)) {
+    for (int level = 0; level < dummy_vstorage.num_levels(); level++) {
+      for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
         edit_.AddFile(level, *file_meta);
         // If incoming sequence number is higher, update local sequence number.
         if (file_meta->fd.largest_seqno > versions_->LastSequence()) {
@@ -161,8 +170,10 @@ Status ImportColumnFamilyJob::Run() {
       }
     }
   }
-  for (int level = 0; level < vstorage.num_levels(); level++) {
-    for (FileMetaData* file_meta : vstorage.LevelFiles(level)) {
+
+  // Release resources occupied by the dummy VersionStorageInfo
+  for (int level = 0; level < dummy_vstorage.num_levels(); level++) {
+    for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
       file_meta->refs--;
       if (file_meta->refs <= 0) {
         delete file_meta;
@@ -299,7 +310,6 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
 
   return status;
 }
-
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE
