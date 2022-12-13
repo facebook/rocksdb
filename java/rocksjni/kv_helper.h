@@ -94,21 +94,6 @@ class KVException : public std::exception {
   jint kCode_;
 };
 
-class KVHelperJNI {
- public:
-  static bool DoWrite(JNIEnv* env, std::function<Status()> fn_write) {
-    if (env->ExceptionCheck()) {
-      return false;
-    }
-    auto status = fn_write();
-    if (status.ok()) {
-      return true;
-    }
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
-    return false;
-  }
-};
-
 /**
  * @brief Construct a slice with the contents of a Java byte array
  *
