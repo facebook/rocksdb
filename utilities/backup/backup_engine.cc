@@ -157,16 +157,10 @@ class BackupEngineImpl {
 
   void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) const;
 
-  IOStatus RestoreDBFromBackup(const RestoreOptions& options,
-                               BackupID backup_id, const std::string& db_dir,
-                               const std::string& wal_dir) const;
-
-  IOStatus RestoreDBFromLatestBackup(const RestoreOptions& options,
-                                     const std::string& db_dir,
-                                     const std::string& wal_dir) const {
-    // Note: don't read latest_valid_backup_id_ outside of lock
-    return RestoreDBFromBackup(options, kLatestBackupIDMarker, db_dir, wal_dir);
-  }
+  IOStatus RestoreDBFromBackup(
+      const RestoreOptions& options, BackupID backup_id,
+      const std::string& db_dir, const std::string& wal_dir,
+      const std::list<const BackupEngineImpl*>& locked_restore_from_dirs) const;
 
   IOStatus VerifyBackup(BackupID backup_id,
                         bool verify_with_checksum = false) const;
@@ -871,11 +865,6 @@ class BackupEngineImpl {
   std::unique_ptr<TEST_BackupMetaSchemaOptions> schema_test_options_;
 };
 
-struct LockedReadOnlyImpl {
-  std::optional<ReadLock> lock;
-  const BackupEngineImpl* impl{};
-};
-
 // -------- BackupEngineImplThreadSafe class ---------
 // This locking layer for thread safety in the public API is layered on
 // top to prevent accidental recursive locking with RWMutex, which is UB.
@@ -946,8 +935,37 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   IOStatus RestoreDBFromBackup(const RestoreOptions& options,
                                BackupID backup_id, const std::string& db_dir,
                                const std::string& wal_dir) const override {
-    ReadLock lock(&mutex_);
-    return impl_.RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
+    // TSAN reports a lock inversion (potential deadlock) if we acquire read
+    // locks in different orders. Assuming the implementation of RWMutex
+    // allows simultaneous read locks, there should be no deadlock, because
+    // there is no write lock involved here. Nevertheless, to appease TSAN and
+    // in case of degraded RWMutex implementation, we lock the BackupEngines
+    // including this one and those in options.alternate_dirs in a consistent
+    // order.
+    // However, locked_restore_from_dirs is kept in "search" order.
+    std::list<const BackupEngineImpl*> locked_restore_from_dirs;
+    std::vector<port::RWMutex*> mutexes;
+
+    // Add this
+    locked_restore_from_dirs.emplace_back(&impl_);
+    mutexes.push_back(&mutex_);
+
+    // Add alternates
+    for (BackupEngineReadOnlyBase* be : options.alternate_dirs) {
+      BackupEngineImplThreadSafe* bets =
+          static_cast_with_check<BackupEngineImplThreadSafe>(
+              be->AsBackupEngine());
+      locked_restore_from_dirs.emplace_back(&bets->impl_);
+      mutexes.push_back(&bets->mutex_);
+    }
+
+    // Acquire read locks in pointer order
+    std::sort(mutexes.begin(), mutexes.end());
+    std::vector<ReadLock> locks(mutexes.begin(), mutexes.end());
+
+    // Impl
+    return impl_.RestoreDBFromBackup(options, backup_id, db_dir, wal_dir,
+                                     locked_restore_from_dirs);
   }
 
   using BackupEngine::RestoreDBFromLatestBackup;
@@ -985,11 +1003,6 @@ class BackupEngineImplThreadSafe : public BackupEngine,
           nullptr) {
     impl_.TEST_SetDefaultRateLimitersClock(backup_rate_limiter_clock,
                                            restore_rate_limiter_clock);
-  }
-
-  void GetLockedReadOnlyImpl(LockedReadOnlyImpl* out) {
-    out->lock.emplace(&mutex_);
-    out->impl = &impl_;
   }
 
  private:
@@ -1850,7 +1863,8 @@ void BackupEngineImpl::GetCorruptedBackups(
 
 IOStatus BackupEngineImpl::RestoreDBFromBackup(
     const RestoreOptions& options, BackupID backup_id,
-    const std::string& db_dir, const std::string& wal_dir) const {
+    const std::string& db_dir, const std::string& wal_dir,
+    const std::list<const BackupEngineImpl*>& locked_restore_from_dirs) const {
   assert(initialized_);
   if (backup_id == kLatestBackupIDMarker) {
     // Note: Read latest_valid_backup_id_ inside of lock
@@ -1910,19 +1924,6 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     DeleteChildren(db_dir);
   }
 
-  std::list<LockedReadOnlyImpl> locked_backup_dirs;
-  // Add self (already locked)
-  locked_backup_dirs.emplace_back();
-  locked_backup_dirs.back().impl = this;
-  // Add alternates
-  for (BackupEngineReadOnlyBase* be : options.alternate_dirs) {
-    BackupEngineImplThreadSafe* bets =
-        static_cast_with_check<BackupEngineImplThreadSafe>(
-            be->AsBackupEngine());
-    locked_backup_dirs.emplace_back();
-    bets->GetLockedReadOnlyImpl(&locked_backup_dirs.back());
-  }
-
   // Files to restore, and from where (taking into account excluded files)
   std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>
       restore_file_infos;
@@ -1933,10 +1934,10 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     const std::string& file = ef.relative_file;
 
     bool found = false;
-    for (LockedReadOnlyImpl& li : locked_backup_dirs) {
-      auto it = li.impl->backuped_file_infos_.find(file);
+    for (auto be : locked_restore_from_dirs) {
+      auto it = be->backuped_file_infos_.find(file);
       if (it != backuped_file_infos_.end()) {
-        restore_file_infos.emplace_back(li.impl, &*it->second);
+        restore_file_infos.emplace_back(be, &*it->second);
         found = true;
         break;
       }
@@ -1944,7 +1945,7 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     if (!found) {
       return IOStatus::InvalidArgument(
           "Excluded file " + file + " not found in other backups nor in " +
-          std::to_string(locked_backup_dirs.size()) +
+          std::to_string(locked_restore_from_dirs.size() - 1) +
           " alternate backup directories");
     }
   }

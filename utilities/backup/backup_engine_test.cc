@@ -4363,9 +4363,8 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
         std::make_pair(alt_backup_engine, backup_engine_.get())}) {
     RestoreOptions ro;
     ro.alternate_dirs.push_front(be_pair.second);
-    Status s = be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro);
-    fprintf(stderr, "%s\n", s.ToString().c_str());
-    ASSERT_TRUE(s.IsInvalidArgument());
+    ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
+                    .IsInvalidArgument());
   }
 
   // Close & Re-open (no crash, etc.)
