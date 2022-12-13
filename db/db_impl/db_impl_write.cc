@@ -925,31 +925,8 @@ Status DBImpl::WriteImplWALOnly(
       return status;
     }
   } else {
-    // TODO(yanqin): maybe move this block into a refactored version of
-    // DelayWrite() so that we account for manually-injected write stalls and
-    // other write stalls separately.
-    Status status;
     InstrumentedMutexLock lock(&mutex_);
-    while (error_handler_.GetBGError().ok() && write_controller_.IsStopped() &&
-           !shutting_down_.load(std::memory_order_relaxed)) {
-      if (write_options.no_slowdown) {
-        status = Status::Incomplete("write stall");
-        break;
-      }
-      write_thread->BeginWriteStall();
-      bg_cv_.Wait();
-      write_thread->EndWriteStall();
-    }
-    if (status.ok() && write_controller_.IsStopped()) {
-      if (!shutting_down_.load(std::memory_order_relaxed)) {
-        status = Status::Incomplete(error_handler_.GetBGError().ToString());
-      } else {
-        status = Status::ShutdownInProgress("stalled writes");
-      }
-    }
-    if (status.ok() && error_handler_.IsDBStopped()) {
-      status = error_handler_.GetBGError();
-    }
+    Status status = DelayWrite(/*num_bytes=*/0ull, write_options);
     if (!status.ok()) {
       WriteThread::WriteGroup write_group;
       write_thread->EnterAsBatchGroupLeader(&w, &write_group);
@@ -1794,6 +1771,7 @@ uint64_t DBImpl::GetMaxTotalWalSize() const {
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::DelayWrite(uint64_t num_bytes,
                           const WriteOptions& write_options) {
+  mutex_.AssertHeld();
   uint64_t time_delayed = 0;
   bool delayed = false;
   {
