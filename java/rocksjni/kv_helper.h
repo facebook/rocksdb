@@ -88,7 +88,7 @@ class KVException : public std::exception {
            "JNIEnv. Please check!";
   }
 
-  jint Code() { return kCode_; }
+  jint Code() const { return kCode_; }
 
  private:
   jint kCode_;
