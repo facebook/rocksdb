@@ -168,6 +168,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/FlushJobInfo.java
   src/main/java/org/rocksdb/FlushReason.java
   src/main/java/org/rocksdb/FlushOptions.java
+  src/main/java/org/rocksdb/GetStatus.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
   src/main/java/org/rocksdb/HistogramData.java
