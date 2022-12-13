@@ -159,58 +159,6 @@ typedef std::function<ROCKSDB_NAMESPACE::Status(
     std::string*)>
     FnGet;
 
-// TODO(AR) consider refactoring to share this between here and rocksjni.cc
-jbyteArray txn_get_helper(JNIEnv* env, const FnGet& fn_get,
-                          const jlong& jread_options_handle,
-                          const jbyteArray& jkey, const jint& jkey_off,
-                          const jint& jkey_part_len) {
-  // TODO (AP) - implement the jkey_off value
-  //  I (AP) would prefer to refactor txn_get_helper completely away
-  //  And to improve get performance at the same time.
-  //  By replacing the obsolete and extra-copying fn_get(... std::string&)
-  assert(jkey_off == 0);
-  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-  if (key == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
-  }
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
-                                     jkey_part_len);
-
-  auto* read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  std::string value;
-  ROCKSDB_NAMESPACE::Status s = fn_get(*read_options, key_slice, &value);
-
-  // trigger java unref on key.
-  // by passing JNI_ABORT, it will simply release the reference without
-  // copying the result back to the java byte array.
-  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-
-  if (s.IsNotFound()) {
-    return nullptr;
-  }
-
-  if (s.ok()) {
-    jbyteArray jret_value = env->NewByteArray(static_cast<jsize>(value.size()));
-    if (jret_value == nullptr) {
-      // exception thrown: OutOfMemoryError
-      return nullptr;
-    }
-    env->SetByteArrayRegion(
-        jret_value, 0, static_cast<jsize>(value.size()),
-        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
-    if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      return nullptr;
-    }
-    return jret_value;
-  }
-
-  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-  return nullptr;
-}
-
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    get
@@ -247,14 +195,17 @@ jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BII(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_off, jint jkey_part_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnGet fn_get =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::ReadOptions&,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*)>(
-          &ROCKSDB_NAMESPACE::Transaction::Get, txn, std::placeholders::_1,
-          std::placeholders::_2, std::placeholders::_3);
-  return txn_get_helper(env, fn_get, jread_options_handle, jkey, jkey_off,
-                        jkey_part_len);
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env, txn->Get(*read_options, key.slice(), &value.pinnable_slice()));
+    return value.NewByteArray();
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
+    return nullptr;
+  }
 }
 
 /*
@@ -503,45 +454,28 @@ jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B(
  * Method:    getForUpdate
  * Signature: (JJ[BIJZZ)[B
  */
-jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZZ(
+jbyteArray Java_org_rocksdb_Transaction_getForUpdate(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_part_len, jlong jcolumn_family_handle,
     jboolean jexclusive, jboolean jdo_validate) {
+  auto* read_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnGet fn_get_for_update =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::ReadOptions&,
-          ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*, bool, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
-          std::placeholders::_1, column_family_handle, std::placeholders::_2,
-          std::placeholders::_3, jexclusive, jdo_validate);
-  return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
-                        0 /*jkey_off*/, jkey_part_len);
-}
-
-/*
- * Class:     org_rocksdb_Transaction
- * Method:    getForUpdate
- * Signature: (JJ[BIZZ)[B
- */
-jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIZZ(
-    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
-    jbyteArray jkey, jint jkey_part_len, jboolean jexclusive,
-    jboolean jdo_validate) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnGet fn_get_for_update =
-      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
-          const ROCKSDB_NAMESPACE::ReadOptions&,
-          const ROCKSDB_NAMESPACE::Slice&, std::string*, bool, bool)>(
-          &ROCKSDB_NAMESPACE::Transaction::GetForUpdate, txn,
-          std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
-          jexclusive, jdo_validate);
-  return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
-                        0 /*jkey_off*/, jkey_part_len);
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0 /*jkey_off*/,
+                                           jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
+    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+        env,
+        txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
+                          &value.pinnable_slice(), jexclusive, jdo_validate));
+    return value.NewByteArray();
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
+    return nullptr;
+  }
 }
 
 /*

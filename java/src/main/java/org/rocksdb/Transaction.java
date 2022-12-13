@@ -703,8 +703,8 @@ public class Transaction extends RocksObject {
   public byte[] getForUpdate(final ReadOptions readOptions, final byte[] key,
       final boolean exclusive) throws RocksDBException {
     assert(isOwningHandle());
-    return getForUpdate(
-        nativeHandle_, readOptions.nativeHandle_, key, key.length, exclusive, true /*doValidate*/);
+    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
+        defaultColumnFamilyHandle.nativeHandle_, exclusive, true /*doValidate*/);
   }
 
   /**
