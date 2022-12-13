@@ -5,6 +5,8 @@
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::WriteBatch methods testing from Java side.
+#include "rocksdb/write_batch.h"
+
 #include <memory>
 
 #include "db/memtable.h"
@@ -18,7 +20,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
-#include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "rocksjni/portal.h"
 #include "table/scoped_arena_iterator.h"
@@ -119,7 +120,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
         break;
     }
     state.append("@");
-    state.append(ROCKSDB_NAMESPACE::ToString(ikey.sequence));
+    state.append(std::to_string(ikey.sequence));
   }
   if (!s.ok()) {
     state.append(s.ToString());

@@ -42,7 +42,7 @@ $RunOnly.Add("c_test") | Out-Null
 $RunOnly.Add("compact_on_deletion_collector_test") | Out-Null
 $RunOnly.Add("merge_test") | Out-Null
 $RunOnly.Add("stringappend_test") | Out-Null # Apparently incorrectly written
-$RunOnly.Add("backupable_db_test") | Out-Null # Disabled
+$RunOnly.Add("backup_engine_test") | Out-Null # Disabled
 $RunOnly.Add("timer_queue_test") | Out-Null # Not a gtest
 
 if($RunAll -and $SuiteRun -ne "") {
@@ -491,5 +491,3 @@ if(!$script:success) {
  }
 
  exit 0
-
-

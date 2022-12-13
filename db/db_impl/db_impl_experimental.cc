@@ -131,13 +131,13 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
     edit.SetColumnFamily(cfd->GetID());
     for (const auto& f : l0_files) {
       edit.DeleteFile(0, f->fd.GetNumber());
-      edit.AddFile(
-          target_level, f->fd.GetNumber(), f->fd.GetPathId(),
-          f->fd.GetFileSize(), f->smallest, f->largest, f->fd.smallest_seqno,
-          f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
-          f->oldest_blob_file_number, f->oldest_ancester_time,
-          f->file_creation_time, f->file_checksum, f->file_checksum_func_name,
-          f->min_timestamp, f->max_timestamp);
+      edit.AddFile(target_level, f->fd.GetNumber(), f->fd.GetPathId(),
+                   f->fd.GetFileSize(), f->smallest, f->largest,
+                   f->fd.smallest_seqno, f->fd.largest_seqno,
+                   f->marked_for_compaction, f->temperature,
+                   f->oldest_blob_file_number, f->oldest_ancester_time,
+                   f->file_creation_time, f->epoch_number, f->file_checksum,
+                   f->file_checksum_func_name, f->unique_id);
     }
 
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),

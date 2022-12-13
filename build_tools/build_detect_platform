@@ -63,13 +63,8 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     if [ "$LIB_MODE" == "shared" ]; then
       PIC_BUILD=1
     fi
-    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
-      # we need this to build with MySQL. Don't use for other purposes.
-      source "$PWD/build_tools/fbcode_config4.8.1.sh"
-    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_5xx" ]; then
-      source "$PWD/build_tools/fbcode_config.sh"
-    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM007" ]; then
-      source "$PWD/build_tools/fbcode_config_platform007.sh"
+    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM010" ]; then
+      source "$PWD/build_tools/fbcode_config_platform010.sh"
     elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM009" ]; then
       source "$PWD/build_tools/fbcode_config_platform009.sh"
     else
@@ -282,6 +277,7 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     if [ "$FBCODE_BUILD" = "true" ]; then
       # Enable backtrace on fbcode since the necessary libraries are present
       COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+      FOLLY_DIR="third-party/folly"
     fi
     true
 else
@@ -474,7 +470,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_MEMKIND; then
         # Test whether memkind library is installed
-        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -lmemkind -x c++ - -o test.o 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o test.o -lmemkind 2>/dev/null  <<EOF
           #include <memkind.h>
           int main() {
             memkind_malloc(MEMKIND_DAX_KMEM, 1024);
@@ -598,7 +594,7 @@ EOF
     fi
     if ! test $ROCKSDB_DISABLE_BENCHMARK; then
         # Test whether google benchmark is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark -lpthread 2>/dev/null  <<EOF
           #include <benchmark/benchmark.h>
           int main() {}
 EOF
@@ -606,6 +602,17 @@ EOF
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbenchmark"
         fi
     fi
+    if test $USE_FOLLY; then
+        # Test whether libfolly library is installed
+        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <folly/synchronization/DistributedMutex.h>
+          int main() {}
+EOF
+        if [ "$?" != 0 ]; then
+          FOLLY_DIR="./third-party/folly"
+        fi
+    fi
+
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
@@ -667,13 +674,13 @@ else
   fi
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
-    # For portability compile for macOS 10.12 (2016) or newer
-    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.12"
-    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.12"
+    # For portability compile for macOS 10.13 (2017) or newer
+    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.13"
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.13"
     # -mmacosx-version-min must come first here.
-    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.12 $PLATFORM_SHARED_LDFLAGS"
-    PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.12"
-    JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.12"
+    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.13 $PLATFORM_SHARED_LDFLAGS"
+    PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.13"
+    JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.13"
     JAVA_STATIC_DEPS_LDFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CCFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CXXFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
@@ -805,9 +812,6 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_UINT128_EXTENSION"
 fi
 
-# thread_local is part of C++11 and later (TODO: clean up this define)
-COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
-
 if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then
   $CXX $COMMON_FLAGS $PLATFORM_SHARED_CFLAGS -x c++ -c - -o test_dl.o 2>/dev/null <<EOF
   void dummy_func() {}
@@ -834,6 +838,13 @@ if [ "$?" = 0 ]; then
 fi
 
 rm -f test.o test_dl.o
+
+# Get the path for the folly installation dir
+if [ "$USE_FOLLY" ]; then
+  if [ "$FOLLY_DIR" ]; then
+    FOLLY_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-inst-dir folly`
+  fi
+fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
@@ -874,6 +885,8 @@ echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
 echo "FIND=$FIND" >> "$OUTPUT"
 echo "WATCH=$WATCH" >> "$OUTPUT"
+echo "FOLLY_PATH=$FOLLY_PATH" >> "$OUTPUT"
+
 # This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"
@@ -885,8 +898,8 @@ if test -n "$WITH_JEMALLOC_FLAG"; then
   echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
 fi
 echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
-if test -n "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
-  echo "USE_FOLLY_DISTRIBUTED_MUTEX=$USE_FOLLY_DISTRIBUTED_MUTEX" >> "$OUTPUT"
+if test -n "$USE_FOLLY"; then
+  echo "USE_FOLLY=$USE_FOLLY" >> "$OUTPUT"
 fi
 if test -n "$PPC_LIBC_IS_GNU"; then
   echo "PPC_LIBC_IS_GNU=$PPC_LIBC_IS_GNU" >> "$OUTPUT"

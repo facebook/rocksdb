@@ -38,7 +38,7 @@ FSReadRequest Align(const FSReadRequest& r, size_t alignment);
 // Otherwise, do nothing and return false.
 bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
 
-// RandomAccessFileReader is a wrapper on top of Env::RandomAccessFile. It is
+// RandomAccessFileReader is a wrapper on top of FSRandomAccessFile. It is
 // responsible for:
 // - Handling Buffered and Direct reads appropriately.
 // - Rate limiting compaction reads.
@@ -91,6 +91,35 @@ class RandomAccessFileReader {
   std::vector<std::shared_ptr<EventListener>> listeners_;
   const Temperature file_temperature_;
   const bool is_last_level_;
+
+  struct ReadAsyncInfo {
+    ReadAsyncInfo(std::function<void(const FSReadRequest&, void*)> cb,
+                  void* cb_arg, uint64_t start_time)
+        : cb_(cb),
+          cb_arg_(cb_arg),
+          start_time_(start_time),
+          user_scratch_(nullptr),
+          user_aligned_buf_(nullptr),
+          user_offset_(0),
+          user_len_(0),
+          is_aligned_(false) {}
+
+    std::function<void(const FSReadRequest&, void*)> cb_;
+    void* cb_arg_;
+    uint64_t start_time_;
+#ifndef ROCKSDB_LITE
+    FileOperationInfo::StartTimePoint fs_start_ts_;
+#endif
+    // Below fields stores the parameters passed by caller in case of direct_io.
+    char* user_scratch_;
+    AlignedBuf* user_aligned_buf_;
+    uint64_t user_offset_;
+    size_t user_len_;
+    Slice user_result_;
+    // Used in case of direct_io
+    AlignedBuffer buf_;
+    bool is_aligned_;
+  };
 
  public:
   explicit RandomAccessFileReader(
@@ -163,8 +192,11 @@ class RandomAccessFileReader {
                      size_t num_reqs, AlignedBuf* aligned_buf,
                      Env::IOPriority rate_limiter_priority) const;
 
-  IOStatus Prefetch(uint64_t offset, size_t n) const {
-    return file_->Prefetch(offset, n, IOOptions(), nullptr);
+  IOStatus Prefetch(uint64_t offset, size_t n,
+                    const Env::IOPriority rate_limiter_priority) const {
+    IOOptions opts;
+    opts.rate_limiter_priority = rate_limiter_priority;
+    return file_->Prefetch(offset, n, opts, nullptr);
   }
 
   FSRandomAccessFile* file() { return file_.get(); }
@@ -178,6 +210,8 @@ class RandomAccessFileReader {
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
                      std::function<void(const FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
-                     Env::IOPriority rate_limiter_priority);
+                     AlignedBuf* aligned_buf);
+
+  void ReadAsyncCallback(const FSReadRequest& req, void* cb_arg);
 };
 }  // namespace ROCKSDB_NAMESPACE

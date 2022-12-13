@@ -1166,8 +1166,6 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshots) {
   }
 }
 
-// This test is too slow for travis
-#ifndef TRAVIS
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
@@ -1249,7 +1247,6 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
   printf("\n");
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
-#endif  // TRAVIS
 
 // This test clarifies the contract of AdvanceMaxEvictedSeq method
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasic) {
@@ -1596,9 +1593,9 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
   const int cnt = 100;
   for (int i = 0; i < cnt; i++) {
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
-    ASSERT_OK(txn->SetName("xid" + ToString(i)));
-    auto key = "key1" + ToString(i);
-    auto value = "value1" + ToString(i);
+    ASSERT_OK(txn->SetName("xid" + std::to_string(i)));
+    auto key = "key1" + std::to_string(i);
+    auto value = "value1" + std::to_string(i);
     ASSERT_OK(txn->Put(Slice(key), Slice(value)));
     ASSERT_OK(txn->Prepare());
     txns.push_back(txn);
@@ -1687,22 +1684,23 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     expected_commits = 0;
     std::vector<port::Thread> threads;
 
-    linked = 0;
+    linked.store(0, std::memory_order_release);
     std::atomic<bool> batch_formed(false);
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::EnterAsBatchGroupLeader:End",
         [&](void* /*arg*/) { batch_formed = true; });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::JoinBatchGroup:Wait", [&](void* /*arg*/) {
-          linked++;
-          if (linked == 1) {
+          size_t orig_linked = linked.fetch_add(1, std::memory_order_acq_rel);
+          if (orig_linked == 0) {
             // Wait until the others are linked too.
-            while (linked < first_group_size) {
+            while (linked.load(std::memory_order_acquire) < first_group_size) {
             }
-          } else if (linked == 1 + first_group_size) {
+          } else if (orig_linked == first_group_size) {
             // Make the 2nd batch of the rest of writes plus any followup
             // commits from the first batch
-            while (linked < txn_cnt + commit_writes) {
+            while (linked.load(std::memory_order_acquire) <
+                   txn_cnt + commit_writes) {
             }
           }
           // Then we will have one or more batches consisting of follow-up
@@ -1716,32 +1714,33 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
       size_t d = (n % base[bi + 1]) / base[bi];
       switch (d) {
         case 0:
-          threads.emplace_back(txn_t0, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn0, this, bi);
           break;
         case 1:
-          threads.emplace_back(txn_t1, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn1, this, bi);
           break;
         case 2:
-          threads.emplace_back(txn_t2, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn2, this, bi);
           break;
         case 3:
-          threads.emplace_back(txn_t3, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn3, this, bi);
           break;
         case 4:
-          threads.emplace_back(txn_t3, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn3, this, bi);
           break;
         default:
           FAIL();
       }
       // wait to be linked
-      while (linked.load() <= bi) {
+      while (linked.load(std::memory_order_acquire) <= bi) {
       }
       // after a queue of size first_group_size
       if (bi + 1 == first_group_size) {
         while (!batch_formed) {
         }
         // to make it more deterministic, wait until the commits are linked
-        while (linked.load() <= bi + expected_commits) {
+        while (linked.load(std::memory_order_acquire) <=
+               bi + expected_commits) {
         }
       }
     }
@@ -1795,7 +1794,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(ReOpen());
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
 
-  txn_t0(0);
+  TestTxn0(0);
 
   TransactionOptions txn_options;
   WriteOptions write_options;
@@ -1810,7 +1809,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(s);
   auto prep_seq_0 = txn0->GetId();
 
-  txn_t1(0);
+  TestTxn1(0);
 
   index++;
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
@@ -1823,7 +1822,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(s);
   auto prep_seq_1 = txn1->GetId();
 
-  txn_t2(0);
+  TestTxn2(0);
 
   ReadOptions ropt;
   PinnableSlice pinnable_val;
@@ -1859,7 +1858,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_TRUE(s.IsNotFound());
   pinnable_val.Reset();
 
-  txn_t3(0);
+  TestTxn3(0);
 
   // Test that a recovered txns will be properly marked committed for the next
   // recovery
@@ -2123,7 +2122,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshot) {
           seq++;
           cur_txn = seq;
           wp_db->AddPrepared(cur_txn);
-        } else {                                     // else commit it
+        } else {  // else commit it
           seq++;
           wp_db->AddCommitted(cur_txn, seq);
           wp_db->RemovePrepared(cur_txn);
@@ -2229,7 +2228,7 @@ TEST_P(WritePreparedTransactionTest, Rollback) {
       for (bool crash : {false, true}) {
         ASSERT_OK(ReOpen());
         WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-        std::string key_str = "key" + ToString(ikey);
+        std::string key_str = "key" + std::to_string(ikey);
         switch (ivalue) {
           case 0:
             break;
@@ -2335,7 +2334,7 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecovery) {
   std::vector<KeyVersion> versions;
   uint64_t seq = 0;
   for (uint64_t i = 1; i <= 1024; i++) {
-    std::string v = "bar" + ToString(i);
+    std::string v = "bar" + std::to_string(i);
     ASSERT_OK(db->Put(WriteOptions(), "foo", v));
     VerifyKeys({{"foo", v}});
     seq++;  // one for the key/value
@@ -3202,6 +3201,8 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing2) {
 TEST_P(WritePreparedTransactionTest, SingleDeleteAfterRollback) {
   constexpr size_t kSnapshotCacheBits = 7;  // same as default
   constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  txn_db_options.rollback_deletion_type_callback =
+      [](TransactionDB*, ColumnFamilyHandle*, const Slice&) { return true; };
   UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
   options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
@@ -3290,7 +3291,7 @@ TEST_P(WritePreparedTransactionTest,
   ASSERT_OK(ReOpen());
 
   for (size_t i = 0; i < kNumTransactions; i++) {
-    std::string key = "key" + ToString(i);
+    std::string key = "key" + std::to_string(i);
     std::string value = "value0";
     ASSERT_OK(db->Put(WriteOptions(), key, value));
     current_data[key] = value;
@@ -3300,16 +3301,16 @@ TEST_P(WritePreparedTransactionTest,
   for (size_t iter = 0; iter < kNumIterations; iter++) {
     auto r = rnd.Next() % (kNumTransactions + 1);
     if (r < kNumTransactions) {
-      std::string key = "key" + ToString(r);
+      std::string key = "key" + std::to_string(r);
       if (transactions[r] == nullptr) {
-        std::string value = "value" + ToString(versions[r] + 1);
+        std::string value = "value" + std::to_string(versions[r] + 1);
         auto* txn = db->BeginTransaction(WriteOptions());
-        ASSERT_OK(txn->SetName("txn" + ToString(r)));
+        ASSERT_OK(txn->SetName("txn" + std::to_string(r)));
         ASSERT_OK(txn->Put(key, value));
         ASSERT_OK(txn->Prepare());
         transactions[r] = txn;
       } else {
-        std::string value = "value" + ToString(++versions[r]);
+        std::string value = "value" + std::to_string(++versions[r]);
         ASSERT_OK(transactions[r]->Commit());
         delete transactions[r];
         transactions[r] = nullptr;
@@ -3446,9 +3447,8 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
     auto* txn = db->BeginTransaction(WriteOptions());
 
     for (int i = 0; i < 2; i++) {
-      Iterator* iter = (i == 0)
-          ? db->NewIterator(ReadOptions())
-          : txn->GetIterator(ReadOptions());
+      Iterator* iter = (i == 0) ? db->NewIterator(ReadOptions())
+                                : txn->GetIterator(ReadOptions());
       // Seek
       iter->Seek("foo");
       verify_state(iter, "foo", expected_val);
@@ -3886,7 +3886,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           Transaction* txn =
               db->BeginTransaction(WriteOptions(), TransactionOptions());
           ASSERT_OK(txn->SetName("xid"));
-          std::string val_str = "value" + ToString(i);
+          std::string val_str = "value" + std::to_string(i);
           for (size_t b = 0; b < sub_batch_cnt; b++) {
             ASSERT_OK(txn->Put(Slice("key2"), val_str));
           }
@@ -3968,6 +3968,62 @@ TEST_P(WritePreparedTransactionTest, AtomicCommit) {
     write_thread.join();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
+}
+
+TEST_P(WritePreparedTransactionTest, BasicRollbackDeletionTypeCb) {
+  options.level0_file_num_compaction_trigger = 2;
+  // Always use SingleDelete to rollback Put.
+  txn_db_options.rollback_deletion_type_callback =
+      [](TransactionDB*, ColumnFamilyHandle*, const Slice&) { return true; };
+
+  const auto write_to_db = [&]() {
+    assert(db);
+    std::unique_ptr<Transaction> txn0(
+        db->BeginTransaction(WriteOptions(), TransactionOptions()));
+    ASSERT_OK(txn0->SetName("txn0"));
+    ASSERT_OK(txn0->Put("a", "v0"));
+    ASSERT_OK(txn0->Prepare());
+
+    // Generate sst1: [PUT('a')]
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    {
+      CompactRangeOptions cro;
+      cro.change_level = true;
+      cro.target_level = options.num_levels - 1;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+    }
+
+    ASSERT_OK(txn0->Rollback());
+    txn0.reset();
+
+    ASSERT_OK(db->Put(WriteOptions(), "a", "v1"));
+
+    ASSERT_OK(db->SingleDelete(WriteOptions(), "a"));
+    // Generate another SST with a SD to cover the oldest PUT('a')
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    auto* dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    assert(dbimpl);
+    ASSERT_OK(dbimpl->TEST_WaitForCompact());
+
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+    }
+
+    {
+      std::string value;
+      const Status s = db->Get(ReadOptions(), "a", &value);
+      ASSERT_TRUE(s.IsNotFound());
+    }
+  };
+
+  // Destroy and reopen
+  ASSERT_OK(ReOpen());
+  write_to_db();
 }
 
 // Test that we can change write policy from WriteCommitted to WritePrepared

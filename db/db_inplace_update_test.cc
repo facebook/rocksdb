@@ -65,6 +65,60 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateLargeNewValue) {
   } while (ChangeCompactOptions());
 }
 
+TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntitySmallerNewValue) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+    options.env = env_;
+    options.allow_concurrent_memtable_write = false;
+
+    Reopen(options);
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    // Update key with values of smaller size
+    constexpr int num_values = 10;
+    for (int i = num_values; i > 0; --i) {
+      constexpr char key[] = "key";
+      const std::string value = DummyString(i, 'a');
+      WideColumns wide_columns{{"attr", value}};
+
+      ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[1], key, wide_columns));
+      // TODO: use Get to check entity once it's supported
+    }
+
+    // Only 1 instance for that key.
+    validateNumberOfEntries(1, 1);
+  } while (ChangeCompactOptions());
+}
+
+TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntityLargerNewValue) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+    options.env = env_;
+    options.allow_concurrent_memtable_write = false;
+
+    Reopen(options);
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    // Update key with values of larger size
+    constexpr int num_values = 10;
+    for (int i = 0; i < num_values; ++i) {
+      constexpr char key[] = "key";
+      const std::string value = DummyString(i, 'a');
+      WideColumns wide_columns{{"attr", value}};
+
+      ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[1], key, wide_columns));
+      // TODO: use Get to check entity once it's supported
+    }
+
+    // All 10 updates exist in the internal iterator
+    validateNumberOfEntries(num_values, 1);
+  } while (ChangeCompactOptions());
+}
+
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerSize) {
   do {
     Options options = CurrentOptions();

@@ -6,10 +6,12 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 #include <stdint.h>
+
 #include <limits>
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/status.h"
@@ -20,7 +22,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class CuckooTableBuilder: public TableBuilder {
+class CuckooTableBuilder : public TableBuilder {
  public:
   CuckooTableBuilder(
       WritableFileWriter* file, double max_hash_table_ratio,
@@ -78,14 +80,13 @@ class CuckooTableBuilder: public TableBuilder {
 
  private:
   struct CuckooBucket {
-    CuckooBucket()
-      : vector_idx(kMaxVectorIdx), make_space_for_key_call_id(0) {}
+    CuckooBucket() : vector_idx(kMaxVectorIdx), make_space_for_key_call_id(0) {}
     uint32_t vector_idx;
     // This number will not exceed kvs_.size() + max_num_hash_func_.
     // We assume number of items is <= 2^32.
     uint32_t make_space_for_key_call_id;
   };
-  static const uint32_t kMaxVectorIdx = port::kMaxInt32;
+  static const uint32_t kMaxVectorIdx = std::numeric_limits<int32_t>::max();
 
   bool MakeSpaceForKey(const autovector<uint64_t>& hash_vals,
                        const uint32_t call_id,
@@ -125,7 +126,7 @@ class CuckooTableBuilder: public TableBuilder {
   bool use_module_hash_;
   bool identity_as_first_hash_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
-    uint64_t max_num_buckets);
+                              uint64_t max_num_buckets);
   std::string largest_user_key_ = "";
   std::string smallest_user_key_ = "";
 

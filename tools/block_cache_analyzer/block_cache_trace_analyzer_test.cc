@@ -114,14 +114,14 @@ class BlockCacheTracerTest : public testing::Test {
       } else {
         record.sst_fd_number = kSSTStoringOddKeys;
       }
-      record.is_cache_hit = Boolean::kFalse;
-      record.no_insert = Boolean::kFalse;
+      record.is_cache_hit = false;
+      record.no_insert = false;
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
       record.referenced_key =
           kRefKeyPrefix + std::to_string(key_id) + std::string(8, 0);
-      record.referenced_key_exist_in_block = Boolean::kTrue;
+      record.referenced_key_exist_in_block = true;
       record.num_keys_in_block = kNumKeysInBlock;
       ASSERT_OK(writer->WriteBlockAccess(
           record, record.block_key, record.cf_name, record.referenced_key));
@@ -223,15 +223,18 @@ class BlockCacheTracerTest : public testing::Test {
 TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
   {
     // Generate a trace file.
-    TraceOptions trace_opt;
+    BlockCacheTraceWriterOptions trace_writer_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     const auto& clock = env_->GetSystemClock();
-    BlockCacheTraceWriter writer(clock.get(), trace_opt,
+    std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+        NewBlockCacheTraceWriter(clock.get(), trace_writer_opt,
                                  std::move(trace_writer));
-    ASSERT_OK(writer.WriteHeader());
-    WriteBlockAccess(&writer, 0, TraceType::kBlockTraceDataBlock, 50);
+    ASSERT_NE(block_cache_trace_writer, nullptr);
+    ASSERT_OK(block_cache_trace_writer->WriteHeader());
+    WriteBlockAccess(block_cache_trace_writer.get(), 0,
+                     TraceType::kBlockTraceDataBlock, 50);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
@@ -277,7 +280,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     ASSERT_OK(env_->DeleteFile(mrc_path));
 
     const std::vector<std::string> time_units{"1", "60", "3600"};
-    expected_capacities.push_back(port::kMaxUint64);
+    expected_capacities.push_back(std::numeric_limits<uint64_t>::max());
     for (auto const& expected_capacity : expected_capacities) {
       for (auto const& time_unit : time_units) {
         const std::string miss_ratio_timeline_path =
@@ -293,7 +296,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
           std::string substr;
           getline(ss, substr, ',');
           if (!read_header) {
-            if (expected_capacity == port::kMaxUint64) {
+            if (expected_capacity == std::numeric_limits<uint64_t>::max()) {
               ASSERT_EQ("trace", substr);
             } else {
               ASSERT_EQ("lru-1-0", substr);
@@ -321,7 +324,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
           std::string substr;
           getline(ss, substr, ',');
           if (num_misses == 0) {
-            if (expected_capacity == port::kMaxUint64) {
+            if (expected_capacity == std::numeric_limits<uint64_t>::max()) {
               ASSERT_EQ("trace", substr);
             } else {
               ASSERT_EQ("lru-1-0", substr);
@@ -612,21 +615,27 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // It contains two SST files with 25 blocks of odd numbered block_key in
     // kSSTStoringOddKeys and 25 blocks of even numbered blocks_key in
     // kSSTStoringEvenKeys.
-    TraceOptions trace_opt;
+    BlockCacheTraceWriterOptions trace_writer_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     const auto& clock = env_->GetSystemClock();
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    BlockCacheTraceWriter writer(clock.get(), trace_opt,
+    std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+        NewBlockCacheTraceWriter(clock.get(), trace_writer_opt,
                                  std::move(trace_writer));
-    ASSERT_OK(writer.WriteHeader());
+    ASSERT_NE(block_cache_trace_writer, nullptr);
+    ASSERT_OK(block_cache_trace_writer->WriteHeader());
     // Write blocks of different types.
-    WriteBlockAccess(&writer, 0, TraceType::kBlockTraceUncompressionDictBlock,
-                     10);
-    WriteBlockAccess(&writer, 10, TraceType::kBlockTraceDataBlock, 10);
-    WriteBlockAccess(&writer, 20, TraceType::kBlockTraceFilterBlock, 10);
-    WriteBlockAccess(&writer, 30, TraceType::kBlockTraceIndexBlock, 10);
-    WriteBlockAccess(&writer, 40, TraceType::kBlockTraceRangeDeletionBlock, 10);
+    WriteBlockAccess(block_cache_trace_writer.get(), 0,
+                     TraceType::kBlockTraceUncompressionDictBlock, 10);
+    WriteBlockAccess(block_cache_trace_writer.get(), 10,
+                     TraceType::kBlockTraceDataBlock, 10);
+    WriteBlockAccess(block_cache_trace_writer.get(), 20,
+                     TraceType::kBlockTraceFilterBlock, 10);
+    WriteBlockAccess(block_cache_trace_writer.get(), 30,
+                     TraceType::kBlockTraceIndexBlock, 10);
+    WriteBlockAccess(block_cache_trace_writer.get(), 40,
+                     TraceType::kBlockTraceRangeDeletionBlock, 10);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
 
@@ -711,6 +720,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

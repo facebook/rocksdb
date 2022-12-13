@@ -28,7 +28,7 @@ class WriteUnpreparedTransactionTest
   WriteUnpreparedTransactionTest()
       : WriteUnpreparedTransactionTestBase(std::get<0>(GetParam()),
                                            std::get<1>(GetParam()),
-                                           std::get<2>(GetParam())){}
+                                           std::get<2>(GetParam())) {}
 };
 
 INSTANTIATE_TEST_CASE_P(
@@ -87,7 +87,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
     txn->SetSnapshot();
 
     for (int i = 0; i < 5; i++) {
-      std::string stored_value = "v" + ToString(i);
+      std::string stored_value = "v" + std::to_string(i);
       ASSERT_OK(txn->Put("a", stored_value));
       ASSERT_OK(txn->Put("b", stored_value));
       ASSERT_OK(wup_txn->FlushWriteBatchToDB(false));
@@ -159,7 +159,7 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
 
   std::vector<std::string> keys;
   for (uint32_t k = 0; k < kNumKeys * kNumThreads; k++) {
-    keys.push_back("k" + ToString(k));
+    keys.push_back("k" + std::to_string(k));
   }
   RandomShuffle(keys.begin(), keys.end());
 
@@ -188,7 +188,7 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
       }
 
       txn = db->BeginTransaction(write_options, txn_options);
-      ASSERT_OK(txn->SetName(ToString(id)));
+      ASSERT_OK(txn->SetName(std::to_string(id)));
       txn->SetSnapshot();
       if (a >= RO_SNAPSHOT) {
         read_options.snapshot = txn->GetSnapshot();
@@ -342,8 +342,8 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
           if (!empty) {
             for (int i = 0; i < num_batches; i++) {
-              ASSERT_OK(db->Put(WriteOptions(), "k" + ToString(i),
-                                "before value" + ToString(i)));
+              ASSERT_OK(db->Put(WriteOptions(), "k" + std::to_string(i),
+                                "before value" + std::to_string(i)));
             }
           }
 
@@ -352,7 +352,8 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           WriteUnpreparedTxn* wup_txn = dynamic_cast<WriteUnpreparedTxn*>(txn);
           ASSERT_OK(txn->SetName("xid"));
           for (int i = 0; i < num_batches; i++) {
-            ASSERT_OK(txn->Put("k" + ToString(i), "value" + ToString(i)));
+            ASSERT_OK(
+                txn->Put("k" + std::to_string(i), "value" + std::to_string(i)));
             if (txn_options.write_batch_flush_threshold == 1) {
               // WriteUnprepared will check write_batch_flush_threshold and
               // possibly flush before appending to the write batch. No flush
@@ -396,12 +397,13 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           if (!empty || a == COMMIT) {
             for (int i = 0; i < num_batches; i++) {
               ASSERT_TRUE(iter->Valid());
-              ASSERT_EQ(iter->key().ToString(), "k" + ToString(i));
+              ASSERT_EQ(iter->key().ToString(), "k" + std::to_string(i));
               if (a == COMMIT) {
-                ASSERT_EQ(iter->value().ToString(), "value" + ToString(i));
+                ASSERT_EQ(iter->value().ToString(),
+                          "value" + std::to_string(i));
               } else {
                 ASSERT_EQ(iter->value().ToString(),
-                          "before value" + ToString(i));
+                          "before value" + std::to_string(i));
               }
               iter->Next();
             }
@@ -434,7 +436,7 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
         ASSERT_OK(txn->SetName("xid"));
 
         for (int i = 0; i < kNumKeys; i++) {
-          ASSERT_OK(txn->Put("k" + ToString(i), "v" + ToString(i)));
+          ASSERT_OK(txn->Put("k" + std::to_string(i), "v" + std::to_string(i)));
           if (txn_options.write_batch_flush_threshold == 1) {
             // WriteUnprepared will check write_batch_flush_threshold and
             // possibly flush before appending to the write batch. No flush will
@@ -471,8 +473,8 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
 
         for (int i = 0; i < (commit ? kNumKeys : 0); i++) {
           ASSERT_TRUE(iter->Valid());
-          ASSERT_EQ(iter->key().ToString(), "k" + ToString(i));
-          ASSERT_EQ(iter->value().ToString(), "v" + ToString(i));
+          ASSERT_EQ(iter->key().ToString(), "k" + std::to_string(i));
+          ASSERT_EQ(iter->value().ToString(), "v" + std::to_string(i));
           iter->Next();
         }
         ASSERT_FALSE(iter->Valid());
@@ -512,9 +514,10 @@ TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
 
       // Spread this transaction across multiple log files.
       for (int i = 0; i < kNumKeys; i++) {
-        ASSERT_OK(txn1->Put("k1" + ToString(i), "v" + ToString(i)));
+        ASSERT_OK(txn1->Put("k1" + std::to_string(i), "v" + std::to_string(i)));
         if (i >= kNumKeys / 2) {
-          ASSERT_OK(txn2->Put("k2" + ToString(i), "v" + ToString(i)));
+          ASSERT_OK(
+              txn2->Put("k2" + std::to_string(i), "v" + std::to_string(i)));
         }
 
         if (i > 0) {
@@ -601,7 +604,7 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
 
   for (Action a : {DO_DELETE, DO_UPDATE}) {
     for (int i = 0; i < 100; i++) {
-      ASSERT_OK(db->Put(woptions, ToString(i), ToString(i)));
+      ASSERT_OK(db->Put(woptions, std::to_string(i), std::to_string(i)));
     }
 
     Transaction* txn = db->BeginTransaction(woptions, txn_options);
@@ -662,7 +665,7 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAfterClear) {
 
   for (Action a : {kCommit, kRollback}) {
     for (int i = 0; i < 100; i++) {
-      ASSERT_OK(db->Put(woptions, ToString(i), ToString(i)));
+      ASSERT_OK(db->Put(woptions, std::to_string(i), std::to_string(i)));
     }
 
     Transaction* txn = db->BeginTransaction(woptions, txn_options);
@@ -770,6 +773,7 @@ TEST_P(WriteUnpreparedTransactionTest, UntrackedKeys) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -65,8 +65,7 @@ Status DBImpl::FlushForGetLiveFiles() {
 }
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
-                            uint64_t* manifest_file_size,
-                            bool flush_memtable) {
+                            uint64_t* manifest_file_size, bool flush_memtable) {
   *manifest_file_size = 0;
 
   mutex_.Lock();
@@ -96,7 +95,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
               3);  // for CURRENT + MANIFEST + OPTIONS
 
   // create names of the live files. The names are not absolute
-  // paths, instead they are relative to dbname_;
+  // paths, instead they are relative to dbname_.
   for (const auto& table_file_number : live_table_files) {
     ret.emplace_back(MakeTableFileName("", table_file_number));
   }
@@ -124,6 +123,9 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
+  // Record tracked WALs as a (minimum) cross-check for directory scan
+  std::vector<uint64_t> required_by_manifest;
+
   // If caller disabled deletions, this function should return files that are
   // guaranteed not to be deleted until deletions are re-enabled. We need to
   // wait for pending purges to finish since WalManager doesn't know which
@@ -137,6 +139,13 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     while (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0) {
       bg_cv_.Wait();
     }
+
+    // Record tracked WALs as a (minimum) cross-check for directory scan
+    const auto& manifest_wals = versions_->GetWalSet().GetWals();
+    required_by_manifest.reserve(manifest_wals.size());
+    for (const auto& wal : manifest_wals) {
+      required_by_manifest.push_back(wal.first);
+    }
   }
 
   Status s = wal_manager_.GetSortedWalFiles(files);
@@ -148,6 +157,29 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     s2.PermitUncheckedError();
   } else {
     assert(deletions_disabled.IsNotSupported());
+  }
+
+  if (s.ok()) {
+    // Verify includes those required by manifest (one sorted list is superset
+    // of the other)
+    auto required = required_by_manifest.begin();
+    auto included = files.begin();
+
+    while (required != required_by_manifest.end()) {
+      if (included == files.end() || *required < (*included)->LogNumber()) {
+        // FAIL - did not find
+        return Status::Corruption(
+            "WAL file " + std::to_string(*required) +
+            " required by manifest but not in directory list");
+      }
+      if (*required == (*included)->LogNumber()) {
+        ++required;
+        ++included;
+      } else {
+        assert(*required > (*included)->LogNumber());
+        ++included;
+      }
+    }
   }
 
   return s;
@@ -166,7 +198,7 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
 Status DBImpl::GetLiveFilesStorageInfo(
     const LiveFilesStorageInfoOptions& opts,
     std::vector<LiveFileStorageInfo>* files) {
-  // To avoid returning partial results, only move to ouput on success
+  // To avoid returning partial results, only move results to files on success.
   assert(files);
   files->clear();
   std::vector<LiveFileStorageInfo> results;
@@ -177,10 +209,10 @@ Status DBImpl::GetLiveFilesStorageInfo(
   VectorLogPtr live_wal_files;
   bool flush_memtable = true;
   if (!immutable_db_options_.allow_2pc) {
-    if (opts.wal_size_for_flush == port::kMaxUint64) {
+    if (opts.wal_size_for_flush == std::numeric_limits<uint64_t>::max()) {
       flush_memtable = false;
     } else if (opts.wal_size_for_flush > 0) {
-      // If out standing log files are small, we skip the flush.
+      // If the outstanding log files are small, we skip the flush.
       s = GetSortedWalFiles(live_wal_files);
 
       if (!s.ok()) {
@@ -313,8 +345,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
     info.relative_filename = kCurrentFileName;
     info.directory = GetName();
     info.file_type = kCurrentFile;
-    // CURRENT could be replaced so we have to record the contents we want
-    // for it
+    // CURRENT could be replaced so we have to record the contents as needed.
     info.replacement_contents = manifest_fname + "\n";
     info.size = manifest_fname.size() + 1;
     if (opts.include_checksum_info) {
@@ -350,13 +381,19 @@ Status DBImpl::GetLiveFilesStorageInfo(
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
 
   if (s.ok()) {
-    s = FlushWAL(false /* sync */);
+    // To maximize the effectiveness of track_and_verify_wals_in_manifest,
+    // sync WAL when it is enabled.
+    s = FlushWAL(
+        immutable_db_options_.track_and_verify_wals_in_manifest /* sync */);
+    if (s.IsNotSupported()) {  // read-only DB or similar
+      s = Status::OK();
+    }
   }
 
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
 
-  // if we have more than one column family, we need to also get WAL files
+  // If we have more than one column family, we also need to get WAL files.
   if (s.ok()) {
     s = GetSortedWalFiles(live_wal_files);
   }
@@ -394,7 +431,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   }
 
   if (s.ok()) {
-    // Only move output on success
+    // Only move results to output on success.
     *files = std::move(results);
   }
   return s;

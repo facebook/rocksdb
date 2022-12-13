@@ -431,6 +431,28 @@ enum Tickers : uint32_t {
   NON_LAST_LEVEL_READ_BYTES,
   NON_LAST_LEVEL_READ_COUNT,
 
+  BLOCK_CHECKSUM_COMPUTE_COUNT,
+  MULTIGET_COROUTINE_COUNT,
+
+  // Integrated BlobDB specific stats
+  // # of times cache miss when accessing blob from blob cache.
+  BLOB_DB_CACHE_MISS,
+  // # of times cache hit when accessing blob from blob cache.
+  BLOB_DB_CACHE_HIT,
+  // # of data blocks added to blob cache.
+  BLOB_DB_CACHE_ADD,
+  // # of failures when adding blobs to blob cache.
+  BLOB_DB_CACHE_ADD_FAILURES,
+  // # of bytes read from blob cache.
+  BLOB_DB_CACHE_BYTES_READ,
+  // # of bytes written into blob cache.
+  BLOB_DB_CACHE_BYTES_WRITE,
+
+  // Time spent in the ReadAsync file system call
+  READ_ASYNC_MICROS,
+  // Number of errors returned to the async read callback
+  ASYNC_READ_ERROR_COUNT,
+
   TICKER_ENUM_MAX
 };
 
@@ -527,12 +549,29 @@ enum Histograms : uint32_t {
   // Num of index and filter blocks read from file system per level.
   NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
   // Num of data blocks read from file system per level.
+  // Obsolete
   NUM_DATA_BLOCKS_READ_PER_LEVEL,
   // Num of sst files read from file system per level.
   NUM_SST_READ_PER_LEVEL,
 
   // Error handler statistics
   ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
+
+  // Stats related to asynchronous read requests.
+  ASYNC_READ_BYTES,
+  POLL_WAIT_MICROS,
+
+  // Number of prefetched bytes discarded by RocksDB.
+  PREFETCHED_BYTES_DISCARDED,
+
+  // Number of IOs issued in parallel in a MultiGet batch
+  MULTIGET_IO_BATCH_SIZE,
+
+  // Number of levels requiring IO for MultiGet
+  NUM_LEVEL_READ_PER_MULTIGET,
+
+  // Wait time for aborting async read in FilePrefetchBuffer destructor
+  ASYNC_PREFETCH_ABORT_MICROS,
 
   HISTOGRAM_ENUM_MAX,
 };

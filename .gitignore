@@ -36,7 +36,6 @@ manifest_dump
 sst_dump
 blob_dump
 block_cache_trace_analyzer
-db_with_timestamp_basic_test
 tools/block_cache_analyzer/*.pyc
 column_aware_encoding_exp
 util/build_version.cc
@@ -52,12 +51,12 @@ rocksdb_dump
 rocksdb_undump
 db_test2
 trace_analyzer
-trace_analyzer_test
 block_cache_trace_analyzer
 io_tracer_parser
 .DS_Store
 .vs
 .vscode
+.clangd
 
 java/out
 java/target
@@ -95,3 +94,4 @@ fuzz/proto/gen/
 fuzz/crash-*
 
 cmake-build-*
+third-party/folly/

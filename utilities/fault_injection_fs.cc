@@ -16,6 +16,7 @@
 
 #include "utilities/fault_injection_fs.h"
 
+#include <algorithm>
 #include <functional>
 #include <utility>
 
@@ -105,6 +106,14 @@ IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
       return in_s;
     }
   }
+  return s;
+}
+
+IOStatus TestFSDirectory::Close(const IOOptions& options, IODebugContext* dbg) {
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  IOStatus s = dir_->Close(options, dbg);
   return s;
 }
 
@@ -231,6 +240,7 @@ IOStatus TestFSWritableFile::PositionedAppend(
 
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
                                    IODebugContext* dbg) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -262,6 +272,7 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
 }
 
 IOStatus TestFSWritableFile::Flush(const IOOptions&, IODebugContext*) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -273,6 +284,7 @@ IOStatus TestFSWritableFile::Flush(const IOOptions&, IODebugContext*) {
 
 IOStatus TestFSWritableFile::Sync(const IOOptions& options,
                                   IODebugContext* dbg) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -286,6 +298,34 @@ IOStatus TestFSWritableFile::Sync(const IOOptions& options,
   // Ignore sync errors
   target_->Sync(options, dbg).PermitUncheckedError();
   state_.pos_at_last_sync_ = state_.pos_;
+  fs_->WritableFileSynced(state_);
+  return io_s;
+}
+
+IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
+                                       const IOOptions& options,
+                                       IODebugContext* dbg) {
+  MutexLock l(&mutex_);
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  // Assumes caller passes consecutive byte ranges.
+  uint64_t sync_limit = offset + nbytes;
+  uint64_t buf_begin =
+      state_.pos_at_last_sync_ < 0 ? 0 : state_.pos_at_last_sync_;
+
+  IOStatus io_s;
+  if (sync_limit < buf_begin) {
+    return io_s;
+  }
+  uint64_t num_to_sync = std::min(static_cast<uint64_t>(state_.buffer_.size()),
+                                  sync_limit - buf_begin);
+  Slice buf_to_sync(state_.buffer_.data(), num_to_sync);
+  io_s = target_->Append(buf_to_sync, options, dbg);
+  state_.buffer_ = state_.buffer_.substr(num_to_sync);
+  // Ignore sync errors
+  target_->RangeSync(offset, nbytes, options, dbg).PermitUncheckedError();
+  state_.pos_at_last_sync_ = offset + num_to_sync;
   fs_->WritableFileSynced(state_);
   return io_s;
 }
@@ -346,9 +386,9 @@ IOStatus TestFSRandomRWFile::Sync(const IOOptions& options,
   return target_->Sync(options, dbg);
 }
 
-TestFSRandomAccessFile::TestFSRandomAccessFile(const std::string& /*fname*/,
-                                       std::unique_ptr<FSRandomAccessFile>&& f,
-                                       FaultInjectionTestFS* fs)
+TestFSRandomAccessFile::TestFSRandomAccessFile(
+    const std::string& /*fname*/, std::unique_ptr<FSRandomAccessFile>&& f,
+    FaultInjectionTestFS* fs)
     : target_(std::move(f)), fs_(fs) {
   assert(target_ != nullptr);
 }
@@ -872,8 +912,7 @@ IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
   bool dummy_bool;
   bool& ret_fault_injected = fault_injected ? *fault_injected : dummy_bool;
   ret_fault_injected = false;
-  ErrorContext* ctx =
-        static_cast<ErrorContext*>(thread_local_error_->Get());
+  ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
     return IOStatus::OK();
   }
@@ -979,8 +1018,7 @@ IOStatus FaultInjectionTestFS::InjectMetadataWriteError() {
 
 void FaultInjectionTestFS::PrintFaultBacktrace() {
 #if defined(OS_LINUX)
-  ErrorContext* ctx =
-        static_cast<ErrorContext*>(thread_local_error_->Get());
+  ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr) {
     return;
   }

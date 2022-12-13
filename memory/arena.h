@@ -12,16 +12,13 @@
 // size, it uses malloc to directly get the requested size.
 
 #pragma once
-#ifndef OS_WIN
-#include <sys/mman.h>
-#endif
-#include <assert.h>
-#include <stdint.h>
-#include <cerrno>
+
 #include <cstddef>
-#include <vector>
+#include <deque>
+
 #include "memory/allocator.h"
-#include "util/mutexlock.h"
+#include "port/mmap.h"
+#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -31,9 +28,13 @@ class Arena : public Allocator {
   Arena(const Arena&) = delete;
   void operator=(const Arena&) = delete;
 
-  static const size_t kInlineSize = 2048;
-  static const size_t kMinBlockSize;
-  static const size_t kMaxBlockSize;
+  static constexpr size_t kInlineSize = 2048;
+  static constexpr size_t kMinBlockSize = 4096;
+  static constexpr size_t kMaxBlockSize = 2u << 30;
+
+  static constexpr unsigned kAlignUnit = alignof(std::max_align_t);
+  static_assert((kAlignUnit & (kAlignUnit - 1)) == 0,
+                "Pointer size should be power of 2");
 
   // huge_page_size: if 0, don't use huge page TLB. If > 0 (should set to the
   // supported hugepage size of the system), block allocation will try huge
@@ -63,7 +64,7 @@ class Arena : public Allocator {
   // by the arena (exclude the space allocated but not yet used for future
   // allocations).
   size_t ApproximateMemoryUsage() const {
-    return blocks_memory_ + blocks_.capacity() * sizeof(char*) -
+    return blocks_memory_ + blocks_.size() * sizeof(char*) -
            alloc_bytes_remaining_;
   }
 
@@ -78,24 +79,22 @@ class Arena : public Allocator {
   size_t BlockSize() const override { return kBlockSize; }
 
   bool IsInInlineBlock() const {
-    return blocks_.empty();
+    return blocks_.empty() && huge_blocks_.empty();
   }
 
+  // check and adjust the block_size so that the return value is
+  //  1. in the range of [kMinBlockSize, kMaxBlockSize].
+  //  2. the multiple of align unit.
+  static size_t OptimizeBlockSize(size_t block_size);
+
  private:
-  char inline_block_[kInlineSize] __attribute__((__aligned__(alignof(max_align_t))));
+  alignas(std::max_align_t) char inline_block_[kInlineSize];
   // Number of bytes allocated in one block
   const size_t kBlockSize;
-  // Array of new[] allocated memory blocks
-  using Blocks = std::vector<char*>;
-  Blocks blocks_;
-
-  struct MmapInfo {
-    void* addr_;
-    size_t length_;
-
-    MmapInfo(void* addr, size_t length) : addr_(addr), length_(length) {}
-  };
-  std::vector<MmapInfo> huge_blocks_;
+  // Allocated memory blocks
+  std::deque<std::unique_ptr<char[]>> blocks_;
+  // Huge page allocations
+  std::deque<MemMapping> huge_blocks_;
   size_t irregular_block_num = 0;
 
   // Stats for current active block.
@@ -108,15 +107,15 @@ class Arena : public Allocator {
   // How many bytes left in currently active block?
   size_t alloc_bytes_remaining_ = 0;
 
-#ifdef MAP_HUGETLB
   size_t hugetlb_size_ = 0;
-#endif  // MAP_HUGETLB
+
   char* AllocateFromHugePage(size_t bytes);
   char* AllocateFallback(size_t bytes, bool aligned);
   char* AllocateNewBlock(size_t block_bytes);
 
   // Bytes of memory in blocks allocated so far
   size_t blocks_memory_ = 0;
+  // Non-owned
   AllocTracker* tracker_;
 };
 
@@ -132,10 +131,5 @@ inline char* Arena::Allocate(size_t bytes) {
   }
   return AllocateFallback(bytes, false /* unaligned */);
 }
-
-// check and adjust the block_size so that the return value is
-//  1. in the range of [kMinBlockSize, kMaxBlockSize].
-//  2. the multiple of align unit.
-extern size_t OptimizeBlockSize(size_t block_size);
 
 }  // namespace ROCKSDB_NAMESPACE

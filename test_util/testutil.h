@@ -144,9 +144,8 @@ class StringSink : public FSWritableFile {
     if (reader_contents_ != nullptr) {
       assert(reader_contents_->size() <= last_flush_);
       size_t offset = last_flush_ - reader_contents_->size();
-      *reader_contents_ = Slice(
-          contents_.data() + offset,
-          contents_.size() - offset);
+      *reader_contents_ =
+          Slice(contents_.data() + offset, contents_.size() - offset);
       last_flush_ = contents_.size();
     }
 
@@ -165,8 +164,8 @@ class StringSink : public FSWritableFile {
   void Drop(size_t bytes) {
     if (reader_contents_ != nullptr) {
       contents_.resize(contents_.size() - bytes);
-      *reader_contents_ = Slice(
-          reader_contents_->data(), reader_contents_->size() - bytes);
+      *reader_contents_ =
+          Slice(reader_contents_->data(), reader_contents_->size() - bytes);
       last_flush_ = contents_.size();
     }
   }
@@ -282,7 +281,7 @@ class StringSource : public FSRandomAccessFile {
         mmap_(mmap),
         total_reads_(0) {}
 
-  virtual ~StringSource() { }
+  virtual ~StringSource() {}
 
   uint64_t Size() const { return contents_.size(); }
 
@@ -324,7 +323,7 @@ class StringSource : public FSRandomAccessFile {
     char* rid = id;
     rid = EncodeVarint64(rid, uniq_id_);
     rid = EncodeVarint64(rid, 0);
-    return static_cast<size_t>(rid-id);
+    return static_cast<size_t>(rid - id);
   }
 
   int total_reads() const { return total_reads_; }
@@ -714,7 +713,9 @@ class ChanglingMergeOperator : public MergeOperator {
     return false;
   }
   static const char* kClassName() { return "ChanglingMergeOperator"; }
-  virtual bool IsInstanceOf(const std::string& id) const override {
+  const char* NickName() const override { return kNickName(); }
+  static const char* kNickName() { return "Changling"; }
+  bool IsInstanceOf(const std::string& id) const override {
     if (id == kClassName()) {
       return true;
     } else {
@@ -747,7 +748,10 @@ class ChanglingCompactionFilter : public CompactionFilter {
   }
 
   static const char* kClassName() { return "ChanglingCompactionFilter"; }
-  virtual bool IsInstanceOf(const std::string& id) const override {
+  const char* NickName() const override { return kNickName(); }
+  static const char* kNickName() { return "Changling"; }
+
+  bool IsInstanceOf(const std::string& id) const override {
     if (id == kClassName()) {
       return true;
     } else {
@@ -781,7 +785,10 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
   // Returns a name that identifies this compaction filter factory.
   const char* Name() const override { return name_.c_str(); }
   static const char* kClassName() { return "ChanglingCompactionFilterFactory"; }
-  virtual bool IsInstanceOf(const std::string& id) const override {
+  const char* NickName() const override { return kNickName(); }
+  static const char* kNickName() { return "Changling"; }
+
+  bool IsInstanceOf(const std::string& id) const override {
     if (id == kClassName()) {
       return true;
     } else {
@@ -818,11 +825,6 @@ bool IsPrefetchSupported(const std::shared_ptr<FileSystem>& fs,
 
 // Return the number of lines where a given pattern was found in a file.
 size_t GetLinesCount(const std::string& fname, const std::string& pattern);
-
-// TEST_TMPDIR may be set to /dev/shm in Makefile,
-// but /dev/shm does not support direct IO.
-// Tries to set TEST_TMPDIR to a directory supporting direct IO.
-void ResetTmpDirForDirectIO();
 
 Status CorruptFile(Env* env, const std::string& fname, int offset,
                    int bytes_to_corrupt, bool verify_checksum = true);

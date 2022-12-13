@@ -128,7 +128,7 @@ class LogTest
     size_t dropped_bytes_;
     std::string message_;
 
-    ReportCollector() : dropped_bytes_(0) { }
+    ReportCollector() : dropped_bytes_(0) {}
     void Corruption(size_t bytes, const Status& status) override {
       dropped_bytes_ += bytes;
       message_.append(status.ToString());
@@ -185,17 +185,24 @@ class LogTest
     ASSERT_OK(writer_->AddRecord(Slice(msg)));
   }
 
-  size_t WrittenBytes() const {
-    return dest_contents().size();
-  }
+  size_t WrittenBytes() const { return dest_contents().size(); }
 
   std::string Read(const WALRecoveryMode wal_recovery_mode =
                        WALRecoveryMode::kTolerateCorruptedTailRecords) {
     std::string scratch;
     Slice record;
     bool ret = false;
-    ret = reader_->ReadRecord(&record, &scratch, wal_recovery_mode);
+    uint64_t record_checksum;
+    ret = reader_->ReadRecord(&record, &scratch, wal_recovery_mode,
+                              &record_checksum);
     if (ret) {
+      if (!allow_retry_read_) {
+        // allow_retry_read_ means using FragmentBufferedReader which does not
+        // support record checksum yet.
+        uint64_t actual_record_checksum =
+            XXH3_64bits(record.data(), record.size());
+        assert(actual_record_checksum == record_checksum);
+      }
       return record.ToString();
     } else {
       return "EOF";
@@ -226,13 +233,9 @@ class LogTest
     source_->force_error_position_ = position;
   }
 
-  size_t DroppedBytes() const {
-    return report_.dropped_bytes_;
-  }
+  size_t DroppedBytes() const { return report_.dropped_bytes_; }
 
-  std::string ReportMessage() const {
-    return report_.message_;
-  }
+  std::string ReportMessage() const { return report_.message_; }
 
   void ForceEOF(size_t position = 0) {
     source_->force_eof_ = true;
@@ -380,7 +383,7 @@ TEST_P(LogTest, BadRecordType) {
 
 TEST_P(LogTest, TruncatedTrailingRecordIsIgnored) {
   Write("foo");
-  ShrinkSize(4);   // Drop all payload as well as a header byte
+  ShrinkSize(4);  // Drop all payload as well as a header byte
   ASSERT_EQ("EOF", Read());
   // Truncated last record is ignored, not treated as an error
   ASSERT_EQ(0U, DroppedBytes());
@@ -572,7 +575,7 @@ TEST_P(LogTest, ErrorJoinsRecords) {
   Write("correct");
 
   // Wipe the middle block
-  for (unsigned int offset = kBlockSize; offset < 2*kBlockSize; offset++) {
+  for (unsigned int offset = kBlockSize; offset < 2 * kBlockSize; offset++) {
     SetByte(offset, 'x');
   }
 
@@ -960,12 +963,19 @@ TEST_P(CompressionLogTest, Fragmentation) {
     return;
   }
   ASSERT_OK(SetupTestEnv());
-  Write("small");
-  Write(BigString("medium", 50000));
-  Write(BigString("large", 100000));
-  ASSERT_EQ("small", Read());
-  ASSERT_EQ(BigString("medium", 50000), Read());
-  ASSERT_EQ(BigString("large", 100000), Read());
+  Random rnd(301);
+  const std::vector<std::string> wal_entries = {
+      "small",
+      rnd.RandomBinaryString(3 * kBlockSize / 2),  // Spans into block 2
+      rnd.RandomBinaryString(3 * kBlockSize),      // Spans into block 5
+  };
+  for (const std::string& wal_entry : wal_entries) {
+    Write(wal_entry);
+  }
+
+  for (const std::string& wal_entry : wal_entries) {
+    ASSERT_EQ(wal_entry, Read());
+  }
   ASSERT_EQ("EOF", Read());
 }
 
@@ -1046,6 +1056,7 @@ INSTANTIATE_TEST_CASE_P(
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -76,6 +76,9 @@ class TestFSWritableFile : public FSWritableFile {
                          IODebugContext* dbg) override;
   virtual IOStatus Flush(const IOOptions&, IODebugContext*) override;
   virtual IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
+  virtual IOStatus RangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/,
+                             const IOOptions& options,
+                             IODebugContext* dbg) override;
   virtual bool IsSyncThreadSafe() const override { return true; }
   virtual IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                                     const IOOptions& options,
@@ -94,7 +97,7 @@ class TestFSWritableFile : public FSWritableFile {
   };
 
  private:
-  FSFileState state_;
+  FSFileState state_;  // Need protection by mutex_
   FileOptions file_opts_;
   std::unique_ptr<FSWritableFile> target_;
   bool writable_file_opened_;
@@ -132,8 +135,8 @@ class TestFSRandomRWFile : public FSRandomRWFile {
 class TestFSRandomAccessFile : public FSRandomAccessFile {
  public:
   explicit TestFSRandomAccessFile(const std::string& fname,
-                              std::unique_ptr<FSRandomAccessFile>&& f,
-                              FaultInjectionTestFS* fs);
+                                  std::unique_ptr<FSRandomAccessFile>&& f,
+                                  FaultInjectionTestFS* fs);
   ~TestFSRandomAccessFile() override {}
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
@@ -175,6 +178,9 @@ class TestFSDirectory : public FSDirectory {
   ~TestFSDirectory() {}
 
   virtual IOStatus Fsync(const IOOptions& options,
+                         IODebugContext* dbg) override;
+
+  virtual IOStatus Close(const IOOptions& options,
                          IODebugContext* dbg) override;
 
   virtual IOStatus FsyncWithDirOptions(
@@ -325,8 +331,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     error.PermitUncheckedError();
     SetFilesystemActiveNoLock(active, error);
   }
-  void SetFilesystemDirectWritable(
-      bool writable) {
+  void SetFilesystemDirectWritable(bool writable) {
     MutexLock l(&mutex_);
     filesystem_writable_ = writable;
   }
@@ -390,7 +395,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // 1/one_in probability)
   void SetThreadLocalReadErrorContext(uint32_t seed, int one_in) {
     struct ErrorContext* ctx =
-          static_cast<struct ErrorContext*>(thread_local_error_->Get());
+        static_cast<struct ErrorContext*>(thread_local_error_->Get());
     if (ctx == nullptr) {
       ctx = new ErrorContext(seed);
       thread_local_error_->Reset(ctx);
@@ -399,7 +404,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     ctx->count = 0;
   }
 
-  static void DeleteThreadLocalErrorContext(void *p) {
+  static void DeleteThreadLocalErrorContext(void* p) {
     ErrorContext* ctx = static_cast<ErrorContext*>(p);
     delete ctx;
   }
@@ -460,8 +465,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   // Get the count of how many times we injected since the previous call
   int GetAndResetErrorCount() {
-    ErrorContext* ctx =
-          static_cast<ErrorContext*>(thread_local_error_->Get());
+    ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
     int count = 0;
     if (ctx != nullptr) {
       count = ctx->count;
@@ -471,8 +475,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   }
 
   void EnableErrorInjection() {
-    ErrorContext* ctx =
-          static_cast<ErrorContext*>(thread_local_error_->Get());
+    ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
     if (ctx) {
       ctx->enable_error_injection = true;
     }
@@ -493,8 +496,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   }
 
   void DisableErrorInjection() {
-    ErrorContext* ctx =
-          static_cast<ErrorContext*>(thread_local_error_->Get());
+    ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
     if (ctx) {
       ctx->enable_error_injection = false;
     }
@@ -524,7 +526,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // will be recovered to content accordingly.
   std::unordered_map<std::string, std::map<std::string, std::string>>
       dir_to_new_files_since_last_sync_;
-  bool filesystem_active_;  // Record flushes, syncs, writes
+  bool filesystem_active_;    // Record flushes, syncs, writes
   bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
                               // to underlying FS for writable files
   IOStatus error_;

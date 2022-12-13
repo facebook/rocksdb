@@ -514,7 +514,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
       break;
     default:
       return Status::Corruption("unknown WriteBatch tag ",
-                                ToString(static_cast<unsigned int>(tag)));
+                                std::to_string(static_cast<unsigned int>(tag)));
   }
   return Status::OK();
 }
@@ -664,22 +664,25 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
       Statistics* statistics = immutable_db_options.statistics.get();
       Logger* logger = immutable_db_options.info_log.get();
       SystemClock* clock = immutable_db_options.clock;
-      return MergeHelper::TimedFullMerge(merge_operator, key, value,
-                                         context.GetOperands(), result, logger,
-                                         statistics, clock);
+      return MergeHelper::TimedFullMerge(
+          merge_operator, key, value, context.GetOperands(), result, logger,
+          statistics, clock, /* result_operand */ nullptr,
+          /* update_num_ops_stats */ false);
     } else if (db_options_ != nullptr) {
       Statistics* statistics = db_options_->statistics.get();
       Env* env = db_options_->env;
       Logger* logger = db_options_->info_log.get();
       SystemClock* clock = env->GetSystemClock().get();
-      return MergeHelper::TimedFullMerge(merge_operator, key, value,
-                                         context.GetOperands(), result, logger,
-                                         statistics, clock);
+      return MergeHelper::TimedFullMerge(
+          merge_operator, key, value, context.GetOperands(), result, logger,
+          statistics, clock, /* result_operand */ nullptr,
+          /* update_num_ops_stats */ false);
     } else {
       const auto cf_opts = cfh->cfd()->ioptions();
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, context.GetOperands(), result,
-          cf_opts->logger, cf_opts->stats, cf_opts->clock);
+          cf_opts->logger, cf_opts->stats, cf_opts->clock,
+          /* result_operand */ nullptr, /* update_num_ops_stats */ false);
     }
   } else {
     return Status::InvalidArgument("Must provide a column_family");
@@ -700,7 +703,7 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
   auto result = iter->FindLatestUpdate(key, context);
   if (result == WBWIIteratorImpl::kError) {
     (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
-                              ToString(iter->Entry().type));
+                              std::to_string(iter->Entry().type));
     return result;
   } else if (result == WBWIIteratorImpl::kNotFound) {
     return result;

@@ -46,7 +46,7 @@ public class RocksDBSample {
             .setWriteBufferSize(8 * SizeUnit.KB)
             .setMaxWriteBufferNumber(3)
             .setMaxBackgroundJobs(10)
-            .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
+            .setCompressionType(CompressionType.ZLIB_COMPRESSION)
             .setCompactionStyle(CompactionStyle.UNIVERSAL);
       } catch (final IllegalArgumentException e) {
         assert (false);
@@ -56,7 +56,7 @@ public class RocksDBSample {
       assert (options.writeBufferSize() == 8 * SizeUnit.KB);
       assert (options.maxWriteBufferNumber() == 3);
       assert (options.maxBackgroundJobs() == 10);
-      assert (options.compressionType() == CompressionType.SNAPPY_COMPRESSION);
+      assert (options.compressionType() == CompressionType.ZLIB_COMPRESSION);
       assert (options.compactionStyle() == CompactionStyle.UNIVERSAL);
 
       assert (options.memTableFactoryName().equals("SkipListFactory"));

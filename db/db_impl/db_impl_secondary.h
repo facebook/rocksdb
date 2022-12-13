@@ -47,6 +47,7 @@ class LogReaderContainer {
     delete reporter_;
     delete status_;
   }
+
  private:
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
@@ -71,6 +72,7 @@ class LogReaderContainer {
 // The secondary instance can be opened using `DB::OpenAsSecondary`. After
 // that, it can call `DBImplSecondary::TryCatchUpWithPrimary` to make best
 // effort attempts to catch up with the primary.
+// TODO: Share common structure with CompactedDBImpl and DBImplReadOnly
 class DBImplSecondary : public DBImpl {
  public:
   DBImplSecondary(const DBOptions& options, const std::string& dbname,
@@ -81,18 +83,41 @@ class DBImplSecondary : public DBImpl {
   // and log_readers_ to facilitate future operations.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_wal_file_exists,
-                 bool error_if_data_exists_in_wals,
-                 uint64_t* = nullptr) override;
+                 bool error_if_data_exists_in_wals, uint64_t* = nullptr,
+                 RecoveryContext* recovery_ctx = nullptr) override;
 
-  // Implementations of the DB interface
+  // Implementations of the DB interface.
   using DB::Get;
+  // Can return IOError due to files being deleted by the primary. To avoid
+  // IOError in this case, application can coordinate between primary and
+  // secondaries so that primary will not delete files that are currently being
+  // used by the secondaries. The application can also provide a custom FS/Env
+  // implementation so that files will remain present until all primary and
+  // secondaries indicate that they can be deleted. As a partial hacky
+  // workaround, the secondaries can be opened with `max_open_files=-1` so that
+  // it eagerly keeps all talbe files open and is able to access the contents of
+  // deleted files via prior open fd.
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override;
+
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value);
+                 const Slice& key, PinnableSlice* value,
+                 std::string* timestamp);
 
   using DBImpl::NewIterator;
+  // Operations on the created iterators can return IOError due to files being
+  // deleted by the primary. To avoid IOError in this case, application can
+  // coordinate between primary and secondaries so that primary will not delete
+  // files that are currently being used by the secondaries. The application can
+  // also provide a custom FS/Env implementation so that files will remain
+  // present until all primary and secondaries indicate that they can be
+  // deleted. As a partial hacky workaround, the secondaries can be opened with
+  // `max_open_files=-1` so that it eagerly keeps all talbe files open and is
+  // able to access the contents of deleted files via prior open fd.
   Iterator* NewIterator(const ReadOptions&,
                         ColumnFamilyHandle* column_family) override;
 
@@ -111,6 +136,14 @@ class DBImplSecondary : public DBImpl {
   Status Put(const WriteOptions& /*options*/,
              ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
              const Slice& /*value*/) override {
+    return Status::NotSupported("Not supported operation in secondary mode.");
+  }
+
+  using DBImpl::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
@@ -215,7 +248,6 @@ class DBImplSecondary : public DBImpl {
   // method can take long time due to all the I/O and CPU costs.
   Status TryCatchUpWithPrimary() override;
 
-
   // Try to find log reader using log_number from log_readers_ map, initialize
   // if it doesn't exist
   Status MaybeInitLogReader(uint64_t log_number,
@@ -228,14 +260,22 @@ class DBImplSecondary : public DBImpl {
   Status CheckConsistency() override;
 
 #ifndef NDEBUG
-  Status TEST_CompactWithoutInstallation(ColumnFamilyHandle* cfh,
+  Status TEST_CompactWithoutInstallation(const OpenAndCompactOptions& options,
+                                         ColumnFamilyHandle* cfh,
                                          const CompactionServiceInput& input,
                                          CompactionServiceResult* result) {
-    return CompactWithoutInstallation(cfh, input, result);
+    return CompactWithoutInstallation(options, cfh, input, result);
   }
 #endif  // NDEBUG
 
  protected:
+#ifndef ROCKSDB_LITE
+  Status FlushForGetLiveFiles() override {
+    // No-op for read-only DB
+    return Status::OK();
+  }
+#endif  // !ROCKSDB_LITE
+
   // ColumnFamilyCollector is a write batch handler which does nothing
   // except recording unique column family IDs
   class ColumnFamilyCollector : public WriteBatch::Handler {
@@ -346,7 +386,8 @@ class DBImplSecondary : public DBImpl {
   // Run compaction without installation, the output files will be placed in the
   // secondary DB path. The LSM tree won't be changed, the secondary DB is still
   // in read-only mode.
-  Status CompactWithoutInstallation(ColumnFamilyHandle* cfh,
+  Status CompactWithoutInstallation(const OpenAndCompactOptions& options,
+                                    ColumnFamilyHandle* cfh,
                                     const CompactionServiceInput& input,
                                     CompactionServiceResult* result);
 

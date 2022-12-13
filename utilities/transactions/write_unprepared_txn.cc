@@ -281,8 +281,8 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
     static std::atomic_ullong autogen_id{0};
     // To avoid changing all tests to call SetName, just autogenerate one.
     if (wupt_db_->txn_db_options_.autogenerate_name) {
-      auto s =
-          SetName(std::string("autoxid") + ToString(autogen_id.fetch_add(1)));
+      auto s = SetName(std::string("autoxid") +
+                       std::to_string(autogen_id.fetch_add(1)));
       assert(s.ok());
     } else
 #endif
@@ -464,7 +464,7 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
   // only used if the write batch encounters an invalid cf id, and falls back to
   // this comparator.
   WriteBatchWithIndex wb(wpt_db_->DefaultColumnFamily()->GetComparator(), 0,
-                         true, 0);
+                         true, 0, write_options_.protection_bytes_per_key);
   // Swap with write_batch_ so that wb contains the complete write batch. The
   // actual write batch that will be flushed to DB will be built in
   // write_batch_, and will be read by FlushWriteBatchToDBInternal.
@@ -550,11 +550,17 @@ Status WriteUnpreparedTxn::CommitInternal() {
   assert(s.ok());
 
   const bool for_recovery = use_only_the_last_commit_time_batch_for_recovery_;
-  if (!empty && for_recovery) {
+  if (!empty) {
     // When not writing to memtable, we can still cache the latest write batch.
     // The cached batch will be written to memtable in WriteRecoverableState
     // during FlushMemTable
-    WriteBatchInternal::SetAsLatestPersistentState(working_batch);
+    if (for_recovery) {
+      WriteBatchInternal::SetAsLatestPersistentState(working_batch);
+    } else {
+      return Status::InvalidArgument(
+          "Commit-time-batch can only be used if "
+          "use_only_the_last_commit_time_batch_for_recovery is true");
+    }
   }
 
   const bool includes_data = !empty && !for_recovery;
@@ -669,7 +675,11 @@ Status WriteUnpreparedTxn::WriteRollbackKeys(
       s = rollback_batch->Put(cf_handle, key, pinnable_val);
       assert(s.ok());
     } else if (s.IsNotFound()) {
-      s = rollback_batch->Delete(cf_handle, key);
+      if (wupt_db_->ShouldRollbackWithSingleDelete(cf_handle, key)) {
+        s = rollback_batch->SingleDelete(cf_handle, key);
+      } else {
+        s = rollback_batch->Delete(cf_handle, key);
+      }
       assert(s.ok());
     } else {
       return s;
@@ -712,7 +722,8 @@ Status WriteUnpreparedTxn::WriteRollbackKeys(
 Status WriteUnpreparedTxn::RollbackInternal() {
   // TODO(lth): Reduce duplicate code with WritePrepared rollback logic.
   WriteBatchWithIndex rollback_batch(
-      wpt_db_->DefaultColumnFamily()->GetComparator(), 0, true, 0);
+      wpt_db_->DefaultColumnFamily()->GetComparator(), 0, true, 0,
+      write_options_.protection_bytes_per_key);
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
   Status s;

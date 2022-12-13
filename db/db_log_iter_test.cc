@@ -55,14 +55,13 @@ SequenceNumber ReadRecords(std::unique_ptr<TransactionLogIterator>& iter,
   return res.sequence;
 }
 
-void ExpectRecords(
-    const int expected_no_records,
-    std::unique_ptr<TransactionLogIterator>& iter) {
+void ExpectRecords(const int expected_no_records,
+                   std::unique_ptr<TransactionLogIterator>& iter) {
   int num_records;
   ReadRecords(iter, num_records);
   ASSERT_EQ(num_records, expected_no_records);
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBTestXactLogIterator, TransactionLogIterator) {
   do {
@@ -95,10 +94,9 @@ TEST_F(DBTestXactLogIterator, TransactionLogIterator) {
 TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
   static const int LOG_ITERATOR_RACE_TEST_COUNT = 2;
   static const char* sync_points[LOG_ITERATOR_RACE_TEST_COUNT][4] = {
-      {"WalManager::GetSortedWalFiles:1",  "WalManager::PurgeObsoleteFiles:1",
+      {"WalManager::GetSortedWalFiles:1", "WalManager::PurgeObsoleteFiles:1",
        "WalManager::PurgeObsoleteFiles:2", "WalManager::GetSortedWalFiles:2"},
-      {"WalManager::GetSortedWalsOfType:1",
-       "WalManager::PurgeObsoleteFiles:1",
+      {"WalManager::GetSortedWalsOfType:1", "WalManager::PurgeObsoleteFiles:1",
        "WalManager::PurgeObsoleteFiles:2",
        "WalManager::GetSortedWalsOfType:2"}};
   for (int test = 0; test < LOG_ITERATOR_RACE_TEST_COUNT; ++test) {
@@ -187,7 +185,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
     DestroyAndReopen(options);
 
     for (int i = 0; i < 1024; i++) {
-      ASSERT_OK(Put("key" + ToString(i), DummyString(10)));
+      ASSERT_OK(Put("key" + std::to_string(i), DummyString(10)));
     }
 
     ASSERT_OK(Flush());
@@ -263,20 +261,20 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
   struct Handler : public WriteBatch::Handler {
     std::string seen;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
-      seen += "Put(" + ToString(cf) + ", " + key.ToString() + ", " +
-              ToString(value.size()) + ")";
+      seen += "Put(" + std::to_string(cf) + ", " + key.ToString() + ", " +
+              std::to_string(value.size()) + ")";
       return Status::OK();
     }
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
-      seen += "Merge(" + ToString(cf) + ", " + key.ToString() + ", " +
-              ToString(value.size()) + ")";
+      seen += "Merge(" + std::to_string(cf) + ", " + key.ToString() + ", " +
+              std::to_string(value.size()) + ")";
       return Status::OK();
     }
     void LogData(const Slice& blob) override {
       seen += "LogData(" + blob.ToString() + ")";
     }
     Status DeleteCF(uint32_t cf, const Slice& key) override {
-      seen += "Delete(" + ToString(cf) + ", " + key.ToString() + ")";
+      seen += "Delete(" + std::to_string(cf) + ", " + key.ToString() + ")";
       return Status::OK();
     }
   } handler;
@@ -300,8 +298,8 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
-  (void) argc;
-  (void) argv;
+  (void)argc;
+  (void)argv;
   return 0;
 #endif
 }

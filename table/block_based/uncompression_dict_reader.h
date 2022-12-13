@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cassert>
+
 #include "table/block_based/cachable_entry.h"
 #include "table/format.h"
 
@@ -31,8 +32,8 @@ class UncompressionDictReader {
       std::unique_ptr<UncompressionDictReader>* uncompression_dict_reader);
 
   Status GetOrReadUncompressionDictionary(
-      FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context,
+      FilePrefetchBuffer* prefetch_buffer, bool no_io, bool verify_checksums,
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
       CachableEntry<UncompressionDict>* uncompression_dict) const;
 
   size_t ApproximateMemoryUsage() const;

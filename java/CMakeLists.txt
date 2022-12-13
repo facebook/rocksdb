@@ -7,7 +7,7 @@ endif()
 set(CMAKE_JAVA_COMPILE_FLAGS -source 7)
 
 set(JNI_NATIVE_SOURCES
-        rocksjni/backupablejni.cc
+        rocksjni/backup_engine_options.cc
         rocksjni/backupenginejni.cc
         rocksjni/cassandra_compactionfilterjni.cc
         rocksjni/cassandra_value_operator.cc
@@ -194,6 +194,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PersistentCache.java
   src/main/java/org/rocksdb/PlainTableConfig.java
+  src/main/java/org/rocksdb/PrepopulateBlobCache.java
   src/main/java/org/rocksdb/Priority.java
   src/main/java/org/rocksdb/Range.java
   src/main/java/org/rocksdb/RateLimiter.java

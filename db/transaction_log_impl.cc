@@ -6,9 +6,12 @@
 #ifndef ROCKSDB_LITE
 
 #include "db/transaction_log_impl.h"
+
 #include <cinttypes>
+
 #include "db/write_batch_internal.h"
 #include "file/sequence_file_reader.h"
+#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -24,20 +27,21 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       soptions_(soptions),
       starting_sequence_number_(seq),
       files_(std::move(files)),
+      versions_(versions),
+      seq_per_batch_(seq_per_batch),
+      io_tracer_(io_tracer),
       started_(false),
       is_valid_(false),
       current_file_index_(0),
       current_batch_seq_(0),
-      current_last_seq_(0),
-      versions_(versions),
-      seq_per_batch_(seq_per_batch),
-      io_tracer_(io_tracer) {
+      current_last_seq_(0) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
+  assert(!seq_per_batch_);
   current_status_.PermitUncheckedError();  // Clear on start
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
-  SeekToStartSequence(); // Seek till starting sequence
+  SeekToStartSequence();  // Seek till starting sequence
 }
 
 Status TransactionLogIteratorImpl::OpenLogFile(
@@ -58,18 +62,18 @@ Status TransactionLogIteratorImpl::OpenLogFile(
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, log_file->LogNumber());
-      s = fs->NewSequentialFile(fname, optimized_env_options,
-                                &file, nullptr);
+      s = fs->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
     }
   }
   if (s.ok()) {
-    file_reader->reset(new SequentialFileReader(
-        std::move(file), fname, io_tracer_, options_->listeners));
+    file_reader->reset(new SequentialFileReader(std::move(file), fname,
+                                                io_tracer_, options_->listeners,
+                                                options_->rate_limiter.get()));
   }
   return s;
 }
 
-BatchResult TransactionLogIteratorImpl::GetBatch()  {
+BatchResult TransactionLogIteratorImpl::GetBatch() {
   assert(is_valid_);  //  cannot call in a non valid state.
   BatchResult result;
   result.sequence = current_batch_seq_;
@@ -94,7 +98,20 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
   Slice record;
   started_ = false;
   is_valid_ = false;
+  // Check invariant of TransactionLogIterator when SeekToStartSequence()
+  // succeeds.
+  const Defer defer([this]() {
+    if (is_valid_) {
+      assert(current_status_.ok());
+      if (starting_sequence_number_ > current_batch_seq_) {
+        assert(current_batch_seq_ < current_last_seq_);
+        assert(current_last_seq_ >= starting_sequence_number_);
+      }
+    }
+  });
   if (files_->size() <= start_file_index) {
+    return;
+  } else if (!current_status_.ok()) {
     return;
   }
   Status s =
@@ -106,8 +123,8 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
   }
   while (RestrictedRead(&record)) {
     if (record.size() < WriteBatchInternal::kHeader) {
-      reporter_.Corruption(
-        record.size(), Status::Corruption("very small log record"));
+      reporter_.Corruption(record.size(),
+                           Status::Corruption("very small log record"));
       continue;
     }
     UpdateCurrentWriteBatch(record);
@@ -119,11 +136,12 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
         reporter_.Info(current_status_.ToString().c_str());
         return;
       } else if (strict) {
-        reporter_.Info("Could seek required sequence number. Iterator will "
-                       "continue.");
+        reporter_.Info(
+            "Could seek required sequence number. Iterator will "
+            "continue.");
       }
       is_valid_ = true;
-      started_ = true; // set started_ as we could seek till starting sequence
+      started_ = true;  // set started_ as we could seek till starting sequence
       return;
     } else {
       is_valid_ = false;
@@ -151,6 +169,9 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
 }
 
 void TransactionLogIteratorImpl::Next() {
+  if (!current_status_.ok()) {
+    return;
+  }
   return NextImpl(false);
 }
 
@@ -159,17 +180,17 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
   is_valid_ = false;
   if (!internal && !started_) {
     // Runs every time until we can seek to the start sequence
-    return SeekToStartSequence();
+    SeekToStartSequence();
   }
-  while(true) {
+  while (true) {
     assert(current_log_reader_);
     if (current_log_reader_->IsEOF()) {
       current_log_reader_->UnmarkEOF();
     }
     while (RestrictedRead(&record)) {
       if (record.size() < WriteBatchInternal::kHeader) {
-        reporter_.Corruption(
-          record.size(), Status::Corruption("very small log record"));
+        reporter_.Corruption(record.size(),
+                             Status::Corruption("very small log record"));
         continue;
       } else {
         // started_ should be true if called by application
@@ -249,55 +270,10 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     return SeekToStartSequence(current_file_index_, !seq_per_batch_);
   }
 
-  struct BatchCounter : public WriteBatch::Handler {
-    SequenceNumber sequence_;
-    BatchCounter(SequenceNumber sequence) : sequence_(sequence) {}
-    Status MarkNoop(bool empty_batch) override {
-      if (!empty_batch) {
-        sequence_++;
-      }
-      return Status::OK();
-    }
-    Status MarkEndPrepare(const Slice&) override {
-      sequence_++;
-      return Status::OK();
-    }
-    Status MarkCommit(const Slice&) override {
-      sequence_++;
-      return Status::OK();
-    }
-    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
-      ++sequence_;
-      return Status::OK();
-    }
-
-    Status PutCF(uint32_t /*cf*/, const Slice& /*key*/,
-                 const Slice& /*val*/) override {
-      return Status::OK();
-    }
-    Status DeleteCF(uint32_t /*cf*/, const Slice& /*key*/) override {
-      return Status::OK();
-    }
-    Status SingleDeleteCF(uint32_t /*cf*/, const Slice& /*key*/) override {
-      return Status::OK();
-    }
-    Status MergeCF(uint32_t /*cf*/, const Slice& /*key*/,
-                   const Slice& /*val*/) override {
-      return Status::OK();
-    }
-    Status MarkBeginPrepare(bool) override { return Status::OK(); }
-    Status MarkRollback(const Slice&) override { return Status::OK(); }
-  };
-
   current_batch_seq_ = WriteBatchInternal::Sequence(batch.get());
-  if (seq_per_batch_) {
-    BatchCounter counter(current_batch_seq_);
-    batch->Iterate(&counter);
-    current_last_seq_ = counter.sequence_;
-  } else {
-    current_last_seq_ =
-        current_batch_seq_ + WriteBatchInternal::Count(batch.get()) - 1;
-  }
+  assert(!seq_per_batch_);
+  current_last_seq_ =
+      current_batch_seq_ + WriteBatchInternal::Count(batch.get()) - 1;
   // currentBatchSeq_ can only change here
   assert(current_last_seq_ <= versions_->LastSequence());
 

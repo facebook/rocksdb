@@ -34,6 +34,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 #if defined OS_LINUX || defined OS_WIN
 #ifndef __clang__
+#ifndef ROCKSDB_UBSAN_RUN
 
 class OptionsSettableTest : public testing::Test {
  public:
@@ -116,7 +117,8 @@ bool CompareBytes(char* start_ptr1, char* start_ptr2, size_t total_size,
 // kBbtoExcluded, and maybe add customized verification for it.
 TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
   // Items in the form of <offset, size>. Need to be in ascending order
-  // and not overlapping. Need to updated if new pointer-option is added.
+  // and not overlapping. Need to update if new option to be excluded is added
+  // (e.g, pointer-type)
   const OffsetGap kBbtoExcluded = {
       {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
        sizeof(std::shared_ptr<FlushBlockPolicyFactory>)},
@@ -126,6 +128,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<PersistentCache>)},
       {offsetof(struct BlockBasedTableOptions, block_cache_compressed),
        sizeof(std::shared_ptr<Cache>)},
+      {offsetof(struct BlockBasedTableOptions, cache_usage_options),
+       sizeof(CacheUsageOptions)},
       {offsetof(struct BlockBasedTableOptions, filter_policy),
        sizeof(std::shared_ptr<const FilterPolicy>)},
   };
@@ -188,13 +192,14 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "index_block_restart_interval=4;"
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;detect_filter_"
       "construct_corruption=false;"
-      "reserve_table_builder_memory=false;"
       "format_version=1;"
       "verify_compression=true;read_amp_bytes_per_bit=0;"
       "enable_index_compression=false;"
       "block_align=true;"
       "max_auto_readahead_size=0;"
-      "prepopulate_block_cache=kDisable",
+      "prepopulate_block_cache=kDisable;"
+      "initial_auto_readahead_size=0;"
+      "num_file_reads_for_auto_readahead=0",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -300,6 +305,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "paranoid_checks=true;"
                              "flush_verify_memtable_count=true;"
                              "track_and_verify_wals_in_manifest=true;"
+                             "verify_sst_unique_id_in_manifest=true;"
                              "is_fd_close_on_exec=false;"
                              "bytes_per_sync=4295013613;"
                              "strict_bytes_per_sync=true;"
@@ -350,10 +356,11 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "write_dbid_to_manifest=false;"
                              "best_efforts_recovery=false;"
                              "max_bgerror_resume_count=2;"
-                             "bgerror_resume_retry_interval=1000000"
+                             "bgerror_resume_retry_interval=1000000;"
                              "db_host_id=hostname;"
                              "lowest_used_cache_tier=kNonVolatileBlockTier;"
-                             "allow_data_in_errors=false",
+                             "allow_data_in_errors=false;"
+                             "enforce_single_del_contracts=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -371,7 +378,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
 // test is not updated accordingly.
 // After adding an option, we need to make sure it is settable by
 // GetColumnFamilyOptionsFromString() and add the option to the input
-// string passed to GetColumnFamilyOptionsFromString()in this test.
+// string passed to GetColumnFamilyOptionsFromString() in this test.
 // If it is a complicated type, you also need to add the field to
 // kColumnFamilyOptionsExcluded, and maybe add customized verification
 // for it.
@@ -394,6 +401,12 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct ColumnFamilyOptions,
                 table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
+      {offsetof(struct ColumnFamilyOptions, preclude_last_level_data_seconds),
+       sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, preserve_internal_time_seconds),
+       sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, blob_cache),
+       sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
       {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
@@ -473,11 +486,12 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_write_buffer_number=84;"
       "write_buffer_size=1653;"
       "max_compaction_bytes=64;"
+      "ignore_max_compaction_bytes_for_input=true;"
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
-      "compression_opts=5:6:7:8:9:10:true:11;"
-      "bottommost_compression_opts=4:5:6:7:8:9:true:10;"
+      "compression_opts=5:6:7:8:9:10:true:11:false;"
+      "bottommost_compression_opts=4:5:6:7:8:9:true:10:true;"
       "bottommost_compression=kDisableCompressionOption;"
       "level0_stop_writes_trigger=33;"
       "num_levels=99;"
@@ -495,8 +509,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "paranoid_file_checks=true;"
       "force_consistency_checks=true;"
       "inplace_update_num_locks=7429;"
+      "experimental_mempurge_threshold=0.0001;"
       "optimize_filters_for_hits=false;"
       "level_compaction_dynamic_level_bytes=false;"
+      "level_compaction_dynamic_file_size=true;"
       "inplace_update_support=false;"
       "compaction_style=kCompactionStyleFIFO;"
       "compaction_pri=kMinOverlappingRatio;"
@@ -514,10 +530,19 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_garbage_collection_age_cutoff=0.5;"
       "blob_garbage_collection_force_threshold=0.75;"
       "blob_compaction_readahead_size=262144;"
+      "blob_file_starting_level=1;"
+      "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
+      "last_level_temperature=kWarm;"
+      "preclude_last_level_data_seconds=86400;"
+      "preserve_internal_time_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
-      "compaction=false;age_for_warm=1;};",
+      "compaction=false;age_for_warm=1;};"
+      "blob_cache=1M;"
+      "memtable_protection_bytes_per_key=2;",
       new_options));
+
+  ASSERT_NE(new_options->blob_cache.get(), nullptr);
 
   ASSERT_EQ(unset_bytes_base,
             NumUnsetBytes(new_options_ptr, sizeof(ColumnFamilyOptions),
@@ -579,6 +604,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   delete[] mcfo2_ptr;
   delete[] cfo_clean_ptr;
 }
+#endif  // !ROCKSDB_UBSAN_RUN
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN
 #endif  // !ROCKSDB_LITE
@@ -586,6 +612,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);

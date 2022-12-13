@@ -7,11 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "file/filename.h"
-#include <cinttypes>
 
 #include <ctype.h>
 #include <stdio.h>
+
+#include <cinttypes>
 #include <vector>
+
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
@@ -42,10 +44,8 @@ static size_t GetInfoLogPrefix(const std::string& path, char* dest, int len) {
   while (i < src_len && write_idx < len - sizeof(suffix)) {
     if ((path[i] >= 'a' && path[i] <= 'z') ||
         (path[i] >= '0' && path[i] <= '9') ||
-        (path[i] >= 'A' && path[i] <= 'Z') ||
-        path[i] == '-' ||
-        path[i] == '.' ||
-        path[i] == '_'){
+        (path[i] >= 'A' && path[i] <= 'Z') || path[i] == '-' ||
+        path[i] == '.' || path[i] == '_') {
       dest[write_idx++] = path[i];
     } else {
       if (i > 0) {
@@ -153,9 +153,10 @@ void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
   if (path_id == 0) {
     snprintf(out_buf, out_buf_size, "%" PRIu64, number);
   } else {
-    snprintf(out_buf, out_buf_size, "%" PRIu64
-                                    "(path "
-                                    "%" PRIu32 ")",
+    snprintf(out_buf, out_buf_size,
+             "%" PRIu64
+             "(path "
+             "%" PRIu32 ")",
              number, path_id);
   }
 }
@@ -176,9 +177,7 @@ std::string CurrentFileName(const std::string& dbname) {
   return dbname + "/" + kCurrentFileName;
 }
 
-std::string LockFileName(const std::string& dbname) {
-  return dbname + "/LOCK";
-}
+std::string LockFileName(const std::string& dbname) { return dbname + "/LOCK"; }
 
 std::string TempFileName(const std::string& dbname, uint64_t number) {
   return MakeFileName(dbname, number, kTempFileNameSuffix.c_str());
@@ -199,7 +198,8 @@ InfoLogPrefix::InfoLogPrefix(bool has_log_dir,
 }
 
 std::string InfoLogFileName(const std::string& dbname,
-    const std::string& db_path, const std::string& log_dir) {
+                            const std::string& db_path,
+                            const std::string& log_dir) {
   if (log_dir.empty()) {
     return dbname + "/LOG";
   }
@@ -210,7 +210,8 @@ std::string InfoLogFileName(const std::string& dbname,
 
 // Return the name of the old info log file for "dbname".
 std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
-    const std::string& db_path, const std::string& log_dir) {
+                               const std::string& db_path,
+                               const std::string& log_dir) {
   char buf[50];
   snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(ts));
 
@@ -263,9 +264,7 @@ std::string IdentityFileName(const std::string& dbname) {
 //    dbname/OPTIONS-[0-9]+
 //    dbname/OPTIONS-[0-9]+.dbtmp
 //    Disregards / at the beginning
-bool ParseFileName(const std::string& fname,
-                   uint64_t* number,
-                   FileType* type,
+bool ParseFileName(const std::string& fname, uint64_t* number, FileType* type,
                    WalFileType* log_type) {
   return ParseFileName(fname, number, "", type, log_type);
 }
@@ -370,7 +369,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
         *log_type = kAliveLogFile;
       }
     } else if (archive_dir_found) {
-      return false; // Archive dir can contain only log files
+      return false;  // Archive dir can contain only log files
     } else if (suffix == Slice(kRocksDbTFileExt) ||
                suffix == Slice(kLevelDbTFileExt)) {
       *type = kTableFile;
@@ -388,7 +387,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
 
 IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
                         uint64_t descriptor_number,
-                        FSDirectory* directory_to_fsync) {
+                        FSDirectory* dir_contains_current_file) {
   // Remove leading "dbname/" and add newline to manifest file name
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
   Slice contents = manifest;
@@ -404,8 +403,8 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
     TEST_SYNC_POINT_CALLBACK("SetCurrentFile:AfterRename", &s);
   }
   if (s.ok()) {
-    if (directory_to_fsync != nullptr) {
-      s = directory_to_fsync->FsyncWithDirOptions(
+    if (dir_contains_current_file != nullptr) {
+      s = dir_contains_current_file->FsyncWithDirOptions(
           IOOptions(), nullptr, DirFsyncOptions(CurrentFileName(dbname)));
     }
   } else {
@@ -442,6 +441,20 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   if (s.ok()) {
     s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
                                      DirFsyncOptions(identify_file_name));
+  }
+
+  // The default Close() could return "NotSupported" and we bypass it
+  // if it is not impelmented. Detailed explanations can be found in
+  // db/db_impl/db_impl.h
+  if (s.ok()) {
+    Status temp_s = dir_obj->Close(IOOptions(), nullptr);
+    if (!temp_s.ok()) {
+      if (temp_s.IsNotSupported()) {
+        temp_s.PermitUncheckedError();
+      } else {
+        s = temp_s;
+      }
+    }
   }
   if (!s.ok()) {
     env->DeleteFile(tmp).PermitUncheckedError();
@@ -491,6 +504,12 @@ Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
 
 std::string NormalizePath(const std::string& path) {
   std::string dst;
+
+  if (path.length() > 2 && path[0] == kFilePathSeparator &&
+      path[1] == kFilePathSeparator) {  // Handle UNC names
+    dst.append(2, kFilePathSeparator);
+  }
+
   for (auto c : path) {
     if (!dst.empty() && (c == kFilePathSeparator || c == '/') &&
         (dst.back() == kFilePathSeparator || dst.back() == '/')) {

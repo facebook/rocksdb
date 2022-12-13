@@ -6,8 +6,10 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <atomic>
 #include <mutex>
+
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {

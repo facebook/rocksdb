@@ -115,8 +115,8 @@ Status WritePreparedTxn::PrepareInternal() {
   // For each duplicate key we account for a new sub-batch
   prepare_batch_cnt_ = GetWriteBatch()->SubBatchCnt();
   // Having AddPrepared in the PreReleaseCallback allows in-order addition of
-  // prepared entries to PreparedHeap and hence enables an optimization. Refer to
-  // SmallestUnCommittedSeq for more details.
+  // prepared entries to PreparedHeap and hence enables an optimization. Refer
+  // to SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
       wpt_db_, db_impl_, prepare_batch_cnt_,
       db_impl_->immutable_db_options().two_write_queues, kFirstPrepareBatch);
@@ -154,11 +154,17 @@ Status WritePreparedTxn::CommitInternal() {
   assert(s.ok());
 
   const bool for_recovery = use_only_the_last_commit_time_batch_for_recovery_;
-  if (!empty && for_recovery) {
+  if (!empty) {
     // When not writing to memtable, we can still cache the latest write batch.
     // The cached batch will be written to memtable in WriteRecoverableState
     // during FlushMemTable
-    WriteBatchInternal::SetAsLatestPersistentState(working_batch);
+    if (for_recovery) {
+      WriteBatchInternal::SetAsLatestPersistentState(working_batch);
+    } else {
+      return Status::InvalidArgument(
+          "Commit-time-batch can only be used if "
+          "use_only_the_last_commit_time_batch_for_recovery is true");
+    }
   }
 
   auto prepare_seq = GetId();
@@ -195,6 +201,21 @@ Status WritePreparedTxn::CommitInternal() {
   // redundantly reference the log that contains the prepared data.
   const uint64_t zero_log_number = 0ull;
   size_t batch_cnt = UNLIKELY(commit_batch_cnt) ? commit_batch_cnt : 1;
+  // If `two_write_queues && includes_data`, then `do_one_write` is false. The
+  // following `WriteImpl` will insert the data of the commit-time-batch into
+  // the database before updating the commit cache. Therefore, the data of the
+  // commmit-time-batch is considered uncommitted. Furthermore, since data of
+  // the commit-time-batch are not locked, it is possible for two uncommitted
+  // versions of the same key to co-exist for a (short) period of time until
+  // the commit cache is updated by the second write. If the two uncommitted
+  // keys are compacted to the bottommost level in the meantime, it is possible
+  // that compaction iterator will zero out the sequence numbers of both, thus
+  // violating the invariant that an SST does not have two identical internal
+  // keys. To prevent this situation, we should allow the usage of
+  // commit-time-batch only if the user sets
+  // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery to
+  // true. See the comments about GetCommitTimeWriteBatch() in
+  // include/rocksdb/utilities/transaction.h.
   s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
                           zero_log_number, disable_memtable, &seq_used,
                           batch_cnt, pre_release_callback);
@@ -242,7 +263,13 @@ Status WritePreparedTxn::CommitInternal() {
 Status WritePreparedTxn::RollbackInternal() {
   ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
                  "RollbackInternal prepare_seq: %" PRIu64, GetId());
-  WriteBatch rollback_batch;
+
+  assert(db_impl_);
+  assert(wpt_db_);
+
+  WriteBatch rollback_batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                            write_options_.protection_bytes_per_key,
+                            0 /* default_cf_ts_sz */);
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
   auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();
@@ -252,8 +279,9 @@ Status WritePreparedTxn::RollbackInternal() {
   // to prevent callback's seq to be overrriden inside DBImpk::Get
   roptions.snapshot = wpt_db_->GetMaxSnapshot();
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
-    DBImpl* db_;
-    WritePreparedTxnReadCallback callback;
+    DBImpl* const db_;
+    WritePreparedTxnDB* const wpt_db_;
+    WritePreparedTxnReadCallback callback_;
     WriteBatch* rollback_batch_;
     std::map<uint32_t, const Comparator*>& comparators_;
     std::map<uint32_t, ColumnFamilyHandle*>& handles_;
@@ -261,14 +289,16 @@ Status WritePreparedTxn::RollbackInternal() {
     std::map<uint32_t, CFKeys> keys_;
     bool rollback_merge_operands_;
     ReadOptions roptions_;
+
     RollbackWriteBatchBuilder(
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
         WriteBatch* dst_batch,
         std::map<uint32_t, const Comparator*>& comparators,
         std::map<uint32_t, ColumnFamilyHandle*>& handles,
-        bool rollback_merge_operands, ReadOptions _roptions)
+        bool rollback_merge_operands, const ReadOptions& _roptions)
         : db_(db),
-          callback(wpt_db, snap_seq),  // disable min_uncommitted optimization
+          wpt_db_(wpt_db),
+          callback_(wpt_db, snap_seq),  // disable min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators),
           handles_(handles),
@@ -283,8 +313,8 @@ Status WritePreparedTxn::RollbackInternal() {
         keys_[cf] = CFKeys(SetComparator(cmp));
       }
       auto it = cf_keys.insert(key);
-      if (it.second ==
-          false) {  // second is false if a element already existed.
+      // second is false if a element already existed.
+      if (it.second == false) {
         return s;
       }
 
@@ -295,7 +325,7 @@ Status WritePreparedTxn::RollbackInternal() {
       get_impl_options.column_family = cf_handle;
       get_impl_options.value = &pinnable_val;
       get_impl_options.value_found = &not_used;
-      get_impl_options.callback = &callback;
+      get_impl_options.callback = &callback_;
       s = db_->GetImpl(roptions_, key, get_impl_options);
       assert(s.ok() || s.IsNotFound());
       if (s.ok()) {
@@ -304,7 +334,11 @@ Status WritePreparedTxn::RollbackInternal() {
       } else if (s.IsNotFound()) {
         // There has been no readable value before txn. By adding a delete we
         // make sure that there will be none afterwards either.
-        s = rollback_batch_->Delete(cf_handle, key);
+        if (wpt_db_->ShouldRollbackWithSingleDelete(cf_handle, key)) {
+          s = rollback_batch_->SingleDelete(cf_handle, key);
+        } else {
+          s = rollback_batch_->Delete(cf_handle, key);
+        }
         assert(s.ok());
       } else {
         // Unexpected status. Return it to the user.
@@ -342,7 +376,9 @@ Status WritePreparedTxn::RollbackInternal() {
     }
 
    protected:
-    bool WriteAfterCommit() const override { return false; }
+    Handler::OptionState WriteAfterCommit() const override {
+      return Handler::OptionState::kDisabled;
+    }
   } rollback_handler(db_impl_, wpt_db_, read_at_seq, &rollback_batch,
                      *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
                      wpt_db_->txn_db_options_.rollback_merge_operands,

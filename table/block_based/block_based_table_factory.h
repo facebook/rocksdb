@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 
+#include "cache/cache_reservation_manager.h"
 #include "port/port.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/table.h"
@@ -89,6 +90,7 @@ class BlockBasedTableFactory : public TableFactory {
 
  private:
   BlockBasedTableOptions table_options_;
+  std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr_;
   mutable TailPrefetchStats tail_prefetch_stats_;
 };
 

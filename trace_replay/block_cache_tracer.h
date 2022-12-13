@@ -9,9 +9,10 @@
 #include <fstream>
 
 #include "monitoring/instrumented_mutex.h"
+#include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/options.h"
+#include "rocksdb/table_reader_caller.h"
 #include "rocksdb/trace_reader_writer.h"
-#include "table/table_reader_caller.h"
 #include "trace_replay/trace_replay.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -102,65 +103,6 @@ struct BlockCacheLookupContext {
   }
 };
 
-enum Boolean : char { kTrue = 1, kFalse = 0 };
-
-struct BlockCacheTraceRecord {
-  // Required fields for all accesses.
-  uint64_t access_timestamp = 0;
-  std::string block_key;
-  TraceType block_type = TraceType::kTraceMax;
-  uint64_t block_size = 0;
-  uint64_t cf_id = 0;
-  std::string cf_name;
-  uint32_t level = 0;
-  uint64_t sst_fd_number = 0;
-  TableReaderCaller caller = TableReaderCaller::kMaxBlockCacheLookupCaller;
-  Boolean is_cache_hit = Boolean::kFalse;
-  Boolean no_insert = Boolean::kFalse;
-  // Required field for Get and MultiGet
-  uint64_t get_id = BlockCacheTraceHelper::kReservedGetId;
-  Boolean get_from_user_specified_snapshot = Boolean::kFalse;
-  std::string referenced_key;
-  // Required fields for data block and user Get/Multi-Get only.
-  uint64_t referenced_data_size = 0;
-  uint64_t num_keys_in_block = 0;
-  Boolean referenced_key_exist_in_block = Boolean::kFalse;
-
-  BlockCacheTraceRecord() {}
-
-  BlockCacheTraceRecord(
-      uint64_t _access_timestamp, std::string _block_key, TraceType _block_type,
-      uint64_t _block_size, uint64_t _cf_id, std::string _cf_name,
-      uint32_t _level, uint64_t _sst_fd_number, TableReaderCaller _caller,
-      bool _is_cache_hit, bool _no_insert,
-      uint64_t _get_id = BlockCacheTraceHelper::kReservedGetId,
-      bool _get_from_user_specified_snapshot = false,
-      std::string _referenced_key = "", uint64_t _referenced_data_size = 0,
-      uint64_t _num_keys_in_block = 0,
-      bool _referenced_key_exist_in_block = false)
-      : access_timestamp(_access_timestamp),
-        block_key(_block_key),
-        block_type(_block_type),
-        block_size(_block_size),
-        cf_id(_cf_id),
-        cf_name(_cf_name),
-        level(_level),
-        sst_fd_number(_sst_fd_number),
-        caller(_caller),
-        is_cache_hit(_is_cache_hit ? Boolean::kTrue : Boolean::kFalse),
-        no_insert(_no_insert ? Boolean::kTrue : Boolean::kFalse),
-        get_id(_get_id),
-        get_from_user_specified_snapshot(_get_from_user_specified_snapshot
-                                             ? Boolean::kTrue
-                                             : Boolean::kFalse),
-        referenced_key(_referenced_key),
-        referenced_data_size(_referenced_data_size),
-        num_keys_in_block(_num_keys_in_block),
-        referenced_key_exist_in_block(
-            _referenced_key_exist_in_block ? Boolean::kTrue : Boolean::kFalse) {
-  }
-};
-
 struct BlockCacheTraceHeader {
   uint64_t start_time;
   uint32_t rocksdb_major_version;
@@ -171,29 +113,31 @@ struct BlockCacheTraceHeader {
 // user-provided TraceWriter. Every RocksDB operation is written as a single
 // trace. Each trace will have a timestamp and type, followed by the trace
 // payload.
-class BlockCacheTraceWriter {
+class BlockCacheTraceWriterImpl : public BlockCacheTraceWriter {
  public:
-  BlockCacheTraceWriter(SystemClock* clock, const TraceOptions& trace_options,
-                        std::unique_ptr<TraceWriter>&& trace_writer);
-  ~BlockCacheTraceWriter() = default;
+  BlockCacheTraceWriterImpl(SystemClock* clock,
+                            const BlockCacheTraceWriterOptions& trace_options,
+                            std::unique_ptr<TraceWriter>&& trace_writer);
+  ~BlockCacheTraceWriterImpl() = default;
   // No copy and move.
-  BlockCacheTraceWriter(const BlockCacheTraceWriter&) = delete;
-  BlockCacheTraceWriter& operator=(const BlockCacheTraceWriter&) = delete;
-  BlockCacheTraceWriter(BlockCacheTraceWriter&&) = delete;
-  BlockCacheTraceWriter& operator=(BlockCacheTraceWriter&&) = delete;
+  BlockCacheTraceWriterImpl(const BlockCacheTraceWriterImpl&) = delete;
+  BlockCacheTraceWriterImpl& operator=(const BlockCacheTraceWriterImpl&) =
+      delete;
+  BlockCacheTraceWriterImpl(BlockCacheTraceWriterImpl&&) = delete;
+  BlockCacheTraceWriterImpl& operator=(BlockCacheTraceWriterImpl&&) = delete;
 
   // Pass Slice references to avoid copy.
   Status WriteBlockAccess(const BlockCacheTraceRecord& record,
                           const Slice& block_key, const Slice& cf_name,
-                          const Slice& referenced_key);
+                          const Slice& referenced_key) override;
 
   // Write a trace header at the beginning, typically on initiating a trace,
   // with some metadata like a magic number and RocksDB version.
-  Status WriteHeader();
+  Status WriteHeader() override;
 
  private:
   SystemClock* clock_;
-  TraceOptions trace_options_;
+  BlockCacheTraceWriterOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
 };
 
@@ -267,8 +211,8 @@ class BlockCacheTracer {
   BlockCacheTracer& operator=(BlockCacheTracer&&) = delete;
 
   // Start writing block cache accesses to the trace_writer.
-  Status StartTrace(SystemClock* clock, const TraceOptions& trace_options,
-                    std::unique_ptr<TraceWriter>&& trace_writer);
+  Status StartTrace(const BlockCacheTraceOptions& trace_options,
+                    std::unique_ptr<BlockCacheTraceWriter>&& trace_writer);
 
   // Stop writing block cache accesses to the trace_writer.
   void EndTrace();
@@ -281,11 +225,11 @@ class BlockCacheTracer {
                           const Slice& block_key, const Slice& cf_name,
                           const Slice& referenced_key);
 
-  // GetId cycles from 1 to port::kMaxUint64.
+  // GetId cycles from 1 to std::numeric_limits<uint64_t>::max().
   uint64_t NextGetId();
 
  private:
-  TraceOptions trace_options_;
+  BlockCacheTraceOptions trace_options_;
   // A mutex protects the writer_.
   InstrumentedMutex trace_writer_mutex_;
   std::atomic<BlockCacheTraceWriter*> writer_;
