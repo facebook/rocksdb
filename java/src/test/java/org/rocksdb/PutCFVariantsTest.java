@@ -99,7 +99,7 @@ public class PutCFVariantsTest {
               db, columnFamilyHandleList.get(1), "cfkey".getBytes(), longToByteArray(100));
           // merge (long)1 under key
           byte[] value = db.get(columnFamilyHandleList.get(1), "cfkey".getBytes());
-          long longValue = longFromByteArray(value);
+          final long longValue = longFromByteArray(value);
 
           // Test also with createColumnFamily
           try (final ColumnFamilyOptions cfHandleOpts =
@@ -110,7 +110,7 @@ public class PutCFVariantsTest {
             db.put(cfHandle, "cfkey2".getBytes(), longToByteArray(200));
             // merge (long)50 under cfkey2
             value = db.get(cfHandle, "cfkey2".getBytes());
-            long longValueTmpCf = longFromByteArray(value);
+            final long longValueTmpCf = longFromByteArray(value);
 
             assertThat(longValue).isEqualTo(100);
             assertThat(longValueTmpCf).isEqualTo(200);

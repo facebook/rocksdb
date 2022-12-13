@@ -38,6 +38,7 @@ public class RocksDB extends RocksObject {
 
   static final String PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD =
       "Performance optimization for a very specific workload";
+  private ColumnFamilyHandle defaultColumnFamilyHandle;
 
   private final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
 
@@ -256,6 +257,7 @@ public class RocksDB extends RocksObject {
     // the currently-created RocksDB.
     final RocksDB db = new RocksDB(open(options.nativeHandle_, path));
     db.storeOptionsInstance(options);
+    db.defaultColumnFamilyHandle = db.makeDefaultColumnFamilyHandle();
     return db;
   }
 
@@ -321,6 +323,7 @@ public class RocksDB extends RocksObject {
     }
 
     db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
+    db.defaultColumnFamilyHandle = db.makeDefaultColumnFamilyHandle();
 
     return db;
   }
@@ -1288,9 +1291,17 @@ public class RocksDB extends RocksObject {
    */
   public int get(final ReadOptions opt, final ByteBuffer key, final ByteBuffer value)
       throws RocksDBException {
-    assert key.isDirect() && value.isDirect();
-    final int result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(),
-        key.remaining(), value, value.position(), value.remaining(), 0);
+    final int result;
+    if (key.isDirect() && value.isDirect()) {
+      result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
+              value, value.position(), value.remaining(), 0);
+    } else if (!key.isDirect() && !value.isDirect()) {
+      result = get(nativeHandle_, opt.nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining(),
+              value.array(), value.arrayOffset() + value.position(), value.remaining(), defaultColumnFamilyHandle.nativeHandle_);
+    } else {
+      throw new RocksDBException(
+              "ByteBuffer parameters must all be direct, or must all be indirect");
+    }
     if (result != NOT_FOUND) {
       value.limit(Math.min(value.limit(), value.position() + result));
     }
@@ -4496,8 +4507,17 @@ public class RocksDB extends RocksObject {
    * @return The handle of the default column family
    */
   public ColumnFamilyHandle getDefaultColumnFamily() {
+    return defaultColumnFamilyHandle;
+  }
+
+  /**
+   * Create a handle for the default CF on open
+   *
+   * @return the default family handle
+   */
+  private ColumnFamilyHandle makeDefaultColumnFamilyHandle() {
     final ColumnFamilyHandle cfHandle = new ColumnFamilyHandle(this,
-        getDefaultColumnFamily(nativeHandle_));
+            getDefaultColumnFamily(nativeHandle_));
     cfHandle.disOwnNativeHandle();
     return cfHandle;
   }
