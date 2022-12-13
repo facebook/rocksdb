@@ -618,9 +618,7 @@ TEST_F(DBWALTest, LockWal) {
     DestroyAndReopen(options);
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->LoadDependency(
-        {{"DBWALTest::LockWal:AfterLockWal",
-          "DBWALTest::LockWal:BeforeFlush:1"},
-         {"DBWALTest::LockWal:AfterGetSortedWal",
+        {{"DBWALTest::LockWal:AfterGetSortedWal",
           "DBWALTest::LockWal:BeforeFlush:1"}});
     SyncPoint::GetInstance()->EnableProcessing();
 
@@ -633,7 +631,6 @@ TEST_F(DBWALTest, LockWal) {
     });
 
     ASSERT_OK(db_->LockWAL());
-    TEST_SYNC_POINT("DBWALTest::LockWal:AfterLockWal");
     // Verify writes are stopped
     WriteOptions wopts;
     wopts.no_slowdown = true;
@@ -642,9 +639,9 @@ TEST_F(DBWALTest, LockWal) {
     {
       VectorLogPtr wals;
       ASSERT_OK(db_->GetSortedWalFiles(wals));
-      TEST_SYNC_POINT("DBWALTest::LockWal:AfterGetSortedWal");
       ASSERT_FALSE(wals.empty());
     }
+    TEST_SYNC_POINT("DBWALTest::LockWal:AfterGetSortedWal");
     FlushOptions flush_opts;
     flush_opts.wait = false;
     s = db_->Flush(flush_opts);
