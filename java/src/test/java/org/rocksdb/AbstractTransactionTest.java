@@ -852,11 +852,19 @@ public abstract class AbstractTransactionTest {
   public void mergeUntracked_cf() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v2 = "value2".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.mergeUntracked(testCf, k1, v1);
+      txn.mergeUntracked(testCf, k1, v2);
+      txn.commit();
+    }
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      assertThat(txn.get(new ReadOptions(), testCf, k1)).isEqualTo("value1**value2".getBytes());
     }
   }
 
@@ -864,10 +872,79 @@ public abstract class AbstractTransactionTest {
   public void mergeUntracked() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v2 = "value2".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       txn.mergeUntracked(k1, v1);
+      txn.mergeUntracked(k1, v2);
+      txn.commit();
+    }
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      assertThat(txn.get(new ReadOptions(), k1)).isEqualTo("value1++value2".getBytes());
+    }
+  }
+
+  @Test
+  public void mergeUntrackedByteBuffer() throws RocksDBException {
+    final ByteBuffer k1 = ByteBuffer.allocateDirect(20).put("key1".getBytes(UTF_8));
+    k1.flip();
+    final ByteBuffer v1 = ByteBuffer.allocateDirect(20).put("value1".getBytes(UTF_8));
+    v1.flip();
+    final ByteBuffer v2 = ByteBuffer.allocateDirect(20).put("value2".getBytes(UTF_8));
+    v2.flip();
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      txn.mergeUntracked(k1, v1);
+      txn.mergeUntracked(k1, v2);
+      txn.commit();
+    }
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ByteBuffer v = ByteBuffer.allocateDirect(20);
+      final GetStatus status = txn.get(new ReadOptions(), k1, v);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.Ok);
+      v.flip();
+      final int expectedLength = "value1++value2".length();
+      assertThat(v.remaining()).isEqualTo(expectedLength);
+      final byte[] vBytes = new byte[expectedLength];
+      v.get(vBytes);
+      assertThat(vBytes).isEqualTo("value1++value2".getBytes());
+    }
+  }
+
+  @Test
+  public void mergeUntrackedByteBuffer_cf() throws RocksDBException {
+    final ByteBuffer k1 = ByteBuffer.allocateDirect(20).put("key1".getBytes(UTF_8));
+    k1.flip();
+    final ByteBuffer v1 = ByteBuffer.allocateDirect(20).put("value1".getBytes(UTF_8));
+    v1.flip();
+    final ByteBuffer v2 = ByteBuffer.allocateDirect(20).put("value2".getBytes(UTF_8));
+    v2.flip();
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      txn.mergeUntracked(testCf, k1, v1);
+      txn.mergeUntracked(testCf, k1, v2);
+      txn.commit();
+    }
+
+    try (final DBContainer dbContainer = startDb();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ByteBuffer v = ByteBuffer.allocateDirect(20);
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final GetStatus status = txn.get(new ReadOptions(), testCf, k1, v);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.Ok);
+      v.flip();
+      final int expectedLength = "value1++value2".length();
+      assertThat(v.remaining()).isEqualTo(expectedLength);
+      final byte[] vBytes = new byte[expectedLength];
+      v.get(vBytes);
+      assertThat(vBytes).isEqualTo("value1**value2".getBytes());
     }
   }
 

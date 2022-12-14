@@ -1371,6 +1371,7 @@ public class Transaction extends RocksObject {
    * @param columnFamilyHandle in which to apply the merge
    * @param key the specified key to be merged.
    * @param value the value associated with the specified key.
+   * @param assumeTracked expects the key be already tracked.
    *
    * @throws RocksDBException when one of the TransactionalDB conditions
    *     described above occurs, or in the case of an unexpected error
@@ -1393,6 +1394,29 @@ public class Transaction extends RocksObject {
     }
   }
 
+  /**
+   * Similar to {@link RocksDB#merge(byte[], byte[])}, but
+   * will also perform conflict checking on the keys be written.
+   *
+   * If this Transaction was created on an {@link OptimisticTransactionDB},
+   * these functions should always succeed.
+   *
+   *  If this Transaction was created on a {@link TransactionDB}, an
+   *  {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   *  when:
+   *    {@link Status.Code#Busy} if there is a write conflict,
+   *    {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *    {@link Status.Code#TryAgain} if the memtable history size is not large
+   *       enough. See
+   *       {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *
+   * @param columnFamilyHandle in which to apply the merge
+   * @param key the specified key to be merged.
+   * @param value the value associated with the specified key.
+   *
+   * @throws RocksDBException when one of the TransactionalDB conditions
+   *     described above occurs, or in the case of an unexpected error
+   */
   public void merge(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
       final ByteBuffer value) throws RocksDBException {
     merge(columnFamilyHandle, key, value, false);
@@ -1821,8 +1845,46 @@ public class Transaction extends RocksObject {
    */
   public void mergeUntracked(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value) throws RocksDBException {
-    mergeUntracked(nativeHandle_, key, key.length, value, value.length,
+    mergeUntracked(nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Similar to {@link RocksDB#merge(ColumnFamilyHandle, byte[], byte[])},
+   * but operates on the transactions write batch. This write will only happen
+   * if this transaction gets committed successfully.
+   *
+   * Unlike {@link #merge(ColumnFamilyHandle, byte[], byte[])} no conflict
+   * checking will be performed for this key.
+   *
+   * If this Transaction was created on a {@link TransactionDB}, this function
+   * will still acquire locks necessary to make sure this write doesn't cause
+   * conflicts in other transactions; This may cause a {@link RocksDBException}
+   * with associated {@link Status.Code#Busy}.
+   *
+   * @param columnFamilyHandle The column family to merge the key/value into
+   * @param key the specified key to be merged.
+   * @param value the value associated with the specified key.
+   *
+   * @throws RocksDBException when one of the TransactionalDB conditions
+   *     described above occurs, or in the case of an unexpected error
+   */
+  public void mergeUntracked(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
+      final ByteBuffer value) throws RocksDBException {
+    assert (isOwningHandle());
+    if (key.isDirect() && value.isDirect()) {
+      mergeUntrackedDirect(nativeHandle_, key, key.position(), key.remaining(), value,
+          value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
+    } else if (!key.isDirect() && !value.isDirect()) {
+      assert key.hasArray();
+      assert value.hasArray();
+      mergeUntracked(nativeHandle_, key.array(), key.arrayOffset() + key.position(),
+          key.remaining(), value.array(), value.arrayOffset() + value.position(), value.remaining(),
+          columnFamilyHandle.nativeHandle_);
+    } else {
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
+    }
   }
 
   /**
@@ -1847,7 +1909,44 @@ public class Transaction extends RocksObject {
   public void mergeUntracked(final byte[] key, final byte[] value)
       throws RocksDBException {
     assert(isOwningHandle());
-    mergeUntracked(nativeHandle_, key, key.length, value, value.length);
+    mergeUntracked(nativeHandle_, key, 0, key.length, value, 0, value.length,
+        defaultColumnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Similar to {@link RocksDB#merge(byte[], byte[])},
+   * but operates on the transactions write batch. This write will only happen
+   * if this transaction gets committed successfully.
+   *
+   * Unlike {@link #merge(byte[], byte[])} no conflict
+   * checking will be performed for this key.
+   *
+   * If this Transaction was created on a {@link TransactionDB}, this function
+   * will still acquire locks necessary to make sure this write doesn't cause
+   * conflicts in other transactions; This may cause a {@link RocksDBException}
+   * with associated {@link Status.Code#Busy}.
+   *
+   * @param key the specified key to be merged.
+   * @param value the value associated with the specified key.
+   *
+   * @throws RocksDBException when one of the TransactionalDB conditions
+   *     described above occurs, or in the case of an unexpected error
+   */
+  public void mergeUntracked(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
+    assert (isOwningHandle());
+    if (key.isDirect() && value.isDirect()) {
+      mergeUntrackedDirect(nativeHandle_, key, key.position(), key.remaining(), value,
+          value.position(), value.remaining(), defaultColumnFamilyHandle.nativeHandle_);
+    } else if (!key.isDirect() && !value.isDirect()) {
+      assert key.hasArray();
+      assert value.hasArray();
+      mergeUntracked(nativeHandle_, key.array(), key.arrayOffset() + key.position(),
+          key.remaining(), value.array(), value.arrayOffset() + value.position(), value.remaining(),
+          defaultColumnFamilyHandle.nativeHandle_);
+    } else {
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
+    }
   }
 
   /**
@@ -2480,15 +2579,14 @@ public class Transaction extends RocksObject {
   private native void putUntracked(final long handle, final byte[][] keys,
       final int keysLength, final byte[][] values, final int valuesLength)
       throws RocksDBException;
-  private native void mergeUntracked(final long handle, final byte[] key,
-      final int keyLength, final byte[] value, final int valueLength,
+  private native void mergeUntracked(final long handle, final byte[] key, final int keyOff,
+      final int keyLength, final byte[] value, final int valueOff, final int valueLength,
       final long columnFamilyHandle) throws RocksDBException;
-  private native void mergeUntracked(final long handle, final byte[] key,
-      final int keyLength, final byte[] value, final int valueLength)
-      throws RocksDBException;
-  private native void deleteUntracked(final long handle, final byte[] key,
-      final int keyLength, final long columnFamilyHandle)
-      throws RocksDBException;
+  private native void mergeUntrackedDirect(final long handle, final ByteBuffer key,
+      final int keyOff, final int keyLength, final ByteBuffer value, final int valueOff,
+      final int valueLength, final long columnFamilyHandle) throws RocksDBException;
+  private native void deleteUntracked(final long handle, final byte[] key, final int keyLength,
+      final long columnFamilyHandle) throws RocksDBException;
   private native void deleteUntracked(final long handle, final byte[] key,
       final int keyLength) throws RocksDBException;
   private native void deleteUntracked(final long handle, final byte[][] keys,

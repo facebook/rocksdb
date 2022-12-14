@@ -1206,19 +1206,19 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3_3BI_3_3BI(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    mergeUntracked
- * Signature: (J[BI[BIJ)V
+ * Signature: (J[BII[BIIJ)V
  */
-void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BIJ(
+void Java_org_rocksdb_Transaction_mergeUntracked(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_part_len, jbyteArray jval, jint jval_len,
-    jlong jcolumn_family_handle) {
+    jint jkey_off, jint jkey_part_len, jbyteArray jval, jint jval_off,
+    jint jval_len, jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
   try {
-    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
-    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
     ROCKSDB_NAMESPACE::KVException::ThrowOnError(
         env,
         txn->MergeUntracked(column_family_handle, key.slice(), value.slice()));
@@ -1229,18 +1229,24 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BIJ(
 
 /*
  * Class:     org_rocksdb_Transaction
- * Method:    mergeUntracked
- * Signature: (J[BI[BI)V
+ * Method:    mergeUntrackedDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)V
  */
-void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BI(
-    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_part_len, jbyteArray jval, jint jval_len) {
+void Java_org_rocksdb_Transaction_mergeUntrackedDirect(
+    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobject jkey, jint jkey_off,
+    jint jkey_part_len, jobject jval, jint jval_off, jint jval_len,
+    jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  auto* column_family_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
+          jcolumn_family_handle);
   try {
-    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_part_len);
-    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, 0, jval_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey, jkey_off,
+                                              jkey_part_len);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jval, jval_off, jval_len);
     ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-        env, txn->MergeUntracked(key.slice(), value.slice()));
+        env,
+        txn->MergeUntracked(column_family_handle, key.slice(), value.slice()));
   } catch (ROCKSDB_NAMESPACE::KVException&) {
     return;
   }
