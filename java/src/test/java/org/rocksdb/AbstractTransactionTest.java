@@ -182,8 +182,10 @@ public abstract class AbstractTransactionTest {
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      assertThat(txn.get(readOptions, testCf, k1)).isNull();
       assertThat(txn.get(testCf, readOptions, k1)).isNull();
       txn.put(testCf, k1, v1);
+      assertThat(txn.get(readOptions, testCf, k1)).isEqualTo(v1);
       assertThat(txn.get(testCf, readOptions, k1)).isEqualTo(v1);
     }
   }
@@ -198,6 +200,45 @@ public abstract class AbstractTransactionTest {
       assertThat(txn.get(readOptions, k1)).isNull();
       txn.put(k1, v1);
       assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
+    }
+  }
+
+  @Test
+  public void getPutTargetBuffer_cf() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final byte[] target = "overwrite1".getBytes(UTF_8);
+      GetStatus status = txn.get(readOptions, testCf, k1, target);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.NotFound);
+      assertThat(status.requiredSize).isEqualTo(0);
+      txn.put(testCf, k1, v1);
+      status = txn.get(readOptions, testCf, k1, target);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(status.requiredSize).isEqualTo(v1.length);
+      assertThat(target).isEqualTo("value1ite1".getBytes());
+    }
+  }
+
+  @Test
+  public void getPutTargetBuffer() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      final byte[] target = "overwrite1".getBytes(UTF_8);
+      GetStatus status = txn.get(readOptions, k1, target);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.NotFound);
+      assertThat(status.requiredSize).isEqualTo(0);
+      txn.put(k1, v1);
+      status = txn.get(readOptions, k1, target);
+      assertThat(status.status.getCode()).isEqualTo(Status.Code.Ok);
+      assertThat(status.requiredSize).isEqualTo(v1.length);
+      assertThat(target).isEqualTo("value1ite1".getBytes());
     }
   }
 
@@ -533,6 +574,7 @@ public abstract class AbstractTransactionTest {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, k1, v1);
       txn.merge(testCf, k1, v2);
+      assertThat(txn.get(new ReadOptions(), testCf, k1)).isEqualTo("value1**value2".getBytes());
       assertThat(txn.get(testCf, new ReadOptions(), k1)).isEqualTo("value1**value2".getBytes());
     }
   }
@@ -600,6 +642,8 @@ public abstract class AbstractTransactionTest {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, k1, v1);
       txn.merge(testCf, k1, v2);
+      assertThat(txn.get(new ReadOptions(), testCf, "key1".getBytes(UTF_8)))
+          .isEqualTo("value1**value2".getBytes());
       assertThat(txn.get(testCf, new ReadOptions(), "key1".getBytes(UTF_8)))
           .isEqualTo("value1**value2".getBytes());
     }
@@ -617,6 +661,8 @@ public abstract class AbstractTransactionTest {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, k1, v1);
       txn.merge(testCf, k1, v2);
+      assertThat(txn.get(new ReadOptions(), testCf, "key1".getBytes(UTF_8)))
+          .isEqualTo("value1**value2".getBytes());
       assertThat(txn.get(testCf, new ReadOptions(), "key1".getBytes(UTF_8)))
           .isEqualTo("value1**value2".getBytes());
     }
@@ -632,9 +678,11 @@ public abstract class AbstractTransactionTest {
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, k1, v1);
+      assertThat(txn.get(readOptions, testCf, k1)).isEqualTo(v1);
       assertThat(txn.get(testCf, readOptions, k1)).isEqualTo(v1);
 
       txn.delete(testCf, k1);
+      assertThat(txn.get(readOptions, testCf, k1)).isNull();
       assertThat(txn.get(testCf, readOptions, k1)).isNull();
     }
   }
@@ -668,11 +716,12 @@ public abstract class AbstractTransactionTest {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, keyParts, valueParts);
       assertThat(txn.get(testCf, readOptions, key)).isEqualTo(value);
+      assertThat(txn.get(readOptions, testCf, key)).isEqualTo(value);
 
       txn.delete(testCf, keyParts);
 
-      assertThat(txn.get(testCf, readOptions, key))
-          .isNull();
+      assertThat(txn.get(readOptions, testCf, key)).isNull();
+      assertThat(txn.get(testCf, readOptions, key)).isNull();
     }
   }
 
@@ -705,8 +754,10 @@ public abstract class AbstractTransactionTest {
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      assertThat(txn.get(readOptions, testCf, k1)).isNull();
       assertThat(txn.get(testCf, readOptions, k1)).isNull();
       txn.putUntracked(testCf, k1, v1);
+      assertThat(txn.get(readOptions, testCf, k1)).isEqualTo(v1);
       assertThat(txn.get(testCf, readOptions, k1)).isEqualTo(v1);
     }
   }
@@ -830,9 +881,11 @@ public abstract class AbstractTransactionTest {
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, k1, v1);
+      assertThat(txn.get(readOptions, testCf, k1)).isEqualTo(v1);
       assertThat(txn.get(testCf, readOptions, k1)).isEqualTo(v1);
 
       txn.deleteUntracked(testCf, k1);
+      assertThat(txn.get(readOptions, testCf, k1)).isNull();
       assertThat(txn.get(testCf, readOptions, k1)).isNull();
     }
   }
@@ -865,9 +918,11 @@ public abstract class AbstractTransactionTest {
         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       txn.put(testCf, keyParts, valueParts);
+      assertThat(txn.get(readOptions, testCf, key)).isEqualTo(value);
       assertThat(txn.get(testCf, readOptions, key)).isEqualTo(value);
 
       txn.deleteUntracked(testCf, keyParts);
+      assertThat(txn.get(readOptions, testCf, key)).isNull();
       assertThat(txn.get(testCf, readOptions, key)).isNull();
     }
   }

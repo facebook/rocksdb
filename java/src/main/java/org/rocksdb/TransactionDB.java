@@ -94,6 +94,7 @@ public class TransactionDB extends RocksDB
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     tdb.storeOptionsInstance(dbOptions);
+    tdb.storeDefaultColumnFamilyHandle(tdb.makeDefaultColumnFamilyHandle());
     tdb.storeTransactionDbOptions(transactionDbOptions);
 
     for (int i = 1; i < handles.length; i++) {

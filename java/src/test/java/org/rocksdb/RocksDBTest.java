@@ -184,10 +184,8 @@ public class RocksDBTest {
          final WriteOptions opt = new WriteOptions(); final ReadOptions optr = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put(opt, "key2".getBytes(), "12345678".getBytes());
-      assertThat(db.get("key1".getBytes())).isEqualTo(
-              "value".getBytes());
-      assertThat(db.get("key2".getBytes())).isEqualTo(
-              "12345678".getBytes());
+      assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("12345678".getBytes());
 
       final ByteBuffer key = ByteBuffer.allocateDirect(12);
       final ByteBuffer value = ByteBuffer.allocateDirect(12);
@@ -251,10 +249,8 @@ public class RocksDBTest {
          final WriteOptions opt = new WriteOptions(); final ReadOptions optr = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put(opt, "key2".getBytes(), "12345678".getBytes());
-      assertThat(db.get("key1".getBytes())).isEqualTo(
-              "value".getBytes());
-      assertThat(db.get("key2".getBytes())).isEqualTo(
-              "12345678".getBytes());
+      assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("12345678".getBytes());
 
       ByteBuffer key = ByteBuffer.allocate(12);
       ByteBuffer value = ByteBuffer.allocate(12);

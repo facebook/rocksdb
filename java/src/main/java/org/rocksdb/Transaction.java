@@ -255,6 +255,9 @@ public class Transaction extends RocksObject {
   }
 
   /**
+   * This function has an inconsistent parameter order compared to other {@code get()}
+   * methods and is deprecated in favour of one with a consistent order.
+   *
    * This function is similar to
    * {@link RocksDB#get(ColumnFamilyHandle, ReadOptions, byte[])} except it will
    * also read pending changes in this transaction.
@@ -280,9 +283,43 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying native
    *     library.
    */
-  public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
-      final ReadOptions readOptions, final byte[] key) throws RocksDBException {
-    assert(isOwningHandle());
+  @Deprecated
+  public byte[] get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions readOptions,
+      final byte[] key) throws RocksDBException {
+    assert (isOwningHandle());
+    return get(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * This function is similar to
+   * {@link RocksDB#get(ColumnFamilyHandle, ReadOptions, byte[])} except it will
+   * also read pending changes in this transaction.
+   * Currently, this function will return Status::MergeInProgress if the most
+   * recent write to the queried key in this batch is a Merge.
+   *
+   * If {@link ReadOptions#snapshot()} is not set, the current version of the
+   * key will be read. Calling {@link #setSnapshot()} does not affect the
+   * version of the data returned.
+   *
+   * Note that setting {@link ReadOptions#setSnapshot(Snapshot)} will affect
+   * what is read from the DB but will NOT change which keys are read from this
+   * transaction (the keys in this transaction do not yet belong to any snapshot
+   * and will be fetched regardless).
+   *
+   * @param readOptions Read options.
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle} instance
+   * @param key the key to retrieve the value for.
+   *
+   * @return a byte array storing the value associated with the input key if
+   *     any. null if it does not find the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying native
+   *     library.
+   */
+  public byte[] get(final ReadOptions readOptions, final ColumnFamilyHandle columnFamilyHandle,
+      final byte[] key) throws RocksDBException {
+    assert (isOwningHandle());
     return get(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_);
   }
@@ -319,7 +356,7 @@ public class Transaction extends RocksObject {
   }
 
   /**
-   * Get the value associated with the specified key.
+   * Get the value associated with the specified key in the default column family
    *
    * @param opt {@link org.rocksdb.ReadOptions} instance.
    * @param key the key to retrieve the value.
@@ -336,8 +373,8 @@ public class Transaction extends RocksObject {
    */
   public GetStatus get(final ReadOptions opt, final byte[] key, final byte[] value)
       throws RocksDBException {
-    final int result =
-        get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value, 0, value.length, 0);
+    final int result = get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value, 0,
+        value.length, defaultColumnFamilyHandle.nativeHandle_);
     if (result < 0) {
       return GetStatus.fromStatusCode(Status.Code.NotFound, 0);
     } else {
@@ -346,9 +383,39 @@ public class Transaction extends RocksObject {
   }
 
   /**
-   * Get the value associated with the specified key within column family.
+   * Get the value associated with the specified key in a specified column family
    *
    * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param columnFamilyHandle the column family to find the key in
+   * @param key the key to retrieve the value.
+   * @param value the out-value to receive the retrieved value.
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+
+  public GetStatus get(final ReadOptions opt, final ColumnFamilyHandle columnFamilyHandle,
+      final byte[] key, final byte[] value) throws RocksDBException {
+    final int result = get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value, 0,
+        value.length, columnFamilyHandle.nativeHandle_);
+    if (result < 0) {
+      return GetStatus.fromStatusCode(Status.Code.NotFound, 0);
+    } else {
+      return GetStatus.fromStatusCode(Status.Code.Ok, result);
+    }
+  }
+
+  /**
+   * Get the value associated with the specified key within the specified column family.
+   *
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param columnFamilyHandle the column family in which to find the key.
    * @param key the key to retrieve the value. It is using position and limit.
    *     Supports direct buffer only.
    * @param value the out-value to receive the retrieved value.
@@ -372,6 +439,25 @@ public class Transaction extends RocksObject {
     return get(opt, columnFamilyHandle.nativeHandle_, key, value);
   }
 
+  /**
+   * Get the value associated with the specified key within the default column family.
+   *
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param key the key to retrieve the value. It is using position and limit.
+   *     Supports direct buffer only.
+   * @param value the out-value to receive the retrieved value.
+   *     It is using position and limit. Limit is set according to value size.
+   *     Supports direct buffer only.
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
   public GetStatus get(final ReadOptions opt, final ByteBuffer key, final ByteBuffer value)
       throws RocksDBException {
     return get(opt, this.defaultColumnFamilyHandle, key, value);
