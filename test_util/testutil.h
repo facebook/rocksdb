@@ -364,8 +364,13 @@ class SleepingBackgroundTask {
         sleeping_(false) {}
 
   ~SleepingBackgroundTask() {
-    WakeUp();
-    WaitUntilDone();
+    MutexLock l(&mutex_);
+    should_sleep_ = false;
+    while (sleeping_) {
+      assert(!should_sleep_);
+      bg_cv_.SignalAll();
+      bg_cv_.Wait();
+    }
   }
 
   bool IsSleeping() {
