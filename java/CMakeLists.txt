@@ -286,6 +286,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WriteBufferManager.java
   src/main/java/org/rocksdb/WriteStallCondition.java
   src/main/java/org/rocksdb/WriteStallInfo.java
+  src/main/java/org/rocksdb/util/BufferUtil.java
   src/main/java/org/rocksdb/util/ByteUtil.java
   src/main/java/org/rocksdb/util/BytewiseComparator.java
   src/main/java/org/rocksdb/util/Environment.java

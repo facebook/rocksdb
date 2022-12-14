@@ -6,6 +6,7 @@
 package org.rocksdb;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.rocksdb.util.BufferUtil.CheckBounds;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -894,8 +895,8 @@ public class RocksDB extends RocksObject {
   public void put(final byte[] key, final int offset, final int len,
       final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     put(nativeHandle_, key, offset, len, value, vOffset, vLen);
   }
 
@@ -944,8 +945,8 @@ public class RocksDB extends RocksObject {
       final byte[] key, final int offset, final int len,
       final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     put(nativeHandle_, key, offset, len, value, vOffset, vLen,
         columnFamilyHandle.nativeHandle_);
   }
@@ -989,8 +990,8 @@ public class RocksDB extends RocksObject {
       final byte[] key, final int offset, final int len,
       final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     put(nativeHandle_, writeOpts.nativeHandle_,
         key, offset, len, value, vOffset, vLen);
   }
@@ -1116,8 +1117,8 @@ public class RocksDB extends RocksObject {
       final byte[] key, final int offset, final int len,
       final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     put(nativeHandle_, writeOpts.nativeHandle_, key, offset, len, value,
         vOffset, vLen, columnFamilyHandle.nativeHandle_);
   }
@@ -1593,8 +1594,8 @@ public class RocksDB extends RocksObject {
    */
   public void merge(final byte[] key, final int offset, final int len, final byte[] value,
       final int vOffset, final int vLen) throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     merge(nativeHandle_, key, offset, len, value, vOffset, vLen);
   }
 
@@ -1638,8 +1639,8 @@ public class RocksDB extends RocksObject {
   public void merge(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final int offset, final int len, final byte[] value,
       final int vOffset, final int vLen) throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     merge(nativeHandle_, key, offset, len, value, vOffset, vLen,
         columnFamilyHandle.nativeHandle_);
   }
@@ -1685,8 +1686,8 @@ public class RocksDB extends RocksObject {
       final byte[] key,  final int offset, final int len,
       final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     merge(nativeHandle_, writeOpts.nativeHandle_,
         key, offset, len, value, vOffset, vLen);
   }
@@ -1815,8 +1816,8 @@ public class RocksDB extends RocksObject {
       final byte[] key, final int offset, final int len,
       final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     merge(nativeHandle_, writeOpts.nativeHandle_,
         key, offset, len, value, vOffset, vLen,
         columnFamilyHandle.nativeHandle_);
@@ -1900,8 +1901,8 @@ public class RocksDB extends RocksObject {
   public int get(final byte[] key, final int offset, final int len,
       final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     return get(nativeHandle_, key, offset, len, value, vOffset, vLen);
   }
 
@@ -1957,8 +1958,8 @@ public class RocksDB extends RocksObject {
   public int get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final int offset, final int len, final byte[] value, final int vOffset,
       final int vLen) throws RocksDBException, IllegalArgumentException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     return get(nativeHandle_, key, offset, len, value, vOffset, vLen,
         columnFamilyHandle.nativeHandle_);
   }
@@ -2012,8 +2013,8 @@ public class RocksDB extends RocksObject {
   public int get(final ReadOptions opt, final byte[] key, final int offset,
       final int len, final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     return get(nativeHandle_, opt.nativeHandle_,
         key, offset, len, value, vOffset, vLen);
   }
@@ -2073,8 +2074,8 @@ public class RocksDB extends RocksObject {
       final ReadOptions opt, final byte[] key, final int offset, final int len,
       final byte[] value, final int vOffset, final int vLen)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
-    checkBounds(vOffset, vLen, value.length);
+    CheckBounds(offset, len, key.length);
+    CheckBounds(vOffset, vLen, value.length);
     return get(nativeHandle_, opt.nativeHandle_, key, offset, len, value,
         vOffset, vLen, columnFamilyHandle.nativeHandle_);
   }
@@ -2113,7 +2114,7 @@ public class RocksDB extends RocksObject {
    */
   public byte[] get(final byte[] key, final int offset,
       final int len) throws RocksDBException {
-    checkBounds(offset, len, key.length);
+    CheckBounds(offset, len, key.length);
     return get(nativeHandle_, key, offset, len);
   }
 
@@ -2158,7 +2159,7 @@ public class RocksDB extends RocksObject {
   public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final int offset, final int len)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
+    CheckBounds(offset, len, key.length);
     return get(nativeHandle_, key, offset, len,
         columnFamilyHandle.nativeHandle_);
   }
@@ -2200,7 +2201,7 @@ public class RocksDB extends RocksObject {
    */
   public byte[] get(final ReadOptions opt, final byte[] key, final int offset,
       final int len) throws RocksDBException {
-    checkBounds(offset, len, key.length);
+    CheckBounds(offset, len, key.length);
     return get(nativeHandle_, opt.nativeHandle_, key, offset, len);
   }
 
@@ -2247,7 +2248,7 @@ public class RocksDB extends RocksObject {
   public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions opt, final byte[] key, final int offset, final int len)
       throws RocksDBException {
-    checkBounds(offset, len, key.length);
+    CheckBounds(offset, len, key.length);
     return get(nativeHandle_, opt.nativeHandle_, key, offset, len,
         columnFamilyHandle.nativeHandle_);
   }
@@ -3048,7 +3049,7 @@ public class RocksDB extends RocksObject {
       final ReadOptions readOptions,
       final byte[] key, final int offset, final int len,
       /* @Nullable */ final Holder<byte[]> valueHolder) {
-    checkBounds(offset, len, key.length);
+    CheckBounds(offset, len, key.length);
     if (valueHolder == null) {
       return keyMayExist(nativeHandle_,
           columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
@@ -4780,6 +4781,12 @@ public class RocksDB extends RocksObject {
     if ((offset | len | (offset + len) | (size - (offset + len))) < 0) {
       throw new IndexOutOfBoundsException(String.format("offset(%d), len(%d), size(%d)", offset, len, size));
     }
+  }
+
+  private static int computeCapacityHint(final int estimatedNumberOfItems) {
+    // Default load factor for HashMap is 0.75, so N * 1.5 will be at the load
+    // limit. We add +1 for a buffer.
+    return (int)Math.ceil(estimatedNumberOfItems * 1.5 + 1.0);
   }
 
   // native methods
