@@ -6567,13 +6567,14 @@ TEST_P(TransactionTest, LockWal) {
     ASSERT_OK(txn2->Commit());
   });
   ASSERT_OK(db->LockWAL());
-  TEST_SYNC_POINT("TransactionTest::LockWal:AfterLockWal");
   // txn0 cannot prepare
   Status s = txn0->Prepare();
   ASSERT_TRUE(s.IsIncomplete());
   // txn1 cannot commit
   s = txn1->Commit();
   ASSERT_TRUE(s.IsIncomplete());
+
+  TEST_SYNC_POINT("TransactionTest::LockWal:AfterLockWal");
 
   ASSERT_OK(db->UnlockWAL());
   txn0.reset();
