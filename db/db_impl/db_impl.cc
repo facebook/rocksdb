@@ -1570,21 +1570,31 @@ Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
 }
 
 Status DBImpl::LockWAL() {
-  log_write_mutex_.Lock();
-  auto cur_log_writer = logs_.back().writer;
-  IOStatus status = cur_log_writer->WriteBuffer();
-  if (!status.ok()) {
-    ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
-                    status.ToString().c_str());
-    // In case there is a fs error we should set it globally to prevent the
-    // future writes
-    WriteStatusCheck(status);
+  {
+    InstrumentedMutexLock lock(&mutex_);
+    WriteThread::Writer w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
+    WriteThread::Writer nonmem_w;
+    if (two_write_queues_) {
+      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    }
+
+    lock_wal_write_token_ = write_controller_.GetStopToken();
+
+    if (two_write_queues_) {
+      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+    }
+    write_thread_.ExitUnbatched(&w);
   }
-  return static_cast<Status>(status);
+  return FlushWAL(/*sync=*/false);
 }
 
 Status DBImpl::UnlockWAL() {
-  log_write_mutex_.Unlock();
+  {
+    InstrumentedMutexLock lock(&mutex_);
+    lock_wal_write_token_.reset();
+  }
+  bg_cv_.SignalAll();
   return Status::OK();
 }
 
