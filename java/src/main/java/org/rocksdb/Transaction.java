@@ -929,14 +929,41 @@ public class Transaction extends RocksObject {
    * The returned iterator is only valid until {@link #commit()},
    * {@link #rollback()}, or {@link #rollbackToSavePoint()} is called.
    *
+   * @return instance of iterator object.
+   */
+  public RocksIterator getIterator() {
+    assert (isOwningHandle());
+    try (final ReadOptions readOptions = new ReadOptions()) {
+      return new RocksIterator(parent,
+          getIterator(
+              nativeHandle_, readOptions.nativeHandle_, defaultColumnFamilyHandle.nativeHandle_));
+    }
+  }
+
+  /**
+   * Returns an iterator that will iterate on all keys in the default
+   * column family including both keys in the DB and uncommitted keys in this
+   * transaction.
+   *
+   * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is read
+   * from the DB but will NOT change which keys are read from this transaction
+   * (the keys in this transaction do not yet belong to any snapshot and will be
+   * fetched regardless).
+   * <p>
+   * Caller is responsible for deleting the returned Iterator.
+   * <p>
+   * The returned iterator is only valid until {@link #commit()},
+   * {@link #rollback()}, or {@link #rollbackToSavePoint()} is called.
+   *
    * @param readOptions Read options.
    *
    * @return instance of iterator object.
    */
   public RocksIterator getIterator(final ReadOptions readOptions) {
     assert(isOwningHandle());
-    return new RocksIterator(parent, getIterator(nativeHandle_,
-        readOptions.nativeHandle_));
+    return new RocksIterator(parent,
+        getIterator(
+            nativeHandle_, readOptions.nativeHandle_, defaultColumnFamilyHandle.nativeHandle_));
   }
 
   /**
@@ -966,6 +993,35 @@ public class Transaction extends RocksObject {
     assert(isOwningHandle());
     return new RocksIterator(parent, getIterator(nativeHandle_,
         readOptions.nativeHandle_, columnFamilyHandle.nativeHandle_));
+  }
+
+  /**
+   * Returns an iterator that will iterate on all keys in the column family
+   * specified by {@code columnFamilyHandle} including both keys in the DB
+   * and uncommitted keys in this transaction.
+   * <p>
+   * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is read
+   * from the DB but will NOT change which keys are read from this transaction
+   * (the keys in this transaction do not yet belong to any snapshot and will be
+   * fetched regardless).
+   * <p>
+   * Caller is responsible for calling {@link RocksIterator#close()} on
+   * the returned Iterator.
+   * <p>
+   * The returned iterator is only valid until {@link #commit()},
+   * {@link #rollback()}, or {@link #rollbackToSavePoint()} is called.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   *
+   * @return instance of iterator object.
+   */
+  public RocksIterator getIterator(final ColumnFamilyHandle columnFamilyHandle) {
+    assert (isOwningHandle());
+    try (final ReadOptions readOptions = new ReadOptions()) {
+      return new RocksIterator(parent,
+          getIterator(nativeHandle_, readOptions.nativeHandle_, columnFamilyHandle.nativeHandle_));
+    }
   }
 
   /**
@@ -2514,11 +2570,8 @@ public class Transaction extends RocksObject {
   private native byte[][] multiGetForUpdate(final long handle,
       final long readOptionsHandle, final byte[][] keys,
       final long[] columnFamilyHandles) throws RocksDBException;
-  private native byte[][] multiGetForUpdate(final long handle,
-      final long readOptionsHandle, final byte[][] keys)
-      throws RocksDBException;
-  private native long getIterator(final long handle,
-      final long readOptionsHandle);
+  private native byte[][] multiGetForUpdate(
+      final long handle, final long readOptionsHandle, final byte[][] keys) throws RocksDBException;
   private native long getIterator(final long handle,
       final long readOptionsHandle, final long columnFamilyHandle);
   private native void put(final long handle, final byte[] key, final int keyOffset,

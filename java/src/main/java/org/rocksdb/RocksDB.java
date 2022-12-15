@@ -40,6 +40,7 @@ public class RocksDB extends RocksObject {
   static final String PERFORMANCE_OPTIMIZATION_FOR_A_VERY_SPECIFIC_WORKLOAD =
       "Performance optimization for a very specific workload";
   private ColumnFamilyHandle defaultColumnFamilyHandle_;
+  private final ReadOptions defaultReadOptions_ = new ReadOptions();
 
   private final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
 
@@ -3240,7 +3241,9 @@ public class RocksDB extends RocksObject {
    * @return instance of iterator object.
    */
   public RocksIterator newIterator() {
-    return new RocksIterator(this, iterator(nativeHandle_));
+    return new RocksIterator(this,
+        iterator(nativeHandle_, defaultColumnFamilyHandle_.nativeHandle_,
+            defaultReadOptions_.nativeHandle_));
   }
 
   /**
@@ -3257,8 +3260,9 @@ public class RocksDB extends RocksObject {
    * @return instance of iterator object.
    */
   public RocksIterator newIterator(final ReadOptions readOptions) {
-    return new RocksIterator(this, iterator(nativeHandle_,
-        readOptions.nativeHandle_));
+    return new RocksIterator(this,
+        iterator(
+            nativeHandle_, defaultColumnFamilyHandle_.nativeHandle_, readOptions.nativeHandle_));
   }
 
   /**
@@ -3277,8 +3281,9 @@ public class RocksDB extends RocksObject {
    */
   public RocksIterator newIterator(
       final ColumnFamilyHandle columnFamilyHandle) {
-    return new RocksIterator(this, iteratorCF(nativeHandle_,
-        columnFamilyHandle.nativeHandle_));
+    return new RocksIterator(this,
+        iterator(
+            nativeHandle_, columnFamilyHandle.nativeHandle_, defaultReadOptions_.nativeHandle_));
   }
 
   /**
@@ -3298,8 +3303,8 @@ public class RocksDB extends RocksObject {
    */
   public RocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions) {
-    return new RocksIterator(this, iteratorCF(nativeHandle_,
-        columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
+    return new RocksIterator(
+        this, iterator(nativeHandle_, columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
   }
 
   /**
@@ -4993,11 +4998,7 @@ public class RocksDB extends RocksObject {
   private native void putDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
       int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
-  private native long iterator(final long handle);
-  private native long iterator(final long handle, final long readOptHandle);
-  private native long iteratorCF(final long handle, final long cfHandle);
-  private native long iteratorCF(final long handle, final long cfHandle,
-      final long readOptHandle);
+  private native long iterator(final long handle, final long cfHandle, final long readOptHandle);
   private native long[] iterators(final long handle,
       final long[] columnFamilyHandles, final long readOptHandle)
       throws RocksDBException;

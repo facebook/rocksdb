@@ -539,6 +539,13 @@ public abstract class AbstractTransactionTest {
         assertThat(iterator.key()).isEqualTo(k1);
         assertThat(iterator.value()).isEqualTo(v1);
       }
+
+      try (final RocksIterator iterator = txn.getIterator()) {
+        iterator.seek(k1);
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo(k1);
+        assertThat(iterator.value()).isEqualTo(v1);
+      }
     }
   }
 
@@ -555,6 +562,13 @@ public abstract class AbstractTransactionTest {
       txn.put(testCf, k1, v1);
 
       try(final RocksIterator iterator = txn.getIterator(readOptions, testCf)) {
+        iterator.seek(k1);
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo(k1);
+        assertThat(iterator.value()).isEqualTo(v1);
+      }
+
+      try (final RocksIterator iterator = txn.getIterator(testCf)) {
         iterator.seek(k1);
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.key()).isEqualTo(k1);

@@ -1383,7 +1383,8 @@ void Java_org_rocksdb_RocksDB_merge__JJ_3BII_3BIIJ(
       ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_len);
       ROCKSDB_NAMESPACE::JByteArraySlice value(env, jval, jval_off, jval_len);
       ROCKSDB_NAMESPACE::KVException::ThrowOnError(
-          env, db->Merge(*write_options, key.slice(), value.slice()));
+          env,
+          db->Merge(*write_options, cf_handle, key.slice(), value.slice()));
     } catch (ROCKSDB_NAMESPACE::KVException&) {
       return;
     }
@@ -1425,18 +1426,6 @@ void Java_org_rocksdb_RocksDB_mergeDirect(
   };
   ROCKSDB_NAMESPACE::JniUtil::kv_op_direct(merge, env, jkey, jkey_off, jkey_len,
                                            jval, jval_off, jval_len);
-}
-
-jlong rocksdb_iterator_helper(
-    ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ReadOptions read_options,
-    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle) {
-  ROCKSDB_NAMESPACE::Iterator* iterator = nullptr;
-  if (cf_handle != nullptr) {
-    iterator = db->NewIterator(read_options, cf_handle);
-  } else {
-    iterator = db->NewIterator(read_options);
-  }
-  return GET_CPLUSPLUS_POINTER(iterator);
 }
 
 /*
@@ -2634,55 +2623,17 @@ jobjectArray Java_org_rocksdb_RocksDB_keyMayExistFoundValue(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    iterator
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_RocksDB_iterator__J(JNIEnv*, jobject, jlong db_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
-  return rocksdb_iterator_helper(db, ROCKSDB_NAMESPACE::ReadOptions(), nullptr);
-}
-
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    iterator
- * Signature: (JJ)J
- */
-jlong Java_org_rocksdb_RocksDB_iterator__JJ(JNIEnv*, jobject, jlong db_handle,
-                                            jlong jread_options_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
-  auto& read_options =
-      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  return rocksdb_iterator_helper(db, read_options, nullptr);
-}
-
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    iteratorCF
- * Signature: (JJ)J
- */
-jlong Java_org_rocksdb_RocksDB_iteratorCF__JJ(JNIEnv*, jobject, jlong db_handle,
-                                              jlong jcf_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  return rocksdb_iterator_helper(db, ROCKSDB_NAMESPACE::ReadOptions(),
-                                 cf_handle);
-}
-
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    iteratorCF
  * Signature: (JJJ)J
  */
-jlong Java_org_rocksdb_RocksDB_iteratorCF__JJJ(JNIEnv*, jobject,
-                                               jlong db_handle,
-                                               jlong jcf_handle,
-                                               jlong jread_options_handle) {
+jlong Java_org_rocksdb_RocksDB_iterator(JNIEnv*, jobject, jlong db_handle,
+                                        jlong jcf_handle,
+                                        jlong jread_options_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   auto& read_options =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  return rocksdb_iterator_helper(db, read_options, cf_handle);
+  return GET_CPLUSPLUS_POINTER(db->NewIterator(read_options, cf_handle));
 }
 
 /*

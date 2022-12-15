@@ -529,26 +529,12 @@ jobjectArray Java_org_rocksdb_Transaction_multiGetForUpdate__JJ_3_3B(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    getIterator
- * Signature: (JJ)J
- */
-jlong Java_org_rocksdb_Transaction_getIterator__JJ(JNIEnv* /*env*/,
-                                                   jobject /*jobj*/,
-                                                   jlong jhandle,
-                                                   jlong jread_options_handle) {
-  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* read_options =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  return GET_CPLUSPLUS_POINTER(txn->GetIterator(*read_options));
-}
-
-/*
- * Class:     org_rocksdb_Transaction
- * Method:    getIterator
  * Signature: (JJJ)J
  */
-jlong Java_org_rocksdb_Transaction_getIterator__JJJ(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong jread_options_handle, jlong jcolumn_family_handle) {
+jlong Java_org_rocksdb_Transaction_getIterator(JNIEnv* /*env*/,
+                                               jobject /*jobj*/, jlong jhandle,
+                                               jlong jread_options_handle,
+                                               jlong jcolumn_family_handle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
