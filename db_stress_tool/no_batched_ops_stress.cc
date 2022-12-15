@@ -700,6 +700,11 @@ class NonBatchedOpsStressTest : public StressTest {
     uint64_t count = 0;
     Status s;
 
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableErrorInjection();
+      SharedState::ignore_read_error = false;
+    }
+
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
@@ -733,13 +738,20 @@ class NonBatchedOpsStressTest : public StressTest {
       s = iter->status();
     }
 
-    if (!s.ok()) {
+    uint64_t error_count = 0;
+    if (fault_fs_guard) {
+      error_count = fault_fs_guard->GetAndResetErrorCount();
+    }
+    if (!s.ok() && (!fault_fs_guard || (fault_fs_guard && !error_count))) {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
 
       return s;
     }
 
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
+    }
     thread->stats.AddPrefixes(1, count);
 
     return Status::OK();
