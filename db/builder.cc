@@ -250,12 +250,12 @@ Status BuildTable(
         InternalKey tombstone_end = tombstone.SerializeEndKey();
         meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,
                                        tboptions.internal_comparator);
-        if (version && !db_options.skip_stats_update_on_db_open) {
+        if (version) {
           SizeApproximationOptions approx_opts;
           approx_opts.files_size_error_margin = 0.1;
           meta->compensated_range_deletion_size += versions->ApproximateSize(
               approx_opts, version, kv.first.Encode(), tombstone_end.Encode(),
-              1 /* start_level */, -1 /* end_level */,
+              0 /* start_level */, -1 /* end_level */,
               TableReaderCaller::kFlush);
         }
       }

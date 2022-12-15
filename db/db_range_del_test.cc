@@ -464,9 +464,6 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
   options.num_levels = kNumLevels;
   options.target_file_size_base = kNumPerFile << 10;
   options.target_file_size_multiplier = 1;
-  // Compensated range deletions size will trigger major compaction with default
-  // 200 space amp percent.
-  options.compaction_options_universal.max_size_amplification_percent = 300;
   Reopen(options);
 
   Random rnd(301);
@@ -482,7 +479,10 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       std::vector<std::string> values;
       // Write 100KB (100 values, each 1K)
       for (int k = 0; k < kNumPerFile; k++) {
-        values.push_back(rnd.RandomString(990));
+        // For the highest level, use smaller value size such that it does not
+        // prematurely cause auto compaction due to range tombstone adding
+        // additional compensated file size
+        values.push_back(rnd.RandomString((i == kNumLevels - 2) ? 600 : 990));
         ASSERT_OK(Put(Key(j * kNumPerFile + k), values[k]));
       }
       // put extra key to trigger flush
@@ -495,7 +495,13 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
     }
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 0);
-    ASSERT_GT(NumTableFilesAtLevel(kNumLevels - 1 - i), kFilesPerLevel - 1);
+    if (i == kNumLevels - 2) {
+      // For the highest level, value size is smaller (see Put() above),
+      // so output file number is smaller.
+      ASSERT_GT(NumTableFilesAtLevel(kNumLevels - 1 - i), kFilesPerLevel - 2);
+    } else {
+      ASSERT_GT(NumTableFilesAtLevel(kNumLevels - 1 - i), kFilesPerLevel - 1);
+    }
   }
   // Now L1-L3 are full, when we compact L1->L2 we should see (1) subcompactions
   // happen since input level > 0; (2) range deletions are not dropped since
@@ -3062,59 +3068,6 @@ TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesize) {
   ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, l2_size);
   ASSERT_EQ(level_to_files[2].size(), 1);
   ASSERT_EQ(level_to_files[2][0].compensated_range_deletion_size, 0);
-}
-
-TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesizeSkippedDuringOpen) {
-  Options opts = CurrentOptions();
-  opts.disable_auto_compactions = true;
-  DestroyAndReopen(opts);
-
-  std::vector<std::string> values;
-  Random rnd(301);
-  values.push_back(rnd.RandomString(1 << 10));
-  ASSERT_OK(Put("a", values.back()));
-  values.push_back(rnd.RandomString(1 << 10));
-  ASSERT_OK(Put("b", values.back()));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(1);
-  uint64_t l1_size = 0;
-  ASSERT_OK(Size("a", "c", 0, &l1_size));
-  ASSERT_GT(l1_size, 0);
-
-  ASSERT_OK(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "c"));
-  opts.skip_stats_update_on_db_open = false;
-  Reopen(opts);
-
-  std::vector<std::vector<FileMetaData>> level_to_files;
-  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
-                                  &level_to_files);
-  ASSERT_EQ(level_to_files[0].size(), 1);
-  ASSERT_EQ(level_to_files[0][0].compensated_range_deletion_size, l1_size);
-  ASSERT_EQ(level_to_files[1].size(), 1);
-  ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, 0);
-
-  DestroyAndReopen(opts);
-  values.push_back(rnd.RandomString(1 << 10));
-  ASSERT_OK(Put("a", values.back()));
-  values.push_back(rnd.RandomString(1 << 10));
-  ASSERT_OK(Put("b", values.back()));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(1);
-  ASSERT_OK(Size("a", "c", 0, &l1_size));
-  ASSERT_GT(l1_size, 0);
-
-  ASSERT_OK(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "c"));
-  opts.skip_stats_update_on_db_open = true;
-  Reopen(opts);
-
-  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
-                                  &level_to_files);
-  ASSERT_EQ(level_to_files[0].size(), 1);
-  ASSERT_EQ(level_to_files[0][0].compensated_range_deletion_size, 0);
-  ASSERT_EQ(level_to_files[1].size(), 1);
-  ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, 0);
 }
 
 TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesizePersistDuringReopen) {
