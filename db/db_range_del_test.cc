@@ -1661,6 +1661,213 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   ASSERT_EQ(1, num_range_deletions);
 }
 
+// Test SST partitioner cut after every single key
+class SingleKeySstPartitioner : public SstPartitioner {
+ public:
+  const char* Name() const override { return "SingleKeySstPartitioner"; }
+
+  PartitionerResult ShouldPartition(
+      const PartitionerRequest& /*request*/) override {
+    return kRequired;
+  }
+
+  bool CanDoTrivialMove(const Slice& /*smallest_user_key*/,
+                        const Slice& /*largest_user_key*/) override {
+    return false;
+  }
+};
+
+class SingleKeySstPartitionerFactory : public SstPartitionerFactory {
+ public:
+  static const char* kClassName() { return "SingleKeySstPartitionerFactory"; }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<SstPartitioner> CreatePartitioner(
+      const SstPartitioner::Context& /* context */) const override {
+    return std::unique_ptr<SstPartitioner>(new SingleKeySstPartitioner());
+  }
+};
+
+TEST_F(DBRangeDelTest, LevelCompactOutputCutAtRangeTombstoneForTtlFiles) {
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.compaction_pri = kMinOverlappingRatio;
+  options.disable_auto_compactions = true;
+  options.ttl = 24 * 60 * 60;  // 24 hours
+  options.target_file_size_base = 8 << 10;
+  env_->SetMockSleep();
+  options.env = env_;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  // Fill some data so that future compactions are not bottommost level
+  // compaction, and hence they would try cut around files for ttl
+  for (int i = 5; i < 10; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_EQ("0,0,0,1", FilesPerLevel());
+
+  for (int i = 5; i < 10; ++i) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1 << 10)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_EQ("0,1,0,1", FilesPerLevel());
+
+  env_->MockSleepForSeconds(20 * 60 * 60);
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(11), Key(12)));
+  ASSERT_OK(Put(Key(0), rnd.RandomString(1 << 10)));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("1,1,0,1", FilesPerLevel());
+  // L0 file is new, L1 and L3 file are old and qualified for TTL
+  env_->MockSleepForSeconds(10 * 60 * 60);
+  MoveFilesToLevel(1);
+  // L1 output should be cut into 3 files:
+  // File 0: Key(0)
+  // File 1: (qualified for TTL): Key(5) - Key(10)
+  // File 1: DeleteRange [11, 12)
+  ASSERT_EQ("0,3,0,1", FilesPerLevel());
+}
+
+TEST_F(DBRangeDelTest, CompactionEmitRangeTombstoneToSSTPartitioner) {
+  Options options = CurrentOptions();
+  auto factory = std::make_shared<SingleKeySstPartitionerFactory>();
+  options.sst_partitioner_factory = factory;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  // range deletion keys are not processed when compacting to bottommost level,
+  // so creating a file at older level to make the next compaction not
+  // bottommost level
+  ASSERT_OK(db_->Put(WriteOptions(), Key(4), rnd.RandomString(10)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), rnd.RandomString(10)));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(2),
+                             Key(5)));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(1);
+  // SSTPartitioner decides to cut when range tombstone start key is passed to
+  // it Note that the range tombstone [2, 5) itself span multiple keys but we
+  // are not able to partition in between yet.
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+}
+
+TEST_F(DBRangeDelTest, OversizeCompactionGapBetweenPointKeyAndTombstone) {
+  // L2 has two files
+  // L2_0: 0, 1, 2, 3, 4. L2_1: 5, 6, 7
+  // L0 has 0, [5, 6), 8
+  // max_compaction_bytes is less than the size of L2_0 and L2_1.
+  // When compacting L0 into L1, it should split into 3 files.
+  const int kNumPerFile = 4, kNumFiles = 2;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.target_file_size_base = 9 * 1024;
+  options.max_compaction_bytes = 9 * 1024;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    std::vector<std::string> values;
+    for (int j = 0; j < kNumPerFile; j++) {
+      values.push_back(rnd.RandomString(3 << 10));
+      ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
+    }
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+  ASSERT_OK(Put(Key(0), rnd.RandomString(1 << 10)));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(5),
+                             Key(6)));
+  ASSERT_OK(Put(Key(8), rnd.RandomString(1 << 10)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                                        true /* disallow_trivial_move */));
+  ASSERT_EQ(3, NumTableFilesAtLevel(1));
+}
+
+TEST_F(DBRangeDelTest, OversizeCompactionGapBetweenTombstone) {
+  // L2 has two files
+  // L2_0: 0, 1, 2, 3, 4. L2_1: 5, 6, 7
+  // L0 has two range tombstones [0, 1), [7, 8).
+  // max_compaction_bytes is less than the size of L2_0.
+  // When compacting L0 into L1, the two range tombstones should be
+  // split into two files.
+  const int kNumPerFile = 4, kNumFiles = 2;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.target_file_size_base = 9 * 1024;
+  options.max_compaction_bytes = 9 * 1024;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    std::vector<std::string> values;
+    // Write 12K (4 values, each 3K)
+    for (int j = 0; j < kNumPerFile; j++) {
+      values.push_back(rnd.RandomString(3 << 10));
+      ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
+    }
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(1)));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(7),
+                             Key(8)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                                        true /* disallow_trivial_move */));
+  // This is L0 -> L1 compaction
+  // The two range tombstones are broken up into two output files
+  // to limit compaction size.
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+}
+
+TEST_F(DBRangeDelTest, OversizeCompactionPointKeyWithinRangetombstone) {
+  // L2 has two files
+  // L2_0: 0, 1, 2, 3, 4. L2_1: 6, 7, 8
+  // L0 has [0, 9) and point key 5
+  // max_compaction_bytes is less than the size of L2_0.
+  // When compacting L0 into L1, the compaction should cut at point key 5.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.target_file_size_base = 9 * 1024;
+  options.max_compaction_bytes = 9 * 1024;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int i = 0; i < 9; ++i) {
+    if (i == 5) {
+      ++i;
+    }
+    ASSERT_OK(Put(Key(i), rnd.RandomString(3 << 10)));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(9)));
+  ASSERT_OK(Put(Key(5), rnd.RandomString(1 << 10)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                                        true /* disallow_trivial_move */));
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+}
+
 TEST_F(DBRangeDelTest, OverlappedTombstones) {
   const int kNumPerFile = 4, kNumFiles = 2;
   Options options = CurrentOptions();
@@ -2093,6 +2300,7 @@ TEST_F(DBRangeDelTest, NonOverlappingTombstonAtBoundary) {
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
   options.target_file_size_base = 2 * 1024;
+  options.level_compaction_dynamic_file_size = false;
   DestroyAndReopen(options);
 
   Random rnd(301);
@@ -2508,7 +2716,7 @@ TEST_F(DBRangeDelTest, LeftSentinelKeyTest) {
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
   options.target_file_size_base = 3 * 1024;
-  options.max_compaction_bytes = 1024;
+  options.max_compaction_bytes = 2048;
 
   DestroyAndReopen(options);
   // L2
@@ -2554,7 +2762,7 @@ TEST_F(DBRangeDelTest, LeftSentinelKeyTestWithNewerKey) {
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
   options.target_file_size_base = 3 * 1024;
-  options.max_compaction_bytes = 1024;
+  options.max_compaction_bytes = 3 * 1024;
 
   DestroyAndReopen(options);
   // L2

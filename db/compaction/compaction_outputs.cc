@@ -333,8 +333,14 @@ Status CompactionOutputs::AddToOutput(
     const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func) {
   Status s;
+  bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
+  if (is_range_del && compaction_->bottommost_level()) {
+    // We don't consider range tombstone for bottommost level since:
+    // 1. there is no grandparent and hence no overlap to consider
+    // 2. range tombstone may be dropped at bottommost level.
+    return s;
+  }
   const Slice& key = c_iter.key();
-
   if (ShouldStopBefore(c_iter) && HasBuilder()) {
     s = close_file_func(*this, c_iter.InputStatus(), key);
     if (!s.ok()) {
@@ -344,6 +350,13 @@ Status CompactionOutputs::AddToOutput(
     grandparent_boundary_switched_num_ = 0;
     grandparent_overlapped_bytes_ =
         GetCurrentKeyGrandparentOverlappedBytes(key);
+    if (UNLIKELY(is_range_del)) {
+      // lower bound for this new output file, this is needed as the lower bound
+      // does not come from the smallest point key in this case.
+      range_tombstone_lower_bound_.DecodeFrom(key);
+    } else {
+      range_tombstone_lower_bound_.Clear();
+    }
   }
 
   // Open output file if necessary
@@ -352,6 +365,17 @@ Status CompactionOutputs::AddToOutput(
     if (!s.ok()) {
       return s;
     }
+  }
+
+  // c_iter may emit range deletion keys, so update `last_key_for_partitioner_`
+  // here before returning below when `is_range_del` is true
+  if (partitioner_) {
+    last_key_for_partitioner_.assign(c_iter.user_key().data_,
+                                     c_iter.user_key().size_);
+  }
+
+  if (UNLIKELY(is_range_del)) {
+    return s;
   }
 
   assert(builder_ != nullptr);
@@ -377,11 +401,6 @@ Status CompactionOutputs::AddToOutput(
   s = current_output().meta.UpdateBoundaries(key, value, ikey.sequence,
                                              ikey.type);
 
-  if (partitioner_) {
-    last_key_for_partitioner_.assign(c_iter.user_key().data_,
-                                     c_iter.user_key().size_);
-  }
-
   return s;
 }
 
@@ -398,13 +417,19 @@ Status CompactionOutputs::AddRangeDels(
   std::string smallest_user_key;
   const Slice *lower_bound, *upper_bound;
   bool lower_bound_from_sub_compact = false;
-
+  bool lower_bound_from_range_tombstone = false;
   size_t output_size = outputs_.size();
   if (output_size == 1) {
     // For the first output table, include range tombstones before the min
     // key but after the subcompaction boundary.
     lower_bound = comp_start_user_key;
     lower_bound_from_sub_compact = true;
+  } else if (range_tombstone_lower_bound_.size() > 0) {
+    assert(meta.smallest.size() == 0 ||
+           icmp.Compare(range_tombstone_lower_bound_, meta.smallest) <= 0);
+    lower_bound_guard = range_tombstone_lower_bound_.user_key();
+    lower_bound = &lower_bound_guard;
+    lower_bound_from_range_tombstone = true;
   } else if (meta.smallest.size() > 0) {
     // For subsequent output tables, only include range tombstones from min
     // key onwards since the previous file was extended to contain range
@@ -531,6 +556,39 @@ Status CompactionOutputs::AddRangeDels(
         } else {
           smallest_candidate =
               InternalKey(*lower_bound, tombstone.seq_, kTypeRangeDeletion);
+        }
+      } else if (lower_bound_from_range_tombstone) {
+        // Range tombstone keys can be truncated at file boundaries of the files
+        // that contain them.
+        //
+        // If this lower bound is from a range tombstone key that is not
+        // truncated, i.e., it was not truncated when reading from the input
+        // files, then its sequence number and `op_type` will be
+        // kMaxSequenceNumber and kTypeRangeDeletion (see
+        // TruncatedRangeDelIterator::start_key()). In this case, when this key
+        // was used as the upper bound to cut the previous compaction output
+        // file, the previous file's largest key could have the same value as
+        // this key (see the upperbound logic below). To guarantee
+        // non-overlapping ranges between output files, we use the range
+        // tombstone's actual sequence number (tombstone.seq_) for the lower
+        // bound of this file. If this range tombstone key is truncated, then
+        // the previous file's largest key will be smaller than this range
+        // tombstone key, so we can use it as the lower bound directly.
+        if (ExtractInternalKeyFooter(range_tombstone_lower_bound_.Encode()) ==
+            kRangeTombstoneSentinel) {
+          if (ts_sz) {
+            smallest_candidate =
+                InternalKey(range_tombstone_lower_bound_.user_key(),
+                            tombstone.seq_, kTypeRangeDeletion, tombstone.ts_);
+          } else {
+            smallest_candidate =
+                InternalKey(range_tombstone_lower_bound_.user_key(),
+                            tombstone.seq_, kTypeRangeDeletion);
+          }
+        } else {
+          assert(GetInternalKeySeqno(range_tombstone_lower_bound_.Encode()) <
+                 kMaxSequenceNumber);
+          smallest_candidate = range_tombstone_lower_bound_;
         }
       } else {
         smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
