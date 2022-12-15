@@ -3389,7 +3389,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
             f->oldest_blob_file_number, f->oldest_ancester_time,
             f->file_creation_time, f->epoch_number, f->file_checksum,
-            f->file_checksum_func_name, f->unique_id, f->compensated_range_deletion_size);
+            f->file_checksum_func_name, f->unique_id,
+            f->compensated_range_deletion_size);
 
         ROCKS_LOG_BUFFER(
             log_buffer,

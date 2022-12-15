@@ -130,12 +130,13 @@ class VersionBuilderTest : public testing::Test {
     constexpr SequenceNumber largest_seqno = 300;
     constexpr bool marked_for_compaction = false;
 
-    edit->AddFile(
-        level, table_file_number, path_id, file_size, GetInternalKey(smallest),
-        GetInternalKey(largest), smallest_seqno, largest_seqno,
-        marked_for_compaction, Temperature::kUnknown, blob_file_number,
-        kUnknownOldestAncesterTime, kUnknownFileCreationTime, epoch_number,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
+    edit->AddFile(level, table_file_number, path_id, file_size,
+                  GetInternalKey(smallest), GetInternalKey(largest),
+                  smallest_seqno, largest_seqno, marked_for_compaction,
+                  Temperature::kUnknown, blob_file_number,
+                  kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                  epoch_number, kUnknownFileChecksum,
+                  kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
   }
 
   void UpdateVersionStorageInfo(VersionStorageInfo* vstorage) {
@@ -624,7 +625,6 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyApplied) {
       marked_for_compaction, Temperature::kUnknown, kInvalidBlobFileNumber,
       kUnknownOldestAncesterTime, kUnknownFileCreationTime, kUnknownEpochNumber,
       kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
-
 
   const Status s = builder.Apply(&other_edit);
   ASSERT_TRUE(s.IsCorruption());

@@ -453,7 +453,8 @@ class VersionEdit {
                      smallest_seqno, largest_seqno, marked_for_compaction,
                      temperature, oldest_blob_file_number, oldest_ancester_time,
                      file_creation_time, epoch_number, file_checksum,
-                     file_checksum_func_name, unique_id, compensated_range_deletion_size));
+                     file_checksum_func_name, unique_id,
+                     compensated_range_deletion_size));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }

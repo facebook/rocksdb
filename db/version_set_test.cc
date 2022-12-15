@@ -3255,7 +3255,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
                                ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
                                0, info.epoch_number, kUnknownFileChecksum,
-                               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
+                               kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+                               0);
     }
   }
 
