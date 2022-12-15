@@ -50,6 +50,7 @@ public class TransactionDB extends RocksDB
     // the currently-created RocksDB.
     tdb.storeOptionsInstance(options);
     tdb.storeTransactionDbOptions(transactionDbOptions);
+    tdb.storeDefaultColumnFamilyHandle(tdb.makeDefaultColumnFamilyHandle());
 
     return tdb;
   }
