@@ -1836,6 +1836,10 @@ inline bool keys_from_bytebuffers(JNIEnv* env,
     jobject jkey = env->GetObjectArrayElement(jkeys, i);
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
+      // cleanup jkey_off and jkey_len
+      env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
+      env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
+
       return false;
     }
     char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
@@ -1844,6 +1848,11 @@ inline bool keys_from_bytebuffers(JNIEnv* env,
 
     env->DeleteLocalRef(jkey);
   }
+
+  // cleanup jkey_off and jkey_len
+  env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
+  env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
+
   return true;
 }
 

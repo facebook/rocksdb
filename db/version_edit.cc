@@ -135,7 +135,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   bool min_log_num_written = false;
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
-    if (!f.smallest.Valid() || !f.largest.Valid()) {
+    if (!f.smallest.Valid() || !f.largest.Valid() ||
+        f.epoch_number == kUnknownEpochNumber) {
       return false;
     }
     PutVarint32(dst, kNewFile4);
@@ -183,6 +184,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintFileCreationTime",
                              &varint_file_creation_time);
     PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
+
+    PutVarint32(dst, NewFileCustomTag::kEpochNumber);
+    std::string varint_epoch_number;
+    PutVarint64(&varint_epoch_number, f.epoch_number);
+    PutLengthPrefixedSlice(dst, Slice(varint_epoch_number));
 
     PutVarint32(dst, NewFileCustomTag::kFileChecksum);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
@@ -350,6 +356,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         case kFileCreationTime:
           if (!GetVarint64(&field, &f.file_creation_time)) {
             return "invalid file creation time";
+          }
+          break;
+        case kEpochNumber:
+          if (!GetVarint64(&field, &f.epoch_number)) {
+            return "invalid epoch number";
           }
           break;
         case kFileChecksum:
@@ -808,6 +819,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
+    r.append(" epoch_number:");
+    AppendNumberTo(&r, f.epoch_number);
     r.append(" file_checksum:");
     r.append(Slice(f.file_checksum).ToString(true));
     r.append(" file_checksum_func_name: ");
@@ -927,6 +940,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
       jw << "OldestAncesterTime" << f.oldest_ancester_time;
       jw << "FileCreationTime" << f.file_creation_time;
+      jw << "EpochNumber" << f.epoch_number;
       jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
       jw << "FileChecksumFuncName" << f.file_checksum_func_name;
       if (f.temperature != Temperature::kUnknown) {

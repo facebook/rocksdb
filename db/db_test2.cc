@@ -14,6 +14,7 @@
 
 #include "db/db_test_util.h"
 #include "db/read_callback.h"
+#include "db/version_edit.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -33,6 +34,18 @@ namespace ROCKSDB_NAMESPACE {
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
+  std::vector<FileMetaData*> GetLevelFileMetadatas(int level, int cf = 0) {
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    assert(versions);
+    ColumnFamilyData* const cfd =
+        versions->GetColumnFamilySet()->GetColumnFamily(cf);
+    assert(cfd);
+    Version* const current = cfd->current();
+    assert(current);
+    VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+    return storage_info->LevelFiles(level);
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -4523,7 +4536,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(replayer->Prepare());
   // Replay using 1 thread, 1x speed.
   ASSERT_OK(replayer->Replay(ReplayOptions(1, 1.0), res_cb));
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 8);
   ASSERT_EQ(res_handler.GetNumGets(), 3);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 2);
@@ -4549,7 +4562,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   // Re-replay using 2 threads, 2x speed.
   ASSERT_OK(replayer->Prepare());
   ASSERT_OK(replayer->Replay(ReplayOptions(2, 2.0), res_cb));
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 8);
   ASSERT_EQ(res_handler.GetNumGets(), 3);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 2);
@@ -4559,7 +4572,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   // Re-replay using 2 threads, 1/2 speed.
   ASSERT_OK(replayer->Prepare());
   ASSERT_OK(replayer->Replay(ReplayOptions(2, 0.5), res_cb));
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 8);
   ASSERT_EQ(res_handler.GetNumGets(), 3);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 2);
@@ -4757,7 +4770,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
     // end, or Prepare() was not called.
     ASSERT_TRUE(s.IsIncomplete());
     ASSERT_TRUE(replayer->Next(nullptr).IsIncomplete());
-    ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+    ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
     ASSERT_EQ(res_handler.GetNumWrites(), 9);
     ASSERT_EQ(res_handler.GetNumGets(), 3);
     ASSERT_EQ(res_handler.GetNumIterSeeks(), 8);
@@ -4791,7 +4804,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   ASSERT_EQ("write1", value);
   ASSERT_OK(db2->Get(ro, handles[0], "trace-record-write2", &value));
   ASSERT_EQ("write2", value);
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 1);
   ASSERT_EQ(res_handler.GetNumGets(), 0);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 0);
@@ -4816,7 +4829,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
   record.reset(new GetQueryTraceRecord(invalid_cf_id, "whatever", fake_ts++));
   ASSERT_TRUE(replayer->Execute(record, &result).IsCorruption());
   ASSERT_TRUE(result == nullptr);
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 0);
   ASSERT_EQ(res_handler.GetNumGets(), 2);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 0);
@@ -4845,7 +4858,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
     ASSERT_TRUE(replayer->Execute(record, &result).IsCorruption());
     ASSERT_TRUE(result == nullptr);
   }
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 0);
   ASSERT_EQ(res_handler.GetNumGets(), 0);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 4);  // Seek x 2 in two iterations
@@ -4900,7 +4913,7 @@ TEST_F(DBTest2, TraceAndManualReplay) {
       std::vector<std::string>({"a"}), fake_ts++));
   ASSERT_TRUE(replayer->Execute(record, &result).IsInvalidArgument());
   ASSERT_TRUE(result == nullptr);
-  ASSERT_GT(res_handler.GetAvgLatency(), 0.0);
+  ASSERT_GE(res_handler.GetAvgLatency(), 0.0);
   ASSERT_EQ(res_handler.GetNumWrites(), 0);
   ASSERT_EQ(res_handler.GetNumGets(), 0);
   ASSERT_EQ(res_handler.GetNumIterSeeks(), 0);
@@ -7325,6 +7338,218 @@ TEST_F(DBTest2, PointInTimeRecoveryWithSyncFailureInCFCreation) {
   ReopenWithColumnFamilies({"default", "test1", "test2"}, options);
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, SortL0FilesByEpochNumber) {
+  Options options = CurrentOptions();
+  options.num_levels = 1;
+  options.compaction_style = kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+
+  // Set up L0 files to be sorted by their epoch_number
+  ASSERT_OK(Put("key1", "seq1"));
+
+  SstFileWriter sst_file_writer{EnvOptions(), options};
+  std::string external_file1 = dbname_ + "/test_files1.sst";
+  std::string external_file2 = dbname_ + "/test_files2.sst";
+  ASSERT_OK(sst_file_writer.Open(external_file1));
+  ASSERT_OK(sst_file_writer.Put("key2", "seq0"));
+  ASSERT_OK(sst_file_writer.Finish());
+  ASSERT_OK(sst_file_writer.Open(external_file2));
+  ASSERT_OK(sst_file_writer.Put("key3", "seq0"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+  ASSERT_OK(Put("key4", "seq2"));
+  ASSERT_OK(Flush());
+
+  auto* handle = db_->DefaultColumnFamily();
+  ASSERT_OK(db_->IngestExternalFile(handle, {external_file1, external_file2},
+                                    IngestExternalFileOptions()));
+
+  // To verify L0 files are sorted by epoch_number in descending order
+  // instead of largest_seqno
+  std::vector<FileMetaData*> level0_files = GetLevelFileMetadatas(0 /* level*/);
+  ASSERT_EQ(level0_files.size(), 3);
+
+  EXPECT_EQ(level0_files[0]->epoch_number, 3);
+  EXPECT_EQ(level0_files[0]->fd.largest_seqno, 0);
+  ASSERT_EQ(level0_files[0]->num_entries, 1);
+  ASSERT_TRUE(level0_files[0]->largest.user_key() == Slice("key3"));
+
+  EXPECT_EQ(level0_files[1]->epoch_number, 2);
+  EXPECT_EQ(level0_files[1]->fd.largest_seqno, 0);
+  ASSERT_EQ(level0_files[1]->num_entries, 1);
+  ASSERT_TRUE(level0_files[1]->largest.user_key() == Slice("key2"));
+
+  EXPECT_EQ(level0_files[2]->epoch_number, 1);
+  EXPECT_EQ(level0_files[2]->fd.largest_seqno, 2);
+  ASSERT_EQ(level0_files[2]->num_entries, 2);
+  ASSERT_TRUE(level0_files[2]->largest.user_key() == Slice("key4"));
+  ASSERT_TRUE(level0_files[2]->smallest.user_key() == Slice("key1"));
+
+  // To verify compacted file is assigned with the minimum epoch_number
+  // among input files'
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  level0_files = GetLevelFileMetadatas(0 /* level*/);
+  ASSERT_EQ(level0_files.size(), 1);
+  EXPECT_EQ(level0_files[0]->epoch_number, 1);
+  ASSERT_EQ(level0_files[0]->num_entries, 4);
+  ASSERT_TRUE(level0_files[0]->largest.user_key() == Slice("key4"));
+  ASSERT_TRUE(level0_files[0]->smallest.user_key() == Slice("key1"));
+}
+
+TEST_F(DBTest2, SameEpochNumberAfterCompactRangeChangeLevel) {
+  Options options = CurrentOptions();
+  options.num_levels = 7;
+  options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Set up the file in L1 to be moved to L0 in later step of CompactRange()
+  ASSERT_OK(Put("key1", "seq1"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1, 0);
+  std::vector<FileMetaData*> level0_files = GetLevelFileMetadatas(0 /* level*/);
+  ASSERT_EQ(level0_files.size(), 0);
+  std::vector<FileMetaData*> level1_files = GetLevelFileMetadatas(1 /* level*/);
+  ASSERT_EQ(level1_files.size(), 1);
+  std::vector<FileMetaData*> level2_files = GetLevelFileMetadatas(2 /* level*/);
+  ASSERT_EQ(level2_files.size(), 0);
+
+  ASSERT_EQ(level1_files[0]->epoch_number, 1);
+
+  // To verify CompactRange() moving file to L0 still keeps the file's
+  // epoch_number
+  CompactRangeOptions croptions;
+  croptions.change_level = true;
+  croptions.target_level = 0;
+  ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
+  level0_files = GetLevelFileMetadatas(0 /* level*/);
+  level1_files = GetLevelFileMetadatas(1 /* level*/);
+  ASSERT_EQ(level0_files.size(), 1);
+  ASSERT_EQ(level1_files.size(), 0);
+
+  EXPECT_EQ(level0_files[0]->epoch_number, 1);
+
+  ASSERT_EQ(level0_files[0]->num_entries, 1);
+  ASSERT_TRUE(level0_files[0]->largest.user_key() == Slice("key1"));
+}
+
+TEST_F(DBTest2, RecoverEpochNumber) {
+  for (bool allow_ingest_behind : {true, false}) {
+    Options options = CurrentOptions();
+    options.allow_ingest_behind = allow_ingest_behind;
+    options.num_levels = 7;
+    options.compaction_style = kCompactionStyleLevel;
+    options.disable_auto_compactions = true;
+    DestroyAndReopen(options);
+    CreateAndReopenWithCF({"cf1"}, options);
+    VersionSet* versions = dbfull()->GetVersionSet();
+    assert(versions);
+    const ColumnFamilyData* default_cf =
+        versions->GetColumnFamilySet()->GetDefault();
+    const ColumnFamilyData* cf1 =
+        versions->GetColumnFamilySet()->GetColumnFamily("cf1");
+
+    // Set up files in default CF to recover in later step
+    ASSERT_OK(Put("key1", "epoch1"));
+    ASSERT_OK(Flush());
+    MoveFilesToLevel(1 /* level*/, 0 /* cf*/);
+    ASSERT_OK(Put("key2", "epoch2"));
+    ASSERT_OK(Flush());
+
+    std::vector<FileMetaData*> level0_files =
+        GetLevelFileMetadatas(0 /* level*/);
+    ASSERT_EQ(level0_files.size(), 1);
+    ASSERT_EQ(level0_files[0]->epoch_number,
+              allow_ingest_behind
+                  ? 2 + kReservedEpochNumberForFileIngestedBehind
+                  : 2);
+    ASSERT_EQ(level0_files[0]->num_entries, 1);
+    ASSERT_TRUE(level0_files[0]->largest.user_key() == Slice("key2"));
+
+    std::vector<FileMetaData*> level1_files =
+        GetLevelFileMetadatas(1 /* level*/);
+    ASSERT_EQ(level1_files.size(), 1);
+    ASSERT_EQ(level1_files[0]->epoch_number,
+              allow_ingest_behind
+                  ? 1 + kReservedEpochNumberForFileIngestedBehind
+                  : 1);
+    ASSERT_EQ(level1_files[0]->num_entries, 1);
+    ASSERT_TRUE(level1_files[0]->largest.user_key() == Slice("key1"));
+
+    // Set up files in cf1 to recover in later step
+    ASSERT_OK(Put(1 /* cf */, "cf1_key1", "epoch1"));
+    ASSERT_OK(Flush(1 /* cf */));
+
+    std::vector<FileMetaData*> level0_files_cf1 =
+        GetLevelFileMetadatas(0 /* level*/, 1 /* cf*/);
+    ASSERT_EQ(level0_files_cf1.size(), 1);
+    ASSERT_EQ(level0_files_cf1[0]->epoch_number,
+              allow_ingest_behind
+                  ? 1 + kReservedEpochNumberForFileIngestedBehind
+                  : 1);
+    ASSERT_EQ(level0_files_cf1[0]->num_entries, 1);
+    ASSERT_TRUE(level0_files_cf1[0]->largest.user_key() == Slice("cf1_key1"));
+
+    ASSERT_EQ(default_cf->GetNextEpochNumber(),
+              allow_ingest_behind
+                  ? 3 + kReservedEpochNumberForFileIngestedBehind
+                  : 3);
+    ASSERT_EQ(cf1->GetNextEpochNumber(),
+              allow_ingest_behind
+                  ? 2 + kReservedEpochNumberForFileIngestedBehind
+                  : 2);
+
+    // To verify epoch_number of files of different levels/CFs are
+    // persisted and recovered correctly
+    ReopenWithColumnFamilies({"default", "cf1"}, options);
+    versions = dbfull()->GetVersionSet();
+    assert(versions);
+    default_cf = versions->GetColumnFamilySet()->GetDefault();
+    cf1 = versions->GetColumnFamilySet()->GetColumnFamily("cf1");
+
+    level0_files = GetLevelFileMetadatas(0 /* level*/);
+    ASSERT_EQ(level0_files.size(), 1);
+    EXPECT_EQ(level0_files[0]->epoch_number,
+              allow_ingest_behind
+                  ? 2 + kReservedEpochNumberForFileIngestedBehind
+                  : 2);
+    ASSERT_EQ(level0_files[0]->num_entries, 1);
+    ASSERT_TRUE(level0_files[0]->largest.user_key() == Slice("key2"));
+
+    level1_files = GetLevelFileMetadatas(1 /* level*/);
+    ASSERT_EQ(level1_files.size(), 1);
+    EXPECT_EQ(level1_files[0]->epoch_number,
+              allow_ingest_behind
+                  ? 1 + kReservedEpochNumberForFileIngestedBehind
+                  : 1);
+    ASSERT_EQ(level1_files[0]->num_entries, 1);
+    ASSERT_TRUE(level1_files[0]->largest.user_key() == Slice("key1"));
+
+    level0_files_cf1 = GetLevelFileMetadatas(0 /* level*/, 1 /* cf*/);
+    ASSERT_EQ(level0_files_cf1.size(), 1);
+    EXPECT_EQ(level0_files_cf1[0]->epoch_number,
+              allow_ingest_behind
+                  ? 1 + kReservedEpochNumberForFileIngestedBehind
+                  : 1);
+    ASSERT_EQ(level0_files_cf1[0]->num_entries, 1);
+    ASSERT_TRUE(level0_files_cf1[0]->largest.user_key() == Slice("cf1_key1"));
+
+    // To verify next epoch number is recovered correctly
+    EXPECT_EQ(default_cf->GetNextEpochNumber(),
+              allow_ingest_behind
+                  ? 3 + kReservedEpochNumberForFileIngestedBehind
+                  : 3);
+    EXPECT_EQ(cf1->GetNextEpochNumber(),
+              allow_ingest_behind
+                  ? 2 + kReservedEpochNumberForFileIngestedBehind
+                  : 2);
+  }
+}
+
+#endif  // ROCKSDB_LITE
+
 TEST_F(DBTest2, RenameDirectory) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
@@ -7507,6 +7732,80 @@ TEST_F(DBTest2, SstUniqueIdVerifyMultiCFs) {
   options.verify_sst_unique_id_in_manifest = true;
   auto s = TryReopenWithColumnFamilies({"default", "one", "two"}, options);
   ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(DBTest2, BestEffortsRecoveryWithSstUniqueIdVerification) {
+  const auto tamper_with_uniq_id = [&](void* arg) {
+    auto props = static_cast<TableProperties*>(arg);
+    assert(props);
+    // update table property session_id to a different one
+    props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+  };
+
+  const auto assert_db = [&](size_t expected_count,
+                             const std::string& expected_v) {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    size_t cnt = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++cnt) {
+      ASSERT_EQ(std::to_string(cnt), it->key());
+      ASSERT_EQ(expected_v, it->value());
+    }
+    ASSERT_EQ(expected_count, cnt);
+  };
+
+  const int num_l0_compaction_trigger = 8;
+  const int num_l0 = num_l0_compaction_trigger - 1;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = num_l0_compaction_trigger;
+
+  for (int k = 0; k < num_l0; ++k) {
+    // Allow mismatch for now
+    options.verify_sst_unique_id_in_manifest = false;
+
+    DestroyAndReopen(options);
+
+    constexpr size_t num_keys_per_file = 10;
+    for (int i = 0; i < num_l0; ++i) {
+      for (size_t j = 0; j < num_keys_per_file; ++j) {
+        ASSERT_OK(Put(std::to_string(j), "v" + std::to_string(i)));
+      }
+      if (i == k) {
+        SyncPoint::GetInstance()->DisableProcessing();
+        SyncPoint::GetInstance()->SetCallBack(
+            "PropertyBlockBuilder::AddTableProperty:Start",
+            tamper_with_uniq_id);
+        SyncPoint::GetInstance()->EnableProcessing();
+      }
+      ASSERT_OK(Flush());
+    }
+
+    options.verify_sst_unique_id_in_manifest = true;
+    Status s = TryReopen(options);
+    ASSERT_TRUE(s.IsCorruption());
+
+    options.best_efforts_recovery = true;
+    Reopen(options);
+    assert_db(k == 0 ? 0 : num_keys_per_file, "v" + std::to_string(k - 1));
+
+    // Reopen with regular recovery
+    options.best_efforts_recovery = false;
+    Reopen(options);
+    assert_db(k == 0 ? 0 : num_keys_per_file, "v" + std::to_string(k - 1));
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    for (size_t i = 0; i < num_keys_per_file; ++i) {
+      ASSERT_OK(Put(std::to_string(i), "v"));
+    }
+    ASSERT_OK(Flush());
+    Reopen(options);
+    {
+      for (size_t i = 0; i < num_keys_per_file; ++i) {
+        ASSERT_EQ("v", Get(std::to_string(i)));
+      }
+    }
+  }
 }
 
 #ifndef ROCKSDB_LITE

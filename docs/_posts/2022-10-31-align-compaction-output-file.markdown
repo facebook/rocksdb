@@ -15,7 +15,7 @@ RocksDB level compaction picks one file from the source level and compacts to th
 {: style="display: block; margin-left: auto; margin-right: auto; width: 80%"}
 
 In the diagram above, `SST11` is selected for the compaction, it overlaps with `SST20` to `SST23`, so all these files are selected for compaction. But the beginning and ending of the SST on Level 2 are wasted, which also means it will be compacted again when `SST10` is compacting down. If the file boundaries are aligned, then the wasted compaction size could be reduced. On average, the wasted compaction is `1` file size: `0.5` at the beginning, and `0.5` at the end. Typically the average compaction fan-out is about 6 (with the default max_bytes_for_level_multiplier = 10), then `1 / (6 + 1) ~= 14%` of compaction is wasted.
-## Implemtation
+## implementation
 To reduce such wasted compaction, RocksDB now tries to align the compaction output file to the next level's file. So future compactions will have fewer wasted compaction. For example, the above case might be cut like this:
 
 ![](/static/images/align-compaction-output/file_cut_align.png)

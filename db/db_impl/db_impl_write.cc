@@ -924,6 +924,15 @@ Status DBImpl::WriteImplWALOnly(
       write_thread->ExitAsBatchGroupLeader(write_group, status);
       return status;
     }
+  } else {
+    InstrumentedMutexLock lock(&mutex_);
+    Status status = DelayWrite(/*num_bytes=*/0ull, write_options);
+    if (!status.ok()) {
+      WriteThread::WriteGroup write_group;
+      write_thread->EnterAsBatchGroupLeader(&w, &write_group);
+      write_thread->ExitAsBatchGroupLeader(write_group, status);
+      return status;
+    }
   }
 
   WriteThread::WriteGroup write_group;
@@ -1762,6 +1771,7 @@ uint64_t DBImpl::GetMaxTotalWalSize() const {
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::DelayWrite(uint64_t num_bytes,
                           const WriteOptions& write_options) {
+  mutex_.AssertHeld();
   uint64_t time_delayed = 0;
   bool delayed = false;
   {

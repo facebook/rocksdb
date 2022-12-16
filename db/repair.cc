@@ -59,6 +59,7 @@
 //   Store per-table metadata (smallest, largest, largest-seq#, ...)
 //   in the table's meta section to speed up ScanTable.
 
+#include "db/version_builder.h"
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
@@ -640,38 +641,79 @@ class Repairer {
     for (const auto& cf_id_and_tables : cf_id_to_tables) {
       auto* cfd =
           vset_.GetColumnFamilySet()->GetColumnFamily(cf_id_and_tables.first);
-      VersionEdit edit;
-      edit.SetComparatorName(cfd->user_comparator()->Name());
-      edit.SetLogNumber(0);
-      edit.SetNextFile(next_file_number_);
-      edit.SetColumnFamily(cfd->GetID());
 
-      // TODO(opt): separate out into multiple levels
+      // Recover files' epoch number using dummy VersionStorageInfo
+      VersionBuilder dummy_version_builder(
+          cfd->current()->version_set()->file_options(), cfd->ioptions(),
+          cfd->table_cache(), cfd->current()->storage_info(),
+          cfd->current()->version_set(),
+          cfd->GetFileMetadataCacheReservationManager());
+      VersionStorageInfo dummy_vstorage(
+          &cfd->internal_comparator(), cfd->user_comparator(),
+          cfd->NumberLevels(), cfd->ioptions()->compaction_style,
+          nullptr /* src_vstorage */, cfd->ioptions()->force_consistency_checks,
+          EpochNumberRequirement::kMightMissing);
+      Status s;
+      VersionEdit dummy_edit;
       for (const auto* table : cf_id_and_tables.second) {
-        edit.AddFile(
+        // TODO(opt): separate out into multiple levels
+        dummy_edit.AddFile(
             0, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
             table->meta.fd.GetFileSize(), table->meta.smallest,
             table->meta.largest, table->meta.fd.smallest_seqno,
             table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
             table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
-            table->meta.file_checksum, table->meta.file_checksum_func_name,
-            table->meta.unique_id);
+            table->meta.epoch_number, table->meta.file_checksum,
+            table->meta.file_checksum_func_name, table->meta.unique_id);
       }
-      assert(next_file_number_ > 0);
-      vset_.MarkFileNumberUsed(next_file_number_ - 1);
-      mutex_.Lock();
-      std::unique_ptr<FSDirectory> db_dir;
-      Status status = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(),
-                                                          &db_dir, nullptr);
-      if (status.ok()) {
-        status = vset_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                   &edit, &mutex_, db_dir.get(),
-                                   false /* new_descriptor_log */);
+      s = dummy_version_builder.Apply(&dummy_edit);
+      if (s.ok()) {
+        s = dummy_version_builder.SaveTo(&dummy_vstorage);
       }
-      mutex_.Unlock();
-      if (!status.ok()) {
-        return status;
+      if (s.ok()) {
+        dummy_vstorage.RecoverEpochNumbers(cfd);
+      }
+      if (s.ok()) {
+        // Record changes from this repair in VersionEdit, including files with
+        // recovered epoch numbers
+        VersionEdit edit;
+        edit.SetComparatorName(cfd->user_comparator()->Name());
+        edit.SetLogNumber(0);
+        edit.SetNextFile(next_file_number_);
+        edit.SetColumnFamily(cfd->GetID());
+        for (int level = 0; level < dummy_vstorage.num_levels(); ++level) {
+          for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
+            edit.AddFile(level, *file_meta);
+          }
+        }
+
+        // Release resources occupied by the dummy VersionStorageInfo
+        for (int level = 0; level < dummy_vstorage.num_levels(); ++level) {
+          for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
+            file_meta->refs--;
+            if (file_meta->refs <= 0) {
+              delete file_meta;
+            }
+          }
+        }
+
+        // Persist record of changes
+        assert(next_file_number_ > 0);
+        vset_.MarkFileNumberUsed(next_file_number_ - 1);
+        mutex_.Lock();
+        std::unique_ptr<FSDirectory> db_dir;
+        s = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(), &db_dir,
+                                                nullptr);
+        if (s.ok()) {
+          s = vset_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
+                                &mutex_, db_dir.get(),
+                                false /* new_descriptor_log */);
+        }
+        mutex_.Unlock();
+      }
+      if (!s.ok()) {
+        return s;
       }
     }
     return Status::OK();

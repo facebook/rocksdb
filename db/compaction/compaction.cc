@@ -20,9 +20,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const uint64_t kRangeTombstoneSentinel =
-    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
-
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
                       const InternalKey& b) {
   auto c = user_cmp->CompareWithoutTimestamp(a.user_key(), b.user_key());
@@ -332,6 +329,7 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
   // the case that the penultimate level is empty).
   if (immutable_options_.compaction_style == kCompactionStyleUniversal) {
     exclude_level = kInvalidLevel;
+    penultimate_output_range_type_ = PenultimateOutputRangeType::kFullRange;
     std::set<uint64_t> penultimate_inputs;
     for (const auto& input_lvl : inputs_) {
       if (input_lvl.level == penultimate_level_) {
@@ -345,7 +343,8 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
       if (penultimate_inputs.find(file->fd.GetNumber()) ==
           penultimate_inputs.end()) {
         exclude_level = number_levels_ - 1;
-        penultimate_output_range_type_ = PenultimateOutputRangeType::kFullRange;
+        penultimate_output_range_type_ =
+            PenultimateOutputRangeType::kNonLastRange;
         break;
       }
     }
@@ -354,35 +353,6 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
   GetBoundaryKeys(input_vstorage_, inputs_,
                   &penultimate_level_smallest_user_key_,
                   &penultimate_level_largest_user_key_, exclude_level);
-
-  // If there's a case that the penultimate level output range is overlapping
-  // with the existing files, disable the penultimate level output by setting
-  // the range to empty. One example is the range delete could have overlap
-  // boundary with the next file. (which is actually a false overlap)
-  // TODO: Exclude such false overlap, so it won't disable the penultimate
-  //  output.
-  std::set<uint64_t> penultimate_inputs;
-  for (const auto& input_lvl : inputs_) {
-    if (input_lvl.level == penultimate_level_) {
-      for (const auto& file : input_lvl.files) {
-        penultimate_inputs.emplace(file->fd.GetNumber());
-      }
-    }
-  }
-
-  auto penultimate_files = input_vstorage_->LevelFiles(penultimate_level_);
-  for (const auto& file : penultimate_files) {
-    if (penultimate_inputs.find(file->fd.GetNumber()) ==
-            penultimate_inputs.end() &&
-        OverlapPenultimateLevelOutputRange(file->smallest.user_key(),
-                                           file->largest.user_key())) {
-      // basically disable the penultimate range output. which should be rare
-      // or a false overlap caused by range del
-      penultimate_level_smallest_user_key_ = "";
-      penultimate_level_largest_user_key_ = "";
-      penultimate_output_range_type_ = PenultimateOutputRangeType::kDisabled;
-    }
-  }
 }
 
 Compaction::~Compaction() {
@@ -805,6 +775,16 @@ uint64_t Compaction::MinInputFileOldestAncesterTime(
     }
   }
   return min_oldest_ancester_time;
+}
+
+uint64_t Compaction::MinInputFileEpochNumber() const {
+  uint64_t min_epoch_number = std::numeric_limits<uint64_t>::max();
+  for (const auto& inputs_per_level : inputs_) {
+    for (const auto& file : inputs_per_level.files) {
+      min_epoch_number = std::min(min_epoch_number, file->epoch_number);
+    }
+  }
+  return min_epoch_number;
 }
 
 int Compaction::EvaluatePenultimateLevel(
