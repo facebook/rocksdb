@@ -352,7 +352,8 @@ public class Transaction extends RocksObject {
   public byte[] get(final ReadOptions readOptions, final byte[] key)
       throws RocksDBException {
     assert(isOwningHandle());
-    return get(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length);
+    return get(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
+        defaultColumnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -361,12 +362,14 @@ public class Transaction extends RocksObject {
    * @param opt {@link org.rocksdb.ReadOptions} instance.
    * @param key the key to retrieve the value.
    * @param value the out-value to receive the retrieved value.
-   * @return The size of the actual value that matches the specified
-   *     {@code key} in byte.  If the return value is greater than the
+   * @return A {@link GetStatus} wrapping the result status and the return value size.
+   *     If {@code GetStatus.status} is {@code Ok} then {@code GetStatus.requiredSize} contains
+   *     the size of the actual value that matches the specified
+   *     {@code key} in byte. If {@code GetStatus.requiredSize} is greater than the
    *     length of {@code value}, then it indicates that the size of the
-   *     input buffer {@code value} is insufficient and partial result will
-   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
-   *     found.
+   *     input buffer {@code value} is insufficient and a partial result was
+   *     returned. If {@code GetStatus.status} is {@code NotFound} this indicates that
+   *     the value was not found.
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
@@ -389,17 +392,18 @@ public class Transaction extends RocksObject {
    * @param columnFamilyHandle the column family to find the key in
    * @param key the key to retrieve the value.
    * @param value the out-value to receive the retrieved value.
-   * @return The size of the actual value that matches the specified
-   *     {@code key} in byte.  If the return value is greater than the
+   * @return A {@link GetStatus} wrapping the result status and the return value size.
+   *     If {@code GetStatus.status} is {@code Ok} then {@code GetStatus.requiredSize} contains
+   *     the size of the actual value that matches the specified
+   *     {@code key} in byte. If {@code GetStatus.requiredSize} is greater than the
    *     length of {@code value}, then it indicates that the size of the
-   *     input buffer {@code value} is insufficient and partial result will
-   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
-   *     found.
+   *     input buffer {@code value} is insufficient and a partial result was
+   *     returned. If {@code GetStatus.status} is {@code NotFound} this indicates that
+   *     the value was not found.
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-
   public GetStatus get(final ReadOptions opt, final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value) throws RocksDBException {
     final int result = get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value, 0,
@@ -421,60 +425,31 @@ public class Transaction extends RocksObject {
    * @param value the out-value to receive the retrieved value.
    *     It is using position and limit. Limit is set according to value size.
    *     Supports direct buffer only.
-   * @return The size of the actual value that matches the specified
-   *     {@code key} in byte.  If the return value is greater than the
+   * @return A {@link GetStatus} wrapping the result status and the return value size.
+   *     If {@code GetStatus.status} is {@code Ok} then {@code GetStatus.requiredSize} contains
+   *     the size of the actual value that matches the specified
+   *     {@code key} in byte. If {@code GetStatus.requiredSize} is greater than the
    *     length of {@code value}, then it indicates that the size of the
-   *     input buffer {@code value} is insufficient and partial result will
-   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
-   *     found.
+   *     input buffer {@code value} is insufficient and a partial result was
+   *     returned. If {@code GetStatus.status} is {@code NotFound} this indicates that
+   *     the value was not found.
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
   public GetStatus get(final ReadOptions opt, final ColumnFamilyHandle columnFamilyHandle,
       final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
-    if (columnFamilyHandle.nativeHandle_ == 0) {
-      throw new RocksDBException("Column Family Handle is 0/closed");
-    }
-    return get(opt, columnFamilyHandle.nativeHandle_, key, value);
-  }
-
-  /**
-   * Get the value associated with the specified key within the default column family.
-   *
-   * @param opt {@link org.rocksdb.ReadOptions} instance.
-   * @param key the key to retrieve the value. It is using position and limit.
-   *     Supports direct buffer only.
-   * @param value the out-value to receive the retrieved value.
-   *     It is using position and limit. Limit is set according to value size.
-   *     Supports direct buffer only.
-   * @return The size of the actual value that matches the specified
-   *     {@code key} in byte.  If the return value is greater than the
-   *     length of {@code value}, then it indicates that the size of the
-   *     input buffer {@code value} is insufficient and partial result will
-   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
-   *     found.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   */
-  public GetStatus get(final ReadOptions opt, final ByteBuffer key, final ByteBuffer value)
-      throws RocksDBException {
-    return get(opt, this.defaultColumnFamilyHandle, key, value);
-  }
-
-  private GetStatus get(final ReadOptions opt, final long columnFamilyNativeHandle_,
-      final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     final int result;
     if (key.isDirect() && value.isDirect()) {
       result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
-          value, value.position(), value.remaining(), columnFamilyNativeHandle_);
+          value, value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
     } else if (!key.isDirect() && !value.isDirect()) {
       assert key.hasArray();
       assert value.hasArray();
-      result = get(nativeHandle_, opt.nativeHandle_, key.array(),
-          key.arrayOffset() + key.position(), key.remaining(), value.array(),
-          value.arrayOffset() + value.position(), value.remaining(), columnFamilyNativeHandle_);
+      result =
+          get(nativeHandle_, opt.nativeHandle_, key.array(), key.arrayOffset() + key.position(),
+              key.remaining(), value.array(), value.arrayOffset() + value.position(),
+              value.remaining(), columnFamilyHandle.nativeHandle_);
     } else {
       throw new RocksDBException(
           "ByteBuffer parameters must all be direct, or must all be indirect");
@@ -487,6 +462,32 @@ public class Transaction extends RocksObject {
       value.position(Math.min(value.limit(), value.position() + result));
       return GetStatus.fromStatusCode(Status.Code.Ok, result);
     }
+  }
+
+  /**
+   * Get the value associated with the specified key within the default column family.
+   *
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param key the key to retrieve the value. It is using position and limit.
+   *     Supports direct buffer only.
+   * @param value the out-value to receive the retrieved value.
+   *     It is using position and limit. Limit is set according to value size.
+   *     Supports direct buffer only.
+   * @return A {@link GetStatus} wrapping the result status and the return value size.
+   *     If {@code GetStatus.status} is {@code Ok} then {@code GetStatus.requiredSize} contains
+   *     the size of the actual value that matches the specified
+   *     {@code key} in byte. If {@code GetStatus.requiredSize} is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and a partial result was
+   *     returned. If {@code GetStatus.status} is {@code NotFound} this indicates that
+   *     the value was not found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public GetStatus get(final ReadOptions opt, final ByteBuffer key, final ByteBuffer value)
+      throws RocksDBException {
+    return get(opt, this.defaultColumnFamilyHandle, key, value);
   }
 
   /**
@@ -712,7 +713,7 @@ public class Transaction extends RocksObject {
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final boolean exclusive,
       final boolean doValidate) throws RocksDBException {
     assert (isOwningHandle());
-    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
+    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_, exclusive, doValidate);
   }
 
@@ -738,7 +739,7 @@ public class Transaction extends RocksObject {
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final boolean exclusive) throws RocksDBException {
     assert(isOwningHandle());
-    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
+    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_, exclusive, true /*doValidate*/);
   }
 
@@ -789,8 +790,370 @@ public class Transaction extends RocksObject {
   public byte[] getForUpdate(final ReadOptions readOptions, final byte[] key,
       final boolean exclusive) throws RocksDBException {
     assert(isOwningHandle());
-    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.length,
+    return getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
         defaultColumnFamilyHandle.nativeHandle_, exclusive, true /*doValidate*/);
+  }
+
+  /**
+   * Read this key and ensure that this transaction will only
+   * be able to be committed if this key is not written outside this
+   * transaction after it has first been read (or after the snapshot if a
+   * snapshot is set in this transaction). The transaction behavior is the
+   * same regardless of whether the key exists or not.
+   * <p>
+   * Note: Currently, this function will return Status::MergeInProgress
+   * if the most recent write to the queried key in this batch is a Merge.
+   * <p>
+   * The values returned by this function are similar to
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * If value==nullptr, then this function will not read any data, but will
+   * still ensure that this key cannot be written to by outside of this
+   * transaction.
+   * <p>
+   * If this transaction was created on an {@link OptimisticTransactionDB},
+   * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}
+   * could cause {@link #commit()} to fail. Otherwise, it could return any error
+   * that could be returned by
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * <p>
+   * If this transaction was created on a {@link TransactionDB}, an
+   * {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   * when:
+   *     {@link Status.Code#Busy} if there is a write conflict,
+   *     {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *     {@link Status.Code#TryAgain} if the memtable history size is not large
+   *         enough. See
+   *         {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *     {@link Status.Code#MergeInProgress} if merge operations cannot be
+   *     resolved.
+   *
+   * @param readOptions Read options.
+   * @param key the key to retrieve the value for.
+   * @param value the value associated with the input key if
+   *    *     any. The result is undefined in no value is associated with the key
+   * @param exclusive true if the transaction should have exclusive access to
+   *     the key, otherwise false for shared access.
+   *
+   * @return a status object containing
+   * Status.OK if the requested value was read
+   * Status.NotFound if the requested value does not exist
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public GetStatus getForUpdate(final ReadOptions readOptions, final byte[] key, final byte[] value,
+      final boolean exclusive) throws RocksDBException {
+    final int result = getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
+        value, 0, value.length, defaultColumnFamilyHandle.nativeHandle_, exclusive,
+        true /* doValidate */);
+    if (result < 0) {
+      return GetStatus.fromStatusCode(Status.Code.NotFound, 0);
+    } else {
+      return GetStatus.fromStatusCode(Status.Code.Ok, result);
+    }
+  }
+
+  /**
+   * Read this key and ensure that this transaction will only
+   * be able to be committed if this key is not written outside this
+   * transaction after it has first been read (or after the snapshot if a
+   * snapshot is set in this transaction). The transaction behavior is the
+   * same regardless of whether the key exists or not.
+   * <p>
+   * Note: Currently, this function will return Status::MergeInProgress
+   * if the most recent write to the queried key in this batch is a Merge.
+   * <p>
+   * The values returned by this function are similar to
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * If value==nullptr, then this function will not read any data, but will
+   * still ensure that this key cannot be written to by outside of this
+   * transaction.
+   * <p>
+   * If this transaction was created on an {@link OptimisticTransactionDB},
+   * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}
+   * could cause {@link #commit()} to fail. Otherwise, it could return any error
+   * that could be returned by
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * <p>
+   * If this transaction was created on a {@link TransactionDB}, an
+   * {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   * when:
+   *     {@link Status.Code#Busy} if there is a write conflict,
+   *     {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *     {@link Status.Code#TryAgain} if the memtable history size is not large
+   *         enough. See
+   *         {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *     {@link Status.Code#MergeInProgress} if merge operations cannot be
+   *     resolved.
+   *
+   * @param readOptions Read options.
+   * @param key the key to retrieve the value for.
+   * @param value the value associated with the input key if
+   *    *     any. The result is undefined in no value is associated with the key
+   * @param exclusive true if the transaction should have exclusive access to
+   *     the key, otherwise false for shared access.
+   *
+   * @return a status object containing
+   * Status.OK if the requested value was read
+   * Status.NotFound if the requested value does not exist
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public GetStatus getForUpdate(final ReadOptions readOptions, final ByteBuffer key,
+      final ByteBuffer value, final boolean exclusive) throws RocksDBException {
+    return getForUpdate(
+        readOptions, defaultColumnFamilyHandle, key, value, exclusive, true /* doValidate */);
+  }
+
+  /**
+   * Read this key and ensure that this transaction will only
+   * be able to be committed if this key is not written outside this
+   * transaction after it has first been read (or after the snapshot if a
+   * snapshot is set in this transaction). The transaction behavior is the
+   * same regardless of whether the key exists or not.
+   * <p>
+   * Note: Currently, this function will return Status::MergeInProgress
+   * if the most recent write to the queried key in this batch is a Merge.
+   * <p>
+   * The values returned by this function are similar to
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * If value==nullptr, then this function will not read any data, but will
+   * still ensure that this key cannot be written to by outside of this
+   * transaction.
+   * <p>
+   * If this transaction was created on an {@link OptimisticTransactionDB},
+   * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}
+   * could cause {@link #commit()} to fail. Otherwise, it could return any error
+   * that could be returned by
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * <p>
+   * If this transaction was created on a {@link TransactionDB}, an
+   * {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   * when:
+   *     {@link Status.Code#Busy} if there is a write conflict,
+   *     {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *     {@link Status.Code#TryAgain} if the memtable history size is not large
+   *         enough. See
+   *         {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *     {@link Status.Code#MergeInProgress} if merge operations cannot be
+   *     resolved.
+   *
+   * @param readOptions Read options.
+   * @param columnFamilyHandle in which to find the key/value
+   * @param key the key to retrieve the value for.
+   * @param value the value associated with the input key if
+   *    *     any. The result is undefined in no value is associated with the key
+   * @param exclusive true if the transaction should have exclusive access to
+   *     the key, otherwise false for shared access.
+   *
+   * @return a status object containing
+   * Status.OK if the requested value was read
+   * Status.NotFound if the requested value does not exist
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public GetStatus getForUpdate(final ReadOptions readOptions,
+      final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final byte[] value,
+      final boolean exclusive) throws RocksDBException {
+    return getForUpdate(
+        readOptions, columnFamilyHandle, key, value, exclusive, true /*doValidate*/);
+  }
+
+  /**
+   * Read this key and ensure that this transaction will only
+   * be able to be committed if this key is not written outside this
+   * transaction after it has first been read (or after the snapshot if a
+   * snapshot is set in this transaction). The transaction behavior is the
+   * same regardless of whether the key exists or not.
+   * <p>
+   * Note: Currently, this function will return Status::MergeInProgress
+   * if the most recent write to the queried key in this batch is a Merge.
+   * <p>
+   * The values returned by this function are similar to
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * If value==nullptr, then this function will not read any data, but will
+   * still ensure that this key cannot be written to by outside of this
+   * transaction.
+   * <p>
+   * If this transaction was created on an {@link OptimisticTransactionDB},
+   * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}
+   * could cause {@link #commit()} to fail. Otherwise, it could return any error
+   * that could be returned by
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * <p>
+   * If this transaction was created on a {@link TransactionDB}, an
+   * {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   * when:
+   *     {@link Status.Code#Busy} if there is a write conflict,
+   *     {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *     {@link Status.Code#TryAgain} if the memtable history size is not large
+   *         enough. See
+   *         {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *     {@link Status.Code#MergeInProgress} if merge operations cannot be
+   *     resolved.
+   *
+   * @param readOptions Read options.
+   * @param columnFamilyHandle in which to find the key/value
+   * @param key the key to retrieve the value for.
+   * @param value the value associated with the input key if
+   *    *     any. The result is undefined in no value is associated with the key
+   * @param exclusive true if the transaction should have exclusive access to
+   *     the key, otherwise false for shared access.
+   * @param doValidate true if the transaction should validate the snapshot before doing the read
+   *
+   * @return a status object containing
+   * Status.OK if the requested value was read
+   * Status.NotFound if the requested value does not exist
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+
+  public GetStatus getForUpdate(final ReadOptions readOptions,
+      final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final byte[] value,
+      final boolean exclusive, final boolean doValidate) throws RocksDBException {
+    final int result = getForUpdate(nativeHandle_, readOptions.nativeHandle_, key, 0, key.length,
+        value, 0, value.length, columnFamilyHandle.nativeHandle_, exclusive, doValidate);
+    if (result < 0) {
+      return GetStatus.fromStatusCode(Status.Code.NotFound, 0);
+    } else {
+      return GetStatus.fromStatusCode(Status.Code.Ok, result);
+    }
+  }
+
+  /**
+   * Read this key and ensure that this transaction will only
+   * be able to be committed if this key is not written outside this
+   * transaction after it has first been read (or after the snapshot if a
+   * snapshot is set in this transaction). The transaction behavior is the
+   * same regardless of whether the key exists or not.
+   * <p>
+   * Note: Currently, this function will return Status::MergeInProgress
+   * if the most recent write to the queried key in this batch is a Merge.
+   * <p>
+   * The values returned by this function are similar to
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * If value==nullptr, then this function will not read any data, but will
+   * still ensure that this key cannot be written to by outside of this
+   * transaction.
+   * <p>
+   * If this transaction was created on an {@link OptimisticTransactionDB},
+   * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}
+   * could cause {@link #commit()} to fail. Otherwise, it could return any error
+   * that could be returned by
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * <p>
+   * If this transaction was created on a {@link TransactionDB}, an
+   * {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   * when:
+   *     {@link Status.Code#Busy} if there is a write conflict,
+   *     {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *     {@link Status.Code#TryAgain} if the memtable history size is not large
+   *         enough. See
+   *         {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *     {@link Status.Code#MergeInProgress} if merge operations cannot be
+   *     resolved.
+   *
+   * @param readOptions Read options.
+   * @param columnFamilyHandle in which to find the key/value
+   * @param key the key to retrieve the value for.
+   * @param value the value associated with the input key if
+   *    *     any. The result is undefined in no value is associated with the key
+   * @param exclusive true if the transaction should have exclusive access to
+   *     the key, otherwise false for shared access.
+   *
+   * @return a status object containing
+   * Status.OK if the requested value was read
+   * Status.NotFound if the requested value does not exist
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+
+  public GetStatus getForUpdate(final ReadOptions readOptions,
+      final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key, final ByteBuffer value,
+      final boolean exclusive) throws RocksDBException {
+    return getForUpdate(
+        readOptions, columnFamilyHandle, key, value, exclusive, true /*doValidate*/);
+  }
+
+  /**
+   * Read this key and ensure that this transaction will only
+   * be able to be committed if this key is not written outside this
+   * transaction after it has first been read (or after the snapshot if a
+   * snapshot is set in this transaction). The transaction behavior is the
+   * same regardless of whether the key exists or not.
+   * <p>
+   * Note: Currently, this function will return Status::MergeInProgress
+   * if the most recent write to the queried key in this batch is a Merge.
+   * <p>
+   * The values returned by this function are similar to
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * If value==nullptr, then this function will not read any data, but will
+   * still ensure that this key cannot be written to by outside of this
+   * transaction.
+   * <p>
+   * If this transaction was created on an {@link OptimisticTransactionDB},
+   * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}
+   * could cause {@link #commit()} to fail. Otherwise, it could return any error
+   * that could be returned by
+   * {@link RocksDB#get(ReadOptions, byte[])}.
+   * <p>
+   * If this transaction was created on a {@link TransactionDB}, an
+   * {@link RocksDBException} may be thrown with an accompanying {@link Status}
+   * when:
+   *     {@link Status.Code#Busy} if there is a write conflict,
+   *     {@link Status.Code#TimedOut} if a lock could not be acquired,
+   *     {@link Status.Code#TryAgain} if the memtable history size is not large
+   *         enough. See
+   *         {@link ColumnFamilyOptions#maxWriteBufferNumberToMaintain()}
+   *     {@link Status.Code#MergeInProgress} if merge operations cannot be
+   *     resolved.
+   *
+   * @param readOptions Read options.
+   * @param columnFamilyHandle in which to find the key/value
+   * @param key the key to retrieve the value for.
+   * @param value the value associated with the input key if
+   *    *     any. The result is undefined in no value is associated with the key
+   * @param exclusive true if the transaction should have exclusive access to
+   *     the key, otherwise false for shared access.
+   * @param doValidate true if the transaction should validate the snapshot before doing the read
+   *
+   * @return a status object containing
+   * Status.OK if the requested value was read
+   * Status.NotFound if the requested value does not exist
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public GetStatus getForUpdate(final ReadOptions readOptions,
+      final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key, final ByteBuffer value,
+      final boolean exclusive, final boolean doValidate) throws RocksDBException {
+    final int result;
+    if (key.isDirect() && value.isDirect()) {
+      result = getDirectForUpdate(nativeHandle_, readOptions.nativeHandle_, key, key.position(),
+          key.remaining(), value, value.position(), value.remaining(),
+          columnFamilyHandle.nativeHandle_, exclusive, doValidate);
+    } else if (!key.isDirect() && !value.isDirect()) {
+      assert key.hasArray();
+      assert value.hasArray();
+      result = getForUpdate(nativeHandle_, readOptions.nativeHandle_, key.array(),
+          key.arrayOffset() + key.position(), key.remaining(), value.array(),
+          value.arrayOffset() + value.position(), value.remaining(),
+          columnFamilyHandle.nativeHandle_, exclusive, doValidate);
+    } else {
+      throw new RocksDBException(
+          "ByteBuffer parameters must all be direct, or must all be indirect");
+    }
+    key.position(key.limit());
+    if (result < 0) {
+      return GetStatus.fromStatusCode(Status.Code.NotFound, 0);
+    } else {
+      value.position(Math.min(value.limit(), value.position() + result));
+      return GetStatus.fromStatusCode(Status.Code.Ok, result);
+    }
   }
 
   /**
@@ -1203,6 +1566,8 @@ public class Transaction extends RocksObject {
       throw new RocksDBException(
           "ByteBuffer parameters must all be direct, or must all be indirect");
     }
+    key.position(key.limit());
+    value.position(value.limit());
   }
 
   /**
@@ -1249,6 +1614,8 @@ public class Transaction extends RocksObject {
       throw new RocksDBException(
           "ByteBuffer parameters must all be direct, or must all be indirect");
     }
+    key.position(key.limit());
+    value.position(value.limit());
   }
   public void put(final ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key,
       final ByteBuffer value) throws RocksDBException {
@@ -1448,6 +1815,8 @@ public class Transaction extends RocksObject {
       throw new RocksDBException(
           "ByteBuffer parameters must all be direct, or must all be indirect");
     }
+    key.position(key.limit());
+    value.position(value.limit());
   }
 
   /**
@@ -1941,6 +2310,8 @@ public class Transaction extends RocksObject {
       throw new RocksDBException(
           "ByteBuffer parameters must all be direct, or must all be indirect");
     }
+    key.position(key.limit());
+    value.position(value.limit());
   }
 
   /**
@@ -1964,9 +2335,7 @@ public class Transaction extends RocksObject {
    */
   public void mergeUntracked(final byte[] key, final byte[] value)
       throws RocksDBException {
-    assert(isOwningHandle());
-    mergeUntracked(nativeHandle_, key, 0, key.length, value, 0, value.length,
-        defaultColumnFamilyHandle.nativeHandle_);
+    mergeUntracked(defaultColumnFamilyHandle, key, value);
   }
 
   /**
@@ -1989,20 +2358,7 @@ public class Transaction extends RocksObject {
    *     described above occurs, or in the case of an unexpected error
    */
   public void mergeUntracked(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
-    assert (isOwningHandle());
-    if (key.isDirect() && value.isDirect()) {
-      mergeUntrackedDirect(nativeHandle_, key, key.position(), key.remaining(), value,
-          value.position(), value.remaining(), defaultColumnFamilyHandle.nativeHandle_);
-    } else if (!key.isDirect() && !value.isDirect()) {
-      assert key.hasArray();
-      assert value.hasArray();
-      mergeUntracked(nativeHandle_, key.array(), key.arrayOffset() + key.position(),
-          key.remaining(), value.array(), value.arrayOffset() + value.position(), value.remaining(),
-          defaultColumnFamilyHandle.nativeHandle_);
-    } else {
-      throw new RocksDBException(
-          "ByteBuffer parameters must all be direct, or must all be indirect");
-    }
+    mergeUntracked(defaultColumnFamilyHandle, key, value);
   }
 
   /**
@@ -2546,8 +2902,6 @@ public class Transaction extends RocksObject {
   private native byte[] get(final long handle, final long readOptionsHandle, final byte[] key,
       final int keyOffset, final int keyLength, final long columnFamilyHandle)
       throws RocksDBException;
-  private native byte[] get(final long handle, final long readOptionsHandle, final byte[] key,
-      final int keyOffset, final int keyLen) throws RocksDBException;
   private native int get(final long handle, final long readOptionsHandle, final byte[] key,
       final int keyOffset, final int keyLen, final byte[] value, final int valueOffset,
       final int valueLen, final long columnFamilyHandle) throws RocksDBException;
@@ -2562,11 +2916,16 @@ public class Transaction extends RocksObject {
       final long readOptionsHandle, final byte[][] keys)
       throws RocksDBException;
   private native byte[] getForUpdate(final long handle, final long readOptionsHandle,
-      final byte[] key, final int keyLength, final long columnFamilyHandle, final boolean exclusive,
+      final byte[] key, final int keyOffset, final int keyLength, final long columnFamilyHandle,
+      final boolean exclusive, final boolean doValidate) throws RocksDBException;
+  private native int getForUpdate(final long handle, final long readOptionsHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final byte[] value, final int valueOffset,
+      final int valueLen, final long columnFamilyHandle, final boolean exclusive,
       final boolean doValidate) throws RocksDBException;
-  private native byte[] getForUpdate(final long handle, final long readOptionsHandle,
-      final byte[] key, final int keyLen, final boolean exclusive, final boolean doValidate)
-      throws RocksDBException;
+  private native int getDirectForUpdate(final long handle, final long readOptionsHandle,
+      final ByteBuffer key, final int keyOffset, final int keyLength, final ByteBuffer value,
+      final int valueOffset, final int valueLen, final long columnFamilyHandle,
+      final boolean exclusive, final boolean doValidate) throws RocksDBException;
   private native byte[][] multiGetForUpdate(final long handle,
       final long readOptionsHandle, final byte[][] keys,
       final long[] columnFamilyHandles) throws RocksDBException;

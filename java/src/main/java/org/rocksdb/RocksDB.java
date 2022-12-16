@@ -3190,9 +3190,11 @@ public class RocksDB extends RocksObject {
       final ReadOptions readOptions, final ByteBuffer key) {
     assert key != null : "key ByteBuffer parameter cannot be null";
     assert key.isDirect() : "key parameter must be a direct ByteBuffer";
-    return keyMayExistDirect(nativeHandle_,
+    final boolean result = keyMayExistDirect(nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
         readOptions == null ? 0 : readOptions.nativeHandle_, key, key.position(), key.limit());
+    key.position(key.limit());
+    return result;
   }
 
   /**
@@ -3225,6 +3227,7 @@ public class RocksDB extends RocksObject {
         value, value.position(), value.remaining());
     final int valueLength = result[1];
     value.limit(value.position() + Math.min(valueLength, value.remaining()));
+    key.position(key.limit());
     return new KeyMayExist(KeyMayExist.KeyMayExistEnum.values()[result[0]], valueLength);
   }
 

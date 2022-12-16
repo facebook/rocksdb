@@ -203,7 +203,7 @@ class JByteArrayPinnableSlice {
     KVException::ThrowOnError(
         env_);  // exception thrown: ArrayIndexOutOfBoundsException
 
-    return result_len;
+    return pinnable_len;
   };
 
   /**
@@ -272,7 +272,7 @@ class JDirectBufferPinnableSlice {
     const jint result_len = std::min(jbuffer_len_, pinnable_len);
 
     memcpy(buffer_, pinnable_slice_.data(), result_len);
-    return result_len;
+    return pinnable_len;
   };
 
  private:
