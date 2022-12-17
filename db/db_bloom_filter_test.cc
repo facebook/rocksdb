@@ -1229,7 +1229,7 @@ TEST_P(ChargeFilterConstructionTestWithParam, Basic) {
      *
      *  The test is designed in a way such that the reservation for (p1 - b')
      *  will trigger at least another dummy entry insertion
-     *  (or equivelantly to saying, creating another peak).
+     *  (or equivalently to saying, creating another peak).
      *
      * kStandard128Ribbon + FullFilter +
      * detect_filter_construct_corruption

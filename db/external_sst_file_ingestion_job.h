@@ -107,14 +107,10 @@ class ExternalSstFileIngestionJob {
       cfd_->compaction_picker()->UnregisterCompaction(c);
       delete c;
     }
-    file_ingesting_compactions_.clear();
-
-    output_level_to_file_ingesting_compaction_input_.clear();
 
     for (const auto& f : compaction_input_metdatas_) {
       delete f;
     }
-    compaction_input_metdatas_.clear();
   }
 
   // Prepare the job by copying external files into the DB.
@@ -227,14 +223,10 @@ class ExternalSstFileIngestionJob {
 
   // Below are variables used in (un)registering range for this ingestion job
   //
-  // FileMetaData used in intputs of compactions equivelant to this ingestion
+  // FileMetaData used in inputs of compactions equivalent to this ingestion
   // job
   std::vector<FileMetaData*> compaction_input_metdatas_;
-  // Map from output level to input of compactions equivelant to this ingestion
-  // job
-  std::map<int, std::vector<CompactionInputFiles>>
-      output_level_to_file_ingesting_compaction_input_;
-  // Compactions equivelant to this ingestion job
+  // Compactions equivalent to this ingestion job
   std::vector<Compaction*> file_ingesting_compactions_;
 };
 

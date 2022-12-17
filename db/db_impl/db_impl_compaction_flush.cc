@@ -1249,6 +1249,12 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "[RefitLevel] waiting for background threads to stop");
+    // TODO(hx235): remove `Enable/DisableManualCompaction` and
+    // `Continue/PauseBackgroundWork` once we ensure registering RefitLevel()'s
+    // range is sufficient (if not, what else is needed) for avoiding range
+    // conflicts with other activities (e.g, compaction, flush) that are
+    // currently avoided by `Enable/DisableManualCompaction` and
+    // `Continue/PauseBackgroundWork`.
     DisableManualCompaction();
     s = PauseBackgroundWork();
     if (s.ok()) {
@@ -1313,13 +1319,6 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
           const_cast<std::atomic<int>*>(&manual_compaction_paused_)));
   {
     InstrumentedMutexLock l(&mutex_);
-
-    // This call will unlock/lock the mutex to wait for current running
-    // IngestExternalFile() calls to finish.
-    WaitForIngestFile();
-
-    // We need to get current after `WaitForIngestFile`, because
-    // `IngestExternalFile` may add files that overlap with `input_file_names`
     auto* current = cfd->current();
     current->Ref();
 
@@ -1398,6 +1397,7 @@ Status DBImpl::CompactFilesImpl(
 
   Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
       &input_set, cf_meta, output_level);
+  TEST_SYNC_POINT("DBImpl::CompactFilesImpl::PostSanitizeCompactionInputFiles");
   if (!s.ok()) {
     return s;
   }
@@ -2025,9 +2025,6 @@ Status DBImpl::RunManualCompaction(
                manual.begin, manual.end, &manual.manual_end, &manual_conflict,
                max_file_num_to_ignore, trim_ts)) == nullptr &&
           manual_conflict))) {
-      // exclusive manual compactions should not see a conflict during
-      // CompactRange
-      assert(!exclusive || !manual_conflict);
       // Running either this or some other manual compaction
       bg_cv_.Wait();
       if (manual_compaction_paused_ > 0 && scheduled && !unscheduled) {
@@ -3056,10 +3053,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
   {
     InstrumentedMutexLock l(&mutex_);
 
-    // This call will unlock/lock the mutex to wait for current running
-    // IngestExternalFile() calls to finish.
-    WaitForIngestFile();
-
     num_running_compactions_++;
 
     std::unique_ptr<std::list<uint64_t>::iterator>
@@ -3701,11 +3694,6 @@ void DBImpl::RemoveManualCompaction(DBImpl::ManualCompactionState* m) {
 }
 
 bool DBImpl::ShouldntRunManualCompaction(ManualCompactionState* m) {
-  if (num_running_ingest_file_ > 0) {
-    // We need to wait for other IngestExternalFile() calls to finish
-    // before running a manual compaction.
-    return true;
-  }
   if (m->exclusive) {
     return (bg_bottom_compaction_scheduled_ > 0 ||
             bg_compaction_scheduled_ > 0);

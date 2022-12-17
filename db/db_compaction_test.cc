@@ -6245,125 +6245,229 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
   Close();
 }
 
-TEST_F(DBCompactionTest, RefitLevelOverlappedWithOngoingFileIngestion) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.disable_auto_compactions = true;
-  DestroyAndReopen(options);
+class DBCompactionTestWithOngoingFileIngestionParam
+    : public DBCompactionTest,
+      public testing::WithParamInterface<std::string> {
+ public:
+  DBCompactionTestWithOngoingFileIngestionParam() : DBCompactionTest() {
+    compaction_path_to_test_ = GetParam();
+  }
+  void SetupOptions() {
+    options_ = CurrentOptions();
+    options_.create_if_missing = true;
+
+    if (compaction_path_to_test_ == "RefitLevelCompactRange") {
+      options_.num_levels = 7;
+    } else {
+      options_.num_levels = 3;
+    }
+    options_.compaction_style = CompactionStyle::kCompactionStyleLevel;
+    if (compaction_path_to_test_ == "AutoCompaction") {
+      options_.disable_auto_compactions = false;
+      options_.level0_file_num_compaction_trigger = 1;
+    } else {
+      options_.disable_auto_compactions = true;
+    }
+  }
+
+  void PauseCompactionThread() {
+    sleeping_task_.reset(new test::SleepingBackgroundTask());
+    env_->SetBackgroundThreads(1, Env::LOW);
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   sleeping_task_.get(), Env::Priority::LOW);
+    sleeping_task_->WaitUntilSleeping();
+  }
+
+  void ResumeCompactionThread() {
+    if (sleeping_task_) {
+      sleeping_task_->WakeUp();
+      sleeping_task_->WaitUntilDone();
+    }
+  }
+
+  void SetupFilesToForceFutureFilesIngestedToCertainLevel() {
+    SstFileWriter sst_file_writer(EnvOptions(), options_);
+    std::string dummy = dbname_ + "/dummy.sst";
+    ASSERT_OK(sst_file_writer.Open(dummy));
+    ASSERT_OK(sst_file_writer.Put("k2", "dummy"));
+    ASSERT_OK(sst_file_writer.Finish());
+    EXPECT_OK(db_->IngestExternalFile({dummy}, IngestExternalFileOptions()));
+    // L2 is made to contain a file overlapped with files to be ingested in
+    // later steps on key "k2". This will force future files ingested to L1 or
+    // above.
+    ASSERT_EQ("0,0,1", FilesPerLevel(0));
+  }
+
+  void SetupSyncPoints() {
+    if (compaction_path_to_test_ == "AutoCompaction") {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::Run", [&](void*) {
+            SyncPoint::GetInstance()->LoadDependency(
+                {{"DBImpl::BackgroundCompaction():AfterPickCompaction",
+                  "VersionSet::LogAndApply:WriteManifest"}});
+          });
+    } else if (compaction_path_to_test_ == "NonRefitLevelCompactRange") {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::Run", [&](void*) {
+            SyncPoint::GetInstance()->LoadDependency(
+                {{"ColumnFamilyData::CompactRange:Return",
+                  "VersionSet::LogAndApply:WriteManifest"}});
+          });
+    } else if (compaction_path_to_test_ == "RefitLevelCompactRange") {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::Run", [&](void*) {
+            SyncPoint::GetInstance()->LoadDependency(
+                {{"DBImpl::CompactRange:PostRefitLevel",
+                  "VersionSet::LogAndApply:WriteManifest"}});
+          });
+    } else if (compaction_path_to_test_ == "CompactFiles") {
+      SyncPoint::GetInstance()->SetCallBack(
+          "ExternalSstFileIngestionJob::Run", [&](void*) {
+            SyncPoint::GetInstance()->LoadDependency(
+                {{"DBImpl::CompactFilesImpl::PostSanitizeCompactionInputFiles",
+                  "VersionSet::LogAndApply:WriteManifest"}});
+          });
+    } else {
+      assert(false);
+    }
+    SyncPoint::GetInstance()->LoadDependency(
+        {{"ExternalSstFileIngestionJob::Run", "PreCompaction"}});
+    SyncPoint::GetInstance()->EnableProcessing();
+  }
+
+  void RunCompactionOverlappedWithFileIngestion() {
+    if (compaction_path_to_test_ == "AutoCompaction") {
+      TEST_SYNC_POINT("PreCompaction");
+      ResumeCompactionThread();
+      // Withouth proper range conflict check,
+      // this would have been `Status::Corruption` about overlapping ranges
+      Status s = dbfull()->TEST_WaitForCompact();
+      EXPECT_OK(s);
+    } else if (compaction_path_to_test_ == "NonRefitLevelCompactRange") {
+      CompactRangeOptions cro;
+      cro.change_level = false;
+      std::string start_key = "k1";
+      Slice start(start_key);
+      std::string end_key = "k4";
+      Slice end(end_key);
+      TEST_SYNC_POINT("PreCompaction");
+      // Withouth proper range conflict check,
+      // this would have been `Status::Corruption` about overlapping ranges
+      Status s = dbfull()->CompactRange(cro, &start, &end);
+      EXPECT_OK(s);
+    } else if (compaction_path_to_test_ == "RefitLevelCompactRange") {
+      CompactRangeOptions cro;
+      cro.change_level = true;
+      cro.target_level = 5;
+      std::string start_key = "k1";
+      Slice start(start_key);
+      std::string end_key = "k4";
+      Slice end(end_key);
+      TEST_SYNC_POINT("PreCompaction");
+      Status s = dbfull()->CompactRange(cro, &start, &end);
+      // Withouth proper range conflict check,
+      // this would have been `Status::Corruption` about overlapping ranges
+      // To see this, remove the fix AND replace
+      // `DBImpl::CompactRange:PostRefitLevel` in sync point dependency with
+      // `DBImpl::ReFitLevel:PostRegisterCompaction`
+      EXPECT_TRUE(s.IsNotSupported());
+      EXPECT_TRUE(s.ToString().find("some ongoing compaction's output") !=
+                  std::string::npos);
+    } else if (compaction_path_to_test_ == "CompactFiles") {
+      ColumnFamilyMetaData cf_meta_data;
+      db_->GetColumnFamilyMetaData(&cf_meta_data);
+      ASSERT_EQ(cf_meta_data.levels[0].files.size(), 1);
+      std::vector<std::string> input_files;
+      for (const auto& file : cf_meta_data.levels[0].files) {
+        input_files.push_back(file.name);
+      }
+      TEST_SYNC_POINT("PreCompaction");
+      Status s = db_->CompactFiles(CompactionOptions(), input_files, 1);
+      // Withouth proper range conflict check,
+      // this would have been `Status::Corruption` about overlapping ranges
+      EXPECT_TRUE(s.IsAborted());
+      EXPECT_TRUE(
+          s.ToString().find(
+              "A running compaction is writing to the same output level") !=
+          std::string::npos);
+    } else {
+      assert(false);
+    }
+  }
+
+  void DisableSyncPoints() {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  }
+
+ protected:
+  std::string compaction_path_to_test_;
+  Options options_;
+  std::shared_ptr<test::SleepingBackgroundTask> sleeping_task_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBCompactionTestWithOngoingFileIngestionParam,
+                        DBCompactionTestWithOngoingFileIngestionParam,
+                        ::testing::Values("AutoCompaction",
+                                          "NonRefitLevelCompactRange",
+                                          "RefitLevelCompactRange",
+                                          "CompactFiles"));
+
+TEST_P(DBCompactionTestWithOngoingFileIngestionParam, RangeConflictCheck) {
+  SetupOptions();
+  DestroyAndReopen(options_);
+
+  if (compaction_path_to_test_ == "AutoCompaction") {
+    PauseCompactionThread();
+  }
+
+  if (compaction_path_to_test_ != "RefitLevelCompactRange") {
+    SetupFilesToForceFutureFilesIngestedToCertainLevel();
+  }
 
   // Create s1
   ASSERT_OK(Put("k1", "v"));
-  ASSERT_OK(Put("k3", "v"));
+  ASSERT_OK(Put("k4", "v"));
   ASSERT_OK(Flush());
-  MoveFilesToLevel(6 /* level */);
-  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel(0));
+  if (compaction_path_to_test_ == "RefitLevelCompactRange") {
+    MoveFilesToLevel(6 /* level */);
+    ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel(0));
+  } else {
+    ASSERT_EQ("1,0,1", FilesPerLevel(0));
+  }
 
-  // Coerce following sequence of events:
-  // (1) File ingestion of s2 assigns it to output level L5, pauses on
-  // TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest") and releases
-  // the lock
-  // (2) CompactRange() of s1, which has an overlapping range with s2, proceeds
-  // with the lock. It checks whether to refit s1 from L6 to L3 but finds out it
-  // can't due to s2 ingested to L5.
-  SyncPoint::GetInstance()->SetCallBack(
-      "ExternalSstFileIngestionJob::Run", [&](void*) {
-        SyncPoint::GetInstance()->LoadDependency(
-            {{"DBImpl::CompactRange:PostRefitLevel",
-              "VersionSet::LogAndApply:WriteManifest"}});
-      });
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"ExternalSstFileIngestionJob::Run", "PreCompactRange"}});
-  SyncPoint::GetInstance()->EnableProcessing();
+  // To coerce following sequence of events
+  // Timeline   Thread 1 (Ingest s2)          Thread 2 (Compact s1)
+  // t0   |     Decide to output to Lk
+  // t1   |     Release lock in LogAndApply()
+  // t2   |                                    Acquire lock
+  // t3   |                                    Decides to compact to Lk
+  //      |                                    Expected to fail due to range
+  //      |                                    conflict check with file
+  //      |                                    ingestion
+  // t4   |                                    Release lock in LogAndApply()
+  // t5   |    Acquire lock again and finish
+  // t6   |                                    Acquire lock again and finish
+  SetupSyncPoints();
 
-  port::Thread t1([&] {
-    SstFileWriter sst_file_writer(EnvOptions(), options);
+  // Ingest s2
+  port::Thread thread1([&] {
+    SstFileWriter sst_file_writer(EnvOptions(), options_);
     std::string s2 = dbname_ + "/ingested_s2.sst";
     ASSERT_OK(sst_file_writer.Open(s2));
     ASSERT_OK(sst_file_writer.Put("k2", "v2"));
-    ASSERT_OK(sst_file_writer.Put("k4", "v2"));
+    ASSERT_OK(sst_file_writer.Put("k3", "v2"));
     ASSERT_OK(sst_file_writer.Finish());
-    EXPECT_OK(db_->IngestExternalFile({s2}, IngestExternalFileOptions()));
+    ASSERT_OK(db_->IngestExternalFile({s2}, IngestExternalFileOptions()));
   });
 
-  port::Thread t2([&] {
-    CompactRangeOptions cro;
-    cro.change_level = true;
-    cro.target_level = 3;
-    std::string start_key = "k1";
-    Slice start(start_key);
-    std::string end_key = "k3";
-    Slice end(end_key);
-    TEST_SYNC_POINT("PreCompactRange");
-    Status s = dbfull()->CompactRange(cro, &start, &end);
-    EXPECT_TRUE(s.IsNotSupported());
-    EXPECT_TRUE(s.ToString().find("some ongoing compaction's output") !=
-                std::string::npos);
-  });
+  // Compact s1. Withouth proper range conflict check,
+  // this will encounter overlapping file corruption.
+  port::Thread thread2([&] { RunCompactionOverlappedWithFileIngestion(); });
 
-  t1.join();
-  t2.join();
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  EXPECT_EQ("0,0,0,0,0,1,1", FilesPerLevel(0));
-}
-
-TEST_F(DBCompactionTest, IngestFileOfRangeOverlappedWithOngoingRefitLevel) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.disable_auto_compactions = true;
-  DestroyAndReopen(options);
-
-  // Create s1
-  ASSERT_OK(Put("k1", "v"));
-  ASSERT_OK(Put("k3", "v"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(6 /* level */);
-  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel(0));
-
-  // Coerce following sequence of events:
-  // (1) File ingestion of s2, which has an overlapping range with s1, enters
-  // its preparation phase and releases the lock. By this point, it hasn't
-  // assign the output level yet. (2) CompactRange() then proceeds with the
-  // lock, refits s1 from L6 to L3, pauses on
-  // TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest") and releases lock.
-  // (3) File ingestion of s2 proceeds with
-  // the lock. It then assign the output level to be s2 due to s1 is refitted
-  // from L6 to L3.
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"VersionSet::LogAndApply:WriteManifestStart", "PreCompactRange"},
-       {"DBImpl::ReFitLevel:PostRegisterCompaction",
-        "VersionSet::LogAndApply:WriteManifestDone"}});
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  port::Thread t1([&] {
-    CompactRangeOptions cro;
-    cro.change_level = true;
-    cro.target_level = 3;
-    std::string start_key = "k1";
-    Slice start(start_key);
-    std::string end_key = "k3";
-    Slice end(end_key);
-    TEST_SYNC_POINT("PreCompactRange");
-    EXPECT_OK(dbfull()->CompactRange(cro, &start, &end));
-  });
-
-  port::Thread t2([&] {
-    SstFileWriter sst_file_writer(EnvOptions(), options);
-    std::string s2 = dbname_ + "/ingested_s2.sst";
-    ASSERT_OK(sst_file_writer.Open(s2));
-    ASSERT_OK(sst_file_writer.Put("k2", "v2"));
-    ASSERT_OK(sst_file_writer.Put("k4", "v2"));
-    ASSERT_OK(sst_file_writer.Finish());
-    EXPECT_OK(db_->IngestExternalFile({s2}, IngestExternalFileOptions()));
-  });
-
-  t1.join();
-  t2.join();
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  EXPECT_EQ("0,0,1,1", FilesPerLevel(0));
+  thread1.join();
+  thread2.join();
+  DisableSyncPoints();
 }
 
 TEST_F(DBCompactionTest, ConsistencyFailTest) {
