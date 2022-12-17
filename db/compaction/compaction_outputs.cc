@@ -640,7 +640,7 @@ Status CompactionOutputs::AddRangeDels(
     // it cannot have a seqnum of 0 (unless the smallest data key in a file
     // has a seqnum of 0). Otherwise, the truncated tombstone may expose
     // deleted keys at lower levels.
-    assert(smallest_ikey_seqnum == 0 ||
+    assert(smallest_ikey_seqnum == 0 || lower_bound_from_range_tombstone ||
            ExtractInternalKeyFooter(meta.smallest.Encode()) !=
                PackSequenceAndType(0, kTypeRangeDeletion));
   }
