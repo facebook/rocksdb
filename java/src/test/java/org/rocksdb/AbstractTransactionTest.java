@@ -14,7 +14,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.function.Function;
-
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -244,7 +243,8 @@ public abstract class AbstractTransactionTest {
     }
   }
 
-  public void getPutByteBuffer(final Function<Integer, ByteBuffer> allocateBuffer) throws RocksDBException {
+  public void getPutByteBuffer(final Function<Integer, ByteBuffer> allocateBuffer)
+      throws RocksDBException {
     final ByteBuffer k1 = allocateBuffer.apply(100).put("key1".getBytes(UTF_8));
     k1.flip();
     final ByteBuffer v1 = allocateBuffer.apply(100).put("value1".getBytes(UTF_8));
@@ -288,7 +288,8 @@ public abstract class AbstractTransactionTest {
     getPutByteBuffer(ByteBuffer::allocate);
   }
 
-  public void getPutByteBuffer_cf(final Function<Integer, ByteBuffer> allocateBuffer) throws RocksDBException {
+  public void getPutByteBuffer_cf(final Function<Integer, ByteBuffer> allocateBuffer)
+      throws RocksDBException {
     final ByteBuffer k1 = allocateBuffer.apply(100).put("key1".getBytes(UTF_8));
     k1.flip();
     final ByteBuffer v1 = allocateBuffer.apply(100).put("value1".getBytes(UTF_8));
@@ -436,12 +437,13 @@ public abstract class AbstractTransactionTest {
   public void getForUpdateByteArray_cf_doValidate() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
-    try(final DBContainer dbContainer = startDb();
-        final ReadOptions readOptions = new ReadOptions();
-        final Transaction txn = dbContainer.beginTransaction()) {
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       final byte[] vNonExistent = new byte[1];
-      final GetStatus sNonExistent = txn.getForUpdate(readOptions, testCf, k1, vNonExistent, true, true);
+      final GetStatus sNonExistent =
+          txn.getForUpdate(readOptions, testCf, k1, vNonExistent, true, true);
       assertThat(sNonExistent.status.getCode()).isEqualTo(Status.Code.NotFound);
       txn.put(testCf, k1, v1);
       final byte[] vPartial = new byte[4];
@@ -461,9 +463,9 @@ public abstract class AbstractTransactionTest {
   public void getForUpdateByteArray_cf() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
-    try(final DBContainer dbContainer = startDb();
-        final ReadOptions readOptions = new ReadOptions();
-        final Transaction txn = dbContainer.beginTransaction()) {
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
       final byte[] vNonExistent = new byte[1];
       final GetStatus sNonExistent = txn.getForUpdate(readOptions, testCf, k1, vNonExistent, true);
@@ -483,12 +485,13 @@ public abstract class AbstractTransactionTest {
     }
   }
 
-  @Test public void getForUpdateByteArray() throws RocksDBException {
+  @Test
+  public void getForUpdateByteArray() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
-    try(final DBContainer dbContainer = startDb();
-        final ReadOptions readOptions = new ReadOptions();
-        final Transaction txn = dbContainer.beginTransaction()) {
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
       final byte[] vNonExistent = new byte[1];
       final GetStatus sNonExistent = txn.getForUpdate(readOptions, k1, vNonExistent, true);
       assertThat(sNonExistent.status.getCode()).isEqualTo(Status.Code.NotFound);
@@ -517,7 +520,8 @@ public abstract class AbstractTransactionTest {
     getForUpdateByteBuffer(ByteBuffer::allocate);
   }
 
-  public void getForUpdateByteBuffer(final Function<Integer, ByteBuffer> allocateBuffer) throws Exception {
+  public void getForUpdateByteBuffer(final Function<Integer, ByteBuffer> allocateBuffer)
+      throws Exception {
     final ByteBuffer k1 = allocateBuffer.apply(20).put("key1".getBytes(UTF_8));
     k1.flip();
     final ByteBuffer v1 = allocateBuffer.apply(20).put("value1".getBytes(UTF_8));

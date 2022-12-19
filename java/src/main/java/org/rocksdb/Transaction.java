@@ -1282,11 +1282,6 @@ public class Transaction extends RocksObject {
    * column family including both keys in the DB and uncommitted keys in this
    * transaction.
    * <p>
-   * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is read
-   * from the DB but will NOT change which keys are read from this transaction
-   * (the keys in this transaction do not yet belong to any snapshot and will be
-   * fetched regardless).
-   * <p>
    * Caller is responsible for deleting the returned Iterator.
    * <p>
    * The returned iterator is only valid until {@link #commit()},
@@ -2270,6 +2265,7 @@ public class Transaction extends RocksObject {
    */
   public void mergeUntracked(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value) throws RocksDBException {
+    assert (isOwningHandle());
     mergeUntracked(nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }

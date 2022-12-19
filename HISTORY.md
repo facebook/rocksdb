@@ -312,6 +312,12 @@ For Leveled Compaction users, `CompactRange()` with `bottommost_level_compaction
   * Deprecated `get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions readOptions, byte[])` in favour of `get(final ReadOptions readOptions, final ColumnFamilyHandle columnFamilyHandle, byte[])` which has consistent parameter ordering with other methods in the same class
   * Added `Transaction.get( ... byte[] key, byte[] value ...)` methods which retrieve the requested value into the supplied buffer
   * Added `Transaction.get( ... Bytebuffer key, ByteBuffer value ...)` methods which retrieve the requested value into the supplied buffer
+ * Added `Transaction.getForUpdate( ... byte[] key, byte[] value ...)` methods which retrieve the requested value into the supplied buffer
+  * Added `Transaction.getForUpdate( ... Bytebuffer key, ByteBuffer value ...)` methods which retrieve the requested value into the supplied buffer
+  * Added `Transaction.getIterator()` method as a convenience which defaults the `ReadOptions` value supplied to existing `Transaction.iterator()` methods. This mirrors the existing `RocksDB.iterator()` method.
+  * Added `Transaction.put( ... Bytebuffer key, ByteBuffer value ...)` methods which supply the key, and the value to be written in a `ByteBuffer` parameter
+  * Added `Transaction.merge( ... Bytebuffer key, ByteBuffer value ...)` methods which supply the key, and the value to be written/merged in a `ByteBuffer` parameter
+  * Added `Transaction.mergeUntracked( ... Bytebuffer key, ByteBuffer value ...)` methods which supply the key, and the value to be written/merged in a `ByteBuffer` parameter
  
 ## 7.9.0 (11/21/2022)
 ### Performance Improvements
