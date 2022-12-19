@@ -433,6 +433,10 @@ IOStatus TestFSRandomAccessFile::ReadAsync(
       ret = IOStatus::IOError("Injected read error");
     } else {
       s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
+      if (s.IsNotSupported()) {
+        return FSRandomAccessFile::ReadAsync(req, opts, cb, cb_arg, io_handle,
+                                             del_fn, nullptr);
+      }
     }
   }
   if (!ret.ok()) {
