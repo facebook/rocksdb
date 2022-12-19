@@ -29,8 +29,7 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
-static std::shared_ptr<ROCKSDB_NAMESPACE::Env>
-    env_wrapper_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::CompositeEnvWrapper>
     dbsl_env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
