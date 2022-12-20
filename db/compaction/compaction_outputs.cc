@@ -532,23 +532,18 @@ Status CompactionOutputs::AddRangeDels(
       // Pretend the smallest key has the same user key as lower_bound
       // (the max key in the previous table or subcompaction) in order for
       // files to appear key-space partitioned.
-      //
-      // When lower_bound is chosen by a subcompaction, we know that
-      // subcompactions over smaller keys cannot contain any keys at
-      // lower_bound. We also know that smaller subcompactions exist,
-      // because otherwise the subcompaction woud be unbounded on the left.
-      // As a result, we know that no other files on the output level will
-      // contain actual keys at lower_bound (an output file may have a
-      // largest key of lower_bound@kMaxSequenceNumber, but this only
-      // indicates a large range tombstone was truncated). Therefore, it is
-      // safe to use the tombstone's sequence number, to ensure that keys at
-      // lower_bound at lower levels are covered by truncated tombstones.
-      //
-      // If lower_bound was chosen by the smallest data key in the file,
-      // choose lowest seqnum so this file's smallest internal key comes
-      // after the previous file's largest. The fake seqnum is OK because
-      // the read path's file-picking code only considers user key.
       if (lower_bound_from_sub_compact) {
+        // When lower_bound is chosen by a subcompaction
+        // (lower_bound_from_sub_compact), we know that subcompactions over
+        // smaller keys cannot contain any keys at lower_bound. We also know
+        // that smaller subcompactions exist, because otherwise the
+        // subcompaction woud be unbounded on the left. As a result, we know
+        // that no other files on the output level will contain actual keys at
+        // lower_bound (an output file may have a largest key of
+        // lower_bound@kMaxSequenceNumber, but this only indicates a large range
+        // tombstone was truncated). Therefore, it is safe to use the
+        // tombstone's sequence number, to ensure that keys at lower_bound at
+        // lower levels are covered by truncated tombstones.
         if (ts_sz) {
           assert(tombstone.ts_.size() == ts_sz);
           smallest_candidate = InternalKey(*lower_bound, tombstone.seq_,
@@ -558,6 +553,7 @@ Status CompactionOutputs::AddRangeDels(
               InternalKey(*lower_bound, tombstone.seq_, kTypeRangeDeletion);
         }
       } else if (lower_bound_from_range_tombstone) {
+        // When lower_bound is chosen from a range tombtone start key:
         // Range tombstone keys can be truncated at file boundaries of the files
         // that contain them.
         //
@@ -591,6 +587,10 @@ Status CompactionOutputs::AddRangeDels(
           smallest_candidate = range_tombstone_lower_bound_;
         }
       } else {
+        // If lower_bound was chosen by the smallest data key in the file,
+        // choose lowest seqnum so this file's smallest internal key comes
+        // after the previous file's largest. The fake seqnum is OK because
+        // the read path's file-picking code only considers user key.
         smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
       }
     }
@@ -640,7 +640,7 @@ Status CompactionOutputs::AddRangeDels(
     // it cannot have a seqnum of 0 (unless the smallest data key in a file
     // has a seqnum of 0). Otherwise, the truncated tombstone may expose
     // deleted keys at lower levels.
-    assert(smallest_ikey_seqnum == 0 ||
+    assert(smallest_ikey_seqnum == 0 || lower_bound_from_range_tombstone ||
            ExtractInternalKeyFooter(meta.smallest.Encode()) !=
                PackSequenceAndType(0, kTypeRangeDeletion));
   }
