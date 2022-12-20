@@ -55,6 +55,7 @@ void FilePrefetchBuffer::CalculateOffsetAndLen(size_t alignment,
 
   // Create a new buffer only if current capacity is not sufficient, and memcopy
   // bytes from old buffer if needed (i.e., if chunk_len is greater than 0).
+  assert(!bufs_[index].async_read_in_progress_);
   if (bufs_[index].buffer_.Capacity() < roundup_len) {
     bufs_[index].buffer_.Alignment(alignment);
     bufs_[index].buffer_.AllocateNewBuffer(
@@ -247,10 +248,14 @@ void FilePrefetchBuffer::AbortAllIOs() {
   // Release io_handles.
   if (bufs_[curr_].io_handle_ != nullptr && bufs_[curr_].del_fn_ != nullptr) {
     DestroyAndClearIOHandle(curr_);
+  } else {
+    bufs_[curr_].async_read_in_progress_ = false;
   }
 
   if (bufs_[second].io_handle_ != nullptr && bufs_[second].del_fn_ != nullptr) {
     DestroyAndClearIOHandle(second);
+  } else {
+    bufs_[second].async_read_in_progress_ = false;
   }
 }
 
@@ -326,6 +331,14 @@ Status FilePrefetchBuffer::HandleOverlappingData(
   Status s;
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
   uint32_t second = curr_ ^ 1;
+
+  // Check if the first buffer has the required offset and the async read is
+  // still in progress. This should only happen if a prefetch was initiated
+  // by Seek, but the next access is at another offset.
+  if (bufs_[curr_].async_read_in_progress_ &&
+      IsOffsetInBufferWithAsyncProgress(offset, curr_)) {
+    PollAndUpdateBuffersIfNeeded(offset);
+  }
 
   // If data is overlapping over two buffers, copy the data from curr_ and
   // call ReadAsync on curr_.
