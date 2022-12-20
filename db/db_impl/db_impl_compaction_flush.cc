@@ -1177,9 +1177,11 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
           break;
         }
         if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
+          mutex_.Lock();
           assert(cfd->current() && cfd->current()->storage_info());
           VersionStorageInfo* vstorage = cfd->current()->storage_info();
           final_output_level = vstorage->base_level();
+          mutex_.Unlock();
         } else if (output_level > final_output_level) {
           final_output_level = output_level;
         }
