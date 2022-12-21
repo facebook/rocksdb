@@ -18,6 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 // The file contains class Compaction, as well as some helper functions
 // and data structures used by the class.
 
+const uint64_t kRangeTombstoneSentinel =
+    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
 // Utility for comparing sstable boundary keys. Returns -1 if either a or b is
 // null which provides the property that a==null indicates a key that is less
 // than any key and b==null indicates a key that is greater than any key. Note
@@ -378,6 +380,9 @@ class Compaction {
   // This is used to filter out some input files' ancester's time range.
   uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
                                           const InternalKey* end) const;
+  // Return the minimum epoch number among
+  // input files' associated with this compaction
+  uint64_t MinInputFileEpochNumber() const;
 
   // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
   // compaction begin and compaction completion callbacks match.

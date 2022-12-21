@@ -62,7 +62,61 @@ class RepairTest : public DBTestBase {
     ASSERT_GT(verify_passed, 0);
     SyncPoint::GetInstance()->DisableProcessing();
   }
+
+  std::vector<FileMetaData*> GetLevelFileMetadatas(int level, int cf = 0) {
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    assert(versions);
+    ColumnFamilyData* const cfd =
+        versions->GetColumnFamilySet()->GetColumnFamily(cf);
+    assert(cfd);
+    Version* const current = cfd->current();
+    assert(current);
+    VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+    return storage_info->LevelFiles(level);
+  }
 };
+
+TEST_F(RepairTest, SortRepairedDBL0ByEpochNumber) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("k1", "oldest"));
+  ASSERT_OK(Put("k1", "older"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  ASSERT_OK(Put("k1", "old"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("k1", "new"));
+
+  std::vector<FileMetaData*> level0_files = GetLevelFileMetadatas(0 /* level*/);
+  ASSERT_EQ(level0_files.size(), 1);
+  ASSERT_EQ(level0_files[0]->epoch_number, 2);
+  std::vector<FileMetaData*> level1_files = GetLevelFileMetadatas(1 /* level*/);
+  ASSERT_EQ(level1_files.size(), 1);
+  ASSERT_EQ(level1_files[0]->epoch_number, 1);
+
+  std::string manifest_path =
+      DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
+  Close();
+  ASSERT_OK(env_->FileExists(manifest_path));
+  ASSERT_OK(env_->DeleteFile(manifest_path));
+
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
+  ReopenWithSstIdVerify();
+
+  EXPECT_EQ(Get("k1"), "new");
+
+  level0_files = GetLevelFileMetadatas(0 /* level*/);
+  ASSERT_EQ(level0_files.size(), 3);
+  EXPECT_EQ(level0_files[0]->epoch_number, 3);
+  EXPECT_EQ(level0_files[1]->epoch_number, 2);
+  EXPECT_EQ(level0_files[2]->epoch_number, 1);
+  level1_files = GetLevelFileMetadatas(1 /* level*/);
+  ASSERT_EQ(level1_files.size(), 0);
+}
 
 TEST_F(RepairTest, LostManifest) {
   // Add a couple SST files, delete the manifest, and verify RepairDB() saves

@@ -307,6 +307,7 @@ class CompactionOutputs {
   std::unique_ptr<SstPartitioner> partitioner_;
 
   // A flag determines if this subcompaction has been split by the cursor
+  // for RoundRobin compaction
   bool is_split_ = false;
 
   // We also maintain the output split key for each subcompaction to avoid
@@ -338,6 +339,10 @@ class CompactionOutputs {
   // for the current output file, how many file boundaries has it crossed,
   // basically number of files overlapped * 2
   size_t grandparent_boundary_switched_num_ = 0;
+
+  // The smallest key of the current output file, this is set when current
+  // output file's smallest key is a range tombstone start key.
+  InternalKey range_tombstone_lower_bound_;
 };
 
 // helper struct to concatenate the last level and penultimate level outputs

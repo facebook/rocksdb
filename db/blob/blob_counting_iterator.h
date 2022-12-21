@@ -123,12 +123,23 @@ class BlobCountingIterator : public InternalIterator {
     return iter_->GetProperty(prop_name, prop);
   }
 
+  bool IsDeleteRangeSentinelKey() const override {
+    return iter_->IsDeleteRangeSentinelKey();
+  }
+
  private:
   void UpdateAndCountBlobIfNeeded() {
     assert(!iter_->Valid() || iter_->status().ok());
 
     if (!iter_->Valid()) {
       status_ = iter_->status();
+      return;
+    } else if (iter_->IsDeleteRangeSentinelKey()) {
+      // CompactionMergingIterator emits range tombstones, and range tombstone
+      // keys can be truncated at file boundaries. This means the range
+      // tombstone keys can have op_type kTypeBlobIndex.
+      // This could crash the ProcessInFlow() call below since
+      // value is empty for these keys.
       return;
     }
 

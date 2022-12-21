@@ -1635,6 +1635,11 @@ IOStatus BackupEngineImpl::DeleteBackupNoGC(BackupID backup_id) {
       return io_s;
     }
     backups_.erase(backup);
+    if (backups_.empty()) {
+      latest_valid_backup_id_ = 0;
+    } else {
+      latest_valid_backup_id_ = backups_.rbegin()->first;
+    }
   } else {
     auto corrupt = corrupt_backups_.find(backup_id);
     if (corrupt == corrupt_backups_.end()) {
