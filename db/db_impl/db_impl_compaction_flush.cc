@@ -1137,9 +1137,10 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
             // within that range, thus safe to check overlap within file.
             //
             // Use a hypothetical trivial move query to check for partition
-            // boundary in range. (WART: might force "unnecessary" compaction
-            // if *end, which is excluded from compaction, is the first key in
-            // a partition. TODO: Consider enhancing SstPartitioner API.)
+            // boundary in range. (NOTE: in defiance of all conventions,
+            // `begin` and `end` here are both INCLUSIVE bounds, which makes
+            // this analogy to CanDoTrivialMove() accurate even when `end` is
+            // the first key in a partition.)
             if (!partitioner->CanDoTrivialMove(*begin, *end)) {
               check_overlap_within_file = false;
             }

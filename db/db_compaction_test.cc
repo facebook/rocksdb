@@ -1077,8 +1077,9 @@ TEST_F(DBCompactionTest, CompactionSstPartitionWithManualCompaction) {
 
   // TEST: request compaction overlapping with partition boundary but no
   // actual entries
+  // NOTE: `to` is INCLUSIVE
   from = Slice("000019");
-  to = Slice("000021");
+  to = Slice("000020");
   ASSERT_OK(dbfull()->CompactRange(compact_options, &from, &to));
 
   // Check (must be partitioned)
