@@ -330,7 +330,7 @@ Status FilePrefetchBuffer::HandleOverlappingData(
     uint64_t& tmp_offset, size_t& tmp_length) {
   Status s;
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
-  uint32_t second = curr_ ^ 1;
+  uint32_t second;
 
   // Check if the first buffer has the required offset and the async read is
   // still in progress. This should only happen if a prefetch was initiated
@@ -339,6 +339,7 @@ Status FilePrefetchBuffer::HandleOverlappingData(
       IsOffsetInBufferWithAsyncProgress(offset, curr_)) {
     PollAndUpdateBuffersIfNeeded(offset);
   }
+  second = curr_ ^ 1;
 
   // If data is overlapping over two buffers, copy the data from curr_ and
   // call ReadAsync on curr_.
