@@ -21,10 +21,10 @@ LocalManifestReader::LocalManifestReader(std::shared_ptr<Logger> info_log,
                                          CloudEnv* cenv)
     : info_log_(info_log), cenv_(cenv) {}
 
-Status LocalManifestReader::GetLiveFilesLocally(
+IOStatus LocalManifestReader::GetLiveFilesLocally(
     const std::string& local_dbname, std::set<uint64_t>* list,
     std::string* manifest_file_version) const {
-  auto cenv_impl = static_cast<CloudEnvImpl*>(cenv_);
+  auto cenv_impl = dynamic_cast<CloudEnvImpl*>(cenv_);
   assert(cenv_impl);
   // cloud manifest should be set in CloudEnv, and it should map to local
   // CloudManifest
@@ -33,7 +33,7 @@ Status LocalManifestReader::GetLiveFilesLocally(
   auto current_epoch = cloud_manifest->GetCurrentEpoch();
 
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
-  Status s;
+  IOStatus s;
   {
     auto cloud_storage_provider =
         std::dynamic_pointer_cast<CloudStorageProviderImpl>(
@@ -60,19 +60,20 @@ Status LocalManifestReader::GetLiveFilesLocally(
       assert(!manifest_file_version->empty());
     }
 
-    std::unique_ptr<SequentialFile> file;
-    s = cenv_impl->NewSequentialFile(local_manifest_file, &file, EnvOptions());
+    std::unique_ptr<FSSequentialFile> file;
+    s = cenv_impl->NewSequentialFile(local_manifest_file, FileOptions(), &file,
+                                     nullptr /*dbg*/);
     if (!s.ok()) {
       return s;
     }
-    manifest_file_reader.reset(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(file), local_manifest_file));
+    manifest_file_reader.reset(
+        new SequentialFileReader(std::move(file), local_manifest_file));
   }
 
   return GetLiveFilesFromFileReader(std::move(manifest_file_reader), list);
 }
 
-Status LocalManifestReader::GetLiveFilesFromFileReader(
+IOStatus LocalManifestReader::GetLiveFilesFromFileReader(
     std::unique_ptr<SequentialFileReader> file_reader,
     std::set<uint64_t>* list) const {
   Status s;
@@ -114,7 +115,7 @@ Status LocalManifestReader::GetLiveFilesFromFileReader(
       if ((it == cf_live_files.end()) ||
           (it->second.count(level) == 0) ||
           (it->second[level].count(num) == 0)) {
-        return Status::Corruption(
+        return IOStatus::Corruption(
             "Corrupted Manifest file with unrecognized deleted file: " +
             std::to_string(level) + "," + std::to_string(num));
       }
@@ -137,35 +138,38 @@ Status LocalManifestReader::GetLiveFilesFromFileReader(
   }
 
   file_reader.reset();
-  return s;
+  return status_to_io_status(std::move(s));
 }
 
 ManifestReader::ManifestReader(std::shared_ptr<Logger> info_log, CloudEnv* cenv,
                                const std::string& bucket_prefix)
-    : LocalManifestReader(info_log, cenv), bucket_prefix_(bucket_prefix) {}
+    : LocalManifestReader(std::move(info_log), cenv),
+      bucket_prefix_(bucket_prefix) {}
 
 //
 // Extract all the live files needed by this MANIFEST file and corresponding
 // cloud_manifest object
 //
-Status ManifestReader::GetLiveFiles(const std::string& bucket_path,
-                                    std::set<uint64_t>* list) const {
-  Status s;
+IOStatus ManifestReader::GetLiveFiles(const std::string& bucket_path,
+                                      std::set<uint64_t>* list) const {
+  IOStatus s;
   std::unique_ptr<CloudManifest> cloud_manifest;
+  const FileOptions file_opts;
+  IODebugContext* dbg = nullptr;
   {
-    std::unique_ptr<SequentialFile> file;
-    auto cenv_impl = static_cast<CloudEnvImpl*>(cenv_);
+    std::unique_ptr<FSSequentialFile> file;
+    auto cenv_impl = dynamic_cast<CloudEnvImpl*>(cenv_);
     assert(cenv_impl);
     auto cloudManifestFile = MakeCloudManifestFile(
         bucket_path, cenv_impl->GetCloudEnvOptions().cookie_on_open);
-    s = cenv_->NewSequentialFileCloud(bucket_prefix_, cloudManifestFile, &file,
-                                      EnvOptions());
+    s = cenv_->NewSequentialFileCloud(bucket_prefix_, cloudManifestFile,
+                                      file_opts, &file, dbg);
     if (!s.ok()) {
       return s;
     }
     s = CloudManifest::LoadFromLog(
-        std::unique_ptr<SequentialFileReader>(new SequentialFileReader(
-            NewLegacySequentialFileWrapper(file), cloudManifestFile)),
+        std::unique_ptr<SequentialFileReader>(
+            new SequentialFileReader(std::move(file), cloudManifestFile)),
         &cloud_manifest);
     if (!s.ok()) {
       return s;
@@ -175,42 +179,42 @@ Status ManifestReader::GetLiveFiles(const std::string& bucket_path,
   {
     auto manifestFile = ManifestFileWithEpoch(
         bucket_path, cloud_manifest->GetCurrentEpoch());
-    std::unique_ptr<SequentialFile> file;
-    s = cenv_->NewSequentialFileCloud(bucket_prefix_, manifestFile, &file,
-                                      EnvOptions());
+    std::unique_ptr<FSSequentialFile> file;
+    s = cenv_->NewSequentialFileCloud(bucket_prefix_, manifestFile, file_opts,
+                                      &file, dbg);
     if (!s.ok()) {
       return s;
     }
-    file_reader.reset(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(file), manifestFile));
+    file_reader.reset(new SequentialFileReader(std::move(file), manifestFile));
   }
 
   return GetLiveFilesFromFileReader(std::move(file_reader), list);
 }
 
-Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
-                                                    const std::string& fname,
-                                                    uint64_t* maxFileNumber) {
+IOStatus ManifestReader::GetMaxFileNumberFromManifest(FileSystem* fs,
+                                                      const std::string& fname,
+                                                      uint64_t* maxFileNumber) {
   // We check if the file exists to return IsNotFound() error status if it does
   // (NewSequentialFile) doesn't have the same behavior on file not existing --
   // it returns IOError instead.
-  auto s = env->FileExists(fname);
+  const IOOptions io_opts;
+  IODebugContext* dbg = nullptr;
+  auto s = fs->FileExists(fname, io_opts, dbg);
   if (!s.ok()) {
     return s;
   }
-  std::unique_ptr<SequentialFile> file;
-  s = env->NewSequentialFile(fname, &file, EnvOptions());
+  std::unique_ptr<FSSequentialFile> file;
+  s = fs->NewSequentialFile(fname, FileOptions(), &file, dbg);
   if (!s.ok()) {
     return s;
   }
 
   VersionSet::LogReporter reporter;
   reporter.status = &s;
-  log::Reader reader(
-      NULL,
-      std::unique_ptr<SequentialFileReader>(new SequentialFileReader(
-          NewLegacySequentialFileWrapper(file), fname)),
-      &reporter, true /*checksum*/, 0);
+  log::Reader reader(NULL,
+                     std::unique_ptr<SequentialFileReader>(
+                         new SequentialFileReader(std::move(file), fname)),
+                     &reporter, true /*checksum*/, 0);
 
   Slice record;
   std::string scratch;
@@ -218,7 +222,7 @@ Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
   *maxFileNumber = 0;
   while (reader.ReadRecord(&record, &scratch) && s.ok()) {
     VersionEdit edit;
-    s = edit.DecodeFrom(record);
+    s = status_to_io_status(edit.DecodeFrom(record));
     if (!s.ok()) {
       break;
     }

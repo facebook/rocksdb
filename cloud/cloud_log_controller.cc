@@ -21,12 +21,10 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-CloudLogWritableFile::CloudLogWritableFile(CloudEnv* env,
+CloudLogWritableFile::CloudLogWritableFile(Env* env, CloudEnv* cloud_fs,
                                            const std::string& fname,
-                                           const EnvOptions& /*options*/)
-    : env_(env), fname_(fname) {}
-
-CloudLogWritableFile::~CloudLogWritableFile() {}
+                                           const FileOptions& /*options*/)
+    : env_(env), cloud_fs_(cloud_fs), fname_(fname) {}
 
 const std::chrono::microseconds CloudLogControllerImpl::kRetryPeriod =
     std::chrono::seconds(30);
@@ -50,36 +48,42 @@ CloudLogControllerImpl::~CloudLogControllerImpl() {
   if (running_) {
     // This is probably not a good situation as the derived class is partially
     // destroyed but the tailer might still be active.
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "CloudLogController closing.  Stopping stream.");
     StopTailingStream();
   }
   if (env_ != nullptr) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "CloudLogController closed.");
   }
 }
 
 Status CloudLogControllerImpl::PrepareOptions(const ConfigOptions& options) {
-  env_ = static_cast<CloudEnv*>(options.env);
+  env_ = options.env;
+  assert(env_);
+  cloud_fs_ = dynamic_cast<CloudEnv*>(env_->GetFileSystem().get());
+  assert(cloud_fs_);
   // Create a random number for the cache directory.
-  const std::string uid = trim(env_->GetBaseEnv()->GenerateUniqueId());
+  const std::string uid = trim(env_->GenerateUniqueId());
 
   // Temporary directory for cache.
-  const std::string bucket_dir = kCacheDir + pathsep + env_->GetSrcBucketName();
+  const std::string bucket_dir =
+      kCacheDir + pathsep + cloud_fs_->GetSrcBucketName();
   cache_dir_ = bucket_dir + pathsep + uid;
 
-  Env* base = env_->GetBaseEnv();
+  const auto& base = cloud_fs_->GetBaseEnv();
   // Create temporary directories.
-  status_ = base->CreateDirIfMissing(kCacheDir);
+  const IOOptions io_opts;
+  IODebugContext* dbg = nullptr;
+  status_ = base->CreateDirIfMissing(kCacheDir, io_opts, dbg);
   if (status_.ok()) {
-    status_ = base->CreateDirIfMissing(bucket_dir);
+    status_ = base->CreateDirIfMissing(bucket_dir, io_opts, dbg);
   }
   if (status_.ok()) {
-    status_ = base->CreateDirIfMissing(cache_dir_);
+    status_ = base->CreateDirIfMissing(cache_dir_, io_opts, dbg);
   }
   if (status_.ok()) {
-    status_ = StartTailingStream(env_->GetSrcBucketName());
+    status_ = StartTailingStream(cloud_fs_->GetSrcBucketName());
   }
   if (status_.ok()) {
     status_ = CloudLogController::PrepareOptions(options);
@@ -130,25 +134,29 @@ bool CloudLogControllerImpl::ExtractLogRecord(
   return true;
 }
 
-Status CloudLogControllerImpl::Apply(const Slice& in) {
+IOStatus CloudLogControllerImpl::Apply(const Slice& in) {
   uint32_t operation;
   uint64_t offset_in_file;
   uint64_t file_size;
   Slice original_pathname;
   Slice payload;
-  Status st;
+  IOStatus st;
   bool ret = ExtractLogRecord(in, &operation, &original_pathname,
                               &offset_in_file, &file_size, &payload);
   if (!ret) {
-    return Status::IOError("Unable to parse payload from stream");
+    return IOStatus::IOError("Unable to parse payload from stream");
   }
 
   // Convert original pathname to a local file path.
   std::string pathname = GetCachePath(original_pathname);
 
+  const FileOptions fo;
+  const IOOptions io_opts;
+  IODebugContext* dbg = nullptr;
+
   // Apply operation on cache file.
   if (operation == kAppend) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] Tailer: Appending %ld bytes to %s at offset %" PRIu64, Name(),
         payload.size(), pathname.c_str(), offset_in_file);
 
@@ -156,23 +164,23 @@ Status CloudLogControllerImpl::Apply(const Slice& in) {
 
     // If this file is not yet open, open it and store it in cache.
     if (iter == cache_fds_.end()) {
-      std::unique_ptr<RandomRWFile> result;
-      st = env_->GetBaseEnv()->NewRandomRWFile(pathname, &result, EnvOptions());
+      std::unique_ptr<FSRandomRWFile> result;
+      st = cloud_fs_->GetBaseEnv()->NewRandomRWFile(pathname, fo, &result, dbg);
 
       if (!st.ok()) {
         // create the file
-        std::unique_ptr<WritableFile> tmp_writable_file;
-        env_->GetBaseEnv()->NewWritableFile(pathname, &tmp_writable_file,
-                                            EnvOptions());
+        std::unique_ptr<FSWritableFile> tmp_writable_file;
+        cloud_fs_->GetBaseEnv()->NewWritableFile(pathname, fo,
+                                                 &tmp_writable_file, dbg);
         tmp_writable_file.reset();
         // Try again.
-        st = env_->GetBaseEnv()->NewRandomRWFile(pathname, &result,
-                                                 EnvOptions());
+        st = cloud_fs_->GetBaseEnv()->NewRandomRWFile(pathname, fo, &result,
+                                                      dbg);
       }
 
       if (st.ok()) {
         cache_fds_[pathname] = std::move(result);
-        Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+        Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
             "[%s] Tailer: Successfully opened file %s and cached", Name(),
             pathname.c_str());
       } else {
@@ -180,10 +188,10 @@ Status CloudLogControllerImpl::Apply(const Slice& in) {
       }
     }
 
-    RandomRWFile* fd = cache_fds_[pathname].get();
-    st = fd->Write(offset_in_file, payload);
+    FSRandomRWFile* fd = cache_fds_[pathname].get();
+    st = fd->Write(offset_in_file, payload, io_opts, dbg);
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+      Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
           "[%s] Tailer: Error writing to cached file %s: %s", pathname.c_str(),
           Name(), st.ToString().c_str());
     }
@@ -191,36 +199,36 @@ Status CloudLogControllerImpl::Apply(const Slice& in) {
     // Delete file from cache directory.
     auto iter = cache_fds_.find(pathname);
     if (iter != cache_fds_.end()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+      Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
           "[%s] Tailer: Delete file %s, but it is still open."
           " Closing it now..",
           Name(), pathname.c_str());
-      RandomRWFile* fd = iter->second.get();
-      fd->Close();
+      FSRandomRWFile* fd = iter->second.get();
+      fd->Close(io_opts, dbg);
       cache_fds_.erase(iter);
     }
 
-    st = env_->GetBaseEnv()->DeleteFile(pathname);
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    st = cloud_fs_->GetBaseEnv()->DeleteFile(pathname, io_opts, dbg);
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] Tailer: Deleted file: %s %s", Name(), pathname.c_str(),
         st.ToString().c_str());
 
     if (st.IsNotFound()) {
-      st = Status::OK();
+      st = IOStatus::OK();
     }
   } else if (operation == kClosed) {
     auto iter = cache_fds_.find(pathname);
     if (iter != cache_fds_.end()) {
-      RandomRWFile* fd = iter->second.get();
-      st = fd->Close();
+      FSRandomRWFile* fd = iter->second.get();
+      st = fd->Close(io_opts, dbg);
       cache_fds_.erase(iter);
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] Tailer: Closed file %s %s", Name(), pathname.c_str(),
         st.ToString().c_str());
   } else {
-    st = Status::IOError("Unknown operation");
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    st = IOStatus::IOError("Unknown operation");
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] Tailer: Unknown operation '%x': File %s %s", Name(), operation,
         pathname.c_str(), st.ToString().c_str());
   }
@@ -267,12 +275,12 @@ void CloudLogControllerImpl::SerializeLogRecordDelete(
   PutLengthPrefixedSlice(out, filename);
 }
 
-Status CloudLogControllerImpl::StartTailingStream(const std::string& topic) {
+IOStatus CloudLogControllerImpl::StartTailingStream(const std::string& topic) {
   if (tid_) {
-    return Status::Busy("Tailer already started");
+    return IOStatus::Busy("Tailer already started");
   }
 
-  Status st = CreateStream(topic);
+  auto st = CreateStream(topic);
   if (st.ok()) {
     running_ = true;
     // create tailer thread
@@ -292,8 +300,8 @@ void CloudLogControllerImpl::StopTailingStream() {
 //
 // Keep retrying the command until it is successful or the timeout has expired
 //
-Status CloudLogControllerImpl::Retry(RetryType func) {
-  Status stat;
+IOStatus CloudLogControllerImpl::Retry(RetryType func) {
+  IOStatus stat;
   std::chrono::microseconds start(env_->NowMicros());
 
   while (true) {
@@ -308,96 +316,102 @@ Status CloudLogControllerImpl::Retry(RetryType func) {
     // If timeout has expired, return error
     std::chrono::microseconds now(env_->NowMicros());
     if (start + CloudLogControllerImpl::kRetryPeriod < now) {
-      stat = Status::TimedOut();
+      stat = IOStatus::TimedOut();
       break;
     }
   }
   return stat;
 }
 
-Status CloudLogControllerImpl::GetFileModificationTime(const std::string& fname,
-                                                       uint64_t* time) {
-  Status st = status();
+IOStatus CloudLogControllerImpl::GetFileModificationTime(
+    const std::string& fname, uint64_t* time) {
+  auto st = status_to_io_status(status());
   if (st.ok()) {
     // map  pathname to cache dir
     std::string pathname = GetCachePath(Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[kinesis] GetFileModificationTime logfile %s %s", pathname.c_str(),
         "ok");
 
-    auto lambda = [this, pathname, time]() -> Status {
-      return env_->GetBaseEnv()->GetFileModificationTime(pathname, time);
+    auto lambda = [this, pathname = std::move(pathname), time]() {
+      return cloud_fs_->GetBaseEnv()->GetFileModificationTime(
+          pathname, IOOptions(), time, nullptr /*dbg*/);
     };
     st = Retry(lambda);
   }
   return st;
 }
 
-Status CloudLogControllerImpl::NewSequentialFile(
-    const std::string& fname, std::unique_ptr<SequentialFile>* result,
-    const EnvOptions& options) {
-  // read from Kinesis
-  Status st = status();
+IOStatus CloudLogControllerImpl::NewSequentialFile(
+    const std::string& fname, const FileOptions& file_opts,
+    std::unique_ptr<FSSequentialFile>* result, IODebugContext* dbg) {
+  auto st = status_to_io_status(status());
   if (st.ok()) {
     // map  pathname to cache dir
     std::string pathname = GetCachePath(Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] NewSequentialFile logfile %s %s", Name(), pathname.c_str(), "ok");
 
-    auto lambda = [this, pathname, &result, options]() -> Status {
-      return env_->GetBaseEnv()->NewSequentialFile(pathname, result, options);
+    auto lambda = [this, pathname = std::move(pathname), &result, &file_opts,
+                   dbg]() {
+      return cloud_fs_->GetBaseEnv()->NewSequentialFile(pathname, file_opts,
+                                                        result, dbg);
     };
     st = Retry(lambda);
   }
   return st;
 }
 
-Status CloudLogControllerImpl::NewRandomAccessFile(
-    const std::string& fname, std::unique_ptr<RandomAccessFile>* result,
-    const EnvOptions& options) {
-  Status st = status();
+IOStatus CloudLogControllerImpl::NewRandomAccessFile(
+    const std::string& fname, const FileOptions& file_opts,
+    std::unique_ptr<FSRandomAccessFile>* result, IODebugContext* dbg) {
+  auto st = status_to_io_status(status());
   if (st.ok()) {
     // map  pathname to cache dir
     std::string pathname = GetCachePath(Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] NewRandomAccessFile logfile %s %s", Name(), pathname.c_str(),
         "ok");
 
-    auto lambda = [this, pathname, &result, options]() -> Status {
-      return env_->GetBaseEnv()->NewRandomAccessFile(pathname, result, options);
+    auto lambda = [this, pathname = std::move(pathname), &result, &file_opts,
+                   dbg]() {
+      return cloud_fs_->GetBaseEnv()->NewRandomAccessFile(pathname, file_opts,
+                                                          result, dbg);
     };
     st = Retry(lambda);
   }
   return st;
 }
 
-Status CloudLogControllerImpl::FileExists(const std::string& fname) {
-  Status st = status();
+IOStatus CloudLogControllerImpl::FileExists(const std::string& fname) {
+  auto st = status_to_io_status(status());
   if (st.ok()) {
     // map  pathname to cache dir
     std::string pathname = GetCachePath(Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] FileExists logfile %s %s", Name(), pathname.c_str(), "ok");
 
-    auto lambda = [this, pathname]() -> Status {
-      return env_->GetBaseEnv()->FileExists(pathname);
+    auto lambda = [this, pathname = std::move(pathname)]() {
+      return cloud_fs_->GetBaseEnv()->FileExists(pathname, IOOptions(),
+                                                 nullptr /*dbg*/);
     };
     st = Retry(lambda);
   }
   return st;
 }
 
-Status CloudLogControllerImpl::GetFileSize(const std::string& fname,
-                                           uint64_t* size) {
-  Status st = status();
+IOStatus CloudLogControllerImpl::GetFileSize(const std::string& fname,
+                                             uint64_t* size) {
+  auto st = status_to_io_status(status());
   if (st.ok()) {
     // map  pathname to cache dir
     std::string pathname = GetCachePath(Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] GetFileSize logfile %s %s", Name(), pathname.c_str(), "ok");
 
-    auto lambda = [this, pathname, size]() -> Status {
-      return env_->GetBaseEnv()->GetFileSize(pathname, size);
+    auto lambda = [this, pathname, size]() {
+      return cloud_fs_->GetBaseEnv()->GetFileSize(pathname, IOOptions(), size,
+                                                  nullptr /*dbg*/);
     };
     st = Retry(lambda);
   }

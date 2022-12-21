@@ -69,13 +69,13 @@ void CloudEnvImpl::Purger() {
   }
 }
 
-Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
-                                       std::vector<std::string>* pathnames) {
+IOStatus CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
+                                         std::vector<std::string>* pathnames) {
   std::set<std::string> live_files;
 
   // fetch list of all registered dbids
   DbidList dbid_list;
-  Status st = GetDbidList(bucket_name_prefix, &dbid_list);
+  auto st = GetDbidList(bucket_name_prefix, &dbid_list);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[pg] GetDbidList on bucket prefix %s. %s", bucket_name_prefix.c_str(),
@@ -154,15 +154,15 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
       pathnames->push_back(candidate);
     }
   }
-  return Status::OK();
+  return IOStatus::OK();
 }
 
-Status CloudEnvImpl::FindObsoleteDbid(
+IOStatus CloudEnvImpl::FindObsoleteDbid(
     const std::string& bucket_name_prefix,
     std::vector<std::string>* to_delete_list) {
   // fetch list of all registered dbids
   DbidList dbid_list;
-  Status st = GetDbidList(bucket_name_prefix, &dbid_list);
+  auto st = GetDbidList(bucket_name_prefix, &dbid_list);
 
   // loop though all dbids. If the pathname does not exist in the bucket, then
   // this dbid is a candidate for deletion.
@@ -179,7 +179,7 @@ Status CloudEnvImpl::FindObsoleteDbid(
             "[pg] dbid %s non-existent dbpath %s scheduled for deletion",
             iter->first.c_str(), iter->second.c_str());
         // We don't want to fail the final call
-        st = Status::OK();
+        st = IOStatus::OK();
       }
     }
   }
@@ -189,15 +189,15 @@ Status CloudEnvImpl::FindObsoleteDbid(
 //
 // For each of the dbids in the list, extract the entire list of
 // parent dbids.
-Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
-                                    const DbidList& dbid_list,
-                                    DbidParents* parents) {
+IOStatus CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
+                                      const DbidList& dbid_list,
+                                      DbidParents* parents) {
   const std::string delimiter(DBID_SEPARATOR);
   // use current time as seed for random generator
   std::srand(static_cast<unsigned int>(std::time(0)));
   const std::string random = std::to_string(std::rand());
   const std::string scratch(SCRATCH_LOCAL_DIR);
-  Status st;
+  IOStatus st;
   for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
     // download IDENTITY
     std::string cloudfile = iter->second + "/IDENTITY";
@@ -220,13 +220,13 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
 
     // Read the dbid from the ID file
     std::string all_dbid;
-    st = ReadFileToString(base_env_, localfile, &all_dbid);
+    st = ReadFileToString(base_env_.get(), localfile, &all_dbid);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_, "[pg] Unable to read %s %s",
           localfile.c_str(), st.ToString().c_str());
       return st;
     }
-    st = base_env_->DeleteFile(localfile);
+    st = base_env_->DeleteFile(localfile, IOOptions(), nullptr /*dbg*/);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_, "[pg] Unable to delete %s %s",
           localfile.c_str(), st.ToString().c_str());

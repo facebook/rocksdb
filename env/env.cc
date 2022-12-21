@@ -1184,12 +1184,6 @@ const std::shared_ptr<SystemClock>& Env::GetSystemClock() const {
   return system_clock_;
 }
 
-std::unique_ptr<FSSequentialFile> NewLegacySequentialFileWrapper(
-    std::unique_ptr<SequentialFile>& file) {
-  return std::unique_ptr<FSSequentialFile>(
-      new LegacySequentialFileWrapper(std::move(file)));
-}
-
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> sc_wrapper_type_info = {
 #ifndef ROCKSDB_LITE

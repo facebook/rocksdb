@@ -90,7 +90,7 @@ void CloudEnvImpl::FileCacheErase(const std::string& fname) {
 // When the cache is full, delete files from local store
 //
 void CloudEnvImpl::FileCacheDeleter(const std::string& fname) {
-  Status st = base_env_->DeleteFile(fname);
+  base_env_->DeleteFile(fname, IOOptions(), nullptr /*dbg*/);
   log(InfoLogLevel::INFO_LEVEL, fname, "purged");
 }
 
@@ -131,13 +131,11 @@ void CloudEnvImpl::FileCachePurge() {
   clear_callback_state();
   cloud_env_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
   // for all those items that have a matching cenv, remove them from cache.
-  uint64_t count = 0;
   for (auto& it : callback_state) {
     Value* value = it.first;
     if (value->cenv == this) {
       Slice key(value->path);
       cloud_env_options.sst_file_cache->Erase(key);
-      count++;
     }
   }
   log(InfoLogLevel::INFO_LEVEL, "ENV-DELETE", "purged");

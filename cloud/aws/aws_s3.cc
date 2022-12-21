@@ -289,8 +289,9 @@ class S3ReadableFile : public CloudStorageReadableFileImpl {
   }
 
   // random access, read data from specified offset in file
-  Status DoCloudRead(uint64_t offset, size_t n, char* scratch,
-                     uint64_t* bytes_read) const override {
+  IOStatus DoCloudRead(uint64_t offset, size_t n, const IOOptions& /*options*/,
+                       char* scratch, uint64_t* bytes_read,
+                       IODebugContext* /*dbg*/) const override {
     // create a range read request
     // Ranges are inclusive, so we can't read 0 bytes; read 1 instead and
     // drop it later.
@@ -303,7 +304,7 @@ class S3ReadableFile : public CloudStorageReadableFileImpl {
           "[s3] S3ReadableFile vsnprintf error %s offset %" PRIu64
           " rangelen %" ROCKSDB_PRIszt "\n",
           fname_.c_str(), offset, rangeLen);
-      return Status::IOError("S3ReadableFile vsnprintf ", fname_.c_str());
+      return IOStatus::IOError("S3ReadableFile vsnprintf ", fname_.c_str());
     }
     Aws::String range(buffer);
 
@@ -325,12 +326,12 @@ class S3ReadableFile : public CloudStorageReadableFileImpl {
         Log(InfoLogLevel::ERROR_LEVEL, info_log_,
             "[s3] S3ReadableFile error in reading not-existent %s %s",
             fname_.c_str(), errmsg.c_str());
-        return Status::NotFound(fname_, errmsg.c_str());
+        return IOStatus::NotFound(fname_, errmsg.c_str());
       }
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[s3] S3ReadableFile error in reading %s %" PRIu64 " %s %s",
           fname_.c_str(), offset, buffer, error.GetMessage().c_str());
-      return Status::IOError(fname_, errmsg.c_str());
+      return IOStatus::IOError(fname_, errmsg.c_str());
     }
     std::stringstream ss;
     // const Aws::S3::Model::GetObjectResult& res = outcome.GetResult();
@@ -347,7 +348,7 @@ class S3ReadableFile : public CloudStorageReadableFileImpl {
         "[s3] S3ReadableFile file %s filesize %" PRIu64 " read %" PRIu64
         " bytes",
         fname_.c_str(), file_size_, *bytes_read);
-    return Status::OK();
+    return IOStatus::OK();
   }
 
  private:
@@ -361,7 +362,7 @@ class S3WritableFile : public CloudStorageWritableFileImpl {
  public:
   S3WritableFile(CloudEnv* env, const std::string& local_fname,
                  const std::string& bucket, const std::string& cloud_fname,
-                 const EnvOptions& options)
+                 const FileOptions& options)
       : CloudStorageWritableFileImpl(env, local_fname, bucket, cloud_fname,
                                      options) {}
   virtual const char* Name() const override {
@@ -374,65 +375,58 @@ class S3StorageProvider : public CloudStorageProviderImpl {
  public:
   ~S3StorageProvider() override {}
   virtual const char* Name() const override { return kS3(); }
-  Status CreateBucket(const std::string& bucket) override;
-  Status ExistsBucket(const std::string& bucket) override;
-  Status EmptyBucket(const std::string& bucket_name,
-                     const std::string& object_path) override;
-  // Empties all contents of the associated cloud storage bucket.
-  // Status EmptyBucket(const std::string& bucket_name,
-  //                   const std::string& object_path) override;
-  // Delete the specified object from the specified cloud bucket
-  Status DeleteCloudObject(const std::string& bucket_name,
-                           const std::string& object_path) override;
-  Status ListCloudObjects(const std::string& bucket_name,
-                          const std::string& object_path,
-                          std::vector<std::string>* result) override;
-  Status ExistsCloudObject(const std::string& bucket_name,
-                           const std::string& object_path) override;
-  Status TEST_ExistsCloudObject(const std::string& bucket_name,
-                                const std::string& object_path,
-                                const std::string& version) override;
-  Status GetCloudObjectSize(const std::string& bucket_name,
+  IOStatus CreateBucket(const std::string& bucket) override;
+  IOStatus ExistsBucket(const std::string& bucket) override;
+  IOStatus EmptyBucket(const std::string& bucket_name,
+                       const std::string& object_path) override;
+  IOStatus DeleteCloudObject(const std::string& bucket_name,
+                             const std::string& object_path) override;
+  IOStatus ListCloudObjects(const std::string& bucket_name,
                             const std::string& object_path,
-                            uint64_t* filesize) override;
-  // Get the modification time of the object in cloud storage
-  Status GetCloudObjectModificationTime(const std::string& bucket_name,
-                                        const std::string& object_path,
-                                        uint64_t* time) override;
+                            std::vector<std::string>* result) override;
+  IOStatus ExistsCloudObject(const std::string& bucket_name,
+                             const std::string& object_path) override;
+  IOStatus TEST_ExistsCloudObject(const std::string& bucket_name,
+                                  const std::string& object_path,
+                                  const std::string& version) override;
+  IOStatus GetCloudObjectSize(const std::string& bucket_name,
+                              const std::string& object_path,
+                              uint64_t* filesize) override;
+  IOStatus GetCloudObjectModificationTime(const std::string& bucket_name,
+                                          const std::string& object_path,
+                                          uint64_t* time) override;
+  IOStatus GetCloudObjectMetadata(const std::string& bucket_name,
+                                  const std::string& object_path,
+                                  CloudObjectInformation* info) override;
 
-  // Get the metadata of the object in cloud storage
-  Status GetCloudObjectMetadata(const std::string& bucket_name,
-                                const std::string& object_path,
-                                CloudObjectInformation* info) override;
-
-  Status PutCloudObjectMetadata(
+  IOStatus PutCloudObjectMetadata(
       const std::string& bucket_name, const std::string& object_path,
       const std::unordered_map<std::string, std::string>& metadata) override;
-  Status CopyCloudObject(const std::string& bucket_name_src,
-                         const std::string& object_path_src,
-                         const std::string& bucket_name_dest,
-                         const std::string& object_path_dest) override;
-  Status DoNewCloudReadableFile(
+  IOStatus CopyCloudObject(const std::string& bucket_name_src,
+                           const std::string& object_path_src,
+                           const std::string& bucket_name_dest,
+                           const std::string& object_path_dest) override;
+  IOStatus DoNewCloudReadableFile(
       const std::string& bucket, const std::string& fname, uint64_t fsize,
-      const std::string& content_hash,
+      const std::string& content_hash, const FileOptions& options,
       std::unique_ptr<CloudStorageReadableFile>* result,
-      const EnvOptions& options) override;
-  Status NewCloudWritableFile(const std::string& local_path,
-                              const std::string& bucket_name,
-                              const std::string& object_path,
-                              std::unique_ptr<CloudStorageWritableFile>* result,
-                              const EnvOptions& options) override;
+      IODebugContext* dbg) override;
+  IOStatus NewCloudWritableFile(
+      const std::string& local_path, const std::string& bucket_name,
+      const std::string& object_path, const FileOptions& options,
+      std::unique_ptr<CloudStorageWritableFile>* result,
+      IODebugContext* dbg) override;
   Status PrepareOptions(const ConfigOptions& options) override;
  protected:
-  Status DoGetCloudObject(const std::string& bucket_name,
-                          const std::string& object_path,
-                          const std::string& destination,
-                          uint64_t* remote_size,
-                          std::string* version) override;
-  Status DoPutCloudObject(const std::string& local_file,
-                          const std::string& bucket_name,
-                          const std::string& object_path,
-                          uint64_t file_size) override;
+  IOStatus DoGetCloudObject(const std::string& bucket_name,
+                            const std::string& object_path,
+                            const std::string& destination,
+                            uint64_t* remote_size,
+                            std::string* version) override;
+  IOStatus DoPutCloudObject(const std::string& local_file,
+                            const std::string& bucket_name,
+                            const std::string& object_path,
+                            uint64_t file_size) override;
 
  private:
   struct HeadObjectResult {
@@ -444,26 +438,27 @@ class S3StorageProvider : public CloudStorageProviderImpl {
   };
 
   // Retrieves metadata from an object (no version specified)
-  Status HeadObject(const std::string& bucket, const std::string& path,
-                    HeadObjectResult* result);
+  IOStatus HeadObject(const std::string& bucket, const std::string& path,
+                      HeadObjectResult* result);
 
   // Retrieves metadata from an object with the specified version
-  Status HeadObjectWithVersion(const std::string& bucket,
-                               const std::string& path,
-                               const std::string& requested_version,
-                               HeadObjectResult* result);
+  IOStatus HeadObjectWithVersion(const std::string& bucket,
+                                 const std::string& path,
+                                 const std::string& requested_version,
+                                 HeadObjectResult* result);
 
   // Retrieves metadata from an object based on a HeadObject request
   // REQUIRES: result != nullptr
-  Status HeadObject(const Aws::S3::Model::HeadObjectRequest& request,
-                    HeadObjectResult* result);
+  IOStatus HeadObject(const Aws::S3::Model::HeadObjectRequest& request,
+                      HeadObjectResult* result);
 
   // The S3 client
   std::shared_ptr<AwsS3ClientWrapper> s3client_;
 };
 
 Status S3StorageProvider::PrepareOptions(const ConfigOptions& options) {
-  auto cenv = static_cast<CloudEnv*>(options.env);
+  auto cenv = dynamic_cast<CloudEnv*>(options.env->GetFileSystem().get());
+  assert(cenv);
   const CloudEnvOptions& cloud_opts = cenv->GetCloudEnvOptions();
   if (std::string(cenv->Name()) != CloudEnvImpl::kAws()) {
     return Status::InvalidArgument("S3 Provider requires AWS Environment");
@@ -509,7 +504,7 @@ Status S3StorageProvider::PrepareOptions(const ConfigOptions& options) {
 //
 // Create bucket in S3 if it does not already exist.
 //
-Status S3StorageProvider::CreateBucket(const std::string& bucket) {
+IOStatus S3StorageProvider::CreateBucket(const std::string& bucket) {
   // specify region for the bucket
   Aws::S3::Model::CreateBucketConfiguration conf;
   // AWS's utility to help out with uploading and downloading S3 file
@@ -546,28 +541,28 @@ Status S3StorageProvider::CreateBucket(const std::string& bucket) {
     Aws::S3::S3Errors s3err = error.GetErrorType();
     if (s3err != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS &&
         s3err != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) {
-      return Status::IOError(bucket.c_str(), errmsg.c_str());
+      return IOStatus::IOError(bucket.c_str(), errmsg.c_str());
     }
   }
-  return Status::OK();
+  return IOStatus::OK();
 }
 
-Status S3StorageProvider::ExistsBucket(const std::string& bucket) {
+IOStatus S3StorageProvider::ExistsBucket(const std::string& bucket) {
   Aws::S3::Model::HeadBucketRequest request;
   request.SetBucket(ToAwsString(bucket));
   Aws::S3::Model::HeadBucketOutcome outcome = s3client_->HeadBucket(request);
-  return outcome.IsSuccess() ? Status::OK() : Status::NotFound();
+  return outcome.IsSuccess() ? IOStatus::OK() : IOStatus::NotFound();
 }
 
 //
 // Deletes all the objects with the specified path prefix in our bucket
 //
-Status S3StorageProvider::EmptyBucket(const std::string& bucket_name,
-                                      const std::string& object_path) {
+IOStatus S3StorageProvider::EmptyBucket(const std::string& bucket_name,
+                                        const std::string& object_path) {
   std::vector<std::string> results;
 
   // Get all the objects in the  bucket
-  Status st = ListCloudObjects(bucket_name, object_path, &results);
+  auto st = ListCloudObjects(bucket_name, object_path, &results);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[s3] EmptyBucket unable to find objects in bucket %s %s",
@@ -591,9 +586,9 @@ Status S3StorageProvider::EmptyBucket(const std::string& bucket_name,
   return st;
 }
 
-Status S3StorageProvider::DeleteCloudObject(const std::string& bucket_name,
-                                            const std::string& object_path) {
-  Status st;
+IOStatus S3StorageProvider::DeleteCloudObject(const std::string& bucket_name,
+                                              const std::string& object_path) {
+  IOStatus st;
 
   // create request
   Aws::S3::Model::DeleteObjectRequest request;
@@ -608,9 +603,9 @@ Status S3StorageProvider::DeleteCloudObject(const std::string& bucket_name,
     const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
     std::string errmsg(error.GetMessage().c_str());
     if (IsNotFound(error.GetErrorType())) {
-      st = Status::NotFound(object_path, errmsg.c_str());
+      st = IOStatus::NotFound(object_path, errmsg.c_str());
     } else {
-      st = Status::IOError(object_path, errmsg.c_str());
+      st = IOStatus::IOError(object_path, errmsg.c_str());
     }
   }
 
@@ -625,9 +620,9 @@ Status S3StorageProvider::DeleteCloudObject(const std::string& bucket_name,
 // Appends the names of all children of the specified path from S3
 // into the result set.
 //
-Status S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
-                                           const std::string& object_path,
-                                           std::vector<std::string>* result) {
+IOStatus S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
+                                             const std::string& object_path,
+                                             std::vector<std::string>* result) {
   // S3 paths don't start with '/'
   auto prefix = ltrim_if(object_path, '/');
   // S3 paths better end with '/', otherwise we might also get a list of files
@@ -658,9 +653,9 @@ Status S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
         Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
             "[s3] GetChildren dir %s does not exist: %s", object_path.c_str(),
             errmsg.c_str());
-        return Status::NotFound(object_path, errmsg.c_str());
+        return IOStatus::NotFound(object_path, errmsg.c_str());
       }
-      return Status::IOError(object_path, errmsg.c_str());
+      return IOStatus::IOError(object_path, errmsg.c_str());
     }
     const Aws::S3::Model::ListObjectsResult& res = outcome.GetResult();
     const Aws::Vector<Aws::S3::Model::Object>& objs = res.GetContents();
@@ -670,7 +665,7 @@ Status S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
       std::string keystr(key.c_str(), key.size());
       assert(keystr.find(prefix) == 0);
       if (keystr.find(prefix) != 0) {
-        return Status::IOError("Unexpected result from AWS S3: " + keystr);
+        return IOStatus::IOError("Unexpected result from AWS S3: " + keystr);
       }
       auto fname = keystr.substr(prefix.size());
       result->push_back(std::move(fname));
@@ -690,35 +685,33 @@ Status S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
       marker = objs.back().GetKey();
     }
   }
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 // check existence of the cloud object
-Status S3StorageProvider::ExistsCloudObject(const std::string& bucket_name,
-                                            const std::string& object_path) {
-  HeadObjectResult result;                                             
-  Status s = HeadObject(bucket_name, object_path, &result);
-  return s;
+IOStatus S3StorageProvider::ExistsCloudObject(const std::string& bucket_name,
+                                              const std::string& object_path) {
+  HeadObjectResult result;
+  return HeadObject(bucket_name, object_path, &result);
 }
 
-Status S3StorageProvider::TEST_ExistsCloudObject(const std::string& bucket_name,
-                                                 const std::string& object_path,
-                                                 const std::string& version) {
+IOStatus S3StorageProvider::TEST_ExistsCloudObject(
+    const std::string& bucket_name, const std::string& object_path,
+    const std::string& version) {
   HeadObjectResult result;                                                 
   return HeadObjectWithVersion(bucket_name, object_path, version, &result);
 }
 
 // Return size of cloud object
-Status S3StorageProvider::GetCloudObjectSize(const std::string& bucket_name,
-                                             const std::string& object_path,
-                                             uint64_t* filesize) {
+IOStatus S3StorageProvider::GetCloudObjectSize(const std::string& bucket_name,
+                                               const std::string& object_path,
+                                               uint64_t* filesize) {
   HeadObjectResult result;                                             
   result.size = filesize;
-  Status s = HeadObject(bucket_name, object_path, &result);
-  return s;
+  return HeadObject(bucket_name, object_path, &result);
 }
 
-Status S3StorageProvider::GetCloudObjectModificationTime(
+IOStatus S3StorageProvider::GetCloudObjectModificationTime(
     const std::string& bucket_name, const std::string& object_path,
     uint64_t* time) {
   HeadObjectResult result;
@@ -726,9 +719,9 @@ Status S3StorageProvider::GetCloudObjectModificationTime(
   return HeadObject(bucket_name, object_path, &result);
 }
 
-Status S3StorageProvider::GetCloudObjectMetadata(const std::string& bucket_name,
-                                                 const std::string& object_path,
-                                                 CloudObjectInformation* info) {
+IOStatus S3StorageProvider::GetCloudObjectMetadata(
+    const std::string& bucket_name, const std::string& object_path,
+    CloudObjectInformation* info) {
   assert(info != nullptr);
   HeadObjectResult result;
   result.metadata = &info->metadata;
@@ -738,7 +731,7 @@ Status S3StorageProvider::GetCloudObjectMetadata(const std::string& bucket_name,
   return HeadObject(bucket_name, object_path, &result);
 }
 
-Status S3StorageProvider::PutCloudObjectMetadata(
+IOStatus S3StorageProvider::PutCloudObjectMetadata(
     const std::string& bucket_name, const std::string& object_path,
     const std::unordered_map<std::string, std::string>& metadata) {
   Aws::S3::Model::PutObjectRequest request;
@@ -759,41 +752,41 @@ Status S3StorageProvider::PutCloudObjectMetadata(
     Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[s3] Bucket %s error in saving metadata %s", bucket_name.c_str(),
         errmsg.c_str());
-    return Status::IOError(object_path, errmsg.c_str());
+    return IOStatus::IOError(object_path, errmsg.c_str());
   }
-  return Status::OK();
+  return IOStatus::OK();
 }
 
-Status S3StorageProvider::DoNewCloudReadableFile(
+IOStatus S3StorageProvider::DoNewCloudReadableFile(
     const std::string& bucket, const std::string& fname, uint64_t fsize,
-    const std::string& content_hash,
+    const std::string& content_hash, const FileOptions& /*options*/,
     std::unique_ptr<CloudStorageReadableFile>* result,
-    const EnvOptions& /*options*/) {
+    IODebugContext* /*dbg*/) {
   result->reset(new S3ReadableFile(s3client_, env_->GetLogger(), bucket, fname,
                                    fsize, content_hash));
-  return Status::OK();
+  return IOStatus::OK();
 }
 
-Status S3StorageProvider::NewCloudWritableFile(
+IOStatus S3StorageProvider::NewCloudWritableFile(
     const std::string& local_path, const std::string& bucket_name,
-    const std::string& object_path,
+    const std::string& object_path, const FileOptions& file_opts,
     std::unique_ptr<CloudStorageWritableFile>* result,
-    const EnvOptions& options) {
-  result->reset(
-      new S3WritableFile(env_, local_path, bucket_name, object_path, options));
+    IODebugContext* /*dbg*/) {
+  result->reset(new S3WritableFile(env_, local_path, bucket_name, object_path,
+                                   file_opts));
   return (*result)->status();
 }
 
-Status S3StorageProvider::HeadObject(const std::string& bucket_name,
-                                     const std::string& object_path,
-                                     HeadObjectResult* result) {
+IOStatus S3StorageProvider::HeadObject(const std::string& bucket_name,
+                                       const std::string& object_path,
+                                       HeadObjectResult* result) {
   Aws::S3::Model::HeadObjectRequest request;
   request.SetBucket(ToAwsString(bucket_name));
   request.SetKey(ToAwsString(object_path));
   return HeadObject(request, result);
 }
 
-Status S3StorageProvider::HeadObjectWithVersion(
+IOStatus S3StorageProvider::HeadObjectWithVersion(
     const std::string& bucket_name, const std::string& object_path,
     const std::string& requested_version, HeadObjectResult* result) {
   Aws::S3::Model::HeadObjectRequest request;
@@ -803,7 +796,7 @@ Status S3StorageProvider::HeadObjectWithVersion(
   return HeadObject(request, result);
 }
 
-Status S3StorageProvider::HeadObject(
+IOStatus S3StorageProvider::HeadObject(
     const Aws::S3::Model::HeadObjectRequest& request,
     HeadObjectResult* result) {
   assert(result != nullptr);
@@ -814,9 +807,9 @@ Status S3StorageProvider::HeadObject(
     const auto& errMessage = error.GetMessage();
     Slice object_path(request.GetKey().data(), request.GetKey().size());
     if (IsNotFound(error.GetErrorType())) {
-      return Status::NotFound(object_path, errMessage.c_str());
+      return IOStatus::NotFound(object_path, errMessage.c_str());
     } else {
-      return Status::IOError(object_path, errMessage.c_str());
+      return IOStatus::IOError(object_path, errMessage.c_str());
     }
   }
   const auto& res = outcome.GetResult();
@@ -834,16 +827,14 @@ Status S3StorageProvider::HeadObject(
   if ((result->etag) != nullptr) {
     *(result->etag) = std::string(res.GetETag().data(), res.GetETag().length());
   }
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 // Copy the specified cloud object from one location in the cloud
 // storage to another location in cloud storage
-Status S3StorageProvider::CopyCloudObject(const std::string& bucket_name_src,
-                                          const std::string& object_path_src,
-                                          const std::string& bucket_name_dest,
-                                          const std::string& object_path_dest) {
-  Status st;
+IOStatus S3StorageProvider::CopyCloudObject(
+    const std::string& bucket_name_src, const std::string& object_path_src,
+    const std::string& bucket_name_dest, const std::string& object_path_dest) {
   Aws::String src_bucket = ToAwsString(bucket_name_src);
   Aws::String dest_bucket = ToAwsString(bucket_name_dest);
 
@@ -870,12 +861,12 @@ Status S3StorageProvider::CopyCloudObject(const std::string& bucket_name_src,
     Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[s3] S3WritableFile src path %s error in copying to %s %s",
         src_url.c_str(), dest_object.c_str(), errmsg.c_str());
-    return Status::IOError(dest_object.c_str(), errmsg.c_str());
+    return IOStatus::IOError(dest_object.c_str(), errmsg.c_str());
   }
   Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
-      "[s3] S3WritableFile src path %s copied to %s %s", src_url.c_str(),
-      dest_object.c_str(), st.ToString().c_str());
-  return st;
+      "[s3] S3WritableFile src path %s copied to %s OK", src_url.c_str(),
+      dest_object.c_str());
+  return IOStatus::OK();
 }
 
 namespace {
@@ -946,11 +937,11 @@ class IOStreamWithOwnedBuf : public std::iostream {
 
 }  // namespace
 
-Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
-                                           const std::string& object_path,
-                                           const std::string& destination,
-                                           uint64_t* remote_size,
-                                           std::string* version) {
+IOStatus S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
+                                             const std::string& object_path,
+                                             const std::string& destination,
+                                             uint64_t* remote_size,
+                                             std::string* version) {
   if (s3client_->HasTransferManager()) {
     // AWS Transfer manager does not work if we provide our stream
     // implementation because of https://github.com/aws/aws-sdk-cpp/issues/1732.
@@ -982,9 +973,9 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
           "[s3] DownloadFile %s/%s error %s.", bucket_name.c_str(),
           object_path.c_str(), errmsg.c_str());
       if (IsNotFound(error.GetErrorType())) {
-        return Status::NotFound(std::move(errmsg));
+        return IOStatus::NotFound(std::move(errmsg));
       }
-      return Status::IOError(std::move(errmsg));
+      return IOStatus::IOError(std::move(errmsg));
     }
   } else {
     IOStatus fileCloseStatus;
@@ -997,8 +988,8 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
         foptions.use_direct_writes =
             env_->GetCloudEnvOptions().use_direct_io_for_cloud_download;
         std::unique_ptr<FSWritableFile> file;
-        auto st = NewWritableFile(env_->GetBaseEnv()->GetFileSystem().get(),
-            destination, &file, foptions);
+        auto st = NewWritableFile(env_->GetBaseEnv().get(), destination, &file,
+                                  foptions);
         if (!st.ok()) {
           // fallback to FStream
           return Aws::New<Aws::FStream>(
@@ -1032,12 +1023,12 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
           Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
             "[s3] GetObject %s/%s error %s.", bucket_name.c_str(),
             object_path.c_str(), errmsg.c_str());
-          return Status::NotFound(std::move(errmsg));
+          return IOStatus::NotFound(std::move(errmsg));
         } else {
           Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
             "[s3] GetObject %s/%s error %s.", bucket_name.c_str(),
             object_path.c_str(), errmsg.c_str());
-          return Status::IOError(std::move(errmsg));
+          return IOStatus::IOError(std::move(errmsg));
         }
       }
     }
@@ -1047,16 +1038,16 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
       Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
           "[s3] GetObject %s/%s error closing file %s.", bucket_name.c_str(),
           object_path.c_str(), errmsg.c_str());
-      return Status::IOError(std::move(errmsg));
+      return IOStatus::IOError(std::move(errmsg));
     }
   }
-  return Status::OK();
+  return IOStatus::OK();
 }
 
-Status S3StorageProvider::DoPutCloudObject(const std::string& local_file,
-                                           const std::string& bucket_name,
-                                           const std::string& object_path,
-                                           uint64_t file_size) {
+IOStatus S3StorageProvider::DoPutCloudObject(const std::string& local_file,
+                                             const std::string& bucket_name,
+                                             const std::string& object_path,
+                                             uint64_t file_size) {
   if (s3client_->HasTransferManager()) {
     auto handle = s3client_->UploadFile(ToAwsString(bucket_name),
                                         ToAwsString(object_path),
@@ -1067,7 +1058,7 @@ Status S3StorageProvider::DoPutCloudObject(const std::string& local_file,
       Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
           "[s3] UploadFile %s/%s, size %" PRIu64 ", ERROR %s",
           bucket_name.c_str(), object_path.c_str(), file_size, errmsg.c_str());
-      return Status::IOError(local_file, errmsg);
+      return IOStatus::IOError(local_file, errmsg);
     }
   } else {
     auto inputData =
@@ -1087,13 +1078,13 @@ Status S3StorageProvider::DoPutCloudObject(const std::string& local_file,
       Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
           "[s3] PutCloudObject %s/%s, size %" PRIu64 ", ERROR %s",
           bucket_name.c_str(), object_path.c_str(), file_size, errmsg.c_str());
-      return Status::IOError(local_file, errmsg);
+      return IOStatus::IOError(local_file, errmsg);
     }
   }
   Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
       "[s3] PutCloudObject %s/%s, size %" PRIu64 ", OK", bucket_name.c_str(),
       object_path.c_str(), file_size);
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 #endif /* USE_AWS */

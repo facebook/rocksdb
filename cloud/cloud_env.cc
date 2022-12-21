@@ -10,11 +10,11 @@
 
 #include "cloud/aws/aws_env.h"
 #include "cloud/cloud_env_impl.h"
-#include "cloud/cloud_env_wrapper.h"
 #include "cloud/cloud_log_controller_impl.h"
 #include "cloud/cloud_storage_provider_impl.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
+#include "env/composite_env_wrapper.h"
 #include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "port/likely.h"
@@ -353,7 +353,8 @@ Status CloudEnvOptions::Serialize(const ConfigOptions& config_options, std::stri
                                          CloudEnvOptions::kName(), reinterpret_cast<const char*>(this), value);
 }
 
-CloudEnv::CloudEnv(const CloudEnvOptions& options, Env* base,
+CloudEnv::CloudEnv(const CloudEnvOptions& options,
+                   const std::shared_ptr<FileSystem>& base,
                    const std::shared_ptr<Logger>& logger)
     : cloud_env_options(options), base_env_(base), info_log_(logger) {
   RegisterOptions(&cloud_env_options, &cloud_env_option_type_info);
@@ -365,11 +366,12 @@ CloudEnv::~CloudEnv() {
 }
 
 Status CloudEnv::NewAwsEnv(
-    Env* base_env, const std::string& src_cloud_bucket,
-    const std::string& src_cloud_object, const std::string& src_cloud_region,
-    const std::string& dest_cloud_bucket, const std::string& dest_cloud_object,
-    const std::string& dest_cloud_region, const CloudEnvOptions& cloud_options,
-    const std::shared_ptr<Logger>& logger, CloudEnv** cenv) {
+    const std::shared_ptr<FileSystem>& base_fs,
+    const std::string& src_cloud_bucket, const std::string& src_cloud_object,
+    const std::string& src_cloud_region, const std::string& dest_cloud_bucket,
+    const std::string& dest_cloud_object, const std::string& dest_cloud_region,
+    const CloudEnvOptions& cloud_options, const std::shared_ptr<Logger>& logger,
+    CloudEnv** cenv) {
   CloudEnvOptions options = cloud_options;
   if (!src_cloud_bucket.empty())
     options.src_bucket.SetBucketName(src_cloud_bucket);
@@ -382,19 +384,20 @@ Status CloudEnv::NewAwsEnv(
     options.dest_bucket.SetObjectPath(dest_cloud_object);
   if (!dest_cloud_region.empty())
     options.dest_bucket.SetRegion(dest_cloud_region);
-  return NewAwsEnv(base_env, options, logger, cenv);
+  return NewAwsEnv(base_fs, options, logger, cenv);
 }
 
 int DoRegisterCloudObjects(ObjectLibrary& library, const std::string& arg) {
   int count = 0;
   // Register the Env types
-  library.AddFactory<Env>(
-        CloudEnvImpl::kClassName(),
-        [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
-           std::string* /*errmsg*/) {
-          guard->reset(new CloudEnvImpl(CloudEnvOptions(), Env::Default(), nullptr));
-          return guard->get();
-        });
+  library.AddFactory<FileSystem>(
+      CloudEnvImpl::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new CloudEnvImpl(CloudEnvOptions(), FileSystem::Default(),
+                                      nullptr /*logger*/));
+        return guard->get();
+      });
   count++;
 
   count += CloudEnvImpl::RegisterAwsObjects(library, arg);
@@ -423,7 +426,15 @@ void CloudEnv::RegisterCloudObjects(const std::string& arg) {
       auto library = ObjectLibrary::Default();
       DoRegisterCloudObjects(*library, arg);
     });
-}     
+}
+
+std::unique_ptr<Env> CloudEnv::NewCompositeEnvFromThis(Env* env) {
+  // We need a shared_ptr<FileSystem> pointing to "this", to initialize the
+  // env wrapper, but we don't want that shared_ptr to own the lifecycle for
+  // "this". Creating a shared_ptr with a custom no-op deleter instead.
+  std::shared_ptr<FileSystem> fs(this, [](auto* /*p*/) { /*noop*/ });
+  return std::make_unique<CompositeEnvWrapper>(env, fs);
+}
 
 Status CloudEnv::CreateFromString(const ConfigOptions& config_options, const std::string& value,
                                   std::unique_ptr<CloudEnv>* result) {
@@ -449,17 +460,19 @@ Status CloudEnv::CreateFromString(const ConfigOptions& config_options, const std
     return s;
   }
   ConfigOptions copy = config_options;
-  std::unique_ptr<Env> env;
+  std::unique_ptr<FileSystem> fs;
   copy.invoke_prepare_options = false;  // Prepare here, not there
-  s = ObjectRegistry::NewInstance()->NewUniqueObject<Env>(id, &env);
+  s = ObjectRegistry::NewInstance()->NewUniqueObject<FileSystem>(id, &fs);
   if (s.ok()) {
-    CloudEnv* cenv = static_cast<CloudEnv*>(env.get());
+    CloudEnv* cenv = dynamic_cast<CloudEnv*>(fs.get());
+    assert(cenv);
     if (!options.empty()) {
       s = cenv->ConfigureFromMap(copy, options);
     }
     if (s.ok() && config_options.invoke_prepare_options) {
+      auto env = cenv->NewCompositeEnvFromThis(copy.env);
       copy.invoke_prepare_options = config_options.invoke_prepare_options;
-      copy.env = cenv;
+      copy.env = env.get();
       s = cenv->PrepareOptions(copy);
       if (s.ok()) {
         Options tmp;
@@ -467,13 +480,14 @@ Status CloudEnv::CreateFromString(const ConfigOptions& config_options, const std
       }
     }
   }
-  
+
   if (s.ok()) {
-    result->reset(static_cast<CloudEnv*>(env.release()));
+    result->reset(static_cast<CloudEnv*>(fs.release()));
   }
   
   return s;  
 }
+
 Status CloudEnv::CreateFromString(const ConfigOptions& config_options, const std::string& value,
                                   const CloudEnvOptions& cloud_options,
                                   std::unique_ptr<CloudEnv>* result) {
@@ -499,19 +513,21 @@ Status CloudEnv::CreateFromString(const ConfigOptions& config_options, const std
     return s;
   }
   ConfigOptions copy = config_options;
-  std::unique_ptr<Env> env;
+  std::unique_ptr<FileSystem> fs;
   copy.invoke_prepare_options = false;  // Prepare here, not there
-  s = ObjectRegistry::NewInstance()->NewUniqueObject<Env>(id, &env);
+  s = ObjectRegistry::NewInstance()->NewUniqueObject<FileSystem>(id, &fs);
   if (s.ok()) {
-    CloudEnv* cenv = static_cast<CloudEnv*>(env.get());
+    CloudEnv* cenv = dynamic_cast<CloudEnv*>(fs.get());
+    assert(cenv);
     auto copts = cenv->GetOptions<CloudEnvOptions>();
     *copts = cloud_options;
     if (!options.empty()) {
       s = cenv->ConfigureFromMap(copy, options);
     }
     if (s.ok() && config_options.invoke_prepare_options) {
+      auto env = cenv->NewCompositeEnvFromThis(copy.env);
       copy.invoke_prepare_options = config_options.invoke_prepare_options;
-      copy.env = cenv;
+      copy.env = env.get();
       s = cenv->PrepareOptions(copy);
       if (s.ok()) {
         Options tmp;
@@ -521,28 +537,29 @@ Status CloudEnv::CreateFromString(const ConfigOptions& config_options, const std
   }
   
   if (s.ok()) {
-    result->reset(static_cast<CloudEnv*>(env.release()));
+    result->reset(static_cast<CloudEnv*>(fs.release()));
   }
   
   return s;  
 }
   
 #ifndef USE_AWS
-Status CloudEnv::NewAwsEnv(Env* /*base_env*/,
+Status CloudEnv::NewAwsEnv(const std::shared_ptr<FileSystem>& /*base_fs*/,
                            const CloudEnvOptions& /*options*/,
                            const std::shared_ptr<Logger>& /*logger*/,
                            CloudEnv** /*cenv*/) {
   return Status::NotSupported("RocksDB Cloud not compiled with AWS support");
 }
 #else
-Status CloudEnv::NewAwsEnv(Env* base_env, const CloudEnvOptions& options,
+Status CloudEnv::NewAwsEnv(const std::shared_ptr<FileSystem>& base_fs,
+                           const CloudEnvOptions& options,
                            const std::shared_ptr<Logger>& logger,
                            CloudEnv** cenv) {
   CloudEnv::RegisterCloudObjects();
   // Dump out cloud env options
   options.Dump(logger.get());
 
-  Status st = AwsEnv::NewAwsEnv(base_env, options, logger, cenv);
+  Status st = AwsEnv::NewAwsEnv(base_fs, options, logger, cenv);
   if (st.ok()) {
     // store a copy of the logger
     CloudEnvImpl* cloud = static_cast<CloudEnvImpl*>(*cenv);

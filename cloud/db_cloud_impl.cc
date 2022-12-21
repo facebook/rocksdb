@@ -52,7 +52,8 @@ class ConstantSizeSstFileManager : public SstFileManagerImpl {
 };
 }  // namespace
 
-DBCloudImpl::DBCloudImpl(DB* db) : DBCloud(db), cenv_(nullptr) {}
+DBCloudImpl::DBCloudImpl(DB* db, std::unique_ptr<Env> local_env)
+    : DBCloud(db), cenv_(nullptr), local_env_(std::move(local_env)) {}
 
 DBCloudImpl::~DBCloudImpl() {}
 
@@ -93,7 +94,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     CreateLoggerFromOptions(local_dbname, options, &options.info_log);
   }
 
-  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
+  auto* cenv = dynamic_cast<CloudEnvImpl*>(options.env->GetFileSystem().get());
+  assert(cenv);
   if (!cenv->info_log_) {
     cenv->info_log_ = options.info_log;
   }
@@ -114,10 +116,12 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
         64 * 1024 * 1024 /* bytes_max_delete_chunk */);
   }
 
-  Env* local_env = cenv->GetBaseEnv();
+  const auto& local_fs = cenv->GetBaseEnv();
+  const IOOptions io_opts;
+  IODebugContext* dbg = nullptr;
   if (!read_only) {
-    local_env->CreateDirIfMissing(
-        local_dbname);  // MJR: TODO: Move into sanitize
+    local_fs->CreateDirIfMissing(local_dbname, io_opts,
+                                 dbg);  // MJR: TODO: Move into sanitize
   }
 
   bool new_db = false;
@@ -150,6 +154,11 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     }
   }
 
+  // Local environment, to be owned by DBCloudImpl, so that it outlives the
+  // cache object created below.
+  std::unique_ptr<Env> local_env(
+      new CompositeEnvWrapper(options.env, local_fs));
+
   // If a persistent cache path is specified, then we set it in the options.
   if (!persistent_cache_path.empty() && persistent_cache_size_gb) {
     // Get existing options. If the persistent cache is already set, then do
@@ -158,7 +167,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
         options.table_factory->GetOptions<BlockBasedTableOptions>();
     if (tableopt != nullptr && !tableopt->persistent_cache) {
       PersistentCacheConfig config(
-          local_env, persistent_cache_path,
+          local_env.get(), persistent_cache_path,
           persistent_cache_size_gb * 1024L * 1024L * 1024L, options.info_log);
       auto pcache = std::make_shared<BlockCacheTier>(config);
       st = pcache->Open();
@@ -206,7 +215,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   }
 
   if (st.ok()) {
-    DBCloudImpl* cloud = new DBCloudImpl(db);
+    DBCloudImpl* cloud = new DBCloudImpl(db, std::move(local_env));
     *dbptr = cloud;
     db->GetDbIdentity(dbid);
   }
@@ -225,7 +234,8 @@ Status DBCloudImpl::Savepoint() {
         "Savepoint could not get dbid %s", st.ToString().c_str());
     return st;
   }
-  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(GetEnv());
+  auto* cenv = dynamic_cast<CloudEnvImpl*>(GetEnv()->GetFileSystem().get());
+  assert(cenv);
 
   // If there is no destination bucket, then nothing to do
   if (!cenv->HasDestBucket()) {
@@ -265,7 +275,7 @@ Status DBCloudImpl::Savepoint() {
         break;
       }
       auto& onefile = to_copy[idx];
-      Status s = provider->CopyCloudObject(
+      auto s = provider->CopyCloudObject(
           cenv->GetSrcBucketName(), cenv->GetSrcObjectPath() + "/" + onefile,
           cenv->GetDestBucketName(), cenv->GetDestObjectPath() + "/" + onefile);
       if (!s.ok()) {
@@ -309,8 +319,9 @@ Status DBCloudImpl::DoCheckpointToCloud(
     const BucketOptions& destination, const CheckpointToCloudOptions& options) {
   std::vector<std::string> live_files;
   uint64_t manifest_file_size{0};
-  auto cenv = static_cast<CloudEnvImpl*>(GetEnv());
-  auto base_env = cenv->GetBaseEnv();
+  auto* cenv = dynamic_cast<CloudEnvImpl*>(GetEnv()->GetFileSystem().get());
+  assert(cenv);
+  const auto& local_fs = cenv->GetBaseEnv();
 
   auto st =
       GetLiveFiles(live_files, &manifest_file_size, options.flush_memtable);
@@ -322,8 +333,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
   auto current_epoch = cenv->GetCloudManifest()->GetCurrentEpoch();
   auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
   auto tmp_manifest_fname = manifest_fname + ".tmp";
-  auto fs = base_env->GetFileSystem();
-  st = CopyFile(fs.get(), GetName() + "/" + manifest_fname,
+  st = CopyFile(local_fs.get(), GetName() + "/" + manifest_fname,
                 GetName() + "/" + tmp_manifest_fname, manifest_file_size, false,
                 nullptr, Temperature::kUnknown);
   if (!st.ok()) {
@@ -426,7 +436,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
   }
 
   // Ignore errors
-  base_env->DeleteFile(tmp_manifest_fname);
+  local_fs->DeleteFile(tmp_manifest_fname, IOOptions(), nullptr /*dbg*/);
 
   st = cenv->SaveDbid(destination.GetBucketName(), dbid,
                       destination.GetObjectPath());
@@ -436,7 +446,8 @@ Status DBCloudImpl::DoCheckpointToCloud(
 Status DBCloudImpl::ExecuteRemoteCompactionRequest(
     const PluggableCompactionParam& inputParams,
     PluggableCompactionResult* result, bool doSanitize) {
-  auto cenv = static_cast<CloudEnvImpl*>(GetEnv());
+  auto* cenv = dynamic_cast<CloudEnvImpl*>(GetEnv()->GetFileSystem().get());
+  assert(cenv);
 
   // run the compaction request on the underlying local database
   Status status = GetBaseDB()->ExecuteRemoteCompactionRequest(
@@ -456,18 +467,20 @@ Status DBCloudImpl::ExecuteRemoteCompactionRequest(
 Status DBCloud::ListColumnFamilies(const DBOptions& db_options,
                                    const std::string& name,
                                    std::vector<std::string>* column_families) {
-  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(db_options.env);
+  auto* cenv =
+      dynamic_cast<CloudEnvImpl*>(db_options.env->GetFileSystem().get());
+  assert(cenv);
 
-  Env* local_env = cenv->GetBaseEnv();
-  local_env->CreateDirIfMissing(name);
+  const auto& local_env = cenv->GetBaseEnv();
+  local_env->CreateDirIfMissing(name, IOOptions(), nullptr /*dbg*/);
 
-  Status st;
-  st = cenv->SanitizeDirectory(db_options, name, false);
+  auto st = cenv->SanitizeDirectory(db_options, name, false);
   if (st.ok()) {
     st = cenv->LoadCloudManifest(name, false);
   }
   if (st.ok()) {
-    st = DB::ListColumnFamilies(db_options, name, column_families);
+    st = status_to_io_status(
+        DB::ListColumnFamilies(db_options, name, column_families));
   }
 
   return st;

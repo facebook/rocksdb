@@ -30,7 +30,8 @@ void CloudFileDeletionScheduler::UnscheduleFileDeletion(const std::string& filen
   }
 }
 
-rocksdb::Status CloudFileDeletionScheduler::ScheduleFileDeletion(const std::string& fname, FileDeletionRunnable runnable) {
+rocksdb::IOStatus CloudFileDeletionScheduler::ScheduleFileDeletion(
+    const std::string& fname, FileDeletionRunnable runnable) {
   auto wp = this->weak_from_this();
   auto doDeleteFile = [wp = std::move(wp), fname, runnable = std::move(runnable)](void*) {
     TEST_SYNC_POINT(
@@ -51,14 +52,14 @@ rocksdb::Status CloudFileDeletionScheduler::ScheduleFileDeletion(const std::stri
     std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
     if (files_to_delete_.find(fname) != files_to_delete_.end()) {
       // already in the queue
-      return Status::OK();
+      return IOStatus::OK();
     }
 
     auto handle = scheduler_->ScheduleJob(file_deletion_delay_,
                                           std::move(doDeleteFile), nullptr);
     files_to_delete_.emplace(fname, std::move(handle));
   }
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 void CloudFileDeletionScheduler::DoDeleteFile(const std::string& fname,

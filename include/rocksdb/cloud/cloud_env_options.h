@@ -5,9 +5,10 @@
 #include <memory>
 #include <unordered_map>
 
-#include "rocksdb/configurable.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/env.h"
+#include "rocksdb/configurable.h"
+#include "rocksdb/file_system.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
 
 namespace Aws {
@@ -460,7 +461,7 @@ class CloudEnvOptions {
   Status Serialize(const ConfigOptions& config_options, std::string* result) const;
 
   // Is the sst file cache configured?
-  bool hasSstFileCache() {
+  bool hasSstFileCache() const {
     return sst_file_cache != nullptr && sst_file_cache->GetCapacity() > 0;
   }
 };
@@ -483,17 +484,24 @@ struct CloudManifestDelta {
   std::string epoch; // epoch for the new manifest file
 };
 
-
 //
 // The Cloud environment
 //
-class CloudEnv : public Env {
+// TODO(estalgo): Rename to CloudFileSystem
+class CloudEnv : public FileSystem {
  protected:
   CloudEnvOptions cloud_env_options;
-  Env* base_env_;  // The underlying env
+  // TODO(estalgo): Rename to base_fs_
+  std::shared_ptr<FileSystem> base_env_;  // The underlying env
 
-  CloudEnv(const CloudEnvOptions& options, Env* base,
+  // Creates a new CompositeEnv from "env" and "this".
+  // The returned Env must not outlive "this"
+  std::unique_ptr<Env> NewCompositeEnvFromThis(Env* env);
+
+  CloudEnv(const CloudEnvOptions& options,
+           const std::shared_ptr<FileSystem>& base,
            const std::shared_ptr<Logger>& logger);
+
  public:
   mutable std::shared_ptr<Logger> info_log_;  // informational messages
 
@@ -508,30 +516,31 @@ class CloudEnv : public Env {
   static const char* kCloud() { return "cloud"; }
   static const char* kAws() { return "aws"; }
   virtual const char* Name() const { return "cloud-env"; }
-  // Returns the underlying env
-  Env* GetBaseEnv() const { return base_env_; }
-  virtual Status PreloadCloudManifest(const std::string& local_dbname) = 0;
+  // Returns the underlying file system
+  // TODO(estalgo): Rename to GetBaseFileSystem
+  const std::shared_ptr<FileSystem>& GetBaseEnv() const { return base_env_; }
+  virtual IOStatus PreloadCloudManifest(const std::string& local_dbname) = 0;
   // This method will migrate the database that is using pure RocksDB into
   // RocksDB-Cloud. Call this before opening the database with RocksDB-Cloud.
-  virtual Status MigrateFromPureRocksDB(const std::string& local_dbname) = 0;
+  virtual IOStatus MigrateFromPureRocksDB(const std::string& local_dbname) = 0;
 
   // Reads a file from the cloud
-  virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
-                                        const std::string& fname,
-                                        std::unique_ptr<SequentialFile>* result,
-                                        const EnvOptions& options) = 0;
+  virtual IOStatus NewSequentialFileCloud(
+      const std::string& bucket_prefix, const std::string& fname,
+      const FileOptions& file_opts, std::unique_ptr<FSSequentialFile>* result,
+      IODebugContext* dbg) = 0;
 
   // Saves and retrieves the dbid->dirname mapping in cloud storage
-  virtual Status SaveDbid(const std::string& bucket_name,
-                          const std::string& dbid,
-                          const std::string& dirname) = 0;
-  virtual Status GetPathForDbid(const std::string& bucket_prefix,
-                                const std::string& dbid,
-                                std::string* dirname) = 0;
-  virtual Status GetDbidList(const std::string& bucket_prefix,
-                             DbidList* dblist) = 0;
-  virtual Status DeleteDbid(const std::string& bucket_prefix,
-                            const std::string& dbid) = 0;
+  virtual IOStatus SaveDbid(const std::string& bucket_name,
+                            const std::string& dbid,
+                            const std::string& dirname) = 0;
+  virtual IOStatus GetPathForDbid(const std::string& bucket_prefix,
+                                  const std::string& dbid,
+                                  std::string* dirname) = 0;
+  virtual IOStatus GetDbidList(const std::string& bucket_prefix,
+                               DbidList* dblist) = 0;
+  virtual IOStatus DeleteDbid(const std::string& bucket_prefix,
+                              const std::string& dbid) = 0;
 
   Logger* GetLogger() const { return info_log_.get(); }
   const std::shared_ptr<CloudStorageProvider>&  GetStorageProvider() const {
@@ -580,10 +589,10 @@ class CloudEnv : public Env {
   }
 
   // Deletes file from a destination bucket.
-  virtual Status DeleteCloudFileFromDest(const std::string& fname) = 0;
+  virtual IOStatus DeleteCloudFileFromDest(const std::string& fname) = 0;
   // Copies a local file to a destination bucket.
-  virtual Status CopyLocalFileToDest(const std::string& local_name,
-                                     const std::string& cloud_name) = 0;
+  virtual IOStatus CopyLocalFileToDest(const std::string& local_name,
+                                       const std::string& cloud_name) = 0;
 
   // Transfers the filename from RocksDB's domain to the physical domain, based
   // on information stored in CLOUDMANIFEST.
@@ -597,20 +606,20 @@ class CloudEnv : public Env {
   // For the returned filepath in `live_sst_files` and `manifest_file`, we only
   // include the basename of the filepath but not the directory prefix to the
   // file
-  virtual Status FindAllLiveFiles(const std::string& local_dbname,
-                                  std::vector<std::string>* live_sst_files,
-                                  std::string* manifest_file) = 0;
+  virtual IOStatus FindAllLiveFiles(const std::string& local_dbname,
+                                    std::vector<std::string>* live_sst_files,
+                                    std::string* manifest_file) = 0;
   // Find the list of live files based on CloudManifest and Manifest in local
   // db. Also, fetch the current Manifest file before reading.
   //
-  // Besides returning live file paths, it also return the version of the fetched
-  // manfiest file, if the cloud storage has versioning enabled
+  // Besides returning live file paths, it also return the version of the
+  // fetched manfiest file, if the cloud storage has versioning enabled
   //
   // NOTE: be careful with using this function since it will override the local
   // Manifest file in `local_dbname`!
   // 
   // REQUIRES: cloud storage has versioning enabled
-  virtual Status FindAllLiveFilesAndFetchManifest(
+  virtual IOStatus FindAllLiveFilesAndFetchManifest(
       const std::string& local_dbname, std::vector<std::string>* live_sst_files,
       std::string* manifest_file, std::string* manifest_file_version) = 0;
 
@@ -619,8 +628,8 @@ class CloudEnv : public Env {
   //
   // If delta has already been applied in cloud manifest, delta_applied would be
   // `false`
-  virtual Status ApplyCloudManifestDelta(const CloudManifestDelta& delta,
-                                         bool* delta_applied) = 0;
+  virtual IOStatus ApplyCloudManifestDelta(const CloudManifestDelta& delta,
+                                           bool* delta_applied) = 0;
 
   // This function does several things:
   // * Writes CLOUDMANIFEST-cookie file based on existing in-memory
@@ -631,11 +640,11 @@ class CloudEnv : public Env {
   //
   // Return InvalidArgument status if the delta has been applied in current
   // CloudManifest
-  virtual Status RollNewCookie(const std::string& local_dbname,
-                               const std::string& cookie,
-                               const CloudManifestDelta& delta) const = 0;
+  virtual IOStatus RollNewCookie(const std::string& local_dbname,
+                                 const std::string& cookie,
+                                 const CloudManifestDelta& delta) const = 0;
 
-  virtual Status DeleteCloudInvisibleFiles(
+  virtual IOStatus DeleteCloudInvisibleFiles(
       const std::vector<std::string>& active_cookies) = 0;
 
   // Create a new AWS env.
@@ -649,16 +658,15 @@ class CloudEnv : public Env {
   // data from cloud storage.
   // If dest_bucket_name is empty, then the associated db does not write any
   // data to cloud storage.
-  static Status NewAwsEnv(Env* base_env, const std::string& src_bucket_name,
-                          const std::string& src_object_prefix,
-                          const std::string& src_bucket_region,
-                          const std::string& dest_bucket_name,
-                          const std::string& dest_object_prefix,
-                          const std::string& dest_bucket_region,
+  static Status NewAwsEnv(
+      const std::shared_ptr<FileSystem>& base_fs,
+      const std::string& src_bucket_name, const std::string& src_object_prefix,
+      const std::string& src_bucket_region, const std::string& dest_bucket_name,
+      const std::string& dest_object_prefix,
+      const std::string& dest_bucket_region, const CloudEnvOptions& env_options,
+      const std::shared_ptr<Logger>& logger, CloudEnv** cenv);
+  static Status NewAwsEnv(const std::shared_ptr<FileSystem>& base_fs,
                           const CloudEnvOptions& env_options,
-                          const std::shared_ptr<Logger>& logger,
-                          CloudEnv** cenv);
-  static Status NewAwsEnv(Env* base_env, const CloudEnvOptions& env_options,
                           const std::shared_ptr<Logger>& logger,
                           CloudEnv** cenv);
 };

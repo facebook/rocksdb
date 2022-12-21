@@ -38,8 +38,8 @@ enum class RecordTags : uint32_t {
 // record: tag (varint, 1 or 2)
 // record 1: epoch (slice), file number
 // record 2: current epoch
-Status CloudManifest::LoadFromLog(std::unique_ptr<SequentialFileReader> log,
-                                  std::unique_ptr<CloudManifest>* manifest) {
+IOStatus CloudManifest::LoadFromLog(std::unique_ptr<SequentialFileReader> log,
+                                    std::unique_ptr<CloudManifest>* manifest) {
   Status status;
   CorruptionReporter reporter;
   reporter.status = &status;
@@ -62,10 +62,10 @@ Status CloudManifest::LoadFromLog(std::unique_ptr<SequentialFileReader> log,
         ok = GetVarint32(&record, &expectedRecords);
       }
       if (!ok) {
-        return Status::Corruption("Corruption in cloud manifest header");
+        return IOStatus::Corruption("Corruption in cloud manifest header");
       }
       if (formatVersion != kCurrentFormatVersion) {
-        return Status::Corruption("Unknown cloud manifest format version");
+        return IOStatus::Corruption("Unknown cloud manifest format version");
       }
       headerRead = true;
     } else {
@@ -75,7 +75,7 @@ Status CloudManifest::LoadFromLog(std::unique_ptr<SequentialFileReader> log,
       Slice epoch;
       bool ok = GetVarint32(&record, &tag);
       if (!ok) {
-        return Status::Corruption("Failed to read cloud manifest record");
+        return IOStatus::Corruption("Failed to read cloud manifest record");
       }
       switch (tag) {
         case static_cast<uint32_t>(RecordTags::kPastEpoch): {
@@ -98,28 +98,28 @@ Status CloudManifest::LoadFromLog(std::unique_ptr<SequentialFileReader> log,
           ok = false;
       }
       if (!ok) {
-        return Status::Corruption("Failed to read cloud manifest record");
+        return IOStatus::Corruption("Failed to read cloud manifest record");
       }
     }
   }
   if (recordsRead != expectedRecords) {
-    return Status::Corruption(
+    return IOStatus::Corruption(
         "Records read does not match the number of expected records");
   }
   // is sorted by filenum in ascending order
   if (!std::is_sorted(pastEpochs.begin(), pastEpochs.end(),
                       [](auto& e1, auto& e2) { return e1.first < e2.first; })) {
-    return Status::Corruption("Cloud manifest records not sorted");
+    return IOStatus::Corruption("Cloud manifest records not sorted");
   }
   manifest->reset(
       new CloudManifest(std::move(pastEpochs), std::move(currentEpoch)));
-  return status;
+  return status_to_io_status(std::move(status));
 }
 
-Status CloudManifest::CreateForEmptyDatabase(
+IOStatus CloudManifest::CreateForEmptyDatabase(
     std::string currentEpoch, std::unique_ptr<CloudManifest>* manifest) {
-  manifest->reset(new CloudManifest({}, currentEpoch));
-  return Status::OK();
+  manifest->reset(new CloudManifest({}, std::move(currentEpoch)));
+  return IOStatus::OK();
 }
 
 std::unique_ptr<CloudManifest> CloudManifest::clone() const {
@@ -138,8 +138,8 @@ std::unique_ptr<CloudManifest> CloudManifest::clone() const {
 // varint)
 //
 // Header comes first, and is followed with number_of_records Records.
-Status CloudManifest::WriteToLog(std::unique_ptr<WritableFileWriter> log) const {
-  Status status;
+IOStatus CloudManifest::WriteToLog(
+    std::unique_ptr<WritableFileWriter> log) const {
   log::Writer writer(std::move(log), 0, false);
   std::string record;
 
@@ -148,7 +148,7 @@ Status CloudManifest::WriteToLog(std::unique_ptr<WritableFileWriter> log) const 
   // 1. write header
   PutVarint32(&record, kCurrentFormatVersion);
   PutVarint32(&record, static_cast<uint32_t>(pastEpochs_.size() + 1));
-  status = writer.AddRecord(record);
+  auto status = writer.AddRecord(record);
   if (!status.ok()) {
     return status;
   }

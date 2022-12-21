@@ -35,15 +35,15 @@ namespace ROCKSDB_NAMESPACE {
 // CloudManifest is thread safe after Finalize() is called.
 class CloudManifest {
  public:
-  static Status LoadFromLog(std::unique_ptr<SequentialFileReader> log,
-                            std::unique_ptr<CloudManifest>* manifest);
+  static IOStatus LoadFromLog(std::unique_ptr<SequentialFileReader> log,
+                              std::unique_ptr<CloudManifest>* manifest);
   // Creates CloudManifest for an empty database
-  static Status CreateForEmptyDatabase(
+  static IOStatus CreateForEmptyDatabase(
       std::string currentEpoch, std::unique_ptr<CloudManifest>* manifest);
 
   std::unique_ptr<CloudManifest> clone() const;
 
-  Status WriteToLog(std::unique_ptr<WritableFileWriter> log) const;
+  IOStatus WriteToLog(std::unique_ptr<WritableFileWriter> log) const;
 
   // Add an epoch that starts with startFileNumber and is identified by epochId.
   // GetEpoch(startFileNumber) == epochId

@@ -149,10 +149,10 @@ DBTestBase::~DBTestBase() {
 
 #ifndef ROCKSDB_LITE
 #ifdef USE_AWS
-  auto cenv = static_cast<CloudEnv*>(s3_env_);
+  auto* cenv = static_cast<CloudEnv*>(s3_env_->GetFileSystem().get());
   cenv->GetStorageProvider()->EmptyBucket(cenv->GetSrcBucketName(),
                                           cenv->GetSrcObjectPath());
-#endif
+#endif  // USE_AWS
 #endif  // !ROCKSDB_LITE
   delete s3_env_;
 }
@@ -682,8 +682,10 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
   CloudEnv* cenv = nullptr;
   std::string region;
   coptions.TEST_Initialize("dbtest.", prefix, region);
-  Status st = CloudEnv::NewAwsEnv(parent, coptions, info_log_, &cenv);
-  CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(cenv);
+  Status st =
+      CloudEnv::NewAwsEnv(parent->GetFileSystem(), coptions, info_log_, &cenv);
+  CloudEnvImpl* cimpl = dynamic_cast<CloudEnvImpl*>(cenv);
+  assert(cimpl);
   cimpl->TEST_DisableCloudManifest();
   cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
   ROCKS_LOG_INFO(info_log_, "Created new aws env with path %s", prefix.c_str());
@@ -691,7 +693,8 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "%s", st.ToString().c_str());
   }
   assert(st.ok() && cenv);
-  return cenv;
+  std::shared_ptr<FileSystem> cloud_fs(cenv);
+  return new CompositeEnvWrapper(parent, cloud_fs);
 }
 #endif // USE_AWS
 #endif // ROCKSDB_LITE
@@ -812,14 +815,15 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
   ASSERT_OK(DestroyDB(dbname_, options, column_families));
 #ifdef USE_AWS
   if (s3_env_) {
-    CloudEnv* cenv = static_cast<CloudEnv*>(s3_env_);
-    Status st = cenv->GetStorageProvider()->EmptyBucket(
-        cenv->GetSrcBucketName(), dbname_);
+    CloudEnv* cenv = static_cast<CloudEnv*>(s3_env_->GetFileSystem().get());
+    auto st = cenv->GetStorageProvider()->EmptyBucket(cenv->GetSrcBucketName(),
+                                                      dbname_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
     for (int r = 0; r < 10; ++r) {
       // The existance is not propagated atomically, so wait until
       // IDENTITY file no longer exists.
-      if (cenv->FileExists(dbname_ + "/IDENTITY").ok()) {
+      if (cenv->FileExists(dbname_ + "/IDENTITY", IOOptions(), nullptr /*dbg*/)
+              .ok()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10 * (r + 1)));
         continue;
       }

@@ -37,8 +37,8 @@ class CloudLogControllerImpl : public CloudLogController {
 
   // Directory where files are cached locally.
   const std::string& GetCacheDir() const override { return cache_dir_; }
-  Status const status() const override { return status_; }
-  virtual Status StartTailingStream(const std::string& topic) override;
+  Status status() const override { return status_; }
+  IOStatus StartTailingStream(const std::string& topic) override;
   void StopTailingStream() override;
 
   static void SerializeLogRecordAppend(const Slice& filename, const Slice& data,
@@ -47,36 +47,40 @@ class CloudLogControllerImpl : public CloudLogController {
                                        uint64_t file_size, std::string* out);
   static void SerializeLogRecordDelete(const std::string& filename,
                                        std::string* out);
-  Status GetFileModificationTime(const std::string& fname,
-                                 uint64_t* time) override;
-  Status NewSequentialFile(const std::string& fname,
-                           std::unique_ptr<SequentialFile>* result,
-                           const EnvOptions& options) override;
-  Status NewRandomAccessFile(const std::string& fname,
-                             std::unique_ptr<RandomAccessFile>* result,
-                             const EnvOptions& options) override;
-  Status FileExists(const std::string& fname) override;
-  Status GetFileSize(const std::string& logical_fname, uint64_t* size) override;
+  IOStatus GetFileModificationTime(const std::string& fname,
+                                   uint64_t* time) override;
+  IOStatus NewSequentialFile(const std::string& fname,
+                             const FileOptions& file_opts,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override;
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& file_opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override;
+  IOStatus FileExists(const std::string& fname) override;
+  IOStatus GetFileSize(const std::string& logical_fname,
+                       uint64_t* size) override;
   Status PrepareOptions(const ConfigOptions& options) override;
 
  protected:
   // Converts an original pathname to a pathname in the cache.
   std::string GetCachePath(const Slice& original_pathname) const;
 
-  // Retries fnc until success or timeout has expired.
-  typedef std::function<Status()> RetryType;
-  Status Retry(RetryType func);
+  // Retries func until success or timeout has expired.
+  typedef std::function<IOStatus()> RetryType;
+  IOStatus Retry(RetryType func);
 
   static bool ExtractLogRecord(const Slice& input, uint32_t* operation,
                                Slice* filename, uint64_t* offset_in_file,
                                uint64_t* file_size, Slice* data);
-  CloudEnv* env_;
+  Env* env_;
+  CloudEnv* cloud_fs_;
   Status status_;
   std::string cache_dir_;
   // A cache of pathnames to their open file _escriptors
-  std::map<std::string, std::unique_ptr<RandomRWFile>> cache_fds_;
+  std::map<std::string, std::unique_ptr<FSRandomRWFile>> cache_fds_;
 
-  Status Apply(const Slice& data);
+  IOStatus Apply(const Slice& data);
   bool IsRunning() const { return running_; }
 
  private:

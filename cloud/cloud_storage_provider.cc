@@ -35,12 +35,12 @@ CloudStorageReadableFileImpl::CloudStorageReadableFileImpl(
       "[%s] CloudReadableFile opening file %s", Name(), fname_.c_str());
 }
 
-// sequential access, read data at current offset in file
-Status CloudStorageReadableFileImpl::Read(size_t n, Slice* result,
-                                          char* scratch) {
+IOStatus CloudStorageReadableFileImpl::Read(size_t n, const IOOptions& options,
+                                            Slice* result, char* scratch,
+                                            IODebugContext* dbg) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[%s] CloudReadableFile reading %s %ld", Name(), fname_.c_str(), n);
-  Status s = Read(offset_, n, result, scratch);
+  auto s = Read(offset_, n, options, result, scratch, dbg);
 
   // If the read successfully returned some data, then update
   // offset_
@@ -50,9 +50,10 @@ Status CloudStorageReadableFileImpl::Read(size_t n, Slice* result,
   return s;
 }
 
-// random access, read data from specified offset in file
-Status CloudStorageReadableFileImpl::Read(uint64_t offset, size_t n,
-                                          Slice* result, char* scratch) const {
+IOStatus CloudStorageReadableFileImpl::Read(uint64_t offset, size_t n,
+                                            const IOOptions& options,
+                                            Slice* result, char* scratch,
+                                            IODebugContext* dbg) const {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[%s] CloudReadableFile reading %s at offset %" PRIu64
       " size %" ROCKSDB_PRIszt,
@@ -65,7 +66,7 @@ Status CloudStorageReadableFileImpl::Read(uint64_t offset, size_t n,
         "[%s] CloudReadableFile reading %s at offset %" PRIu64
         " filesize %" PRIu64 ". Nothing to do",
         Name(), fname_.c_str(), offset, file_size_);
-    return Status::OK();
+    return IOStatus::OK();
   }
 
   // trim size if needed
@@ -77,7 +78,7 @@ Status CloudStorageReadableFileImpl::Read(uint64_t offset, size_t n,
         Name(), fname_.c_str(), offset, n);
   }
   uint64_t bytes_read;
-  Status st = DoCloudRead(offset, n, scratch, &bytes_read);
+  auto st = DoCloudRead(offset, n, options, scratch, &bytes_read, dbg);
   if (st.ok()) {
     *result = Slice(scratch, bytes_read);
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
@@ -88,7 +89,7 @@ Status CloudStorageReadableFileImpl::Read(uint64_t offset, size_t n,
   return st;
 }
 
-Status CloudStorageReadableFileImpl::Skip(uint64_t n) {
+IOStatus CloudStorageReadableFileImpl::Skip(uint64_t n) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[%s] CloudReadableFile file %s skip %" PRIu64, Name(), fname_.c_str(),
       n);
@@ -97,14 +98,14 @@ Status CloudStorageReadableFileImpl::Skip(uint64_t n) {
   if (offset_ > file_size_) {
     offset_ = file_size_;
   }
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 /******************** Writablefile ******************/
 
 CloudStorageWritableFileImpl::CloudStorageWritableFileImpl(
     CloudEnv* env, const std::string& local_fname, const std::string& bucket,
-    const std::string& cloud_fname, const EnvOptions& options)
+    const std::string& cloud_fname, const FileOptions& file_opts)
     : env_(env),
       fname_(local_fname),
       bucket_(bucket),
@@ -121,10 +122,11 @@ CloudStorageWritableFileImpl::CloudStorageWritableFileImpl(
       is_manifest_);
 
   auto* file_to_open = &fname_;
-  auto local_env = env_->GetBaseEnv();
-  Status s;
+  const auto& local_env = env_->GetBaseEnv();
+  IOStatus s;
+  IODebugContext* dbg = nullptr;
   if (is_manifest_) {
-    s = local_env->FileExists(fname_);
+    s = local_env->FileExists(fname_, IOOptions(), dbg);
     if (!s.ok() && !s.IsNotFound()) {
       status_ = s;
       return;
@@ -139,7 +141,7 @@ CloudStorageWritableFileImpl::CloudStorageWritableFileImpl(
     }
   }
 
-  s = local_env->NewWritableFile(*file_to_open, &local_file_, options);
+  s = local_env->NewWritableFile(*file_to_open, file_opts, &local_file_, dbg);
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] CloudWritableFile src %s %s", Name(), fname_.c_str(),
@@ -150,11 +152,12 @@ CloudStorageWritableFileImpl::CloudStorageWritableFileImpl(
 
 CloudStorageWritableFileImpl::~CloudStorageWritableFileImpl() {
   if (local_file_ != nullptr) {
-    Close();
+    Close(IOOptions(), nullptr /*dbg*/);
   }
 }
 
-Status CloudStorageWritableFileImpl::Close() {
+IOStatus CloudStorageWritableFileImpl::Close(const IOOptions& opts,
+                                             IODebugContext* dbg) {
   if (local_file_ == nullptr) {  // already closed
     return status_;
   }
@@ -163,7 +166,7 @@ Status CloudStorageWritableFileImpl::Close() {
   assert(status_.ok());
 
   // close local file
-  Status st = local_file_->Close();
+  auto st = local_file_->Close(opts, dbg);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] CloudWritableFile closing error on local %s\n", Name(),
@@ -183,7 +186,7 @@ Status CloudStorageWritableFileImpl::Close() {
 
     // delete local file
     if (!env_->GetCloudEnvOptions().keep_local_sst_files) {
-      status_ = env_->GetBaseEnv()->DeleteFile(fname_);
+      status_ = env_->GetBaseEnv()->DeleteFile(fname_, opts, dbg);
       if (!status_.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
             "[%s] CloudWritableFile closing delete failed on local file %s",
@@ -194,24 +197,25 @@ Status CloudStorageWritableFileImpl::Close() {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[%s] CloudWritableFile closed file %s", Name(), fname_.c_str());
   }
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 // Sync a file to stable storage
-Status CloudStorageWritableFileImpl::Sync() {
+IOStatus CloudStorageWritableFileImpl::Sync(const IOOptions& opts,
+                                            IODebugContext* dbg) {
   if (local_file_ == nullptr) {
     return status_;
   }
   assert(status_.ok());
 
   // sync local file
-  Status stat = local_file_->Sync();
+  auto stat = local_file_->Sync(opts, dbg);
 
   if (stat.ok() && !tmp_file_.empty()) {
     assert(is_manifest_);
     // We are writing to the temporary file. On a first sync we need to rename
     // the file to the real filename.
-    stat = env_->GetBaseEnv()->RenameFile(tmp_file_, fname_);
+    stat = env_->GetBaseEnv()->RenameFile(tmp_file_, fname_, opts, dbg);
     // Note: this is not thread safe, but we know that manifest writes happen
     // from the same thread, so we are fine.
     tmp_file_.clear();
@@ -250,7 +254,8 @@ Status CloudStorageProvider::CreateFromString(
 }
 
 Status CloudStorageProviderImpl::PrepareOptions(const ConfigOptions& options) {
-  env_ = static_cast<CloudEnv*>(options.env);
+  env_ = dynamic_cast<CloudEnv*>(options.env->GetFileSystem().get());
+  assert(env_);
   Status st = CloudStorageProvider::PrepareOptions(options);
   if (!st.ok()) {
     return st;
@@ -284,49 +289,50 @@ CloudStorageProviderImpl::CloudStorageProviderImpl() : rng_(time(nullptr)) {}
 
 CloudStorageProviderImpl::~CloudStorageProviderImpl() {}
 
-
-Status CloudStorageProviderImpl::NewCloudReadableFile(
+IOStatus CloudStorageProviderImpl::NewCloudReadableFile(
     const std::string& bucket, const std::string& fname,
-    std::unique_ptr<CloudStorageReadableFile>* result,
-    const EnvOptions& options) {
+    const FileOptions& options,
+    std::unique_ptr<CloudStorageReadableFile>* result, IODebugContext* dbg) {
   CloudObjectInformation info;
-  Status st = GetCloudObjectMetadata(bucket, fname, &info);
+  auto st = GetCloudObjectMetadata(bucket, fname, &info);
 
   if (!st.ok()) {
     return st;
   }
   return DoNewCloudReadableFile(bucket, fname, info.size, info.content_hash,
-                                result, options);
+                                options, result, dbg);
 }
 
-Status CloudStorageProviderImpl::GetCloudObject(
+IOStatus CloudStorageProviderImpl::GetCloudObject(
     const std::string& bucket_name, const std::string& object_path,
     const std::string& local_destination) {
   return GetCloudObjectAndVersion(bucket_name, object_path, local_destination,
                                   nullptr /* version */);
 }
 
-Status CloudStorageProviderImpl::GetCloudObjectAndVersion(
+IOStatus CloudStorageProviderImpl::GetCloudObjectAndVersion(
     const std::string& bucket_name, const std::string& object_path,
     const std::string& local_destination, std::string* version) {
-  Env* localenv = env_->GetBaseEnv();
+  const auto& localenv = env_->GetBaseEnv();
   std::string tmp_destination =
       local_destination + ".tmp-" + std::to_string(rng_.Next());
 
   uint64_t remote_size;
-  Status s = DoGetCloudObject(bucket_name, object_path, tmp_destination,
-                              &remote_size, version);
+  auto s = DoGetCloudObject(bucket_name, object_path, tmp_destination,
+                            &remote_size, version);
+  const IOOptions io_opts;
+  IODebugContext* dbg = nullptr;
   if (!s.ok()) {
-    localenv->DeleteFile(tmp_destination);
+    localenv->DeleteFile(tmp_destination, io_opts, dbg);
     return s;
   }
 
   // Check if our local file is the same as promised
   uint64_t local_size{0};
-  s = localenv->GetFileSize(tmp_destination, &local_size);
+  s = localenv->GetFileSize(tmp_destination, io_opts, &local_size, dbg);
   if (!s.ok() || local_size != remote_size) {
-    localenv->DeleteFile(tmp_destination);
-    s = Status::IOError("File download failed: " + local_destination);
+    localenv->DeleteFile(tmp_destination, io_opts, dbg);
+    s = IOStatus::IOError("File download failed: " + local_destination);
     Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] GetCloudObject %s/%s local size %" PRIu64
         " != cloud size "
@@ -336,21 +342,21 @@ Status CloudStorageProviderImpl::GetCloudObjectAndVersion(
   }
 
   if (s.ok()) {
-    s = localenv->RenameFile(tmp_destination, local_destination);
+    s = localenv->RenameFile(tmp_destination, local_destination, io_opts, dbg);
   }
   Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
       "[%s] GetCloudObject %s/%s size %" PRIu64 ". %s", bucket_name.c_str(),
       Name(), object_path.c_str(), local_size, s.ToString().c_str());
   return s;
-
 }
 
-Status CloudStorageProviderImpl::PutCloudObject(
+IOStatus CloudStorageProviderImpl::PutCloudObject(
     const std::string& local_file, const std::string& bucket_name,
     const std::string& object_path) {
   uint64_t fsize = 0;
   // debugging paranoia. Files uploaded to Cloud can never be zero size.
-  auto st = env_->GetBaseEnv()->GetFileSize(local_file, &fsize);
+  auto st = env_->GetBaseEnv()->GetFileSize(local_file, IOOptions(), &fsize,
+                                            nullptr /*dbg*/);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] PutCloudObject localpath %s error getting size %s", Name(),
@@ -361,7 +367,7 @@ Status CloudStorageProviderImpl::PutCloudObject(
     Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] PutCloudObject localpath %s error zero size", Name(),
         local_file.c_str());
-    return Status::IOError(local_file + " Zero size.");
+    return IOStatus::IOError(local_file + " Zero size.");
   }
 
   return DoPutCloudObject(local_file, bucket_name, object_path, fsize);

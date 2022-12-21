@@ -4,6 +4,7 @@
 
 #ifndef ROCKSDB_LITE
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -42,7 +43,9 @@ class DBCloudImpl : public DBCloud {
   // Maximum manifest file size
   static const uint64_t max_manifest_file_size = 4 * 1024L * 1024L;
 
-  explicit DBCloudImpl(DB* db);
+  DBCloudImpl(DB* db, std::unique_ptr<Env> local_env);
+
+  std::unique_ptr<Env> local_env_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

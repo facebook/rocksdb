@@ -11,6 +11,7 @@
 #include "cloud/cloud_log_controller_impl.h"
 #include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -28,29 +29,30 @@ class KafkaWritableFile : public CloudLogWritableFile {
  public:
   static const std::chrono::microseconds kFlushTimeout;
 
-  KafkaWritableFile(CloudEnv* env, const std::string& fname,
-                    const EnvOptions& options,
+  KafkaWritableFile(Env* env, CloudEnv* cloud_fs, const std::string& fname,
+                    const FileOptions& options,
                     std::shared_ptr<RdKafka::Producer> producer,
                     std::shared_ptr<RdKafka::Topic> topic)
-      : CloudLogWritableFile(env, fname, options),
-        producer_(producer),
-        topic_(topic),
+      : CloudLogWritableFile(env, cloud_fs, fname, options),
+        producer_(std::move(producer)),
+        topic_(std::move(topic)),
         current_offset_(0) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[kafka] WritableFile opened file %s", fname_.c_str());
   }
 
   ~KafkaWritableFile() {}
   using CloudLogWritableFile::Append;
-  virtual Status Append(const Slice& data);
-  virtual Status Close();
-  virtual bool IsSyncThreadSafe() const;
-  virtual Status Sync();
-  virtual Status Flush();
-  virtual Status LogDelete();
+  IOStatus Append(const Slice& data, const IOOptions& io_opts,
+                  IODebugContext* dbg) override;
+  IOStatus Close(const IOOptions& io_opts, IODebugContext* dbg) override;
+  bool IsSyncThreadSafe() const override;
+  IOStatus Sync(const IOOptions& io_opts, IODebugContext* dbg) override;
+  IOStatus Flush(const IOOptions& io_opts, IODebugContext* dbg) override;
+  IOStatus LogDelete() override;
 
  private:
-  Status ProduceRaw(const std::string& operation_name, const Slice& message);
+  IOStatus ProduceRaw(const std::string& operation_name, const Slice& message);
 
   std::shared_ptr<RdKafka::Producer> producer_;
   std::shared_ptr<RdKafka::Topic> topic_;
@@ -60,8 +62,8 @@ class KafkaWritableFile : public CloudLogWritableFile {
 const std::chrono::microseconds KafkaWritableFile::kFlushTimeout =
     std::chrono::seconds(10);
 
-Status KafkaWritableFile::ProduceRaw(const std::string& operation_name,
-                                     const Slice& message) {
+IOStatus KafkaWritableFile::ProduceRaw(const std::string& operation_name,
+                                       const Slice& message) {
   if (!status_.ok()) {
     return status_;
   }
@@ -73,32 +75,34 @@ Status KafkaWritableFile::ProduceRaw(const std::string& operation_name,
       message.size(), &fname_ /* Partitioning key */, nullptr);
 
   if (resp == RdKafka::ERR_NO_ERROR) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[kafka] WritableFile %s file %s %ld", fname_.c_str(),
         operation_name.c_str(), message.size());
-    return Status::OK();
+    return IOStatus::OK();
   } else if (resp == RdKafka::ERR__QUEUE_FULL) {
     const std::string formatted_err = RdKafka::err2str(resp);
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[kafka] WritableFile src %s %s error %s", fname_.c_str(),
         operation_name.c_str(), formatted_err.c_str());
 
-    return Status::Busy(topic_->name().c_str(), RdKafka::err2str(resp).c_str());
+    return IOStatus::Busy(topic_->name().c_str(),
+                          RdKafka::err2str(resp).c_str());
   } else {
     const std::string formatted_err = RdKafka::err2str(resp);
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[kafka] WritableFile src %s %s error %s", fname_.c_str(),
         operation_name.c_str(), formatted_err.c_str());
 
-    return Status::IOError(topic_->name().c_str(),
-                           RdKafka::err2str(resp).c_str());
+    return IOStatus::IOError(topic_->name().c_str(),
+                             RdKafka::err2str(resp).c_str());
   }
   current_offset_ += message.size();
 
-  return Status::OK();
+  return IOStatus::OK();
 }
 
-Status KafkaWritableFile::Append(const Slice& data) {
+IOStatus KafkaWritableFile::Append(const Slice& data, const IOOptions& /*opts*/,
+                                   IODebugContext* /*dbg*/) {
   std::string serialized_data;
   CloudLogControllerImpl::SerializeLogRecordAppend(
       fname_, data, current_offset_, &serialized_data);
@@ -106,8 +110,9 @@ Status KafkaWritableFile::Append(const Slice& data) {
   return ProduceRaw("Append", serialized_data);
 }
 
-Status KafkaWritableFile::Close() {
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+IOStatus KafkaWritableFile::Close(const IOOptions& /*opts*/,
+                                  IODebugContext* /*dbg*/) {
+  Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
       "[kafka] S3WritableFile closing %s", fname_.c_str());
 
   std::string serialized_data;
@@ -119,9 +124,12 @@ Status KafkaWritableFile::Close() {
 
 bool KafkaWritableFile::IsSyncThreadSafe() const { return true; }
 
-Status KafkaWritableFile::Sync() { return Flush(); }
+IOStatus KafkaWritableFile::Sync(const IOOptions& opts, IODebugContext* dbg) {
+  return Flush(opts, dbg);
+}
 
-Status KafkaWritableFile::Flush() {
+IOStatus KafkaWritableFile::Flush(const IOOptions& /*opts*/,
+                                  IODebugContext* /*dbg*/) {
   std::chrono::microseconds start(env_->NowMicros());
 
   bool done = false;
@@ -129,7 +137,7 @@ Status KafkaWritableFile::Flush() {
   while (status_.ok() && !(done = (producer_->outq_len() == 0)) &&
          !(timeout = (std::chrono::microseconds(env_->NowMicros()) - start >
                       kFlushTimeout))) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[kafka] WritableFile src %s "
         "Waiting on flush: Output queue length: %d",
         fname_.c_str(), producer_->outq_len());
@@ -138,23 +146,23 @@ Status KafkaWritableFile::Flush() {
   }
 
   if (done) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[kafka] WritableFile src %s Flushed", fname_.c_str());
   } else if (timeout) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[kafka] WritableFile src %s Flushing timed out after %" PRId64 "us",
         fname_.c_str(), kFlushTimeout.count());
-    status_ = Status::TimedOut();
+    status_ = IOStatus::TimedOut();
   } else {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[kafka] WritableFile src %s Flush interrupted", fname_.c_str());
   }
 
   return status_;
 }
 
-Status KafkaWritableFile::LogDelete() {
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(), "[kafka] LogDelete %s",
+IOStatus KafkaWritableFile::LogDelete() {
+  Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(), "[kafka] LogDelete %s",
       fname_.c_str());
 
   std::string serialized_data;
@@ -176,30 +184,30 @@ class KafkaController : public CloudLogControllerImpl {
     for (size_t i = 0; i < partitions_.size(); i++) {
       consumer_->stop(consumer_topic_.get(), partitions_[i]->partition());
     }
-    if (env_ != nullptr) {
-      Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    if (cloud_fs_ != nullptr) {
+      Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
           "[%s] KafkaController closed.", Name());
     }
   }
 
   const char* Name() const override { return "kafka"; }
 
-  virtual Status CreateStream(const std::string& /* bucket_prefix */) override {
+  IOStatus CreateStream(const std::string& /* bucket_prefix */) override {
     // Kafka client cannot create a topic. Topics are either manually created
     // or implicitly created on first write if auto.create.topics.enable is
     // true.
-    return status_;
+    return status_to_io_status(Status(status_));
   }
-  virtual Status WaitForStreamReady(
-      const std::string& /* bucket_prefix */) override {
+  IOStatus WaitForStreamReady(const std::string& /* bucket_prefix */) override {
     // Kafka topics don't need to be waited on.
-    return status_;
+    return status_to_io_status(Status(status_));
   }
 
-  virtual Status TailStream() override;
+  IOStatus TailStream() override;
 
-  virtual CloudLogWritableFile* CreateWritableFile(
-      const std::string& fname, const EnvOptions& options) override;
+  CloudLogWritableFile* CreateWritableFile(const std::string& fname,
+                                           const FileOptions& options,
+                                           IODebugContext* dbg) override;
   Status PrepareOptions(const ConfigOptions& options) override;
 
  protected:
@@ -219,10 +227,12 @@ class KafkaController : public CloudLogControllerImpl {
 };
 
 Status KafkaController::PrepareOptions(const ConfigOptions& options) {
-  CloudEnv* env = static_cast<CloudEnv*>(options.env);
+  auto* cfs = dynamic_cast<CloudEnv*>(options.env->GetFileSystem().get());
+  assert(cfs);
+
   std::string conf_errstr, producer_errstr, consumer_errstr;
   const auto& kconf =
-      env->GetCloudEnvOptions().kafka_log_options.client_config_params;
+      cfs->GetCloudEnvOptions().kafka_log_options.client_config_params;
   if (kconf.empty()) {
     return Status::InvalidArgument("No configs specified to kafka client");
   }
@@ -236,7 +246,7 @@ Status KafkaController::PrepareOptions(const ConfigOptions& options) {
       Status s = Status::InvalidArgument(
           "Failed adding specified conf to Kafka conf", conf_errstr.c_str());
 
-      Log(InfoLogLevel::ERROR_LEVEL, env->GetLogger(),
+      Log(InfoLogLevel::ERROR_LEVEL, cfs->GetLogger(),
           "Kafka conf set error: %s", s.ToString().c_str());
       return s;
     }
@@ -250,18 +260,18 @@ Status KafkaController::PrepareOptions(const ConfigOptions& options) {
     s = Status::InvalidArgument("Failed creating Kafka producer",
                                 producer_errstr.c_str());
 
-    Log(InfoLogLevel::ERROR_LEVEL, env->GetLogger(),
+    Log(InfoLogLevel::ERROR_LEVEL, cfs->GetLogger(),
         "[%s] Kafka producer error: %s", Name(), s.ToString().c_str());
   } else if (!consumer_) {
     s = Status::InvalidArgument("Failed creating Kafka consumer",
                                 consumer_errstr.c_str());
 
-    Log(InfoLogLevel::ERROR_LEVEL, env->GetLogger(),
+    Log(InfoLogLevel::ERROR_LEVEL, cfs->GetLogger(),
         "[%s] Kafka consumer error: %s", Name(), s.ToString().c_str());
   } else {
-    const std::string topic_name = env->GetSrcBucketName();
+    const std::string topic_name = cfs->GetSrcBucketName();
 
-    Log(InfoLogLevel::DEBUG_LEVEL, env->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cfs->GetLogger(),
         "[%s] KafkaController opening stream %s using cachedir '%s'", Name(),
         topic_name.c_str(), cache_dir_.c_str());
 
@@ -284,14 +294,14 @@ Status KafkaController::PrepareOptions(const ConfigOptions& options) {
   return s;
 }
 
-Status KafkaController::TailStream() {
+IOStatus KafkaController::TailStream() {
   InitializePartitions();
 
   if (!status_.ok()) {
-    return status_;
+    return status_to_io_status(Status(status_));
   }
 
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+  Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
       "[%s] TailStream topic %s %s", Name(), consumer_topic_->name().c_str(),
       status_.ToString().c_str());
 
@@ -315,13 +325,13 @@ Status KafkaController::TailStream() {
         // Apply the payload to local filesystem
         status_ = Apply(sl);
         if (!status_.ok()) {
-          Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
+          Log(InfoLogLevel::ERROR_LEVEL, cloud_fs_->GetLogger(),
               "[%s] error processing message size %ld "
               "extracted from stream %s %s",
               Name(), message->len(), consumer_topic_->name().c_str(),
               status_.ToString().c_str());
         } else {
-          Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+          Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
               "[%s] successfully processed message size %ld "
               "extracted from stream %s %s",
               Name(), message->len(), consumer_topic_->name().c_str(),
@@ -342,7 +352,7 @@ Status KafkaController::TailStream() {
             Status::IOError(consumer_topic_->name().c_str(),
                             RdKafka::err2str(message->err()).c_str());
 
-        Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+        Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
             "[%s] error reading %s %s", Name(), consumer_topic_->name().c_str(),
             RdKafka::err2str(message->err()).c_str());
 
@@ -351,11 +361,11 @@ Status KafkaController::TailStream() {
       }
     }
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+  Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
       "[%s] TailStream topic %s finished: %s", Name(),
       consumer_topic_->name().c_str(), status_.ToString().c_str());
 
-  return status_;
+  return status_to_io_status(Status(status_));
 }
 
 Status KafkaController::InitializePartitions() {
@@ -373,7 +383,7 @@ Status KafkaController::InitializePartitions() {
     status_ = Status::IOError(consumer_topic_->name().c_str(),
                               RdKafka::err2str(err).c_str());
 
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] S3ReadableFile file %s Unable to find shards %s", Name(),
         consumer_topic_->name().c_str(), status_.ToString().c_str());
 
@@ -413,9 +423,10 @@ Status KafkaController::InitializePartitions() {
 }
 
 CloudLogWritableFile* KafkaController::CreateWritableFile(
-    const std::string& fname, const EnvOptions& options) {
-  return dynamic_cast<CloudLogWritableFile*>(
-      new KafkaWritableFile(env_, fname, options, producer_, producer_topic_));
+    const std::string& fname, const FileOptions& options,
+    IODebugContext* /*dbg*/) {
+  return new KafkaWritableFile(env_, cloud_fs_, fname, options, producer_,
+                               producer_topic_);
 }
 
 }  // namespace kafka

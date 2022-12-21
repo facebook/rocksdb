@@ -370,6 +370,4 @@ class CompositeEnvWrapper : public CompositeEnv {
   EnvWrapper::Target target_;
 };
 
-std::unique_ptr<FSSequentialFile> NewLegacySequentialFileWrapper(
-    std::unique_ptr<SequentialFile>& file);
 }  // namespace ROCKSDB_NAMESPACE

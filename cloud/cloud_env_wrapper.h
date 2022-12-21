@@ -14,89 +14,90 @@ namespace ROCKSDB_NAMESPACE {
 
 class MockStorageProvider : public CloudStorageProvider {
  public:
-  MockStorageProvider() { notsup_ = Status::NotSupported(); }
+  MockStorageProvider() { notsup_ = IOStatus::NotSupported(); }
   virtual const char* Name() const override { return "Mock"; }
-  virtual Status CreateBucket(const std::string& /*bucket_name*/) override {
+  IOStatus CreateBucket(const std::string& /*bucket_name*/) override {
     return notsup_;
   }
 
-  virtual Status ExistsBucket(const std::string& /*bucket_name*/) override {
+  IOStatus ExistsBucket(const std::string& /*bucket_name*/) override {
     return notsup_;
   }
 
-  virtual Status EmptyBucket(const std::string& /*bucket_name*/,
-                             const std::string& /*path_prefix*/) override {
+  IOStatus EmptyBucket(const std::string& /*bucket_name*/,
+                       const std::string& /*path_prefix*/) override {
     return notsup_;
   }
-  Status ListCloudObjects(const std::string& /*bucket_name*/,
-                          const std::string& /*object_path*/,
-                          std::vector<std::string>* /*result*/) override {
-    return notsup_;
-  }
-  Status DeleteCloudObject(const std::string& /*bucket_name*/,
-                           const std::string& /*object_path*/) override {
-    return notsup_;
-  }
-  Status ExistsCloudObject(const std::string& /*bucket_name*/,
-                           const std::string& /*object_path*/) override {
-    return notsup_;
-  }
-  Status GetCloudObjectSize(const std::string& /*bucket_name*/,
+  IOStatus ListCloudObjects(const std::string& /*bucket_name*/,
                             const std::string& /*object_path*/,
-                            uint64_t* /*size*/) override {
+                            std::vector<std::string>* /*result*/) override {
     return notsup_;
   }
-  Status GetCloudObjectModificationTime(const std::string& /*bucket_name*/,
-                                        const std::string& /*object_path*/,
-                                        uint64_t* /*time*/) override {
+  IOStatus DeleteCloudObject(const std::string& /*bucket_name*/,
+                             const std::string& /*object_path*/) override {
     return notsup_;
   }
-  Status GetCloudObjectMetadata(const std::string& /*bucket_name*/,
-                                const std::string& /*object_path*/,
-                                CloudObjectInformation* /* info */) override {
+  IOStatus ExistsCloudObject(const std::string& /*bucket_name*/,
+                             const std::string& /*object_path*/) override {
     return notsup_;
   }
-  Status CopyCloudObject(const std::string& /*bucket_name_src*/,
-                         const std::string& /*object_path_src*/,
-                         const std::string& /*bucket_name_dest*/,
-                         const std::string& /*object_path_dest*/) override {
+  IOStatus GetCloudObjectSize(const std::string& /*bucket_name*/,
+                              const std::string& /*object_path*/,
+                              uint64_t* /*size*/) override {
     return notsup_;
   }
-  Status PutCloudObjectMetadata(
+  IOStatus GetCloudObjectModificationTime(const std::string& /*bucket_name*/,
+                                          const std::string& /*object_path*/,
+                                          uint64_t* /*time*/) override {
+    return notsup_;
+  }
+  IOStatus GetCloudObjectMetadata(const std::string& /*bucket_name*/,
+                                  const std::string& /*object_path*/,
+                                  CloudObjectInformation* /* info */) override {
+    return notsup_;
+  }
+  IOStatus CopyCloudObject(const std::string& /*bucket_name_src*/,
+                           const std::string& /*object_path_src*/,
+                           const std::string& /*bucket_name_dest*/,
+                           const std::string& /*object_path_dest*/) override {
+    return notsup_;
+  }
+  IOStatus PutCloudObjectMetadata(
       const std::string& /*bucket_name*/, const std::string& /*object_path*/,
       const std::unordered_map<std::string, std::string>& /*metadata*/)
       override {
     return notsup_;
   }
-  Status NewCloudWritableFile(
+  IOStatus NewCloudWritableFile(
       const std::string& /*local_path*/, const std::string& /*bucket_name*/,
-      const std::string& /*object_path*/,
+      const std::string& /*object_path*/, const FileOptions& /*options*/,
       std::unique_ptr<CloudStorageWritableFile>* /*result*/,
-      const EnvOptions& /*options*/) override {
+      IODebugContext* /*dbg*/) override {
     return notsup_;
   }
 
-  Status NewCloudReadableFile(
+  IOStatus NewCloudReadableFile(
       const std::string& /*bucket*/, const std::string& /*fname*/,
+      const FileOptions& /*options*/,
       std::unique_ptr<CloudStorageReadableFile>* /*result*/,
-      const EnvOptions& /*options*/) override {
+      IODebugContext* /*dbg*/) override {
     return notsup_;
   }
 
-  Status GetCloudObject(const std::string& /*bucket_name*/,
-                        const std::string& /*object_path*/,
-                        const std::string& /*local_path*/) override {
+  IOStatus GetCloudObject(const std::string& /*bucket_name*/,
+                          const std::string& /*object_path*/,
+                          const std::string& /*local_path*/) override {
     return notsup_;
   }
 
-  Status PutCloudObject(const std::string& /*local_path*/,
-                        const std::string& /*bucket_name*/,
-                        const std::string& /*object_path*/) override {
+  IOStatus PutCloudObject(const std::string& /*local_path*/,
+                          const std::string& /*bucket_name*/,
+                          const std::string& /*object_path*/) override {
     return notsup_;
   }
 
  protected:
-  Status notsup_;
+  IOStatus notsup_;
 };
 // An implementation of Env that forwards all calls to another Env.
 // May be useful to clients who wish to override just part of the
@@ -106,204 +107,148 @@ class MockCloudEnv : public CloudEnv {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit MockCloudEnv(const CloudEnvOptions& opts = CloudEnvOptions())
-      : CloudEnv(opts, Env::Default(), nullptr) {
-    notsup_ = Status::NotSupported();
+      : CloudEnv(opts, FileSystem::Default(), nullptr) {
+    notsup_ = IOStatus::NotSupported();
   }
 
   virtual ~MockCloudEnv() {}
 
   const char* Name() const override { return "MockCloudEnv"; }
 
-  Status PreloadCloudManifest(const std::string& /*local_dbname*/) override {
+  IOStatus PreloadCloudManifest(const std::string& /*local_dbname*/) override {
     return notsup_;
   }
 
-  virtual Status NewSequentialFileCloud(
-      const std::string& /*bucket_name*/, const std::string& /*fname*/,
-      std::unique_ptr<SequentialFile>* /*result*/,
-      const EnvOptions& /*options*/) override {
+  IOStatus NewSequentialFileCloud(const std::string& /*bucket_name*/,
+                                  const std::string& /*fname*/,
+                                  const FileOptions& /*options*/,
+                                  std::unique_ptr<FSSequentialFile>* /*result*/,
+                                  IODebugContext* /*dbg*/) override {
     return notsup_;
   }
-  virtual Status SaveDbid(const std::string& /*bucket_name*/,
-                          const std::string& /*dbid */,
-                          const std::string& /*dirname*/) override {
+  IOStatus SaveDbid(const std::string& /*bucket_name*/,
+                    const std::string& /*dbid */,
+                    const std::string& /*dirname*/) override {
     return notsup_;
   }
-  virtual Status GetPathForDbid(const std::string& /*bucket_name*/,
-                                const std::string& /*dbid*/,
-                                std::string* /*dirname*/) override {
+  IOStatus GetPathForDbid(const std::string& /*bucket_name*/,
+                          const std::string& /*dbid*/,
+                          std::string* /*dirname*/) override {
     return notsup_;
   }
-  virtual Status GetDbidList(const std::string& /*bucket_name*/,
-                             DbidList* /*dblist*/) override {
+  IOStatus GetDbidList(const std::string& /*bucket_name*/,
+                       DbidList* /*dblist*/) override {
     return notsup_;
   }
-  virtual Status DeleteDbid(const std::string& /*bucket_name*/,
-                            const std::string& /*dbid*/) override {
-    return notsup_;
-  }
-
-  // Ability to read a file directly from cloud storage
-  virtual Status NewSequentialFileCloud(
-      const std::string& /*fname*/, std::unique_ptr<SequentialFile>* /*result*/,
-      const EnvOptions& /*options*/) {
+  IOStatus DeleteDbid(const std::string& /*bucket_name*/,
+                      const std::string& /*dbid*/) override {
     return notsup_;
   }
 
   // The following text is boilerplate that forwards all methods to base_env
-  Status NewSequentialFile(const std::string& f,
-                           std::unique_ptr<SequentialFile>* r,
-                           const EnvOptions& options) override {
-    return base_env_->NewSequentialFile(f, r, options);
+  IOStatus NewSequentialFile(const std::string& f, const FileOptions& o,
+                             std::unique_ptr<FSSequentialFile>* r,
+                             IODebugContext* dbg) override {
+    return base_env_->NewSequentialFile(f, o, r, dbg);
   }
-  Status NewRandomAccessFile(const std::string& f,
-                             std::unique_ptr<RandomAccessFile>* r,
-                             const EnvOptions& options) override {
-    return base_env_->NewRandomAccessFile(f, r, options);
+  IOStatus NewRandomAccessFile(const std::string& f, const FileOptions& o,
+                               std::unique_ptr<FSRandomAccessFile>* r,
+                               IODebugContext* dbg) override {
+    return base_env_->NewRandomAccessFile(f, o, r, dbg);
   }
-  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
-                         const EnvOptions& options) override {
-    return base_env_->NewWritableFile(f, r, options);
+  IOStatus NewWritableFile(const std::string& f, const FileOptions& o,
+                           std::unique_ptr<FSWritableFile>* r,
+                           IODebugContext* dbg) override {
+    return base_env_->NewWritableFile(f, o, r, dbg);
   }
-  Status ReuseWritableFile(const std::string& fname,
-                           const std::string& old_fname,
-                           std::unique_ptr<WritableFile>* r,
-                           const EnvOptions& options) override {
-    return base_env_->ReuseWritableFile(fname, old_fname, r, options);
+  IOStatus ReuseWritableFile(const std::string& fname,
+                             const std::string& old_fname, const FileOptions& o,
+                             std::unique_ptr<FSWritableFile>* r,
+                             IODebugContext* dbg) override {
+    return base_env_->ReuseWritableFile(fname, old_fname, o, r, dbg);
   }
-  Status NewRandomRWFile(const std::string& fname,
-                         std::unique_ptr<RandomRWFile>* result,
-                         const EnvOptions& options) override {
-    return base_env_->NewRandomRWFile(fname, result, options);
+  IOStatus NewRandomRWFile(const std::string& fname, const FileOptions& o,
+                           std::unique_ptr<FSRandomRWFile>* result,
+                           IODebugContext* dbg) override {
+    return base_env_->NewRandomRWFile(fname, o, result, dbg);
   }
-  virtual Status NewDirectory(const std::string& name,
-                              std::unique_ptr<Directory>* result) override {
-    return base_env_->NewDirectory(name, result);
+  IOStatus NewDirectory(const std::string& name, const IOOptions& o,
+                        std::unique_ptr<FSDirectory>* result,
+                        IODebugContext* dbg) override {
+    return base_env_->NewDirectory(name, o, result, dbg);
   }
-  Status FileExists(const std::string& f) override {
-    return base_env_->FileExists(f);
+  IOStatus FileExists(const std::string& f, const IOOptions& o,
+                      IODebugContext* dbg) override {
+    return base_env_->FileExists(f, o, dbg);
   }
-  Status GetChildren(const std::string& dir,
-                     std::vector<std::string>* r) override {
-    return base_env_->GetChildren(dir, r);
+  IOStatus GetChildren(const std::string& dir, const IOOptions& o,
+                       std::vector<std::string>* r,
+                       IODebugContext* dbg) override {
+    return base_env_->GetChildren(dir, o, r, dbg);
   }
-  Status GetChildrenFileAttributes(
-      const std::string& dir, std::vector<FileAttributes>* result) override {
-    return base_env_->GetChildrenFileAttributes(dir, result);
+  IOStatus GetChildrenFileAttributes(const std::string& dir, const IOOptions& o,
+                                     std::vector<FileAttributes>* result,
+                                     IODebugContext* dbg) override {
+    return base_env_->GetChildrenFileAttributes(dir, o, result, dbg);
   }
-  Status DeleteFile(const std::string& f) override {
-    return base_env_->DeleteFile(f);
+  IOStatus DeleteFile(const std::string& f, const IOOptions& o,
+                      IODebugContext* dbg) override {
+    return base_env_->DeleteFile(f, o, dbg);
   }
-  Status CreateDir(const std::string& d) override {
-    return base_env_->CreateDir(d);
+  IOStatus CreateDir(const std::string& d, const IOOptions& o,
+                     IODebugContext* dbg) override {
+    return base_env_->CreateDir(d, o, dbg);
   }
-  Status CreateDirIfMissing(const std::string& d) override {
-    return base_env_->CreateDirIfMissing(d);
+  IOStatus CreateDirIfMissing(const std::string& d, const IOOptions& o,
+                              IODebugContext* dbg) override {
+    return base_env_->CreateDirIfMissing(d, o, dbg);
   }
-  Status DeleteDir(const std::string& d) override {
-    return base_env_->DeleteDir(d);
+  IOStatus DeleteDir(const std::string& d, const IOOptions& o,
+                     IODebugContext* dbg) override {
+    return base_env_->DeleteDir(d, o, dbg);
   }
-  Status GetFileSize(const std::string& f, uint64_t* s) override {
-    return base_env_->GetFileSize(f, s);
-  }
-
-  Status GetFileModificationTime(const std::string& fname,
-                                 uint64_t* file_mtime) override {
-    return base_env_->GetFileModificationTime(fname, file_mtime);
-  }
-
-  Status RenameFile(const std::string& s, const std::string& t) override {
-    return base_env_->RenameFile(s, t);
-  }
-
-  Status LinkFile(const std::string& s, const std::string& t) override {
-    return base_env_->LinkFile(s, t);
+  IOStatus GetFileSize(const std::string& f, const IOOptions& o, uint64_t* s,
+                       IODebugContext* dbg) override {
+    return base_env_->GetFileSize(f, o, s, dbg);
   }
 
-  Status LockFile(const std::string& f, FileLock** l) override {
-    return base_env_->LockFile(f, l);
+  IOStatus GetFileModificationTime(const std::string& fname, const IOOptions& o,
+                                   uint64_t* file_mtime,
+                                   IODebugContext* dbg) override {
+    return base_env_->GetFileModificationTime(fname, o, file_mtime, dbg);
   }
 
-  Status UnlockFile(FileLock* l) override { return base_env_->UnlockFile(l); }
-
-  void Schedule(void (*f)(void* arg), void* a, Priority pri,
-                void* tag = nullptr, void (*u)(void* arg) = 0) override {
-    return base_env_->Schedule(f, a, pri, tag, u);
+  IOStatus RenameFile(const std::string& s, const std::string& t,
+                      const IOOptions& o, IODebugContext* dbg) override {
+    return base_env_->RenameFile(s, t, o, dbg);
   }
 
-  int UnSchedule(void* tag, Priority pri) override {
-    return base_env_->UnSchedule(tag, pri);
+  IOStatus LinkFile(const std::string& s, const std::string& t,
+                    const IOOptions& o, IODebugContext* dbg) override {
+    return base_env_->LinkFile(s, t, o, dbg);
   }
 
-  void StartThread(void (*f)(void*), void* a) override {
-    return base_env_->StartThread(f, a);
-  }
-  void WaitForJoin() override { return base_env_->WaitForJoin(); }
-  virtual unsigned int GetThreadPoolQueueLen(
-      Priority pri = LOW) const override {
-    return base_env_->GetThreadPoolQueueLen(pri);
-  }
-  virtual Status GetTestDirectory(std::string* path) override {
-    return base_env_->GetTestDirectory(path);
-  }
-  virtual Status NewLogger(const std::string& fname,
-                           std::shared_ptr<Logger>* result) override {
-    return base_env_->NewLogger(fname, result);
-  }
-  uint64_t NowMicros() override { return base_env_->NowMicros(); }
-  void SleepForMicroseconds(int micros) override {
-    base_env_->SleepForMicroseconds(micros);
-  }
-  Status GetHostName(char* name, uint64_t len) override {
-    return base_env_->GetHostName(name, len);
-  }
-  Status GetCurrentTime(int64_t* unix_time) override {
-    return base_env_->GetCurrentTime(unix_time);
-  }
-  Status GetAbsolutePath(const std::string& db_path,
-                         std::string* output_path) override {
-    return base_env_->GetAbsolutePath(db_path, output_path);
-  }
-  void SetBackgroundThreads(int num, Priority pri) override {
-    return base_env_->SetBackgroundThreads(num, pri);
-  }
-  int GetBackgroundThreads(Priority pri) override {
-    return base_env_->GetBackgroundThreads(pri);
+  IOStatus LockFile(const std::string& f, const IOOptions& o, FileLock** l,
+                    IODebugContext* dbg) override {
+    return base_env_->LockFile(f, o, l, dbg);
   }
 
-  void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
-    return base_env_->IncBackgroundThreadsIfNeeded(num, pri);
+  IOStatus UnlockFile(FileLock* l, const IOOptions& o,
+                      IODebugContext* dbg) override {
+    return base_env_->UnlockFile(l, o, dbg);
   }
 
-  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
-    base_env_->LowerThreadPoolIOPriority(pool);
-  }
-
-  std::string TimeToString(uint64_t time) override {
-    return base_env_->TimeToString(time);
-  }
-
-  Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
-    return base_env_->GetThreadList(thread_list);
-  }
-
-  ThreadStatusUpdater* GetThreadStatusUpdater() const override {
-    return base_env_->GetThreadStatusUpdater();
-  }
-
-  uint64_t GetThreadID() const override { return base_env_->GetThreadID(); }
-
-  Status DeleteCloudFileFromDest(const std::string& /*path*/) override {
+  IOStatus DeleteCloudFileFromDest(const std::string& /*path*/) override {
     return notsup_;
   }
 
-  Status FindAllLiveFiles(const std::string& /* local_dbname */,
-                          std::vector<std::string>* /* live_sst_files */,
-                          std::string* /* manifest_file */) override {
+  IOStatus FindAllLiveFiles(const std::string& /* local_dbname */,
+                            std::vector<std::string>* /* live_sst_files */,
+                            std::string* /* manifest_file */) override {
     return notsup_;
   }
 
-  Status FindAllLiveFilesAndFetchManifest(
+  IOStatus FindAllLiveFilesAndFetchManifest(
       const std::string& /* local_dbname */,
       std::vector<std::string>* /* live_sst_files */,
       std::string* /* manifest_file */,
@@ -312,7 +257,7 @@ class MockCloudEnv : public CloudEnv {
   }
 
  private:
-  Status notsup_;
+  IOStatus notsup_;
   std::string empty_;
 };
 }  // namespace ROCKSDB_NAMESPACE

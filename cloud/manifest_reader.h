@@ -31,13 +31,13 @@ class LocalManifestReader {
   // not updated when calling the function
   // REQUIRES: cloud storage has versioning enabled if manifest_file_version !=
   // nullptr
-  Status GetLiveFilesLocally(const std::string& local_dbname,
-                             std::set<uint64_t>* list,
-                             std::string* manifest_file_version = nullptr) const;
+  IOStatus GetLiveFilesLocally(
+      const std::string& local_dbname, std::set<uint64_t>* list,
+      std::string* manifest_file_version = nullptr) const;
 
  protected:
   // Get all the live sst file number by reading version_edit records from file_reader
-  Status GetLiveFilesFromFileReader(
+  IOStatus GetLiveFilesFromFileReader(
       std::unique_ptr<SequentialFileReader> file_reader,
       std::set<uint64_t>* list) const;
 
@@ -57,11 +57,13 @@ class ManifestReader: public LocalManifestReader {
   // It will read from CLOUDMANIFEST and MANIFEST file in s3 directly
   // TODO(wei): remove this function. Reading from s3 directly is very slow for
   // large MANIFEST file
-  Status GetLiveFiles(const std::string& bucket_path,
-                      std::set<uint64_t>* list) const;
+  IOStatus GetLiveFiles(const std::string& bucket_path,
+                        std::set<uint64_t>* list) const;
 
-  static Status GetMaxFileNumberFromManifest(Env* env, const std::string& fname,
-                                             uint64_t* maxFileNumber);
+  static IOStatus GetMaxFileNumberFromManifest(FileSystem* fs,
+                                               const std::string& fname,
+                                               uint64_t* maxFileNumber);
+
  private:
   std::string bucket_prefix_;
 };

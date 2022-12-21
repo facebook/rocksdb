@@ -42,13 +42,16 @@ namespace ROCKSDB_NAMESPACE {
 // is associated with a specific instance of AwsEnv. All AwsEnv internally share
 // Env::Posix() for sharing common resources like background threads, etc.
 //
+// TODO(estalgo): Rename to AwsFileSystem
 class AwsEnv : public CloudEnvImpl {
  public:
   // A factory method for creating S3 envs
-  static Status NewAwsEnv(Env* env, const CloudEnvOptions& env_options,
+  static Status NewAwsEnv(const std::shared_ptr<FileSystem>& fs,
+                          const CloudEnvOptions& env_options,
                           const std::shared_ptr<Logger>& info_log,
                           CloudEnv** cenv);
-  static Status NewAwsEnv(Env* env, std::unique_ptr<CloudEnv>* cenv);
+  static Status NewAwsEnv(const std::shared_ptr<FileSystem>& fs,
+                          std::unique_ptr<CloudEnv>* cenv);
   virtual ~AwsEnv() {}
 
   static const char* kName() { return kAws(); }
@@ -71,7 +74,8 @@ class AwsEnv : public CloudEnvImpl {
   // The AWS credentials are specified to the constructor via
   // access_key_id and secret_key.
   //
-  explicit AwsEnv(Env* underlying_env, const CloudEnvOptions& cloud_options,
+  explicit AwsEnv(const std::shared_ptr<FileSystem>& underlying_fs,
+                  const CloudEnvOptions& cloud_options,
                   const std::shared_ptr<Logger>& info_log = nullptr);
 };
 

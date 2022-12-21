@@ -25,8 +25,8 @@ class CloudFileDeletionScheduler
   using FileDeletionRunnable = std::function<void()>;
   // Schedule the file deletion runnable(which actually delets the file from
   // cloud) to be executed in the future (specified by `file_deletion_delay_`).
-  rocksdb::Status ScheduleFileDeletion(const std::string& filename,
-                                       FileDeletionRunnable runnable);
+  rocksdb::IOStatus ScheduleFileDeletion(const std::string& filename,
+                                         FileDeletionRunnable runnable);
 
   void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
     std::lock_guard<std::mutex> lk(files_to_delete_mutex_);

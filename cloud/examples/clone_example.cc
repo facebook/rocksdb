@@ -37,16 +37,15 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
                const std::string& dest_bucket,
                const std::string& dest_object_path,
                const CloudEnvOptions& cloud_env_options,
-               std::unique_ptr<DB>* cloud_db,
-               std::unique_ptr<CloudEnv>* cloud_env) {
+               std::unique_ptr<DB>* cloud_db, std::unique_ptr<Env>* cloud_env) {
   // The local directory where the clone resides
   std::string cname = kClonePath + "/" + clone_name;
 
   // Create new AWS env
   CloudEnv* cenv;
-  Status st = CloudEnv::NewAwsEnv(Env::Default(), src_bucket, src_object_path,
-                                  kRegion, dest_bucket, dest_object_path,
-                                  kRegion, cloud_env_options, nullptr, &cenv);
+  Status st = CloudEnv::NewAwsEnv(
+      FileSystem::Default(), src_bucket, src_object_path, kRegion, dest_bucket,
+      dest_object_path, kRegion, cloud_env_options, nullptr, &cenv);
   if (!st.ok()) {
     fprintf(stderr,
             "Unable to create an AWS environment with "
@@ -54,7 +53,8 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
             src_bucket.c_str());
     return st;
   }
-  cloud_env->reset(cenv);
+  std::shared_ptr<FileSystem> fs(cenv);
+  *cloud_env = NewCompositeEnv(fs);
 
   // Create options and use the AWS env that we created earlier
   Options options;
@@ -64,7 +64,7 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
   std::string persistent_cache = "";
 
   // create a bucket name for debugging purposes
-  const std::string bucketName = cloud_env->get()->GetSrcBucketName();
+  const std::string bucketName = cenv->GetSrcBucketName();
 
   // open clone
   DBCloud* db;
@@ -81,11 +81,6 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
 int main() {
   // cloud environment config options here
   CloudEnvOptions cloud_env_options;
-
-  // Store a reference to a cloud env. A new cloud env object should be
-  // associated
-  // with every new cloud-db.
-  std::unique_ptr<CloudEnv> cloud_env;
 
   cloud_env_options.credentials.InitializeSimple(
       getenv("AWS_ACCESS_KEY_ID"), getenv("AWS_SECRET_ACCESS_KEY"));
@@ -113,7 +108,7 @@ int main() {
 
   // Create a new AWS cloud env Status
   CloudEnv* cenv;
-  Status s = CloudEnv::NewAwsEnv(Env::Default(), kBucketSuffix, kDBPath,
+  Status s = CloudEnv::NewAwsEnv(FileSystem::Default(), kBucketSuffix, kDBPath,
                                  kRegion, kBucketSuffix, kDBPath, kRegion,
                                  cloud_env_options, nullptr, &cenv);
   if (!s.ok()) {
@@ -121,7 +116,10 @@ int main() {
             bucketName.c_str(), s.ToString().c_str());
     return -1;
   }
-  cloud_env.reset(cenv);
+
+  // Store a reference to a cloud env. A new cloud env object should be
+  // associated with every new cloud-db.
+  auto cloud_env = NewCompositeEnv(std::shared_ptr<FileSystem>(cenv));
 
   // Create options and use the AWS env that we created earlier
   Options options;
@@ -157,7 +155,7 @@ int main() {
   // In real applications, a Clone would typically be created
   // by a separate process.
   std::unique_ptr<DB> clone_db;
-  std::unique_ptr<CloudEnv> clone_env;
+  std::unique_ptr<Env> clone_env;
 
   s = CloneDB("clone1", kBucketSuffix, kDBPath, kBucketSuffix, kClonePath,
               cloud_env_options, &clone_db, &clone_env);

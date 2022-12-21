@@ -172,9 +172,10 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
 // The AWS credentials are specified to the constructor via
 // access_key_id and secret_key.
 //
-AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
+AwsEnv::AwsEnv(const std::shared_ptr<FileSystem>& underlying_fs,
+               const CloudEnvOptions& _cloud_env_options,
                const std::shared_ptr<Logger>& info_log)
-    : CloudEnvImpl(_cloud_env_options, underlying_env, info_log) {
+    : CloudEnvImpl(_cloud_env_options, underlying_fs, info_log) {
   Aws::InitAPI(Aws::SDKOptions());
 }
 
@@ -213,54 +214,59 @@ void AwsEnv::Shutdown() { Aws::ShutdownAPI(Aws::SDKOptions()); }
 
 
 // The factory method for creating an S3 Env
-Status AwsEnv::NewAwsEnv(Env* base_env, const CloudEnvOptions& cloud_options,
+Status AwsEnv::NewAwsEnv(const std::shared_ptr<FileSystem>& base_fs,
+                         const CloudEnvOptions& cloud_options,
                          const std::shared_ptr<Logger>& info_log,
                          CloudEnv** cenv) {
   Status status;
   *cenv = nullptr;
-  // If underlying env is not defined, then use PosixEnv
-  if (!base_env) {
-    base_env = Env::Default();
+  // If underlying FileSystem is not defined, then use PosixFileSystem
+  auto fs = base_fs;
+  if (!fs) {
+    fs = FileSystem::Default();
   }
-  std::unique_ptr<AwsEnv> aenv(new AwsEnv(base_env, cloud_options, info_log));
+  std::unique_ptr<AwsEnv> aenv(new AwsEnv(fs, cloud_options, info_log));
+
+  auto env = aenv->NewCompositeEnvFromThis(Env::Default());
   ConfigOptions config_options;
-  config_options.env = aenv.get();
+  config_options.env = env.get();
   status = aenv->PrepareOptions(config_options);
   if (status.ok()) {
     *cenv = aenv.release();
   }
   return status;
 }
-#endif  // USE_AWS
 
-Status AwsEnv::NewAwsEnv(Env* env, std::unique_ptr<CloudEnv>* cenv) {
-#ifdef USE_AWS
-  cenv->reset(new AwsEnv(env, CloudEnvOptions()));
+Status AwsEnv::NewAwsEnv(const std::shared_ptr<FileSystem>& fs,
+                         std::unique_ptr<CloudEnv>* cenv) {
+  cenv->reset(new AwsEnv(fs, CloudEnvOptions()));
   return Status::OK();
-#else
-  (void) env;
-  cenv->reset();
-  return Status::NotSupported("AWS not supported");
-#endif // USE_AWS
 }
+
+#endif  // USE_AWS
 
 int CloudEnvImpl::RegisterAwsObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
   int count = 0;
-  library.AddFactory<Env>(CloudEnvImpl::kAws(),
-                        [](const std::string& /*uri*/,
-                           std::unique_ptr<Env>* guard, std::string* errmsg) {
-                          std::unique_ptr<CloudEnv> cguard;
-                          Status s = AwsEnv::NewAwsEnv(Env::Default(), &cguard);
-                          if (s.ok()) {
-                            guard->reset(cguard.release());
-                            return guard->get();
-                          } else {
-                            *errmsg = s.ToString();
-                            return static_cast<Env*>(nullptr);
-                          }
-                        });
+
+#ifdef USE_AWS
+  library.AddFactory<FileSystem>(
+      CloudEnvImpl::kAws(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* errmsg) {
+        std::unique_ptr<CloudEnv> cguard;
+        Status s = AwsEnv::NewAwsEnv(FileSystem::Default(), &cguard);
+        if (s.ok()) {
+          guard->reset(cguard.release());
+          return guard->get();
+        } else {
+          *errmsg = s.ToString();
+          return static_cast<FileSystem*>(nullptr);
+        }
+      });
   count++;
+#endif  // USE_AWS
+
   library.AddFactory<CloudLogController>(
       CloudLogControllerImpl::kKinesis(),
       [](const std::string& /*uri*/, std::unique_ptr<CloudLogController>* guard,
