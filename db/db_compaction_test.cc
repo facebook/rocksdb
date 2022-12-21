@@ -1026,6 +1026,70 @@ TEST_F(DBCompactionTest, CompactionSstPartitioner) {
   ASSERT_EQ("B", Get("bbbb1"));
 }
 
+TEST_F(DBCompactionTest, CompactionSstPartitionWithManualCompaction) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  ASSERT_OK(Put("000015", "A"));
+  ASSERT_OK(Put("000025", "B"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // create second file and flush to l0
+  ASSERT_OK(Put("000015", "A2"));
+  ASSERT_OK(Put("000025", "B2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // CONTROL 1: compact without partitioner
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Check (compacted but no partitioning yet)
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(1, files.size());
+
+  // Install partitioner
+  std::shared_ptr<SstPartitionerFactory> factory(
+      NewSstPartitionerFixedPrefixFactory(5));
+  options.sst_partitioner_factory = factory;
+  Reopen(options);
+
+  // CONTROL 2: request compaction on range with no partition boundary and no
+  // overlap with actual entries
+  Slice from("000017");
+  Slice to("000019");
+  ASSERT_OK(dbfull()->CompactRange(compact_options, &from, &to));
+
+  // Check (no partitioning yet)
+  files.clear();
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(1, files.size());
+  ASSERT_EQ("A2", Get("000015"));
+  ASSERT_EQ("B2", Get("000025"));
+
+  // TEST: request compaction overlapping with partition boundary but no
+  // actual entries
+  // NOTE: `to` is INCLUSIVE
+  from = Slice("000019");
+  to = Slice("000020");
+  ASSERT_OK(dbfull()->CompactRange(compact_options, &from, &to));
+
+  // Check (must be partitioned)
+  files.clear();
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(2, files.size());
+  ASSERT_EQ("A2", Get("000015"));
+  ASSERT_EQ("B2", Get("000025"));
+}
+
 TEST_F(DBCompactionTest, CompactionSstPartitionerNonTrivial) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
