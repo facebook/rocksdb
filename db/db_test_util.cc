@@ -18,7 +18,7 @@
 #include "rocksdb/env_encryption.h"
 #include "util/stderr_logger.h"
 #ifdef USE_AWS
-#include "cloud/cloud_env_impl.h"
+#include "cloud/cloud_file_system_impl.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #endif
 #include "rocksdb/unique_id.h"
@@ -149,9 +149,9 @@ DBTestBase::~DBTestBase() {
 
 #ifndef ROCKSDB_LITE
 #ifdef USE_AWS
-  auto* cenv = static_cast<CloudEnv*>(s3_env_->GetFileSystem().get());
-  cenv->GetStorageProvider()->EmptyBucket(cenv->GetSrcBucketName(),
-                                          cenv->GetSrcObjectPath());
+  auto* cfs = static_cast<CloudFileSystem*>(s3_env_->GetFileSystem().get());
+  cfs->GetStorageProvider()->EmptyBucket(cfs->GetSrcBucketName(),
+                                         cfs->GetSrcObjectPath());
 #endif  // USE_AWS
 #endif  // !ROCKSDB_LITE
   delete s3_env_;
@@ -679,12 +679,12 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
 
   // get credentials
   CloudEnvOptions coptions;
-  CloudEnv* cenv = nullptr;
+  CloudFileSystem* cfs = nullptr;
   std::string region;
   coptions.TEST_Initialize("dbtest.", prefix, region);
-  Status st =
-      CloudEnv::NewAwsEnv(parent->GetFileSystem(), coptions, info_log_, &cenv);
-  CloudEnvImpl* cimpl = dynamic_cast<CloudEnvImpl*>(cenv);
+  Status st = CloudFileSystem::NewAwsFileSystem(parent->GetFileSystem(),
+                                                coptions, info_log_, &cfs);
+  auto* cimpl = dynamic_cast<CloudFileSystemImpl*>(cfs);
   assert(cimpl);
   cimpl->TEST_DisableCloudManifest();
   cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
@@ -692,9 +692,9 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "%s", st.ToString().c_str());
   }
-  assert(st.ok() && cenv);
-  std::shared_ptr<FileSystem> cloud_fs(cenv);
-  return new CompositeEnvWrapper(parent, cloud_fs);
+  assert(st.ok() && cfs);
+  std::shared_ptr<FileSystem> cloud_fs(cfs);
+  return new CompositeEnvWrapper(parent, std::move(cloud_fs));
 }
 #endif // USE_AWS
 #endif // ROCKSDB_LITE
@@ -815,14 +815,14 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
   ASSERT_OK(DestroyDB(dbname_, options, column_families));
 #ifdef USE_AWS
   if (s3_env_) {
-    CloudEnv* cenv = static_cast<CloudEnv*>(s3_env_->GetFileSystem().get());
-    auto st = cenv->GetStorageProvider()->EmptyBucket(cenv->GetSrcBucketName(),
-                                                      dbname_);
+    auto* cfs = static_cast<CloudFileSystem*>(s3_env_->GetFileSystem().get());
+    auto st = cfs->GetStorageProvider()->EmptyBucket(cfs->GetSrcBucketName(),
+                                                     dbname_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
     for (int r = 0; r < 10; ++r) {
       // The existance is not propagated atomically, so wait until
       // IDENTITY file no longer exists.
-      if (cenv->FileExists(dbname_ + "/IDENTITY", IOOptions(), nullptr /*dbg*/)
+      if (cfs->FileExists(dbname_ + "/IDENTITY", IOOptions(), nullptr /*dbg*/)
               .ok()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10 * (r + 1)));
         continue;

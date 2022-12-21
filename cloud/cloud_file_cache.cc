@@ -3,7 +3,7 @@
 
 #include <cinttypes>
 
-#include "cloud/cloud_env_impl.h"
+#include "cloud/cloud_file_system_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -12,17 +12,17 @@ namespace {
 // The Value inside every cached entry
 struct Value {
   std::string path;
-  CloudEnvImpl* cenv;
+  CloudFileSystemImpl* cfs;
 
-  Value(const std::string& _path, CloudEnvImpl* _cenv)
-      : path(_path), cenv(_cenv) {}
+  Value(const std::string& _path, CloudFileSystemImpl* _cfs)
+      : path(_path), cfs(_cfs) {}
 };
 
 // static method to use as a callback from the cache.
 static void DeleteEntry(const Slice& key, void* v) {
   Value* value = reinterpret_cast<Value*>(v);
   std::string filename(key.data(), key.size());
-  value->cenv->FileCacheDeleter(filename);
+  value->cfs->FileCacheDeleter(filename);
   delete value;
 }
 
@@ -42,7 +42,7 @@ static void clear_callback_state() { callback_state.clear(); }
 //
 // Touch the file so that is the the most-recent LRU item in cache.
 //
-void CloudEnvImpl::FileCacheAccess(const std::string& fname) {
+void CloudFileSystemImpl::FileCacheAccess(const std::string& fname) {
   if (!cloud_env_options.hasSstFileCache()) {
     return;
   }
@@ -57,8 +57,8 @@ void CloudEnvImpl::FileCacheAccess(const std::string& fname) {
 //
 // Record the file into the cache.
 //
-void CloudEnvImpl::FileCacheInsert(const std::string& fname,
-                                   uint64_t filesize) {
+void CloudFileSystemImpl::FileCacheInsert(const std::string& fname,
+                                          uint64_t filesize) {
   if (!cloud_env_options.hasSstFileCache()) {
     return;
   }
@@ -73,7 +73,7 @@ void CloudEnvImpl::FileCacheInsert(const std::string& fname,
 //
 // Remove a specific entry from the cache.
 //
-void CloudEnvImpl::FileCacheErase(const std::string& fname) {
+void CloudFileSystemImpl::FileCacheErase(const std::string& fname) {
   // We erase from the cache even if the cache size is zero. This is needed
   // to protect against the when the cache size was dynamically reduced to zero
   // on a running database.
@@ -89,8 +89,8 @@ void CloudEnvImpl::FileCacheErase(const std::string& fname) {
 //
 // When the cache is full, delete files from local store
 //
-void CloudEnvImpl::FileCacheDeleter(const std::string& fname) {
-  base_env_->DeleteFile(fname, IOOptions(), nullptr /*dbg*/);
+void CloudFileSystemImpl::FileCacheDeleter(const std::string& fname) {
+  base_fs_->DeleteFile(fname, IOOptions(), nullptr /*dbg*/);
   log(InfoLogLevel::INFO_LEVEL, fname, "purged");
 }
 
@@ -98,7 +98,7 @@ void CloudEnvImpl::FileCacheDeleter(const std::string& fname) {
 // Get total charge in the cache.
 // This is not thread-safe and is used only for unit tests.
 //
-uint64_t CloudEnvImpl::FileCacheGetCharge() {
+uint64_t CloudFileSystemImpl::FileCacheGetCharge() {
   clear_callback_state();
   cloud_env_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
   uint64_t total = 0;
@@ -112,7 +112,7 @@ uint64_t CloudEnvImpl::FileCacheGetCharge() {
 // Get total number of items in the cache.
 // This is not thread-safe and is used only for unit tests.
 //
-uint64_t CloudEnvImpl::FileCacheGetNumItems() {
+uint64_t CloudFileSystemImpl::FileCacheGetNumItems() {
   clear_callback_state();
   cloud_env_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
   return callback_state.size();
@@ -120,7 +120,7 @@ uint64_t CloudEnvImpl::FileCacheGetNumItems() {
 
 // Removes all items for the env from the cache.
 // This is not thread-safe.
-void CloudEnvImpl::FileCachePurge() {
+void CloudFileSystemImpl::FileCachePurge() {
   // We erase from the cache even if the cache size is zero. This is needed
   // to protect against the when the cache size was dynamically reduced to zero
   // on a running database.
@@ -130,10 +130,10 @@ void CloudEnvImpl::FileCachePurge() {
   // fetch all items from cache
   clear_callback_state();
   cloud_env_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
-  // for all those items that have a matching cenv, remove them from cache.
+  // for all those items that have a matching cfs, remove them from cache.
   for (auto& it : callback_state) {
     Value* value = it.first;
-    if (value->cenv == this) {
+    if (value->cfs == this) {
       Slice key(value->path);
       cloud_env_options.sst_file_cache->Erase(key);
     }
@@ -141,8 +141,8 @@ void CloudEnvImpl::FileCachePurge() {
   log(InfoLogLevel::INFO_LEVEL, "ENV-DELETE", "purged");
 }
 
-void CloudEnvImpl::log(InfoLogLevel level, const std::string& fname,
-                       const std::string& msg) {
+void CloudFileSystemImpl::log(InfoLogLevel level, const std::string& fname,
+                              const std::string& msg) {
   uint64_t usage = cloud_env_options.sst_file_cache->GetUsage();
   uint64_t capacity = cloud_env_options.sst_file_cache->GetCapacity();
   long percent = (capacity > 0 ? (100L * usage / capacity) : 0);

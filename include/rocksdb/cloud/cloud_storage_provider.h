@@ -10,7 +10,7 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
-class CloudEnv;
+class CloudFileSystem;
 class CloudStorageProvider;
 class Logger;
 struct ColumnFamilyOptions;

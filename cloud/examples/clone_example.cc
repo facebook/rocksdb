@@ -42,10 +42,10 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
   std::string cname = kClonePath + "/" + clone_name;
 
   // Create new AWS env
-  CloudEnv* cenv;
-  Status st = CloudEnv::NewAwsEnv(
+  CloudFileSystem* cfs;
+  Status st = CloudFileSystem::NewAwsFileSystem(
       FileSystem::Default(), src_bucket, src_object_path, kRegion, dest_bucket,
-      dest_object_path, kRegion, cloud_env_options, nullptr, &cenv);
+      dest_object_path, kRegion, cloud_env_options, nullptr, &cfs);
   if (!st.ok()) {
     fprintf(stderr,
             "Unable to create an AWS environment with "
@@ -53,7 +53,7 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
             src_bucket.c_str());
     return st;
   }
-  std::shared_ptr<FileSystem> fs(cenv);
+  std::shared_ptr<FileSystem> fs(cfs);
   *cloud_env = NewCompositeEnv(fs);
 
   // Create options and use the AWS env that we created earlier
@@ -64,7 +64,7 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
   std::string persistent_cache = "";
 
   // create a bucket name for debugging purposes
-  const std::string bucketName = cenv->GetSrcBucketName();
+  const std::string bucketName = cfs->GetSrcBucketName();
 
   // open clone
   DBCloud* db;
@@ -107,10 +107,10 @@ int main() {
   cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
 
   // Create a new AWS cloud env Status
-  CloudEnv* cenv;
-  Status s = CloudEnv::NewAwsEnv(FileSystem::Default(), kBucketSuffix, kDBPath,
-                                 kRegion, kBucketSuffix, kDBPath, kRegion,
-                                 cloud_env_options, nullptr, &cenv);
+  CloudFileSystem* cfs;
+  Status s = CloudFileSystem::NewAwsFileSystem(
+      FileSystem::Default(), kBucketSuffix, kDBPath, kRegion, kBucketSuffix,
+      kDBPath, kRegion, cloud_env_options, nullptr, &cfs);
   if (!s.ok()) {
     fprintf(stderr, "Unable to create cloud env in bucket %s. %s\n",
             bucketName.c_str(), s.ToString().c_str());
@@ -119,7 +119,7 @@ int main() {
 
   // Store a reference to a cloud env. A new cloud env object should be
   // associated with every new cloud-db.
-  auto cloud_env = NewCompositeEnv(std::shared_ptr<FileSystem>(cenv));
+  auto cloud_env = NewCompositeEnv(std::shared_ptr<FileSystem>(cfs));
 
   // Create options and use the AWS env that we created earlier
   Options options;

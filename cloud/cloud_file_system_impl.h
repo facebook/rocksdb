@@ -21,19 +21,19 @@ class ObjectLibrary;
 class CloudFileDeletionScheduler;
 
 //
-// The Cloud environment
+// The Cloud file system
 //
-class CloudEnvImpl : public CloudEnv {
-  friend class CloudEnv;
+class CloudFileSystemImpl : public CloudFileSystem {
+  friend class CloudFileSystem;
 
  public:
   static int RegisterAwsObjects(ObjectLibrary& library, const std::string& arg);
   // Constructor
-  CloudEnvImpl(const CloudEnvOptions& options,
-               const std::shared_ptr<FileSystem>& base_env,
-               const std::shared_ptr<Logger>& logger);
+  CloudFileSystemImpl(const CloudEnvOptions& options,
+                      const std::shared_ptr<FileSystem>& base_fs,
+                      const std::shared_ptr<Logger>& logger);
 
-  virtual ~CloudEnvImpl();
+  virtual ~CloudFileSystemImpl();
   static const char* kClassName() { return kCloud(); }
   virtual const char* Name() const override { return kClassName(); }
 
@@ -104,18 +104,18 @@ class CloudEnvImpl : public CloudEnv {
   IOStatus NewLogger(const std::string& fname, const IOOptions& io_opts,
                      std::shared_ptr<Logger>* result,
                      IODebugContext* dbg) override {
-    return base_env_->NewLogger(fname, io_opts, result, dbg);
+    return base_fs_->NewLogger(fname, io_opts, result, dbg);
   }
 
   IOStatus GetTestDirectory(const IOOptions& options, std::string* path,
                             IODebugContext* dbg) override {
-    return base_env_->GetTestDirectory(options, path, dbg);
+    return base_fs_->GetTestDirectory(options, path, dbg);
   }
 
   IOStatus GetAbsolutePath(const std::string& db_path, const IOOptions& options,
                            std::string* output_path,
                            IODebugContext* dbg) override {
-    return base_env_->GetAbsolutePath(db_path, options, output_path, dbg);
+    return base_fs_->GetAbsolutePath(db_path, options, output_path, dbg);
   }
 
   IOStatus LockFile(const std::string& fname, const IOOptions& options,
@@ -194,39 +194,40 @@ class CloudEnvImpl : public CloudEnv {
 
   FileOptions OptimizeForLogRead(
       const FileOptions& file_options) const override {
-    return base_env_->OptimizeForLogRead(file_options);
+    return base_fs_->OptimizeForLogRead(file_options);
   }
   FileOptions OptimizeForManifestRead(
       const FileOptions& file_options) const override {
-    return base_env_->OptimizeForManifestRead(file_options);
+    return base_fs_->OptimizeForManifestRead(file_options);
   }
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,
                                   const DBOptions& db_options) const override {
-    return base_env_->OptimizeForLogWrite(file_options, db_options);
+    return base_fs_->OptimizeForLogWrite(file_options, db_options);
   }
   FileOptions OptimizeForManifestWrite(
       const FileOptions& file_options) const override {
-    return base_env_->OptimizeForManifestWrite(file_options);
+    return base_fs_->OptimizeForManifestWrite(file_options);
   }
   FileOptions OptimizeForCompactionTableWrite(
       const FileOptions& file_options,
       const ImmutableDBOptions& immutable_ops) const override {
-    return base_env_->OptimizeForCompactionTableWrite(file_options,
-                                                      immutable_ops);
+    return base_fs_->OptimizeForCompactionTableWrite(file_options,
+                                                     immutable_ops);
   }
   FileOptions OptimizeForCompactionTableRead(
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const override {
-    return base_env_->OptimizeForCompactionTableRead(file_options, db_options);
+    return base_fs_->OptimizeForCompactionTableRead(file_options, db_options);
   }
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& options,
                         uint64_t* diskfree, IODebugContext* dbg) override {
-    return base_env_->GetFreeSpace(path, options, diskfree, dbg);
+    return base_fs_->GetFreeSpace(path, options, diskfree, dbg);
   }
   IOStatus IsDirectory(const std::string& /*path*/,
                        const IOOptions& /*options*/, bool* /*is_dir*/,
                        IODebugContext* /*dbg*/) override {
-    return IOStatus::NotSupported("CloudEnvImpl::IsDirectory() not supported.");
+    return IOStatus::NotSupported(
+        "CloudFileSystemImpl::IsDirectory() not supported.");
   }
 
   CloudManifest* GetCloudManifest() { return cloud_manifest_.get(); }

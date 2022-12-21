@@ -8,8 +8,7 @@
 #include "rocksdb/cloud/cloud_log_controller.h"
 
 namespace ROCKSDB_NAMESPACE {
-class CloudEnv;
-class CloudEnvOptions;
+class CloudFileSystem;
 
 class CloudLogControllerImpl : public CloudLogController {
  public:
@@ -31,9 +30,9 @@ class CloudLogControllerImpl : public CloudLogController {
   CloudLogControllerImpl();
   virtual ~CloudLogControllerImpl();
   static Status CreateKinesisController(
-      CloudEnv* env, std::shared_ptr<CloudLogController>* result);
+      CloudFileSystem* fs, std::shared_ptr<CloudLogController>* result);
   static Status CreateKafkaController(
-      CloudEnv* env, std::shared_ptr<CloudLogController>* result);
+      CloudFileSystem* fs, std::shared_ptr<CloudLogController>* result);
 
   // Directory where files are cached locally.
   const std::string& GetCacheDir() const override { return cache_dir_; }
@@ -74,7 +73,7 @@ class CloudLogControllerImpl : public CloudLogController {
                                Slice* filename, uint64_t* offset_in_file,
                                uint64_t* file_size, Slice* data);
   Env* env_;
-  CloudEnv* cloud_fs_;
+  CloudFileSystem* cloud_fs_;
   Status status_;
   std::string cache_dir_;
   // A cache of pathnames to their open file _escriptors

@@ -10,9 +10,10 @@
 
 #include "rocksdb/cloud/db_cloud.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class Env;
 
 //
 // All writes to this DB can be configured to be persisted
@@ -33,8 +34,8 @@ class DBCloudImpl : public DBCloud {
       PluggableCompactionResult* result, bool sanitize) override;
 
  protected:
-  // The CloudEnv used by this open instance.
-  CloudEnv* cenv_;
+  // The CloudFileSystem used by this open instance.
+  CloudFileSystem* cfs_;
 
  private:
   Status DoCheckpointToCloud(const BucketOptions& destination,

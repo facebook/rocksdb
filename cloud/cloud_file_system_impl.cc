@@ -1,7 +1,7 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
-#include "cloud/cloud_env_impl.h"
+#include "cloud/cloud_file_system_impl.h"
 
 #include <cinttypes>
 
@@ -29,16 +29,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-CloudEnvImpl::CloudEnvImpl(const CloudEnvOptions& opts,
-                           const std::shared_ptr<FileSystem>& base,
-                           const std::shared_ptr<Logger>& l)
-    : CloudEnv(opts, base, l), purger_is_running_(true) {
+CloudFileSystemImpl::CloudFileSystemImpl(
+    const CloudEnvOptions& opts, const std::shared_ptr<FileSystem>& base,
+    const std::shared_ptr<Logger>& l)
+    : CloudFileSystem(opts, base, l), purger_is_running_(true) {
   scheduler_ = CloudScheduler::Get();
   cloud_file_deletion_scheduler_ =
       CloudFileDeletionScheduler::Create(scheduler_);
 }
 
-CloudEnvImpl::~CloudEnvImpl() {
+CloudFileSystemImpl::~CloudFileSystemImpl() {
   // remove items from the file cache
   FileCachePurge();
 
@@ -48,7 +48,7 @@ CloudEnvImpl::~CloudEnvImpl() {
   StopPurger();
 }
 
-IOStatus CloudEnvImpl::ExistsCloudObject(const std::string& fname) {
+IOStatus CloudFileSystemImpl::ExistsCloudObject(const std::string& fname) {
   auto st = IOStatus::NotFound();
   if (HasDestBucket()) {
     st = GetStorageProvider()->ExistsCloudObject(GetDestBucketName(),
@@ -61,7 +61,7 @@ IOStatus CloudEnvImpl::ExistsCloudObject(const std::string& fname) {
   return st;
 }
 
-IOStatus CloudEnvImpl::GetCloudObject(const std::string& fname) {
+IOStatus CloudFileSystemImpl::GetCloudObject(const std::string& fname) {
   auto st = IOStatus::NotFound();
   if (HasDestBucket()) {
     st = GetStorageProvider()->GetCloudObject(GetDestBucketName(),
@@ -74,8 +74,8 @@ IOStatus CloudEnvImpl::GetCloudObject(const std::string& fname) {
   return st;
 }
 
-IOStatus CloudEnvImpl::GetCloudObjectSize(const std::string& fname,
-                                          uint64_t* remote_size) {
+IOStatus CloudFileSystemImpl::GetCloudObjectSize(const std::string& fname,
+                                                 uint64_t* remote_size) {
   auto st = IOStatus::NotFound();
   if (HasDestBucket()) {
     st = GetStorageProvider()->GetCloudObjectSize(GetDestBucketName(),
@@ -88,8 +88,8 @@ IOStatus CloudEnvImpl::GetCloudObjectSize(const std::string& fname,
   return st;
 }
 
-IOStatus CloudEnvImpl::GetCloudObjectModificationTime(const std::string& fname,
-                                                      uint64_t* time) {
+IOStatus CloudFileSystemImpl::GetCloudObjectModificationTime(
+    const std::string& fname, uint64_t* time) {
   auto st = IOStatus::NotFound();
   if (HasDestBucket()) {
     st = GetStorageProvider()->GetCloudObjectModificationTime(
@@ -102,8 +102,8 @@ IOStatus CloudEnvImpl::GetCloudObjectModificationTime(const std::string& fname,
   return st;
 }
 
-IOStatus CloudEnvImpl::ListCloudObjects(const std::string& path,
-                                        std::vector<std::string>* result) {
+IOStatus CloudFileSystemImpl::ListCloudObjects(
+    const std::string& path, std::vector<std::string>* result) {
   IOStatus st;
   // Fetch the list of children from both cloud buckets
   if (HasSrcBucket()) {
@@ -130,7 +130,7 @@ IOStatus CloudEnvImpl::ListCloudObjects(const std::string& path,
   return st;
 }
 
-IOStatus CloudEnvImpl::NewCloudReadableFile(
+IOStatus CloudFileSystemImpl::NewCloudReadableFile(
     const std::string& fname, const FileOptions& options,
     std::unique_ptr<CloudStorageReadableFile>* result, IODebugContext* dbg) {
   auto st = IOStatus::NotFound();
@@ -149,7 +149,7 @@ IOStatus CloudEnvImpl::NewCloudReadableFile(
 }
 
 // open a file for sequential reading
-IOStatus CloudEnvImpl::NewSequentialFile(
+IOStatus CloudFileSystemImpl::NewSequentialFile(
     const std::string& logical_fname, const FileOptions& file_opts,
     std::unique_ptr<FSSequentialFile>* result, IODebugContext* dbg) {
   result->reset();
@@ -169,13 +169,13 @@ IOStatus CloudEnvImpl::NewSequentialFile(
   if (sstfile || manifest || identity) {
     if (cloud_env_options.keep_local_sst_files || !sstfile) {
       // We read first from local storage and then from cloud storage.
-      st = base_env_->NewSequentialFile(fname, file_opts, result, dbg);
+      st = base_fs_->NewSequentialFile(fname, file_opts, result, dbg);
       if (!st.ok()) {
         // copy the file to the local storage if keep_local_sst_files is true
         st = GetCloudObject(fname);
         if (st.ok()) {
           // we successfully copied the file, try opening it locally now
-          st = base_env_->NewSequentialFile(fname, file_opts, result, dbg);
+          st = base_fs_->NewSequentialFile(fname, file_opts, result, dbg);
         }
       }
     } else {
@@ -198,11 +198,11 @@ IOStatus CloudEnvImpl::NewSequentialFile(
   }
 
   // This is neither a sst file or a log file. Read from default env.
-  return base_env_->NewSequentialFile(fname, file_opts, result, dbg);
+  return base_fs_->NewSequentialFile(fname, file_opts, result, dbg);
 }
 
 // Ability to read a file directly from cloud storage
-IOStatus CloudEnvImpl::NewSequentialFileCloud(
+IOStatus CloudFileSystemImpl::NewSequentialFileCloud(
     const std::string& bucket, const std::string& fname,
     const FileOptions& file_opts, std::unique_ptr<FSSequentialFile>* result,
     IODebugContext* dbg) {
@@ -218,7 +218,7 @@ IOStatus CloudEnvImpl::NewSequentialFileCloud(
 }
 
 // open a file for random reading
-IOStatus CloudEnvImpl::NewRandomAccessFile(
+IOStatus CloudFileSystemImpl::NewRandomAccessFile(
     const std::string& logical_fname, const FileOptions& file_opts,
     std::unique_ptr<FSRandomAccessFile>* result, IODebugContext* dbg) {
   result->reset();
@@ -241,7 +241,7 @@ IOStatus CloudEnvImpl::NewRandomAccessFile(
     if (cloud_env_options.keep_local_sst_files ||
         cloud_env_options.hasSstFileCache() || !sstfile) {
       // Read from local storage and then from cloud storage.
-      st = base_env_->NewRandomAccessFile(fname, file_opts, result, dbg);
+      st = base_fs_->NewRandomAccessFile(fname, file_opts, result, dbg);
 
       // Found in local storage. Update LRU cache.
       // There is a loose coupling between the sst_file_cache and the files on
@@ -255,8 +255,7 @@ IOStatus CloudEnvImpl::NewRandomAccessFile(
         FileCacheAccess(fname);
       }
 
-      if (!st.ok() &&
-          !base_env_->FileExists(fname, io_opts, dbg).IsNotFound()) {
+      if (!st.ok() && !base_fs_->FileExists(fname, io_opts, dbg).IsNotFound()) {
         // if status is not OK, but file does exist locally, something is wrong
         return st;
       }
@@ -266,12 +265,12 @@ IOStatus CloudEnvImpl::NewRandomAccessFile(
         st = GetCloudObject(fname);
         if (st.ok()) {
           // we successfully copied the file, try opening it locally now
-          st = base_env_->NewRandomAccessFile(fname, file_opts, result, dbg);
+          st = base_fs_->NewRandomAccessFile(fname, file_opts, result, dbg);
         }
         // Update the size of our local sst file cache
         if (st.ok() && sstfile && cloud_env_options.hasSstFileCache()) {
           uint64_t local_size;
-          auto statx = base_env_->GetFileSize(fname, io_opts, &local_size, dbg);
+          auto statx = base_fs_->GetFileSize(fname, io_opts, &local_size, dbg);
           if (statx.ok()) {
             FileCacheInsert(fname, local_size);
           }
@@ -282,7 +281,7 @@ IOStatus CloudEnvImpl::NewRandomAccessFile(
       if (st.ok() && sstfile && cloud_env_options.validate_filesize) {
         uint64_t remote_size = 0;
         uint64_t local_size = 0;
-        auto stax = base_env_->GetFileSize(fname, io_opts, &local_size, dbg);
+        auto stax = base_fs_->GetFileSize(fname, io_opts, &local_size, dbg);
         if (!stax.ok()) {
           return stax;
         }
@@ -323,14 +322,13 @@ IOStatus CloudEnvImpl::NewRandomAccessFile(
   }
 
   // This is neither a sst file or a log file. Read from default env.
-  return base_env_->NewRandomAccessFile(fname, file_opts, result, dbg);
+  return base_fs_->NewRandomAccessFile(fname, file_opts, result, dbg);
 }
 
 // create a new file for writing
-IOStatus CloudEnvImpl::NewWritableFile(const std::string& logical_fname,
-                                       const FileOptions& file_opts,
-                                       std::unique_ptr<FSWritableFile>* result,
-                                       IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::NewWritableFile(
+    const std::string& logical_fname, const FileOptions& file_opts,
+    std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
   result->reset();
 
   auto fname = RemapFilename(logical_fname);
@@ -373,29 +371,29 @@ IOStatus CloudEnvImpl::NewWritableFile(const std::string& logical_fname,
     }
     result->reset(f.release());
   } else {
-    s = base_env_->NewWritableFile(fname, file_opts, result, dbg);
+    s = base_fs_->NewWritableFile(fname, file_opts, result, dbg);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] NewWritableFile src %s %s",
       Name(), fname.c_str(), s.ToString().c_str());
   return s;
 }
 
-IOStatus CloudEnvImpl::ReopenWritableFile(
+IOStatus CloudFileSystemImpl::ReopenWritableFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
   // This is not accurately correct because there is no wasy way to open
   // an provider file in append mode. We still need to support this because
   // rocksdb's ExternalSstFileIngestionJob invokes this api to reopen
   // a pre-created file to flush/sync it.
-  return base_env_->ReopenWritableFile(fname, file_opts, result, dbg);
+  return base_fs_->ReopenWritableFile(fname, file_opts, result, dbg);
 }
 
 //
 // Check if the specified filename exists.
 //
-IOStatus CloudEnvImpl::FileExists(const std::string& logical_fname,
-                                  const IOOptions& io_opts,
-                                  IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::FileExists(const std::string& logical_fname,
+                                         const IOOptions& io_opts,
+                                         IODebugContext* dbg) {
   IOStatus st;
 
   auto fname = RemapFilename(logical_fname);
@@ -407,7 +405,7 @@ IOStatus CloudEnvImpl::FileExists(const std::string& logical_fname,
 
   if (sstfile || manifest || identity) {
     // We read first from local storage and then from cloud storage.
-    st = base_env_->FileExists(fname, io_opts, dbg);
+    st = base_fs_->FileExists(fname, io_opts, dbg);
     if (st.IsNotFound()) {
       st = ExistsCloudObject(fname);
     }
@@ -415,17 +413,17 @@ IOStatus CloudEnvImpl::FileExists(const std::string& logical_fname,
     // read from controller
     st = cloud_env_options.cloud_log_controller->FileExists(fname);
   } else {
-    st = base_env_->FileExists(fname, io_opts, dbg);
+    st = base_fs_->FileExists(fname, io_opts, dbg);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] FileExists path '%s' %s",
       Name(), fname.c_str(), st.ToString().c_str());
   return st;
 }
 
-IOStatus CloudEnvImpl::GetChildren(const std::string& path,
-                                   const IOOptions& io_opts,
-                                   std::vector<std::string>* result,
-                                   IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::GetChildren(const std::string& path,
+                                          const IOOptions& io_opts,
+                                          std::vector<std::string>* result,
+                                          IODebugContext* dbg) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] GetChildren path '%s' ",
       Name(), path.c_str());
   result->clear();
@@ -441,7 +439,7 @@ IOStatus CloudEnvImpl::GetChildren(const std::string& path,
 
   // fetch all files that exist in the local posix directory
   std::vector<std::string> local_files;
-  st = base_env_->GetChildren(path, io_opts, &local_files, dbg);
+  st = base_fs_->GetChildren(path, io_opts, &local_files, dbg);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[%s] GetChildren %s error on local dir", Name(), path.c_str());
@@ -481,9 +479,9 @@ IOStatus CloudEnvImpl::GetChildren(const std::string& path,
   return IOStatus::OK();
 }
 
-IOStatus CloudEnvImpl::GetFileSize(const std::string& logical_fname,
-                                   const IOOptions& io_opts, uint64_t* size,
-                                   IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::GetFileSize(const std::string& logical_fname,
+                                          const IOOptions& io_opts,
+                                          uint64_t* size, IODebugContext* dbg) {
   *size = 0L;
 
   auto fname = RemapFilename(logical_fname);
@@ -493,15 +491,15 @@ IOStatus CloudEnvImpl::GetFileSize(const std::string& logical_fname,
 
   IOStatus st;
   if (sstfile) {
-    if (base_env_->FileExists(fname, io_opts, dbg).ok()) {
-      st = base_env_->GetFileSize(fname, io_opts, size, dbg);
+    if (base_fs_->FileExists(fname, io_opts, dbg).ok()) {
+      st = base_fs_->GetFileSize(fname, io_opts, size, dbg);
     } else {
       st = GetCloudObjectSize(fname, size);
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     st = cloud_env_options.cloud_log_controller->GetFileSize(fname, size);
   } else {
-    st = base_env_->GetFileSize(fname, io_opts, size, dbg);
+    st = base_fs_->GetFileSize(fname, io_opts, size, dbg);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[%s] GetFileSize src '%s' %s %" PRIu64, Name(), fname.c_str(),
@@ -509,10 +507,9 @@ IOStatus CloudEnvImpl::GetFileSize(const std::string& logical_fname,
   return st;
 }
 
-IOStatus CloudEnvImpl::GetFileModificationTime(const std::string& logical_fname,
-                                               const IOOptions& io_opts,
-                                               uint64_t* time,
-                                               IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::GetFileModificationTime(
+    const std::string& logical_fname, const IOOptions& io_opts, uint64_t* time,
+    IODebugContext* dbg) {
   *time = 0;
 
   auto fname = RemapFilename(logical_fname);
@@ -522,8 +519,8 @@ IOStatus CloudEnvImpl::GetFileModificationTime(const std::string& logical_fname,
 
   IOStatus st;
   if (sstfile) {
-    if (base_env_->FileExists(fname, io_opts, dbg).ok()) {
-      st = base_env_->GetFileModificationTime(fname, io_opts, time, dbg);
+    if (base_fs_->FileExists(fname, io_opts, dbg).ok()) {
+      st = base_fs_->GetFileModificationTime(fname, io_opts, time, dbg);
     } else {
       st = GetCloudObjectModificationTime(fname, time);
     }
@@ -531,7 +528,7 @@ IOStatus CloudEnvImpl::GetFileModificationTime(const std::string& logical_fname,
     st = cloud_env_options.cloud_log_controller->GetFileModificationTime(fname,
                                                                          time);
   } else {
-    st = base_env_->GetFileModificationTime(fname, io_opts, time, dbg);
+    st = base_fs_->GetFileModificationTime(fname, io_opts, time, dbg);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[%s] GetFileModificationTime src '%s' %s", Name(), fname.c_str(),
@@ -541,10 +538,10 @@ IOStatus CloudEnvImpl::GetFileModificationTime(const std::string& logical_fname,
 
 // The rename may not be atomic. Some cloud vendords do not support renaming
 // natively. Copy file to a new object and then delete original object.
-IOStatus CloudEnvImpl::RenameFile(const std::string& logical_src,
-                                  const std::string& logical_target,
-                                  const IOOptions& io_opts,
-                                  IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::RenameFile(const std::string& logical_src,
+                                         const std::string& logical_target,
+                                         const IOOptions& io_opts,
+                                         IODebugContext* dbg) {
   auto src = RemapFilename(logical_src);
   auto target = RemapFilename(logical_target);
   // Get file type of target
@@ -577,7 +574,7 @@ IOStatus CloudEnvImpl::RenameFile(const std::string& logical_src,
     return IOStatus::NotSupported(Slice(src), Slice(target));
 
   } else if (!identity || !HasDestBucket()) {
-    return base_env_->RenameFile(src, target, io_opts, dbg);
+    return base_fs_->RenameFile(src, target, io_opts, dbg);
   }
   // Only ID file should come here
   assert(identity);
@@ -589,7 +586,7 @@ IOStatus CloudEnvImpl::RenameFile(const std::string& logical_src,
 
   // Do the rename on local filesystem too
   if (st.ok()) {
-    st = base_env_->RenameFile(src, target, io_opts, dbg);
+    st = base_fs_->RenameFile(src, target, io_opts, dbg);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[%s] RenameFile src %s target %s: %s", Name(), src.c_str(),
@@ -597,26 +594,28 @@ IOStatus CloudEnvImpl::RenameFile(const std::string& logical_src,
   return st;
 }
 
-IOStatus CloudEnvImpl::LinkFile(const std::string& src,
-                                const std::string& target,
-                                const IOOptions& io_opts, IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::LinkFile(const std::string& src,
+                                       const std::string& target,
+                                       const IOOptions& io_opts,
+                                       IODebugContext* dbg) {
   // We only know how to link file if both src and dest buckets are empty
   if (HasDestBucket() || HasSrcBucket()) {
     return IOStatus::NotSupported();
   }
   auto src_remapped = RemapFilename(src);
   auto target_remapped = RemapFilename(target);
-  return base_env_->LinkFile(src_remapped, target_remapped, io_opts, dbg);
+  return base_fs_->LinkFile(src_remapped, target_remapped, io_opts, dbg);
 }
 
 namespace {
 
 class CloudDirectory : public FSDirectory {
  public:
-  CloudDirectory(CloudEnv* env, const std::string& name,
+  CloudDirectory(CloudFileSystem* fs, const std::string& name,
                  const IOOptions& io_opts, IODebugContext* dbg)
-      : env_(env), name_(name) {
-    status_ = env_->GetBaseEnv()->NewDirectory(name, io_opts, &posix_dir_, dbg);
+      : cloud_fs_(fs), name_(name) {
+    status_ = cloud_fs_->GetBaseFileSystem()->NewDirectory(name, io_opts,
+                                                           &posix_dir_, dbg);
   }
 
   IOStatus Fsync(const IOOptions& io_opts, IODebugContext* dbg) override {
@@ -629,7 +628,7 @@ class CloudDirectory : public FSDirectory {
   IOStatus status() const { return status_; }
 
  private:
-  CloudEnv* env_;
+  CloudFileSystem* cloud_fs_;
   std::string name_;
   IOStatus status_;
   std::unique_ptr<FSDirectory> posix_dir_;
@@ -639,10 +638,10 @@ class CloudDirectory : public FSDirectory {
 
 //  Returns success only if the directory-bucket exists in the
 //  StorageProvider and the posixEnv local directory exists as well.
-IOStatus CloudEnvImpl::NewDirectory(const std::string& name,
-                                    const IOOptions& io_opts,
-                                    std::unique_ptr<FSDirectory>* result,
-                                    IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::NewDirectory(const std::string& name,
+                                           const IOOptions& io_opts,
+                                           std::unique_ptr<FSDirectory>* result,
+                                           IODebugContext* dbg) {
   result->reset(nullptr);
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] NewDirectory name '%s'",
@@ -666,14 +665,14 @@ IOStatus CloudEnvImpl::NewDirectory(const std::string& name,
 
 // Cloud storage providers have no concepts of directories,
 // so we just have to forward the request to the base_env_
-IOStatus CloudEnvImpl::CreateDir(const std::string& dirname,
-                                 const IOOptions& io_opts,
-                                 IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::CreateDir(const std::string& dirname,
+                                        const IOOptions& io_opts,
+                                        IODebugContext* dbg) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] CreateDir dir '%s'", Name(),
       dirname.c_str());
 
   // create local dir
-  auto st = base_env_->CreateDir(dirname, io_opts, dbg);
+  auto st = base_fs_->CreateDir(dirname, io_opts, dbg);
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] CreateDir dir %s %s", Name(),
       dirname.c_str(), st.ToString().c_str());
@@ -682,14 +681,14 @@ IOStatus CloudEnvImpl::CreateDir(const std::string& dirname,
 
 // Cloud storage providers have no concepts of directories,
 // so we just have to forward the request to the base_env_
-IOStatus CloudEnvImpl::CreateDirIfMissing(const std::string& dirname,
-                                          const IOOptions& io_opts,
-                                          IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::CreateDirIfMissing(const std::string& dirname,
+                                                 const IOOptions& io_opts,
+                                                 IODebugContext* dbg) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] CreateDirIfMissing dir '%s'",
       Name(), dirname.c_str());
 
   // create directory in base_env_
-  auto st = base_env_->CreateDirIfMissing(dirname, io_opts, dbg);
+  auto st = base_fs_->CreateDirIfMissing(dirname, io_opts, dbg);
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[%s] CreateDirIfMissing created dir %s %s", Name(), dirname.c_str(),
@@ -699,20 +698,20 @@ IOStatus CloudEnvImpl::CreateDirIfMissing(const std::string& dirname,
 
 // Cloud storage providers have no concepts of directories,
 // so we just have to forward the request to the base_env_
-IOStatus CloudEnvImpl::DeleteDir(const std::string& dirname,
-                                 const IOOptions& io_opts,
-                                 IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::DeleteDir(const std::string& dirname,
+                                        const IOOptions& io_opts,
+                                        IODebugContext* dbg) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] DeleteDir src '%s'", Name(),
       dirname.c_str());
-  auto st = base_env_->DeleteDir(dirname, io_opts, dbg);
+  auto st = base_fs_->DeleteDir(dirname, io_opts, dbg);
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] DeleteDir dir %s %s", Name(),
       dirname.c_str(), st.ToString().c_str());
   return st;
 };
 
-IOStatus CloudEnvImpl::DeleteFile(const std::string& logical_fname,
-                                  const IOOptions& io_opts,
-                                  IODebugContext* dbg) {
+IOStatus CloudFileSystemImpl::DeleteFile(const std::string& logical_fname,
+                                         const IOOptions& io_opts,
+                                         IODebugContext* dbg) {
   auto fname = RemapFilename(logical_fname);
   auto file_type = GetFileType(fname);
   bool sstfile = (file_type == RocksDBFileType::kSstFile),
@@ -755,7 +754,7 @@ IOStatus CloudEnvImpl::DeleteFile(const std::string& logical_fname,
     }
     // delete from local, too. Ignore the result, though. The file might not be
     // there locally.
-    base_env_->DeleteFile(fname, io_opts, dbg);
+    base_fs_->DeleteFile(fname, io_opts, dbg);
 
     // remove from sst_file_cache
     if (sstfile) {
@@ -780,35 +779,39 @@ IOStatus CloudEnvImpl::DeleteFile(const std::string& logical_fname,
       }
     }
   } else {
-    st = base_env_->DeleteFile(fname, io_opts, dbg);
+    st = base_fs_->DeleteFile(fname, io_opts, dbg);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] DeleteFile file %s %s",
       Name(), fname.c_str(), st.ToString().c_str());
   return st;
 }
 
-void CloudEnvImpl::RemoveFileFromDeletionQueue(const std::string& filename) {
+void CloudFileSystemImpl::RemoveFileFromDeletionQueue(
+    const std::string& filename) {
   cloud_file_deletion_scheduler_->UnscheduleFileDeletion(filename);
 }
 
-void CloudEnvImpl::TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
+void CloudFileSystemImpl::TEST_SetFileDeletionDelay(
+    std::chrono::seconds delay) {
   cloud_file_deletion_scheduler_->TEST_SetFileDeletionDelay(delay);
 }
 
-IOStatus CloudEnvImpl::CopyLocalFileToDest(const std::string& local_name,
-                                           const std::string& dest_name) {
+IOStatus CloudFileSystemImpl::CopyLocalFileToDest(
+    const std::string& local_name, const std::string& dest_name) {
   RemoveFileFromDeletionQueue(basename(local_name));
   return GetStorageProvider()->PutCloudObject(local_name, GetDestBucketName(),
                                               dest_name);
 }
 
-IOStatus CloudEnvImpl::DeleteCloudFileFromDest(const std::string& fname) {
+IOStatus CloudFileSystemImpl::DeleteCloudFileFromDest(
+    const std::string& fname) {
   assert(HasDestBucket());
   auto base = basename(fname);
   auto path = GetDestObjectPath() + pathsep + base;
   auto bucket = GetDestBucketName();
   std::weak_ptr<Logger> info_log_wp = info_log_;
-  std::weak_ptr<CloudStorageProvider> storage_provider_wp = GetStorageProvider();
+  std::weak_ptr<CloudStorageProvider> storage_provider_wp =
+      GetStorageProvider();
   auto file_deletion_runnable =
       [path = std::move(path), bucket = std::move(bucket),
        info_log_wp = std::move(info_log_wp),
@@ -821,7 +824,7 @@ IOStatus CloudEnvImpl::DeleteCloudFileFromDest(const std::string& fname) {
         auto st = storage_provider->DeleteCloudObject(bucket, path);
         if (!st.ok() && !st.IsNotFound()) {
           Log(InfoLogLevel::ERROR_LEVEL, info_log,
-              "[CloudEnvImpl] DeleteFile file %s error %s", path.c_str(),
+              "[CloudFileSystemImpl] DeleteFile file %s error %s", path.c_str(),
               st.ToString().c_str());
         }
       };
@@ -830,13 +833,13 @@ IOStatus CloudEnvImpl::DeleteCloudFileFromDest(const std::string& fname) {
 }
 
 // Copy my IDENTITY file to cloud storage. Update dbid registry.
-IOStatus CloudEnvImpl::SaveIdentityToCloud(const std::string& localfile,
-                                           const std::string& idfile) {
+IOStatus CloudFileSystemImpl::SaveIdentityToCloud(const std::string& localfile,
+                                                  const std::string& idfile) {
   assert(basename(idfile) == "IDENTITY");
 
   // Read id into string
   std::string dbid;
-  auto st = ReadFileToString(base_env_.get(), localfile, &dbid);
+  auto st = ReadFileToString(base_fs_.get(), localfile, &dbid);
   dbid = trim(dbid);
 
   // Upload ID file to provider
@@ -852,7 +855,7 @@ IOStatus CloudEnvImpl::SaveIdentityToCloud(const std::string& localfile,
   return st;
 }
 
-void CloudEnvImpl::StopPurger() {
+void CloudFileSystemImpl::StopPurger() {
   {
     std::lock_guard<std::mutex> lk(purger_lock_);
     purger_is_running_ = false;
@@ -865,20 +868,21 @@ void CloudEnvImpl::StopPurger() {
   }
 }
 
-IOStatus CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
+IOStatus CloudFileSystemImpl::LoadLocalCloudManifest(
+    const std::string& dbname) {
   return LoadLocalCloudManifest(dbname, cloud_env_options.cookie_on_open);
 }
 
-IOStatus CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname,
-                                              const std::string& cookie) {
+IOStatus CloudFileSystemImpl::LoadLocalCloudManifest(
+    const std::string& dbname, const std::string& cookie) {
   if (cloud_manifest_) {
     cloud_manifest_.reset();
   }
-  return CloudEnvImpl::LoadLocalCloudManifest(
-      dbname, GetBaseEnv(), cookie, &cloud_manifest_);
+  return CloudFileSystemImpl::LoadLocalCloudManifest(
+      dbname, GetBaseFileSystem(), cookie, &cloud_manifest_);
 }
 
-IOStatus CloudEnvImpl::LoadLocalCloudManifest(
+IOStatus CloudFileSystemImpl::LoadLocalCloudManifest(
     const std::string& dbname, const std::shared_ptr<FileSystem>& base_fs,
     const std::string& cookie, std::unique_ptr<CloudManifest>* cloud_manifest) {
   std::unique_ptr<SequentialFileReader> reader;
@@ -930,19 +934,20 @@ std::string RemapFilenameWithCloudManifest(const std::string& logical_path,
          (epoch.empty() ? "" : ("-" + epoch));
 }
 
-std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
+std::string CloudFileSystemImpl::RemapFilename(
+    const std::string& logical_path) const {
   if (UNLIKELY(test_disable_cloud_manifest_)) {
     return logical_path;
   }
   return RemapFilenameWithCloudManifest(logical_path, cloud_manifest_.get());
 }
 
-IOStatus CloudEnvImpl::DeleteCloudInvisibleFiles(
+IOStatus CloudFileSystemImpl::DeleteCloudInvisibleFiles(
     const std::vector<std::string>& active_cookies) {
   assert(HasDestBucket());
   std::vector<std::string> pathnames;
-  auto s = GetStorageProvider()->ListCloudObjects(GetDestBucketName(),
-                                             GetDestObjectPath(), &pathnames);
+  auto s = GetStorageProvider()->ListCloudObjects(
+      GetDestBucketName(), GetDestObjectPath(), &pathnames);
   if (!s.ok()) {
     Log(InfoLogLevel::WARN_LEVEL, info_log_,
         "Files in cloud are not scheduled to be deleted since listing cloud "
@@ -963,13 +968,14 @@ IOStatus CloudEnvImpl::DeleteCloudInvisibleFiles(
   return s;
 }
 
-IOStatus CloudEnvImpl::DeleteLocalInvisibleFiles(
+IOStatus CloudFileSystemImpl::DeleteLocalInvisibleFiles(
     const std::string& dbname, const std::vector<std::string>& active_cookies) {
   std::vector<std::string> children;
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
-  auto s = GetBaseEnv()->GetChildren(dbname, io_opts, &children, dbg);
-  TEST_SYNC_POINT_CALLBACK("CloudEnvImpl::DeleteLocalInvisibleFiles:AfterListLocalFiles", &s);
+  auto s = GetBaseFileSystem()->GetChildren(dbname, io_opts, &children, dbg);
+  TEST_SYNC_POINT_CALLBACK(
+      "CloudFileSystemImpl::DeleteLocalInvisibleFiles:AfterListLocalFiles", &s);
   if (!s.ok()) {
     Log(InfoLogLevel::WARN_LEVEL, info_log_,
         "Local files are not deleted since listing local files fails: %s",
@@ -978,17 +984,17 @@ IOStatus CloudEnvImpl::DeleteLocalInvisibleFiles(
   }
   for (auto& fname : children) {
     if (IsFileInvisible(active_cookies, fname)) {
-        // Ignore returned status on purpose.
-        Log(InfoLogLevel::INFO_LEVEL, info_log_,
-            "DeleteLocalInvisibleFiles deleting file %s from local dir",
-            fname.c_str());
-        GetBaseEnv()->DeleteFile(dbname + "/" + fname, io_opts, dbg);
+      // Ignore returned status on purpose.
+      Log(InfoLogLevel::INFO_LEVEL, info_log_,
+          "DeleteLocalInvisibleFiles deleting file %s from local dir",
+          fname.c_str());
+      GetBaseFileSystem()->DeleteFile(dbname + "/" + fname, io_opts, dbg);
     }
   }
   return s;
 }
 
-bool CloudEnvImpl::IsFileInvisible(
+bool CloudFileSystemImpl::IsFileInvisible(
     const std::vector<std::string>& active_cookies,
     const std::string& fname) const {
   if (IsCloudManifestFile(fname)) {
@@ -1001,7 +1007,7 @@ bool CloudEnvImpl::IsFileInvisible(
     }
 
     bool is_active = false;
-    for (auto& c: active_cookies) {
+    for (auto& c : active_cookies) {
       if (c == fname_cookie) {
         is_active = true;
         break;
@@ -1019,17 +1025,17 @@ bool CloudEnvImpl::IsFileInvisible(
   return false;
 }
 
-void CloudEnvImpl::TEST_InitEmptyCloudManifest() {
+void CloudFileSystemImpl::TEST_InitEmptyCloudManifest() {
   CloudManifest::CreateForEmptyDatabase("", &cloud_manifest_);
 }
 
-IOStatus CloudEnvImpl::CreateNewIdentityFile(const std::string& dbid,
-                                             const std::string& local_name) {
+IOStatus CloudFileSystemImpl::CreateNewIdentityFile(
+    const std::string& dbid, const std::string& local_name) {
   const FileOptions file_opts;
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
   auto tmp_identity_path = local_name + "/IDENTITY.tmp";
-  const auto& fs = GetBaseEnv();
+  const auto& fs = GetBaseFileSystem();
   IOStatus st;
   {
     std::unique_ptr<FSWritableFile> destfile;
@@ -1065,9 +1071,9 @@ IOStatus CloudEnvImpl::CreateNewIdentityFile(const std::string& dbid,
   return st;
 }
 
-IOStatus CloudEnvImpl::WriteCloudManifest(CloudManifest* manifest,
-                                          const std::string& fname) const {
-  const auto& local_fs = GetBaseEnv();
+IOStatus CloudFileSystemImpl::WriteCloudManifest(
+    CloudManifest* manifest, const std::string& fname) const {
+  const auto& local_fs = GetBaseFileSystem();
   // Write to tmp file and atomically rename later. This helps if we crash
   // mid-write :)
   auto tmp_fname = fname + ".tmp";
@@ -1084,7 +1090,7 @@ IOStatus CloudEnvImpl::WriteCloudManifest(CloudManifest* manifest,
 }
 
 // we map a longer string given by env->GenerateUniqueId() into 16-byte string
-std::string CloudEnvImpl::GenerateNewEpochId() {
+std::string CloudFileSystemImpl::GenerateNewEpochId() {
   auto uniqueId = Env::Default()->GenerateUniqueId();
   size_t split = uniqueId.size() / 2;
   auto low = uniqueId.substr(0, split);
@@ -1099,7 +1105,7 @@ std::string CloudEnvImpl::GenerateNewEpochId() {
 }
 
 // Check if options are compatible with the cloud storage system
-Status CloudEnvImpl::CheckOption(const FileOptions& file_opts) {
+Status CloudFileSystemImpl::CheckOption(const FileOptions& file_opts) {
   // Cannot mmap files that reside on cloud storage, unless the file is also
   // local
   if (file_opts.use_mmap_reads && !cloud_env_options.keep_local_sst_files) {
@@ -1118,7 +1124,7 @@ Status CloudEnvImpl::CheckOption(const FileOptions& file_opts) {
 //
 // prepends the configured src object path name
 //
-std::string CloudEnvImpl::srcname(const std::string& localname) {
+std::string CloudFileSystemImpl::srcname(const std::string& localname) {
   assert(cloud_env_options.src_bucket.IsValid());
   return cloud_env_options.src_bucket.GetObjectPath() + "/" +
          basename(localname);
@@ -1127,7 +1133,7 @@ std::string CloudEnvImpl::srcname(const std::string& localname) {
 //
 // prepends the configured dest object path name
 //
-std::string CloudEnvImpl::destname(const std::string& localname) {
+std::string CloudFileSystemImpl::destname(const std::string& localname) {
   assert(cloud_env_options.dest_bucket.IsValid());
   return cloud_env_options.dest_bucket.GetObjectPath() + "/" +
          basename(localname);
@@ -1136,8 +1142,8 @@ std::string CloudEnvImpl::destname(const std::string& localname) {
 //
 // Shall we re-initialize the local dir?
 //
-IOStatus CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
-                                             bool* do_reinit) {
+IOStatus CloudFileSystemImpl::NeedsReinitialization(
+    const std::string& local_dir, bool* do_reinit) {
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
       "[cloud_env_impl] NeedsReinitialization: "
       "checking local dir %s src bucket %s src path %s "
@@ -1158,7 +1164,7 @@ IOStatus CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
   *do_reinit = true;
 
   // get local env
-  const auto& base_fs = GetBaseEnv();
+  const auto& base_fs = GetBaseFileSystem();
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
 
@@ -1417,7 +1423,7 @@ IOStatus CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
 // Returns Status::OK if we want to keep all local data,
 // otherwise all local data will be erased.
 //
-IOStatus CloudEnvImpl::ResyncDir(const std::string& local_dir) {
+IOStatus CloudFileSystemImpl::ResyncDir(const std::string& local_dir) {
   if (HasDestBucket()) {
     auto& src_bucket = GetSrcBucketName();
     auto& dest_bucket = GetDestBucketName();
@@ -1434,10 +1440,10 @@ IOStatus CloudEnvImpl::ResyncDir(const std::string& local_dir) {
 //
 // Extract the src dbid and the dest dbid from the cloud paths
 //
-IOStatus CloudEnvImpl::GetCloudDbid(const std::string& local_dir,
-                                    std::string* src_dbid,
-                                    std::string* dest_dbid) {
-  const auto& base_fs = GetBaseEnv();
+IOStatus CloudFileSystemImpl::GetCloudDbid(const std::string& local_dir,
+                                           std::string* src_dbid,
+                                           std::string* dest_dbid) {
+  const auto& base_fs = GetBaseFileSystem();
 
   // use a tmp file in local dir
   std::string tmpfile = IdentityFileName(local_dir) + ".cloud.tmp";
@@ -1495,7 +1501,8 @@ IOStatus CloudEnvImpl::GetCloudDbid(const std::string& local_dir,
   return IOStatus::OK();
 }
 
-IOStatus CloudEnvImpl::MigrateFromPureRocksDB(const std::string& local_dbname) {
+IOStatus CloudFileSystemImpl::MigrateFromPureRocksDB(
+    const std::string& local_dbname) {
   std::unique_ptr<CloudManifest> manifest;
   CloudManifest::CreateForEmptyDatabase("", &manifest);
   auto st = WriteCloudManifest(manifest.get(), CloudManifestFile(local_dbname));
@@ -1508,7 +1515,7 @@ IOStatus CloudEnvImpl::MigrateFromPureRocksDB(const std::string& local_dbname) {
   }
 
   std::string manifest_filename;
-  const auto& local_fs = GetBaseEnv();
+  const auto& local_fs = GetBaseFileSystem();
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
   st = local_fs->FileExists(CurrentFileName(local_dbname), io_opts, dbg);
@@ -1544,32 +1551,33 @@ IOStatus CloudEnvImpl::MigrateFromPureRocksDB(const std::string& local_dbname) {
   st = local_fs->RenameFile(manifest_filename, local_dbname + "/MANIFEST",
                             io_opts, dbg);
   if (st.ok() && cloud_env_options.roll_cloud_manifest_on_open) {
-      st = RollNewEpoch(local_dbname);
+    st = RollNewEpoch(local_dbname);
   }
 
   return st;
 }
 
-IOStatus CloudEnvImpl::PreloadCloudManifest(const std::string& local_dbname) {
-  const auto& local_fs = GetBaseEnv();
+IOStatus CloudFileSystemImpl::PreloadCloudManifest(
+    const std::string& local_dbname) {
+  const auto& local_fs = GetBaseFileSystem();
   local_fs->CreateDirIfMissing(local_dbname, IOOptions(), nullptr /*dbg*/);
   // Init cloud manifest
   auto st = FetchCloudManifest(local_dbname);
   if (st.ok()) {
-    // Inits CloudEnvImpl::cloud_manifest_, which will enable us to read files
-    // from the cloud
+    // Inits CloudFileSystemImpl::cloud_manifest_, which will enable us to
+    // read files from the cloud
     st = LoadLocalCloudManifest(local_dbname);
   }
   return st;
 }
 
-IOStatus CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
-                                         bool read_only) {
+IOStatus CloudFileSystemImpl::LoadCloudManifest(const std::string& local_dbname,
+                                                bool read_only) {
   // Init cloud manifest
   auto st = FetchCloudManifest(local_dbname);
   if (st.ok()) {
-    // Inits CloudEnvImpl::cloud_manifest_, which will enable us to read files
-    // from the cloud
+    // Inits CloudFileSystemImpl::cloud_manifest_, which will enable us to
+    // read files from the cloud
     st = LoadLocalCloudManifest(local_dbname);
   }
 
@@ -1582,7 +1590,8 @@ IOStatus CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
       // not expected to have CLOUDMANIFEST in s3 which points to MANIFEST file
       // that doesn't exist.
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[CloudEnvImpl] CLOUDMANIFEST-%s points to MANIFEST-%s that doesn't "
+          "[CloudFileSystemImpl] CLOUDMANIFEST-%s points to MANIFEST-%s that "
+          "doesn't "
           "exist in s3",
           cloud_env_options.cookie_on_open.c_str(), epoch.c_str());
       st = IOStatus::Corruption(
@@ -1654,10 +1663,10 @@ IOStatus CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
 //
 // Create appropriate files in the clone dir
 //
-IOStatus CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
-                                         const std::string& local_name,
-                                         bool read_only) {
-  const auto& local_fs = GetBaseEnv();
+IOStatus CloudFileSystemImpl::SanitizeDirectory(const DBOptions& options,
+                                                const std::string& local_name,
+                                                bool read_only) {
+  const auto& local_fs = GetBaseFileSystem();
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
   if (!read_only) {
@@ -1747,7 +1756,8 @@ IOStatus CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
     }
 
     st = local_fs->DeleteFile(pathname, io_opts, dbg);
-    TEST_SYNC_POINT_CALLBACK("CloudEnvImpl::SanitizeDirectory:AfterDeleteFile", &st);
+    TEST_SYNC_POINT_CALLBACK(
+        "CloudFileSystemImpl::SanitizeDirectory:AfterDeleteFile", &st);
     if (!st.ok()) {
       Log(InfoLogLevel::WARN_LEVEL, info_log_,
           "[cloud_env_impl] DeleteFile: %s fails %s", pathname.c_str(),
@@ -1831,12 +1841,13 @@ IOStatus CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
   return IOStatus::OK();
 }
 
-IOStatus CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname) {
+IOStatus CloudFileSystemImpl::FetchCloudManifest(
+    const std::string& local_dbname) {
   return FetchCloudManifest(local_dbname, cloud_env_options.cookie_on_open);
 }
 
-IOStatus CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname,
-                                          const std::string& cookie) {
+IOStatus CloudFileSystemImpl::FetchCloudManifest(
+    const std::string& local_dbname, const std::string& cookie) {
   std::string cloudmanifest = MakeCloudManifestFile(local_dbname, cookie);
   // TODO(wei): following check is to make sure we maintain the same behavior
   // as before. Once we double check every service has right resync_on_open set,
@@ -1851,7 +1862,7 @@ IOStatus CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname,
 
   // If resync_on_open is false and we have a local cloud manifest, do nothing.
   if (!resync_on_open &&
-      GetBaseEnv()
+      GetBaseFileSystem()
           ->FileExists(cloudmanifest, IOOptions(), nullptr /*dbg*/)
           .ok()) {
     // nothing to do here, we have our cloud manifest
@@ -1910,8 +1921,8 @@ IOStatus CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname,
   return IOStatus::NotFound();
 }
 
-IOStatus CloudEnvImpl::FetchManifest(const std::string& local_dbname,
-                                     const std::string& epoch) {
+IOStatus CloudFileSystemImpl::FetchManifest(const std::string& local_dbname,
+                                            const std::string& epoch) {
   auto local_manifest_file = ManifestFileWithEpoch(local_dbname, epoch);
   if (HasDestBucket()) {
     auto st = GetStorageProvider()->GetCloudObject(
@@ -1957,12 +1968,13 @@ IOStatus CloudEnvImpl::FetchManifest(const std::string& local_dbname,
   return IOStatus::NotFound();
 }
 
-IOStatus CloudEnvImpl::CreateCloudManifest(const std::string& local_dbname) {
+IOStatus CloudFileSystemImpl::CreateCloudManifest(
+    const std::string& local_dbname) {
   return CreateCloudManifest(local_dbname, cloud_env_options.cookie_on_open);
 }
 
-IOStatus CloudEnvImpl::CreateCloudManifest(const std::string& local_dbname,
-                                           const std::string& cookie) {
+IOStatus CloudFileSystemImpl::CreateCloudManifest(
+    const std::string& local_dbname, const std::string& cookie) {
   // No cloud manifest, create an empty one
   std::unique_ptr<CloudManifest> manifest;
   CloudManifest::CreateForEmptyDatabase(GenerateNewEpochId(), &manifest);
@@ -1975,7 +1987,7 @@ IOStatus CloudEnvImpl::CreateCloudManifest(const std::string& local_dbname,
 }
 
 // REQ: This is an existing database.
-IOStatus CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
+IOStatus CloudFileSystemImpl::RollNewEpoch(const std::string& local_dbname) {
   assert(cloud_env_options.roll_cloud_manifest_on_open);
   // Find next file number. We use dummy MANIFEST filename, which should get
   // remapped into the correct MANIFEST filename through CloudManifest.
@@ -2009,8 +2021,8 @@ IOStatus CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
   return st;
 }
 
-IOStatus CloudEnvImpl::UploadManifest(const std::string& local_dbname,
-                                      const std::string& epoch) const {
+IOStatus CloudFileSystemImpl::UploadManifest(const std::string& local_dbname,
+                                             const std::string& epoch) const {
   if (!HasDestBucket()) {
     return IOStatus::InvalidArgument(
         "Dest bucket has to be specified when uploading manifest files");
@@ -2021,18 +2033,18 @@ IOStatus CloudEnvImpl::UploadManifest(const std::string& local_dbname,
       ManifestFileWithEpoch(GetDestObjectPath(), epoch));
 
   TEST_SYNC_POINT_CALLBACK(
-      "CloudEnvImpl::UploadManifest:AfterUploadManifest",
-      &st);
+      "CloudFileSystemImpl::UploadManifest:AfterUploadManifest", &st);
   return st;
 }
 
-IOStatus CloudEnvImpl::UploadCloudManifest(const std::string& local_dbname,
-                                           const std::string& cookie) const {
+IOStatus CloudFileSystemImpl::UploadCloudManifest(
+    const std::string& local_dbname, const std::string& cookie) const {
   if (!HasDestBucket()) {
     return IOStatus::InvalidArgument(
         "Dest bucket has to be specified when uploading CloudManifest files");
   }
-   // upload the cloud manifest file corresponds to cookie (i.e., CLOUDMANIFEST-cookie)
+  // upload the cloud manifest file corresponds to cookie (i.e.,
+  // CLOUDMANIFEST-cookie)
   auto st = GetStorageProvider()->PutCloudObject(
       MakeCloudManifestFile(local_dbname, cookie), GetDestBucketName(),
       MakeCloudManifestFile(GetDestObjectPath(), cookie));
@@ -2043,40 +2055,39 @@ IOStatus CloudEnvImpl::UploadCloudManifest(const std::string& local_dbname,
   return st;
 }
 
-size_t CloudEnvImpl::TEST_NumScheduledJobs() const {
+size_t CloudFileSystemImpl::TEST_NumScheduledJobs() const {
   return scheduler_->TEST_NumScheduledJobs();
 };
 
-IOStatus CloudEnvImpl::ApplyCloudManifestDelta(const CloudManifestDelta& delta,
-                                               bool* delta_applied) {
+IOStatus CloudFileSystemImpl::ApplyCloudManifestDelta(
+    const CloudManifestDelta& delta, bool* delta_applied) {
   *delta_applied = cloud_manifest_->AddEpoch(delta.file_num, delta.epoch);
   return IOStatus::OK();
 }
 
-IOStatus CloudEnvImpl::RollNewCookie(const std::string& local_dbname,
-                                     const std::string& cookie,
-                                     const CloudManifestDelta& delta) const {
+IOStatus CloudFileSystemImpl::RollNewCookie(
+    const std::string& local_dbname, const std::string& cookie,
+    const CloudManifestDelta& delta) const {
   auto newCloudManifest = cloud_manifest_->clone();
   std::string old_epoch = newCloudManifest->GetCurrentEpoch();
   if (!newCloudManifest->AddEpoch(delta.file_num, delta.epoch)) {
     return IOStatus::InvalidArgument("Delta already applied in cloud manifest");
   }
 
-  const auto& base_fs = GetBaseEnv();
+  const auto& base_fs = GetBaseFileSystem();
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
       "Rolling new CLOUDMANIFEST from file number %lu, renaming MANIFEST-%s to "
       "MANIFEST-%s, new cookie: %s",
-      delta.file_num, old_epoch.c_str(), delta.epoch.c_str(),
-      cookie.c_str());
+      delta.file_num, old_epoch.c_str(), delta.epoch.c_str(), cookie.c_str());
   // ManifestFileWithEpoch(local_dbname, oldEpoch) should exist locally.
   // We have to move our old manifest to the new filename.
   // However, we don't move here, we copy. If we moved and crashed immediately
   // after (before writing CLOUDMANIFEST), we'd corrupt our database. The old
   // MANIFEST file will be cleaned up in DeleteInvisibleFiles().
-  auto st = CopyFile(base_fs.get(), ManifestFileWithEpoch(local_dbname, old_epoch),
-                ManifestFileWithEpoch(local_dbname, delta.epoch), 0 /* size */,
-                true /* use_fsync */, nullptr /* io_tracer */,
-                Temperature::kUnknown);
+  auto st = CopyFile(
+      base_fs.get(), ManifestFileWithEpoch(local_dbname, old_epoch),
+      ManifestFileWithEpoch(local_dbname, delta.epoch), 0 /* size */,
+      true /* use_fsync */, nullptr /* io_tracer */, Temperature::kUnknown);
   if (!st.ok()) {
     return st;
   }
@@ -2084,9 +2095,8 @@ IOStatus CloudEnvImpl::RollNewCookie(const std::string& local_dbname,
   // TODO(igor): Compact cloud manifest by looking at live files in the database
   // and removing epochs that don't contain any live files.
 
-
   TEST_SYNC_POINT_CALLBACK(
-      "CloudEnvImpl::RollNewCookie:AfterManifestCopy", &st);
+      "CloudFileSystemImpl::RollNewCookie:AfterManifestCopy", &st);
   if (!st.ok()) {
     return st;
   }
@@ -2116,9 +2126,9 @@ IOStatus CloudEnvImpl::RollNewCookie(const std::string& local_dbname,
 
 // All db in a bucket are stored in path /.rockset/dbid/<dbid>
 // The value of the object is the pathname where the db resides.
-IOStatus CloudEnvImpl::SaveDbid(const std::string& bucket_name,
-                                const std::string& dbid,
-                                const std::string& dirname) {
+IOStatus CloudFileSystemImpl::SaveDbid(const std::string& bucket_name,
+                                       const std::string& dbid,
+                                       const std::string& dirname) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] SaveDbid dbid %s dir '%s'",
       Name(), dbid.c_str(), dirname.c_str());
 
@@ -2145,9 +2155,9 @@ IOStatus CloudEnvImpl::SaveDbid(const std::string& bucket_name,
 //
 // Given a dbid, retrieves its pathname.
 //
-IOStatus CloudEnvImpl::GetPathForDbid(const std::string& bucket,
-                                      const std::string& dbid,
-                                      std::string* dirname) {
+IOStatus CloudFileSystemImpl::GetPathForDbid(const std::string& bucket,
+                                             const std::string& dbid,
+                                             std::string* dirname) {
   std::string dbidkey = GetDbIdKey(dbid);
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
@@ -2186,8 +2196,8 @@ IOStatus CloudEnvImpl::GetPathForDbid(const std::string& bucket,
 //
 // Retrieves the list of all registered dbids and their paths
 //
-IOStatus CloudEnvImpl::GetDbidList(const std::string& bucket,
-                                   DbidList* dblist) {
+IOStatus CloudFileSystemImpl::GetDbidList(const std::string& bucket,
+                                          DbidList* dblist) {
   // fetch the list all all dbids
   std::vector<std::string> dbid_list;
   auto st = GetStorageProvider()->ListCloudObjects(bucket, kDbIdRegistry(),
@@ -2217,8 +2227,8 @@ IOStatus CloudEnvImpl::GetDbidList(const std::string& bucket,
 //
 // Deletes the specified dbid from the registry
 //
-IOStatus CloudEnvImpl::DeleteDbid(const std::string& bucket,
-                                  const std::string& dbid) {
+IOStatus CloudFileSystemImpl::DeleteDbid(const std::string& bucket,
+                                         const std::string& dbid) {
   // fetch the list all all dbids
   std::string dbidkey = GetDbIdKey(dbid);
   auto st = GetStorageProvider()->DeleteCloudObject(bucket, dbidkey);
@@ -2228,27 +2238,29 @@ IOStatus CloudEnvImpl::DeleteDbid(const std::string& bucket,
   return st;
 }
 
-IOStatus CloudEnvImpl::LockFile(const std::string& /*fname*/,
-                                const IOOptions& /*opts*/, FileLock** lock,
-                                IODebugContext* /*dbg*/) {
+IOStatus CloudFileSystemImpl::LockFile(const std::string& /*fname*/,
+                                       const IOOptions& /*opts*/,
+                                       FileLock** lock,
+                                       IODebugContext* /*dbg*/) {
   // there isn's a very good way to atomically check and create cloud file
   *lock = nullptr;
   return IOStatus::OK();
 }
 
-IOStatus CloudEnvImpl::UnlockFile(FileLock* /*lock*/, const IOOptions& /*opts*/,
-                                  IODebugContext* /*dbg*/) {
+IOStatus CloudFileSystemImpl::UnlockFile(FileLock* /*lock*/,
+                                         const IOOptions& /*opts*/,
+                                         IODebugContext* /*dbg*/) {
   return IOStatus::OK();
 }
 
-std::string CloudEnvImpl::GetWALCacheDir() {
+std::string CloudFileSystemImpl::GetWALCacheDir() {
   return cloud_env_options.cloud_log_controller->GetCacheDir();
 }
 
-Status CloudEnvImpl::PrepareOptions(const ConfigOptions& options) {
+Status CloudFileSystemImpl::PrepareOptions(const ConfigOptions& options) {
   // If underlying env is not defined, then use PosixEnv
-  if (!base_env_) {
-    base_env_ = FileSystem::Default();
+  if (!base_fs_) {
+    base_fs_ = FileSystem::Default();
   }
   Status status;
   if (!cloud_env_options.cloud_log_controller &&
@@ -2275,26 +2287,26 @@ Status CloudEnvImpl::PrepareOptions(const ConfigOptions& options) {
   }
   // start the purge thread only if there is a destination bucket
   if (cloud_env_options.dest_bucket.IsValid() && cloud_env_options.run_purger) {
-    CloudEnvImpl* cloud = this;
+    CloudFileSystemImpl* cloud = this;
     purge_thread_ = std::thread([cloud] { cloud->Purger(); });
   }
-  return CloudEnv::PrepareOptions(options);
+  return CloudFileSystem::PrepareOptions(options);
 }
 
-Status CloudEnvImpl::ValidateOptions(const DBOptions& db_opts,
-                                     const ColumnFamilyOptions& cf_opts) const {
+Status CloudFileSystemImpl::ValidateOptions(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
   if (info_log_ == nullptr) {
     info_log_ = db_opts.info_log;
   }
   Status s = CheckValidity();
   if (s.ok()) {
-    return CloudEnv::ValidateOptions(db_opts, cf_opts);
+    return CloudFileSystem::ValidateOptions(db_opts, cf_opts);
   } else {
     return s;
   }
 }
 
-Status CloudEnvImpl::CheckValidity() const {
+Status CloudFileSystemImpl::CheckValidity() const {
   if (cloud_env_options.src_bucket.GetBucketName().empty() !=
       cloud_env_options.src_bucket.GetObjectPath().empty()) {
     return Status::InvalidArgument(
@@ -2315,7 +2327,7 @@ Status CloudEnvImpl::CheckValidity() const {
   }
 }
 
-IOStatus CloudEnvImpl::FindAllLiveFiles(
+IOStatus CloudFileSystemImpl::FindAllLiveFiles(
     const std::string& local_dbname, std::vector<std::string>* live_sst_files,
     std::string* manifest_file) {
   return FindAllLiveFilesAndFetchManifest(local_dbname, live_sst_files,
@@ -2323,7 +2335,7 @@ IOStatus CloudEnvImpl::FindAllLiveFiles(
                                           nullptr /* manifest_file_version */);
 }
 
-IOStatus CloudEnvImpl::FindAllLiveFilesAndFetchManifest(
+IOStatus CloudFileSystemImpl::FindAllLiveFilesAndFetchManifest(
     const std::string& local_dbname, std::vector<std::string>* live_sst_files,
     std::string* manifest_file, std::string* manifest_file_version) {
   std::unique_ptr<LocalManifestReader> extractor(
@@ -2337,7 +2349,8 @@ IOStatus CloudEnvImpl::FindAllLiveFilesAndFetchManifest(
 
   live_sst_files->resize(file_nums.size());
 
-  // filename will be remapped correctly based on current_epoch of cloud_manifest
+  // filename will be remapped correctly based on current_epoch of
+  // cloud_manifest
   *manifest_file =
       RemapFilename(ManifestFileWithEpoch("" /* dbname */, "" /* epoch */));
   size_t idx = 0;
@@ -2349,7 +2362,7 @@ IOStatus CloudEnvImpl::FindAllLiveFilesAndFetchManifest(
   return IOStatus::OK();
 }
 
-std::string CloudEnvImpl::CloudManifestFile(const std::string& dbname) {
+std::string CloudFileSystemImpl::CloudManifestFile(const std::string& dbname) {
   return MakeCloudManifestFile(dbname, cloud_env_options.cookie_on_open);
 }
 

@@ -5,6 +5,7 @@
 
 #include <cinttypes>
 
+#include "cloud/cloud_file_system_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
 #include "env/composite_env_wrapper.h"
@@ -53,7 +54,7 @@ class ConstantSizeSstFileManager : public SstFileManagerImpl {
 }  // namespace
 
 DBCloudImpl::DBCloudImpl(DB* db, std::unique_ptr<Env> local_env)
-    : DBCloud(db), cenv_(nullptr), local_env_(std::move(local_env)) {}
+    : DBCloud(db), cfs_(nullptr), local_env_(std::move(local_env)) {}
 
 DBCloudImpl::~DBCloudImpl() {}
 
@@ -94,16 +95,17 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     CreateLoggerFromOptions(local_dbname, options, &options.info_log);
   }
 
-  auto* cenv = dynamic_cast<CloudEnvImpl*>(options.env->GetFileSystem().get());
-  assert(cenv);
-  if (!cenv->info_log_) {
-    cenv->info_log_ = options.info_log;
+  auto* cfs =
+      dynamic_cast<CloudFileSystemImpl*>(options.env->GetFileSystem().get());
+  assert(cfs);
+  if (!cfs->info_log_) {
+    cfs->info_log_ = options.info_log;
   }
   // Use a constant sized SST File Manager if necesary.
   // NOTE: if user already passes in an SST File Manager, we will respect user's
   // SST File Manager instead.
   auto constant_sst_file_size =
-      cenv->GetCloudEnvOptions().constant_sst_file_size_in_sst_file_manager;
+      cfs->GetCloudEnvOptions().constant_sst_file_size_in_sst_file_manager;
   if (constant_sst_file_size >= 0 && options.sst_file_manager == nullptr) {
     // rate_bytes_per_sec, max_trash_db_ratio, bytes_max_delete_chunk are
     // default values in NewSstFileManager.
@@ -116,7 +118,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
         64 * 1024 * 1024 /* bytes_max_delete_chunk */);
   }
 
-  const auto& local_fs = cenv->GetBaseEnv();
+  const auto& local_fs = cfs->GetBaseFileSystem();
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
   if (!read_only) {
@@ -127,11 +129,11 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   bool new_db = false;
   // If cloud manifest is already loaded, this means the directory has been
   // sanitized (possibly by the call to ListColumnFamilies())
-  if (cenv->GetCloudManifest() == nullptr) {
-    st = cenv->SanitizeDirectory(options, local_dbname, read_only);
+  if (cfs->GetCloudManifest() == nullptr) {
+    st = cfs->SanitizeDirectory(options, local_dbname, read_only);
 
     if (st.ok()) {
-      st = cenv->LoadCloudManifest(local_dbname, read_only);
+      st = cfs->LoadCloudManifest(local_dbname, read_only);
     }
     if (st.IsNotFound()) {
       Log(InfoLogLevel::INFO_LEVEL, options.info_log,
@@ -147,8 +149,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     if (read_only) {
       return Status::NotFound("CLOUDMANIFEST not found and read_only is set.");
     }
-    st = cenv->CreateCloudManifest(
-        local_dbname, cenv->GetCloudEnvOptions().new_cookie_on_open);
+    st = cfs->CreateCloudManifest(local_dbname,
+                                  cfs->GetCloudEnvOptions().new_cookie_on_open);
     if (!st.ok()) {
       return st;
     }
@@ -197,21 +199,21 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     st = DB::Open(options, local_dbname, column_families, handles, &db);
   }
 
-  if (new_db && st.ok() && cenv->HasDestBucket() &&
-      cenv->GetCloudEnvOptions().roll_cloud_manifest_on_open) {
+  if (new_db && st.ok() && cfs->HasDestBucket() &&
+      cfs->GetCloudEnvOptions().roll_cloud_manifest_on_open) {
     // This is a new database, upload the CLOUDMANIFEST after all MANIFEST file
     // was already uploaded. It is at this point we consider the database
     // committed in the cloud.
-    st = cenv->UploadCloudManifest(
-        local_dbname, cenv->GetCloudEnvOptions().new_cookie_on_open);
+    st = cfs->UploadCloudManifest(local_dbname,
+                                  cfs->GetCloudEnvOptions().new_cookie_on_open);
   }
 
   // now that the database is opened, all file sizes have been verified and we
   // no longer need to verify file sizes for each file that we open. Note that
   // this might have a data race with background compaction, but it's not a big
   // deal, since it's a boolean and it does not impact correctness in any way.
-  if (cenv->GetCloudEnvOptions().validate_filesize) {
-    *const_cast<bool*>(&cenv->GetCloudEnvOptions().validate_filesize) = false;
+  if (cfs->GetCloudEnvOptions().validate_filesize) {
+    *const_cast<bool*>(&cfs->GetCloudEnvOptions().validate_filesize) = false;
   }
 
   if (st.ok()) {
@@ -234,11 +236,12 @@ Status DBCloudImpl::Savepoint() {
         "Savepoint could not get dbid %s", st.ToString().c_str());
     return st;
   }
-  auto* cenv = dynamic_cast<CloudEnvImpl*>(GetEnv()->GetFileSystem().get());
-  assert(cenv);
+  auto* cfs =
+      dynamic_cast<CloudFileSystemImpl*>(GetEnv()->GetFileSystem().get());
+  assert(cfs);
 
   // If there is no destination bucket, then nothing to do
-  if (!cenv->HasDestBucket()) {
+  if (!cfs->HasDestBucket()) {
     Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
         "Savepoint on cloud dbid %s has no destination bucket, nothing to do.",
         dbid.c_str());
@@ -252,14 +255,13 @@ Status DBCloudImpl::Savepoint() {
   std::vector<LiveFileMetaData> live_files;
   GetLiveFilesMetaData(&live_files);
 
-  auto provider = cenv->GetStorageProvider();
+  auto provider = cfs->GetStorageProvider();
   // If an sst file does not exist in the destination path, then remember it
   std::vector<std::string> to_copy;
   for (auto onefile : live_files) {
-    auto remapped_fname = cenv->RemapFilename(onefile.name);
-    std::string destpath = cenv->GetDestObjectPath() + "/" + remapped_fname;
-    if (!provider->ExistsCloudObject(cenv->GetDestBucketName(), destpath)
-             .ok()) {
+    auto remapped_fname = cfs->RemapFilename(onefile.name);
+    std::string destpath = cfs->GetDestObjectPath() + "/" + remapped_fname;
+    if (!provider->ExistsCloudObject(cfs->GetDestBucketName(), destpath).ok()) {
       to_copy.push_back(remapped_fname);
     }
   }
@@ -276,15 +278,15 @@ Status DBCloudImpl::Savepoint() {
       }
       auto& onefile = to_copy[idx];
       auto s = provider->CopyCloudObject(
-          cenv->GetSrcBucketName(), cenv->GetSrcObjectPath() + "/" + onefile,
-          cenv->GetDestBucketName(), cenv->GetDestObjectPath() + "/" + onefile);
+          cfs->GetSrcBucketName(), cfs->GetSrcObjectPath() + "/" + onefile,
+          cfs->GetDestBucketName(), cfs->GetDestObjectPath() + "/" + onefile);
       if (!s.ok()) {
         Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
             "Savepoint on cloud dbid  %s error in copying srcbucket %s srcpath "
             "%s dest bucket %s dest path %s. %s",
-            dbid.c_str(), cenv->GetSrcBucketName().c_str(),
-            cenv->GetSrcObjectPath().c_str(), cenv->GetDestBucketName().c_str(),
-            cenv->GetDestObjectPath().c_str(), s.ToString().c_str());
+            dbid.c_str(), cfs->GetSrcBucketName().c_str(),
+            cfs->GetSrcObjectPath().c_str(), cfs->GetDestBucketName().c_str(),
+            cfs->GetDestObjectPath().c_str(), s.ToString().c_str());
         if (st.ok()) {
           st = s;  // save at least one error
         }
@@ -319,9 +321,10 @@ Status DBCloudImpl::DoCheckpointToCloud(
     const BucketOptions& destination, const CheckpointToCloudOptions& options) {
   std::vector<std::string> live_files;
   uint64_t manifest_file_size{0};
-  auto* cenv = dynamic_cast<CloudEnvImpl*>(GetEnv()->GetFileSystem().get());
-  assert(cenv);
-  const auto& local_fs = cenv->GetBaseEnv();
+  auto* cfs =
+      dynamic_cast<CloudFileSystemImpl*>(GetEnv()->GetFileSystem().get());
+  assert(cfs);
+  const auto& local_fs = cfs->GetBaseFileSystem();
 
   auto st =
       GetLiveFiles(live_files, &manifest_file_size, options.flush_memtable);
@@ -330,7 +333,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
   }
   
   // Create a temp MANIFEST file first as this captures all the files we need
-  auto current_epoch = cenv->GetCloudManifest()->GetCurrentEpoch();
+  auto current_epoch = cfs->GetCloudManifest()->GetCurrentEpoch();
   auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
   auto tmp_manifest_fname = manifest_fname + ".tmp";
   st = CopyFile(local_fs.get(), GetName() + "/" + manifest_fname,
@@ -353,13 +356,13 @@ Status DBCloudImpl::DoCheckpointToCloud(
       // ignore
       continue;
     }
-    auto remapped_fname = cenv->RemapFilename(f);
+    auto remapped_fname = cfs->RemapFilename(f);
     files_to_copy.emplace_back(remapped_fname, remapped_fname);
   }
 
   // IDENTITY file
   std::string dbid;
-  st = ReadFileToString(cenv, IdentityFileName(GetName()), &dbid);
+  st = ReadFileToString(cfs, IdentityFileName(GetName()), &dbid);
   if (!st.ok()) {
     return st;
   }
@@ -379,7 +382,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
         destination.GetObjectPath() + "/" + destName);
   };
   auto do_copy = [&](size_t threadId) {
-    auto provider = cenv->GetStorageProvider();
+    auto provider = cfs->GetStorageProvider();
     while (true) {
       size_t idx = next_file_to_copy.fetch_add(1);
       if (idx >= files_to_copy.size()) {
@@ -422,15 +425,15 @@ Status DBCloudImpl::DoCheckpointToCloud(
   // files
 
   // MANIFEST file
-  st = upload_file(cenv->GetStorageProvider(), tmp_manifest_fname,
+  st = upload_file(cfs->GetStorageProvider(), tmp_manifest_fname,
                    manifest_fname);
   if (!st.ok()) {
     return st;
   }
 
   // CLOUDMANIFEST file
-  st = upload_file(cenv->GetStorageProvider(), cenv->CloudManifestFile(""),
-                   cenv->CloudManifestFile(""));
+  st = upload_file(cfs->GetStorageProvider(), cfs->CloudManifestFile(""),
+                   cfs->CloudManifestFile(""));
   if (!st.ok()) {
     return st;
   }
@@ -438,16 +441,17 @@ Status DBCloudImpl::DoCheckpointToCloud(
   // Ignore errors
   local_fs->DeleteFile(tmp_manifest_fname, IOOptions(), nullptr /*dbg*/);
 
-  st = cenv->SaveDbid(destination.GetBucketName(), dbid,
-                      destination.GetObjectPath());
+  st = cfs->SaveDbid(destination.GetBucketName(), dbid,
+                     destination.GetObjectPath());
   return st;
 }
 
 Status DBCloudImpl::ExecuteRemoteCompactionRequest(
     const PluggableCompactionParam& inputParams,
     PluggableCompactionResult* result, bool doSanitize) {
-  auto* cenv = dynamic_cast<CloudEnvImpl*>(GetEnv()->GetFileSystem().get());
-  assert(cenv);
+  auto* cfs =
+      dynamic_cast<CloudFileSystemImpl*>(GetEnv()->GetFileSystem().get());
+  assert(cfs);
 
   // run the compaction request on the underlying local database
   Status status = GetBaseDB()->ExecuteRemoteCompactionRequest(
@@ -459,7 +463,7 @@ Status DBCloudImpl::ExecuteRemoteCompactionRequest(
   // convert the local pathnames to the cloud pathnames
   for (unsigned int i = 0; i < result->output_files.size(); i++) {
     OutputFile* outfile = &result->output_files[i];
-    outfile->pathname = cenv->RemapFilename(outfile->pathname);
+    outfile->pathname = cfs->RemapFilename(outfile->pathname);
   }
   return Status::OK();
 }
@@ -467,16 +471,16 @@ Status DBCloudImpl::ExecuteRemoteCompactionRequest(
 Status DBCloud::ListColumnFamilies(const DBOptions& db_options,
                                    const std::string& name,
                                    std::vector<std::string>* column_families) {
-  auto* cenv =
-      dynamic_cast<CloudEnvImpl*>(db_options.env->GetFileSystem().get());
-  assert(cenv);
+  auto* cfs =
+      dynamic_cast<CloudFileSystemImpl*>(db_options.env->GetFileSystem().get());
+  assert(cfs);
 
-  const auto& local_env = cenv->GetBaseEnv();
-  local_env->CreateDirIfMissing(name, IOOptions(), nullptr /*dbg*/);
+  cfs->GetBaseFileSystem()->CreateDirIfMissing(name, IOOptions(),
+                                               nullptr /*dbg*/);
 
-  auto st = cenv->SanitizeDirectory(db_options, name, false);
+  auto st = cfs->SanitizeDirectory(db_options, name, false);
   if (st.ok()) {
-    st = cenv->LoadCloudManifest(name, false);
+    st = cfs->LoadCloudManifest(name, false);
   }
   if (st.ok()) {
     st = status_to_io_status(

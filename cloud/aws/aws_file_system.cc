@@ -1,7 +1,7 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #ifndef ROCKSDB_LITE
-#include "cloud/aws/aws_env.h"
+#include "cloud/aws/aws_file_system.h"
 
 #include <chrono>
 #include <cinttypes>
@@ -113,8 +113,8 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
   result->reset();
 
   if (provider) {
-      *result = provider;
-      return Status::OK();
+    *result = provider;
+    return Status::OK();
   }
 
   AwsAccessType aws_type = GetAccessType();
@@ -172,17 +172,17 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
 // The AWS credentials are specified to the constructor via
 // access_key_id and secret_key.
 //
-AwsEnv::AwsEnv(const std::shared_ptr<FileSystem>& underlying_fs,
-               const CloudEnvOptions& _cloud_env_options,
-               const std::shared_ptr<Logger>& info_log)
-    : CloudEnvImpl(_cloud_env_options, underlying_fs, info_log) {
+AwsFileSystem::AwsFileSystem(const std::shared_ptr<FileSystem>& underlying_fs,
+                             const CloudEnvOptions& _cloud_env_options,
+                             const std::shared_ptr<Logger>& info_log)
+    : CloudFileSystemImpl(_cloud_env_options, underlying_fs, info_log) {
   Aws::InitAPI(Aws::SDKOptions());
 }
 
 // If you do not specify a region, then S3 buckets are created in the
 // standard-region which might not satisfy read-your-own-writes. So,
 // explicitly make the default region be us-west-2.
-Status AwsEnv::PrepareOptions(const ConfigOptions& options) {
+Status AwsFileSystem::PrepareOptions(const ConfigOptions& options) {
   if (cloud_env_options.src_bucket.GetRegion().empty() ||
       cloud_env_options.dest_bucket.GetRegion().empty()) {
     std::string region;
@@ -207,55 +207,56 @@ Status AwsEnv::PrepareOptions(const ConfigOptions& options) {
       return s;
     }
   }
-  return CloudEnvImpl::PrepareOptions(options);
+  return CloudFileSystemImpl::PrepareOptions(options);
 }
 
-void AwsEnv::Shutdown() { Aws::ShutdownAPI(Aws::SDKOptions()); }
-
+void AwsFileSystem::Shutdown() { Aws::ShutdownAPI(Aws::SDKOptions()); }
 
 // The factory method for creating an S3 Env
-Status AwsEnv::NewAwsEnv(const std::shared_ptr<FileSystem>& base_fs,
-                         const CloudEnvOptions& cloud_options,
-                         const std::shared_ptr<Logger>& info_log,
-                         CloudEnv** cenv) {
+Status AwsFileSystem::NewAwsFileSystem(
+    const std::shared_ptr<FileSystem>& base_fs,
+    const CloudEnvOptions& cloud_options,
+    const std::shared_ptr<Logger>& info_log, CloudFileSystem** cfs) {
   Status status;
-  *cenv = nullptr;
+  *cfs = nullptr;
   // If underlying FileSystem is not defined, then use PosixFileSystem
   auto fs = base_fs;
   if (!fs) {
     fs = FileSystem::Default();
   }
-  std::unique_ptr<AwsEnv> aenv(new AwsEnv(fs, cloud_options, info_log));
+  std::unique_ptr<AwsFileSystem> afs(
+      new AwsFileSystem(fs, cloud_options, info_log));
 
-  auto env = aenv->NewCompositeEnvFromThis(Env::Default());
+  auto env = afs->NewCompositeEnvFromThis(Env::Default());
   ConfigOptions config_options;
   config_options.env = env.get();
-  status = aenv->PrepareOptions(config_options);
+  status = afs->PrepareOptions(config_options);
   if (status.ok()) {
-    *cenv = aenv.release();
+    *cfs = afs.release();
   }
   return status;
 }
 
-Status AwsEnv::NewAwsEnv(const std::shared_ptr<FileSystem>& fs,
-                         std::unique_ptr<CloudEnv>* cenv) {
-  cenv->reset(new AwsEnv(fs, CloudEnvOptions()));
+Status AwsFileSystem::NewAwsFileSystem(const std::shared_ptr<FileSystem>& fs,
+                                       std::unique_ptr<CloudFileSystem>* cfs) {
+  cfs->reset(new AwsFileSystem(fs, CloudEnvOptions()));
   return Status::OK();
 }
 
 #endif  // USE_AWS
 
-int CloudEnvImpl::RegisterAwsObjects(ObjectLibrary& library,
-                                     const std::string& /*arg*/) {
+int CloudFileSystemImpl::RegisterAwsObjects(ObjectLibrary& library,
+                                            const std::string& /*arg*/) {
   int count = 0;
 
 #ifdef USE_AWS
   library.AddFactory<FileSystem>(
-      CloudEnvImpl::kAws(),
+      CloudFileSystemImpl::kAws(),
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* errmsg) {
-        std::unique_ptr<CloudEnv> cguard;
-        Status s = AwsEnv::NewAwsEnv(FileSystem::Default(), &cguard);
+        std::unique_ptr<CloudFileSystem> cguard;
+        Status s =
+            AwsFileSystem::NewAwsFileSystem(FileSystem::Default(), &cguard);
         if (s.ok()) {
           guard->reset(cguard.release());
           return guard->get();
@@ -293,4 +294,4 @@ int CloudEnvImpl::RegisterAwsObjects(ObjectLibrary& library,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE

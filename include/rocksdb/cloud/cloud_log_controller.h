@@ -9,8 +9,7 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
-class CloudEnv;
-class CloudEnvOptions;
+class CloudFileSystem;
 class Env;
 
 // Creates a new file, appends data to a file or delete an existing file via
@@ -18,8 +17,8 @@ class Env;
 //
 class CloudLogWritableFile : public FSWritableFile {
  public:
-  CloudLogWritableFile(Env* env, CloudEnv* cloud_fs, const std::string& fname,
-                       const FileOptions& options);
+  CloudLogWritableFile(Env* env, CloudFileSystem* cloud_fs,
+                       const std::string& fname, const FileOptions& options);
 
   IOStatus Flush(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
     assert(status_.ok());
@@ -38,7 +37,7 @@ class CloudLogWritableFile : public FSWritableFile {
 
  protected:
   Env* env_;
-  CloudEnv* cloud_fs_;
+  CloudFileSystem* cloud_fs_;
   std::string fname_;
   IOStatus status_;
 };

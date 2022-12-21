@@ -23,10 +23,9 @@ int main() {
   // cloud environment config options here
   CloudEnvOptions cloud_env_options;
 
-  // Store a reference to a cloud env. A new cloud env object should be
-  // associated
-  // with every new cloud-db.
-  std::unique_ptr<CloudEnv> cloud_env;
+  // Store a reference to a cloud file system. A new cloud file system object
+  // should be associated with every new cloud-db.
+  std::shared_ptr<FileSystem> cloud_fs;
 
   cloud_env_options.credentials.InitializeSimple(
       getenv("AWS_ACCESS_KEY_ID"), getenv("AWS_SECRET_ACCESS_KEY"));
@@ -53,18 +52,19 @@ int main() {
   const std::string bucketName = bucketPrefix + kBucketSuffix;
 
   // Create a new AWS cloud env Status
-  CloudEnv* cenv;
-  Status s = CloudEnv::NewAwsEnv(Env::Default(), kBucketSuffix, kDBPath,
-                                 kRegion, kBucketSuffix, kDBPath, kRegion,
-                                 cloud_env_options, nullptr, &cenv);
+  CloudFileSystem* cfs;
+  Status s = CloudFileSystem::NewAwsFileSystem(
+      FileSystem::Default(), kBucketSuffix, kDBPath, kRegion, kBucketSuffix,
+      kDBPath, kRegion, cloud_env_options, nullptr, &cfs);
   if (!s.ok()) {
     fprintf(stderr, "Unable to create cloud env in bucket %s. %s\n",
             bucketName.c_str(), s.ToString().c_str());
     return -1;
   }
-  cloud_env.reset(cenv);
+  cloud_fs.reset(cfs);
 
-  // Create options and use the AWS env that we created earlier
+  // Create options and use the AWS file system that we created earlier
+  auto cloud_env = NewCompositeEnv(cloud_fs);
   Options options;
   options.env = cloud_env.get();
   options.create_if_missing = true;

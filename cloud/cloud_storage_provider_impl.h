@@ -39,7 +39,7 @@ class CloudStorageReadableFileImpl : public CloudStorageReadableFile {
 // Appends to a file in S3.
 class CloudStorageWritableFileImpl : public CloudStorageWritableFile {
  protected:
-  CloudEnv* env_;
+  CloudFileSystem* cfs_;
   const char* class_;
   std::string fname_;
   std::string tmp_file_;
@@ -50,7 +50,8 @@ class CloudStorageWritableFileImpl : public CloudStorageWritableFile {
   bool is_manifest_;
 
  public:
-  CloudStorageWritableFileImpl(CloudEnv* env, const std::string& local_fname,
+  CloudStorageWritableFileImpl(CloudFileSystem* fs,
+                               const std::string& local_fname,
                                const std::string& bucket,
                                const std::string& cloud_fname,
                                const FileOptions& file_opts);
@@ -160,7 +161,7 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
                                     const std::string& bucket_name,
                                     uint64_t file_size) = 0;
 
-  CloudEnv* env_;
+  CloudFileSystem* cfs_;
   Status status_;
 };
 }  // namespace ROCKSDB_NAMESPACE

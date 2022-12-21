@@ -4,10 +4,9 @@
 #include <atomic>
 #include <thread>
 
-#include "cloud/cloud_env_impl.h"
+#include "cloud/cloud_file_system_impl.h"
 #include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
-#include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -99,21 +98,21 @@ class MockStorageProvider : public CloudStorageProvider {
  protected:
   IOStatus notsup_;
 };
-// An implementation of Env that forwards all calls to another Env.
-// May be useful to clients who wish to override just part of the
-// functionality of another Env.
+// An implementation of FileSystem that forwards all calls to another
+// FileSystem. May be useful to clients who wish to override just part of the
+// functionality of another FileSystem.
 
-class MockCloudEnv : public CloudEnv {
+class MockCloudFileSystem : public CloudFileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit MockCloudEnv(const CloudEnvOptions& opts = CloudEnvOptions())
-      : CloudEnv(opts, FileSystem::Default(), nullptr) {
+  explicit MockCloudFileSystem(const CloudEnvOptions& opts = CloudEnvOptions())
+      : CloudFileSystem(opts, FileSystem::Default(), nullptr) {
     notsup_ = IOStatus::NotSupported();
   }
 
-  virtual ~MockCloudEnv() {}
+  virtual ~MockCloudFileSystem() {}
 
-  const char* Name() const override { return "MockCloudEnv"; }
+  const char* Name() const override { return "MockCloudFileSystem"; }
 
   IOStatus PreloadCloudManifest(const std::string& /*local_dbname*/) override {
     return notsup_;
@@ -149,93 +148,93 @@ class MockCloudEnv : public CloudEnv {
   IOStatus NewSequentialFile(const std::string& f, const FileOptions& o,
                              std::unique_ptr<FSSequentialFile>* r,
                              IODebugContext* dbg) override {
-    return base_env_->NewSequentialFile(f, o, r, dbg);
+    return base_fs_->NewSequentialFile(f, o, r, dbg);
   }
   IOStatus NewRandomAccessFile(const std::string& f, const FileOptions& o,
                                std::unique_ptr<FSRandomAccessFile>* r,
                                IODebugContext* dbg) override {
-    return base_env_->NewRandomAccessFile(f, o, r, dbg);
+    return base_fs_->NewRandomAccessFile(f, o, r, dbg);
   }
   IOStatus NewWritableFile(const std::string& f, const FileOptions& o,
                            std::unique_ptr<FSWritableFile>* r,
                            IODebugContext* dbg) override {
-    return base_env_->NewWritableFile(f, o, r, dbg);
+    return base_fs_->NewWritableFile(f, o, r, dbg);
   }
   IOStatus ReuseWritableFile(const std::string& fname,
                              const std::string& old_fname, const FileOptions& o,
                              std::unique_ptr<FSWritableFile>* r,
                              IODebugContext* dbg) override {
-    return base_env_->ReuseWritableFile(fname, old_fname, o, r, dbg);
+    return base_fs_->ReuseWritableFile(fname, old_fname, o, r, dbg);
   }
   IOStatus NewRandomRWFile(const std::string& fname, const FileOptions& o,
                            std::unique_ptr<FSRandomRWFile>* result,
                            IODebugContext* dbg) override {
-    return base_env_->NewRandomRWFile(fname, o, result, dbg);
+    return base_fs_->NewRandomRWFile(fname, o, result, dbg);
   }
   IOStatus NewDirectory(const std::string& name, const IOOptions& o,
                         std::unique_ptr<FSDirectory>* result,
                         IODebugContext* dbg) override {
-    return base_env_->NewDirectory(name, o, result, dbg);
+    return base_fs_->NewDirectory(name, o, result, dbg);
   }
   IOStatus FileExists(const std::string& f, const IOOptions& o,
                       IODebugContext* dbg) override {
-    return base_env_->FileExists(f, o, dbg);
+    return base_fs_->FileExists(f, o, dbg);
   }
   IOStatus GetChildren(const std::string& dir, const IOOptions& o,
                        std::vector<std::string>* r,
                        IODebugContext* dbg) override {
-    return base_env_->GetChildren(dir, o, r, dbg);
+    return base_fs_->GetChildren(dir, o, r, dbg);
   }
   IOStatus GetChildrenFileAttributes(const std::string& dir, const IOOptions& o,
                                      std::vector<FileAttributes>* result,
                                      IODebugContext* dbg) override {
-    return base_env_->GetChildrenFileAttributes(dir, o, result, dbg);
+    return base_fs_->GetChildrenFileAttributes(dir, o, result, dbg);
   }
   IOStatus DeleteFile(const std::string& f, const IOOptions& o,
                       IODebugContext* dbg) override {
-    return base_env_->DeleteFile(f, o, dbg);
+    return base_fs_->DeleteFile(f, o, dbg);
   }
   IOStatus CreateDir(const std::string& d, const IOOptions& o,
                      IODebugContext* dbg) override {
-    return base_env_->CreateDir(d, o, dbg);
+    return base_fs_->CreateDir(d, o, dbg);
   }
   IOStatus CreateDirIfMissing(const std::string& d, const IOOptions& o,
                               IODebugContext* dbg) override {
-    return base_env_->CreateDirIfMissing(d, o, dbg);
+    return base_fs_->CreateDirIfMissing(d, o, dbg);
   }
   IOStatus DeleteDir(const std::string& d, const IOOptions& o,
                      IODebugContext* dbg) override {
-    return base_env_->DeleteDir(d, o, dbg);
+    return base_fs_->DeleteDir(d, o, dbg);
   }
   IOStatus GetFileSize(const std::string& f, const IOOptions& o, uint64_t* s,
                        IODebugContext* dbg) override {
-    return base_env_->GetFileSize(f, o, s, dbg);
+    return base_fs_->GetFileSize(f, o, s, dbg);
   }
 
   IOStatus GetFileModificationTime(const std::string& fname, const IOOptions& o,
                                    uint64_t* file_mtime,
                                    IODebugContext* dbg) override {
-    return base_env_->GetFileModificationTime(fname, o, file_mtime, dbg);
+    return base_fs_->GetFileModificationTime(fname, o, file_mtime, dbg);
   }
 
   IOStatus RenameFile(const std::string& s, const std::string& t,
                       const IOOptions& o, IODebugContext* dbg) override {
-    return base_env_->RenameFile(s, t, o, dbg);
+    return base_fs_->RenameFile(s, t, o, dbg);
   }
 
   IOStatus LinkFile(const std::string& s, const std::string& t,
                     const IOOptions& o, IODebugContext* dbg) override {
-    return base_env_->LinkFile(s, t, o, dbg);
+    return base_fs_->LinkFile(s, t, o, dbg);
   }
 
   IOStatus LockFile(const std::string& f, const IOOptions& o, FileLock** l,
                     IODebugContext* dbg) override {
-    return base_env_->LockFile(f, o, l, dbg);
+    return base_fs_->LockFile(f, o, l, dbg);
   }
 
   IOStatus UnlockFile(FileLock* l, const IOOptions& o,
                       IODebugContext* dbg) override {
-    return base_env_->UnlockFile(l, o, dbg);
+    return base_fs_->UnlockFile(l, o, dbg);
   }
 
   IOStatus DeleteCloudFileFromDest(const std::string& /*path*/) override {

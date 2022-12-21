@@ -1087,8 +1087,8 @@ class DBTestBase : public testing::Test {
 
 #ifdef USE_AWS
   Env* CreateNewAwsEnv(const std::string& pathPrefix, Env* env);
-  std::shared_ptr<Logger> info_log_;
 #endif
+  std::shared_ptr<Logger> info_log_;
 
   const int kRangeDelSkipConfigs =
       // Plain tables do not support range deletions.

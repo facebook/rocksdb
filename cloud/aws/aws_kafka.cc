@@ -29,8 +29,8 @@ class KafkaWritableFile : public CloudLogWritableFile {
  public:
   static const std::chrono::microseconds kFlushTimeout;
 
-  KafkaWritableFile(Env* env, CloudEnv* cloud_fs, const std::string& fname,
-                    const FileOptions& options,
+  KafkaWritableFile(Env* env, CloudFileSystem* cloud_fs,
+                    const std::string& fname, const FileOptions& options,
                     std::shared_ptr<RdKafka::Producer> producer,
                     std::shared_ptr<RdKafka::Topic> topic)
       : CloudLogWritableFile(env, cloud_fs, fname, options),
@@ -227,7 +227,8 @@ class KafkaController : public CloudLogControllerImpl {
 };
 
 Status KafkaController::PrepareOptions(const ConfigOptions& options) {
-  auto* cfs = dynamic_cast<CloudEnv*>(options.env->GetFileSystem().get());
+  auto* cfs =
+      dynamic_cast<CloudFileSystem*>(options.env->GetFileSystem().get());
   assert(cfs);
 
   std::string conf_errstr, producer_errstr, consumer_errstr;

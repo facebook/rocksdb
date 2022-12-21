@@ -1,35 +1,36 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
-#include <unordered_map>
 #include "cloud/manifest_reader.h"
 
+#include <unordered_map>
+
+#include "cloud/cloud_file_system_impl.h"
 #include "cloud/cloud_manifest.h"
+#include "cloud/cloud_storage_provider_impl.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
-#include "cloud/cloud_storage_provider_impl.h"
 #include "db/version_set.h"
 #include "env/composite_env_wrapper.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 LocalManifestReader::LocalManifestReader(std::shared_ptr<Logger> info_log,
-                                         CloudEnv* cenv)
-    : info_log_(info_log), cenv_(cenv) {}
+                                         CloudFileSystem* cfs)
+    : info_log_(std::move(info_log)), cfs_(cfs) {}
 
 IOStatus LocalManifestReader::GetLiveFilesLocally(
     const std::string& local_dbname, std::set<uint64_t>* list,
     std::string* manifest_file_version) const {
-  auto cenv_impl = dynamic_cast<CloudEnvImpl*>(cenv_);
-  assert(cenv_impl);
-  // cloud manifest should be set in CloudEnv, and it should map to local
+  auto* cfs_impl = dynamic_cast<CloudFileSystemImpl*>(cfs_);
+  assert(cfs_impl);
+  // cloud manifest should be set in CloudFileSystem, and it should map to local
   // CloudManifest
-  assert(cenv_impl->GetCloudManifest());
-  auto cloud_manifest = cenv_impl->GetCloudManifest();
+  assert(cfs_impl->GetCloudManifest());
+  auto cloud_manifest = cfs_impl->GetCloudManifest();
   auto current_epoch = cloud_manifest->GetCurrentEpoch();
 
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
@@ -37,20 +38,20 @@ IOStatus LocalManifestReader::GetLiveFilesLocally(
   {
     auto cloud_storage_provider =
         std::dynamic_pointer_cast<CloudStorageProviderImpl>(
-            cenv_impl->GetStorageProvider());
+            cfs_impl->GetStorageProvider());
     assert(cloud_storage_provider);
     // file name here doesn't matter, it will always be mapped to the correct Manifest file.
     // use empty epoch here so that it will be recognized as manifest file type
-    auto local_manifest_file = cenv_impl->RemapFilename(
+    auto local_manifest_file = cfs_impl->RemapFilename(
         ManifestFileWithEpoch(local_dbname, "" /* epoch */));
 
     if (manifest_file_version != nullptr) {
       // Only fetch the latest Manifest file from cloud when we ask for the version number.
       auto remote_manifest_file =
-          cenv_impl->GetSrcObjectPath() + "/" + basename(local_manifest_file);
+          cfs_impl->GetSrcObjectPath() + "/" + basename(local_manifest_file);
 
       s = cloud_storage_provider->GetCloudObjectAndVersion(
-          cenv_impl->GetSrcBucketName(), remote_manifest_file,
+          cfs_impl->GetSrcBucketName(), remote_manifest_file,
           local_manifest_file, manifest_file_version);
       if (!s.ok()) {
         return s;
@@ -61,8 +62,8 @@ IOStatus LocalManifestReader::GetLiveFilesLocally(
     }
 
     std::unique_ptr<FSSequentialFile> file;
-    s = cenv_impl->NewSequentialFile(local_manifest_file, FileOptions(), &file,
-                                     nullptr /*dbg*/);
+    s = cfs_impl->NewSequentialFile(local_manifest_file, FileOptions(), &file,
+                                    nullptr /*dbg*/);
     if (!s.ok()) {
       return s;
     }
@@ -141,9 +142,10 @@ IOStatus LocalManifestReader::GetLiveFilesFromFileReader(
   return status_to_io_status(std::move(s));
 }
 
-ManifestReader::ManifestReader(std::shared_ptr<Logger> info_log, CloudEnv* cenv,
+ManifestReader::ManifestReader(std::shared_ptr<Logger> info_log,
+                               CloudFileSystem* cfs,
                                const std::string& bucket_prefix)
-    : LocalManifestReader(std::move(info_log), cenv),
+    : LocalManifestReader(std::move(info_log), cfs),
       bucket_prefix_(bucket_prefix) {}
 
 //
@@ -158,12 +160,12 @@ IOStatus ManifestReader::GetLiveFiles(const std::string& bucket_path,
   IODebugContext* dbg = nullptr;
   {
     std::unique_ptr<FSSequentialFile> file;
-    auto cenv_impl = dynamic_cast<CloudEnvImpl*>(cenv_);
-    assert(cenv_impl);
+    auto cfs_impl = dynamic_cast<CloudFileSystemImpl*>(cfs_);
+    assert(cfs_impl);
     auto cloudManifestFile = MakeCloudManifestFile(
-        bucket_path, cenv_impl->GetCloudEnvOptions().cookie_on_open);
-    s = cenv_->NewSequentialFileCloud(bucket_prefix_, cloudManifestFile,
-                                      file_opts, &file, dbg);
+        bucket_path, cfs_impl->GetCloudEnvOptions().cookie_on_open);
+    s = cfs_->NewSequentialFileCloud(bucket_prefix_, cloudManifestFile,
+                                     file_opts, &file, dbg);
     if (!s.ok()) {
       return s;
     }
@@ -180,8 +182,8 @@ IOStatus ManifestReader::GetLiveFiles(const std::string& bucket_path,
     auto manifestFile = ManifestFileWithEpoch(
         bucket_path, cloud_manifest->GetCurrentEpoch());
     std::unique_ptr<FSSequentialFile> file;
-    s = cenv_->NewSequentialFileCloud(bucket_prefix_, manifestFile, file_opts,
-                                      &file, dbg);
+    s = cfs_->NewSequentialFileCloud(bucket_prefix_, manifestFile, file_opts,
+                                     &file, dbg);
     if (!s.ok()) {
       return s;
     }

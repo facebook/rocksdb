@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 //
 class AwsRetryStrategy : public Aws::Client::RetryStrategy {
  public:
-  AwsRetryStrategy(CloudEnv* env) : env_(env) {
+  AwsRetryStrategy(CloudFileSystem* fs) : cfs_(fs) {
     // In many environments, AccessDenied and ExpiredToken errors are retryable.
     // This is because HTTP requests are involved in fetching the new tokens and
     // credentials, which can fail.
@@ -31,7 +31,7 @@ class AwsRetryStrategy : public Aws::Client::RetryStrategy {
     default_strategy_ =
         std::make_shared<Aws::Client::SpecifiedRetryableErrorsRetryStrategy>(
             retryableErrors);
-    Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::INFO_LEVEL, cfs_->GetLogger(),
         "[aws] Configured custom retry policy");
   }
 
@@ -50,7 +50,7 @@ class AwsRetryStrategy : public Aws::Client::RetryStrategy {
 
  private:
   // rocksdb retries, etc
-  CloudEnv* env_;
+  CloudFileSystem* cfs_;
 
   // The default strategy implemented by AWS client
   std::shared_ptr<Aws::Client::RetryStrategy> default_strategy_;
@@ -78,7 +78,7 @@ bool AwsRetryStrategy::ShouldRetry(
       ce == Aws::Client::CoreErrors::UNKNOWN ||
       err.find("try again") != std::string::npos) {
     if (attemptedRetries <= internal_failure_num_retries_) {
-      Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
+      Log(InfoLogLevel::INFO_LEVEL, cfs_->GetLogger(),
           "[aws] Encountered retriable failure: %s (code %d, http %d). "
           "Exception %s. retry attempt %ld is lesser than max retries %d. "
           "Retrying...",
@@ -87,7 +87,7 @@ bool AwsRetryStrategy::ShouldRetry(
           attemptedRetries, internal_failure_num_retries_);
       return true;
     }
-    Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
+    Log(InfoLogLevel::INFO_LEVEL, cfs_->GetLogger(),
         "[aws] Encountered retriable failure: %s (code %d, http %d). Exception "
         "%s. retry attempt %ld exceeds max retries %d. Aborting...",
         err.c_str(), static_cast<int>(ce),
@@ -95,7 +95,7 @@ bool AwsRetryStrategy::ShouldRetry(
         attemptedRetries, internal_failure_num_retries_);
     return false;
   }
-  Log(InfoLogLevel::WARN_LEVEL, env_->GetLogger(),
+  Log(InfoLogLevel::WARN_LEVEL, cfs_->GetLogger(),
       "[aws] Encountered S3 failure %s (code %d, http %d). Exception %s."
       " retry attempt %ld max retries %d. Using default retry policy...",
       err.c_str(), static_cast<int>(ce),
@@ -116,14 +116,14 @@ long AwsRetryStrategy::CalculateDelayBeforeNextRetry(
 }
 
 Status AwsCloudOptions::GetClientConfiguration(
-    CloudEnv* env, const std::string& region,
+    CloudFileSystem* fs, const std::string& region,
     Aws::Client::ClientConfiguration* config) {
   config->connectTimeoutMs = 30000;
   config->requestTimeoutMs = 600000;
 
-  const auto& cloud_env_options = env->GetCloudEnvOptions();
+  const auto& cloud_env_options = fs->GetCloudEnvOptions();
   // Setup how retries need to be done
-  config->retryStrategy = std::make_shared<AwsRetryStrategy>(env);
+  config->retryStrategy = std::make_shared<AwsRetryStrategy>(fs);
   if (cloud_env_options.request_timeout_ms != 0) {
     config->requestTimeoutMs = cloud_env_options.request_timeout_ms;
   }
@@ -133,7 +133,7 @@ Status AwsCloudOptions::GetClientConfiguration(
 }
 #else
 Status AwsCloudOptions::GetClientConfiguration(
-    CloudEnv*, const std::string&, Aws::Client::ClientConfiguration*) {
+    CloudFileSystem*, const std::string&, Aws::Client::ClientConfiguration*) {
   return Status::NotSupported("Not configured for AWS support");
 }
 #endif /* USE_AWS */

@@ -25,7 +25,7 @@ class S3Client;
 
 namespace ROCKSDB_NAMESPACE {
 
-class CloudEnv;
+class CloudFileSystem;
 class CloudLogController;
 class CloudStorageProvider;
 
@@ -174,13 +174,13 @@ inline bool operator!=(const BucketOptions& lhs, const BucketOptions& rhs) {
 class AwsCloudOptions {
  public:
   static Status GetClientConfiguration(
-      CloudEnv* env, const std::string& region,
+      CloudFileSystem* env, const std::string& region,
       Aws::Client::ClientConfiguration* config);
 };
 
 //
 // The cloud environment for rocksdb. It allows configuring the rocksdb
-// Environent used for the cloud.
+// Environment used for the cloud.
 //
 class CloudEnvOptions {
  private:
@@ -485,40 +485,41 @@ struct CloudManifestDelta {
 };
 
 //
-// The Cloud environment
+// The Cloud file system
 //
-// TODO(estalgo): Rename to CloudFileSystem
-class CloudEnv : public FileSystem {
+class CloudFileSystem : public FileSystem {
  protected:
   CloudEnvOptions cloud_env_options;
-  // TODO(estalgo): Rename to base_fs_
-  std::shared_ptr<FileSystem> base_env_;  // The underlying env
+  std::shared_ptr<FileSystem> base_fs_;  // The underlying file system
 
   // Creates a new CompositeEnv from "env" and "this".
   // The returned Env must not outlive "this"
   std::unique_ptr<Env> NewCompositeEnvFromThis(Env* env);
 
-  CloudEnv(const CloudEnvOptions& options,
-           const std::shared_ptr<FileSystem>& base,
-           const std::shared_ptr<Logger>& logger);
+  CloudFileSystem(const CloudEnvOptions& options,
+                  const std::shared_ptr<FileSystem>& base,
+                  const std::shared_ptr<Logger>& logger);
 
  public:
   mutable std::shared_ptr<Logger> info_log_;  // informational messages
 
-  virtual ~CloudEnv();
+  virtual ~CloudFileSystem();
 
   static void RegisterCloudObjects(const std::string& mode = "");
-  static Status CreateFromString(const ConfigOptions& config_options, const std::string& id,
-                                 std::unique_ptr<CloudEnv>* env);
-  static Status CreateFromString(const ConfigOptions& config_options, const std::string& id,
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::unique_ptr<CloudFileSystem>* env);
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
                                  const CloudEnvOptions& cloud_options,
-                                 std::unique_ptr<CloudEnv>* env);
+                                 std::unique_ptr<CloudFileSystem>* env);
   static const char* kCloud() { return "cloud"; }
   static const char* kAws() { return "aws"; }
   virtual const char* Name() const { return "cloud-env"; }
   // Returns the underlying file system
-  // TODO(estalgo): Rename to GetBaseFileSystem
-  const std::shared_ptr<FileSystem>& GetBaseEnv() const { return base_env_; }
+  const std::shared_ptr<FileSystem>& GetBaseFileSystem() const {
+    return base_fs_;
+  }
   virtual IOStatus PreloadCloudManifest(const std::string& local_dbname) = 0;
   // This method will migrate the database that is using pure RocksDB into
   // RocksDB-Cloud. Call this before opening the database with RocksDB-Cloud.
@@ -647,7 +648,7 @@ class CloudEnv : public FileSystem {
   virtual IOStatus DeleteCloudInvisibleFiles(
       const std::vector<std::string>& active_cookies) = 0;
 
-  // Create a new AWS env.
+  // Create a new AWS file system.
   // src_bucket_name: bucket name suffix where db data is read from
   // src_object_prefix: all db objects in source bucket are prepended with this
   // dest_bucket_name: bucket name suffix where db data is written to
@@ -658,17 +659,17 @@ class CloudEnv : public FileSystem {
   // data from cloud storage.
   // If dest_bucket_name is empty, then the associated db does not write any
   // data to cloud storage.
-  static Status NewAwsEnv(
+  static Status NewAwsFileSystem(
       const std::shared_ptr<FileSystem>& base_fs,
       const std::string& src_bucket_name, const std::string& src_object_prefix,
       const std::string& src_bucket_region, const std::string& dest_bucket_name,
       const std::string& dest_object_prefix,
       const std::string& dest_bucket_region, const CloudEnvOptions& env_options,
-      const std::shared_ptr<Logger>& logger, CloudEnv** cenv);
-  static Status NewAwsEnv(const std::shared_ptr<FileSystem>& base_fs,
-                          const CloudEnvOptions& env_options,
-                          const std::shared_ptr<Logger>& logger,
-                          CloudEnv** cenv);
+      const std::shared_ptr<Logger>& logger, CloudFileSystem** cfs);
+  static Status NewAwsFileSystem(const std::shared_ptr<FileSystem>& base_fs,
+                                 const CloudEnvOptions& env_options,
+                                 const std::shared_ptr<Logger>& logger,
+                                 CloudFileSystem** cfs);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

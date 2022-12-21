@@ -3,23 +3,22 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
-#include <deque>
-#include <string>
-#include <vector>
+#include <memory>
 
-#include "cloud/cloud_env_impl.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class CloudFileSystemImpl;
+class Logger;
 
 //
 // Purges all unneeded files in a storage bucket
 //
 class Purge {
  public:
-  // The bucket name is specified when the CloudEnv was created.
-  Purge(CloudEnvImpl* env, std::shared_ptr<Logger> info_log);
+  // The bucket name is specified when the CloudFileSystem was created.
+  Purge(CloudFileSystemImpl* fs, std::shared_ptr<Logger> info_log);
 
   virtual ~Purge();
 
@@ -30,7 +29,7 @@ class Purge {
   virtual Status PurgeObsoleteDbid();
 
  private:
-  CloudEnvImpl* cenv_;
+  CloudFileSystemImpl* cfs_;
   std::shared_ptr<Logger> info_log_;
 };
 }  // namespace ROCKSDB_NAMESPACE

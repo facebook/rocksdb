@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <iostream>
 
-#include "cloud/cloud_env_impl.h"
+#include "cloud/cloud_file_system_impl.h"
 
 #ifdef USE_AWS
 
@@ -36,31 +36,30 @@ namespace ROCKSDB_NAMESPACE {
 // written to a Kinesis stream.
 //
 // If you access multiple rocksdb-cloud instances, create a separate instance
-// of AwsEnv for each of those rocksdb-cloud instances. This is required because
-// the cloud-configuration needed to operate on an individual instance of
-// rocksdb
-// is associated with a specific instance of AwsEnv. All AwsEnv internally share
-// Env::Posix() for sharing common resources like background threads, etc.
+// of AwsFileSystem for each of those rocksdb-cloud instances. This is required
+// because the cloud-configuration needed to operate on an individual instance
+// of rocksdb is associated with a specific instance of AwsFileSystem. All
+// AwsFileSystem internally share PosixFileSystem for sharing common file system
+// resources.
 //
-// TODO(estalgo): Rename to AwsFileSystem
-class AwsEnv : public CloudEnvImpl {
+class AwsFileSystem : public CloudFileSystemImpl {
  public:
   // A factory method for creating S3 envs
-  static Status NewAwsEnv(const std::shared_ptr<FileSystem>& fs,
-                          const CloudEnvOptions& env_options,
-                          const std::shared_ptr<Logger>& info_log,
-                          CloudEnv** cenv);
-  static Status NewAwsEnv(const std::shared_ptr<FileSystem>& fs,
-                          std::unique_ptr<CloudEnv>* cenv);
-  virtual ~AwsEnv() {}
+  static Status NewAwsFileSystem(const std::shared_ptr<FileSystem>& fs,
+                                 const CloudEnvOptions& env_options,
+                                 const std::shared_ptr<Logger>& info_log,
+                                 CloudFileSystem** cfs);
+  static Status NewAwsFileSystem(const std::shared_ptr<FileSystem>& fs,
+                                 std::unique_ptr<CloudFileSystem>* cfs);
+  virtual ~AwsFileSystem() {}
 
   static const char* kName() { return kAws(); }
   const char* Name() const override { return kAws(); }
 
   // We cannot invoke Aws::ShutdownAPI from the destructor because there could
-  // be
-  // multiple AwsEnv's ceated by a process and Aws::ShutdownAPI should be called
-  // only once by the entire process when all AwsEnvs are destroyed.
+  // be multiple AwsFileSystem's ceated by a process and Aws::ShutdownAPI should
+  // be called only once by the entire process when all AwsFileSystem are
+  // destroyed.
   static void Shutdown();
 
   Status PrepareOptions(const ConfigOptions& options) override;
@@ -74,9 +73,9 @@ class AwsEnv : public CloudEnvImpl {
   // The AWS credentials are specified to the constructor via
   // access_key_id and secret_key.
   //
-  explicit AwsEnv(const std::shared_ptr<FileSystem>& underlying_fs,
-                  const CloudEnvOptions& cloud_options,
-                  const std::shared_ptr<Logger>& info_log = nullptr);
+  explicit AwsFileSystem(const std::shared_ptr<FileSystem>& underlying_fs,
+                         const CloudEnvOptions& cloud_options,
+                         const std::shared_ptr<Logger>& info_log = nullptr);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

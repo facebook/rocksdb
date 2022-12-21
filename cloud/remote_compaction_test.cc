@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cinttypes>
 
+#include "cloud/cloud_file_system_impl.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
@@ -58,15 +59,15 @@ class RemoteCompactionTest : public testing::Test {
     // check cloud credentials
     ASSERT_TRUE(cloud_env_options_.credentials.HasValid().ok());
 
-    CloudEnv* aenv = nullptr;
+    CloudFileSystem* afs = nullptr;
     // create a dummy aws env
-    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_->GetFileSystem(),
-                                  cloud_env_options_, options_.info_log,
-                                  &aenv));
+    ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
+                                                cloud_env_options_,
+                                                options_.info_log, &afs));
     // delete all pre-existing contents from the bucket
     auto st =
-        aenv->GetStorageProvider()->EmptyBucket(aenv->GetSrcBucketName(), "");
-    delete aenv;
+        afs->GetStorageProvider()->EmptyBucket(afs->GetSrcBucketName(), "");
+    delete afs;
     ASSERT_TRUE(st.ok() || st.IsNotFound());
 
     // delete and create directory where clones reside
@@ -76,8 +77,8 @@ class RemoteCompactionTest : public testing::Test {
 
   std::set<std::string> GetSSTFiles(std::string name) {
     std::vector<std::string> files;
-    GetCloudEnv()->GetBaseEnv()->GetChildren(name, IOOptions(), &files,
-                                             nullptr /*dbg*/);
+    GetCloudFileSystem()->GetBaseFileSystem()->GetChildren(
+        name, IOOptions(), &files, nullptr /*dbg*/);
     std::set<std::string> sst_files;
     for (auto& f : files) {
       if (IsSstFile(RemoveEpoch(f))) {
@@ -96,13 +97,13 @@ class RemoteCompactionTest : public testing::Test {
   virtual ~RemoteCompactionTest() { CloseDB(); }
 
   void CreateCloudEnv() {
-    CloudEnv* cenv;
-    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_->GetFileSystem(),
-                                  cloud_env_options_, options_.info_log,
-                                  &cenv));
+    CloudFileSystem* afs;
+    ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
+                                                cloud_env_options_,
+                                                options_.info_log, &afs));
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
-    CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(cenv);
+    auto* cimpl = static_cast<CloudFileSystemImpl*>(afs);
     cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     std::shared_ptr<FileSystem> fs(cimpl);
     aenv_.reset(new CompositeEnvWrapper(base_env_, std::move(fs)));
@@ -146,7 +147,7 @@ class RemoteCompactionTest : public testing::Test {
                const std::string& dest_bucket_name,
                const std::string& dest_object_path,
                std::unique_ptr<DBCloud>* cloud_db, std::unique_ptr<Env>* env) {
-    CloudEnv* cenv;
+    CloudFileSystem* cfs;
     DBCloud* clone_db;
 
     // If there is no destination bucket, then the clone needs to copy
@@ -162,15 +163,15 @@ class RemoteCompactionTest : public testing::Test {
       copt.keep_local_sst_files = true;
     }
     // Create new AWS env
-    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_->GetFileSystem(), copt,
-                                  options_.info_log, &cenv));
+    ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
+                                                copt, options_.info_log, &cfs));
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
-    CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(cenv);
+    auto* cimpl = static_cast<CloudFileSystemImpl*>(cfs);
     cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     // sets the env to be used by the env wrapper, and returns that env
     env->reset(
-        new CompositeEnvWrapper(base_env_, std::shared_ptr<FileSystem>(cenv)));
+        new CompositeEnvWrapper(base_env_, std::shared_ptr<FileSystem>(cfs)));
     options_.env = env->get();
 
     // default column family
@@ -210,16 +211,16 @@ class RemoteCompactionTest : public testing::Test {
     }
   }
 
-  CloudEnv* GetCloudEnv() const {
+  CloudFileSystem* GetCloudFileSystem() const {
     EXPECT_TRUE(aenv_);
-    return static_cast<CloudEnv*>(aenv_->GetFileSystem().get());
+    return static_cast<CloudFileSystem*>(aenv_->GetFileSystem().get());
   }
 
   Status GetCloudLiveFilesSrc(std::set<uint64_t>* list) {
-    auto* cenv = GetCloudEnv();
+    auto* cfs = GetCloudFileSystem();
     std::unique_ptr<ManifestReader> manifest(
-        new ManifestReader(options_.info_log, cenv, cenv->GetSrcBucketName()));
-    return manifest->GetLiveFiles(cenv->GetSrcObjectPath(), list);
+        new ManifestReader(options_.info_log, cfs, cfs->GetSrcBucketName()));
+    return manifest->GetLiveFiles(cfs->GetSrcObjectPath(), list);
   }
 
   // Returns the DBImpl of the underlying rocksdb instance
@@ -235,16 +236,16 @@ class RemoteCompactionTest : public testing::Test {
    */
   class TestPluggableCompactionService : public PluggableCompactionService {
    public:
-    TestPluggableCompactionService(CloudEnv* _cloud_env, DB* _clone) {
-      clone = _clone;
-      cloud_env = static_cast<CloudEnvImpl*>(_cloud_env);
+    TestPluggableCompactionService(CloudFileSystem* _cloud_fs, DB* _clone) {
+      clone_ = _clone;
+      cloud_fs_ = static_cast<CloudFileSystemImpl*>(_cloud_fs);
     }
     ~TestPluggableCompactionService() {}
 
     // Run the remote compaction on a clone database
     Status Run(const PluggableCompactionParam& job,
                PluggableCompactionResult* result) override {
-      return clone->ExecuteRemoteCompactionRequest(job, result, false);
+      return clone_->ExecuteRemoteCompactionRequest(job, result, false);
     }
 
     std::vector<Status> InstallFiles(
@@ -303,15 +304,15 @@ class RemoteCompactionTest : public testing::Test {
     }
 
    private:
-    CloudEnvImpl* cloud_env;
-    DB* clone;
+    CloudFileSystemImpl* cloud_fs_;
+    DB* clone_;
   };
 
   // Wire up all compaction requests through our pluggable service
-  Status SetupPluggableCompaction(CloudEnv* cloud_env, DB* clone) {
+  Status SetupPluggableCompaction(CloudFileSystem* cloud_fs, DB* clone) {
     // create a service object
     std::unique_ptr<PluggableCompactionService> service;
-    service.reset(new TestPluggableCompactionService(cloud_env, clone));
+    service.reset(new TestPluggableCompactionService(cloud_fs, clone));
 
     // Setup our local DB to invoke a custom service. This will ensure that
     // all compaction requests will flow through the service object. The service
@@ -380,7 +381,8 @@ TEST_F(RemoteCompactionTest, BasicTest) {
 
     // Make all compactions flow through the clone database
     ASSERT_OK(SetupPluggableCompaction(
-        dynamic_cast<CloudEnv*>(env->GetFileSystem().get()), cloud_db.get()));
+        dynamic_cast<CloudFileSystem*>(env->GetFileSystem().get()),
+        cloud_db.get()));
 
     // compact main db and do not allow trivial file moves
     ASSERT_OK(
@@ -457,7 +459,8 @@ TEST_F(RemoteCompactionTest, ColumnFamilyTest) {
 
     // Make all compactions flow through the clone database
     ASSERT_OK(SetupPluggableCompaction(
-        dynamic_cast<CloudEnv*>(env->GetFileSystem().get()), cloud_db.get()));
+        dynamic_cast<CloudFileSystem*>(env->GetFileSystem().get()),
+        cloud_db.get()));
 
     // compact main db and do not allow trivial file moves
     ASSERT_OK(GetDBImpl()->TEST_CompactRange(0, nullptr, nullptr,

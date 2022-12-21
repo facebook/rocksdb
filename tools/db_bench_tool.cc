@@ -38,7 +38,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include "cloud/aws/aws_env.h"
+#include "cloud/aws/aws_file_system.h"
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
@@ -1605,13 +1605,14 @@ ROCKSDB_NAMESPACE::Env* CreateAwsEnv(
   } else {
     coptions.TEST_Initialize("dbbench.", FLAGS_db, region);
   }
-  ROCKSDB_NAMESPACE::CloudEnv* s;
-  ROCKSDB_NAMESPACE::Status st = ROCKSDB_NAMESPACE::AwsEnv::NewAwsEnv(
-      ROCKSDB_NAMESPACE::Env::Default(), coptions, std::move(info_log), &s);
+  ROCKSDB_NAMESPACE::CloudFileSystem* s;
+  auto st = ROCKSDB_NAMESPACE::AwsFileSystem::NewAwsFileSystem(
+      ROCKSDB_NAMESPACE::FileSystem::Default(), coptions, std::move(info_log),
+      &s);
   assert(st.ok());
-  ((ROCKSDB_NAMESPACE::CloudEnvImpl*)s)->TEST_DisableCloudManifest();
-  result->reset(s);
-  return s;
+  ((ROCKSDB_NAMESPACE::CloudFileSystemImpl*)s)->TEST_DisableCloudManifest();
+  *result = rocksdb::NewCompositeEnv(std::shared_ptr<rocksdb::FileSystem>(s));
+  return result->get();
 }
 
 static const auto& s3_reg __attribute__((__unused__)) =

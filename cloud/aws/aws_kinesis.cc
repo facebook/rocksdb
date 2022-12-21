@@ -43,7 +43,7 @@ namespace kinesis {
 class KinesisWritableFile : public CloudLogWritableFile {
  public:
   KinesisWritableFile(
-      Env* env, CloudEnv* cloud_fs, const std::string& fname,
+      Env* env, CloudFileSystem* cloud_fs, const std::string& fname,
       const FileOptions& options,
       const std::shared_ptr<Aws::Kinesis::KinesisClient>& kinesis_client)
       : CloudLogWritableFile(env, cloud_fs, fname, options),
@@ -225,12 +225,12 @@ class KinesisController : public CloudLogControllerImpl {
 
 Status KinesisController::PrepareOptions(const ConfigOptions& config_options) {
   auto* cfs =
-      dynamic_cast<CloudEnv*>(config_options.env->GetFileSystem().get());
+      dynamic_cast<CloudFileSystem*>(config_options.env->GetFileSystem().get());
   assert(cfs);
 
   Aws::Client::ClientConfiguration config;
   const auto& options = cfs->GetCloudEnvOptions();
-  if (std::string(cfs->Name()) != CloudEnv::kAws()) {
+  if (std::string(cfs->Name()) != CloudFileSystem::kAws()) {
     return Status::InvalidArgument("Kinesis Provider requires AWS Environment");
   }
   std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;

@@ -9,14 +9,14 @@ LIB_SOURCES =                                                   \
   cache/lru_cache.cc                                            \
   cache/compressed_secondary_cache.cc                           \
   cache/sharded_cache.cc                                        \
-  cloud/aws/aws_env.cc                                          \
+  cloud/aws/aws_file_system.cc                                  \
   cloud/aws/aws_kafka.cc                                        \
   cloud/aws/aws_kinesis.cc                                      \
   cloud/aws/aws_retry.cc                                        \
   cloud/aws/aws_s3.cc                                           \
   cloud/db_cloud_impl.cc                                        \
-  cloud/cloud_env.cc                                            \
-  cloud/cloud_env_impl.cc                                       \
+  cloud/cloud_file_system.cc                                    \
+  cloud/cloud_file_system_impl.cc                               \
   cloud/cloud_env_options.cc                                    \
   cloud/cloud_log_controller.cc                                 \
   cloud/manifest_reader.cc                                      \
@@ -427,7 +427,7 @@ TEST_MAIN_SOURCES =                                                     \
   cache/cache_reservation_manager_test.cc                               \
   cache/lru_cache_test.cc                                               \
   cloud/db_cloud_test.cc                                                \
-  cloud/cloud_env_test.cc                                               \
+  cloud/cloud_file_system_test.cc                                       \
   cloud/cloud_manifest_test.cc                                          \
   cloud/cloud_scheduler_test.cc                                         \
   cloud/remote_compaction_test.cc                                       \

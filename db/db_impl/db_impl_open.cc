@@ -542,7 +542,7 @@ Status DBImpl::Recover(
 #if 0
   // RocksDB-Cloud skips DeleteUnreferencedSstFiles() for a couple of reasons:
   // 1) Similar functionality already exists in
-  // CloudEnvImpl::DeleteInvisibleFiles().
+  // CloudFileSystemImpl::DeleteInvisibleFiles().
   // 2) We would like to reduce the number of calls to GetChildren(), which are
   // expensive on cloud storage.
   // 3) DeleteUnreferencedSstFiles() writes to the MANIFEST and we need to avoid

@@ -21,7 +21,7 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-CloudLogWritableFile::CloudLogWritableFile(Env* env, CloudEnv* cloud_fs,
+CloudLogWritableFile::CloudLogWritableFile(Env* env, CloudFileSystem* cloud_fs,
                                            const std::string& fname,
                                            const FileOptions& /*options*/)
     : env_(env), cloud_fs_(cloud_fs), fname_(fname) {}
@@ -61,7 +61,7 @@ CloudLogControllerImpl::~CloudLogControllerImpl() {
 Status CloudLogControllerImpl::PrepareOptions(const ConfigOptions& options) {
   env_ = options.env;
   assert(env_);
-  cloud_fs_ = dynamic_cast<CloudEnv*>(env_->GetFileSystem().get());
+  cloud_fs_ = dynamic_cast<CloudFileSystem*>(env_->GetFileSystem().get());
   assert(cloud_fs_);
   // Create a random number for the cache directory.
   const std::string uid = trim(env_->GenerateUniqueId());
@@ -71,7 +71,7 @@ Status CloudLogControllerImpl::PrepareOptions(const ConfigOptions& options) {
       kCacheDir + pathsep + cloud_fs_->GetSrcBucketName();
   cache_dir_ = bucket_dir + pathsep + uid;
 
-  const auto& base = cloud_fs_->GetBaseEnv();
+  const auto& base = cloud_fs_->GetBaseFileSystem();
   // Create temporary directories.
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
@@ -165,17 +165,18 @@ IOStatus CloudLogControllerImpl::Apply(const Slice& in) {
     // If this file is not yet open, open it and store it in cache.
     if (iter == cache_fds_.end()) {
       std::unique_ptr<FSRandomRWFile> result;
-      st = cloud_fs_->GetBaseEnv()->NewRandomRWFile(pathname, fo, &result, dbg);
+      st = cloud_fs_->GetBaseFileSystem()->NewRandomRWFile(pathname, fo,
+                                                           &result, dbg);
 
       if (!st.ok()) {
         // create the file
         std::unique_ptr<FSWritableFile> tmp_writable_file;
-        cloud_fs_->GetBaseEnv()->NewWritableFile(pathname, fo,
-                                                 &tmp_writable_file, dbg);
+        cloud_fs_->GetBaseFileSystem()->NewWritableFile(
+            pathname, fo, &tmp_writable_file, dbg);
         tmp_writable_file.reset();
         // Try again.
-        st = cloud_fs_->GetBaseEnv()->NewRandomRWFile(pathname, fo, &result,
-                                                      dbg);
+        st = cloud_fs_->GetBaseFileSystem()->NewRandomRWFile(pathname, fo,
+                                                             &result, dbg);
       }
 
       if (st.ok()) {
@@ -208,7 +209,7 @@ IOStatus CloudLogControllerImpl::Apply(const Slice& in) {
       cache_fds_.erase(iter);
     }
 
-    st = cloud_fs_->GetBaseEnv()->DeleteFile(pathname, io_opts, dbg);
+    st = cloud_fs_->GetBaseFileSystem()->DeleteFile(pathname, io_opts, dbg);
     Log(InfoLogLevel::DEBUG_LEVEL, cloud_fs_->GetLogger(),
         "[%s] Tailer: Deleted file: %s %s", Name(), pathname.c_str(),
         st.ToString().c_str());
@@ -334,7 +335,7 @@ IOStatus CloudLogControllerImpl::GetFileModificationTime(
         "ok");
 
     auto lambda = [this, pathname = std::move(pathname), time]() {
-      return cloud_fs_->GetBaseEnv()->GetFileModificationTime(
+      return cloud_fs_->GetBaseFileSystem()->GetFileModificationTime(
           pathname, IOOptions(), time, nullptr /*dbg*/);
     };
     st = Retry(lambda);
@@ -354,8 +355,8 @@ IOStatus CloudLogControllerImpl::NewSequentialFile(
 
     auto lambda = [this, pathname = std::move(pathname), &result, &file_opts,
                    dbg]() {
-      return cloud_fs_->GetBaseEnv()->NewSequentialFile(pathname, file_opts,
-                                                        result, dbg);
+      return cloud_fs_->GetBaseFileSystem()->NewSequentialFile(
+          pathname, file_opts, result, dbg);
     };
     st = Retry(lambda);
   }
@@ -375,8 +376,8 @@ IOStatus CloudLogControllerImpl::NewRandomAccessFile(
 
     auto lambda = [this, pathname = std::move(pathname), &result, &file_opts,
                    dbg]() {
-      return cloud_fs_->GetBaseEnv()->NewRandomAccessFile(pathname, file_opts,
-                                                          result, dbg);
+      return cloud_fs_->GetBaseFileSystem()->NewRandomAccessFile(
+          pathname, file_opts, result, dbg);
     };
     st = Retry(lambda);
   }
@@ -392,8 +393,8 @@ IOStatus CloudLogControllerImpl::FileExists(const std::string& fname) {
         "[%s] FileExists logfile %s %s", Name(), pathname.c_str(), "ok");
 
     auto lambda = [this, pathname = std::move(pathname)]() {
-      return cloud_fs_->GetBaseEnv()->FileExists(pathname, IOOptions(),
-                                                 nullptr /*dbg*/);
+      return cloud_fs_->GetBaseFileSystem()->FileExists(pathname, IOOptions(),
+                                                        nullptr /*dbg*/);
     };
     st = Retry(lambda);
   }
@@ -410,8 +411,8 @@ IOStatus CloudLogControllerImpl::GetFileSize(const std::string& fname,
         "[%s] GetFileSize logfile %s %s", Name(), pathname.c_str(), "ok");
 
     auto lambda = [this, pathname, size]() {
-      return cloud_fs_->GetBaseEnv()->GetFileSize(pathname, IOOptions(), size,
-                                                  nullptr /*dbg*/);
+      return cloud_fs_->GetBaseFileSystem()->GetFileSize(pathname, IOOptions(),
+                                                         size, nullptr /*dbg*/);
     };
     st = Retry(lambda);
   }

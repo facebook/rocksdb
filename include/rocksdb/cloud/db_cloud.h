@@ -24,8 +24,9 @@ class DBCloud : public StackableDB {
   // This API is to open a DB when key-values are to be made durable by
   // backing up database state into a cloud-storage system like S3.
   // All kv updates are persisted in cloud-storage.
-  // options.env is an object of type ROCKSDB_NAMESPACE::CloudEnv and the cloud
-  // buckets are specified there.
+  // options.env->GetFileSystem() is an object of type
+  // ROCKSDB_NAMESPACE::CloudFileSystem and the cloud buckets are specified
+  // there.
   static Status Open(const Options& options, const std::string& name,
                      const std::string& persistent_cache_path,
                      const uint64_t persistent_cache_size_gb, DBCloud** dbptr,
