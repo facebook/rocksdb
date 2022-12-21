@@ -1097,7 +1097,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         context.is_full_compaction = false;
         context.is_manual_compaction = true;
         context.output_level = /*unknown*/ -1;
-        // Small lies aobut compaction range
+        // Small lies about compaction range
         context.smallest_user_key = *begin;
         context.largest_user_key = *end;
         partitioner = partitioner_factory->CreatePartitioner(context);
@@ -1111,23 +1111,35 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
            level++) {
         overlap = true;
 
+        // Whether to look at specific keys within files for overlap with
+        // compaction range, other than largest and smallest keys of the file
+        // known in Version metadata.
         bool check_overlap_within_file = false;
         if (begin != nullptr && end != nullptr) {
           // Typically checking overlap within files in this case
           check_overlap_within_file = true;
+          // WART: Not known why we don't check within file in one-sided bound
+          // cases
           if (partitioner) {
             // Especially if the partitioner is new, the manual compaction
-            // might be used to enforce the partitioning. So if there is a
-            // partitioner and the compaction range crosses a partitioning
-            // boundary, then file-level overlap info is sufficient for
-            // deciding whether to consider the level as overlapping.
-            // (Proof idea: we want to consider overlapping if some file
-            // crosses a boundary in range; otherwise, if there's a boundary
-            // in range and some actual entries overlap in range, then a file
-            // smallest or largest must be in range.
-
+            // might be used to enforce the partitioning. Checking overlap
+            // within files might miss cases where compaction is needed to
+            // partition the files, as in this example:
+            // * File has two keys "001" and "111"
+            // * Compaction range is ["011", "101")
+            // * Partition boundary at "100"
+            // In cases like this, file-level overlap with the compaction
+            // range is sufficient to force any partitioning that is needed
+            // within the compaction range.
+            //
+            // But if there's no partitioning boundary within the compaction
+            // range, we can be sure there's no need to fix partitioning
+            // within that range, thus safe to check overlap within file.
+            //
             // Use a hypothetical trivial move query to check for partition
-            // boundary in range.
+            // boundary in range. (WART: might force "unnecessary" compaction
+            // if *end, which is excluded from compaction, is the first key in
+            // a partition. TODO: Consider enhancing SstPartitioner API.)
             if (!partitioner->CanDoTrivialMove(*begin, *end)) {
               check_overlap_within_file = false;
             }

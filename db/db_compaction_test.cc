@@ -1037,18 +1037,19 @@ TEST_F(DBCompactionTest, CompactionSstPartitionWithManualCompaction) {
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
+  // create second file and flush to l0
   ASSERT_OK(Put("000015", "A2"));
   ASSERT_OK(Put("000025", "B2"));
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
-  // CONTROL 1: compact to Lmax without partitioner
+  // CONTROL 1: compact without partitioner
   CompactRangeOptions compact_options;
   compact_options.bottommost_level_compaction =
       BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  // Check (no partitioning yet)
+  // Check (compacted but no partitioning yet)
   std::vector<LiveFileMetaData> files;
   dbfull()->GetLiveFilesMetaData(&files);
   ASSERT_EQ(1, files.size());
