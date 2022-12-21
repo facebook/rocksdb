@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 7.9.2 (12/21/2022)
+### Bug Fixes
+* Fixed a heap use after free bug in async scan prefetching when the scan thread and another thread try to read and load the same seek block into cache.
+
 ## 7.9.1 (12/8/2022)
 ### Bug Fixes
 * Fixed a regression in iterator where range tombstones after `iterate_upper_bound` is processed.
