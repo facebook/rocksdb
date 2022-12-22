@@ -266,6 +266,7 @@ ROCKSDB_PLUGIN_EXTERNS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), int $($(p)_FUNC
 ROCKSDB_PLUGIN_BUILTINS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), {\"$(p)\"\, $($(p)_FUNC)}\,)
 ROCKSDB_PLUGIN_LDFLAGS = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
 ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_PKGCONFIG_REQUIRES))
+ROCKSDB_PLUGIN_TESTS = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach test, $($(p)_TESTS), plugin/$(p)/$(test)))
 
 CXXFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_CXXFLAGS))
 PLATFORM_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
@@ -647,10 +648,12 @@ STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
 ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
-ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES)
+ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES) $(ROCKSDB_PLUGIN_TESTS)
 
+PLUGIN_TESTS = $(patsubst %.cc, %, $(notdir $(ROCKSDB_PLUGIN_TESTS)))
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
 TESTS += $(patsubst %.c, %, $(notdir $(TEST_MAIN_SOURCES_C)))
+TESTS += $(PLUGIN_TESTS)
 
 # `make check-headers` to very that each header file includes its own
 # dependencies
@@ -702,6 +705,7 @@ NON_PARALLEL_TEST = \
 	env_test \
 	deletefile_test \
 	db_bloom_filter_test \
+	$(PLUGIN_TESTS) \
 
 PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
 
@@ -1354,6 +1358,14 @@ db_sanity_test: $(OBJ_DIR)/tools/db_sanity_test.o $(LIBRARY)
 
 db_repl_stress: $(OBJ_DIR)/tools/db_repl_stress.o $(LIBRARY)
 	$(AM_LINK)
+
+define MakeTestRule
+$(notdir $(1:%.cc=%)): $(1:%.cc=$$(OBJ_DIR)/%.o) $$(TEST_LIBRARY) $$(LIBRARY)
+	$$(AM_LINK)
+endef
+
+# For each PLUGIN test, create a rule to generate the test executable
+$(foreach test, $(ROCKSDB_PLUGIN_TESTS), $(eval $(call MakeTestRule, $(test))))
 
 arena_test: $(OBJ_DIR)/memory/arena_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
