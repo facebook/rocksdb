@@ -402,7 +402,7 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, SequenceNumber /*earliest_memtable_seqno*/) {
+    LogBuffer* log_buffer) {
   Compaction* c = nullptr;
   if (mutable_cf_options.ttl > 0) {
     c = PickTTLCompaction(cf_name, mutable_cf_options, mutable_db_options,

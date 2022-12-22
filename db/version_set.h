@@ -116,6 +116,10 @@ extern bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
 extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
                                       const std::vector<FileMetaData*>& files,
                                       Arena* arena);
+enum EpochNumberRequirement {
+  kMightMissing,
+  kMustPresent,
+};
 
 // Information of the storage associated with each Version, including number of
 // levels of LSM tree, files information at each level, files marked for
@@ -126,7 +130,9 @@ class VersionStorageInfo {
                      const Comparator* user_comparator, int num_levels,
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
-                     bool _force_consistency_checks);
+                     bool _force_consistency_checks,
+                     EpochNumberRequirement epoch_number_requirement =
+                         EpochNumberRequirement::kMustPresent);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -319,6 +325,17 @@ class VersionStorageInfo {
     return files_[level];
   }
 
+  bool HasMissingEpochNumber() const;
+  uint64_t GetMaxEpochNumberOfFiles() const;
+  EpochNumberRequirement GetEpochNumberRequirement() const {
+    return epoch_number_requirement_;
+  }
+  void SetEpochNumberRequirement(
+      EpochNumberRequirement epoch_number_requirement) {
+    epoch_number_requirement_ = epoch_number_requirement;
+  }
+  void RecoverEpochNumbers(ColumnFamilyData* cfd);
+
   class FileLocation {
    public:
     FileLocation() = default;
@@ -438,6 +455,11 @@ class VersionStorageInfo {
       const {
     assert(finalized_);
     return files_marked_for_compaction_;
+  }
+
+  void TEST_AddFileMarkedForCompaction(int level, FileMetaData* f) {
+    f->marked_for_compaction = true;
+    files_marked_for_compaction_.emplace_back(level, f);
   }
 
   // REQUIRES: ComputeCompactionScore has been called
@@ -722,6 +744,8 @@ class VersionStorageInfo {
   // If set to true, we will run consistency checks even if RocksDB
   // is compiled in release mode
   bool force_consistency_checks_;
+
+  EpochNumberRequirement epoch_number_requirement_;
 
   friend class Version;
   friend class VersionSet;
@@ -1047,7 +1071,9 @@ class Version {
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
           MutableCFOptions mutable_cf_options,
           const std::shared_ptr<IOTracer>& io_tracer,
-          uint64_t version_number = 0);
+          uint64_t version_number = 0,
+          EpochNumberRequirement epoch_number_requirement =
+              EpochNumberRequirement::kMustPresent);
 
   ~Version();
 
@@ -1187,6 +1213,10 @@ class VersionSet {
       const std::string& manifest_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only, std::string* db_id, bool* has_missing_table_file);
+
+  // Recover the next epoch number of each CFs and epoch number
+  // of their files (if missing)
+  void RecoverEpochNumbers();
 
   // Reads a manifest file and returns a list of column families in
   // column_families.

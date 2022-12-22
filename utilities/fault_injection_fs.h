@@ -141,6 +141,10 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(const FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override;
   IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
                      const IOOptions& options, IODebugContext* dbg) override;
   size_t GetRequiredBufferAlignment() const override {
@@ -265,6 +269,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
     return io_s;
   }
+
+  virtual IOStatus Poll(std::vector<void*>& io_handles,
+                        size_t min_completions) override;
+
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override;
 
   void WritableFileClosed(const FSFileState& state);
 

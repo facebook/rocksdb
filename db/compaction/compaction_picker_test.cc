@@ -77,8 +77,9 @@ class CompactionPickerTestBase : public testing::Test {
   void NewVersionStorage(int num_levels, CompactionStyle style) {
     DeleteVersionStorage();
     options_.num_levels = num_levels;
-    vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
-                                           style, nullptr, false));
+    vstorage_.reset(new VersionStorageInfo(
+        &icmp_, ucmp_, options_.num_levels, style, nullptr, false,
+        EpochNumberRequirement::kMustPresent));
     vstorage_->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
   }
 
@@ -87,7 +88,7 @@ class CompactionPickerTestBase : public testing::Test {
   void AddVersionStorage() {
     temp_vstorage_.reset(new VersionStorageInfo(
         &icmp_, ucmp_, options_.num_levels, ioptions_.compaction_style,
-        vstorage_.get(), false));
+        vstorage_.get(), false, EpochNumberRequirement::kMustPresent));
   }
 
   void DeleteVersionStorage() {
@@ -105,7 +106,8 @@ class CompactionPickerTestBase : public testing::Test {
            size_t compensated_file_size = 0, bool marked_for_compact = false,
            Temperature temperature = Temperature::kUnknown,
            uint64_t oldest_ancestor_time = kUnknownOldestAncesterTime,
-           Slice ts_of_smallest = Slice(), Slice ts_of_largest = Slice()) {
+           Slice ts_of_smallest = Slice(), Slice ts_of_largest = Slice(),
+           uint64_t epoch_number = kUnknownEpochNumber) {
     assert(ts_of_smallest.size() == ucmp_->timestamp_size());
     assert(ts_of_largest.size() == ucmp_->timestamp_size());
 
@@ -145,7 +147,7 @@ class CompactionPickerTestBase : public testing::Test {
         file_number, path_id, file_size, smallest_ikey, largest_ikey,
         smallest_seq, largest_seq, marked_for_compact, temperature,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-        kUnknownFileCreationTime, kUnknownFileChecksum,
+        kUnknownFileCreationTime, epoch_number, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
@@ -2871,38 +2873,6 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesHit) {
   ASSERT_EQ(0, compaction->output_level());
 }
 
-TEST_F(CompactionPickerTest, IntraL0ForEarliestSeqno) {
-  // Intra L0 compaction triggers only if there are at least
-  // level0_file_num_compaction_trigger + 2 L0 files.
-  mutable_cf_options_.level0_file_num_compaction_trigger = 3;
-  mutable_cf_options_.max_compaction_bytes = 999999u;
-  NewVersionStorage(6, kCompactionStyleLevel);
-
-  // 4 out of 6 L0 files will be picked for intra L0 compaction due to
-  // being_compact limit. And the latest one L0 will be skipped due to earliest
-  // seqno. The one L1 file spans entire L0 key range and is marked as being
-  // compacted to avoid L0->L1 compaction.
-  Add(1, 1U, "100", "350", 200000U, 0, 110, 111);
-  Add(0, 2U, "301", "350", 1U, 0, 108, 109);
-  Add(0, 3U, "251", "300", 1U, 0, 106, 107);
-  Add(0, 4U, "201", "250", 1U, 0, 104, 105);
-  Add(0, 5U, "151", "200", 1U, 0, 102, 103);
-  Add(0, 6U, "100", "150", 1U, 0, 100, 101);
-  Add(0, 7U, "100", "100", 1U, 0, 99, 100);
-  vstorage_->LevelFiles(0)[5]->being_compacted = true;
-  vstorage_->LevelFiles(1)[0]->being_compacted = true;
-  UpdateVersionStorageInfo();
-
-  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_, 107));
-  ASSERT_TRUE(compaction.get() != nullptr);
-  ASSERT_EQ(1U, compaction->num_input_levels());
-  ASSERT_EQ(4U, compaction->num_input_files(0));
-  ASSERT_EQ(CompactionReason::kLevelL0FilesNum,
-            compaction->compaction_reason());
-  ASSERT_EQ(0, compaction->output_level());
-}
 
 #ifndef ROCKSDB_LITE
 TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
@@ -2916,9 +2886,23 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
   // should fail
   NewVersionStorage(5, kCompactionStyleUniversal);
 
-  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
-  Add(0, 2U, "201", "250", 2 * kFileSize, 0, 401, 450);
-  Add(0, 4U, "260", "300", 4 * kFileSize, 0, 260, 300);
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550, /*compensated_file_size*/ 0,
+      /*marked_for_compact*/ false, /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 3);
+  Add(0, 2U, "201", "250", 2 * kFileSize, 0, 401, 450,
+      /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 2);
+  Add(0, 4U, "260", "300", 4 * kFileSize, 0, 260, 300,
+      /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 1);
   Add(3, 5U, "010", "080", 8 * kFileSize, 0, 200, 251);
   Add(4, 3U, "301", "350", 8 * kFileSize, 0, 101, 150);
   Add(4, 6U, "501", "750", 8 * kFileSize, 0, 101, 150);
@@ -2940,7 +2924,11 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
 
   AddVersionStorage();
   // Simulate a flush and mark the file for compaction
-  Add(0, 7U, "150", "200", kFileSize, 0, 551, 600, 0, true);
+  Add(0, 7U, "150", "200", kFileSize, 0, 551, 600, 0, true,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 4);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction2(
@@ -2962,7 +2950,11 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap2) {
   NewVersionStorage(5, kCompactionStyleUniversal);
 
   // Mark file number 4 for compaction
-  Add(0, 4U, "260", "300", 4 * kFileSize, 0, 260, 300, 0, true);
+  Add(0, 4U, "260", "300", 4 * kFileSize, 0, 260, 300, 0, true,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 1);
   Add(3, 5U, "240", "290", 8 * kFileSize, 0, 201, 250);
   Add(4, 3U, "301", "350", 8 * kFileSize, 0, 101, 150);
   Add(4, 6U, "501", "750", 8 * kFileSize, 0, 101, 150);
@@ -2983,8 +2975,17 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap2) {
   ASSERT_EQ(1U, compaction->num_input_files(1));
 
   AddVersionStorage();
-  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
-  Add(0, 2U, "201", "250", 2 * kFileSize, 0, 401, 450);
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550, /*compensated_file_size*/ 0,
+      /*marked_for_compact*/ false, /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 3);
+  Add(0, 2U, "201", "250", 2 * kFileSize, 0, 401, 450,
+      /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 2);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction2(
@@ -3150,10 +3151,29 @@ TEST_F(CompactionPickerTest, UniversalMarkedL0Overlap2) {
   NewVersionStorage(1, kCompactionStyleUniversal);
 
   // Mark file number 5 for compaction
-  Add(0, 4U, "260", "300", 1 * kFileSize, 0, 260, 300);
-  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 201, 250, 0, true);
-  Add(0, 3U, "301", "350", 4 * kFileSize, 0, 101, 150);
-  Add(0, 6U, "501", "750", 8 * kFileSize, 0, 50, 100);
+  Add(0, 4U, "260", "300", 1 * kFileSize, 0, 260, 300,
+      /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 4);
+  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 201, 250, 0, true,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 3);
+  Add(0, 3U, "301", "350", 4 * kFileSize, 0, 101, 150,
+      /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 2);
+  Add(0, 6U, "501", "750", 8 * kFileSize, 0, 50, 100,
+      /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 1);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(
@@ -3173,8 +3193,18 @@ TEST_F(CompactionPickerTest, UniversalMarkedL0Overlap2) {
   ASSERT_TRUE(file_map_[6].first->being_compacted);
 
   AddVersionStorage();
-  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
-  Add(0, 2U, "201", "250", kFileSize, 0, 401, 450);
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550, /*compensated_file_size*/ 0,
+      /*marked_for_compact*/ false,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 6);
+  Add(0, 2U, "201", "250", kFileSize, 0, 401, 450, /*compensated_file_size*/ 0,
+      /*marked_for_compact*/ false,
+      /* temperature*/ Temperature::kUnknown,
+      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
+      /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
+      /*epoch_number*/ 5);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction2(

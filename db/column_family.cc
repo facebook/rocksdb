@@ -565,7 +565,8 @@ ColumnFamilyData::ColumnFamilyData(
       allow_2pc_(db_options.allow_2pc),
       last_memtable_id_(0),
       db_paths_registered_(false),
-      mempurge_used_(false) {
+      mempurge_used_(false),
+      next_epoch_number_(1) {
   if (id_ != kDummyColumnFamilyDataId) {
     // TODO(cc): RegisterDbPaths can be expensive, considering moving it
     // outside of this constructor which might be called with db mutex held.
@@ -1128,12 +1129,9 @@ bool ColumnFamilyData::NeedsCompaction() const {
 Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
     const MutableDBOptions& mutable_db_options, LogBuffer* log_buffer) {
-  SequenceNumber earliest_mem_seqno =
-      std::min(mem_->GetEarliestSequenceNumber(),
-               imm_.current()->GetEarliestSequenceNumber(false));
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, current_->storage_info(),
-      log_buffer, earliest_mem_seqno);
+      log_buffer);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
@@ -1518,6 +1516,13 @@ FSDirectory* ColumnFamilyData::GetDataDir(size_t path_id) const {
 
   assert(path_id < data_dirs_.size());
   return data_dirs_[path_id].get();
+}
+
+void ColumnFamilyData::RecoverEpochNumbers() {
+  assert(current_);
+  auto* vstorage = current_->storage_info();
+  assert(vstorage);
+  vstorage->RecoverEpochNumbers(this);
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,

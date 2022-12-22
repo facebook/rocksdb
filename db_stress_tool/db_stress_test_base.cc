@@ -1046,9 +1046,11 @@ void StressTest::OperateDb(ThreadState* thread) {
           TestIterateAgainstExpected(thread, read_opts, rand_column_families,
                                      rand_keys);
         } else {
-          int num_seeks = static_cast<int>(
-              std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
-                       FLAGS_ops_per_thread - i - 1));
+          int num_seeks = static_cast<int>(std::min(
+              std::max(static_cast<uint64_t>(thread->rand.Uniform(4)),
+                       static_cast<uint64_t>(1)),
+              std::max(static_cast<uint64_t>(FLAGS_ops_per_thread - i - 1),
+                       static_cast<uint64_t>(1))));
           rand_keys = GenerateNKeys(thread, num_seeks, i);
           i += num_seeks - 1;
           TestIterate(thread, read_opts, rand_column_families, rand_keys);
@@ -3025,7 +3027,7 @@ bool InitializeOptionsFromFile(Options& options) {
               FLAGS_options_file.c_str(), s.ToString().c_str());
       exit(1);
     }
-    db_options.env = new DbStressEnvWrapper(db_stress_env);
+    db_options.env = new CompositeEnvWrapper(db_stress_env);
     options = Options(db_options, cf_descriptors[0].options);
     return true;
   }

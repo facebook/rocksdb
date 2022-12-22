@@ -1161,7 +1161,7 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForPeridicTaskRun(std::function<void()> callback) const;
+  void TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
@@ -2680,6 +2680,10 @@ class DBImpl : public DB {
   // seqno_time_mapping_ stores the sequence number to time mapping, it's not
   // thread safe, both read and write need db mutex hold.
   SeqnoToTimeMapping seqno_time_mapping_;
+
+  // stop write token that is acquired when LockWal() is called. Destructed
+  // when UnlockWal() is called.
+  std::unique_ptr<WriteControllerToken> lock_wal_write_token_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {
