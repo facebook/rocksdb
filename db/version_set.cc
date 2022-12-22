@@ -6873,16 +6873,16 @@ Status VersionSet::VerifyFileMetadata(ColumnFamilyData* cfd,
 
     InternalStats* internal_stats = cfd->internal_stats();
 
+    TableCache::TypedHandle* handle = nullptr;
     FileMetaData meta_copy = meta;
     status = table_cache->FindTable(
-        ReadOptions(), file_opts, *icmp, meta_copy,
-        &(meta_copy.table_reader_handle), pe,
+        ReadOptions(), file_opts, *icmp, meta_copy, &handle, pe,
         /*no_io=*/false, /*record_read_stats=*/true,
         internal_stats->GetFileReadHist(level), false, level,
         /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
         meta_copy.temperature);
-    if (meta_copy.table_reader_handle) {
-      table_cache->ReleaseHandle(meta_copy.table_reader_handle);
+    if (handle) {
+      table_cache->get_cache().Release(handle);
     }
   }
   return status;
