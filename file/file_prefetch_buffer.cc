@@ -55,6 +55,7 @@ void FilePrefetchBuffer::CalculateOffsetAndLen(size_t alignment,
 
   // Create a new buffer only if current capacity is not sufficient, and memcopy
   // bytes from old buffer if needed (i.e., if chunk_len is greater than 0).
+  assert(!bufs_[index].async_read_in_progress_);
   if (bufs_[index].buffer_.Capacity() < roundup_len) {
     bufs_[index].buffer_.Alignment(alignment);
     bufs_[index].buffer_.AllocateNewBuffer(
