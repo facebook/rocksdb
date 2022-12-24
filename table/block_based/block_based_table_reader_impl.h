@@ -39,9 +39,13 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   if (rep_->uncompression_dict_reader && block_type == BlockType::kData) {
     CachableEntry<UncompressionDict> uncompression_dict;
     const bool no_io = (ro.read_tier == kBlockCacheTier);
+    // For async scans, don't use the prefetch buffer since an async prefetch
+    // might already be under way and this would invalidate it. Also, the
+    // uncompression dict is typically at the end of the file and would
+    // most likely break the sequentiality of the access pattern.
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        prefetch_buffer, no_io, ro.verify_checksums, get_context,
-        lookup_context, &uncompression_dict);
+        ro.async_io ? nullptr : prefetch_buffer, no_io, ro.verify_checksums,
+        get_context, lookup_context, &uncompression_dict);
     if (!s.ok()) {
       iter->Invalidate(s);
       return iter;
