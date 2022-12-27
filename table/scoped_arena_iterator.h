@@ -7,13 +7,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include "table/internal_iterator.h"
 #include "port/port.h"
+#include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 class ScopedArenaIterator {
-
-  void reset(InternalIterator* iter) ROCKSDB_NOEXCEPT {
+  void reset(InternalIterator* iter) noexcept {
     if (iter_ != nullptr) {
       iter_->~InternalIterator();
     }
@@ -21,19 +20,18 @@ class ScopedArenaIterator {
   }
 
  public:
-
   explicit ScopedArenaIterator(InternalIterator* iter = nullptr)
       : iter_(iter) {}
 
   ScopedArenaIterator(const ScopedArenaIterator&) = delete;
   ScopedArenaIterator& operator=(const ScopedArenaIterator&) = delete;
 
-  ScopedArenaIterator(ScopedArenaIterator&& o) ROCKSDB_NOEXCEPT {
+  ScopedArenaIterator(ScopedArenaIterator&& o) noexcept {
     iter_ = o.iter_;
     o.iter_ = nullptr;
   }
 
-  ScopedArenaIterator& operator=(ScopedArenaIterator&& o) ROCKSDB_NOEXCEPT {
+  ScopedArenaIterator& operator=(ScopedArenaIterator&& o) noexcept {
     reset(o.iter_);
     o.iter_ = nullptr;
     return *this;
@@ -51,9 +49,7 @@ class ScopedArenaIterator {
     return res;
   }
 
-  ~ScopedArenaIterator() {
-    reset(nullptr);
-  }
+  ~ScopedArenaIterator() { reset(nullptr); }
 
  private:
   InternalIterator* iter_;

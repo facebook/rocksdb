@@ -85,7 +85,10 @@ class SliceTransform : public Customizable {
   // Otherwise (including FullLengthEnabled returns false, or prefix length is
   // less than maximum), Seek with auto_prefix_mode is only optimized if the
   // iterate_upper_bound and seek key have the same prefix.
-  // NOTE/TODO: We hope to revise this requirement in the future.
+  // BUG: Despite all these conditions and even with the extra condition on
+  // IsSameLengthImmediateSuccessor (see it's "BUG" section), it is not
+  // sufficient to ensure auto_prefix_mode returns all entries that
+  // total_order_seek would return. See auto_prefix_mode "BUG" section.
   virtual bool FullLengthEnabled(size_t* /*len*/) const { return false; }
 
   // Transform(s)=Transform(`prefix`) for any s with `prefix` as a prefix.

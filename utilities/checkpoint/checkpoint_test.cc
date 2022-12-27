@@ -136,9 +136,8 @@ class CheckpointTest : public testing::Test {
     ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
   }
 
-  Status TryReopenWithColumnFamilies(
-      const std::vector<std::string>& cfs,
-      const std::vector<Options>& options) {
+  Status TryReopenWithColumnFamilies(const std::vector<std::string>& cfs,
+                                     const std::vector<Options>& options) {
     Close();
     EXPECT_EQ(cfs.size(), options.size());
     std::vector<ColumnFamilyDescriptor> column_families;
@@ -156,9 +155,7 @@ class CheckpointTest : public testing::Test {
     return TryReopenWithColumnFamilies(cfs, v_opts);
   }
 
-  void Reopen(const Options& options) {
-    ASSERT_OK(TryReopen(options));
-  }
+  void Reopen(const Options& options) { ASSERT_OK(TryReopen(options)); }
 
   void CompactAll() {
     for (auto h : handles_) {
@@ -223,9 +220,7 @@ class CheckpointTest : public testing::Test {
     return db_->Put(wo, handles_[cf], k, v);
   }
 
-  Status Delete(const std::string& k) {
-    return db_->Delete(WriteOptions(), k);
-  }
+  Status Delete(const std::string& k) { return db_->Delete(WriteOptions(), k); }
 
   Status Delete(int cf, const std::string& k) {
     return db_->Delete(WriteOptions(), handles_[cf], k);
@@ -512,18 +507,18 @@ TEST_F(CheckpointTest, CheckpointCF) {
   std::vector<std::string> cfs;
   cfs = {kDefaultColumnFamilyName, "one", "two", "three", "four", "five"};
   std::vector<ColumnFamilyDescriptor> column_families;
-    for (size_t i = 0; i < cfs.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(cfs[i], options));
-    }
-  ASSERT_OK(DB::Open(options, snapshot_name_,
-        column_families, &cphandles, &snapshotDB));
+  for (size_t i = 0; i < cfs.size(); ++i) {
+    column_families.push_back(ColumnFamilyDescriptor(cfs[i], options));
+  }
+  ASSERT_OK(DB::Open(options, snapshot_name_, column_families, &cphandles,
+                     &snapshotDB));
   ASSERT_OK(snapshotDB->Get(roptions, cphandles[0], "Default", &result));
   ASSERT_EQ("Default1", result);
   ASSERT_OK(snapshotDB->Get(roptions, cphandles[1], "one", &result));
   ASSERT_EQ("eleven", result);
   ASSERT_OK(snapshotDB->Get(roptions, cphandles[2], "two", &result));
   for (auto h : cphandles) {
-      delete h;
+    delete h;
   }
   cphandles.clear();
   delete snapshotDB;
@@ -913,6 +908,51 @@ TEST_F(CheckpointTest, CheckpointWithDbPath) {
   // Currently not supported
   ASSERT_TRUE(checkpoint->CreateCheckpoint(snapshot_name_).IsNotSupported());
   delete checkpoint;
+}
+
+TEST_F(CheckpointTest, PutRaceWithCheckpointTrackedWalSync) {
+  // Repro for a race condition where a user write comes in after the checkpoint
+  // syncs WAL for `track_and_verify_wals_in_manifest` but before the
+  // corresponding MANIFEST update. With the bug, that scenario resulted in an
+  // unopenable DB with error "Corruption: Size mismatch: WAL ...".
+  Options options = CurrentOptions();
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  options.env = fault_env.get();
+  options.track_and_verify_wals_in_manifest = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "val1"));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWAL:BeforeMarkLogsSynced:1",
+      [this](void* /* arg */) { ASSERT_OK(Put("key2", "val2")); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::unique_ptr<Checkpoint> checkpoint;
+  {
+    Checkpoint* checkpoint_ptr;
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint_ptr));
+    checkpoint.reset(checkpoint_ptr);
+  }
+
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+
+  // Ensure callback ran.
+  ASSERT_EQ("val2", Get("key2"));
+
+  Close();
+
+  // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
+  // DB WAL.
+  fault_env->DropUnsyncedFileData();
+
+  // Before the bug fix, reopening the DB would fail because the MANIFEST's
+  // AddWal entry indicated the WAL should be synced through "key2" -> "val2".
+  Reopen(options);
+
+  // Need to close before `fault_env` goes out of scope.
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

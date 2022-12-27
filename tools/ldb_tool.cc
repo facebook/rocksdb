@@ -5,6 +5,7 @@
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/ldb_tool.h"
+
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "tools/ldb_cmd_impl.h"
 
@@ -50,7 +51,10 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              " with 'put','get','scan','dump','query','batchput'"
              " : DB supports ttl and value is internally timestamp-suffixed\n");
   ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
-             " : Try to load option file from DB.\n");
+             " : Try to load option file from DB. Default to true if " +
+             LDBCommand::ARG_DB +
+             " is specified and not creating a new DB and not open as TTL DB. "
+             "Can be set to false explicitly.\n");
   ret.append("  --" + LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS +
              " : Set options.force_consistency_checks = false.\n");
   ret.append("  --" + LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS +

@@ -84,8 +84,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   Options options;
   options.create_if_missing = true;
   // Use only the latest two merge operands.
-  options.merge_operator =
-      std::make_shared<LimitedStringAppendMergeOp>(2, ',');
+  options.merge_operator = std::make_shared<LimitedStringAppendMergeOp>(2, ',');
   options.env = env_;
   Reopen(options);
   // All K1 values are in memtable.
@@ -202,7 +201,6 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   delete iter;
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
-
 
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
                                  public testing::WithParamInterface<bool> {
@@ -471,7 +469,7 @@ TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
       "DBIter::MergeValuesNewToOld:SteppedToNextOperand", [&](void*) {
         EXPECT_FALSE(stepped_to_next_operand);
         stepped_to_next_operand = true;
-        someone_else.reset(); // Unpin SuperVersion A
+        someone_else.reset();  // Unpin SuperVersion A
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 

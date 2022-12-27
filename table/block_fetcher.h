@@ -19,8 +19,8 @@ namespace ROCKSDB_NAMESPACE {
 // Retrieves a single block of a given file. Utilizes the prefetch buffer and/or
 // persistent cache provided (if any) to try to avoid reading from the file
 // directly. Note that both the prefetch buffer and the persistent cache are
-// optional; also, note that the persistent cache may be configured to store either
-// compressed or uncompressed blocks.
+// optional; also, note that the persistent cache may be configured to store
+// either compressed or uncompressed blocks.
 //
 // If the retrieved block is compressed and the do_uncompress flag is set,
 // BlockFetcher uncompresses the block (using the uncompression dictionary,
@@ -71,6 +71,8 @@ class BlockFetcher {
   }
 
   IOStatus ReadBlockContents();
+  IOStatus ReadAsyncBlockContents();
+
   inline CompressionType get_compression_type() const {
     return compression_type_;
   }
@@ -126,7 +128,7 @@ class BlockFetcher {
   bool TryGetUncompressBlockFromPersistentCache();
   // return true if found
   bool TryGetFromPrefetchBuffer();
-  bool TryGetCompressedBlockFromPersistentCache();
+  bool TryGetSerializedBlockFromPersistentCache();
   void PrepareBufferForBlockFromFile();
   // Copy content from used_buf_ to new heap_buf_.
   void CopyBufferToHeapBuf();

@@ -9,6 +9,7 @@
 
 #include "db/db_impl/db_impl_secondary.h"
 #include "db/db_test_util.h"
+#include "db/db_with_timestamp_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
@@ -18,10 +19,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
-class DBSecondaryTest : public DBTestBase {
+class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
  public:
-  DBSecondaryTest()
-      : DBTestBase("db_secondary_test", /*env_do_fsync=*/true),
+  explicit DBSecondaryTestBase(const std::string& dbname)
+      : DBBasicTestWithTimestampBase(dbname),
         secondary_path_(),
         handles_secondary_(),
         db_secondary_(nullptr) {
@@ -29,7 +30,7 @@ class DBSecondaryTest : public DBTestBase {
         test::PerThreadDBPath(env_, "/db_secondary_test_secondary");
   }
 
-  ~DBSecondaryTest() override {
+  ~DBSecondaryTestBase() override {
     CloseSecondary();
     if (getenv("KEEP_DB") != nullptr) {
       fprintf(stdout, "Secondary DB is still at %s\n", secondary_path_.c_str());
@@ -73,17 +74,17 @@ class DBSecondaryTest : public DBTestBase {
   DB* db_secondary_;
 };
 
-void DBSecondaryTest::OpenSecondary(const Options& options) {
+void DBSecondaryTestBase::OpenSecondary(const Options& options) {
   ASSERT_OK(TryOpenSecondary(options));
 }
 
-Status DBSecondaryTest::TryOpenSecondary(const Options& options) {
+Status DBSecondaryTestBase::TryOpenSecondary(const Options& options) {
   Status s =
       DB::OpenAsSecondary(options, dbname_, secondary_path_, &db_secondary_);
   return s;
 }
 
-void DBSecondaryTest::OpenSecondaryWithColumnFamilies(
+void DBSecondaryTestBase::OpenSecondaryWithColumnFamilies(
     const std::vector<std::string>& column_families, const Options& options) {
   std::vector<ColumnFamilyDescriptor> cf_descs;
   cf_descs.emplace_back(kDefaultColumnFamilyName, options);
@@ -95,9 +96,10 @@ void DBSecondaryTest::OpenSecondaryWithColumnFamilies(
   ASSERT_OK(s);
 }
 
-void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
-                                          int expected_log, int expected_sst,
-                                          int expected_manifest) const {
+void DBSecondaryTestBase::CheckFileTypeCounts(const std::string& dir,
+                                              int expected_log,
+                                              int expected_sst,
+                                              int expected_manifest) const {
   std::vector<std::string> filenames;
   ASSERT_OK(env_->GetChildren(dir, &filenames));
 
@@ -114,6 +116,35 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
   ASSERT_EQ(expected_log, log_cnt);
   ASSERT_EQ(expected_sst, sst_cnt);
   ASSERT_EQ(expected_manifest, manifest_cnt);
+}
+
+class DBSecondaryTest : public DBSecondaryTestBase {
+ public:
+  explicit DBSecondaryTest() : DBSecondaryTestBase("db_secondary_test") {}
+};
+
+TEST_F(DBSecondaryTest, FailOpenIfLoggerCreationFail) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  Reopen(options);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "rocksdb::CreateLoggerFromOptions:AfterGetPath", [&](void* arg) {
+        auto* s = reinterpret_cast<Status*>(arg);
+        assert(s);
+        *s = Status::IOError("Injected");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  options.max_open_files = -1;
+  Status s = TryOpenSecondary(options);
+  ASSERT_EQ(nullptr, options.info_log);
+  ASSERT_TRUE(s.IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DBSecondaryTest, NonExistingDb) {
@@ -181,6 +212,7 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
   ASSERT_EQ(input.input_files.size(), 3);
 
   input.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
   Close();
 
   options.max_open_files = -1;
@@ -188,8 +220,8 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
   auto cfh = db_secondary_->DefaultColumnFamily();
 
   CompactionServiceResult result;
-  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input,
-                                                                 &result));
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input, &result));
 
   ASSERT_EQ(result.output_files.size(), 1);
   InternalKey smallest, largest;
@@ -212,20 +244,20 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   const int kRangeL2 = 10;
   const int kRangeL1 = 30;
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i * kRangeL2), "value" + ToString(i)));
-    ASSERT_OK(Put(Key((i + 1) * kRangeL2 - 1), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * kRangeL2), "value" + std::to_string(i)));
+    ASSERT_OK(Put(Key((i + 1) * kRangeL2 - 1), "value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
   MoveFilesToLevel(2);
   for (int i = 0; i < 5; i++) {
-    ASSERT_OK(Put(Key(i * kRangeL1), "value" + ToString(i)));
-    ASSERT_OK(Put(Key((i + 1) * kRangeL1 - 1), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * kRangeL1), "value" + std::to_string(i)));
+    ASSERT_OK(Put(Key((i + 1) * kRangeL1 - 1), "value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
   MoveFilesToLevel(1);
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(Put(Key(i * 30), "value" + ToString(i)));
-    ASSERT_OK(Put(Key(i * 30 + 50), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * 30), "value" + std::to_string(i)));
+    ASSERT_OK(Put(Key(i * 30 + 50), "value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
 
@@ -241,6 +273,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   input1.input_files.push_back(meta.levels[1].files[2].name);
 
   input1.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input1.db_id));
 
   options.max_open_files = -1;
   Close();
@@ -248,8 +281,8 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   OpenSecondary(options);
   auto cfh = db_secondary_->DefaultColumnFamily();
   CompactionServiceResult result;
-  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input1,
-                                                                 &result));
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input1, &result));
   ASSERT_OK(result.status);
 
   // pick 2 files on level 1 for compaction, which has 6 overlap files on L2
@@ -261,8 +294,9 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   }
 
   input2.output_level = 2;
-  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
-                                                                 &result));
+  input2.db_id = input1.db_id;
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input2, &result));
   ASSERT_OK(result.status);
 
   CloseSecondary();
@@ -273,15 +307,15 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   }
   OpenSecondary(options);
   cfh = db_secondary_->DefaultColumnFamily();
-  Status s = db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
-                                                                  &result);
+  Status s = db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input2, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(result.status);
 
   // TODO: L0 -> L1 compaction should success, currently version is not built
   // if files is missing.
-  //  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh,
-  //  input1, &result));
+  //  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(OpenAndCompactOptions(),
+  //  cfh, input1, &result));
 }
 
 TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
@@ -305,6 +339,7 @@ TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
   ASSERT_EQ(input.input_files.size(), 3);
 
   input.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
 
   // trigger compaction to delete the files for secondary instance compaction
   ASSERT_OK(Put("foo", "foo_value" + std::to_string(3)));
@@ -319,8 +354,8 @@ TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
   auto cfh = db_secondary_->DefaultColumnFamily();
 
   CompactionServiceResult result;
-  Status s =
-      db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
+  Status s = db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(result.status);
 }
@@ -346,6 +381,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
   ASSERT_EQ(input.input_files.size(), 3);
 
   input.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
 
   Close();
 
@@ -356,15 +392,15 @@ TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
   auto cfh = db_secondary_->DefaultColumnFamily();
 
   CompactionServiceResult result;
-  Status s =
-      db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
+  Status s = db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(result.status);
 
   input.input_files.erase(input.input_files.begin());
 
-  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input,
-                                                                 &result));
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input, &result));
   ASSERT_OK(result.status);
 }
 
@@ -463,7 +499,7 @@ class TraceFileEnv : public EnvWrapper {
  private:
   std::atomic<int> files_closed_{0};
 };
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
   Options options;
@@ -1249,6 +1285,403 @@ TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
   ASSERT_OK(TryOpenSecondary(options));
 }
 
+class DBSecondaryTestWithTimestamp : public DBSecondaryTestBase {
+ public:
+  explicit DBSecondaryTestWithTimestamp()
+      : DBSecondaryTestBase("db_secondary_test_with_timestamp") {}
+};
+TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGetReadTimestampSizeMismatch) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::string write_timestamp = Timestamp(1, 0);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), write_timestamp,
+                        "value" + std::to_string(key));
+    ASSERT_OK(s);
+  }
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  ReadOptions read_opts;
+  std::string different_size_read_timestamp;
+  PutFixed32(&different_size_read_timestamp, 2);
+  Slice different_size_read_ts = different_size_read_timestamp;
+  read_opts.timestamp = &different_size_read_ts;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    std::string value_from_get;
+    std::string timestamp;
+    ASSERT_TRUE(db_->Get(read_opts, Key1(key), &value_from_get, &timestamp)
+                    .IsInvalidArgument());
+  }
+
+  Close();
+}
+
+TEST_F(DBSecondaryTestWithTimestamp,
+       IteratorAndGetReadTimestampSpecifiedWithoutWriteTimestamp) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(key));
+    ASSERT_OK(s);
+  }
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  ReadOptions read_opts;
+  const std::string read_timestamp = Timestamp(2, 0);
+  Slice read_ts = read_timestamp;
+  read_opts.timestamp = &read_ts;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    std::string value_from_get;
+    std::string timestamp;
+    ASSERT_TRUE(db_->Get(read_opts, Key1(key), &value_from_get, &timestamp)
+                    .IsInvalidArgument());
+  }
+
+  Close();
+}
+
+TEST_F(DBSecondaryTestWithTimestamp,
+       IteratorAndGetWriteWithTimestampReadWithoutTimestamp) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::string write_timestamp = Timestamp(1, 0);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), write_timestamp,
+                        "value" + std::to_string(key));
+    ASSERT_OK(s);
+  }
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  ReadOptions read_opts;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    std::string value_from_get;
+    ASSERT_TRUE(
+        db_->Get(read_opts, Key1(key), &value_from_get).IsInvalidArgument());
+  }
+
+  Close();
+}
+
+TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGet) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::vector<uint64_t> start_keys = {1, 0};
+  const std::vector<std::string> write_timestamps = {Timestamp(1, 0),
+                                                     Timestamp(3, 0)};
+  const std::vector<std::string> read_timestamps = {Timestamp(2, 0),
+                                                    Timestamp(4, 0)};
+  for (size_t i = 0; i < write_timestamps.size(); ++i) {
+    WriteOptions write_opts;
+    for (uint64_t key = start_keys[i]; key <= kMaxKey; ++key) {
+      Status s = db_->Put(write_opts, Key1(key), write_timestamps[i],
+                          "value" + std::to_string(i));
+      ASSERT_OK(s);
+    }
+  }
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  auto get_value_and_check = [](DB* db, ReadOptions read_opts, Slice key,
+                                Slice expected_value, std::string expected_ts) {
+    std::string value_from_get;
+    std::string timestamp;
+    ASSERT_OK(db->Get(read_opts, key.ToString(), &value_from_get, &timestamp));
+    ASSERT_EQ(expected_value, value_from_get);
+    ASSERT_EQ(expected_ts, timestamp);
+  };
+  for (size_t i = 0; i < read_timestamps.size(); ++i) {
+    ReadOptions read_opts;
+    Slice read_ts = read_timestamps[i];
+    read_opts.timestamp = &read_ts;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    int count = 0;
+    uint64_t key = 0;
+    // Forward iterate.
+    for (it->Seek(Key1(0)), key = start_keys[i]; it->Valid();
+         it->Next(), ++count, ++key) {
+      CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
+                         "value" + std::to_string(i), write_timestamps[i]);
+      get_value_and_check(db_, read_opts, it->key(), it->value(),
+                          write_timestamps[i]);
+    }
+    size_t expected_count = kMaxKey - start_keys[i] + 1;
+    ASSERT_EQ(expected_count, count);
+
+    // Backward iterate.
+    count = 0;
+    for (it->SeekForPrev(Key1(kMaxKey)), key = kMaxKey; it->Valid();
+         it->Prev(), ++count, --key) {
+      CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
+                         "value" + std::to_string(i), write_timestamps[i]);
+      get_value_and_check(db_, read_opts, it->key(), it->value(),
+                          write_timestamps[i]);
+    }
+    ASSERT_EQ(static_cast<size_t>(kMaxKey) - start_keys[i] + 1, count);
+
+    // SeekToFirst()/SeekToLast() with lower/upper bounds.
+    // Then iter with lower and upper bounds.
+    uint64_t l = 0;
+    uint64_t r = kMaxKey + 1;
+    while (l < r) {
+      std::string lb_str = Key1(l);
+      Slice lb = lb_str;
+      std::string ub_str = Key1(r);
+      Slice ub = ub_str;
+      read_opts.iterate_lower_bound = &lb;
+      read_opts.iterate_upper_bound = &ub;
+      it.reset(db_->NewIterator(read_opts));
+      for (it->SeekToFirst(), key = std::max(l, start_keys[i]), count = 0;
+           it->Valid(); it->Next(), ++key, ++count) {
+        CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
+                           "value" + std::to_string(i), write_timestamps[i]);
+        get_value_and_check(db_, read_opts, it->key(), it->value(),
+                            write_timestamps[i]);
+      }
+      ASSERT_EQ(r - std::max(l, start_keys[i]), count);
+
+      for (it->SeekToLast(), key = std::min(r, kMaxKey + 1), count = 0;
+           it->Valid(); it->Prev(), --key, ++count) {
+        CheckIterUserEntry(it.get(), Key1(key - 1), kTypeValue,
+                           "value" + std::to_string(i), write_timestamps[i]);
+        get_value_and_check(db_, read_opts, it->key(), it->value(),
+                            write_timestamps[i]);
+      }
+      l += (kMaxKey / 100);
+      r -= (kMaxKey / 100);
+    }
+  }
+  Close();
+}
+
+TEST_F(DBSecondaryTestWithTimestamp, IteratorsReadTimestampSizeMismatch) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::string write_timestamp = Timestamp(1, 0);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), write_timestamp,
+                        "value" + std::to_string(key));
+    ASSERT_OK(s);
+  }
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  ReadOptions read_opts;
+  std::string different_size_read_timestamp;
+  PutFixed32(&different_size_read_timestamp, 2);
+  Slice different_size_read_ts = different_size_read_timestamp;
+  read_opts.timestamp = &different_size_read_ts;
+  {
+    std::vector<Iterator*> iters;
+    ASSERT_TRUE(
+        db_->NewIterators(read_opts, {db_->DefaultColumnFamily()}, &iters)
+            .IsInvalidArgument());
+  }
+
+  Close();
+}
+
+TEST_F(DBSecondaryTestWithTimestamp,
+       IteratorsReadTimestampSpecifiedWithoutWriteTimestamp) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(key));
+    ASSERT_OK(s);
+  }
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  ReadOptions read_opts;
+  const std::string read_timestamp = Timestamp(2, 0);
+  Slice read_ts = read_timestamp;
+  read_opts.timestamp = &read_ts;
+  {
+    std::vector<Iterator*> iters;
+    ASSERT_TRUE(
+        db_->NewIterators(read_opts, {db_->DefaultColumnFamily()}, &iters)
+            .IsInvalidArgument());
+  }
+
+  Close();
+}
+
+TEST_F(DBSecondaryTestWithTimestamp,
+       IteratorsWriteWithTimestampReadWithoutTimestamp) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::string write_timestamp = Timestamp(1, 0);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), write_timestamp,
+                        "value" + std::to_string(key));
+    ASSERT_OK(s);
+  }
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  ReadOptions read_opts;
+  {
+    std::vector<Iterator*> iters;
+    ASSERT_TRUE(
+        db_->NewIterators(read_opts, {db_->DefaultColumnFamily()}, &iters)
+            .IsInvalidArgument());
+  }
+
+  Close();
+}
+
+TEST_F(DBSecondaryTestWithTimestamp, Iterators) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::string write_timestamp = Timestamp(1, 0);
+  const std::string read_timestamp = Timestamp(2, 0);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), write_timestamp,
+                        "value" + std::to_string(key));
+    ASSERT_OK(s);
+  }
+
+  // Reopen the database as secondary instance to test its timestamp support.
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReopenAsSecondary(options));
+
+  ReadOptions read_opts;
+  Slice read_ts = read_timestamp;
+  read_opts.timestamp = &read_ts;
+  std::vector<Iterator*> iters;
+  ASSERT_OK(db_->NewIterators(read_opts, {db_->DefaultColumnFamily()}, &iters));
+  ASSERT_EQ(static_cast<uint64_t>(1), iters.size());
+
+  int count = 0;
+  uint64_t key = 0;
+  // Forward iterate.
+  for (iters[0]->Seek(Key1(0)), key = 0; iters[0]->Valid();
+       iters[0]->Next(), ++count, ++key) {
+    CheckIterUserEntry(iters[0], Key1(key), kTypeValue,
+                       "value" + std::to_string(key), write_timestamp);
+  }
+
+  size_t expected_count = kMaxKey - 0 + 1;
+  ASSERT_EQ(expected_count, count);
+  delete iters[0];
+
+  Close();
+}
 #endif  //! ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -11,7 +11,33 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Standard size unique ID, good enough for almost all practical purposes
+using UniqueId64x2 = std::array<uint64_t, 2>;
+
+// Value never used as an actual unique ID so can be used for "null"
+constexpr UniqueId64x2 kNullUniqueId64x2 = {};
+
+// Extended size unique ID, for extra certainty of uniqueness among SST files
+// spanning many hosts over a long time (rarely if ever needed)
 using UniqueId64x3 = std::array<uint64_t, 3>;
+
+// Value never used as an actual unique ID so can be used for "null"
+constexpr UniqueId64x3 kNullUniqueId64x3 = {};
+
+// Dynamic pointer wrapper for one of the two above
+struct UniqueIdPtr {
+  uint64_t *ptr = nullptr;
+  bool extended = false;
+
+  /*implicit*/ UniqueIdPtr(UniqueId64x2 *id) {
+    ptr = (*id).data();
+    extended = false;
+  }
+  /*implicit*/ UniqueIdPtr(UniqueId64x3 *id) {
+    ptr = (*id).data();
+    extended = true;
+  }
+};
 
 // Helper for GetUniqueIdFromTableProperties. This function can also be used
 // for temporary ids for files without sufficient information in table
@@ -21,7 +47,8 @@ using UniqueId64x3 = std::array<uint64_t, 3>;
 // is long term stable.
 Status GetSstInternalUniqueId(const std::string &db_id,
                               const std::string &db_session_id,
-                              uint64_t file_number, UniqueId64x3 *out);
+                              uint64_t file_number, UniqueIdPtr out,
+                              bool force = false);
 
 // Helper for GetUniqueIdFromTableProperties. External unique ids go through
 // this extra hashing layer so that prefixes of the unique id have predictable
@@ -29,14 +56,21 @@ Status GetSstInternalUniqueId(const std::string &db_id,
 // the full 192 bits.
 // This transformation must be long term stable to ensure
 // GetUniqueIdFromTableProperties is long term stable.
-void InternalUniqueIdToExternal(UniqueId64x3 *in_out);
+void InternalUniqueIdToExternal(UniqueIdPtr in_out);
 
 // Reverse of InternalUniqueIdToExternal mostly for testing purposes
 // (demonstrably 1-to-1 on the first 128 bits and on the full 192 bits).
-void ExternalUniqueIdToInternal(UniqueId64x3 *in_out);
+void ExternalUniqueIdToInternal(UniqueIdPtr in_out);
 
 // Convert numerical format to byte format for public API
-std::string EncodeUniqueIdBytes(const UniqueId64x3 &in);
+std::string EncodeUniqueIdBytes(UniqueIdPtr in);
+
+// Reverse of EncodeUniqueIdBytes.
+Status DecodeUniqueIdBytes(const std::string &unique_id, UniqueIdPtr out);
+
+// For presenting internal IDs for debugging purposes. Visually distinct from
+// UniqueIdToHumanString for external IDs.
+std::string InternalUniqueIdToHumanString(UniqueIdPtr in);
 
 // Reformat a random value down to our "DB session id" format,
 // which is intended to be compact and friendly for use in file names.

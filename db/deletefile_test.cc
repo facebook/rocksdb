@@ -10,9 +10,11 @@
 #ifndef ROCKSDB_LITE
 
 #include <stdlib.h>
+
 #include <map>
 #include <string>
 #include <vector>
+
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/version_set.h"
@@ -55,18 +57,16 @@ class DeleteFileTest : public DBTestBase {
     WriteOptions options;
     options.sync = false;
     ReadOptions roptions;
-    for (int i = startkey; i < (numkeys + startkey) ; i++) {
-      std::string temp = ToString(i);
+    for (int i = startkey; i < (numkeys + startkey); i++) {
+      std::string temp = std::to_string(i);
       Slice key(temp);
       Slice value(temp);
       ASSERT_OK(db_->Put(options, key, value));
     }
   }
 
-  int numKeysInLevels(
-    std::vector<LiveFileMetaData> &metadata,
-    std::vector<int> *keysperlevel = nullptr) {
-
+  int numKeysInLevels(std::vector<LiveFileMetaData>& metadata,
+                      std::vector<int>* keysperlevel = nullptr) {
     if (keysperlevel != nullptr) {
       keysperlevel->resize(numlevels_);
     }
@@ -82,8 +82,7 @@ class DeleteFileTest : public DBTestBase {
       }
       fprintf(stderr, "level %d name %s smallest %s largest %s\n",
               metadata[i].level, metadata[i].name.c_str(),
-              metadata[i].smallestkey.c_str(),
-              metadata[i].largestkey.c_str());
+              metadata[i].smallestkey.c_str(), metadata[i].largestkey.c_str());
     }
     return numKeys;
   }
@@ -214,7 +213,7 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
 
   // this time, we keep an iterator alive
   Reopen(options);
-  Iterator *itr = nullptr;
+  Iterator* itr = nullptr;
   CreateTwoLevels();
   itr = db_->NewIterator(ReadOptions());
   ASSERT_OK(itr->status());
@@ -481,12 +480,12 @@ TEST_F(DeleteFileTest, DeleteFileWithIterator) {
   }
 
   Status status = db_->DeleteFile(level2file);
-  fprintf(stdout, "Deletion status %s: %s\n",
-          level2file.c_str(), status.ToString().c_str());
+  fprintf(stdout, "Deletion status %s: %s\n", level2file.c_str(),
+          status.ToString().c_str());
   ASSERT_OK(status);
   it->SeekToFirst();
   int numKeysIterated = 0;
-  while(it->Valid()) {
+  while (it->Valid()) {
     numKeysIterated++;
     it->Next();
   }

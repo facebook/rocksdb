@@ -39,8 +39,8 @@ class DBTestUniversalCompactionBase
 
 class DBTestUniversalCompaction : public DBTestUniversalCompactionBase {
  public:
-  DBTestUniversalCompaction() :
-      DBTestUniversalCompactionBase("/db_universal_compaction_test") {}
+  DBTestUniversalCompaction()
+      : DBTestUniversalCompactionBase("/db_universal_compaction_test") {}
 };
 
 class DBTestUniversalCompaction2 : public DBTestBase {
@@ -93,7 +93,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
   std::atomic_bool expect_full_compaction_;
   std::atomic_bool expect_manual_compaction_;
 };
-}  // namespace
+}  // anonymous namespace
 
 // Make sure we don't trigger a problem if the trigger condtion is given
 // to be 0, which is invalid.
@@ -549,7 +549,7 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
   Random rnd(301);
   for (int key = 1024 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_OK(Put(1, ToString(key), rnd.RandomString(kTestValueSize)));
+    ASSERT_OK(Put(1, std::to_string(key), rnd.RandomString(kTestValueSize)));
   }
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -563,8 +563,7 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   }
 
   if (compaction_input_file_names.size() == 0) {
-    compaction_input_file_names.push_back(
-        cf_meta.levels[0].files[0].name);
+    compaction_input_file_names.push_back(cf_meta.levels[0].files[0].name);
   }
 
   // expect fail since universal compaction only allow L0 output
@@ -574,28 +573,23 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
                    .ok());
 
   // expect ok and verify the compacted files no longer exist.
-  ASSERT_OK(dbfull()->CompactFiles(
-      CompactionOptions(), handles_[1],
-      compaction_input_file_names, 0));
+  ASSERT_OK(dbfull()->CompactFiles(CompactionOptions(), handles_[1],
+                                   compaction_input_file_names, 0));
 
   dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   VerifyCompactionResult(
-      cf_meta,
-      std::set<std::string>(compaction_input_file_names.begin(),
-          compaction_input_file_names.end()));
+      cf_meta, std::set<std::string>(compaction_input_file_names.begin(),
+                                     compaction_input_file_names.end()));
 
   compaction_input_file_names.clear();
 
   // Pick the first and the last file, expect everything is
   // compacted into one single file.
+  compaction_input_file_names.push_back(cf_meta.levels[0].files[0].name);
   compaction_input_file_names.push_back(
-      cf_meta.levels[0].files[0].name);
-  compaction_input_file_names.push_back(
-      cf_meta.levels[0].files[
-          cf_meta.levels[0].files.size() - 1].name);
-  ASSERT_OK(dbfull()->CompactFiles(
-      CompactionOptions(), handles_[1],
-      compaction_input_file_names, 0));
+      cf_meta.levels[0].files[cf_meta.levels[0].files.size() - 1].name);
+  ASSERT_OK(dbfull()->CompactFiles(CompactionOptions(), handles_[1],
+                                   compaction_input_file_names, 0));
 
   dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   ASSERT_EQ(cf_meta.levels[0].files.size(), 1U);
@@ -604,7 +598,7 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
 TEST_P(DBTestUniversalCompaction, UniversalCompactionTargetLevel) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
-  options.write_buffer_size = 100 << 10;     // 100KB
+  options.write_buffer_size = 100 << 10;  // 100KB
   options.num_levels = 7;
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
@@ -640,9 +634,9 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTargetLevel) {
 class DBTestUniversalCompactionMultiLevels
     : public DBTestUniversalCompactionBase {
  public:
-  DBTestUniversalCompactionMultiLevels() :
-      DBTestUniversalCompactionBase(
-          "/db_universal_compaction_multi_levels_test") {}
+  DBTestUniversalCompactionMultiLevels()
+      : DBTestUniversalCompactionBase(
+            "/db_universal_compaction_multi_levels_test") {}
 };
 
 TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionMultiLevels) {
@@ -725,12 +719,11 @@ INSTANTIATE_TEST_CASE_P(MultiLevels, DBTestUniversalCompactionMultiLevels,
                         ::testing::Combine(::testing::Values(3, 20),
                                            ::testing::Bool()));
 
-class DBTestUniversalCompactionParallel :
-    public DBTestUniversalCompactionBase {
+class DBTestUniversalCompactionParallel : public DBTestUniversalCompactionBase {
  public:
-  DBTestUniversalCompactionParallel() :
-      DBTestUniversalCompactionBase(
-          "/db_universal_compaction_prallel_test") {}
+  DBTestUniversalCompactionParallel()
+      : DBTestUniversalCompactionBase("/db_universal_compaction_prallel_test") {
+  }
 };
 
 TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
@@ -919,8 +912,8 @@ INSTANTIATE_TEST_CASE_P(Parallel, DBTestUniversalCompactionParallel,
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
-  options.write_buffer_size = 105 << 10;    // 105KB
-  options.arena_block_size = 4 << 10;       // 4KB
+  options.write_buffer_size = 105 << 10;     // 105KB
+  options.arena_block_size = 4 << 10;        // 4KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 4;
   options.num_levels = num_levels_;
@@ -951,8 +944,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
 TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
-  options.write_buffer_size = 105 << 10;    // 105KB
-  options.arena_block_size = 4 << 10;       // 4KB
+  options.write_buffer_size = 105 << 10;     // 105KB
+  options.arena_block_size = 4 << 10;        // 4KB
   options.target_file_size_base = 32 << 10;  // 32KB
   // trigger compaction if there are >= 4 files
   options.level0_file_num_compaction_trigger = 4;
@@ -1353,7 +1346,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCFPathUse) {
   cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_3", 500 * 1024);
   cf_opt1.cf_paths.emplace_back(dbname_ + "cf1_4", 1024 * 1024 * 1024);
   option_vector.emplace_back(DBOptions(options), cf_opt1);
-  CreateColumnFamilies({"one"},option_vector[1]);
+  CreateColumnFamilies({"one"}, option_vector[1]);
 
   // Configura CF2 specific paths.
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2", 300 * 1024);
@@ -1361,7 +1354,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCFPathUse) {
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_3", 500 * 1024);
   cf_opt2.cf_paths.emplace_back(dbname_ + "cf2_4", 1024 * 1024 * 1024);
   option_vector.emplace_back(DBOptions(options), cf_opt2);
-  CreateColumnFamilies({"two"},option_vector[2]);
+  CreateColumnFamilies({"two"}, option_vector[2]);
 
   ReopenWithColumnFamilies({"default", "one", "two"}, option_vector);
 
@@ -1566,7 +1559,6 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   verify_func(max_key3);
 }
-
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   if (!Snappy_Supported()) {
@@ -1829,9 +1821,9 @@ INSTANTIATE_TEST_CASE_P(NumLevels, DBTestUniversalCompaction,
 class DBTestUniversalManualCompactionOutputPathId
     : public DBTestUniversalCompactionBase {
  public:
-  DBTestUniversalManualCompactionOutputPathId() :
-      DBTestUniversalCompactionBase(
-          "/db_universal_compaction_manual_pid_test") {}
+  DBTestUniversalManualCompactionOutputPathId()
+      : DBTestUniversalCompactionBase(
+            "/db_universal_compaction_manual_pid_test") {}
 };
 
 TEST_P(DBTestUniversalManualCompactionOutputPathId,
@@ -2236,8 +2228,8 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
-  (void) argc;
-  (void) argv;
+  (void)argc;
+  (void)argv;
   return 0;
 #endif
 }

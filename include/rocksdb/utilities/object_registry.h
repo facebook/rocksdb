@@ -13,6 +13,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/status.h"
@@ -216,6 +217,18 @@ class ObjectLibrary {
   // This method returns the sum of all factories registered for all types.
   // @param num_types returns how many unique types are registered.
   size_t GetFactoryCount(size_t* num_types) const;
+
+  // Returns the number of factories registered for this library
+  // for the input type.
+  // @param num_types returns how many unique types are registered.
+  size_t GetFactoryCount(const std::string& type) const;
+
+  // Returns the registered factory names for the input type
+  // names is updated to include the names for the type
+  void GetFactoryNames(const std::string& type,
+                       std::vector<std::string>* names) const;
+
+  void GetFactoryTypes(std::unordered_set<std::string>* types) const;
 
   void Dump(Logger* logger) const;
 
@@ -496,6 +509,18 @@ class ObjectRegistry {
       return s;
     }
   }
+
+  // Returns the number of factories registered for this library
+  // for the input type.
+  // @param num_types returns how many unique types are registered.
+  size_t GetFactoryCount(const std::string& type) const;
+
+  // Returns the names of registered factories for the input type.
+  // names is updated to include the names for the type
+  void GetFactoryNames(const std::string& type,
+                       std::vector<std::string>* names) const;
+
+  void GetFactoryTypes(std::unordered_set<std::string>* types) const;
 
   // Dump the contents of the registry to the logger
   void Dump(Logger* logger) const;

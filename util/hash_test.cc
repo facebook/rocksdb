@@ -547,7 +547,7 @@ TEST(FastRangeGenericTest, Values) {
             uint16_t{6234});
   // Not recommended for typical use because for example this could fail on
   // some platforms and pass on others:
-  //EXPECT_EQ(FastRangeGeneric(static_cast<unsigned long>(0x80000000),
+  // EXPECT_EQ(FastRangeGeneric(static_cast<unsigned long>(0x80000000),
   //                           uint16_t{12468}),
   //          uint16_t{6234});
 }
@@ -565,9 +565,11 @@ size_t FastRange64(uint64_t hash, size_t range) {
 // Tests for math.h / math128.h (not worth a separate test binary)
 using ROCKSDB_NAMESPACE::BitParity;
 using ROCKSDB_NAMESPACE::BitsSetToOne;
+using ROCKSDB_NAMESPACE::ConstexprFloorLog2;
 using ROCKSDB_NAMESPACE::CountTrailingZeroBits;
 using ROCKSDB_NAMESPACE::DecodeFixed128;
 using ROCKSDB_NAMESPACE::DecodeFixedGeneric;
+using ROCKSDB_NAMESPACE::DownwardInvolution;
 using ROCKSDB_NAMESPACE::EncodeFixed128;
 using ROCKSDB_NAMESPACE::EncodeFixedGeneric;
 using ROCKSDB_NAMESPACE::FloorLog2;
@@ -575,6 +577,8 @@ using ROCKSDB_NAMESPACE::Lower64of128;
 using ROCKSDB_NAMESPACE::Multiply64to128;
 using ROCKSDB_NAMESPACE::Unsigned128;
 using ROCKSDB_NAMESPACE::Upper64of128;
+
+int blah(int x) { return DownwardInvolution(x); }
 
 template <typename T>
 static void test_BitOps() {
@@ -597,10 +601,13 @@ static void test_BitOps() {
     // FloorLog2
     if (v > 0) {
       EXPECT_EQ(FloorLog2(v), i);
+      EXPECT_EQ(ConstexprFloorLog2(v), i);
     }
     if (vm1 > 0) {
       EXPECT_EQ(FloorLog2(vm1), i - 1);
+      EXPECT_EQ(ConstexprFloorLog2(vm1), i - 1);
       EXPECT_EQ(FloorLog2(everyOtherBit & vm1), (i - 1) & ~1);
+      EXPECT_EQ(ConstexprFloorLog2(everyOtherBit & vm1), (i - 1) & ~1);
     }
 
     // CountTrailingZeroBits
@@ -636,8 +643,77 @@ static void test_BitOps() {
       EXPECT_EQ(ReverseBits(vm1), static_cast<T>(rv * ~T{1}));
     }
 #endif
+
+    // DownwardInvolution
+    {
+      T misc = static_cast<T>(/*random*/ 0xc682cd153d0e3279U +
+                              i * /*random*/ 0x9b3972f3bea0baa3U);
+      if constexpr (sizeof(T) > 8) {
+        misc = (misc << 64) | (/*random*/ 0x52af031a38ced62dU +
+                               i * /*random*/ 0x936f803d9752ddc3U);
+      }
+      T misc_masked = misc & vm1;
+      EXPECT_LE(misc_masked, vm1);
+      T di_misc_masked = DownwardInvolution(misc_masked);
+      EXPECT_LE(di_misc_masked, vm1);
+      if (misc_masked > 0) {
+        // Highest-order 1 in same position
+        EXPECT_EQ(FloorLog2(misc_masked), FloorLog2(di_misc_masked));
+      }
+      // Validate involution property on short value
+      EXPECT_EQ(DownwardInvolution(di_misc_masked), misc_masked);
+
+      // Validate involution property on large value
+      T di_misc = DownwardInvolution(misc);
+      EXPECT_EQ(DownwardInvolution(di_misc), misc);
+      // Highest-order 1 in same position
+      if (misc > 0) {
+        EXPECT_EQ(FloorLog2(misc), FloorLog2(di_misc));
+      }
+
+      // Validate distributes over xor.
+      // static_casts to avoid numerical promotion effects.
+      EXPECT_EQ(DownwardInvolution(static_cast<T>(misc_masked ^ vm1)),
+                static_cast<T>(di_misc_masked ^ DownwardInvolution(vm1)));
+      T misc2 = static_cast<T>(misc >> 1);
+      EXPECT_EQ(DownwardInvolution(static_cast<T>(misc ^ misc2)),
+                static_cast<T>(di_misc ^ DownwardInvolution(misc2)));
+
+      // Choose some small number of bits to pull off to test combined
+      // uniqueness guarantee
+      int in_bits = i % 7;
+      unsigned in_mask = (unsigned{1} << in_bits) - 1U;
+      // IMPLICIT: int out_bits = 8 - in_bits;
+      std::vector<bool> seen(256, false);
+      for (int j = 0; j < 255; ++j) {
+        T t_in = misc ^ static_cast<T>(j);
+        unsigned in = static_cast<unsigned>(t_in);
+        unsigned out = static_cast<unsigned>(DownwardInvolution(t_in));
+        unsigned val = ((out << in_bits) | (in & in_mask)) & 255U;
+        EXPECT_FALSE(seen[val]);
+        seen[val] = true;
+      }
+
+      if (i + 8 < int{8 * sizeof(T)}) {
+        // Also test manipulating bits in the middle of input is
+        // bijective in bottom of output
+        seen = std::vector<bool>(256, false);
+        for (int j = 0; j < 255; ++j) {
+          T in = misc ^ (static_cast<T>(j) << i);
+          unsigned val = static_cast<unsigned>(DownwardInvolution(in)) & 255U;
+          EXPECT_FALSE(seen[val]);
+          seen[val] = true;
+        }
+      }
+    }
+
     vm1 = (vm1 << 1) | 1;
   }
+
+  EXPECT_EQ(ConstexprFloorLog2(T{1}), 0);
+  EXPECT_EQ(ConstexprFloorLog2(T{2}), 1);
+  EXPECT_EQ(ConstexprFloorLog2(T{3}), 1);
+  EXPECT_EQ(ConstexprFloorLog2(T{42}), 5);
 }
 
 TEST(MathTest, BitOps) {
@@ -767,9 +843,10 @@ TEST(MathTest, CodingGeneric) {
   EXPECT_EQ(std::string("_12"), std::string(out));
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   fprintf(stderr, "NPHash64 id: %x\n",
           static_cast<int>(ROCKSDB_NAMESPACE::GetSliceNPHash64("RocksDB")));
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 
   return RUN_ALL_TESTS();

@@ -42,9 +42,7 @@ std::string Key1(int i) {
   return buf;
 }
 
-std::string Key2(int i) {
-  return Key1(i) + "_xxx";
-}
+std::string Key2(int i) { return Key1(i) + "_xxx"; }
 
 class ManualCompactionTest : public testing::Test {
  public:
@@ -52,7 +50,7 @@ class ManualCompactionTest : public testing::Test {
     // Get rid of any state from an old run.
     dbname_ = ROCKSDB_NAMESPACE::test::PerThreadDBPath(
         "rocksdb_manual_compaction_test");
-    DestroyDB(dbname_, Options());
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   std::string dbname_;
@@ -102,10 +100,10 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
   for (int iter = 0; iter < 2; ++iter) {
     DB* db;
     Options options;
-    if (iter == 0) { // level compaction
+    if (iter == 0) {  // level compaction
       options.num_levels = 3;
       options.compaction_style = CompactionStyle::kCompactionStyleLevel;
-    } else { // universal compaction
+    } else {  // universal compaction
       options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
     }
     options.create_if_missing = true;
@@ -130,7 +128,7 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
 
     delete options.compaction_filter;
     delete db;
-    DestroyDB(dbname_, options);
+    ASSERT_OK(DestroyDB(dbname_, options));
   }
 }
 
@@ -186,7 +184,7 @@ TEST_F(ManualCompactionTest, Test) {
 
   // close database
   delete db;
-  DestroyDB(dbname_, Options());
+  ASSERT_OK(DestroyDB(dbname_, Options()));
 }
 
 TEST_F(ManualCompactionTest, SkipLevel) {
@@ -298,12 +296,13 @@ TEST_F(ManualCompactionTest, SkipLevel) {
 
   delete filter;
   delete db;
-  DestroyDB(dbname_, options);
+  ASSERT_OK(DestroyDB(dbname_, options));
 }
 
 }  // anonymous namespace
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

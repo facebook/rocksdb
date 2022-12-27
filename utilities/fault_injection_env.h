@@ -85,8 +85,7 @@ class TestWritableFile : public WritableFile {
   virtual Status Flush() override;
   virtual Status Sync() override;
   virtual bool IsSyncThreadSafe() const override { return true; }
-  virtual Status PositionedAppend(const Slice& data,
-                                  uint64_t offset) override {
+  virtual Status PositionedAppend(const Slice& data, uint64_t offset) override {
     return target_->PositionedAppend(data, offset);
   }
   virtual Status PositionedAppend(
@@ -138,6 +137,7 @@ class TestDirectory : public Directory {
   ~TestDirectory() {}
 
   virtual Status Fsync() override;
+  virtual Status Close() override;
 
  private:
   FaultInjectionTestEnv* env_;
@@ -226,8 +226,8 @@ class FaultInjectionTestEnv : public EnvWrapper {
     MutexLock l(&mutex_);
     return filesystem_active_;
   }
-  void SetFilesystemActiveNoLock(bool active,
-      Status error = Status::Corruption("Not active")) {
+  void SetFilesystemActiveNoLock(
+      bool active, Status error = Status::Corruption("Not active")) {
     error.PermitUncheckedError();
     filesystem_active_ = active;
     if (!active) {
@@ -236,7 +236,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
     error.PermitUncheckedError();
   }
   void SetFilesystemActive(bool active,
-      Status error = Status::Corruption("Not active")) {
+                           Status error = Status::Corruption("Not active")) {
     error.PermitUncheckedError();
     MutexLock l(&mutex_);
     SetFilesystemActiveNoLock(active, error);

@@ -49,6 +49,9 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
+// In case defined by Windows headers
+#undef small
+
 namespace ROCKSDB_NAMESPACE {
 class MockEnv;
 
@@ -104,6 +107,9 @@ struct OptionsOverride {
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
   // These will be used only if filter_policy is set
   bool partition_filters = false;
+  // Force using a default block cache. (Setting to false allows ASAN build
+  // use a trivially small block cache for better UAF error detection.)
+  bool full_block_cache = false;
   uint64_t metadata_block_size = 1024;
 
   // Used as a bit mask of individual enums in which to skip an XF test point
@@ -214,9 +220,7 @@ class SpecialEnv : public EnvWrapper {
       Env::IOPriority GetIOPriority() override {
         return base_->GetIOPriority();
       }
-      bool use_direct_io() const override {
-        return base_->use_direct_io();
-      }
+      bool use_direct_io() const override { return base_->use_direct_io(); }
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
@@ -585,6 +589,7 @@ class SpecialEnv : public EnvWrapper {
         ~NoopDirectory() {}
 
         Status Fsync() override { return Status::OK(); }
+        Status Close() override { return Status::OK(); }
       };
 
       result->reset(new NoopDirectory());
@@ -710,6 +715,16 @@ class FileTemperatureTestFS : public FileSystemWrapper {
       MutexLock lock(&mu_);
       requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
       if (s.ok()) {
+        if (opts.temperature != Temperature::kUnknown) {
+          // Be extra picky and don't open if a wrong non-unknown temperature is
+          // provided
+          auto e = current_sst_file_temperatures_.find(number);
+          if (e != current_sst_file_temperatures_.end() &&
+              e->second != opts.temperature) {
+            result->reset();
+            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+          }
+        }
         *result = WrapWithTemperature<FSSequentialFileOwnerWrapper>(
             number, std::move(*result));
       }
@@ -729,6 +744,16 @@ class FileTemperatureTestFS : public FileSystemWrapper {
       MutexLock lock(&mu_);
       requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
       if (s.ok()) {
+        if (opts.temperature != Temperature::kUnknown) {
+          // Be extra picky and don't open if a wrong non-unknown temperature is
+          // provided
+          auto e = current_sst_file_temperatures_.find(number);
+          if (e != current_sst_file_temperatures_.end() &&
+              e->second != opts.temperature) {
+            result->reset();
+            return IOStatus::PathNotFound("Temperature mismatch on " + fname);
+          }
+        }
         *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(
             number, std::move(*result));
       }
@@ -949,6 +974,51 @@ class CacheWrapper : public Cache {
   std::shared_ptr<Cache> target_;
 };
 
+/*
+ * A cache wrapper that tracks certain CacheEntryRole's cache charge, its
+ * peaks and increments
+ *
+ *        p0
+ *       / \   p1
+ *      /   \  /\
+ *     /     \/  \
+ *  a /       b   \
+ * peaks = {p0, p1}
+ * increments = {p1-a, p2-b}
+ */
+template <CacheEntryRole R>
+class TargetCacheChargeTrackingCache : public CacheWrapper {
+ public:
+  explicit TargetCacheChargeTrackingCache(std::shared_ptr<Cache> target);
+
+  using Cache::Insert;
+  Status Insert(const Slice& key, void* value, size_t charge,
+                void (*deleter)(const Slice& key, void* value),
+                Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override;
+
+  using Cache::Release;
+  bool Release(Handle* handle, bool erase_if_last_ref = false) override;
+
+  std::size_t GetCacheCharge() { return cur_cache_charge_; }
+
+  std::deque<std::size_t> GetChargedCachePeaks() { return cache_charge_peaks_; }
+
+  std::size_t GetChargedCacheIncrementSum() {
+    return cache_charge_increments_sum_;
+  }
+
+ private:
+  static const Cache::DeleterFn kNoopDeleter;
+
+  std::size_t cur_cache_charge_;
+  std::size_t cache_charge_peak_;
+  std::size_t cache_charge_increment_;
+  bool last_peak_tracked_;
+  std::deque<std::size_t> cache_charge_peaks_;
+  std::size_t cache_charge_increments_sum_;
+};
+
 class DBTestBase : public testing::Test {
  public:
   // Sequence of option configurations to try
@@ -976,7 +1046,7 @@ class DBTestBase : public testing::Test {
     kUniversalCompactionMultiLevel = 20,
     kCompressedBlockCache = 21,
     kInfiniteMaxOpenFiles = 22,
-    kXXH3Checksum = 23,
+    kCRC32cChecksum = 23,
     kFIFOCompaction = 24,
     kOptimizeFiltersForHits = 25,
     kRowCache = 26,
@@ -1151,10 +1221,12 @@ class DBTestBase : public testing::Test {
   std::vector<std::string> MultiGet(std::vector<int> cfs,
                                     const std::vector<std::string>& k,
                                     const Snapshot* snapshot,
-                                    const bool batched);
+                                    const bool batched,
+                                    const bool async = false);
 
   std::vector<std::string> MultiGet(const std::vector<std::string>& k,
-                                    const Snapshot* snapshot = nullptr);
+                                    const Snapshot* snapshot = nullptr,
+                                    const bool async = false);
 
   uint64_t GetNumSnapshots();
 
@@ -1167,6 +1239,15 @@ class DBTestBase : public testing::Test {
   std::string Contents(int cf = 0);
 
   std::string AllEntriesFor(const Slice& user_key, int cf = 0);
+
+  // Similar to AllEntriesFor but this function also covers reopen with fifo.
+  // Note that test cases with snapshots or entries in memtable should simply
+  // use AllEntriesFor instead as snapshots and entries in memtable will
+  // survive after db reopen.
+  void CheckAllEntriesWithFifoReopen(const std::string& expected_value,
+                                     const Slice& user_key, int cf,
+                                     const std::vector<std::string>& cfs,
+                                     const Options& options);
 
 #ifndef ROCKSDB_LITE
   int NumSortedRuns(int cf = 0);
@@ -1294,6 +1375,8 @@ class DBTestBase : public testing::Test {
 #ifndef ROCKSDB_LITE
   uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
                                               std::string column_family_name);
+
+  uint64_t GetSstSizeHelper(Temperature temperature);
 #endif  // ROCKSDB_LITE
 
   uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {

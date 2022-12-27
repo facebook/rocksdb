@@ -275,6 +275,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void experimentalMempurgeThreshold() {
+    try (final Options opt = new Options()) {
+      final double doubleValue = rand.nextDouble();
+      opt.setExperimentalMempurgeThreshold(doubleValue);
+      assertThat(opt.experimentalMempurgeThreshold()).isEqualTo(doubleValue);
+    }
+  }
+
+  @Test
   public void memtableWholeKeyFiltering() {
     try (final Options opt = new Options()) {
       final boolean booleanValue = rand.nextBoolean();
@@ -1020,6 +1029,18 @@ public class OptionsTest {
             isEqualTo(compressionType);
         assertThat(CompressionType.valueOf("NO_COMPRESSION")).
             isEqualTo(CompressionType.NO_COMPRESSION);
+      }
+    }
+  }
+
+  @Test
+  public void prepopulateBlobCache() {
+    try (final Options options = new Options()) {
+      for (final PrepopulateBlobCache prepopulateBlobCache : PrepopulateBlobCache.values()) {
+        options.setPrepopulateBlobCache(prepopulateBlobCache);
+        assertThat(options.prepopulateBlobCache()).isEqualTo(prepopulateBlobCache);
+        assertThat(PrepopulateBlobCache.valueOf("PREPOPULATE_BLOB_DISABLE"))
+            .isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
       }
     }
   }

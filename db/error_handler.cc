@@ -234,8 +234,8 @@ void ErrorHandler::CancelErrorRecovery() {
   // We'll release the lock before calling sfm, so make sure no new
   // recovery gets scheduled at that point
   auto_recovery_ = false;
-  SstFileManagerImpl* sfm = reinterpret_cast<SstFileManagerImpl*>(
-      db_options_.sst_file_manager.get());
+  SstFileManagerImpl* sfm =
+      reinterpret_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm) {
     // This may or may not cancel a pending recovery
     db_mutex_->Unlock();
@@ -292,8 +292,8 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
   bool found = false;
 
   {
-    auto entry = ErrorSeverityMap.find(std::make_tuple(reason, bg_err.code(),
-          bg_err.subcode(), paranoid));
+    auto entry = ErrorSeverityMap.find(
+        std::make_tuple(reason, bg_err.code(), bg_err.subcode(), paranoid));
     if (entry != ErrorSeverityMap.end()) {
       sev = entry->second;
       found = true;
@@ -301,8 +301,8 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
   }
 
   if (!found) {
-    auto entry = DefaultErrorSeverityMap.find(std::make_tuple(reason,
-          bg_err.code(), paranoid));
+    auto entry = DefaultErrorSeverityMap.find(
+        std::make_tuple(reason, bg_err.code(), paranoid));
     if (entry != DefaultErrorSeverityMap.end()) {
       sev = entry->second;
       found = true;
@@ -357,6 +357,9 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
         new_bg_err.subcode() == IOStatus::SubCode::kSpaceLimit) {
       RecoverFromNoSpace();
     }
+  }
+  if (bg_error_.severity() >= Status::Severity::kHardError) {
+    is_db_stopped_.store(true, std::memory_order_release);
   }
   return bg_error_;
 }
@@ -736,6 +739,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         // the bg_error and notify user.
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverSuccess");
         Status old_bg_error = bg_error_;
+        is_db_stopped_.store(false, std::memory_order_release);
         bg_error_ = Status::OK();
         bg_error_.PermitUncheckedError();
         EventHelpers::NotifyOnErrorRecoveryEnd(
@@ -791,6 +795,9 @@ void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
   }
   if (bg_err.severity() > bg_error_.severity()) {
     bg_error_ = bg_err;
+  }
+  if (bg_error_.severity() >= Status::Severity::kHardError) {
+    is_db_stopped_.store(true, std::memory_order_release);
   }
   return;
 }

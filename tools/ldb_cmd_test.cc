@@ -26,9 +26,9 @@
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 
+using std::map;
 using std::string;
 using std::vector;
-using std::map;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -70,7 +70,7 @@ TEST_F(LdbCmdTest, HexToString) {
     auto actual = ROCKSDB_NAMESPACE::LDBCommand::HexToString(inPair.first);
     auto expected = inPair.second;
     for (unsigned int i = 0; i < actual.length(); i++) {
-      EXPECT_EQ(expected[i], static_cast<int>((signed char) actual[i]));
+      EXPECT_EQ(expected[i], static_cast<int>((signed char)actual[i]));
     }
     auto reverse = ROCKSDB_NAMESPACE::LDBCommand::StringToHex(actual);
     EXPECT_STRCASEEQ(inPair.first.c_str(), reverse.c_str());
@@ -208,7 +208,7 @@ class FileChecksumTestHelper {
     WriteBufferManager wb(options_.db_write_buffer_size);
     ImmutableDBOptions immutable_db_options(options_);
     VersionSet versions(dbname_, &immutable_db_options, sopt, tc.get(), &wb,
-                        &wc, nullptr, nullptr, "");
+                        &wc, nullptr, nullptr, "", "");
     std::vector<std::string> cf_name_list;
     Status s;
     s = versions.ListColumnFamilies(&cf_name_list, dbname_,
@@ -244,7 +244,7 @@ class FileChecksumTestHelper {
           live_files[i].file_checksum_func_name != stored_func_name) {
         return Status::Corruption(
             "Checksum does not match! The file: " +
-            ToString(live_files[i].file_number) +
+            std::to_string(live_files[i].file_number) +
             ". In Manifest, checksum name: " + stored_func_name +
             " and checksum " + stored_checksum +
             ". However, expected checksum name: " +
@@ -889,7 +889,7 @@ TEST_F(LdbCmdTest, LoadCFOptionsAndOverride) {
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
-  DestroyDB(dbname, opts);
+  ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   ColumnFamilyHandle* cf_handle;
@@ -932,12 +932,12 @@ TEST_F(LdbCmdTest, UnsafeRemoveSstFile) {
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath(Env::Default(), "ldb_cmd_test");
-  DestroyDB(dbname, opts);
+  ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   // Create three SST files
   for (size_t i = 0; i < 3; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i), ToString(i)));
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i), std::to_string(i)));
     ASSERT_OK(db->Flush(FlushOptions()));
   }
 
@@ -985,7 +985,8 @@ TEST_F(LdbCmdTest, UnsafeRemoveSstFile) {
   ColumnFamilyOptions cf_opts;
   ASSERT_OK(db->CreateColumnFamily(cf_opts, "cf1", &cf_handle));
   for (size_t i = 3; i < 5; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), cf_handle, ToString(i), ToString(i)));
+    ASSERT_OK(db->Put(WriteOptions(), cf_handle, std::to_string(i),
+                      std::to_string(i)));
     ASSERT_OK(db->Flush(FlushOptions(), cf_handle));
   }
 
@@ -1023,6 +1024,42 @@ TEST_F(LdbCmdTest, UnsafeRemoveSstFile) {
   ASSERT_OK(db->Get(ReadOptions(), handles[0], "0", &val));
   ASSERT_EQ(val, "0");
 
+  // Determine which is the "first" one (most likely to be opened in recovery)
+  sst_files.clear();
+  db->GetLiveFilesMetaData(&sst_files);
+
+  numbers.clear();
+  for (auto& f : sst_files) {
+    numbers.push_back(f.file_number);
+  }
+  ASSERT_EQ(numbers.size(), 3);
+  std::sort(numbers.begin(), numbers.end());
+  to_remove = numbers.front();
+
+  // This time physically delete the file before unsafe_remove
+  {
+    std::string f = dbname + "/" + MakeTableFileName(to_remove);
+    ASSERT_OK(Env::Default()->DeleteFile(f));
+  }
+
+  // Close for unsafe_remove_sst_file
+  for (auto& h : handles) {
+    delete h;
+  }
+  delete db;
+  db = nullptr;
+
+  snprintf(arg4, sizeof(arg4), "%" PRIu64, to_remove);
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+
+  ASSERT_OK(DB::Open(opts, dbname, cfds, &handles, &db));
+
+  ASSERT_OK(db->Get(ReadOptions(), handles[1], "3", &val));
+  ASSERT_EQ(val, "3");
+
+  ASSERT_TRUE(db->Get(ReadOptions(), handles[0], "0", &val).IsNotFound());
+
   for (auto& h : handles) {
     delete h;
   }
@@ -1040,7 +1077,7 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
-  DestroyDB(dbname, opts);
+  ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   std::array<Temperature, 5> kTestTemps = {
@@ -1048,7 +1085,7 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
       Temperature::kWarm, Temperature::kCold};
   std::map<uint64_t, Temperature> number_to_temp;
   for (size_t i = 0; i < kTestTemps.size(); ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i), ToString(i)));
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i), std::to_string(i)));
     ASSERT_OK(db->Flush(FlushOptions()));
 
     std::map<uint64_t, Temperature> current_temps;
@@ -1069,8 +1106,8 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
 
   for (size_t i = 0; i < kTestTemps.size(); ++i) {
     std::string val;
-    ASSERT_OK(db->Get(ReadOptions(), ToString(i), &val));
-    ASSERT_EQ(val, ToString(i));
+    ASSERT_OK(db->Get(ReadOptions(), std::to_string(i), &val));
+    ASSERT_EQ(val, std::to_string(i));
   }
 
   // Still all unknown
@@ -1101,8 +1138,8 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
 
   for (size_t i = 0; i < kTestTemps.size(); ++i) {
     std::string val;
-    ASSERT_OK(db->Get(ReadOptions(), ToString(i), &val));
-    ASSERT_EQ(val, ToString(i));
+    ASSERT_OK(db->Get(ReadOptions(), std::to_string(i), &val));
+    ASSERT_EQ(val, std::to_string(i));
   }
 
   requests.clear();
@@ -1122,8 +1159,8 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
 
   std::string old_dbname = test::PerThreadDBPath(env, "ldb_cmd_test");
   std::string new_dbname = old_dbname + "_2";
-  DestroyDB(old_dbname, opts);
-  DestroyDB(new_dbname, opts);
+  ASSERT_OK(DestroyDB(old_dbname, opts));
+  ASSERT_OK(DestroyDB(new_dbname, opts));
 
   char old_arg[1024];
   snprintf(old_arg, sizeof(old_arg), "--db=%s", old_dbname.c_str());
@@ -1167,7 +1204,7 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
       0, LDBCommandRunner::RunCommand(5, argv4, opts, LDBOptions(), nullptr));
   ASSERT_EQ(
       0, LDBCommandRunner::RunCommand(5, argv5, opts, LDBOptions(), nullptr));
-  DestroyDB(new_dbname, opts);
+  ASSERT_OK(DestroyDB(new_dbname, opts));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

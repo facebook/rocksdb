@@ -12,24 +12,23 @@
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
-WalFilterJniCallback::WalFilterJniCallback(
-    JNIEnv* env, jobject jwal_filter)
+WalFilterJniCallback::WalFilterJniCallback(JNIEnv* env, jobject jwal_filter)
     : JniCallback(env, jwal_filter) {
   // Note: The name of a WalFilter will not change during it's lifetime,
   // so we cache it in a global var
   jmethodID jname_mid = AbstractWalFilterJni::getNameMethodId(env);
-  if(jname_mid == nullptr) {
+  if (jname_mid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
   jstring jname = (jstring)env->CallObjectMethod(m_jcallback_obj, jname_mid);
-  if(env->ExceptionCheck()) {
+  if (env->ExceptionCheck()) {
     // exception thrown
     return;
   }
   jboolean has_exception = JNI_FALSE;
   m_name = JniUtil::copyString(env, jname,
-      &has_exception);  // also releases jname
+                               &has_exception);  // also releases jname
   if (has_exception == JNI_TRUE) {
     // exception thrown
     return;
@@ -37,14 +36,14 @@ WalFilterJniCallback::WalFilterJniCallback(
 
   m_column_family_log_number_map_mid =
       AbstractWalFilterJni::getColumnFamilyLogNumberMapMethodId(env);
-  if(m_column_family_log_number_map_mid == nullptr) {
+  if (m_column_family_log_number_map_mid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
 
   m_log_record_found_proxy_mid =
       AbstractWalFilterJni::getLogRecordFoundProxyMethodId(env);
-  if(m_log_record_found_proxy_mid == nullptr) {
+  if (m_log_record_found_proxy_mid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
@@ -63,7 +62,7 @@ void WalFilterJniCallback::ColumnFamilyLogNumberMap(
       ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(env, &cf_lognumber_map);
   if (jcf_lognumber_map == nullptr) {
     // exception occurred
-    env->ExceptionDescribe(); // print out exception to stderr
+    env->ExceptionDescribe();  // print out exception to stderr
     releaseJniEnv(attached_thread);
     return;
   }
@@ -72,21 +71,19 @@ void WalFilterJniCallback::ColumnFamilyLogNumberMap(
       ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(env, &cf_name_id_map);
   if (jcf_name_id_map == nullptr) {
     // exception occurred
-    env->ExceptionDescribe(); // print out exception to stderr
+    env->ExceptionDescribe();  // print out exception to stderr
     env->DeleteLocalRef(jcf_lognumber_map);
     releaseJniEnv(attached_thread);
     return;
   }
 
-  env->CallVoidMethod(m_jcallback_obj,
-      m_column_family_log_number_map_mid,
-      jcf_lognumber_map,
-      jcf_name_id_map);
+  env->CallVoidMethod(m_jcallback_obj, m_column_family_log_number_map_mid,
+                      jcf_lognumber_map, jcf_name_id_map);
 
   env->DeleteLocalRef(jcf_lognumber_map);
   env->DeleteLocalRef(jcf_name_id_map);
 
-  if(env->ExceptionCheck()) {
+  if (env->ExceptionCheck()) {
     // exception thrown from CallVoidMethod
     env->ExceptionDescribe();  // print out exception to stderr
   }
@@ -94,21 +91,21 @@ void WalFilterJniCallback::ColumnFamilyLogNumberMap(
   releaseJniEnv(attached_thread);
 }
 
- WalFilter::WalProcessingOption WalFilterJniCallback::LogRecordFound(
+WalFilter::WalProcessingOption WalFilterJniCallback::LogRecordFound(
     unsigned long long log_number, const std::string& log_file_name,
     const WriteBatch& batch, WriteBatch* new_batch, bool* batch_changed) {
   jboolean attached_thread = JNI_FALSE;
   JNIEnv* env = getJniEnv(&attached_thread);
   if (env == nullptr) {
-    return  WalFilter::WalProcessingOption::kCorruptedRecord;
+    return WalFilter::WalProcessingOption::kCorruptedRecord;
   }
-  
+
   jstring jlog_file_name = JniUtil::toJavaString(env, &log_file_name);
   if (jlog_file_name == nullptr) {
     // exception occcurred
-      env->ExceptionDescribe(); // print out exception to stderr
+    env->ExceptionDescribe();  // print out exception to stderr
     releaseJniEnv(attached_thread);
-    return  WalFilter::WalProcessingOption::kCorruptedRecord;
+    return WalFilter::WalProcessingOption::kCorruptedRecord;
   }
 
   jshort jlog_record_found_result = env->CallShortMethod(
@@ -122,7 +119,7 @@ void WalFilterJniCallback::ColumnFamilyLogNumberMap(
     // exception thrown from CallShortMethod
     env->ExceptionDescribe();  // print out exception to stderr
     releaseJniEnv(attached_thread);
-    return  WalFilter::WalProcessingOption::kCorruptedRecord;
+    return WalFilter::WalProcessingOption::kCorruptedRecord;
   }
 
   // unpack WalProcessingOption and batch_changed from jlog_record_found_result
@@ -137,8 +134,6 @@ void WalFilterJniCallback::ColumnFamilyLogNumberMap(
       jwal_processing_option_value);
 }
 
-const char* WalFilterJniCallback::Name() const {
-  return m_name.get();
-}
+const char* WalFilterJniCallback::Name() const { return m_name.get(); }
 
 }  // namespace ROCKSDB_NAMESPACE

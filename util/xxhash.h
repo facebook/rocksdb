@@ -5,14 +5,18 @@
 
 /* BEGIN RocksDB customizations */
 #ifndef XXH_STATIC_LINKING_ONLY
-#define XXH_STATIC_LINKING_ONLY 1 /* using xxhash.cc */
-#endif // !defined(XXH_STATIC_LINKING_ONLY)
+// Using compiled xxhash.cc
+#define XXH_STATIC_LINKING_ONLY 1
+#endif  // !defined(XXH_STATIC_LINKING_ONLY)
 #ifndef XXH_NAMESPACE
 #define XXH_NAMESPACE ROCKSDB_
-#endif // !defined(XXH_NAMESPACE)
-#include "port/lang.h" // for FALLTHROUGH_INTENDED, inserted as appropriate
+#endif  // !defined(XXH_NAMESPACE)
+
+// for FALLTHROUGH_INTENDED, inserted as appropriate
+#include "port/lang.h"
 /* END RocksDB customizations */
 
+// clang-format off
 /*
  * xxHash - Extremely Fast Hash algorithm
  * Header File
@@ -3673,7 +3677,7 @@ XXH3_initCustomSecret_avx512(void* XXH_RESTRICT customSecret, xxh_u64 seed64)
         int i;
         for (i=0; i < nbRounds; ++i) {
             /* GCC has a bug, _mm512_stream_load_si512 accepts 'void*', not 'void const*',
-             * this will warn "discards ‘const’ qualifier". */
+             * this will warn "discards 'const' qualifier". */
             union {
                 XXH_ALIGN(64) const __m512i* cp;
                 XXH_ALIGN(64) void* p;

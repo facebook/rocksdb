@@ -11,8 +11,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class TimedEnvTest : public testing::Test {
-};
+class TimedEnvTest : public testing::Test {};
 
 TEST_F(TimedEnvTest, BasicTest) {
   SetPerfLevel(PerfLevel::kEnableTime);
@@ -29,6 +28,7 @@ TEST_F(TimedEnvTest, BasicTest) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

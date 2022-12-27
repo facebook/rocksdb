@@ -17,6 +17,7 @@
 #include <sstream>
 
 #include "db/dbformat.h"
+#include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/slice.h"
@@ -28,7 +29,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 class BytewiseComparatorImpl : public Comparator {
  public:
-  BytewiseComparatorImpl() { }
+  BytewiseComparatorImpl() {}
   static const char* kClassName() { return "leveldb.BytewiseComparator"; }
   const char* Name() const override { return kClassName(); }
 
@@ -96,7 +97,7 @@ class BytewiseComparatorImpl : public Comparator {
       const uint8_t byte = (*key)[i];
       if (byte != static_cast<uint8_t>(0xff)) {
         (*key)[i] = byte + 1;
-        key->resize(i+1);
+        key->resize(i + 1);
         return;
       }
     }
@@ -146,7 +147,7 @@ class BytewiseComparatorImpl : public Comparator {
 
 class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
  public:
-  ReverseBytewiseComparatorImpl() { }
+  ReverseBytewiseComparatorImpl() {}
 
   static const char* kClassName() {
     return "rocksdb.ReverseBytewiseComparator";
@@ -206,6 +207,16 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
 
   void FindShortSuccessor(std::string* /*key*/) const override {
     // Don't do anything for simplicity.
+  }
+
+  bool IsSameLengthImmediateSuccessor(const Slice& s,
+                                      const Slice& t) const override {
+    // Always returning false to prevent surfacing design flaws in
+    // auto_prefix_mode
+    (void)s, (void)t;
+    return false;
+    // "Correct" implementation:
+    // return BytewiseComparatorImpl::IsSameLengthImmediateSuccessor(t, s);
   }
 
   bool CanKeysWithDifferentByteContentsBeEqual() const override {
@@ -287,20 +298,21 @@ class ComparatorWithU64TsImpl : public Comparator {
   TComparator cmp_without_ts_;
 };
 
-}// namespace
+}  // namespace
 
 const Comparator* BytewiseComparator() {
-  static BytewiseComparatorImpl bytewise;
+  STATIC_AVOID_DESTRUCTION(BytewiseComparatorImpl, bytewise);
   return &bytewise;
 }
 
 const Comparator* ReverseBytewiseComparator() {
-  static ReverseBytewiseComparatorImpl rbytewise;
+  STATIC_AVOID_DESTRUCTION(ReverseBytewiseComparatorImpl, rbytewise);
   return &rbytewise;
 }
 
 const Comparator* BytewiseComparatorWithU64Ts() {
-  static ComparatorWithU64TsImpl<BytewiseComparatorImpl> comp_with_u64_ts;
+  STATIC_AVOID_DESTRUCTION(ComparatorWithU64TsImpl<BytewiseComparatorImpl>,
+                           comp_with_u64_ts);
   return &comp_with_u64_ts;
 }
 

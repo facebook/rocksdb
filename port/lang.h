@@ -11,9 +11,15 @@
 #elif defined(__GNUC__) && __GNUC__ >= 7
 #define FALLTHROUGH_INTENDED [[gnu::fallthrough]]
 #else
-#define FALLTHROUGH_INTENDED do {} while (0)
+#define FALLTHROUGH_INTENDED \
+  do {                       \
+  } while (0)
 #endif
 #endif
+
+#define DECLARE_DEFAULT_MOVES(Name) \
+  Name(Name&&) noexcept = default;  \
+  Name& operator=(Name&&) = default
 
 // ASAN (Address sanitizer)
 

@@ -23,12 +23,11 @@ namespace ROCKSDB_NAMESPACE {
 class LogFileImpl : public LogFile {
  public:
   LogFileImpl(uint64_t logNum, WalFileType logType, SequenceNumber startSeq,
-              uint64_t sizeBytes) :
-    logNumber_(logNum),
-    type_(logType),
-    startSequence_(startSeq),
-    sizeFileBytes_(sizeBytes) {
-  }
+              uint64_t sizeBytes)
+      : logNumber_(logNum),
+        type_(logType),
+        startSequence_(startSeq),
+        sizeFileBytes_(sizeBytes) {}
 
   std::string PathName() const override {
     if (type_ == kArchivedLogFile) {
@@ -45,7 +44,7 @@ class LogFileImpl : public LogFile {
 
   uint64_t SizeFileBytes() const override { return sizeFileBytes_; }
 
-  bool operator < (const LogFile& that) const {
+  bool operator<(const LogFile& that) const {
     return LogNumber() < that.LogNumber();
   }
 
@@ -54,7 +53,6 @@ class LogFileImpl : public LogFile {
   WalFileType type_;
   SequenceNumber startSequence_;
   uint64_t sizeFileBytes_;
-
 };
 
 class TransactionLogIteratorImpl : public TransactionLogIterator {
@@ -81,6 +79,13 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   const EnvOptions& soptions_;
   SequenceNumber starting_sequence_number_;
   std::unique_ptr<VectorLogPtr> files_;
+  // Used only to get latest seq. num
+  // TODO(icanadi) can this be just a callback?
+  VersionSet const* const versions_;
+  const bool seq_per_batch_;
+  std::shared_ptr<IOTracer> io_tracer_;
+
+  // State variables
   bool started_;
   bool is_valid_;  // not valid when it starts of.
   Status current_status_;
@@ -104,14 +109,11 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   SequenceNumber
       current_batch_seq_;  // sequence number at start of current batch
   SequenceNumber current_last_seq_;  // last sequence in the current batch
-  // Used only to get latest seq. num
-  // TODO(icanadi) can this be just a callback?
-  VersionSet const* const versions_;
-  const bool seq_per_batch_;
   // Reads from transaction log only if the writebatch record has been written
   bool RestrictedRead(Slice* record);
-  // Seeks to startingSequenceNumber reading from startFileIndex in files_.
-  // If strict is set,then must get a batch starting with startingSequenceNumber
+  // Seeks to starting_sequence_number_ reading from start_file_index in files_.
+  // If strict is set, then must get a batch starting with
+  // starting_sequence_number_.
   void SeekToStartSequence(uint64_t start_file_index = 0, bool strict = false);
   // Implementation of Next. SeekToStartSequence calls it internally with
   // internal=true to let it find next entry even if it has to jump gaps because
@@ -120,10 +122,9 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   void NextImpl(bool internal = false);
   // Check if batch is expected, else return false
   bool IsBatchExpected(const WriteBatch* batch, SequenceNumber expected_seq);
-  // Update current batch if a continuous batch is found, else return false
+  // Update current batch if a continuous batch is found.
   void UpdateCurrentWriteBatch(const Slice& record);
   Status OpenLogReader(const LogFile* file);
-  std::shared_ptr<IOTracer> io_tracer_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

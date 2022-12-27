@@ -43,6 +43,7 @@ class CompactionFilter : public Customizable {
     kRemoveAndSkipUntil,
     kChangeBlobIndex,  // used internally by BlobDB.
     kIOError,          // used internally by BlobDB.
+    kPurge,            // used for keys that can only be SingleDelete'ed
     kUndetermined,
   };
 
@@ -162,6 +163,7 @@ class CompactionFilter : public Customizable {
   // is a write conflict and may allow a Transaction to Commit that should have
   // failed. Instead, it is better to implement any Merge filtering inside the
   // MergeOperator.
+  // key includes timestamp if user-defined timestamp is enabled.
   virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
                             const Slice& existing_value, std::string* new_value,
                             std::string* /*skip_until*/) const {

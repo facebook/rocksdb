@@ -13,8 +13,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-TransactionNotifierJniCallback::TransactionNotifierJniCallback(JNIEnv* env,
-    jobject jtransaction_notifier) : JniCallback(env, jtransaction_notifier) {
+TransactionNotifierJniCallback::TransactionNotifierJniCallback(
+    JNIEnv* env, jobject jtransaction_notifier)
+    : JniCallback(env, jtransaction_notifier) {
   // we cache the method id for the JNI callback
   m_jsnapshot_created_methodID =
       AbstractTransactionNotifierJni::getSnapshotCreatedMethodId(env);
@@ -29,7 +30,7 @@ void TransactionNotifierJniCallback::SnapshotCreated(
   env->CallVoidMethod(m_jcallback_obj, m_jsnapshot_created_methodID,
                       GET_CPLUSPLUS_POINTER(newSnapshot));
 
-  if(env->ExceptionCheck()) {
+  if (env->ExceptionCheck()) {
     // exception thrown from CallVoidMethod
     env->ExceptionDescribe();  // print out exception to stderr
     releaseJniEnv(attached_thread);
