@@ -366,20 +366,40 @@ class MemTableList {
   uint64_t PrecomputeMinLogContainingPrepSection(
       const std::unordered_set<MemTable*>* memtables_to_flush = nullptr);
 
-  uint64_t GetEarliestMemTableID() const {
+  uint64_t GetEarliestMemTableID(bool memid_reused) const {
     auto& memlist = current_->memlist_;
-    if (memlist.empty()) {
-      return std::numeric_limits<uint64_t>::max();
+    if (!memid_reused) {
+      if (memlist.empty()) {
+        return std::numeric_limits<uint64_t>::max();
+      }
+      return memlist.back()->GetID();
     }
-    return memlist.back()->GetID();
+
+    uint64_t min_id = std::numeric_limits<uint64_t>::max();
+    for (auto mem : memlist) {
+      if (mem->GetID() < min_id) {
+        min_id = mem->GetID();
+      }
+    }
+    return min_id;
   }
 
-  uint64_t GetLatestMemTableID() const {
+  uint64_t GetLatestMemTableID(bool memid_reused) const {
     auto& memlist = current_->memlist_;
-    if (memlist.empty()) {
-      return 0;
+    if (!memid_reused) {
+      if (memlist.empty()) {
+        return 0;
+      }
+      return memlist.front()->GetID();
     }
-    return memlist.front()->GetID();
+
+    uint64_t max_id = 0;
+    for (auto mem : memlist) {
+      if (mem->GetID() > max_id) {
+        max_id = mem->GetID();
+      }
+    }
+    return max_id;
   }
 
   void AssignAtomicFlushSeq(const SequenceNumber& seq) {

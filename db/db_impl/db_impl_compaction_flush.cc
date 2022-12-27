@@ -193,7 +193,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // Recording the max memtable ID ensures that the flush job does not flush
   // a memtable without knowing such snapshot(s).
   uint64_t max_memtable_id = needs_to_sync_closed_wals
-                                 ? cfd->imm()->GetLatestMemTableID()
+                                 ? cfd->GetLatestImmTableID()
                                  : std::numeric_limits<uint64_t>::max();
 
   // If needs_to_sync_closed_wals is false, then the flush job will pick ALL
@@ -621,14 +621,14 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           // If the column family is dropped, then do not wait.
           continue;
         } else if (!mems.empty() &&
-                   cfds[i]->imm()->GetEarliestMemTableID() < mems[0]->GetID()) {
+                   cfds[i]->GetEarliestImmTableID() < mems[0]->GetID()) {
           // If a flush job needs to install the flush result for mems and
           // mems[0] is not the earliest memtable, it means another thread must
           // be installing flush results for the same column family, then the
           // current thread needs to wait.
           ready = false;
           break;
-        } else if (mems.empty() && cfds[i]->imm()->GetEarliestMemTableID() <=
+        } else if (mems.empty() && cfds[i]->GetEarliestImmTableID() <=
                                        bg_flush_args[i].max_memtable_id_) {
           // If a flush job does not need to install flush results, then it has
           // to wait until all memtables up to max_memtable_id_ (inclusive) are
@@ -2062,7 +2062,7 @@ void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
       // cfd may be null, see DBImpl::ScheduleFlushes
       continue;
     }
-    uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID();
+    uint64_t max_memtable_id = cfd->GetLatestImmTableID();
     req->emplace_back(cfd, max_memtable_id);
   }
 }
@@ -2123,7 +2123,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
           !cached_recoverable_state_empty_.load()) {
         FlushRequest req{{cfd, flush_memtable_id}};
         flush_reqs.emplace_back(std::move(req));
-        memtable_ids_to_wait.emplace_back(cfd->imm()->GetLatestMemTableID());
+        memtable_ids_to_wait.emplace_back(cfd->GetLatestImmTableID());
       }
       if (immutable_db_options_.persist_stats_to_disk &&
           flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
@@ -2151,8 +2151,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
             s = SwitchMemtable(cfd_stats, &context);
             FlushRequest req{{cfd_stats, flush_memtable_id}};
             flush_reqs.emplace_back(std::move(req));
-            memtable_ids_to_wait.emplace_back(
-                cfd->imm()->GetLatestMemTableID());
+            memtable_ids_to_wait.emplace_back(cfd->GetLatestImmTableID());
           }
         }
       }
@@ -2362,7 +2361,7 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
       }
 
       uint64_t earliest_memtable_id =
-          std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
+          std::min(cfd->mem()->GetID(), cfd->GetEarliestImmTableID());
       if (earliest_memtable_id > orig_active_memtable_id) {
         // We waited so long that the memtable we were originally waiting on was
         // flushed.
@@ -2447,8 +2446,7 @@ Status DBImpl::WaitForFlushMemTables(
         ++num_dropped;
       } else if (cfds[i]->imm()->NumNotFlushed() == 0 ||
                  (flush_memtable_ids[i] != nullptr &&
-                  cfds[i]->imm()->GetEarliestMemTableID() >
-                      *flush_memtable_ids[i])) {
+                  cfds[i]->GetEarliestImmTableID() > *flush_memtable_ids[i])) {
         ++num_finished;
       }
     }

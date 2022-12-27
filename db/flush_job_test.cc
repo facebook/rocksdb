@@ -452,8 +452,8 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
     ASSERT_EQ(largest_seqs[k], file_meta.fd.largest_seqno);
     // Verify that imm is empty
     ASSERT_EQ(std::numeric_limits<uint64_t>::max(),
-              all_cfds[k]->imm()->GetEarliestMemTableID());
-    ASSERT_EQ(0, all_cfds[k]->imm()->GetLatestMemTableID());
+              all_cfds[k]->GetEarliestImmTableID());
+    ASSERT_EQ(0, all_cfds[k]->GetLatestImmTableID());
     ++k;
   }
 

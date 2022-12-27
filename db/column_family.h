@@ -351,6 +351,14 @@ class ColumnFamilyData {
   MemTableList* imm() { return &imm_; }
   MemTable* mem() { return mem_; }
 
+  uint64_t GetLatestImmTableID() {
+    return imm()->GetLatestMemTableID(GetMempurgeUsed());
+  }
+
+  uint64_t GetEarliestImmTableID() {
+    return imm()->GetEarliestMemTableID(GetMempurgeUsed());
+  }
+
   bool IsEmpty() {
     return mem()->GetFirstSequenceNumber() == 0 && imm()->NumNotFlushed() == 0;
   }

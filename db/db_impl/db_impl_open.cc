@@ -1480,8 +1480,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   assert(cfd);
   assert(cfd->imm());
   // The immutable memtable list must be empty.
-  assert(std::numeric_limits<uint64_t>::max() ==
-         cfd->imm()->GetEarliestMemTableID());
+  assert(std::numeric_limits<uint64_t>::max() == cfd->GetEarliestImmTableID());
 
   const uint64_t start_micros = immutable_db_options_.clock->NowMicros();
 

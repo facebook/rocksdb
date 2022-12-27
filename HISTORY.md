@@ -15,6 +15,7 @@
 * Fixed a bug in LockWAL() leading to re-locking mutex (#11020).
 * Fixed a heap use after free bug in async scan prefetching when the scan thread and another thread try to read and load the same seek block into cache.
 * Fixed a heap use after free in async scan prefetching if dictionary compression is enabled, in which case sync read of the compression dictionary gets mixed with async prefetching
+* Fixed a bug in `GetEarliestMemTableID()` and `GetLatestMemTableID()`, which is blame for (#9151). When mempurge is ever used, the immutable memtable list is no longer sorted in descending order, so we have to scan it to get the appropriate value.
 
 ### New Features
 * When an SstPartitionerFactory is configured, CompactRange() now automatically selects for compaction any files overlapping a partition boundary that is in the compaction range, even if no actual entries are in the requested compaction range. With this feature, manual compaction can be used to (re-)establish SST partition points when SstPartitioner changes, without a full compaction.

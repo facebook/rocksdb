@@ -816,7 +816,9 @@ Status InstallMemtableAtomicFlushResults(
     const auto* imm =
         (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);
     if (!mems_list[k]->empty()) {
-      assert((*mems_list[k])[0]->GetID() == imm->GetEarliestMemTableID());
+      // If atomic flush feature is enabled, then mempurge feature must have
+      // been disabled, hence no memtable id is reused.
+      assert((*mems_list[k])[0]->GetID() == imm->GetEarliestMemTableID(false));
     }
 #endif
     assert(nullptr != file_metas[k]);
