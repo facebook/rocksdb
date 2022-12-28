@@ -79,6 +79,12 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
     opts.timeout = ro.io_timeout;
   }
 
+  if (!ro.fill_cache) {
+    // Key missing -> fill_cache enabled. Only setting it explicitly if
+    // !fill_cache for performance reasons
+    opts.property_bag.try_emplace("ro.fill_cache", "false");
+  }
+
   opts.rate_limiter_priority = ro.rate_limiter_priority;
   return IOStatus::OK();
 }
