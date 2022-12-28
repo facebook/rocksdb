@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
-#include "db_stress_tool/db_stress_shared_state.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "utilities/fault_injection_fs.h"
