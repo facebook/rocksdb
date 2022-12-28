@@ -276,7 +276,7 @@ inline BackupEngineOptions::ShareFilesNaming operator|(
 // Identifying information about a backup shared file that is (or might be)
 // excluded from a backup using exclude_files_callback.
 struct BackupExcludedFileInfo {
-  BackupExcludedFileInfo(const std::string& _relative_file)
+  explicit BackupExcludedFileInfo(const std::string& _relative_file)
       : relative_file(_relative_file) {}
 
   // File name and path relative to the backup dir.
@@ -285,7 +285,7 @@ struct BackupExcludedFileInfo {
 
 // An auxiliary structure for exclude_files_callback
 struct MaybeExcludeBackupFile {
-  MaybeExcludeBackupFile(BackupExcludedFileInfo&& _info)
+  explicit MaybeExcludeBackupFile(BackupExcludedFileInfo&& _info)
       : info(std::move(_info)) {}
 
   // Identifying information about a backup shared file that could be excluded
@@ -405,8 +405,8 @@ struct BackupInfo {
 
   BackupInfo() {}
 
-  BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size,
-             uint32_t _number_files, const std::string& _app_metadata)
+  explicit BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size,
+                      uint32_t _number_files, const std::string& _app_metadata)
       : backup_id(_backup_id),
         timestamp(_timestamp),
         size(_size),
@@ -421,8 +421,8 @@ class BackupStatistics {
     number_fail_backup = 0;
   }
 
-  BackupStatistics(uint32_t _number_success_backup,
-                   uint32_t _number_fail_backup)
+  explicit BackupStatistics(uint32_t _number_success_backup,
+                            uint32_t _number_fail_backup)
       : number_success_backup(_number_success_backup),
         number_fail_backup(_number_fail_backup) {}
 

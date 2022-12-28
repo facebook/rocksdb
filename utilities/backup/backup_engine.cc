@@ -1524,7 +1524,8 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
     std::vector<MaybeExcludeBackupFile> maybe_exclude_files;
     maybe_exclude_files.reserve(count);
     for (auto& e : excludable_items) {
-      maybe_exclude_files.emplace_back(e.second.dst_relative);
+      maybe_exclude_files.emplace_back(
+          BackupExcludedFileInfo(e.second.dst_relative));
     }
     if (count > 0) {
       try {
