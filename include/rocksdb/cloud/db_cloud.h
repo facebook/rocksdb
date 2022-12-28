@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/stackable_db.h"
 

@@ -35,8 +35,8 @@ class RemoteCompactionTest : public testing::Test {
     base_env_ = Env::Default();
     dbname_ = test::TmpDir() + "/db_cloud";
     clone_dir_ = test::TmpDir() + "/ctest";
-    cloud_env_options_.TEST_Initialize("dbcloud.", dbname_);
-    cloud_env_options_.keep_local_sst_files = true;
+    cloud_fs_options_.TEST_Initialize("dbcloud.", dbname_);
+    cloud_fs_options_.keep_local_sst_files = true;
 
     options_.create_if_missing = true;
     options_.create_missing_column_families = true;
@@ -57,12 +57,12 @@ class RemoteCompactionTest : public testing::Test {
     ASSERT_TRUE(!aenv_);
 
     // check cloud credentials
-    ASSERT_TRUE(cloud_env_options_.credentials.HasValid().ok());
+    ASSERT_TRUE(cloud_fs_options_.credentials.HasValid().ok());
 
     CloudFileSystem* afs = nullptr;
     // create a dummy aws env
     ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
-                                                cloud_env_options_,
+                                                cloud_fs_options_,
                                                 options_.info_log, &afs));
     // delete all pre-existing contents from the bucket
     auto st =
@@ -99,7 +99,7 @@ class RemoteCompactionTest : public testing::Test {
   void CreateCloudEnv() {
     CloudFileSystem* afs;
     ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
-                                                cloud_env_options_,
+                                                cloud_fs_options_,
                                                 options_.info_log, &afs));
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
@@ -111,7 +111,7 @@ class RemoteCompactionTest : public testing::Test {
 
   // Open database via the cloud interface
   void OpenDB() {
-    ASSERT_TRUE(cloud_env_options_.credentials.HasValid().ok());
+    ASSERT_TRUE(cloud_fs_options_.credentials.HasValid().ok());
 
     // Create new cloud env
     CreateCloudEnv();
@@ -152,7 +152,7 @@ class RemoteCompactionTest : public testing::Test {
 
     // If there is no destination bucket, then the clone needs to copy
     // all sst fies from source bucket to local dir
-    CloudEnvOptions copt = cloud_env_options_;
+    auto copt = cloud_fs_options_;
     if (dest_bucket_name == copt.src_bucket.GetBucketName()) {
       copt.dest_bucket = copt.src_bucket;
     } else {
@@ -332,7 +332,7 @@ class RemoteCompactionTest : public testing::Test {
   Options options_;
   std::string dbname_;
   std::string clone_dir_;
-  CloudEnvOptions cloud_env_options_;
+  CloudFileSystemOptions cloud_fs_options_;
   std::string dbid_;
   std::string persistent_cache_path_;
   uint64_t persistent_cache_size_gb_;
@@ -371,7 +371,7 @@ TEST_F(RemoteCompactionTest, BasicTest) {
     // This is true clone and should have all the contents of the masterdb
     std::unique_ptr<Env> env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB(clone_local_dir, cloud_env_options_.src_bucket.GetBucketName(),
+    CloneDB(clone_local_dir, cloud_fs_options_.src_bucket.GetBucketName(),
             "clone1_path", &cloud_db, &env);
 
     // check that the original kv appears in the clone
@@ -449,7 +449,7 @@ TEST_F(RemoteCompactionTest, ColumnFamilyTest) {
     // This is true clone and should have all the contents of the masterdb
     std::unique_ptr<Env> env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB(clone_local_dir, cloud_env_options_.src_bucket.GetBucketName(),
+    CloneDB(clone_local_dir, cloud_fs_options_.src_bucket.GetBucketName(),
             "clone1_path", &cloud_db, &env);
 
     // check that the original kv appears in the clone

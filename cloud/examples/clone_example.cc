@@ -36,7 +36,7 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
                const std::string& src_object_path,
                const std::string& dest_bucket,
                const std::string& dest_object_path,
-               const CloudEnvOptions& cloud_env_options,
+               const CloudFileSystemOptions& cloud_fs_options,
                std::unique_ptr<DB>* cloud_db, std::unique_ptr<Env>* cloud_env) {
   // The local directory where the clone resides
   std::string cname = kClonePath + "/" + clone_name;
@@ -45,7 +45,7 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
   CloudFileSystem* cfs;
   Status st = CloudFileSystem::NewAwsFileSystem(
       FileSystem::Default(), src_bucket, src_object_path, kRegion, dest_bucket,
-      dest_object_path, kRegion, cloud_env_options, nullptr, &cfs);
+      dest_object_path, kRegion, cloud_fs_options, nullptr, &cfs);
   if (!st.ok()) {
     fprintf(stderr,
             "Unable to create an AWS environment with "
@@ -80,11 +80,11 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
 
 int main() {
   // cloud environment config options here
-  CloudEnvOptions cloud_env_options;
+  CloudFileSystemOptions cloud_fs_options;
 
-  cloud_env_options.credentials.InitializeSimple(
+  cloud_fs_options.credentials.InitializeSimple(
       getenv("AWS_ACCESS_KEY_ID"), getenv("AWS_SECRET_ACCESS_KEY"));
-  if (!cloud_env_options.credentials.HasValid().ok()) {
+  if (!cloud_fs_options.credentials.HasValid().ok()) {
     fprintf(
         stderr,
         "Please set env variables "
@@ -103,14 +103,14 @@ int main() {
   const std::string bucketName = bucketPrefix + kBucketSuffix;
 
   // Needed if using bucket prefix other than the default "rockset."
-  cloud_env_options.src_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
-  cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
+  cloud_fs_options.src_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
+  cloud_fs_options.dest_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
 
   // Create a new AWS cloud env Status
   CloudFileSystem* cfs;
   Status s = CloudFileSystem::NewAwsFileSystem(
       FileSystem::Default(), kBucketSuffix, kDBPath, kRegion, kBucketSuffix,
-      kDBPath, kRegion, cloud_env_options, nullptr, &cfs);
+      kDBPath, kRegion, cloud_fs_options, nullptr, &cfs);
   if (!s.ok()) {
     fprintf(stderr, "Unable to create cloud env in bucket %s. %s\n",
             bucketName.c_str(), s.ToString().c_str());
@@ -158,7 +158,7 @@ int main() {
   std::unique_ptr<Env> clone_env;
 
   s = CloneDB("clone1", kBucketSuffix, kDBPath, kBucketSuffix, kClonePath,
-              cloud_env_options, &clone_db, &clone_env);
+              cloud_fs_options, &clone_db, &clone_env);
   if (!s.ok()) {
     fprintf(stderr, "Unable to clone db at path %s in bucket %s. %s\n",
             kDBPath.c_str(), bucketName.c_str(), s.ToString().c_str());

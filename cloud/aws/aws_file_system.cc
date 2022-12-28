@@ -45,7 +45,7 @@ static const std::unordered_map<std::string, AwsAccessType> AwsAccessTypeMap = {
 
 AwsCloudAccessCredentials::AwsCloudAccessCredentials() {
   std::string type_str;
-  if (CloudEnvOptions::GetNameFromEnvironment(
+  if (CloudFileSystemOptions::GetNameFromEnvironment(
           "ROCKSDB_AWS_ACCESS_TYPE", "rocksdb_aws_access_type", &type_str)) {
     ParseEnum<AwsAccessType>(AwsAccessTypeMap, type_str, &type);
   } else if (getenv("AWS_ACCESS_KEY_ID") != nullptr &&
@@ -173,9 +173,9 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
 // access_key_id and secret_key.
 //
 AwsFileSystem::AwsFileSystem(const std::shared_ptr<FileSystem>& underlying_fs,
-                             const CloudEnvOptions& _cloud_env_options,
+                             const CloudFileSystemOptions& _cloud_fs_options,
                              const std::shared_ptr<Logger>& info_log)
-    : CloudFileSystemImpl(_cloud_env_options, underlying_fs, info_log) {
+    : CloudFileSystemImpl(_cloud_fs_options, underlying_fs, info_log) {
   Aws::InitAPI(Aws::SDKOptions());
 }
 
@@ -183,26 +183,26 @@ AwsFileSystem::AwsFileSystem(const std::shared_ptr<FileSystem>& underlying_fs,
 // standard-region which might not satisfy read-your-own-writes. So,
 // explicitly make the default region be us-west-2.
 Status AwsFileSystem::PrepareOptions(const ConfigOptions& options) {
-  if (cloud_env_options.src_bucket.GetRegion().empty() ||
-      cloud_env_options.dest_bucket.GetRegion().empty()) {
+  if (cloud_fs_options.src_bucket.GetRegion().empty() ||
+      cloud_fs_options.dest_bucket.GetRegion().empty()) {
     std::string region;
-    if (!CloudEnvOptions::GetNameFromEnvironment(
+    if (!CloudFileSystemOptions::GetNameFromEnvironment(
             "AWS_DEFAULT_REGION", "aws_default_region", &region)) {
       region = default_region;
     }
-    if (cloud_env_options.src_bucket.GetRegion().empty()) {
-      cloud_env_options.src_bucket.SetRegion(region);
+    if (cloud_fs_options.src_bucket.GetRegion().empty()) {
+      cloud_fs_options.src_bucket.SetRegion(region);
     }
-    if (cloud_env_options.dest_bucket.GetRegion().empty()) {
-      cloud_env_options.dest_bucket.SetRegion(region);
+    if (cloud_fs_options.dest_bucket.GetRegion().empty()) {
+      cloud_fs_options.dest_bucket.SetRegion(region);
     }
   }
-  if (cloud_env_options.storage_provider == nullptr) {
+  if (cloud_fs_options.storage_provider == nullptr) {
     // If the user has not specified a storage provider, then use the default
     // provider for this CloudType
     Status s = CloudStorageProvider::CreateFromString(
         options, CloudStorageProviderImpl::kS3(),
-        &cloud_env_options.storage_provider);
+        &cloud_fs_options.storage_provider);
     if (!s.ok()) {
       return s;
     }
@@ -215,7 +215,7 @@ void AwsFileSystem::Shutdown() { Aws::ShutdownAPI(Aws::SDKOptions()); }
 // The factory method for creating an S3 Env
 Status AwsFileSystem::NewAwsFileSystem(
     const std::shared_ptr<FileSystem>& base_fs,
-    const CloudEnvOptions& cloud_options,
+    const CloudFileSystemOptions& cloud_options,
     const std::shared_ptr<Logger>& info_log, CloudFileSystem** cfs) {
   Status status;
   *cfs = nullptr;
@@ -239,7 +239,7 @@ Status AwsFileSystem::NewAwsFileSystem(
 
 Status AwsFileSystem::NewAwsFileSystem(const std::shared_ptr<FileSystem>& fs,
                                        std::unique_ptr<CloudFileSystem>* cfs) {
-  cfs->reset(new AwsFileSystem(fs, CloudEnvOptions()));
+  cfs->reset(new AwsFileSystem(fs, CloudFileSystemOptions()));
   return Status::OK();
 }
 

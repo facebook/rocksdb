@@ -49,7 +49,7 @@
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
 #include "port/port.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
@@ -92,16 +92,16 @@ class CloudRequestCallbackGuard {
 };
 
 template <typename T>
-void SetEncryptionParameters(const CloudEnvOptions& cloud_env_options,
+void SetEncryptionParameters(const CloudFileSystemOptions& cloud_fs_options,
                              T& put_request) {
-  if (cloud_env_options.server_side_encryption) {
-    if (cloud_env_options.encryption_key_id.empty()) {
+  if (cloud_fs_options.server_side_encryption) {
+    if (cloud_fs_options.encryption_key_id.empty()) {
       put_request.SetServerSideEncryption(
           Aws::S3::Model::ServerSideEncryption::AES256);
     } else {
       put_request.SetServerSideEncryption(
           Aws::S3::Model::ServerSideEncryption::aws_kms);
-      put_request.SetSSEKMSKeyId(cloud_env_options.encryption_key_id.c_str());
+      put_request.SetSSEKMSKeyId(cloud_fs_options.encryption_key_id.c_str());
     }
   }
 }
@@ -113,7 +113,7 @@ class AwsS3ClientWrapper {
   AwsS3ClientWrapper(
       const std::shared_ptr<Aws::Auth::AWSCredentialsProvider>& creds,
       const Aws::Client::ClientConfiguration& config,
-      const CloudEnvOptions& cloud_options)
+      const CloudFileSystemOptions& cloud_options)
       : cloud_request_callback_(cloud_options.cloud_request_callback) {
     if (cloud_options.s3_client_factory) {
       client_ = cloud_options.s3_client_factory(creds, config);
@@ -459,7 +459,7 @@ class S3StorageProvider : public CloudStorageProviderImpl {
 Status S3StorageProvider::PrepareOptions(const ConfigOptions& options) {
   auto cfs = dynamic_cast<CloudFileSystem*>(options.env->GetFileSystem().get());
   assert(cfs);
-  const auto& cloud_opts = cfs->GetCloudEnvOptions();
+  const auto& cloud_opts = cfs->GetCloudFileSystemOptions();
   if (std::string(cfs->Name()) != CloudFileSystemImpl::kAws()) {
     return Status::InvalidArgument("S3 Provider requires AWS Environment");
   }
@@ -507,9 +507,10 @@ IOStatus S3StorageProvider::CreateBucket(const std::string& bucket) {
   // specify region for the bucket
   Aws::S3::Model::CreateBucketConfiguration conf;
   // AWS's utility to help out with uploading and downloading S3 file
-  Aws::S3::Model::BucketLocationConstraint bucket_location = Aws::S3::Model::
-      BucketLocationConstraintMapper::GetBucketLocationConstraintForName(
-          ToAwsString(cfs_->GetCloudEnvOptions().dest_bucket.GetRegion()));
+  Aws::S3::Model::BucketLocationConstraint bucket_location =
+      Aws::S3::Model::BucketLocationConstraintMapper::
+          GetBucketLocationConstraintForName(ToAwsString(
+              cfs_->GetCloudFileSystemOptions().dest_bucket.GetRegion()));
   //
   // If you create a bucket in US-EAST-1, no location constraint should be
   // specified
@@ -635,8 +636,8 @@ IOStatus S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
   while (loop) {
     Aws::S3::Model::ListObjectsRequest request;
     request.SetBucket(ToAwsString(bucket_name));
-    request.SetMaxKeys(
-        cfs_->GetCloudEnvOptions().number_objects_listed_in_one_iteration);
+    request.SetMaxKeys(cfs_->GetCloudFileSystemOptions()
+                           .number_objects_listed_in_one_iteration);
 
     request.SetPrefix(ToAwsString(prefix));
     request.SetMarker(marker);
@@ -741,7 +742,7 @@ IOStatus S3StorageProvider::PutCloudObjectMetadata(
   request.SetBucket(ToAwsString(bucket_name));
   request.SetKey(ToAwsString(object_path));
   request.SetMetadata(aws_metadata);
-  SetEncryptionParameters(cfs_->GetCloudEnvOptions(), request);
+  SetEncryptionParameters(cfs_->GetCloudFileSystemOptions(), request);
 
   auto outcome = s3client_->PutCloudObject(request);
   bool isSuccess = outcome.IsSuccess();
@@ -848,7 +849,7 @@ IOStatus S3StorageProvider::CopyCloudObject(
   request.SetCopySource(src_url);
   request.SetBucket(dest_bucket);
   request.SetKey(dest_object);
-  SetEncryptionParameters(cfs_->GetCloudEnvOptions(), request);
+  SetEncryptionParameters(cfs_->GetCloudFileSystemOptions(), request);
 
   // execute request
   Aws::S3::Model::CopyObjectOutcome outcome =
@@ -985,7 +986,7 @@ IOStatus S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
       auto ioStreamFactory = [=, &fileCloseStatus]() -> Aws::IOStream* {
         FileOptions foptions;
         foptions.use_direct_writes =
-            cfs_->GetCloudEnvOptions().use_direct_io_for_cloud_download;
+            cfs_->GetCloudFileSystemOptions().use_direct_io_for_cloud_download;
         std::unique_ptr<FSWritableFile> file;
         auto st = NewWritableFile(cfs_->GetBaseFileSystem().get(), destination,
                                   &file, foptions);
@@ -1068,7 +1069,7 @@ IOStatus S3StorageProvider::DoPutCloudObject(const std::string& local_file,
     putRequest.SetBucket(ToAwsString(bucket_name));
     putRequest.SetKey(ToAwsString(object_path));
     putRequest.SetBody(inputData);
-    SetEncryptionParameters(cfs_->GetCloudEnvOptions(), putRequest);
+    SetEncryptionParameters(cfs_->GetCloudFileSystemOptions(), putRequest);
 
     auto outcome = s3client_->PutCloudObject(putRequest, file_size);
     if (!outcome.IsSuccess()) {

@@ -678,7 +678,7 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
   }
 
   // get credentials
-  CloudEnvOptions coptions;
+  CloudFileSystemOptions coptions;
   CloudFileSystem* cfs = nullptr;
   std::string region;
   coptions.TEST_Initialize("dbtest.", prefix, region);

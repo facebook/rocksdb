@@ -26,8 +26,8 @@ typedef std::map<std::string, std::vector<std::string>> DbidParents;
 void CloudFileSystemImpl::Purger() {
   Status st;
   // Run purge once every period.
-  auto period =
-      std::chrono::milliseconds(GetCloudEnvOptions().purger_periodicity_millis);
+  auto period = std::chrono::milliseconds(
+      GetCloudFileSystemOptions().purger_periodicity_millis);
 
   std::vector<std::string> to_be_deleted_paths;
   std::vector<std::string> to_be_deleted_dbids;

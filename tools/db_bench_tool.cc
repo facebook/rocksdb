@@ -1590,7 +1590,7 @@ ROCKSDB_NAMESPACE::Env* CreateAwsEnv(
   std::shared_ptr<ROCKSDB_NAMESPACE::Logger> info_log;
   info_log.reset(new ROCKSDB_NAMESPACE::StderrLogger(
       ROCKSDB_NAMESPACE::InfoLogLevel::WARN_LEVEL));
-  ROCKSDB_NAMESPACE::CloudEnvOptions coptions;
+  ROCKSDB_NAMESPACE::CloudFileSystemOptions coptions;
   std::string region;
   if (FLAGS_aws_access_id.size() != 0) {
     coptions.credentials.InitializeSimple(FLAGS_aws_access_id,

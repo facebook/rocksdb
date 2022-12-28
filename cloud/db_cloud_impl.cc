@@ -104,8 +104,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   // Use a constant sized SST File Manager if necesary.
   // NOTE: if user already passes in an SST File Manager, we will respect user's
   // SST File Manager instead.
-  auto constant_sst_file_size =
-      cfs->GetCloudEnvOptions().constant_sst_file_size_in_sst_file_manager;
+  auto constant_sst_file_size = cfs->GetCloudFileSystemOptions()
+                                    .constant_sst_file_size_in_sst_file_manager;
   if (constant_sst_file_size >= 0 && options.sst_file_manager == nullptr) {
     // rate_bytes_per_sec, max_trash_db_ratio, bytes_max_delete_chunk are
     // default values in NewSstFileManager.
@@ -149,8 +149,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     if (read_only) {
       return Status::NotFound("CLOUDMANIFEST not found and read_only is set.");
     }
-    st = cfs->CreateCloudManifest(local_dbname,
-                                  cfs->GetCloudEnvOptions().new_cookie_on_open);
+    st = cfs->CreateCloudManifest(
+        local_dbname, cfs->GetCloudFileSystemOptions().new_cookie_on_open);
     if (!st.ok()) {
       return st;
     }
@@ -200,20 +200,21 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   }
 
   if (new_db && st.ok() && cfs->HasDestBucket() &&
-      cfs->GetCloudEnvOptions().roll_cloud_manifest_on_open) {
+      cfs->GetCloudFileSystemOptions().roll_cloud_manifest_on_open) {
     // This is a new database, upload the CLOUDMANIFEST after all MANIFEST file
     // was already uploaded. It is at this point we consider the database
     // committed in the cloud.
-    st = cfs->UploadCloudManifest(local_dbname,
-                                  cfs->GetCloudEnvOptions().new_cookie_on_open);
+    st = cfs->UploadCloudManifest(
+        local_dbname, cfs->GetCloudFileSystemOptions().new_cookie_on_open);
   }
 
   // now that the database is opened, all file sizes have been verified and we
   // no longer need to verify file sizes for each file that we open. Note that
   // this might have a data race with background compaction, but it's not a big
   // deal, since it's a boolean and it does not impact correctness in any way.
-  if (cfs->GetCloudEnvOptions().validate_filesize) {
-    *const_cast<bool*>(&cfs->GetCloudEnvOptions().validate_filesize) = false;
+  if (cfs->GetCloudFileSystemOptions().validate_filesize) {
+    *const_cast<bool*>(&cfs->GetCloudFileSystemOptions().validate_filesize) =
+        false;
   }
 
   if (st.ok()) {

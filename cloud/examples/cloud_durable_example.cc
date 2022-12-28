@@ -24,15 +24,15 @@ static const bool disableWAL = false;
 
 int main() {
   // cloud environment config options here
-  CloudEnvOptions cloud_env_options;
+  CloudFileSystemOptions cloud_fs_options;
 
   // Store a reference to a cloud file system. A new cloud env object should be
   // associated with every new cloud-db.
   std::shared_ptr<FileSystem> cloud_fs;
 
-  cloud_env_options.credentials.InitializeSimple(
+  cloud_fs_options.credentials.InitializeSimple(
       getenv("AWS_ACCESS_KEY_ID"), getenv("AWS_SECRET_ACCESS_KEY"));
-  if (!cloud_env_options.credentials.HasValid().ok()) {
+  if (!cloud_fs_options.credentials.HasValid().ok()) {
     fprintf(
         stderr,
         "Please set env variables "
@@ -48,8 +48,8 @@ int main() {
 
   // "rockset." is the default bucket prefix
   const std::string bucketPrefix = "rockset.";
-  cloud_env_options.src_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
-  cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
+  cloud_fs_options.src_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
+  cloud_fs_options.dest_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
 
   // create a bucket name for debugging purposes
   const std::string bucketName = bucketPrefix + kBucketSuffix;
@@ -58,7 +58,7 @@ int main() {
   CloudFileSystem* cfs;
   Status s = CloudFileSystem::NewAwsFileSystem(
       FileSystem::Default(), kBucketSuffix, kDBPath, kRegion, kBucketSuffix,
-      kDBPath, kRegion, cloud_env_options, nullptr, &cfs);
+      kDBPath, kRegion, cloud_fs_options, nullptr, &cfs);
   if (!s.ok()) {
     fprintf(stderr, "Unable to create cloud env in bucket %s. %s\n",
             bucketName.c_str(), s.ToString().c_str());

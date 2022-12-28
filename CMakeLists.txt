@@ -901,7 +901,6 @@ set(SOURCES
         cloud/db_cloud_impl.cc
         cloud/cloud_file_system.cc
         cloud/cloud_file_system_impl.cc
-        cloud/cloud_env_options.cc
         cloud/cloud_log_controller.cc
         cloud/manifest_reader.cc
         cloud/purge.cc

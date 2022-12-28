@@ -11,7 +11,7 @@
 #include "cloud/cloud_storage_provider_impl.h"
 #include "cloud/filename.h"
 #include "file/filename.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -186,7 +186,7 @@ IOStatus CloudStorageWritableFileImpl::Close(const IOOptions& opts,
     }
 
     // delete local file
-    if (!cfs_->GetCloudEnvOptions().keep_local_sst_files) {
+    if (!cfs_->GetCloudFileSystemOptions().keep_local_sst_files) {
       status_ = cfs_->GetBaseFileSystem()->DeleteFile(fname_, opts, dbg);
       if (!status_.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, cfs_->GetLogger(),
@@ -266,7 +266,7 @@ Status CloudStorageProviderImpl::PrepareOptions(const ConfigOptions& options) {
       Log(InfoLogLevel::INFO_LEVEL, cfs_->GetLogger(),
           "[%s] Bucket %s already exists", Name(),
           cfs_->GetDestBucketName().c_str());
-    } else if (cfs_->GetCloudEnvOptions().create_bucket_if_missing) {
+    } else if (cfs_->GetCloudFileSystemOptions().create_bucket_if_missing) {
       Log(InfoLogLevel::INFO_LEVEL, cfs_->GetLogger(),
           "[%s] Going to create bucket %s", Name(),
           cfs_->GetDestBucketName().c_str());

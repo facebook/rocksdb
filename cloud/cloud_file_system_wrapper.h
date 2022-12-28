@@ -5,7 +5,7 @@
 #include <thread>
 
 #include "cloud/cloud_file_system_impl.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/status.h"
 
@@ -105,7 +105,8 @@ class MockStorageProvider : public CloudStorageProvider {
 class MockCloudFileSystem : public CloudFileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit MockCloudFileSystem(const CloudEnvOptions& opts = CloudEnvOptions())
+  explicit MockCloudFileSystem(
+      const CloudFileSystemOptions& opts = CloudFileSystemOptions())
       : CloudFileSystem(opts, FileSystem::Default(), nullptr) {
     notsup_ = IOStatus::NotSupported();
   }

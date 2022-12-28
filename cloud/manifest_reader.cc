@@ -163,7 +163,7 @@ IOStatus ManifestReader::GetLiveFiles(const std::string& bucket_path,
     auto cfs_impl = dynamic_cast<CloudFileSystemImpl*>(cfs_);
     assert(cfs_impl);
     auto cloudManifestFile = MakeCloudManifestFile(
-        bucket_path, cfs_impl->GetCloudEnvOptions().cookie_on_open);
+        bucket_path, cfs_impl->GetCloudFileSystemOptions().cookie_on_open);
     s = cfs_->NewSequentialFileCloud(bucket_prefix_, cloudManifestFile,
                                      file_opts, &file, dbg);
     if (!s.ok()) {

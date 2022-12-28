@@ -22,7 +22,7 @@
 #include "db/db_test_util.h"
 #include "file/filename.h"
 #include "logging/logging.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -54,8 +54,8 @@ class CloudTest : public testing::Test {
     base_env_ = Env::Default();
     dbname_ = test::TmpDir() + "/db_cloud-" + test_id_;
     clone_dir_ = test::TmpDir() + "/ctest-" + test_id_;
-    cloud_env_options_.TEST_Initialize("dbcloudtest.", dbname_);
-    cloud_env_options_.resync_manifest_on_open = true;
+    cloud_fs_options_.TEST_Initialize("dbcloudtest.", dbname_);
+    cloud_fs_options_.resync_manifest_on_open = true;
 
     options_.create_if_missing = true;
     options_.stats_dump_period_sec = 0;
@@ -77,12 +77,12 @@ class CloudTest : public testing::Test {
     ASSERT_TRUE(!aenv_);
 
     // check cloud credentials
-    ASSERT_TRUE(cloud_env_options_.credentials.HasValid().ok());
+    ASSERT_TRUE(cloud_fs_options_.credentials.HasValid().ok());
 
     CloudFileSystem* afs;
     // create a dummy aws env
     ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
-                                                cloud_env_options_,
+                                                cloud_fs_options_,
                                                 options_.info_log, &afs));
     ASSERT_NE(afs, nullptr);
     // delete all pre-existing contents from the bucket
@@ -139,10 +139,10 @@ class CloudTest : public testing::Test {
 
   virtual ~CloudTest() {
     // Cleanup the cloud bucket
-    if (!cloud_env_options_.src_bucket.GetBucketName().empty()) {
+    if (!cloud_fs_options_.src_bucket.GetBucketName().empty()) {
       CloudFileSystem* afs;
       Status st = CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
-                                                    cloud_env_options_,
+                                                    cloud_fs_options_,
                                                     options_.info_log, &afs);
       if (st.ok()) {
         afs->GetStorageProvider()->EmptyBucket(afs->GetSrcBucketName(),
@@ -156,9 +156,9 @@ class CloudTest : public testing::Test {
 
   void CreateCloudEnv() {
     CloudFileSystem* cfs;
-    cloud_env_options_.use_aws_transfer_manager = true;
+    cloud_fs_options_.use_aws_transfer_manager = true;
     ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
-                                                cloud_env_options_,
+                                                cloud_fs_options_,
                                                 options_.info_log, &cfs));
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
@@ -187,7 +187,7 @@ class CloudTest : public testing::Test {
 
   void OpenWithColumnFamilies(const std::vector<std::string>& cfs,
                               std::vector<ColumnFamilyHandle*>* handles) {
-    ASSERT_TRUE(cloud_env_options_.credentials.HasValid().ok());
+    ASSERT_TRUE(cloud_fs_options_.credentials.HasValid().ok());
 
     // Create new AWS env
     CreateCloudEnv();
@@ -242,7 +242,7 @@ class CloudTest : public testing::Test {
 
     // If there is no destination bucket, then the clone needs to copy
     // all sst fies from source bucket to local dir
-    CloudEnvOptions copt = cloud_env_options_;
+    auto copt = cloud_fs_options_;
     if (dest_bucket_name == copt.src_bucket.GetBucketName()) {
       copt.dest_bucket = copt.src_bucket;
     } else {
@@ -446,7 +446,7 @@ class CloudTest : public testing::Test {
   Options options_;
   std::string dbname_;
   std::string clone_dir_;
-  CloudEnvOptions cloud_env_options_;
+  CloudFileSystemOptions cloud_fs_options_;
   std::string dbid_;
   std::string persistent_cache_path_;
   uint64_t persistent_cache_size_gb_;
@@ -759,7 +759,7 @@ TEST_F(CloudTest, DISABLED_TrueClone) {
     // This is true clone and should have all the contents of the masterdb
     std::unique_ptr<Env> env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath1", cloud_env_options_.src_bucket.GetBucketName(),
+    CloneDB("localpath1", cloud_fs_options_.src_bucket.GetBucketName(),
             clone_path1, &cloud_db, &env);
 
     // Retrieve the id of the clone db
@@ -785,7 +785,7 @@ TEST_F(CloudTest, DISABLED_TrueClone) {
     // Reopen clone1 with a different local path
     std::unique_ptr<Env> env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(),
+    CloneDB("localpath2", cloud_fs_options_.src_bucket.GetBucketName(),
             clone_path1, &cloud_db, &env);
 
     // Retrieve the id of the clone db
@@ -800,7 +800,7 @@ TEST_F(CloudTest, DISABLED_TrueClone) {
     // Reopen clone1 with the same local path as above.
     std::unique_ptr<Env> env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(),
+    CloneDB("localpath2", cloud_fs_options_.src_bucket.GetBucketName(),
             clone_path1, &cloud_db, &env);
 
     // Retrieve the id of the clone db
@@ -817,7 +817,7 @@ TEST_F(CloudTest, DISABLED_TrueClone) {
     std::unique_ptr<Env> env;
     std::unique_ptr<DBCloud> cloud_db;
     CloneDB("localpath3",  // xxx try with localpath2
-            cloud_env_options_.src_bucket.GetBucketName(), clone_path2,
+            cloud_fs_options_.src_bucket.GetBucketName(), clone_path2,
             &cloud_db, &env);
 
     // Retrieve the id of the clone db
@@ -871,11 +871,11 @@ TEST_F(CloudTest, DbidRegistry) {
 }
 
 TEST_F(CloudTest, KeepLocalFiles) {
-  cloud_env_options_.keep_local_sst_files = true;
+  cloud_fs_options_.keep_local_sst_files = true;
   for (int iter = 0; iter < 4; ++iter) {
-    cloud_env_options_.use_direct_io_for_cloud_download =
+    cloud_fs_options_.use_direct_io_for_cloud_download =
         iter == 0 || iter == 1;
-    cloud_env_options_.use_aws_transfer_manager = iter == 0 || iter == 3;
+    cloud_fs_options_.use_aws_transfer_manager = iter == 0 || iter == 3;
     // Create two files
     OpenDB();
     std::string value;
@@ -916,8 +916,8 @@ TEST_F(CloudTest, CopyToFromS3) {
   // iter 1 -- using transfer manager
   for (int iter = 0; iter < 2; ++iter) {
     // Create aws env
-    cloud_env_options_.keep_local_sst_files = true;
-    cloud_env_options_.use_aws_transfer_manager = iter == 1;
+    cloud_fs_options_.keep_local_sst_files = true;
+    cloud_fs_options_.use_aws_transfer_manager = iter == 1;
     CreateCloudEnv();
     auto* cimpl = GetCloudFileSystemImpl();
     cimpl->TEST_InitEmptyCloudManifest();
@@ -962,7 +962,7 @@ TEST_F(CloudTest, DelayFileDeletion) {
   std::string fname = dbname_ + "/000010.sst";
 
   // Create aws env
-  cloud_env_options_.keep_local_sst_files = true;
+  cloud_fs_options_.keep_local_sst_files = true;
   CreateCloudEnv();
   auto* cimpl = GetCloudFileSystemImpl();
   cimpl->TEST_InitEmptyCloudManifest();
@@ -1019,7 +1019,7 @@ TEST_F(CloudTest, Savepoint) {
     // This is true clone and should have all the contents of the masterdb
     std::unique_ptr<Env> env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath1", cloud_env_options_.src_bucket.GetBucketName(),
+    CloneDB("localpath1", cloud_fs_options_.src_bucket.GetBucketName(),
             dest_path, &cloud_db, &env);
 
     // check that the original kv appears in the clone
@@ -1063,7 +1063,7 @@ TEST_F(CloudTest, Savepoint) {
     // Reopen the clone
     std::unique_ptr<Env> env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(),
+    CloneDB("localpath2", cloud_fs_options_.src_bucket.GetBucketName(),
             dest_path, &cloud_db, &env);
 
     // check that the both kvs appears in the clone
@@ -1080,10 +1080,10 @@ TEST_F(CloudTest, Savepoint) {
 
 TEST_F(CloudTest, Encryption) {
   // Create aws env
-  cloud_env_options_.server_side_encryption = true;
+  cloud_fs_options_.server_side_encryption = true;
   char* key_id = getenv("AWS_KMS_KEY_ID");
   if (key_id != nullptr) {
-    cloud_env_options_.encryption_key_id = std::string(key_id);
+    cloud_fs_options_.encryption_key_id = std::string(key_id);
     Log(options_.info_log, "Found encryption key id in env variable %s",
         key_id);
   }
@@ -1128,9 +1128,9 @@ TEST_F(CloudTest, DirectReads) {
 
 #ifdef USE_KAFKA
 TEST_F(CloudTest, KeepLocalLogKafka) {
-  cloud_env_options_.keep_local_log_files = false;
-  cloud_env_options_.log_type = LogType::kLogKafka;
-  cloud_env_options_.kafka_log_options
+  cloud_fs_options_.keep_local_log_files = false;
+  cloud_fs_options_.log_type = LogType::kLogKafka;
+  cloud_fs_options_.kafka_log_options
       .client_config_params["metadata.broker.list"] = "localhost:9092";
 
   OpenDB();
@@ -1151,7 +1151,7 @@ TEST_F(CloudTest, KeepLocalLogKafka) {
   std::this_thread::sleep_for(std::chrono::seconds(3));
 
   // Open DB.
-  cloud_env_options_.keep_local_log_files = true;
+  cloud_fs_options_.keep_local_log_files = true;
   auto* cimpl = GetCloudFileSystemImpl();
   options_.wal_dir = cimpl->GetWALCacheDir();
   OpenDB();
@@ -1168,8 +1168,8 @@ TEST_F(CloudTest, KeepLocalLogKafka) {
 // TODO(igor): determine why this fails,
 // https://github.com/rockset/rocksdb-cloud/issues/35
 TEST_F(CloudTest, DISABLED_KeepLocalLogKinesis) {
-  cloud_env_options_.keep_local_log_files = false;
-  cloud_env_options_.log_type = LogType::kLogKinesis;
+  cloud_fs_options_.keep_local_log_files = false;
+  cloud_fs_options_.log_type = LogType::kLogKinesis;
 
   OpenDB();
 
@@ -1190,7 +1190,7 @@ TEST_F(CloudTest, DISABLED_KeepLocalLogKinesis) {
   std::this_thread::sleep_for(std::chrono::seconds(3));
 
   // Open DB.
-  cloud_env_options_.keep_local_log_files = true;
+  cloud_fs_options_.keep_local_log_files = true;
   auto* cimpl = GetCloudFileSystemImpl();
   options_.wal_dir = cimpl->GetWALCacheDir();
   OpenDB();
@@ -1208,10 +1208,10 @@ TEST_F(CloudTest, DISABLED_KeepLocalLogKinesis) {
 TEST_F(CloudTest, TwoDBsOneBucket) {
   auto firstDB = dbname_;
   auto secondDB = dbname_ + "-1";
-  cloud_env_options_.keep_local_sst_files = true;
+  cloud_fs_options_.keep_local_sst_files = true;
   std::string value;
 
-  cloud_env_options_.resync_on_open = true;
+  cloud_fs_options_.resync_on_open = true;
   OpenDB();
   auto* cimpl = GetCloudFileSystemImpl();
   auto firstManifestFile =
@@ -1227,10 +1227,10 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   EXPECT_EQ(files.size(), 2);
   CloseDB();
 
-  cloud_env_options_.resync_on_open = false;
+  cloud_fs_options_.resync_on_open = false;
   // Open again, with no destination bucket
-  cloud_env_options_.dest_bucket.SetBucketName("");
-  cloud_env_options_.dest_bucket.SetObjectPath("");
+  cloud_fs_options_.dest_bucket.SetBucketName("");
+  cloud_fs_options_.dest_bucket.SetObjectPath("");
   OpenDB();
   ASSERT_OK(db_->Put(WriteOptions(), "Third", "File"));
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -1246,8 +1246,8 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
 
   // Open in a different directory with destination bucket set
   dbname_ = secondDB;
-  cloud_env_options_.dest_bucket = cloud_env_options_.src_bucket;
-  cloud_env_options_.resync_on_open = true;
+  cloud_fs_options_.dest_bucket = cloud_fs_options_.src_bucket;
+  cloud_fs_options_.resync_on_open = true;
   OpenDB();
   ASSERT_OK(db_->Put(WriteOptions(), "Third", "DifferentFile"));
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -1255,9 +1255,9 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
 
   // Open back in the first directory with no destination
   dbname_ = firstDB;
-  cloud_env_options_.dest_bucket.SetBucketName("");
-  cloud_env_options_.dest_bucket.SetObjectPath("");
-  cloud_env_options_.resync_on_open = false;
+  cloud_fs_options_.dest_bucket.SetBucketName("");
+  cloud_fs_options_.dest_bucket.SetObjectPath("");
+  cloud_fs_options_.resync_on_open = false;
   OpenDB();
   // Changes to the cloud database should make no difference for us. This is an
   // important check because we should not reinitialize from the cloud if we
@@ -1268,8 +1268,8 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
 
   // Reopen in the first directory, this time with destination path
   dbname_ = firstDB;
-  cloud_env_options_.dest_bucket = cloud_env_options_.src_bucket;
-  cloud_env_options_.resync_on_open = true;
+  cloud_fs_options_.dest_bucket = cloud_fs_options_.src_bucket;
+  cloud_fs_options_.resync_on_open = true;
   OpenDB();
   // Changes to the cloud database should be pulled down now.
   ASSERT_OK(db_->Get(ReadOptions(), "Third", &value));
@@ -1297,7 +1297,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
 // This test only applies when cookie is empty. So whenever db is reopened, it
 // always fetches the latest CM/M files from s3
 TEST_F(CloudTest, TwoConcurrentWritersCookieEmpty) {
-  cloud_env_options_.resync_on_open = true;
+  cloud_fs_options_.resync_on_open = true;
   auto firstDB = dbname_;
   auto secondDB = dbname_ + "-1";
 
@@ -1409,9 +1409,9 @@ TEST_F(CloudTest, MigrateFromPureRocksDB) {
   // Now open RocksDB cloud
   // TODO(dhruba) Figure out how to make this work without skipping dbid
   // verification
-  cloud_env_options_.skip_dbid_verification = true;
-  cloud_env_options_.keep_local_sst_files = true;
-  cloud_env_options_.validate_filesize = false;
+  cloud_fs_options_.skip_dbid_verification = true;
+  cloud_fs_options_.keep_local_sst_files = true;
+  cloud_fs_options_.validate_filesize = false;
   OpenDB();
   for (int i = 5; i < 10; ++i) {
     auto key = "key" + std::to_string(i);
@@ -1432,11 +1432,11 @@ TEST_F(CloudTest, MigrateFromPureRocksDB) {
 // This is useful for tests.
 TEST_F(CloudTest, NoDestOrSrc) {
   DestroyDir(dbname_);
-  cloud_env_options_.keep_local_sst_files = true;
-  cloud_env_options_.src_bucket.SetBucketName("");
-  cloud_env_options_.src_bucket.SetObjectPath("");
-  cloud_env_options_.dest_bucket.SetBucketName("");
-  cloud_env_options_.dest_bucket.SetObjectPath("");
+  cloud_fs_options_.keep_local_sst_files = true;
+  cloud_fs_options_.src_bucket.SetBucketName("");
+  cloud_fs_options_.src_bucket.SetObjectPath("");
+  cloud_fs_options_.dest_bucket.SetBucketName("");
+  cloud_fs_options_.dest_bucket.SetObjectPath("");
   OpenDB();
   ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -1475,7 +1475,7 @@ TEST_F(CloudTest, PreloadCloudManifest) {
 // back to any cloud bucket. Once cloned, all updates are local.
 //
 TEST_F(CloudTest, Ephemeral) {
-  cloud_env_options_.keep_local_sst_files = true;
+  cloud_fs_options_.keep_local_sst_files = true;
   options_.level0_file_num_compaction_trigger = 100;  // never compact
 
   // Create a primary DB with two files
@@ -1572,8 +1572,8 @@ TEST_F(CloudTest, Ephemeral) {
 // one of the MANIFEST. In this case, we want to verify that ephemeral clone is
 // able to reinitialize instead of crash looping.
 TEST_F(CloudTest, EphemeralOnCorruptedDB) {
-  cloud_env_options_.keep_local_sst_files = true;
-  cloud_env_options_.resync_on_open = true;
+  cloud_fs_options_.keep_local_sst_files = true;
+  cloud_fs_options_.resync_on_open = true;
   options_.level0_file_num_compaction_trigger = 100;  // never compact
 
   OpenDB();
@@ -1628,8 +1628,8 @@ TEST_F(CloudTest, EphemeralOnCorruptedDB) {
 // data to be resynced with the master db.
 //
 TEST_F(CloudTest, EphemeralResync) {
-  cloud_env_options_.keep_local_sst_files = true;
-  cloud_env_options_.resync_on_open = true;
+  cloud_fs_options_.keep_local_sst_files = true;
+  cloud_fs_options_.resync_on_open = true;
   options_.level0_file_num_compaction_trigger = 100;  // never compact
 
   // Create a primary DB with two files
@@ -1723,7 +1723,7 @@ TEST_F(CloudTest, EphemeralResync) {
 }
 
 TEST_F(CloudTest, CheckpointToCloud) {
-  cloud_env_options_.keep_local_sst_files = true;
+  cloud_fs_options_.keep_local_sst_files = true;
   options_.level0_file_num_compaction_trigger = 100;  // never compact
 
   // Pre-create the bucket.
@@ -1733,10 +1733,10 @@ TEST_F(CloudTest, CheckpointToCloud) {
   // S3 is eventual consistency.
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
-  auto checkpoint_bucket = cloud_env_options_.dest_bucket;
+  auto checkpoint_bucket = cloud_fs_options_.dest_bucket;
 
-  cloud_env_options_.src_bucket = BucketOptions();
-  cloud_env_options_.dest_bucket = BucketOptions();
+  cloud_fs_options_.src_bucket = BucketOptions();
+  cloud_fs_options_.dest_bucket = BucketOptions();
 
   // Create a DB with two files
   OpenDB();
@@ -1753,7 +1753,7 @@ TEST_F(CloudTest, CheckpointToCloud) {
 
   DestroyDir(dbname_);
 
-  cloud_env_options_.src_bucket = checkpoint_bucket;
+  cloud_fs_options_.src_bucket = checkpoint_bucket;
 
   OpenDB();
   std::string value;
@@ -1837,7 +1837,7 @@ TEST_F(CloudTest, PersistentCache) {
 // This test create 2 DBs that shares a block cache. Ensure that reads from one
 // DB do not get the values from the other DB.
 TEST_F(CloudTest, SharedBlockCache) {
-  cloud_env_options_.keep_local_sst_files = false;
+  cloud_fs_options_.keep_local_sst_files = false;
 
   // Share the block cache.
   BlockBasedTableOptions bbto;
@@ -1849,8 +1849,8 @@ TEST_F(CloudTest, SharedBlockCache) {
 
   std::unique_ptr<Env> clone_env;
   std::unique_ptr<DBCloud> clone_db;
-  CloneDB("newdb1", cloud_env_options_.src_bucket.GetBucketName(),
-          cloud_env_options_.src_bucket.GetObjectPath() + "-clone", &clone_db,
+  CloneDB("newdb1", cloud_fs_options_.src_bucket.GetBucketName(),
+          cloud_fs_options_.src_bucket.GetObjectPath() + "-clone", &clone_db,
           &clone_env, false /* force_keep_local_on_invalid_dest_bucket */);
 
   // Flush the first DB.
@@ -1882,20 +1882,20 @@ TEST_F(CloudTest, SharedBlockCache) {
   auto* clone_cloud_fs =
       dynamic_cast<CloudFileSystem*>(clone_env->GetFileSystem().get());
   clone_cloud_fs->GetStorageProvider()->EmptyBucket(
-      cloud_env_options_.src_bucket.GetBucketName(),
-      cloud_env_options_.src_bucket.GetObjectPath() + "-clone");
+      cloud_fs_options_.src_bucket.GetBucketName(),
+      cloud_fs_options_.src_bucket.GetObjectPath() + "-clone");
 }
 
 // Verify that sst_file_cache and file_cache cannot be set together
 TEST_F(CloudTest, KeepLocalFilesAndFileCache) {
-  cloud_env_options_.sst_file_cache = NewLRUCache(1024);  // 1 KB cache
-  cloud_env_options_.keep_local_sst_files = true;
+  cloud_fs_options_.sst_file_cache = NewLRUCache(1024);  // 1 KB cache
+  cloud_fs_options_.keep_local_sst_files = true;
   ASSERT_TRUE(checkOpen().IsInvalidArgument());
 }
 
 // Verify that sst_file_cache can be disabled
 TEST_F(CloudTest, FileCacheZero) {
-  cloud_env_options_.sst_file_cache = NewLRUCache(0);  // zero size
+  cloud_fs_options_.sst_file_cache = NewLRUCache(0);  // zero size
   OpenDB();
   auto* cimpl = GetCloudFileSystemImpl();
   ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
@@ -1916,7 +1916,7 @@ TEST_F(CloudTest, FileCacheZero) {
 
 // Verify that sst_file_cache is very small, so no files are local.
 TEST_F(CloudTest, FileCacheSmall) {
-  cloud_env_options_.sst_file_cache = NewLRUCache(10);  // Practically zero size
+  cloud_fs_options_.sst_file_cache = NewLRUCache(10);  // Practically zero size
   OpenDB();
   auto* cimpl = GetCloudFileSystemImpl();
   ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
@@ -1933,7 +1933,7 @@ TEST_F(CloudTest, FileCacheSmall) {
 TEST_F(CloudTest, FileCacheLarge) {
   size_t capacity = 10240L;
   std::shared_ptr<Cache> cache = NewLRUCache(capacity);
-  cloud_env_options_.sst_file_cache = cache;
+  cloud_fs_options_.sst_file_cache = cache;
 
   // generate two sst files.
   OpenDB();
@@ -1973,7 +1973,7 @@ TEST_F(CloudTest, FileCacheOnDemand) {
       NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                   high_pri_pool_ratio, nullptr, kDefaultToAdaptiveMutex,
                   CacheMetadataChargePolicy::kDontChargeCacheMetadata);
-  cloud_env_options_.sst_file_cache = cache;
+  cloud_fs_options_.sst_file_cache = cache;
   options_.level0_file_num_compaction_trigger = 100;  // never compact
 
   OpenDB();
@@ -2042,7 +2042,7 @@ TEST_F(CloudTest, FileModificationTimeTest) {
   CloseDB();
   DestroyDir(dbname_);
   // don't roll cloud manifest so that manifest file epoch is not updated
-  cloud_env_options_.roll_cloud_manifest_on_open = false;
+  cloud_fs_options_.roll_cloud_manifest_on_open = false;
   OpenDB();
   uint64_t modtime2;
   ASSERT_OK(aenv_->GetFileSystem()->GetFileModificationTime(
@@ -2062,7 +2062,7 @@ TEST_F(CloudTest, EmptyCookieTest) {
 }
 
 TEST_F(CloudTest, NonEmptyCookieTest) {
-  cloud_env_options_.new_cookie_on_open = "000001";
+  cloud_fs_options_.new_cookie_on_open = "000001";
   OpenDB();
   std::string value;
   ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
@@ -2070,14 +2070,14 @@ TEST_F(CloudTest, NonEmptyCookieTest) {
   ASSERT_EQ(value, "World");
 
   auto cloud_manifest_file =
-      MakeCloudManifestFile(dbname_, cloud_env_options_.new_cookie_on_open);
+      MakeCloudManifestFile(dbname_, cloud_fs_options_.new_cookie_on_open);
   ASSERT_OK(GetCloudFileSystem()->GetStorageProvider()->ExistsCloudObject(
       GetCloudFileSystem()->GetSrcBucketName(), cloud_manifest_file));
   EXPECT_EQ(basename(cloud_manifest_file), "CLOUDMANIFEST-000001");
   CloseDB();
   DestroyDir(dbname_);
-  cloud_env_options_.cookie_on_open = "000001";
-  cloud_env_options_.new_cookie_on_open = "000001";
+  cloud_fs_options_.cookie_on_open = "000001";
+  cloud_fs_options_.new_cookie_on_open = "000001";
   OpenDB();
 
   ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
@@ -2090,8 +2090,8 @@ TEST_F(CloudTest, NonEmptyCookieTest) {
 
 // Verify that live sst files are the same after applying cloud manifest delta
 TEST_F(CloudTest, LiveFilesConsistentAfterApplyCloudManifestDeltaTest) {
-  cloud_env_options_.cookie_on_open = "1";
-  cloud_env_options_.new_cookie_on_open = "1";
+  cloud_fs_options_.cookie_on_open = "1";
+  cloud_fs_options_.new_cookie_on_open = "1";
   OpenDB();
 
   ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
@@ -2126,8 +2126,8 @@ TEST_F(CloudTest, LiveFilesConsistentAfterApplyCloudManifestDeltaTest) {
 // After calling `ApplyCloudManifestDelta`, writes should be persisted in
 // sst files only visible in new Manifest
 TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
-  cloud_env_options_.cookie_on_open = "1";
-  cloud_env_options_.new_cookie_on_open = "1";
+  cloud_fs_options_.cookie_on_open = "1";
+  cloud_fs_options_.new_cookie_on_open = "1";
   OpenDB();
   ASSERT_OK(db_->Put(WriteOptions(), "Hello1", "world1"));
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -2149,10 +2149,10 @@ TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
 
   // reopen with cookie = 1, new updates after rolling are not visible
   CloseDB();
-  cloud_env_options_.cookie_on_open = "1";
-  cloud_env_options_.new_cookie_on_open = "1";
-  cloud_env_options_.dest_bucket.SetBucketName("");
-  cloud_env_options_.dest_bucket.SetObjectPath("");
+  cloud_fs_options_.cookie_on_open = "1";
+  cloud_fs_options_.new_cookie_on_open = "1";
+  cloud_fs_options_.dest_bucket.SetBucketName("");
+  cloud_fs_options_.dest_bucket.SetObjectPath("");
   OpenDB();
   std::string value;
   ASSERT_OK(db_->Get(ReadOptions(), "Hello1", &value));
@@ -2162,8 +2162,8 @@ TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
 
   // reopen with cookie = 2, new updates should still be visible
   CloseDB();
-  cloud_env_options_.cookie_on_open = "2";
-  cloud_env_options_.new_cookie_on_open = "2";
+  cloud_fs_options_.cookie_on_open = "2";
+  cloud_fs_options_.new_cookie_on_open = "2";
   OpenDB();
   ASSERT_OK(db_->Get(ReadOptions(), "Hello1", &value));
   EXPECT_EQ(value, "world1");
@@ -2173,8 +2173,8 @@ TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
 
   // Make sure that the changes in cloud are correct
   DestroyDir(dbname_);
-  cloud_env_options_.cookie_on_open = "2";
-  cloud_env_options_.new_cookie_on_open = "2";
+  cloud_fs_options_.cookie_on_open = "2";
+  cloud_fs_options_.new_cookie_on_open = "2";
   OpenDB();
   ASSERT_OK(db_->Get(ReadOptions(), "Hello1", &value));
   EXPECT_EQ(value, "world1");
@@ -2185,8 +2185,8 @@ TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
 
 // Test various cases of crashing in the middle during CloudManifestSwitch
 TEST_F(CloudTest, CMSwitchCrashInMiddleTest) {
-  cloud_env_options_.roll_cloud_manifest_on_open = false;
-  cloud_env_options_.cookie_on_open = "1";
+  cloud_fs_options_.roll_cloud_manifest_on_open = false;
+  cloud_fs_options_.cookie_on_open = "1";
 
   SyncPoint::GetInstance()->SetCallBack(
       "CloudFileSystemImpl::RollNewCookie:AfterManifestCopy", [](void* arg) {
@@ -2259,19 +2259,19 @@ TEST_F(CloudTest, RollNewEpochTest) {
 
 // Test that we can rollback to empty cookie
 TEST_F(CloudTest, CookieBackwardsCompatibilityTest) {
-  cloud_env_options_.resync_on_open = true;
-  cloud_env_options_.roll_cloud_manifest_on_open = true;
+  cloud_fs_options_.resync_on_open = true;
+  cloud_fs_options_.roll_cloud_manifest_on_open = true;
 
-  cloud_env_options_.cookie_on_open = "";
-  cloud_env_options_.new_cookie_on_open = "1";
+  cloud_fs_options_.cookie_on_open = "";
+  cloud_fs_options_.new_cookie_on_open = "1";
   OpenDB();
   ASSERT_OK(db_->Put({}, "k1", "v1"));
   ASSERT_OK(db_->Flush({}));
   CloseDB();
 
   // switch cookie
-  cloud_env_options_.cookie_on_open = "1";
-  cloud_env_options_.new_cookie_on_open = "2";
+  cloud_fs_options_.cookie_on_open = "1";
+  cloud_fs_options_.new_cookie_on_open = "2";
   OpenDB();
   std::string value;
   ASSERT_OK(db_->Get({}, "k1", &value));
@@ -2282,8 +2282,8 @@ TEST_F(CloudTest, CookieBackwardsCompatibilityTest) {
   CloseDB();
 
   // switch back to empty cookie
-  cloud_env_options_.cookie_on_open = "2";
-  cloud_env_options_.new_cookie_on_open = "";
+  cloud_fs_options_.cookie_on_open = "2";
+  cloud_fs_options_.new_cookie_on_open = "";
   OpenDB();
   ASSERT_OK(db_->Get({}, "k1", &value));
   EXPECT_EQ(value, "v1");
@@ -2293,8 +2293,8 @@ TEST_F(CloudTest, CookieBackwardsCompatibilityTest) {
   CloseDB();
 
   // open with both cookies being empty
-  cloud_env_options_.cookie_on_open = "";
-  cloud_env_options_.new_cookie_on_open = "";
+  cloud_fs_options_.cookie_on_open = "";
+  cloud_fs_options_.new_cookie_on_open = "";
   OpenDB();
   ASSERT_OK(db_->Get({}, "k1", &value));
   EXPECT_EQ(value, "v1");
@@ -2307,11 +2307,11 @@ TEST_F(CloudTest, CookieBackwardsCompatibilityTest) {
 // Test that once we switch to non empty cookie, we can rollback to
 // empty cookie immediately and files are not deleted mistakenly
 TEST_F(CloudTest, CookieRollbackTest) {
-  cloud_env_options_.resync_on_open = true;
+  cloud_fs_options_.resync_on_open = true;
 
   // Create CLOUDMANFIEST with empty cookie
-  cloud_env_options_.cookie_on_open = "";
-  cloud_env_options_.new_cookie_on_open = "";
+  cloud_fs_options_.cookie_on_open = "";
+  cloud_fs_options_.new_cookie_on_open = "";
 
   OpenDB();
   ASSERT_OK(db_->Put({}, "k1", "v1"));
@@ -2319,14 +2319,14 @@ TEST_F(CloudTest, CookieRollbackTest) {
   CloseDB();
 
   // Switch to cookie 1
-  cloud_env_options_.cookie_on_open = "";
-  cloud_env_options_.new_cookie_on_open = "1";
+  cloud_fs_options_.cookie_on_open = "";
+  cloud_fs_options_.new_cookie_on_open = "1";
   OpenDB();
   CloseDB();
 
   // rollback to empty cookie
-  cloud_env_options_.cookie_on_open = "1";
-  cloud_env_options_.new_cookie_on_open = "";
+  cloud_fs_options_.cookie_on_open = "1";
+  cloud_fs_options_.new_cookie_on_open = "";
 
   // Setup syncpoint so that file deletion jobs are executed after we open db,
   // but before we close db. This is to make sure that file deletion job
@@ -2357,8 +2357,8 @@ TEST_F(CloudTest, CookieRollbackTest) {
   SyncPoint::GetInstance()->DisableProcessing();
 
   // reopen with empty cookie
-  cloud_env_options_.cookie_on_open = "";
-  cloud_env_options_.new_cookie_on_open = "";
+  cloud_fs_options_.cookie_on_open = "";
+  cloud_fs_options_.new_cookie_on_open = "";
   OpenDB();
   ASSERT_OK(db_->Get({}, "k1", &v));
   EXPECT_EQ(v, "v1");
@@ -2366,10 +2366,10 @@ TEST_F(CloudTest, CookieRollbackTest) {
 }
 
 TEST_F(CloudTest, NewCookieOnOpenTest) {
-  cloud_env_options_.cookie_on_open = "1";
+  cloud_fs_options_.cookie_on_open = "1";
 
   // when opening new db, only new_cookie_on_open is used as CLOUDMANIFEST suffix
-  cloud_env_options_.new_cookie_on_open = "2";
+  cloud_fs_options_.new_cookie_on_open = "2";
   OpenDB();
   ASSERT_OK(db_->Put({}, "k1", "v1"));
   ASSERT_OK(db_->Flush({}));
@@ -2384,8 +2384,8 @@ TEST_F(CloudTest, NewCookieOnOpenTest) {
   CloseDB();
 
   // reopen and switch cookie
-  cloud_env_options_.cookie_on_open = "2";
-  cloud_env_options_.new_cookie_on_open = "3";
+  cloud_fs_options_.cookie_on_open = "2";
+  cloud_fs_options_.new_cookie_on_open = "3";
   OpenDB();
   // CLOUDMANIFEST-3 is the new cloud manifest
   ASSERT_OK(GetCloudFileSystem()->GetStorageProvider()->ExistsCloudObject(
@@ -2401,8 +2401,8 @@ TEST_F(CloudTest, NewCookieOnOpenTest) {
   CloseDB();
 
   // reopen DB, but don't switch CLOUDMANIFEST
-  cloud_env_options_.cookie_on_open = "3";
-  cloud_env_options_.new_cookie_on_open = "3";
+  cloud_fs_options_.cookie_on_open = "3";
+  cloud_fs_options_.new_cookie_on_open = "3";
   OpenDB();
   ASSERT_OK(db_->Get({}, "k2", &value));
   EXPECT_EQ(value, "v2");
@@ -2412,7 +2412,7 @@ TEST_F(CloudTest, NewCookieOnOpenTest) {
 // Test invisible file deletion when db is opened.
 TEST_F(CloudTest, InvisibleFileDeletionOnDBOpenTest) {
   std::string cookie1 = "", cookie2 = "-1-1";
-  cloud_env_options_.keep_local_sst_files = true;
+  cloud_fs_options_.keep_local_sst_files = true;
 
   // opening with cookie1
   OpenDB();
@@ -2429,13 +2429,13 @@ TEST_F(CloudTest, InvisibleFileDeletionOnDBOpenTest) {
   auto cookie1_manifest_filepath = dbname_ + pathsep + cookie1_manifest_file;
   // CLOUDMANIFEST file path of cookie1
   auto cookie1_cm_filepath =
-      MakeCloudManifestFile(dbname_, cloud_env_options_.cookie_on_open);
+      MakeCloudManifestFile(dbname_, cloud_fs_options_.cookie_on_open);
   // sst file path of cookie1
   auto cookie1_sst_filepath = dbname_ + pathsep + cookie1_sst_files[0];
 
   // opening with cookie1 and switch to cookie2
-  cloud_env_options_.cookie_on_open = cookie1;
-  cloud_env_options_.new_cookie_on_open = cookie2;
+  cloud_fs_options_.cookie_on_open = cookie1;
+  cloud_fs_options_.new_cookie_on_open = cookie2;
   OpenDB();
   ASSERT_OK(db_->Put({}, "k2", "v2"));
   ASSERT_OK(db_->Flush({}));
@@ -2459,7 +2459,7 @@ TEST_F(CloudTest, InvisibleFileDeletionOnDBOpenTest) {
   auto cookie2_manifest_filepath = dbname_ + pathsep + cookie2_manifest_file;
   // CLOUDMANIFEST file path of cookie2
   auto cookie2_cm_filepath =
-      MakeCloudManifestFile(dbname_, cloud_env_options_.new_cookie_on_open);
+      MakeCloudManifestFile(dbname_, cloud_fs_options_.new_cookie_on_open);
   // find sst file path of cookie2
   auto cookie2_sst_filepath = dbname_ + pathsep + cookie2_sst_files[0];
   if (cookie2_sst_filepath == cookie1_sst_filepath) {
@@ -2491,8 +2491,8 @@ TEST_F(CloudTest, InvisibleFileDeletionOnDBOpenTest) {
 
   // reopen db with cookie1 will force all files generated in cookie2 to be
   // deleted
-  cloud_env_options_.cookie_on_open = cookie1;
-  cloud_env_options_.new_cookie_on_open = cookie1;
+  cloud_fs_options_.cookie_on_open = cookie1;
+  cloud_fs_options_.new_cookie_on_open = cookie1;
   OpenDB();
   // local obsolete CM/M/SST files will be deleted immediately
   // files in cloud will be deleted later (checked in the callback)
@@ -2516,9 +2516,9 @@ TEST_F(CloudTest, InvisibleFileDeletionOnDBOpenTest) {
 // files will be deleted while cloud files will be kept
 TEST_F(CloudTest, DisableInvisibleFileDeletionOnOpenTest) {
   std::string cookie1 = "", cookie2 = "1";
-  cloud_env_options_.keep_local_sst_files = true;
-  cloud_env_options_.cookie_on_open = cookie1;
-  cloud_env_options_.new_cookie_on_open = cookie1;
+  cloud_fs_options_.keep_local_sst_files = true;
+  cloud_fs_options_.cookie_on_open = cookie1;
+  cloud_fs_options_.new_cookie_on_open = cookie1;
 
   // opening with cookie1
   OpenDB();
@@ -2534,7 +2534,7 @@ TEST_F(CloudTest, DisableInvisibleFileDeletionOnOpenTest) {
 
   auto cookie1_manifest_filepath = dbname_ + pathsep + cookie1_manifest_file;
   auto cookie1_cm_filepath =
-      MakeCloudManifestFile(dbname_, cloud_env_options_.cookie_on_open);
+      MakeCloudManifestFile(dbname_, cloud_fs_options_.cookie_on_open);
   auto cookie1_sst_filepath = dbname_ + pathsep + cookie1_sst_files[0];
 
   ASSERT_OK(SwitchToNewCookie(cookie2));
@@ -2565,7 +2565,7 @@ TEST_F(CloudTest, DisableInvisibleFileDeletionOnOpenTest) {
   CloseDB();
 
   // reopen with cookie1 = "". cookie2 sst files are not visible
-  cloud_env_options_.delete_cloud_invisible_files_on_open = false;
+  cloud_fs_options_.delete_cloud_invisible_files_on_open = false;
   OpenDB();
   // files from cookie2 are deleted locally but exists in s3
   for (auto path: {cookie2_cm_filepath, cookie2_manifest_filepath, cookie2_sst_filepath}) {
@@ -2579,8 +2579,8 @@ TEST_F(CloudTest, DisableInvisibleFileDeletionOnOpenTest) {
   EXPECT_NOK(db_->Get({}, "k2", &value));
   CloseDB();
 
-  cloud_env_options_.cookie_on_open = cookie2;
-  cloud_env_options_.new_cookie_on_open = cookie2;
+  cloud_fs_options_.cookie_on_open = cookie2;
+  cloud_fs_options_.new_cookie_on_open = cookie2;
   // reopen with cookie2 also works since it will fetch files from s3 directly
   OpenDB();
   EXPECT_OK(db_->Get({}, "k1", &value));
@@ -2599,9 +2599,9 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
   // put wal files into one directory so that we don't need to count number of local
   // wal files
   options_.wal_dir = dbname_ + "/wal";
-  cloud_env_options_.keep_local_sst_files = true;
+  cloud_fs_options_.keep_local_sst_files = true;
   // disable cm roll so that no new manifest files generated
-  cloud_env_options_.roll_cloud_manifest_on_open = false;
+  cloud_fs_options_.roll_cloud_manifest_on_open = false;
 
   WriteOptions wo;
   wo.disableWAL = true;
@@ -2648,14 +2648,14 @@ TEST_F(CloudTest, DisableObsoleteFileDeletionOnOpenTest) {
 TEST_F(CloudTest, CloudManifestFileDeletionTest) {
 
   // create CLOUDMANIFEST file in s3
-  cloud_env_options_.cookie_on_open = "";
-  cloud_env_options_.new_cookie_on_open = "";
+  cloud_fs_options_.cookie_on_open = "";
+  cloud_fs_options_.new_cookie_on_open = "";
   OpenDB();
   CloseDB();
 
   // create CLOUDMANIFEST-1 file in s3
-  cloud_env_options_.cookie_on_open = "";
-  cloud_env_options_.new_cookie_on_open = "1";
+  cloud_fs_options_.cookie_on_open = "";
+  cloud_fs_options_.new_cookie_on_open = "1";
   OpenDB();
   CloseDB();
 
@@ -2678,8 +2678,8 @@ TEST_F(CloudTest, CloudManifestFileDeletionTest) {
 
 
   // switch to new cookie
-  cloud_env_options_.cookie_on_open = "1";
-  cloud_env_options_.new_cookie_on_open = "2";
+  cloud_fs_options_.cookie_on_open = "1";
+  cloud_fs_options_.new_cookie_on_open = "2";
   OpenDB();
   // double check that CLOUDMANIFEST is never deleted
   EXPECT_EQ(GetCloudFileSystemImpl()->TEST_NumScheduledJobs(), 0);
@@ -2696,8 +2696,8 @@ TEST_F(CloudTest, TwoConcurrentWritersCookieNotEmpty) {
 
   auto openDB1 = [&] {
     dbname_ = firstDB;
-    cloud_env_options_.cookie_on_open = "1";
-    cloud_env_options_.new_cookie_on_open = "2";
+    cloud_fs_options_.cookie_on_open = "1";
+    cloud_fs_options_.new_cookie_on_open = "2";
     OpenDB();
     db1 = db_;
     db_ = nullptr;
@@ -2707,8 +2707,8 @@ TEST_F(CloudTest, TwoConcurrentWritersCookieNotEmpty) {
     dbname_ = firstDB;
     // when reopening DB1, we should set cookie_on_open = 2 to make sure
     // we are opening with the right CM/M files
-    cloud_env_options_.cookie_on_open = cookie;
-    cloud_env_options_.new_cookie_on_open = cookie;
+    cloud_fs_options_.cookie_on_open = cookie;
+    cloud_fs_options_.new_cookie_on_open = cookie;
     OpenDB();
     db1 = db_;
     db_ = nullptr;
@@ -2716,8 +2716,8 @@ TEST_F(CloudTest, TwoConcurrentWritersCookieNotEmpty) {
   };
   auto openDB2 = [&] {
     dbname_ = secondDB;
-    cloud_env_options_.cookie_on_open = "2";
-    cloud_env_options_.new_cookie_on_open = "3";
+    cloud_fs_options_.cookie_on_open = "2";
+    cloud_fs_options_.new_cookie_on_open = "3";
     OpenDB();
     db2 = db_;
     db_ = nullptr;
@@ -2727,8 +2727,8 @@ TEST_F(CloudTest, TwoConcurrentWritersCookieNotEmpty) {
     dbname_ = secondDB;
     // when reopening DB1, we should set cookie_on_open = 3 to make sure
     // we are opening with the right CM/M files
-    cloud_env_options_.cookie_on_open = cookie;
-    cloud_env_options_.new_cookie_on_open = cookie;
+    cloud_fs_options_.cookie_on_open = cookie;
+    cloud_fs_options_.new_cookie_on_open = cookie;
     OpenDB();
     db2 = db_;
     db_ = nullptr;
@@ -2896,8 +2896,8 @@ TEST_F(CloudTest, FileDeletionJobsCanceledWhenCloudEnvDestructed) {
 
 // The failure case of opening a corrupted db which doesn't have MANIFEST file
 TEST_F(CloudTest, OpenWithManifestMissing) {
-  cloud_env_options_.resync_on_open = true;
-  cloud_env_options_.resync_manifest_on_open = true;
+  cloud_fs_options_.resync_on_open = true;
+  cloud_fs_options_.resync_manifest_on_open = true;
   OpenDB();
   auto epoch = GetCloudFileSystemImpl()->GetCloudManifest()->GetCurrentEpoch();
   CloseDB();
@@ -2919,8 +2919,8 @@ TEST_F(CloudTest, OpenWithManifestMissing) {
 // - durable delete sst files
 // - reopen ephemeral (epoch = 1)
 TEST_F(CloudTest, ReopenEphemeralAfterFileDeletion) {
-  cloud_env_options_.resync_on_open = true;
-  cloud_env_options_.keep_local_sst_files = false;
+  cloud_fs_options_.resync_on_open = true;
+  cloud_fs_options_.keep_local_sst_files = false;
 
   auto durableDBName = dbname_;
 
@@ -2998,7 +2998,7 @@ TEST_F(CloudTest, ReopenEphemeralAfterFileDeletion) {
 }
 
 TEST_F(CloudTest, SanitizeDirectoryTest) {
-  cloud_env_options_.keep_local_sst_files = true;
+  cloud_fs_options_.keep_local_sst_files = true;
   OpenDB();
   ASSERT_OK(db_->Put({}, "k1", "v1"));
   ASSERT_OK(db_->Flush({}));
@@ -3079,16 +3079,16 @@ TEST_F(CloudTest, CloudFileDeletionNotTriggeredIfDestBucketNotSet) {
 
   // generate obsolete sst files to delete
   options_.disable_delete_obsolete_files_on_open = true;
-  cloud_env_options_.delete_cloud_invisible_files_on_open = false;
+  cloud_fs_options_.delete_cloud_invisible_files_on_open = false;
   OpenDB();
   GenerateObsoleteFilesOnEmptyDB(GetDBImpl(), GetCloudFileSystem(),
                                  &files_to_delete);
   CloseDB();
 
   options_.disable_delete_obsolete_files_on_open = false;
-  cloud_env_options_.dest_bucket.SetBucketName("");
-  cloud_env_options_.dest_bucket.SetObjectPath("");
-  cloud_env_options_.delete_cloud_invisible_files_on_open = true;
+  cloud_fs_options_.dest_bucket.SetBucketName("");
+  cloud_fs_options_.dest_bucket.SetObjectPath("");
+  cloud_fs_options_.delete_cloud_invisible_files_on_open = true;
   OpenDB();
   WaitUntilNoScheduledJobs();
   for (auto& fname: files_to_delete) {
@@ -3096,7 +3096,7 @@ TEST_F(CloudTest, CloudFileDeletionNotTriggeredIfDestBucketNotSet) {
   }
   CloseDB();
 
-  cloud_env_options_.dest_bucket = cloud_env_options_.src_bucket;
+  cloud_fs_options_.dest_bucket = cloud_fs_options_.src_bucket;
   OpenDB();
   WaitUntilNoScheduledJobs();
   for (auto& fname: files_to_delete) {
@@ -3179,7 +3179,7 @@ TEST_F(
   // Disable file deletion to make sure these files are not deleted
   // automatically
   options_.disable_delete_obsolete_files_on_open = true;
-  cloud_env_options_.delete_cloud_invisible_files_on_open = false;
+  cloud_fs_options_.delete_cloud_invisible_files_on_open = false;
   OpenDB();
   std::vector<std::string> obsolete_files;
   GenerateObsoleteFilesOnEmptyDB(GetDBImpl(), GetCloudFileSystem(),

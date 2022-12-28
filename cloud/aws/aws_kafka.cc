@@ -9,7 +9,7 @@
 #include <iostream>
 
 #include "cloud/cloud_log_controller_impl.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
@@ -233,7 +233,7 @@ Status KafkaController::PrepareOptions(const ConfigOptions& options) {
 
   std::string conf_errstr, producer_errstr, consumer_errstr;
   const auto& kconf =
-      cfs->GetCloudEnvOptions().kafka_log_options.client_config_params;
+      cfs->GetCloudFileSystemOptions().kafka_log_options.client_config_params;
   if (kconf.empty()) {
     return Status::InvalidArgument("No configs specified to kafka client");
   }

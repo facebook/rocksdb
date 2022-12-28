@@ -12,7 +12,7 @@
 
 #include "cloud/cloud_log_controller_impl.h"
 #include "cloud/filename.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/object_registry.h"

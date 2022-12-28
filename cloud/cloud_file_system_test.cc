@@ -1,8 +1,9 @@
 // Copyright (c) 2017 Rockset
 
+#include "rocksdb/cloud/cloud_file_system.h"
+
 #include "cloud/cloud_log_controller_impl.h"
 #include "cloud/cloud_storage_provider_impl.h"
-#include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/convenience.h"
@@ -13,7 +14,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 TEST(CloudFileSystemTest, TestBucket) {
-  CloudEnvOptions copts;
+  CloudFileSystemOptions copts;
   copts.src_bucket.SetRegion("North");
   copts.src_bucket.SetBucketName("Input", "src.");
   ASSERT_FALSE(copts.src_bucket.IsValid());
@@ -29,7 +30,7 @@ TEST(CloudFileSystemTest, TestBucket) {
 
 TEST(CloudFileSystemTest, ConfigureOptions) {
   ConfigOptions config_options;
-  CloudEnvOptions copts, copy;
+  CloudFileSystemOptions copts, copy;
   copts.keep_local_sst_files = false;
   copts.keep_local_log_files = false;
   copts.create_bucket_if_missing = false;
@@ -83,7 +84,7 @@ TEST(CloudFileSystemTest, ConfigureOptions) {
 
 TEST(CloudFileSystemTest, ConfigureBucketOptions) {
   ConfigOptions config_options;
-  CloudEnvOptions copts, copy;
+  CloudFileSystemOptions copts, copy;
   std::string str;
   copts.src_bucket.SetBucketName("source", "src.");
   copts.src_bucket.SetObjectPath("foo");
@@ -113,7 +114,7 @@ TEST(CloudFileSystemTest, ConfigureEnv) {
       config_options, "keep_local_sst_files=true", &cfs));
   ASSERT_NE(cfs, nullptr);
   ASSERT_STREQ(cfs->Name(), "cloud");
-  auto copts = cfs->GetOptions<CloudEnvOptions>();
+  auto copts = cfs->GetOptions<CloudFileSystemOptions>();
   ASSERT_NE(copts, nullptr);
   ASSERT_TRUE(copts->keep_local_sst_files);
 }
@@ -140,7 +141,7 @@ TEST(CloudFileSystemTest, TestInitialize) {
   ASSERT_TRUE(StartsWith(cfs->GetSrcBucketName(),
                          bucket.GetBucketPrefix() + "cloudenvtest2."));
   ASSERT_EQ(cfs->GetSrcObjectPath(), "/test/path2");
-  ASSERT_EQ(cfs->GetCloudEnvOptions().src_bucket.GetRegion(), "here");
+  ASSERT_EQ(cfs->GetCloudFileSystemOptions().src_bucket.GetRegion(), "here");
   ASSERT_TRUE(cfs->SrcMatchesDest());
 
   ASSERT_OK(CloudFileSystem::CreateFromString(
@@ -167,7 +168,7 @@ TEST(CloudFileSystemTest, ConfigureAwsEnv) {
   ASSERT_OK(s);
   ASSERT_NE(cfs, nullptr);
   ASSERT_STREQ(cfs->Name(), "aws");
-  auto copts = cfs->GetOptions<CloudEnvOptions>();
+  auto copts = cfs->GetOptions<CloudFileSystemOptions>();
   ASSERT_NE(copts, nullptr);
   ASSERT_TRUE(copts->keep_local_sst_files);
   ASSERT_NE(cfs->GetStorageProvider(), nullptr);

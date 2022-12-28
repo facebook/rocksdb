@@ -1,6 +1,8 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/cloud/cloud_file_system.h"
+
 #ifndef _WIN32_WINNT
 #include <unistd.h>
 #else
@@ -29,8 +31,62 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-bool CloudEnvOptions::GetNameFromEnvironment(const char* name, const char* alt,
-                                             std::string* result) {
+void CloudFileSystemOptions::Dump(Logger* log) const {
+  auto provider = storage_provider.get();
+  auto controller = cloud_log_controller.get();
+  Header(log, "                         COptions.cloud_type: %s",
+         (provider != nullptr) ? provider->Name() : "Unknown");
+  Header(log, "                    COptions.src_bucket_name: %s",
+         src_bucket.GetBucketName().c_str());
+  Header(log, "                    COptions.src_object_path: %s",
+         src_bucket.GetObjectPath().c_str());
+  Header(log, "                  COptions.src_bucket_region: %s",
+         src_bucket.GetRegion().c_str());
+  Header(log, "                   COptions.dest_bucket_name: %s",
+         dest_bucket.GetBucketName().c_str());
+  Header(log, "                   COptions.dest_object_path: %s",
+         dest_bucket.GetObjectPath().c_str());
+  Header(log, "                 COptions.dest_bucket_region: %s",
+         dest_bucket.GetRegion().c_str());
+  Header(log, "                           COptions.log_type: %s",
+         (controller != nullptr) ? controller->Name() : "None");
+  Header(log, "               COptions.keep_local_sst_files: %d",
+         keep_local_sst_files);
+  Header(log, "               COptions.keep_local_log_files: %d",
+         keep_local_log_files);
+  Header(log, "             COptions.server_side_encryption: %d",
+         server_side_encryption);
+  Header(log, "                  COptions.encryption_key_id: %s",
+         encryption_key_id.c_str());
+  Header(log, "           COptions.create_bucket_if_missing: %s",
+         create_bucket_if_missing ? "true" : "false");
+  Header(log, "                         COptions.run_purger: %s",
+         run_purger ? "true" : "false");
+  Header(log, "           COptions.resync_on_open: %s",
+         resync_on_open ? "true" : "false");
+  Header(log, "             COptions.skip_dbid_verification: %s",
+         skip_dbid_verification ? "true" : "false");
+  Header(log, "           COptions.use_aws_transfer_manager: %s",
+         use_aws_transfer_manager ? "true" : "false");
+  Header(log, "           COptions.number_objects_listed_in_one_iteration: %d",
+         number_objects_listed_in_one_iteration);
+  Header(log, "   COptions.use_direct_io_for_cloud_download: %d",
+         use_direct_io_for_cloud_download);
+  Header(log, "        COptions.roll_cloud_manifest_on_open: %d",
+         roll_cloud_manifest_on_open);
+  Header(log, "                     COptions.cookie_on_open: %s",
+         cookie_on_open.c_str());
+  Header(log, "                 COptions.new_cookie_on_open: %s",
+         new_cookie_on_open.c_str());
+  if (sst_file_cache != nullptr) {
+    Header(log, "           COptions.sst_file_cache size: %ld bytes",
+           sst_file_cache->GetCapacity());
+  }
+}
+
+bool CloudFileSystemOptions::GetNameFromEnvironment(const char* name,
+                                                    const char* alt,
+                                                    std::string* result) {
   char* value = getenv(name);  // See if name is set in the environment
   if (value == nullptr &&
       alt != nullptr) {   // Not set.  Do we have an alt name?
@@ -43,28 +99,28 @@ bool CloudEnvOptions::GetNameFromEnvironment(const char* name, const char* alt,
     return false;  // No, return not found
   }
 }
-void CloudEnvOptions::TEST_Initialize(const std::string& bucket,
-                                      const std::string& object,
-                                      const std::string& region) {
+void CloudFileSystemOptions::TEST_Initialize(const std::string& bucket,
+                                             const std::string& object,
+                                             const std::string& region) {
   src_bucket.TEST_Initialize(bucket, object, region);
   dest_bucket = src_bucket;
 }
 
 BucketOptions::BucketOptions() {
-  if (!CloudEnvOptions::GetNameFromEnvironment(
+  if (!CloudFileSystemOptions::GetNameFromEnvironment(
           "ROCKSDB_CLOUD_TEST_BUCKET_PREFIX", "ROCKSDB_CLOUD_BUCKET_PREFIX",
           &prefix_)) {
     prefix_ = "rockset.";
   }
-  if (CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_BUCKET_NAME",
-                                              "ROCKSDB_CLOUD_BUCKET_NAME",
-                                              &bucket_)) {
+  if (CloudFileSystemOptions::GetNameFromEnvironment(
+          "ROCKSDB_CLOUD_TEST_BUCKET_NAME", "ROCKSDB_CLOUD_BUCKET_NAME",
+          &bucket_)) {
     name_ = prefix_ + bucket_;
   }
-  CloudEnvOptions::GetNameFromEnvironment(
+  CloudFileSystemOptions::GetNameFromEnvironment(
       "ROCKSDB_CLOUD_TEST_OBECT_PATH", "ROCKSDB_CLOUD_OBJECT_PATH", &object_);
-  CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_REGION",
-                                          "ROCKSDB_CLOUD_REGION", &region_);
+  CloudFileSystemOptions::GetNameFromEnvironment(
+      "ROCKSDB_CLOUD_TEST_REGION", "ROCKSDB_CLOUD_REGION", &region_);
 }
 
 void BucketOptions::SetBucketName(const std::string& bucket,
@@ -227,46 +283,48 @@ static std::unordered_map<std::string, OptionTypeInfo>
           }}},
 };
 
-static CloudEnvOptions dummy_ceo_options;
+static CloudFileSystemOptions dummy_ceo_options;
 template <typename T1>
-int offset_of(T1 CloudEnvOptions::*member) {
+int offset_of(T1 CloudFileSystemOptions::*member) {
   return int(size_t(&(dummy_ceo_options.*member)) - size_t(&dummy_ceo_options));
 }
 
 static std::unordered_map<std::string, OptionTypeInfo>
-    cloud_env_option_type_info = {
+    cloud_fs_option_type_info = {
         {"keep_local_sst_files",
-         {offset_of(&CloudEnvOptions::keep_local_sst_files),
+         {offset_of(&CloudFileSystemOptions::keep_local_sst_files),
           OptionType::kBoolean}},
         {"keep_local_log_files",
-         {offset_of(&CloudEnvOptions::keep_local_log_files),
+         {offset_of(&CloudFileSystemOptions::keep_local_log_files),
           OptionType::kBoolean}},
         {"create_bucket_if_missing",
-         {offset_of(&CloudEnvOptions::create_bucket_if_missing),
+         {offset_of(&CloudFileSystemOptions::create_bucket_if_missing),
           OptionType::kBoolean}},
         {"validate_filesize",
-         {offset_of(&CloudEnvOptions::validate_filesize),
+         {offset_of(&CloudFileSystemOptions::validate_filesize),
           OptionType::kBoolean}},
         {"skip_dbid_verification",
-         {offset_of(&CloudEnvOptions::skip_dbid_verification),
+         {offset_of(&CloudFileSystemOptions::skip_dbid_verification),
           OptionType::kBoolean}},
         {"resync_on_open",
-         {offset_of(&CloudEnvOptions::resync_on_open), OptionType::kBoolean}},
+         {offset_of(&CloudFileSystemOptions::resync_on_open),
+          OptionType::kBoolean}},
         {"skip_cloud_children_files",
-         {offset_of(&CloudEnvOptions::skip_cloud_files_in_getchildren),
+         {offset_of(&CloudFileSystemOptions::skip_cloud_files_in_getchildren),
           OptionType::kBoolean}},
         {"constant_sst_file_size_in_manager",
-         {offset_of(
-              &CloudEnvOptions::constant_sst_file_size_in_sst_file_manager),
+         {offset_of(&CloudFileSystemOptions::
+                        constant_sst_file_size_in_sst_file_manager),
           OptionType::kInt64T}},
         {"run_purger",
-         {offset_of(&CloudEnvOptions::run_purger), OptionType::kBoolean}},
+         {offset_of(&CloudFileSystemOptions::run_purger),
+          OptionType::kBoolean}},
         {"purger_periodicity_ms",
-         {offset_of(&CloudEnvOptions::purger_periodicity_millis),
+         {offset_of(&CloudFileSystemOptions::purger_periodicity_millis),
           OptionType::kUInt64T}},
 
         {"provider",
-         {offset_of(&CloudEnvOptions::storage_provider),
+         {offset_of(&CloudFileSystemOptions::storage_provider),
           OptionType::kConfigurable, OptionVerificationType::kByNameAllowNull,
           (OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
            OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull),
@@ -278,7 +336,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                                                           provider);
           }}},
         {"controller",
-         {offset_of(&CloudEnvOptions::cloud_log_controller),
+         {offset_of(&CloudFileSystemOptions::cloud_log_controller),
           OptionType::kConfigurable, OptionVerificationType::kByNameAllowNull,
           (OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
            OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull),
@@ -291,20 +349,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 CloudLogController::CreateFromString(opts, value, controller);
             return s;
           }}},
-        {"src", OptionTypeInfo::Struct("src", &bucket_options_type_info,
-                                       offset_of(&CloudEnvOptions::src_bucket),
-                                       OptionVerificationType::kNormal,
-                                       OptionTypeFlags::kNone)},
+        {"src", OptionTypeInfo::Struct(
+                    "src", &bucket_options_type_info,
+                    offset_of(&CloudFileSystemOptions::src_bucket),
+                    OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
         {"dest", OptionTypeInfo::Struct(
                      "dest", &bucket_options_type_info,
-                     offset_of(&CloudEnvOptions::dest_bucket),
+                     offset_of(&CloudFileSystemOptions::dest_bucket),
                      OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
         {"TEST",
          {0, OptionType::kUnknown, OptionVerificationType::kAlias,
           OptionTypeFlags::kNone,
           [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
              const std::string& value, void* addr) {
-            auto copts = static_cast<CloudEnvOptions*>(addr);
+            auto copts = static_cast<CloudFileSystemOptions*>(addr);
             std::string name;
             std::string path;
             std::string region;
@@ -324,8 +382,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           }}},
 };
 
-Status CloudEnvOptions::Configure(const ConfigOptions& config_options,
-                                  const std::string& opts_str) {
+Status CloudFileSystemOptions::Configure(const ConfigOptions& config_options,
+                                         const std::string& opts_str) {
   std::string current;
   Status s;
   if (!config_options.ignore_unknown_options) {
@@ -336,34 +394,37 @@ Status CloudEnvOptions::Configure(const ConfigOptions& config_options,
   }
   if (s.ok()) {
     s = OptionTypeInfo::ParseStruct(
-        config_options, CloudEnvOptions::kName(), &cloud_env_option_type_info,
-        CloudEnvOptions::kName(), opts_str, reinterpret_cast<char*>(this));
+        config_options, CloudFileSystemOptions::kName(),
+        &cloud_fs_option_type_info, CloudFileSystemOptions::kName(), opts_str,
+        reinterpret_cast<char*>(this));
     if (!s.ok()) {  // Something went wrong.  Attempt to reset
       OptionTypeInfo::ParseStruct(
-          config_options, CloudEnvOptions::kName(), &cloud_env_option_type_info,
-          CloudEnvOptions::kName(), current, reinterpret_cast<char*>(this));
+          config_options, CloudFileSystemOptions::kName(),
+          &cloud_fs_option_type_info, CloudFileSystemOptions::kName(), current,
+          reinterpret_cast<char*>(this));
     }
   }
   return s;
 }
 
-Status CloudEnvOptions::Serialize(const ConfigOptions& config_options,
-                                  std::string* value) const {
+Status CloudFileSystemOptions::Serialize(const ConfigOptions& config_options,
+                                         std::string* value) const {
   return OptionTypeInfo::SerializeStruct(
-      config_options, CloudEnvOptions::kName(), &cloud_env_option_type_info,
-      CloudEnvOptions::kName(), reinterpret_cast<const char*>(this), value);
+      config_options, CloudFileSystemOptions::kName(),
+      &cloud_fs_option_type_info, CloudFileSystemOptions::kName(),
+      reinterpret_cast<const char*>(this), value);
 }
 
-CloudFileSystem::CloudFileSystem(const CloudEnvOptions& options,
+CloudFileSystem::CloudFileSystem(const CloudFileSystemOptions& options,
                                  const std::shared_ptr<FileSystem>& base,
                                  const std::shared_ptr<Logger>& logger)
-    : cloud_env_options(options), base_fs_(base), info_log_(logger) {
-  RegisterOptions(&cloud_env_options, &cloud_env_option_type_info);
+    : cloud_fs_options(options), base_fs_(base), info_log_(logger) {
+  RegisterOptions(&cloud_fs_options, &cloud_fs_option_type_info);
 }
 
 CloudFileSystem::~CloudFileSystem() {
-  cloud_env_options.cloud_log_controller.reset();
-  cloud_env_options.storage_provider.reset();
+  cloud_fs_options.cloud_log_controller.reset();
+  cloud_fs_options.storage_provider.reset();
 }
 
 Status CloudFileSystem::NewAwsFileSystem(
@@ -371,9 +432,9 @@ Status CloudFileSystem::NewAwsFileSystem(
     const std::string& src_cloud_bucket, const std::string& src_cloud_object,
     const std::string& src_cloud_region, const std::string& dest_cloud_bucket,
     const std::string& dest_cloud_object, const std::string& dest_cloud_region,
-    const CloudEnvOptions& cloud_options, const std::shared_ptr<Logger>& logger,
-    CloudFileSystem** cfs) {
-  CloudEnvOptions options = cloud_options;
+    const CloudFileSystemOptions& cloud_options,
+    const std::shared_ptr<Logger>& logger, CloudFileSystem** cfs) {
+  CloudFileSystemOptions options = cloud_options;
   if (!src_cloud_bucket.empty())
     options.src_bucket.SetBucketName(src_cloud_bucket);
   if (!src_cloud_object.empty())
@@ -390,13 +451,14 @@ Status CloudFileSystem::NewAwsFileSystem(
 
 int DoRegisterCloudObjects(ObjectLibrary& library, const std::string& arg) {
   int count = 0;
-  // Register the Env types
+  // Register the FileSystem types
   library.AddFactory<FileSystem>(
       CloudFileSystemImpl::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* /*errmsg*/) {
-        guard->reset(new CloudFileSystemImpl(
-            CloudEnvOptions(), FileSystem::Default(), nullptr /*logger*/));
+        guard->reset(new CloudFileSystemImpl(CloudFileSystemOptions(),
+                                             FileSystem::Default(),
+                                             nullptr /*logger*/));
         return guard->get();
       });
   count++;
@@ -491,7 +553,7 @@ Status CloudFileSystem::CreateFromString(
 
 Status CloudFileSystem::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
-    const CloudEnvOptions& cloud_options,
+    const CloudFileSystemOptions& cloud_options,
     std::unique_ptr<CloudFileSystem>* result) {
   RegisterCloudObjects();
   std::string id;
@@ -521,7 +583,7 @@ Status CloudFileSystem::CreateFromString(
   if (s.ok()) {
     auto* cfs = dynamic_cast<CloudFileSystem*>(fs.get());
     assert(cfs);
-    auto copts = cfs->GetOptions<CloudEnvOptions>();
+    auto copts = cfs->GetOptions<CloudFileSystemOptions>();
     *copts = cloud_options;
     if (!options.empty()) {
       s = cfs->ConfigureFromMap(copy, options);
@@ -548,16 +610,17 @@ Status CloudFileSystem::CreateFromString(
 #ifndef USE_AWS
 Status CloudFileSystem::NewAwsFileSystem(
     const std::shared_ptr<FileSystem>& /*base_fs*/,
-    const CloudEnvOptions& /*options*/,
+    const CloudFileSystemOptions& /*options*/,
     const std::shared_ptr<Logger>& /*logger*/, CloudFileSystem** /*cfs*/) {
   return Status::NotSupported("RocksDB Cloud not compiled with AWS support");
 }
 #else
 Status CloudFileSystem::NewAwsFileSystem(
-    const std::shared_ptr<FileSystem>& base_fs, const CloudEnvOptions& options,
+    const std::shared_ptr<FileSystem>& base_fs,
+    const CloudFileSystemOptions& options,
     const std::shared_ptr<Logger>& logger, CloudFileSystem** cfs) {
   CloudFileSystem::RegisterCloudObjects();
-  // Dump out cloud env options
+  // Dump out cloud fs options
   options.Dump(logger.get());
 
   Status st = AwsFileSystem::NewAwsFileSystem(base_fs, options, logger, cfs);

@@ -46,7 +46,7 @@ class AwsFileSystem : public CloudFileSystemImpl {
  public:
   // A factory method for creating S3 envs
   static Status NewAwsFileSystem(const std::shared_ptr<FileSystem>& fs,
-                                 const CloudEnvOptions& env_options,
+                                 const CloudFileSystemOptions& cloud_options,
                                  const std::shared_ptr<Logger>& info_log,
                                  CloudFileSystem** cfs);
   static Status NewAwsFileSystem(const std::shared_ptr<FileSystem>& fs,
@@ -74,7 +74,7 @@ class AwsFileSystem : public CloudFileSystemImpl {
   // access_key_id and secret_key.
   //
   explicit AwsFileSystem(const std::shared_ptr<FileSystem>& underlying_fs,
-                         const CloudEnvOptions& cloud_options,
+                         const CloudFileSystemOptions& cloud_options,
                          const std::shared_ptr<Logger>& info_log = nullptr);
 };
 

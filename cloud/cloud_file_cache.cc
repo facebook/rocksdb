@@ -43,13 +43,13 @@ static void clear_callback_state() { callback_state.clear(); }
 // Touch the file so that is the the most-recent LRU item in cache.
 //
 void CloudFileSystemImpl::FileCacheAccess(const std::string& fname) {
-  if (!cloud_env_options.hasSstFileCache()) {
+  if (!cloud_fs_options.hasSstFileCache()) {
     return;
   }
   Slice key(fname);
-  Cache::Handle* handle = cloud_env_options.sst_file_cache->Lookup(key);
+  Cache::Handle* handle = cloud_fs_options.sst_file_cache->Lookup(key);
   if (handle) {
-    cloud_env_options.sst_file_cache->Release(handle);
+    cloud_fs_options.sst_file_cache->Release(handle);
   }
   log(InfoLogLevel::DEBUG_LEVEL, fname, "access");
 }
@@ -59,14 +59,14 @@ void CloudFileSystemImpl::FileCacheAccess(const std::string& fname) {
 //
 void CloudFileSystemImpl::FileCacheInsert(const std::string& fname,
                                           uint64_t filesize) {
-  if (!cloud_env_options.hasSstFileCache()) {
+  if (!cloud_fs_options.hasSstFileCache()) {
     return;
   }
 
   // insert into cache, key is the file path.
   Slice key(fname);
-  cloud_env_options.sst_file_cache->Insert(key, new Value(fname, this),
-                                           filesize, DeleteEntry);
+  cloud_fs_options.sst_file_cache->Insert(key, new Value(fname, this), filesize,
+                                          DeleteEntry);
   log(InfoLogLevel::INFO_LEVEL, fname, "insert");
 }
 
@@ -77,12 +77,12 @@ void CloudFileSystemImpl::FileCacheErase(const std::string& fname) {
   // We erase from the cache even if the cache size is zero. This is needed
   // to protect against the when the cache size was dynamically reduced to zero
   // on a running database.
-  if (!cloud_env_options.sst_file_cache) {
+  if (!cloud_fs_options.sst_file_cache) {
     return;
   }
 
   Slice key(fname);
-  cloud_env_options.sst_file_cache->Erase(key);
+  cloud_fs_options.sst_file_cache->Erase(key);
   log(InfoLogLevel::INFO_LEVEL, fname, "erased");
 }
 
@@ -100,7 +100,7 @@ void CloudFileSystemImpl::FileCacheDeleter(const std::string& fname) {
 //
 uint64_t CloudFileSystemImpl::FileCacheGetCharge() {
   clear_callback_state();
-  cloud_env_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
+  cloud_fs_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
   uint64_t total = 0;
   for (auto& it : callback_state) {
     total += it.second;
@@ -114,7 +114,7 @@ uint64_t CloudFileSystemImpl::FileCacheGetCharge() {
 //
 uint64_t CloudFileSystemImpl::FileCacheGetNumItems() {
   clear_callback_state();
-  cloud_env_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
+  cloud_fs_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
   return callback_state.size();
 }
 
@@ -124,18 +124,18 @@ void CloudFileSystemImpl::FileCachePurge() {
   // We erase from the cache even if the cache size is zero. This is needed
   // to protect against the when the cache size was dynamically reduced to zero
   // on a running database.
-  if (!cloud_env_options.sst_file_cache) {
+  if (!cloud_fs_options.sst_file_cache) {
     return;
   }
   // fetch all items from cache
   clear_callback_state();
-  cloud_env_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
+  cloud_fs_options.sst_file_cache->ApplyToAllCacheEntries(callback, true);
   // for all those items that have a matching cfs, remove them from cache.
   for (auto& it : callback_state) {
     Value* value = it.first;
     if (value->cfs == this) {
       Slice key(value->path);
-      cloud_env_options.sst_file_cache->Erase(key);
+      cloud_fs_options.sst_file_cache->Erase(key);
     }
   }
   log(InfoLogLevel::INFO_LEVEL, "ENV-DELETE", "purged");
@@ -143,8 +143,8 @@ void CloudFileSystemImpl::FileCachePurge() {
 
 void CloudFileSystemImpl::log(InfoLogLevel level, const std::string& fname,
                               const std::string& msg) {
-  uint64_t usage = cloud_env_options.sst_file_cache->GetUsage();
-  uint64_t capacity = cloud_env_options.sst_file_cache->GetCapacity();
+  uint64_t usage = cloud_fs_options.sst_file_cache->GetUsage();
+  uint64_t capacity = cloud_fs_options.sst_file_cache->GetCapacity();
   long percent = (capacity > 0 ? (100L * usage / capacity) : 0);
   Log(level, info_log_,
       "[%s] FileCache %s %s cache-used %" PRIu64 "/%" PRIu64 "(%ld%%) bytes",

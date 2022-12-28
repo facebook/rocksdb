@@ -8,7 +8,7 @@
 
 #include "cloud/cloud_manifest.h"
 #include "port/port_posix.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
@@ -29,7 +29,7 @@ class CloudFileSystemImpl : public CloudFileSystem {
  public:
   static int RegisterAwsObjects(ObjectLibrary& library, const std::string& arg);
   // Constructor
-  CloudFileSystemImpl(const CloudEnvOptions& options,
+  CloudFileSystemImpl(const CloudFileSystemOptions& options,
                       const std::shared_ptr<FileSystem>& base_fs,
                       const std::shared_ptr<Logger>& logger);
 

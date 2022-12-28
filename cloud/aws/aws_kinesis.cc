@@ -8,7 +8,7 @@
 #include <iostream>
 
 #include "cloud/cloud_log_controller_impl.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
@@ -229,7 +229,7 @@ Status KinesisController::PrepareOptions(const ConfigOptions& config_options) {
   assert(cfs);
 
   Aws::Client::ClientConfiguration config;
-  const auto& options = cfs->GetCloudEnvOptions();
+  const auto& options = cfs->GetCloudFileSystemOptions();
   if (std::string(cfs->Name()) != CloudFileSystem::kAws()) {
     return Status::InvalidArgument("Kinesis Provider requires AWS Environment");
   }

@@ -5,7 +5,7 @@
 #include <cinttypes>
 
 #include "cloud/aws/aws_file.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_file_system.h"
 #ifdef USE_AWS
 #include <aws/core/client/AWSError.h>
 #include <aws/core/client/ClientConfiguration.h>
@@ -121,11 +121,11 @@ Status AwsCloudOptions::GetClientConfiguration(
   config->connectTimeoutMs = 30000;
   config->requestTimeoutMs = 600000;
 
-  const auto& cloud_env_options = fs->GetCloudEnvOptions();
+  const auto& cloud_fs_options = fs->GetCloudFileSystemOptions();
   // Setup how retries need to be done
   config->retryStrategy = std::make_shared<AwsRetryStrategy>(fs);
-  if (cloud_env_options.request_timeout_ms != 0) {
-    config->requestTimeoutMs = cloud_env_options.request_timeout_ms;
+  if (cloud_fs_options.request_timeout_ms != 0) {
+    config->requestTimeoutMs = cloud_fs_options.request_timeout_ms;
   }
 
   config->region = ToAwsString(region);
