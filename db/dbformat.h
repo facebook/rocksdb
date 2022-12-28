@@ -129,6 +129,12 @@ struct ParsedInternalKey {
     const char* addr = user_key.data() + user_key.size() - ts.size();
     memcpy(const_cast<char*>(addr), ts.data(), ts.size());
   }
+
+  Slice GetTimestamp(size_t ts_sz) {
+    assert(ts_sz <= user_key.size());
+    const char* addr = user_key.data() + user_key.size() - ts_sz;
+    return Slice(const_cast<char*>(addr), ts_sz);
+  }
 };
 
 // Return the length of the encoding of "key".
@@ -277,6 +283,8 @@ class InternalKeyComparator
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
+  int Compare(const Slice& a, const ParsedInternalKey& b) const;
+  int Compare(const ParsedInternalKey& a, const Slice& b) const;
   // In this `Compare()` overload, the sequence numbers provided in
   // `a_global_seqno` and `b_global_seqno` override the sequence numbers in `a`
   // and `b`, respectively. To disable sequence number override(s), provide the
@@ -439,6 +447,8 @@ class IterKey {
   void SetIsUserKey(bool is_user_key) { is_user_key_ = is_user_key; }
 
   // Returns the key in whichever format that was provided to KeyIter
+  // If user-defined timestamp is enabled, then timestamp is included in the
+  // return result.
   Slice GetKey() const { return Slice(key_, key_size_); }
 
   Slice GetInternalKey() const {
@@ -446,6 +456,8 @@ class IterKey {
     return Slice(key_, key_size_);
   }
 
+  // If user-defined timestamp is enabled, then timestamp is included in the
+  // return result of GetUserKey();
   Slice GetUserKey() const {
     if (IsUserKey()) {
       return Slice(key_, key_size_);
@@ -495,6 +507,9 @@ class IterKey {
     return SetKeyImpl(key, copy);
   }
 
+  // If user-defined timestamp is enabled, then `key` includes timestamp.
+  // TODO(yanqin) this is also used to set prefix, which do not include
+  // timestamp. Should be handled.
   Slice SetUserKey(const Slice& key, bool copy = true) {
     is_user_key_ = true;
     return SetKeyImpl(key, copy);
@@ -689,6 +704,8 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 // slice they point to.
 // Tag is defined as ValueType.
 // input will be advanced to after the record.
+// If user-defined timestamp is enabled for a column family, then the `key`
+// resulting from this call will include timestamp.
 extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                        uint32_t* column_family, Slice* key,
                                        Slice* value, Slice* blob, Slice* xid);

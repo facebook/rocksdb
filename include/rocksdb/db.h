@@ -500,10 +500,7 @@ class DB {
   virtual Status Merge(const WriteOptions& /*options*/,
                        ColumnFamilyHandle* /*column_family*/,
                        const Slice& /*key*/, const Slice& /*ts*/,
-                       const Slice& /*value*/) {
-    return Status::NotSupported(
-        "Merge does not support user-defined timestamp yet");
-  }
+                       const Slice& /*value*/);
 
   // Apply the specified updates to the database.
   // If `updates` contains no update, WAL will still be synced if
@@ -1448,11 +1445,17 @@ class DB {
   virtual Status SyncWAL() = 0;
 
   // Lock the WAL. Also flushes the WAL after locking.
+  // After this method returns ok, writes to the database will be stopped until
+  // UnlockWAL() is called.
+  // This method may internally acquire and release DB mutex and the WAL write
+  // mutex, but after it returns, neither mutex is held by caller.
   virtual Status LockWAL() {
     return Status::NotSupported("LockWAL not implemented");
   }
 
   // Unlock the WAL.
+  // The write stop on the database will be cleared.
+  // This method may internally acquire and release DB mutex.
   virtual Status UnlockWAL() {
     return Status::NotSupported("UnlockWAL not implemented");
   }

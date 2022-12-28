@@ -37,7 +37,6 @@
 #include <thread>
 #include <unordered_map>
 
-#include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
@@ -3055,11 +3054,6 @@ class Benchmark {
                                     FLAGS_block_size /*estimated_entry_charge*/,
                                     FLAGS_cache_numshardbits)
           .MakeSharedCache();
-    } else if (FLAGS_cache_type == "fast_lru_cache") {
-      return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
-                             FLAGS_cache_numshardbits,
-                             false /*strict_capacity_limit*/,
-                             kDefaultCacheMetadataChargePolicy);
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
@@ -3498,6 +3492,11 @@ class Benchmark {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
+      } else if (name == "multireadwhilewriting") {
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
+        num_threads++;
+        method = &Benchmark::MultiReadWhileWriting;
       } else if (name == "approximatesizerandom") {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
@@ -6890,6 +6889,14 @@ class Benchmark {
   void ReadWhileWriting(ThreadState* thread) {
     if (thread->tid > 0) {
       ReadRandom(thread);
+    } else {
+      BGWriter(thread, kWrite);
+    }
+  }
+
+  void MultiReadWhileWriting(ThreadState* thread) {
+    if (thread->tid > 0) {
+      MultiReadRandom(thread);
     } else {
       BGWriter(thread, kWrite);
     }

@@ -122,7 +122,6 @@ default_params = {
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
     "cache_type": lambda: random.choice(["lru_cache", "hyper_clock_cache"]),
-    # fast_lru_cache is incompatible with stress tests, because it doesn't support strict_capacity_limit == false.
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
@@ -140,7 +139,6 @@ default_params = {
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
     "compaction_ttl": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
-    "fifo_allow_compaction": lambda: random.randint(0, 1),
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
     "max_manifest_file_size": lambda: random.choice(

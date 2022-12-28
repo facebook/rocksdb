@@ -88,6 +88,7 @@ enum NewFileCustomTag : uint32_t {
   kMinTimestamp = 10,
   kMaxTimestamp = 11,
   kUniqueId = 12,
+  kEpochNumber = 13,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -102,6 +103,10 @@ class VersionSet;
 constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
+constexpr uint64_t kUnknownEpochNumber = 0;
+// If `Options::allow_ingest_behind` is true, this epoch number
+// will be dedicated to files ingested behind.
+constexpr uint64_t kReservedEpochNumberForFileIngestedBehind = 1;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
@@ -114,7 +119,7 @@ struct FileDescriptor {
   // Table reader in table_reader_handle
   TableReader* table_reader;
   uint64_t packed_number_and_path_id;
-  uint64_t file_size;  // File size in bytes
+  uint64_t file_size;             // File size in bytes
   SequenceNumber smallest_seqno;  // The smallest seqno in this file
   SequenceNumber largest_seqno;   // The largest seqno in this file
 
@@ -146,8 +151,8 @@ struct FileDescriptor {
     return packed_number_and_path_id & kFileNumberMask;
   }
   uint32_t GetPathId() const {
-    return static_cast<uint32_t>(
-        packed_number_and_path_id / (kFileNumberMask + 1));
+    return static_cast<uint32_t>(packed_number_and_path_id /
+                                 (kFileNumberMask + 1));
   }
   uint64_t GetFileSize() const { return file_size; }
 };
@@ -166,8 +171,8 @@ struct FileSampledStats {
 
 struct FileMetaData {
   FileDescriptor fd;
-  InternalKey smallest;            // Smallest internal key served by table
-  InternalKey largest;             // Largest internal key served by table
+  InternalKey smallest;  // Smallest internal key served by table
+  InternalKey largest;   // Largest internal key served by table
 
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle = nullptr;
@@ -210,6 +215,12 @@ struct FileMetaData {
   // Unix time when the SST file is created.
   uint64_t file_creation_time = kUnknownFileCreationTime;
 
+  // The order of a file being flushed or ingested/imported.
+  // Compaction output file will be assigned with the minimum `epoch_number`
+  // among input files'.
+  // For L0, larger `epoch_number` indicates newer L0 file.
+  uint64_t epoch_number = kUnknownEpochNumber;
+
   // File checksum
   std::string file_checksum = kUnknownFileChecksum;
 
@@ -227,7 +238,7 @@ struct FileMetaData {
                const SequenceNumber& largest_seq, bool marked_for_compact,
                Temperature _temperature, uint64_t oldest_blob_file,
                uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
-               const std::string& _file_checksum,
+               uint64_t _epoch_number, const std::string& _file_checksum,
                const std::string& _file_checksum_func_name,
                UniqueId64x2 _unique_id)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
@@ -238,6 +249,7 @@ struct FileMetaData {
         oldest_blob_file_number(oldest_blob_file),
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
+        epoch_number(_epoch_number),
         file_checksum(_file_checksum),
         file_checksum_func_name(_file_checksum_func_name),
         unique_id(std::move(_unique_id)) {
@@ -312,15 +324,11 @@ struct FileMetaData {
 struct FdWithKeyRange {
   FileDescriptor fd;
   FileMetaData* file_metadata;  // Point to all metadata
-  Slice smallest_key;    // slice that contain smallest key
-  Slice largest_key;     // slice that contain largest key
+  Slice smallest_key;           // slice that contain smallest key
+  Slice largest_key;            // slice that contain largest key
 
   FdWithKeyRange()
-      : fd(),
-        file_metadata(nullptr),
-        smallest_key(),
-        largest_key() {
-  }
+      : fd(), file_metadata(nullptr), smallest_key(), largest_key() {}
 
   FdWithKeyRange(FileDescriptor _fd, Slice _smallest_key, Slice _largest_key,
                  FileMetaData* _file_metadata)
@@ -424,7 +432,7 @@ class VersionEdit {
                const SequenceNumber& largest_seqno, bool marked_for_compaction,
                Temperature temperature, uint64_t oldest_blob_file_number,
                uint64_t oldest_ancester_time, uint64_t file_creation_time,
-               const std::string& file_checksum,
+               uint64_t epoch_number, const std::string& file_checksum,
                const std::string& file_checksum_func_name,
                const UniqueId64x2& unique_id) {
     assert(smallest_seqno <= largest_seqno);
@@ -433,8 +441,8 @@ class VersionEdit {
         FileMetaData(file, file_path_id, file_size, smallest, largest,
                      smallest_seqno, largest_seqno, marked_for_compaction,
                      temperature, oldest_blob_file_number, oldest_ancester_time,
-                     file_creation_time, file_checksum, file_checksum_func_name,
-                     unique_id));
+                     file_creation_time, epoch_number, file_checksum,
+                     file_checksum_func_name, unique_id));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }

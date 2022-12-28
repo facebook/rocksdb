@@ -1213,6 +1213,10 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
   // check backup 5
   AssertBackupConsistency(5, 0, max_key);
 
+  // check that "latest backup" still works after deleting latest
+  ASSERT_OK(backup_engine_->DeleteBackup(5));
+  AssertBackupConsistency(0, 0, 3 * keys_iteration, max_key);
+
   CloseBackupEngine();
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)

@@ -1059,16 +1059,31 @@ void DBImpl::DumpStats() {
     return;
   }
 
+  // Also probe block cache(s) for problems, dump to info log
+  UnorderedSet<Cache*> probed_caches;
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
     for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-      if (cfd->initialized()) {
-        // Release DB mutex for gathering cache entry stats. Pass over all
-        // column families for this first so that other stats are dumped
-        // near-atomically.
-        InstrumentedMutexUnlock u(&mutex_);
-        cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+      if (!cfd->initialized()) {
+        continue;
+      }
+
+      // Release DB mutex for gathering cache entry stats. Pass over all
+      // column families for this first so that other stats are dumped
+      // near-atomically.
+      InstrumentedMutexUnlock u(&mutex_);
+      cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+
+      // Probe block cache for problems (if not already via another CF)
+      if (immutable_db_options_.info_log) {
+        auto* table_factory = cfd->ioptions()->table_factory.get();
+        assert(table_factory != nullptr);
+        Cache* cache =
+            table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
+        if (cache && probed_caches.insert(cache).second) {
+          cache->ReportProblems(immutable_db_options_.info_log);
+        }
       }
     }
 
@@ -1079,18 +1094,7 @@ void DBImpl::DumpStats() {
     default_cf_internal_stats_->GetStringProperty(*property_info, *property,
                                                   &stats);
 
-    property = &DB::Properties::kCFStatsNoFileHistogram;
-    property_info = GetPropertyInfo(*property);
-    assert(property_info != nullptr);
-    assert(!property_info->need_out_of_mutex);
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->initialized()) {
-        cfd->internal_stats()->GetStringProperty(*property_info, *property,
-                                                 &stats);
-      }
-    }
-
-    property = &DB::Properties::kCFFileHistogram;
+    property = &InternalStats::kPeriodicCFStats;
     property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
     assert(!property_info->need_out_of_mutex);
@@ -1566,21 +1570,31 @@ Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
 }
 
 Status DBImpl::LockWAL() {
-  log_write_mutex_.Lock();
-  auto cur_log_writer = logs_.back().writer;
-  IOStatus status = cur_log_writer->WriteBuffer();
-  if (!status.ok()) {
-    ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
-                    status.ToString().c_str());
-    // In case there is a fs error we should set it globally to prevent the
-    // future writes
-    WriteStatusCheck(status);
+  {
+    InstrumentedMutexLock lock(&mutex_);
+    WriteThread::Writer w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
+    WriteThread::Writer nonmem_w;
+    if (two_write_queues_) {
+      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    }
+
+    lock_wal_write_token_ = write_controller_.GetStopToken();
+
+    if (two_write_queues_) {
+      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+    }
+    write_thread_.ExitUnbatched(&w);
   }
-  return static_cast<Status>(status);
+  return FlushWAL(/*sync=*/false);
 }
 
 Status DBImpl::UnlockWAL() {
-  log_write_mutex_.Unlock();
+  {
+    InstrumentedMutexLock lock(&mutex_);
+    lock_wal_write_token_.reset();
+  }
+  bg_cv_.SignalAll();
   return Status::OK();
 }
 
@@ -1819,7 +1833,8 @@ InternalIterator* DBImpl::NewInternalIterator(
   MergeIteratorBuilder merge_iter_builder(
       &cfd->internal_comparator(), arena,
       !read_options.total_order_seek &&
-          super_version->mutable_cf_options.prefix_extractor != nullptr);
+          super_version->mutable_cf_options.prefix_extractor != nullptr,
+      read_options.iterate_upper_bound);
   // Collect iterator for mutable memtable
   auto mem_iter = super_version->mem->NewIterator(read_options, arena);
   Status s;
@@ -5313,6 +5328,7 @@ Status DBImpl::IngestExternalFiles(
     // Run ingestion jobs.
     if (status.ok()) {
       for (size_t i = 0; i != num_cfs; ++i) {
+        mutex_.AssertHeld();
         status = ingestion_jobs[i].Run();
         if (!status.ok()) {
           break;
@@ -5517,6 +5533,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
 
       num_running_ingest_file_++;
       assert(!cfd->IsDropped());
+      mutex_.AssertHeld();
       status = import_job.Run();
 
       // Install job edit [Mutex will be unlocked here]

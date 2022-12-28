@@ -88,7 +88,7 @@ class MemTable {
  public:
   struct KeyComparator : public MemTableRep::KeyComparator {
     const InternalKeyComparator comparator;
-    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
+    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) {}
     virtual int operator()(const char* prefix_len_key1,
                            const char* prefix_len_key2) const override;
     virtual int operator()(const char* prefix_len_key,
@@ -448,9 +448,7 @@ class MemTable {
   // persisted.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  void MarkFlushed() {
-    table_->MarkFlushed();
-  }
+  void MarkFlushed() { table_->MarkFlushed(); }
 
   // return true if the current MemTableRep supports merge operator.
   bool IsMergeOperatorSupported() const {
@@ -562,8 +560,8 @@ class MemTable {
   std::atomic<size_t> write_buffer_size_;
 
   // These are used to manage memtable flushes to storage
-  bool flush_in_progress_; // started the flush
-  bool flush_completed_;   // finished the flush
+  bool flush_in_progress_;  // started the flush
+  bool flush_completed_;    // finished the flush
   uint64_t file_number_;    // filled up after flush is complete
 
   // The updates to be applied to the transaction log when this

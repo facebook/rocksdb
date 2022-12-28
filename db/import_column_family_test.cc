@@ -556,10 +556,9 @@ TEST_F(ImportColumnFamilyTest, ImportColumnFamilyNegativeTest) {
         LiveFileMetaDataInit(file2_sst_name, sst_files_dir_, 1, 10, 19));
     metadata.db_comparator_name = options.comparator->Name();
 
-    ASSERT_EQ(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
-                                                ImportColumnFamilyOptions(),
-                                                metadata, &import_cfh_),
-              Status::InvalidArgument("Files have overlapping ranges"));
+    ASSERT_NOK(db_->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
+                                                 ImportColumnFamilyOptions(),
+                                                 metadata, &import_cfh_));
     ASSERT_EQ(import_cfh_, nullptr);
   }
 

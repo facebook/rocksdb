@@ -363,6 +363,16 @@ class SleepingBackgroundTask {
         done_with_sleep_(false),
         sleeping_(false) {}
 
+  ~SleepingBackgroundTask() {
+    MutexLock l(&mutex_);
+    should_sleep_ = false;
+    while (sleeping_) {
+      assert(!should_sleep_);
+      bg_cv_.SignalAll();
+      bg_cv_.Wait();
+    }
+  }
+
   bool IsSleeping() {
     MutexLock l(&mutex_);
     return sleeping_;
