@@ -2258,12 +2258,11 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
         try {
           progress_callback();
         } catch (const std::exception& exn) {
-          io_s = IOStatus::Aborted("Exception in exclude_files_callback: " +
+          io_s = IOStatus::Aborted("Exception in progress_callback: " +
                                    std::string(exn.what()));
           break;
         } catch (...) {
-          io_s =
-              IOStatus::Aborted("Unknown exception in exclude_files_callback");
+          io_s = IOStatus::Aborted("Unknown exception in progress_callback");
           break;
         }
       }
@@ -2502,6 +2501,8 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
       excludable_items->emplace_back(std::move(copy_or_create_work_item),
                                      std::move(after_copy_or_create_work_item));
     } else {
+      // For files known not excluded, can start copying even before finishing
+      // the checkpoint
       ROCKS_LOG_INFO(options_.info_log, "Copying %s to %s", fname.c_str(),
                      copy_dest_path->c_str());
       files_to_copy_or_create_.write(std::move(copy_or_create_work_item));
