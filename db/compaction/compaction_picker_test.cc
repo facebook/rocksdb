@@ -148,7 +148,7 @@ class CompactionPickerTestBase : public testing::Test {
         smallest_seq, largest_seq, marked_for_compact, temperature,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, epoch_number, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     f->oldest_ancester_time = oldest_ancestor_time;
@@ -2872,7 +2872,6 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesHit) {
             compaction->compaction_reason());
   ASSERT_EQ(0, compaction->output_level());
 }
-
 
 #ifndef ROCKSDB_LITE
 TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
