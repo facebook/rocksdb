@@ -6291,7 +6291,7 @@ class DBCompactionTestWithOngoingFileIngestionParam
     ASSERT_OK(sst_file_writer.Open(dummy));
     ASSERT_OK(sst_file_writer.Put("k2", "dummy"));
     ASSERT_OK(sst_file_writer.Finish());
-    EXPECT_OK(db_->IngestExternalFile({dummy}, IngestExternalFileOptions()));
+    ASSERT_OK(db_->IngestExternalFile({dummy}, IngestExternalFileOptions()));
     // L2 is made to contain a file overlapped with files to be ingested in
     // later steps on key "k2". This will force future files ingested to L1 or
     // above.
@@ -6339,7 +6339,7 @@ class DBCompactionTestWithOngoingFileIngestionParam
     if (compaction_path_to_test_ == "AutoCompaction") {
       TEST_SYNC_POINT("PreCompaction");
       ResumeCompactionThread();
-      // Withouth proper range conflict check,
+      // Without proper range conflict check,
       // this would have been `Status::Corruption` about overlapping ranges
       Status s = dbfull()->TEST_WaitForCompact();
       EXPECT_OK(s);
@@ -6351,7 +6351,7 @@ class DBCompactionTestWithOngoingFileIngestionParam
       std::string end_key = "k4";
       Slice end(end_key);
       TEST_SYNC_POINT("PreCompaction");
-      // Withouth proper range conflict check,
+      // Without proper range conflict check,
       // this would have been `Status::Corruption` about overlapping ranges
       Status s = dbfull()->CompactRange(cro, &start, &end);
       EXPECT_OK(s);
@@ -6365,7 +6365,7 @@ class DBCompactionTestWithOngoingFileIngestionParam
       Slice end(end_key);
       TEST_SYNC_POINT("PreCompaction");
       Status s = dbfull()->CompactRange(cro, &start, &end);
-      // Withouth proper range conflict check,
+      // Without proper range conflict check,
       // this would have been `Status::Corruption` about overlapping ranges
       // To see this, remove the fix AND replace
       // `DBImpl::CompactRange:PostRefitLevel` in sync point dependency with
@@ -6383,7 +6383,7 @@ class DBCompactionTestWithOngoingFileIngestionParam
       }
       TEST_SYNC_POINT("PreCompaction");
       Status s = db_->CompactFiles(CompactionOptions(), input_files, 1);
-      // Withouth proper range conflict check,
+      // Without proper range conflict check,
       // this would have been `Status::Corruption` about overlapping ranges
       EXPECT_TRUE(s.IsAborted());
       EXPECT_TRUE(
@@ -6461,7 +6461,7 @@ TEST_P(DBCompactionTestWithOngoingFileIngestionParam, RangeConflictCheck) {
     ASSERT_OK(db_->IngestExternalFile({s2}, IngestExternalFileOptions()));
   });
 
-  // Compact s1. Withouth proper range conflict check,
+  // Compact s1. Without proper range conflict check,
   // this will encounter overlapping file corruption.
   port::Thread thread2([&] { RunCompactionOverlappedWithFileIngestion(); });
 

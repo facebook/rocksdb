@@ -1804,10 +1804,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     Status status = versions_->LogAndApply(cfd, mutable_cf_options, &edit,
                                            &mutex_, directories_.GetDbDir());
 
-    if (!(c == nullptr)) {
-      cfd->compaction_picker()->UnregisterCompaction(c.get());
-      c.reset();
-    }
+    cfd->compaction_picker()->UnregisterCompaction(c.get());
+    c.reset();
 
     InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
 

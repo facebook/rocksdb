@@ -11,6 +11,7 @@
 #include "db/column_family.h"
 #include "db/internal_stats.h"
 #include "db/snapshot_impl.h"
+#include "db/version_edit.h"
 #include "env/file_system_tracer.h"
 #include "logging/event_logger.h"
 #include "options/db_options.h"
@@ -18,7 +19,6 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
-#include "version_edit.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -197,6 +197,11 @@ class ExternalSstFileIngestionJob {
   // Helper method to sync given file.
   template <typename TWritableFile>
   Status SyncIngestedFile(TWritableFile* file);
+
+  // Create equivalent `Compaction` objects to this file ingestion job
+  // , which will be used to check range conflict with other ongoing
+  // compactions.
+  void CreateEquivalentFileIngestingCompactions();
 
   SystemClock* clock_;
   FileSystemPtr fs_;

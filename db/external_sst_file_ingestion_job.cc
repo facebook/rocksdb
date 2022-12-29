@@ -478,10 +478,20 @@ Status ExternalSstFileIngestionJob::Run() {
     edit_.AddFile(f.picked_level, f_metadata);
   }
 
-  // Map from output level to input of compactions equivalent to this ingestion
-  // job
+  CreateEquivalentFileIngestingCompactions();
+  return status;
+}
+
+void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
+  // A map from output level to input of compactions equivalent to this
+  // ingestion job.
+  // TODO: simplify below logic to creating compaction per ingested file
+  // instead of per output level, once we figure out how to treat ingested files
+  // with adjacent range deletion tombstones to same output level in the same
+  // job as non-overlapping compactions.
   std::map<int, CompactionInputFiles>
       output_level_to_file_ingesting_compaction_input;
+
   for (const auto& pair : edit_.GetNewFiles()) {
     int output_level = pair.first;
     const FileMetaData& f_metadata = pair.second;
@@ -522,7 +532,6 @@ Status ExternalSstFileIngestionJob::Run() {
         files_overlap_ /* l0_files_might_overlap, not applicable */,
         CompactionReason::kExternalSstIngestion));
   }
-  return status;
 }
 
 void ExternalSstFileIngestionJob::RegisterRange() {
@@ -946,24 +955,15 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
     IngestedFileInfo* file_to_ingest) {
   auto* vstorage = cfd_->current()->storage_info();
+  // First, check if new files fit in the bottommost level
   int bottom_lvl = cfd_->NumberLevels() - 1;
-  // First, check if new files range-overlap with ongoing compaction's output to
-  // bottommost level
-  if (cfd_->RangeOverlapWithCompaction(
-          file_to_ingest->smallest_internal_key.user_key(),
-          file_to_ingest->largest_internal_key.user_key(), bottom_lvl)) {
-    return Status::InvalidArgument(
-        "Can't ingest_behind file as it overlaps with an ongoing compaction's "
-        "output to bottommost level!");
-  }
-  // Second, check if new files fit in the bottommost level
   if (!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
     return Status::InvalidArgument(
         "Can't ingest_behind file as it doesn't fit "
         "at the bottommost level!");
   }
 
-  // Third, check if despite allow_ingest_behind=true we still have 0 seqnums
+  // Second, check if despite allow_ingest_behind=true we still have 0 seqnums
   // at some upper level
   for (int lvl = 0; lvl < cfd_->NumberLevels() - 1; lvl++) {
     for (auto file : vstorage->LevelFiles(lvl)) {
