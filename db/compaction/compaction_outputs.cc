@@ -646,17 +646,15 @@ Status CompactionOutputs::AddRangeDels(
       if (icmp.Compare(tombstone_end, meta.largest) > 0) {
         tombstone_end = meta.largest;
       }
-      if (icmp.Compare(tombstone_start, tombstone_end) < 0) {
-        SizeApproximationOptions approx_opts;
-        approx_opts.files_size_error_margin = 0.1;
-        auto approximate_covered_size =
-            compaction_->input_version()->version_set()->ApproximateSize(
-                approx_opts, compaction_->input_version(),
-                tombstone_start.Encode(), tombstone_end.Encode(),
-                compaction_->output_level() + 1 /* start_level */,
-                -1 /* end_level */, kCompaction);
-        meta.compensated_range_deletion_size += approximate_covered_size;
-      }
+      SizeApproximationOptions approx_opts;
+      approx_opts.files_size_error_margin = 0.1;
+      auto approximate_covered_size =
+          compaction_->input_version()->version_set()->ApproximateSize(
+              approx_opts, compaction_->input_version(),
+              tombstone_start.Encode(), tombstone_end.Encode(),
+              compaction_->output_level() + 1 /* start_level */,
+              -1 /* end_level */, kCompaction);
+      meta.compensated_range_deletion_size += approximate_covered_size;
     }
     // The smallest key in a file is used for range tombstone truncation, so
     // it cannot have a seqnum of 0 (unless the smallest data key in a file
