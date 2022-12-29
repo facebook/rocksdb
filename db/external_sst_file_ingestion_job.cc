@@ -477,7 +477,80 @@ Status ExternalSstFileIngestionJob::Run() {
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
+
+  CreateEquivalentFileIngestingCompactions();
   return status;
+}
+
+void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
+  // A map from output level to input of compactions equivalent to this
+  // ingestion job.
+  // TODO: simplify below logic to creating compaction per ingested file
+  // instead of per output level, once we figure out how to treat ingested files
+  // with adjacent range deletion tombstones to same output level in the same
+  // job as non-overlapping compactions.
+  std::map<int, CompactionInputFiles>
+      output_level_to_file_ingesting_compaction_input;
+
+  for (const auto& pair : edit_.GetNewFiles()) {
+    int output_level = pair.first;
+    const FileMetaData& f_metadata = pair.second;
+
+    CompactionInputFiles& input =
+        output_level_to_file_ingesting_compaction_input[output_level];
+    if (input.files.empty()) {
+      // Treat the source level of ingested files to be level 0
+      input.level = 0;
+    }
+
+    compaction_input_metdatas_.push_back(new FileMetaData(f_metadata));
+    input.files.push_back(compaction_input_metdatas_.back());
+  }
+
+  for (const auto& pair : output_level_to_file_ingesting_compaction_input) {
+    int output_level = pair.first;
+    const CompactionInputFiles& input = pair.second;
+
+    const auto& mutable_cf_options = *(cfd_->GetLatestMutableCFOptions());
+    file_ingesting_compactions_.push_back(new Compaction(
+        cfd_->current()->storage_info(), *cfd_->ioptions(), mutable_cf_options,
+        mutable_db_options_, {input}, output_level,
+        MaxFileSizeForLevel(
+            mutable_cf_options, output_level,
+            cfd_->ioptions()->compaction_style) /* output file size
+            limit,
+                                                 * not applicable
+                                                 */
+        ,
+        LLONG_MAX /* max compaction bytes, not applicable */,
+        0 /* output path ID, not applicable */, mutable_cf_options.compression,
+        mutable_cf_options.compression_opts, Temperature::kUnknown,
+        0 /* max_subcompaction, not applicable */,
+        {} /* grandparents, not applicable */, false /* is manual */,
+        "" /* trim_ts */, -1 /* score, not applicable */,
+        false /* is deletion compaction, not applicable */,
+        files_overlap_ /* l0_files_might_overlap, not applicable */,
+        CompactionReason::kExternalSstIngestion));
+  }
+}
+
+void ExternalSstFileIngestionJob::RegisterRange() {
+  for (const auto& c : file_ingesting_compactions_) {
+    cfd_->compaction_picker()->RegisterCompaction(c);
+  }
+}
+
+void ExternalSstFileIngestionJob::UnregisterRange() {
+  for (const auto& c : file_ingesting_compactions_) {
+    cfd_->compaction_picker()->UnregisterCompaction(c);
+    delete c;
+  }
+  file_ingesting_compactions_.clear();
+
+  for (const auto& f : compaction_input_metdatas_) {
+    delete f;
+  }
+  compaction_input_metdatas_.clear();
 }
 
 void ExternalSstFileIngestionJob::UpdateStats() {
@@ -798,8 +871,16 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;
     }
-
-    if (vstorage->NumLevelFiles(lvl) > 0) {
+    if (cfd_->RangeOverlapWithCompaction(
+            file_to_ingest->smallest_internal_key.user_key(),
+            file_to_ingest->largest_internal_key.user_key(), lvl)) {
+      // We must use L0 or any level higher than `lvl` to be able to overwrite
+      // the compaction output keys that we overlap with in this level, We also
+      // need to assign this file a seqno to overwrite the compaction output
+      // keys in level `lvl`
+      overlap_with_db = true;
+      break;
+    } else if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = sv->current->OverlapWithLevelIterator(
           ro, env_options_, file_to_ingest->smallest_internal_key.user_key(),
@@ -856,6 +937,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       target_level < cfd_->NumberLevels() - 1) {
     status = Status::TryAgain(
         "Files cannot be ingested to Lmax. Please make sure key range of Lmax "
+        "and ongoing compaction's output to Lmax"
         "does not overlap with files to ingest.");
     return status;
   }
@@ -873,7 +955,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
     IngestedFileInfo* file_to_ingest) {
   auto* vstorage = cfd_->current()->storage_info();
-  // first check if new files fit in the bottommost level
+  // First, check if new files fit in the bottommost level
   int bottom_lvl = cfd_->NumberLevels() - 1;
   if (!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
     return Status::InvalidArgument(
@@ -881,7 +963,7 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
         "at the bottommost level!");
   }
 
-  // second check if despite allow_ingest_behind=true we still have 0 seqnums
+  // Second, check if despite allow_ingest_behind=true we still have 0 seqnums
   // at some upper level
   for (int lvl = 0; lvl < cfd_->NumberLevels() - 1; lvl++) {
     for (auto file : vstorage->LevelFiles(lvl)) {
@@ -997,14 +1079,8 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
     // add it to this level
     return false;
   }
-  if (cfd_->RangeOverlapWithCompaction(file_smallest_user_key,
-                                       file_largest_user_key, level)) {
-    // File overlap with a running compaction output that will be stored
-    // in this level, we cannot add this file to this level
-    return false;
-  }
 
-  // File did not overlap with level files, our compaction output
+  // File did not overlap with level files, nor compaction output
   return true;
 }
 

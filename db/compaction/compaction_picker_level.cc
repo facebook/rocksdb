@@ -447,21 +447,21 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
       compaction_inputs_.push_back(output_level_inputs_);
     }
 
+    // In some edge cases we could pick a compaction that will be compacting
+    // a key range that overlap with another running compaction, and both
+    // of them have the same output level. This could happen if
+    // (1) we are running a non-exclusive manual compaction
+    // (2) AddFile ingest a new file into the LSM tree
+    // We need to disallow this from happening.
+    if (compaction_picker_->FilesRangeOverlapWithCompaction(
+            compaction_inputs_, output_level_,
+            Compaction::EvaluatePenultimateLevel(
+                vstorage_, ioptions_, start_level_, output_level_))) {
+      // This compaction output could potentially conflict with the output
+      // of a currently running compaction, we cannot run it.
+      return false;
+    }
     if (!is_l0_trivial_move_) {
-      // In some edge cases we could pick a compaction that will be compacting
-      // a key range that overlap with another running compaction, and both
-      // of them have the same output level. This could happen if
-      // (1) we are running a non-exclusive manual compaction
-      // (2) AddFile ingest a new file into the LSM tree
-      // We need to disallow this from happening.
-      if (compaction_picker_->FilesRangeOverlapWithCompaction(
-              compaction_inputs_, output_level_,
-              Compaction::EvaluatePenultimateLevel(
-                  vstorage_, ioptions_, start_level_, output_level_))) {
-        // This compaction output could potentially conflict with the output
-        // of a currently running compaction, we cannot run it.
-        return false;
-      }
       compaction_picker_->GetGrandparents(vstorage_, start_level_inputs_,
                                           output_level_inputs_, &grandparents_);
     }

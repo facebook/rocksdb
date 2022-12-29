@@ -1229,7 +1229,7 @@ TEST_P(ChargeFilterConstructionTestWithParam, Basic) {
      *
      *  The test is designed in a way such that the reservation for (p1 - b')
      *  will trigger at least another dummy entry insertion
-     *  (or equivelantly to saying, creating another peak).
+     *  (or equivalently to saying, creating another peak).
      *
      * kStandard128Ribbon + FullFilter +
      * detect_filter_construct_corruption
@@ -2618,8 +2618,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
       BottommostLevelCompaction::kSkip;
   compact_options.change_level = true;
   compact_options.target_level = 7;
-  ASSERT_TRUE(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr)
-                  .IsNotSupported());
+  ASSERT_OK(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
 
   ASSERT_EQ(trivial_move, 1);
   ASSERT_EQ(non_trivial_move, 0);
