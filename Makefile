@@ -291,6 +291,9 @@ endif
 export JAVAC_ARGS
 CLEAN_FILES += make_config.mk rocksdb.pc
 
+export JAVA_ARGS
+export JAVADOC_ARGS
+
 ifeq ($(V), 1)
 $(info $(shell uname -a))
 $(info $(shell $(CC) --version))
