@@ -111,7 +111,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestSmall) {
 }
 
 TEST(DataBlockHashIndex, DataBlockHashTest) {
-  // bucket_num = 200, #keys = 100. 50% utilization
+  // bucket_num = 201, #keys = 100. 50% utilization
   DataBlockHashIndexBuilder builder;
   builder.Initialize(0.5 /*util_ratio*/);
 
@@ -148,7 +148,8 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
 }
 
 TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
-  // bucket_num = 11, #keys = 100. 1000% utilization. There will be intense hash collisions
+  // bucket_num = 11, #keys = 100. 1000% utilization. There will be intense hash
+  // collisions
   DataBlockHashIndexBuilder builder;
   builder.Initialize(10.0 /*util_ratio*/);
 
@@ -187,7 +188,8 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
       collision_count++;
     }
   }
-  // bucket_num = 11, #keys = 100, so that there will be at least 90 hash collisions
+  // bucket_num = 11, #keys = 100, so that there will be at least 90 hash
+  // collisions
   ASSERT_GE(collision_count, 90);
 }
 
