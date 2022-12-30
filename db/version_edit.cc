@@ -231,6 +231,13 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       std::string unique_id_str = EncodeUniqueIdBytes(&unique_id);
       PutLengthPrefixedSlice(dst, Slice(unique_id_str));
     }
+    if (f.compensated_range_deletion_size) {
+      PutVarint32(dst, kCompensatedRangeDeletionSize);
+      std::string compensated_range_deletion_size;
+      PutVarint64(&compensated_range_deletion_size,
+                  f.compensated_range_deletion_size);
+      PutLengthPrefixedSlice(dst, Slice(compensated_range_deletion_size));
+    }
 
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
@@ -402,6 +409,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           if (!DecodeUniqueIdBytes(field.ToString(), &f.unique_id).ok()) {
             f.unique_id = kNullUniqueId64x2;
             return "invalid unique id";
+          }
+          break;
+        case kCompensatedRangeDeletionSize:
+          if (!GetVarint64(&field, &f.compensated_range_deletion_size)) {
+            return "Invalid compensated range deletion size";
           }
           break;
         default:

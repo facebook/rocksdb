@@ -7181,6 +7181,16 @@ class CompactionReasonJni {
         return 0x0C;
       case ROCKSDB_NAMESPACE::CompactionReason::kExternalSstIngestion:
         return 0x0D;
+      case ROCKSDB_NAMESPACE::CompactionReason::kPeriodicCompaction:
+        return 0x0E;
+      case ROCKSDB_NAMESPACE::CompactionReason::kChangeTemperature:
+        return 0x0F;
+      case ROCKSDB_NAMESPACE::CompactionReason::kForcedBlobGC:
+        return 0x11;
+      case ROCKSDB_NAMESPACE::CompactionReason::kRoundRobinTtl:
+        return 0x12;
+      case ROCKSDB_NAMESPACE::CompactionReason::kRefitLevel:
+        return 0x13;
       default:
         return 0x7F;  // undefined
     }
@@ -7225,6 +7235,12 @@ class CompactionReasonJni {
         return ROCKSDB_NAMESPACE::CompactionReason::kPeriodicCompaction;
       case 0x0F:
         return ROCKSDB_NAMESPACE::CompactionReason::kChangeTemperature;
+      case 0x11:
+        return ROCKSDB_NAMESPACE::CompactionReason::kForcedBlobGC;
+      case 0x12:
+        return ROCKSDB_NAMESPACE::CompactionReason::kRoundRobinTtl;
+      case 0x13:
+        return ROCKSDB_NAMESPACE::CompactionReason::kRefitLevel;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::CompactionReason::kUnknown;
