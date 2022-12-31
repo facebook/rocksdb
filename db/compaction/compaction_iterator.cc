@@ -203,6 +203,7 @@ void CompactionIterator::Next() {
 }
 
 bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
+                                              bool* just_skip_current_user_key,
                                               Slice* skip_until) {
   // TODO: support compaction filter for wide-column entities
   if (!compaction_filter_ ||
@@ -331,6 +332,9 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
     }
     value_ = compaction_filter_value_;
+  } else if (filter == CompactionFilter::Decision::kRemoveAndSkip) {
+    *need_skip = true;
+    *just_skip_current_user_key = true;
   } else if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil) {
     *need_skip = true;
     compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
@@ -409,11 +413,15 @@ void CompactionIterator::NextFromInput() {
     iter_stats_.total_input_raw_key_bytes += key_.size();
     iter_stats_.total_input_raw_value_bytes += value_.size();
 
-    // If need_skip is true, we should seek the input iterator
+    // If need_skip is true, we should skip current user key or seek the input iterator
     // to internal key skip_until and continue from there.
     bool need_skip = false;
+    // If just_skip_current_user_key is true, we should only skip current user key and let the input iterator
+    // to next user key.
+    bool just_skip_current_user_key = false;
     // Points either into compaction_filter_skip_until_ or into
     // merge_helper_->compaction_filter_skip_until_.
+    // Notes: skip_until will be ignored if just_skip_current_user_key is true.
     Slice skip_until;
 
     bool user_key_equal_without_ts = false;
@@ -479,7 +487,7 @@ void CompactionIterator::NextFromInput() {
       // Apply the compaction filter to the first committed version of the user
       // key.
       if (current_key_committed_ &&
-          !InvokeFilterIfNeeded(&need_skip, &skip_until)) {
+          !InvokeFilterIfNeeded(&need_skip, &just_skip_current_user_key, &skip_until)) {
         break;
       }
     } else {
@@ -501,7 +509,7 @@ void CompactionIterator::NextFromInput() {
         // Apply the compaction filter to the first committed version of the
         // user key.
         if (current_key_committed_ &&
-            !InvokeFilterIfNeeded(&need_skip, &skip_until)) {
+            !InvokeFilterIfNeeded(&need_skip, &just_skip_current_user_key, &skip_until)) {
           break;
         }
       }
@@ -959,7 +967,18 @@ void CompactionIterator::NextFromInput() {
     }
 
     if (need_skip) {
-      SkipUntil(skip_until);
+      if (just_skip_current_user_key) {
+        ParsedInternalKey next_ikey;
+        AdvanceInputIter();
+        while (!IsPausingManualCompaction() && !IsShuttingDown() &&
+              input_.Valid() &&
+              (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_).ok()) &&
+              cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
+          AdvanceInputIter();
+        }
+      } else {
+        SkipUntil(skip_until);
+      }
     }
   }
 
