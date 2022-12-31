@@ -20,15 +20,12 @@ namespace ROCKSDB_NAMESPACE {
 void Configurable::RegisterOptions(
     const std::string& name, void* opt_ptr,
     const std::unordered_map<std::string, OptionTypeInfo>* type_map) {
-  RegisteredOptions opts;
-  opts.name = name;
 #ifndef ROCKSDB_LITE
-  opts.type_map = type_map;
+  options_.emplace_back(name, type_map, opt_ptr);
 #else
   (void)type_map;
+  options_.emplace_back(name, opt_ptr);
 #endif  // ROCKSDB_LITE
-  opts.opt_ptr = opt_ptr;
-  options_.emplace_back(opts);
 }
 
 //*************************************************************************
@@ -42,8 +39,9 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
   // as if you are here, you must have called PrepareOptions explicitly.
   Status status = Status::OK();
 #ifndef ROCKSDB_LITE
-  for (auto opt_iter : options_) {
+  for (const auto& opt_iter : options_) {
     if (opt_iter.type_map != nullptr) {
+      std::lock_guard lock(opt_iter.mu);
       for (auto map_iter : *(opt_iter.type_map)) {
         auto& opt_info = map_iter.second;
         if (opt_info.ShouldPrepare()) {
@@ -65,8 +63,9 @@ Status Configurable::ValidateOptions(const DBOptions& db_opts,
                                      const ColumnFamilyOptions& cf_opts) const {
   Status status;
 #ifndef ROCKSDB_LITE
-  for (auto opt_iter : options_) {
+  for (const auto& opt_iter : options_) {
     if (opt_iter.type_map != nullptr) {
+      std::lock_guard lock(opt_iter.mu);
       for (auto map_iter : *(opt_iter.type_map)) {
         auto& opt_info = map_iter.second;
         if (opt_info.ShouldValidate()) {
@@ -93,7 +92,7 @@ Status Configurable::ValidateOptions(const DBOptions& db_opts,
 /*********************************************************************************/
 
 const void* Configurable::GetOptionsPtr(const std::string& name) const {
-  for (auto o : options_) {
+  for (const auto& o : options_) {
     if (o.name == name) {
       return o.opt_ptr;
     }
@@ -107,9 +106,9 @@ std::string Configurable::GetOptionName(const std::string& opt_name) const {
 
 #ifndef ROCKSDB_LITE
 const OptionTypeInfo* ConfigurableHelper::FindOption(
-    const std::vector<Configurable::RegisteredOptions>& options,
+    const std::deque<Configurable::RegisteredOptions>& options,
     const std::string& short_name, std::string* opt_name, void** opt_ptr) {
-  for (auto iter : options) {
+  for (const auto& iter : options) {
     if (iter.type_map != nullptr) {
       const auto opt_info =
           OptionTypeInfo::Find(short_name, *(iter.type_map), opt_name);
@@ -269,6 +268,7 @@ Status ConfigurableHelper::ConfigureOptions(
 #ifndef ROCKSDB_LITE
     for (const auto& iter : configurable.options_) {
       if (iter.type_map != nullptr) {
+        std::lock_guard lock(iter.mu);
         s = ConfigureSomeOptions(config_options, configurable, *(iter.type_map),
                                  &remaining, iter.opt_ptr);
         if (remaining.empty()) {  // Are there more options left?
@@ -564,6 +564,7 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
   assert(result);
   for (auto const& opt_iter : configurable.options_) {
     if (opt_iter.type_map != nullptr) {
+      std::lock_guard lock(opt_iter.mu);
       for (const auto& map_iter : *(opt_iter.type_map)) {
         const auto& opt_name = map_iter.first;
         const auto& opt_info = map_iter.second;
