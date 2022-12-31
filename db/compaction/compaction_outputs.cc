@@ -464,15 +464,28 @@ Status CompactionOutputs::AddRangeDels(
     if (upper_bound != nullptr) {
       int cmp =
           ucmp->CompareWithoutTimestamp(*upper_bound, tombstone.start_key_);
-      if ((has_overlapping_endpoints && cmp < 0) ||
-          (!has_overlapping_endpoints && cmp <= 0)) {
-        // Tombstones starting after upper_bound only need to be included in
-        // the next table. If the current SST ends before upper_bound, i.e.,
-        // `has_overlapping_endpoints == false`, we can also skip over range
-        // tombstones that start exactly at upper_bound. Such range
-        // tombstones will be included in the next file and are not relevant
-        // to the point keys or endpoints of the current file.
+      // Tombstones starting after upper_bound only need to be included in
+      // the next table.
+      // If the current SST ends before upper_bound, i.e.,
+      // `has_overlapping_endpoints == false`, we can also skip over range
+      // tombstones that start exactly at upper_bound. Such range
+      // tombstones will be included in the next file and are not relevant
+      // to the point keys or endpoints of the current file.
+      // If the current SST ends at the same user key at upper_bound,
+      // i.e., `has_overlapping_endpoints == true`, AND the tombstone has
+      // the same start key as upper_bound, i.e., cmp == 0, then
+      // the tombstone is relevant only if the tombstone's sequence number
+      // is no larger than this file's largest key's sequence number. This
+      // is because the upper bound to truncate this file's range tombstone
+      // will be meta.largest in this case, and any tombstone that starts after
+      // it will not be relevant.
+      if (cmp < 0) {
         break;
+      } else if (cmp == 0) {
+        if (!has_overlapping_endpoints ||
+            tombstone.seq_ < GetInternalKeySeqno(meta.largest.Encode())) {
+          break;
+        }
       }
     }
 
