@@ -3117,6 +3117,61 @@ TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesizePersistDuringReopen) {
   ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, l2_size);
 }
 
+TEST_F(DBRangeDelTest, SingleKeyFile) {
+  // Test for a bug fix where a range tombstone could be added
+  // to an SST file while is not within the file's key range.
+  // Create 3 files in L0 and then L1 where all keys have the same user key
+  // `Key(2)`. The middle file will contain Key(2)@6 and Key(2)@5. Before fix,
+  // the range tombstone [Key(2), Key(5))@2 would be added to this file during
+  // compaction, but it is not in this file's key range.
+  Options opts = CurrentOptions();
+  opts.disable_auto_compactions = true;
+  opts.target_file_size_base = 1 << 10;
+  opts.level_compaction_dynamic_file_size = false;
+  DestroyAndReopen(opts);
+
+  // prevent range tombstone drop
+  std::vector<const Snapshot*> snapshots;
+  snapshots.push_back(db_->GetSnapshot());
+
+  // write a key to bottommost file so the compactions below
+  // are not bottommost compactions and will calculate
+  // compensated range tombstone size. Before bug fix, an assert would fail
+  // during this process.
+  Random rnd(301);
+  ASSERT_OK(Put(Key(2), rnd.RandomString(8 << 10)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(2), Key(5));
+  snapshots.push_back(db_->GetSnapshot());
+  std::vector<std::string> values;
+
+  values.push_back(rnd.RandomString(8 << 10));
+  ASSERT_OK(Put(Key(2), rnd.RandomString(8 << 10)));
+  snapshots.push_back(db_->GetSnapshot());
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(2), rnd.RandomString(8 << 10)));
+  snapshots.push_back(db_->GetSnapshot());
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(2), rnd.RandomString(8 << 10)));
+  snapshots.push_back(db_->GetSnapshot());
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+  CompactRangeOptions co;
+  co.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+  ASSERT_OK(dbfull()->RunManualCompaction(
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd(),
+      0, 1, co, nullptr, nullptr, true, true,
+      std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
+      "" /*trim_ts*/));
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
