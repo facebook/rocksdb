@@ -4389,6 +4389,8 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
 
   // Includes check for leaked backups files
   AssertBackupInfoConsistency(/*allow excluded*/ false);
+
+  delete alt_backup_engine;
 }
 
 }  // namespace
