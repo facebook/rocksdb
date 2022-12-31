@@ -980,6 +980,12 @@ if ( ROCKSDB_PLUGINS )
         plugin/${plugin}/${src}
         PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
     endforeach()
+    foreach (test ${${plugin}_TESTS})
+      list(APPEND PLUGIN_TESTS plugin/${plugin}/${test})
+      set_source_files_properties(
+        plugin/${plugin}/${test}
+        PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
+    endforeach()
     foreach (path ${${plugin}_INCLUDE_PATHS})
       include_directories(${path})
     endforeach()
@@ -1471,6 +1477,7 @@ if(WITH_TESTS)
         utilities/ttl/ttl_test.cc
         utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
+	${PLUGIN_TESTS}
     )
   endif()
 
