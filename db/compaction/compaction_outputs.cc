@@ -525,7 +525,8 @@ Status CompactionOutputs::AddRangeDels(
            ucmp->CompareWithoutTimestamp(*lower_bound, kv.second) < 0);
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
-    InternalKey smallest_candidate = std::move(kv.first);
+    InternalKey tombstone_start = std::move(kv.first);
+    InternalKey smallest_candidate{tombstone_start};
     if (lower_bound != nullptr &&
         ucmp->CompareWithoutTimestamp(smallest_candidate.user_key(),
                                       *lower_bound) <= 0) {
@@ -594,7 +595,8 @@ Status CompactionOutputs::AddRangeDels(
         smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
       }
     }
-    InternalKey largest_candidate = tombstone.SerializeEndKey();
+    InternalKey tombstone_end = tombstone.SerializeEndKey();
+    InternalKey largest_candidate{tombstone_end};
     if (upper_bound != nullptr &&
         ucmp->CompareWithoutTimestamp(*upper_bound,
                                       largest_candidate.user_key()) <= 0) {
@@ -636,6 +638,24 @@ Status CompactionOutputs::AddRangeDels(
 #endif
     meta.UpdateBoundariesForRange(smallest_candidate, largest_candidate,
                                   tombstone.seq_, icmp);
+    if (!bottommost_level) {
+      // Range tombstones are truncated at file boundaries
+      if (icmp.Compare(tombstone_start, meta.smallest) < 0) {
+        tombstone_start = meta.smallest;
+      }
+      if (icmp.Compare(tombstone_end, meta.largest) > 0) {
+        tombstone_end = meta.largest;
+      }
+      SizeApproximationOptions approx_opts;
+      approx_opts.files_size_error_margin = 0.1;
+      auto approximate_covered_size =
+          compaction_->input_version()->version_set()->ApproximateSize(
+              approx_opts, compaction_->input_version(),
+              tombstone_start.Encode(), tombstone_end.Encode(),
+              compaction_->output_level() + 1 /* start_level */,
+              -1 /* end_level */, kCompaction);
+      meta.compensated_range_deletion_size += approximate_covered_size;
+    }
     // The smallest key in a file is used for range tombstone truncation, so
     // it cannot have a seqnum of 0 (unless the smallest data key in a file
     // has a seqnum of 0). Otherwise, the truncated tombstone may expose

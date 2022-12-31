@@ -2588,6 +2588,12 @@ void rocksdb_block_based_options_set_partition_filters(
   options->rep.partition_filters = partition_filters;
 }
 
+void rocksdb_block_based_options_set_optimize_filters_for_memory(
+    rocksdb_block_based_table_options_t* options,
+    unsigned char optimize_filters_for_memory) {
+  options->rep.optimize_filters_for_memory = optimize_filters_for_memory;
+}
+
 void rocksdb_block_based_options_set_use_delta_encoding(
     rocksdb_block_based_table_options_t* options,
     unsigned char use_delta_encoding) {

@@ -89,6 +89,7 @@ enum NewFileCustomTag : uint32_t {
   kMaxTimestamp = 11,
   kUniqueId = 12,
   kEpochNumber = 13,
+  kCompensatedRangeDeletionSize = 14,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -182,15 +183,22 @@ struct FileMetaData {
   // Stats for compensating deletion entries during compaction
 
   // File size compensated by deletion entry.
-  // This is updated in Version::UpdateAccumulatedStats() first time when the
-  // file is created or loaded.  After it is updated (!= 0), it is immutable.
+  // This is used to compute a file's compaction priority, and is updated in
+  // Version::ComputeCompensatedSizes() first time when the file is created or
+  // loaded.  After it is updated (!= 0), it is immutable.
   uint64_t compensated_file_size = 0;
   // These values can mutate, but they can only be read or written from
   // single-threaded LogAndApply thread
   uint64_t num_entries = 0;     // the number of entries.
-  uint64_t num_deletions = 0;   // the number of deletion entries.
+  // The number of deletion entries, including range deletions.
+  uint64_t num_deletions = 0;
   uint64_t raw_key_size = 0;    // total uncompressed key size.
   uint64_t raw_value_size = 0;  // total uncompressed value size.
+  uint64_t num_range_deletions = 0;
+  // This is computed during Flush/Compaction, and is added to
+  // `compensated_file_size`. Currently, this estimates the size of keys in the
+  // next level covered by range tombstones in this file.
+  uint64_t compensated_range_deletion_size = 0;
 
   int refs = 0;  // Reference count
 
@@ -240,10 +248,12 @@ struct FileMetaData {
                uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
                uint64_t _epoch_number, const std::string& _file_checksum,
                const std::string& _file_checksum_func_name,
-               UniqueId64x2 _unique_id)
+               UniqueId64x2 _unique_id,
+               const uint64_t _compensated_range_deletion_size)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
+        compensated_range_deletion_size(_compensated_range_deletion_size),
         marked_for_compaction(marked_for_compact),
         temperature(_temperature),
         oldest_blob_file_number(oldest_blob_file),
@@ -434,7 +444,8 @@ class VersionEdit {
                uint64_t oldest_ancester_time, uint64_t file_creation_time,
                uint64_t epoch_number, const std::string& file_checksum,
                const std::string& file_checksum_func_name,
-               const UniqueId64x2& unique_id) {
+               const UniqueId64x2& unique_id,
+               const uint64_t compensated_range_deletion_size) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
@@ -442,7 +453,8 @@ class VersionEdit {
                      smallest_seqno, largest_seqno, marked_for_compaction,
                      temperature, oldest_blob_file_number, oldest_ancester_time,
                      file_creation_time, epoch_number, file_checksum,
-                     file_checksum_func_name, unique_id));
+                     file_checksum_func_name, unique_id,
+                     compensated_range_deletion_size));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }
