@@ -3143,7 +3143,8 @@ TEST_F(DBRangeDelTest, SingleKeyFile) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(6);
 
-  db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(2), Key(5));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(2),
+                             Key(5)));
   snapshots.push_back(db_->GetSnapshot());
   std::vector<std::string> values;
 
@@ -3170,6 +3171,10 @@ TEST_F(DBRangeDelTest, SingleKeyFile) {
       0, 1, co, nullptr, nullptr, true, true,
       std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
       "" /*trim_ts*/));
+
+  for (const auto s : snapshots) {
+    db_->ReleaseSnapshot(s);
+  }
 }
 
 #endif  // ROCKSDB_LITE
