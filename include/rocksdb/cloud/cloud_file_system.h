@@ -673,6 +673,13 @@ class CloudFileSystem : public FileSystem {
                                  const CloudFileSystemOptions& fs_options,
                                  const std::shared_ptr<Logger>& logger,
                                  CloudFileSystem** cfs);
+
+
+  // Creates a new Env that delegates all thread/time related
+  // calls to env, and all file operations to fs
+  static std::unique_ptr<Env> NewCompositeEnv(
+      Env* env,
+      const std::shared_ptr<FileSystem>& fs);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

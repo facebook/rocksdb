@@ -166,7 +166,7 @@ class CloudTest : public testing::Test {
     ASSERT_TRUE(cimpl);
     cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     std::shared_ptr<FileSystem> fs(cfs);
-    aenv_.reset(new CompositeEnvWrapper(base_env_, std::move(fs)));
+    aenv_ = CloudFileSystem::NewCompositeEnv(base_env_, std::move(fs));
   }
 
   // Open database via the cloud interface

@@ -106,7 +106,7 @@ class RemoteCompactionTest : public testing::Test {
     auto* cimpl = static_cast<CloudFileSystemImpl*>(afs);
     cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     std::shared_ptr<FileSystem> fs(cimpl);
-    aenv_.reset(new CompositeEnvWrapper(base_env_, std::move(fs)));
+    aenv_ = CloudFileSystem::NewCompositeEnv(base_env_, std::move(fs));
   }
 
   // Open database via the cloud interface

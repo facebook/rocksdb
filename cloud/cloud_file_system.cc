@@ -638,5 +638,11 @@ Status CloudFileSystem::NewAwsFileSystem(
 }
 #endif
 
+std::unique_ptr<Env> CloudFileSystem::NewCompositeEnv(
+    Env* env,
+    const std::shared_ptr<FileSystem>& fs) {
+  return std::make_unique<CompositeEnvWrapper>(env, fs);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
