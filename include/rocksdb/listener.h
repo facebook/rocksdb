@@ -140,7 +140,10 @@ enum class CompactionReason : int {
   // According to the comments in flush_job.cc, RocksDB treats flush as
   // a level 0 compaction in internal stats.
   kFlush,
-  // Compaction caused by external sst file ingestion
+  // [InternalOnly] External sst file ingestion treated as a compaction
+  // with placeholder input level L0 as file ingestion
+  // technically does not have an input level like other compactions.
+  // Used only for internal stats and conflict checking with other compactions
   kExternalSstIngestion,
   // Compaction due to SST file being too old
   kPeriodicCompaction,
@@ -151,6 +154,9 @@ enum class CompactionReason : int {
   // A special TTL compaction for RoundRobin policy, which basically the same as
   // kLevelMaxLevelSize, but the goal is to compact TTLed files.
   kRoundRobinTtl,
+  // [InternalOnly] DBImpl::ReFitLevel treated as a compaction,
+  // Used only for internal conflict checking with other compactions
+  kRefitLevel,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };

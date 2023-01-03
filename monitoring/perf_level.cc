@@ -5,6 +5,7 @@
 //
 
 #include <assert.h>
+
 #include "monitoring/perf_level_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -17,8 +18,6 @@ void SetPerfLevel(PerfLevel level) {
   perf_level = level;
 }
 
-PerfLevel GetPerfLevel() {
-  return perf_level;
-}
+PerfLevel GetPerfLevel() { return perf_level; }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -250,6 +250,8 @@ option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
 option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
 option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
+  add_definitions(-DROCKSDB_PORTABLE)
+
   # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
   # is available, it is available by default.
   if(FORCE_SSE42 AND NOT MSVC)
@@ -292,8 +294,7 @@ if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-if (NOT PORTABLE OR FORCE_SSE42)
-  CHECK_CXX_SOURCE_COMPILES("
+CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
 #include <wmmintrin.h>
@@ -305,12 +306,11 @@ int main() {
   auto d = _mm_cvtsi128_si64(c);
 }
 " HAVE_SSE42)
-  if(HAVE_SSE42)
-    add_definitions(-DHAVE_SSE42)
-    add_definitions(-DHAVE_PCLMUL)
-  elseif(FORCE_SSE42)
-    message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
-  endif()
+if(HAVE_SSE42)
+  add_definitions(-DHAVE_SSE42)
+  add_definitions(-DHAVE_PCLMUL)
+elseif(FORCE_SSE42)
+  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
 endif()
 
 # Check if -latomic is required or not
@@ -653,8 +653,8 @@ set(SOURCES
         cache/charged_cache.cc
         cache/clock_cache.cc
         cache/compressed_secondary_cache.cc
-        cache/fast_lru_cache.cc
         cache/lru_cache.cc
+        cache/secondary_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_contents.cc
@@ -796,6 +796,7 @@ set(SOURCES
         options/options.cc
         options/options_helper.cc
         options/options_parser.cc
+        port/mmap.cc
         port/stack_trace.cc
         table/adaptive/adaptive_table_factory.cc
         table/block_based/binary_search_index_reader.cc
@@ -830,6 +831,7 @@ set(SOURCES
         table/get_context.cc
         table/iterator.cc
         table/merging_iterator.cc
+        table/compaction_merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
         table/plain/plain_table_bloom.cc
@@ -976,6 +978,12 @@ if ( ROCKSDB_PLUGINS )
       list(APPEND SOURCES plugin/${plugin}/${src})
       set_source_files_properties(
         plugin/${plugin}/${src}
+        PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
+    endforeach()
+    foreach (test ${${plugin}_TESTS})
+      list(APPEND PLUGIN_TESTS plugin/${plugin}/${test})
+      set_source_files_properties(
+        plugin/${plugin}/${test}
         PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
     endforeach()
     foreach (path ${${plugin}_INCLUDE_PATHS})
@@ -1469,6 +1477,7 @@ if(WITH_TESTS)
         utilities/ttl/ttl_test.cc
         utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
+	${PLUGIN_TESTS}
     )
   endif()
 
@@ -1572,9 +1581,9 @@ endif()
 
 option(WITH_TRACE_TOOLS "build with trace tools" ON)
 if(WITH_TRACE_TOOLS)
-  add_executable(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+  add_executable(block_cache_trace_analyzer${ARTIFACT_SUFFIX}
     tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc)
-  target_link_libraries(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+  target_link_libraries(block_cache_trace_analyzer${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(trace_analyzer${ARTIFACT_SUFFIX}

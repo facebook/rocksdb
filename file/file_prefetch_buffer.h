@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+
 #include <algorithm>
 #include <atomic>
 #include <sstream>
@@ -236,6 +237,7 @@ class FilePrefetchBuffer {
     }
     prev_offset_ = offset;
     prev_len_ = len;
+    explicit_prefetch_submitted_ = false;
   }
 
   void GetReadaheadState(ReadaheadFileInfo::ReadaheadInfo* readahead_info) {
@@ -363,6 +365,27 @@ class FilePrefetchBuffer {
             bufs_[index].io_handle_ != nullptr &&
             offset >= bufs_[index].offset_ + bufs_[index].async_req_len_);
   }
+  bool IsOffsetInBufferWithAsyncProgress(uint64_t offset, uint32_t index) {
+    return (bufs_[index].async_read_in_progress_ &&
+            offset >= bufs_[index].offset_ &&
+            offset < bufs_[index].offset_ + bufs_[index].async_req_len_);
+  }
+
+  bool IsSecondBuffEligibleForPrefetching() {
+    uint32_t second = curr_ ^ 1;
+    if (bufs_[second].async_read_in_progress_) {
+      return false;
+    }
+    assert(!bufs_[curr_].async_read_in_progress_);
+
+    if (DoesBufferContainData(curr_) && DoesBufferContainData(second) &&
+        (bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize() ==
+         bufs_[second].offset_)) {
+      return false;
+    }
+    bufs_[second].buffer_.Clear();
+    return true;
+  }
 
   void DestroyAndClearIOHandle(uint32_t index) {
     if (bufs_[index].io_handle_ != nullptr && bufs_[index].del_fn_ != nullptr) {
@@ -372,6 +395,13 @@ class FilePrefetchBuffer {
     }
     bufs_[index].async_read_in_progress_ = false;
   }
+
+  Status HandleOverlappingData(const IOOptions& opts,
+                               RandomAccessFileReader* reader, uint64_t offset,
+                               size_t length, size_t readahead_size,
+                               Env::IOPriority rate_limiter_priority,
+                               bool& copy_to_third_buffer, uint64_t& tmp_offset,
+                               size_t& tmp_length);
 
   std::vector<BufferInfo> bufs_;
   // curr_ represents the index for bufs_ indicating which buffer is being

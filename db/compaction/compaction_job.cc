@@ -99,8 +99,27 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ForcedBlobGC";
     case CompactionReason::kRoundRobinTtl:
       return "RoundRobinTtl";
+    case CompactionReason::kRefitLevel:
+      return "RefitLevel";
     case CompactionReason::kNumOfReasons:
       // fall through
+    default:
+      assert(false);
+      return "Invalid";
+  }
+}
+
+const char* GetCompactionPenultimateOutputRangeTypeString(
+    Compaction::PenultimateOutputRangeType range_type) {
+  switch (range_type) {
+    case Compaction::PenultimateOutputRangeType::kNotSupported:
+      return "NotSupported";
+    case Compaction::PenultimateOutputRangeType::kFullRange:
+      return "FullRange";
+    case Compaction::PenultimateOutputRangeType::kNonLastRange:
+      return "NonLastRange";
+    case Compaction::PenultimateOutputRangeType::kDisabled:
+      return "Disabled";
     default:
       assert(false);
       return "Invalid";
@@ -697,11 +716,12 @@ Status CompactionJob::Run() {
           break;
         }
         // Verify that the table is usable
-        // We set for_compaction to false and don't OptimizeForCompactionTableRead
-        // here because this is a special case after we finish the table building
-        // No matter whether use_direct_io_for_flush_and_compaction is true,
-        // we will regard this verification as user reads since the goal is
-        // to cache it here for further user reads
+        // We set for_compaction to false and don't
+        // OptimizeForCompactionTableRead here because this is a special case
+        // after we finish the table building No matter whether
+        // use_direct_io_for_flush_and_compaction is true, we will regard this
+        // verification as user reads since the goal is to cache it here for
+        // further user reads
         ReadOptions read_options;
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             read_options, file_options_, cfd->internal_comparator(),
@@ -747,8 +767,8 @@ Status CompactionJob::Run() {
       }
     };
     for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
-      thread_pool.emplace_back(verify_table,
-                               std::ref(compact_->sub_compact_states[i].status));
+      thread_pool.emplace_back(
+          verify_table, std::ref(compact_->sub_compact_states[i].status));
     }
     verify_table(compact_->sub_compact_states[0].status);
     for (auto& thread : thread_pool) {
@@ -1261,10 +1281,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       };
 
   Status status;
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing",
+      reinterpret_cast<void*>(
+          const_cast<Compaction*>(sub_compact->compaction)));
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
-
     assert(!end.has_value() || cfd->user_comparator()->Compare(
                                    c_iter->user_key(), end.value()) < 0);
 
@@ -1812,12 +1835,14 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   }
 
   // Initialize a SubcompactionState::Output and add it to sub_compact->outputs
+  uint64_t epoch_number = sub_compact->compaction->MinInputFileEpochNumber();
   {
     FileMetaData meta;
     meta.fd = FileDescriptor(file_number,
                              sub_compact->compaction->output_path_id(), 0);
     meta.oldest_ancester_time = oldest_ancester_time;
     meta.file_creation_time = current_time;
+    meta.epoch_number = epoch_number;
     meta.temperature = temperature;
     assert(!db_id_.empty());
     assert(!db_session_id_.empty());
@@ -1976,7 +2001,7 @@ void CompactionJob::LogCompaction() {
         compaction->InputLevelSummary(&inputs_summary), compaction->score());
     char scratch[2345];
     compaction->Summary(scratch, sizeof(scratch));
-    ROCKS_LOG_INFO(db_options_.info_log, "[%s] Compaction start summary: %s\n",
+    ROCKS_LOG_INFO(db_options_.info_log, "[%s]: Compaction start summary: %s\n",
                    cfd->GetName().c_str(), scratch);
     // build event logger report
     auto stream = event_logger_->Log();
@@ -1997,6 +2022,23 @@ void CompactionJob::LogCompaction() {
            << (existing_snapshots_.empty()
                    ? int64_t{-1}  // Use -1 for "none"
                    : static_cast<int64_t>(existing_snapshots_[0]));
+    if (compaction->SupportsPerKeyPlacement()) {
+      stream << "preclude_last_level_min_seqno"
+             << preclude_last_level_min_seqno_;
+      stream << "penultimate_output_level" << compaction->GetPenultimateLevel();
+      stream << "penultimate_output_range"
+             << GetCompactionPenultimateOutputRangeTypeString(
+                    compaction->GetPenultimateOutputRangeType());
+
+      if (compaction->GetPenultimateOutputRangeType() ==
+          Compaction::PenultimateOutputRangeType::kDisabled) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "[%s] [JOB %d] Penultimate level output is disabled, likely "
+            "because of the range conflict in the penultimate level",
+            cfd->GetName().c_str(), job_id_);
+      }
+    }
   }
 }
 

@@ -234,7 +234,7 @@ class CacheTierBenchmark {
       fprintf(stderr, "%s\n", status.ToString().c_str());
     }
     assert(status.ok());
-    assert(size == (size_t) FLAGS_iosize);
+    assert(size == (size_t)FLAGS_iosize);
 
     // adjust stats
     const size_t elapsed_micro = timer.ElapsedNanos() / 1000;

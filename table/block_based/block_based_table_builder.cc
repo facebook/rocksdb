@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "cache/cache_entry_roles.h"
+#include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/dbformat.h"
@@ -58,7 +59,6 @@ namespace ROCKSDB_NAMESPACE {
 
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
-
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
@@ -1011,7 +1011,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   r->props.num_entries++;
   r->props.raw_key_size += key.size();
   r->props.raw_value_size += value.size();
-  if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion) {
+  if (value_type == kTypeDeletion || value_type == kTypeSingleDeletion ||
+      value_type == kTypeDeletionWithTimestamp) {
     r->props.num_deletions++;
   } else if (value_type == kTypeRangeDeletion) {
     r->props.num_deletions++;
@@ -1417,15 +1418,6 @@ IOStatus BlockBasedTableBuilder::io_status() const {
   return rep_->GetIOStatus();
 }
 
-namespace {
-// Delete the entry resided in the cache.
-template <class Entry>
-void DeleteEntryCached(const Slice& /*key*/, void* value) {
-  auto entry = reinterpret_cast<Entry*>(value);
-  delete entry;
-}
-}  // namespace
-
 //
 // Make a copy of the block contents and insert into compressed block cache
 //
@@ -1454,7 +1446,7 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
     s = block_cache_compressed->Insert(
         key.AsSlice(), block_contents_to_cache,
         block_contents_to_cache->ApproximateMemoryUsage(),
-        &DeleteEntryCached<BlockContents>);
+        &DeleteCacheEntry<BlockContents>);
     if (s.ok()) {
       RecordTick(rep_->ioptions.stats, BLOCK_CACHE_COMPRESSED_ADD);
     } else {

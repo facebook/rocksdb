@@ -6,9 +6,9 @@ LIB_SOURCES =                                                   \
   cache/cache_reservation_manager.cc                            \
   cache/charged_cache.cc                                        \
   cache/clock_cache.cc                                          \
-  cache/fast_lru_cache.cc                                       \
   cache/lru_cache.cc                                            \
   cache/compressed_secondary_cache.cc                           \
+  cache/secondary_cache.cc                                      \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_contents.cc                                      \
@@ -154,6 +154,7 @@ LIB_SOURCES =                                                   \
   options/options.cc                                            \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
+  port/mmap.cc                                                  \
   port/port_posix.cc                                            \
   port/win/env_default.cc                                       \
   port/win/env_win.cc                                           \
@@ -195,6 +196,7 @@ LIB_SOURCES =                                                   \
   table/get_context.cc                                          \
   table/iterator.cc                                             \
   table/merging_iterator.cc                                     \
+  table/compaction_merging_iterator.cc                          \
   table/meta_blocks.cc                                          \
   table/persistent_cache_helper.cc                              \
   table/plain/plain_table_bloom.cc                              \

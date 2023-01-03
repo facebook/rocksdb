@@ -20,9 +20,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const uint64_t kRangeTombstoneSentinel =
-    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
-
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
                       const InternalKey& b) {
   auto c = user_cmp->CompareWithoutTimestamp(a.user_key(), b.user_key());
@@ -238,12 +235,19 @@ Compaction::Compaction(
       inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
       score_(_score),
-      bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
+      bottommost_level_(
+          // For simplicity, we don't support the concept of "bottommost level"
+          // with
+          // `CompactionReason::kExternalSstIngestion` and
+          // `CompactionReason::kRefitLevel`
+          (_compaction_reason == CompactionReason::kExternalSstIngestion ||
+           _compaction_reason == CompactionReason::kRefitLevel)
+              ? false
+              : IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
       trim_ts_(_trim_ts),
       is_trivial_move_(false),
-
       compaction_reason_(_compaction_reason),
       notify_on_compaction_completion_(false),
       enable_blob_garbage_collection_(
@@ -258,8 +262,15 @@ Compaction::Compaction(
                   _blob_garbage_collection_age_cutoff > 1
               ? mutable_cf_options()->blob_garbage_collection_age_cutoff
               : _blob_garbage_collection_age_cutoff),
-      penultimate_level_(EvaluatePenultimateLevel(
-          immutable_options_, start_level_, output_level_)) {
+      penultimate_level_(
+          // For simplicity, we don't support the concept of "penultimate level"
+          // with `CompactionReason::kExternalSstIngestion` and
+          // `CompactionReason::kRefitLevel`
+          _compaction_reason == CompactionReason::kExternalSstIngestion ||
+                  _compaction_reason == CompactionReason::kRefitLevel
+              ? Compaction::kInvalidLevel
+              : EvaluatePenultimateLevel(vstorage, immutable_options_,
+                                         start_level_, output_level_)) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -322,10 +333,37 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
     return;
   }
 
-  int exclude_level =
-      immutable_options_.compaction_style == kCompactionStyleUniversal
-          ? kInvalidLevel
-          : number_levels_ - 1;
+  // exclude the last level, the range of all input levels is the safe range
+  // of keys that can be moved up.
+  int exclude_level = number_levels_ - 1;
+  penultimate_output_range_type_ = PenultimateOutputRangeType::kNonLastRange;
+
+  // For universal compaction, the penultimate_output_range could be extended if
+  // all penultimate level files are included in the compaction (which includes
+  // the case that the penultimate level is empty).
+  if (immutable_options_.compaction_style == kCompactionStyleUniversal) {
+    exclude_level = kInvalidLevel;
+    penultimate_output_range_type_ = PenultimateOutputRangeType::kFullRange;
+    std::set<uint64_t> penultimate_inputs;
+    for (const auto& input_lvl : inputs_) {
+      if (input_lvl.level == penultimate_level_) {
+        for (const auto& file : input_lvl.files) {
+          penultimate_inputs.emplace(file->fd.GetNumber());
+        }
+      }
+    }
+    auto penultimate_files = input_vstorage_->LevelFiles(penultimate_level_);
+    for (const auto& file : penultimate_files) {
+      if (penultimate_inputs.find(file->fd.GetNumber()) ==
+          penultimate_inputs.end()) {
+        exclude_level = number_levels_ - 1;
+        penultimate_output_range_type_ =
+            PenultimateOutputRangeType::kNonLastRange;
+        break;
+      }
+    }
+  }
+
   GetBoundaryKeys(input_vstorage_, inputs_,
                   &penultimate_level_smallest_user_key_,
                   &penultimate_level_largest_user_key_, exclude_level);
@@ -365,6 +403,11 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
 // key includes timestamp if user-defined timestamp is enabled.
 bool Compaction::WithinPenultimateLevelOutputRange(const Slice& key) const {
   if (!SupportsPerKeyPlacement()) {
+    return false;
+  }
+
+  if (penultimate_level_smallest_user_key_.empty() ||
+      penultimate_level_largest_user_key_.empty()) {
     return false;
   }
 
@@ -748,7 +791,18 @@ uint64_t Compaction::MinInputFileOldestAncesterTime(
   return min_oldest_ancester_time;
 }
 
+uint64_t Compaction::MinInputFileEpochNumber() const {
+  uint64_t min_epoch_number = std::numeric_limits<uint64_t>::max();
+  for (const auto& inputs_per_level : inputs_) {
+    for (const auto& file : inputs_per_level.files) {
+      min_epoch_number = std::min(min_epoch_number, file->epoch_number);
+    }
+  }
+  return min_epoch_number;
+}
+
 int Compaction::EvaluatePenultimateLevel(
+    const VersionStorageInfo* vstorage,
     const ImmutableOptions& immutable_options, const int start_level,
     const int output_level) {
   // TODO: currently per_key_placement feature only support level and universal
@@ -763,7 +817,19 @@ int Compaction::EvaluatePenultimateLevel(
 
   int penultimate_level = output_level - 1;
   assert(penultimate_level < immutable_options.num_levels);
-  if (penultimate_level <= 0 || penultimate_level < start_level) {
+  if (penultimate_level <= 0) {
+    return kInvalidLevel;
+  }
+
+  // If the penultimate level is not within input level -> output level range
+  // check if the penultimate output level is empty, if it's empty, it could
+  // also be locked for the penultimate output.
+  // TODO: ideally, it only needs to check if there's a file within the
+  //  compaction output key range. For simplicity, it just check if there's any
+  //  file on the penultimate level.
+  if (start_level == immutable_options.num_levels - 1 &&
+      (immutable_options.compaction_style != kCompactionStyleUniversal ||
+       !vstorage->LevelFiles(penultimate_level).empty())) {
     return kInvalidLevel;
   }
 

@@ -139,8 +139,6 @@ class StressTest {
     return column_families_[column_family_id];
   }
 
-  virtual Slice GetValueBaseSlice(Slice slice) { return slice; }
-
 #ifndef ROCKSDB_LITE
   // Generated a list of keys that close to boundaries of SST keys.
   // If there isn't any SST file in the DB, return empty list.

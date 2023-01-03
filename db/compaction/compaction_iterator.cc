@@ -168,7 +168,12 @@ void CompactionIterator::Next() {
       }
 
       // Keep current_key_ in sync.
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      if (0 == timestamp_size_) {
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      } else {
+        Slice ts = ikey_.GetTimestamp(timestamp_size_);
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type, &ts);
+      }
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
       validity_info_.SetValid(ValidContext::kMerge1);
@@ -372,6 +377,7 @@ void CompactionIterator::NextFromInput() {
     value_ = input_.value();
     blob_value_.Reset();
     iter_stats_.num_input_records++;
+    is_range_del_ = input_.IsDeleteRangeSentinelKey();
 
     Status pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
     if (!pik_status.ok()) {
@@ -391,7 +397,10 @@ void CompactionIterator::NextFromInput() {
       break;
     }
     TEST_SYNC_POINT_CALLBACK("CompactionIterator:ProcessKV", &ikey_);
-
+    if (is_range_del_) {
+      validity_info_.SetValid(kRangeDeletion);
+      break;
+    }
     // Update input statistics
     if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion ||
         ikey_.type == kTypeDeletionWithTimestamp) {
@@ -613,6 +622,14 @@ void CompactionIterator::NextFromInput() {
 
       ParsedInternalKey next_ikey;
       AdvanceInputIter();
+      while (input_.Valid() && input_.IsDeleteRangeSentinelKey() &&
+             ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
+                 .ok() &&
+             cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
+        // skip range tombstone start keys with the same user key
+        // since they are not "real" point keys.
+        AdvanceInputIter();
+      }
 
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
@@ -620,6 +637,7 @@ void CompactionIterator::NextFromInput() {
           ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
           cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
+        assert(!input_.IsDeleteRangeSentinelKey());
 #ifndef NDEBUG
         const Compaction* c =
             compaction_ ? compaction_->real_compaction() : nullptr;
@@ -825,8 +843,8 @@ void CompactionIterator::NextFromInput() {
                  cmp_with_history_ts_low_ < 0)) &&
                bottommost_level_) {
       // Handle the case where we have a delete key at the bottom most level
-      // We can skip outputting the key iff there are no subsequent puts for this
-      // key
+      // We can skip outputting the key iff there are no subsequent puts for
+      // this key
       assert(!compaction_ || compaction_->KeyNotExistsBeyondOutputLevel(
                                  ikey_.user_key, &level_ptrs_));
       ParsedInternalKey next_ikey;
@@ -844,17 +862,19 @@ void CompactionIterator::NextFromInput() {
       // Note that a deletion marker of type kTypeDeletionWithTimestamp will be
       // considered to have a different user key unless the timestamp is older
       // than *full_history_ts_low_.
+      //
+      // Range tombstone start keys are skipped as they are not "real" keys.
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
              input_.Valid() &&
              (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                   .ok()) &&
              cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
-             (prev_snapshot == 0 ||
+             (prev_snapshot == 0 || input_.IsDeleteRangeSentinelKey() ||
               DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot))) {
         AdvanceInputIter();
       }
-      // If you find you still need to output a row with this key, we need to output the
-      // delete too
+      // If you find you still need to output a row with this key, we need to
+      // output the delete too
       if (input_.Valid() &&
           (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                .ok()) &&
@@ -877,8 +897,8 @@ void CompactionIterator::NextFromInput() {
       // object to minimize change to the existing flow.
       Status s = merge_helper_->MergeUntil(
           &input_, range_del_agg_, prev_snapshot, bottommost_level_,
-          allow_data_in_errors_, blob_fetcher_.get(), prefetch_buffers_.get(),
-          &iter_stats_);
+          allow_data_in_errors_, blob_fetcher_.get(), full_history_ts_low_,
+          prefetch_buffers_.get(), &iter_stats_);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {
@@ -1100,11 +1120,13 @@ void CompactionIterator::DecideOutputLevel() {
   TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
                            &context);
   output_to_penultimate_level_ = context.output_to_penultimate_level;
-#endif /* !NDEBUG */
+#else
+  output_to_penultimate_level_ = false;
+#endif  // NDEBUG
 
   // if the key is newer than the cutoff sequence or within the earliest
   // snapshot, it should output to the penultimate level.
-  if (ikey_.sequence >= preclude_last_level_min_seqno_ ||
+  if (ikey_.sequence > preclude_last_level_min_seqno_ ||
       ikey_.sequence > earliest_snapshot_) {
     output_to_penultimate_level_ = true;
   }
@@ -1140,10 +1162,12 @@ void CompactionIterator::DecideOutputLevel() {
 
 void CompactionIterator::PrepareOutput() {
   if (Valid()) {
-    if (ikey_.type == kTypeValue) {
-      ExtractLargeValueIfNeeded();
-    } else if (ikey_.type == kTypeBlobIndex) {
-      GarbageCollectBlobIfNeeded();
+    if (LIKELY(!is_range_del_)) {
+      if (ikey_.type == kTypeValue) {
+        ExtractLargeValueIfNeeded();
+      } else if (ikey_.type == kTypeBlobIndex) {
+        GarbageCollectBlobIfNeeded();
+      }
     }
 
     if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
@@ -1166,7 +1190,7 @@ void CompactionIterator::PrepareOutput() {
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ &&
         !output_to_penultimate_level_ &&
-        ikey_.sequence < preserve_time_min_seqno_) {
+        ikey_.sequence < preserve_time_min_seqno_ && !is_range_del_) {
       if (ikey_.type == kTypeDeletion ||
           (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
         ROCKS_LOG_FATAL(
@@ -1212,8 +1236,8 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     ROCKS_LOG_FATAL(info_log_,
                     "No snapshot left in findEarliestVisibleSnapshot");
   }
-  auto snapshots_iter = std::lower_bound(
-      snapshots_->begin(), snapshots_->end(), in);
+  auto snapshots_iter =
+      std::lower_bound(snapshots_->begin(), snapshots_->end(), in);
   assert(prev_snapshot != nullptr);
   if (snapshots_iter == snapshots_->begin()) {
     *prev_snapshot = 0;
@@ -1228,8 +1252,8 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     }
   }
   if (snapshot_checker_ == nullptr) {
-    return snapshots_iter != snapshots_->end()
-      ? *snapshots_iter : kMaxSequenceNumber;
+    return snapshots_iter != snapshots_->end() ? *snapshots_iter
+                                               : kMaxSequenceNumber;
   }
   bool has_released_snapshot = !released_snapshots_.empty();
   for (; snapshots_iter != snapshots_->end(); ++snapshots_iter) {

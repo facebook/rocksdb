@@ -9,8 +9,10 @@
 
 #ifdef ROCKSDB_LIB_IO_POSIX
 #include "env/io_posix.h"
+
 #include <errno.h>
 #include <fcntl.h>
+
 #include <algorithm>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
@@ -601,8 +603,7 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
-IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
-                                          size_t num_reqs,
+IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                                           const IOOptions& options,
                                           IODebugContext* dbg) {
   if (use_direct_io()) {

@@ -199,8 +199,7 @@ static bool determine_conflicting_txnids(
         if (other_txnid == TXNID_SHARED) {
           // Add all shared lock owners, except this transaction.
           for (TXNID shared_id : *lock.owners) {
-            if (shared_id != txnid)
-              conflicts->add(shared_id);
+            if (shared_id != txnid) conflicts->add(shared_id);
           }
         } else {
           conflicts->add(other_txnid);

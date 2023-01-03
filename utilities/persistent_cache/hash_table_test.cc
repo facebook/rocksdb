@@ -3,7 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
+#include "utilities/persistent_cache/hash_table.h"
+
 #include <stdlib.h>
+
 #include <iostream>
 #include <set>
 #include <string>
@@ -12,7 +15,6 @@
 #include "memory/arena.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
-#include "utilities/persistent_cache/hash_table.h"
 #include "utilities/persistent_cache/hash_table_evictable.h"
 
 #ifndef ROCKSDB_LITE
@@ -155,6 +157,7 @@ TEST_F(EvictableHashTableTest, TestEvict) {
 #endif
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

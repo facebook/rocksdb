@@ -6,11 +6,12 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::ThreadStatus methods from Java side.
 
+#include "rocksdb/thread_status.h"
+
 #include <jni.h>
 
-#include "portal.h"
 #include "include/org_rocksdb_ThreadStatus.h"
-#include "rocksdb/thread_status.h"
+#include "portal.h"
 
 /*
  * Class:     org_rocksdb_ThreadStatus
@@ -42,8 +43,8 @@ jstring Java_org_rocksdb_ThreadStatus_getOperationName(
  * Method:    microsToStringNative
  * Signature: (J)Ljava/lang/String;
  */
-jstring Java_org_rocksdb_ThreadStatus_microsToStringNative(
-    JNIEnv* env, jclass, jlong jmicros) {
+jstring Java_org_rocksdb_ThreadStatus_microsToStringNative(JNIEnv* env, jclass,
+                                                           jlong jmicros) {
   auto str = ROCKSDB_NAMESPACE::ThreadStatus::MicrosToString(
       static_cast<uint64_t>(jmicros));
   return ROCKSDB_NAMESPACE::JniUtil::toJavaString(env, &str, true);
@@ -84,8 +85,7 @@ jstring Java_org_rocksdb_ThreadStatus_getOperationPropertyName(
 jobject Java_org_rocksdb_ThreadStatus_interpretOperationProperties(
     JNIEnv* env, jclass, jbyte joperation_type_value,
     jlongArray joperation_properties) {
-
-  //convert joperation_properties
+  // convert joperation_properties
   const jsize len = env->GetArrayLength(joperation_properties);
   const std::unique_ptr<uint64_t[]> op_properties(new uint64_t[len]);
   jlong* jop = env->GetLongArrayElements(joperation_properties, nullptr);
@@ -117,8 +117,8 @@ jobject Java_org_rocksdb_ThreadStatus_interpretOperationProperties(
  * Method:    getStateName
  * Signature: (B)Ljava/lang/String;
  */
-jstring Java_org_rocksdb_ThreadStatus_getStateName(
-  JNIEnv* env, jclass, jbyte jstate_type_value) {
+jstring Java_org_rocksdb_ThreadStatus_getStateName(JNIEnv* env, jclass,
+                                                   jbyte jstate_type_value) {
   auto name = ROCKSDB_NAMESPACE::ThreadStatus::GetStateName(
       ROCKSDB_NAMESPACE::StateTypeJni::toCppStateType(jstate_type_value));
   return ROCKSDB_NAMESPACE::JniUtil::toJavaString(env, &name, true);

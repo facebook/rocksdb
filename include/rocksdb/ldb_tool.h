@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 #include <string>
 #include <vector>
+
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 

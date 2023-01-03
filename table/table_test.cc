@@ -186,7 +186,7 @@ class Constructor {
  public:
   explicit Constructor(const Comparator* cmp)
       : data_(stl_wrappers::LessOfComparator(cmp)) {}
-  virtual ~Constructor() { }
+  virtual ~Constructor() {}
 
   void Add(const std::string& key, const Slice& value) {
     data_[key] = value.ToString();
@@ -492,7 +492,7 @@ class TableConstructor : public Constructor {
 };
 uint64_t TableConstructor::cur_file_num_ = 1;
 
-class MemTableConstructor: public Constructor {
+class MemTableConstructor : public Constructor {
  public:
   explicit MemTableConstructor(const Comparator* cmp, WriteBufferManager* wb)
       : Constructor(cmp),
@@ -566,11 +566,10 @@ class InternalIteratorFromIterator : public InternalIterator {
   std::unique_ptr<Iterator> it_;
 };
 
-class DBConstructor: public Constructor {
+class DBConstructor : public Constructor {
  public:
   explicit DBConstructor(const Comparator* cmp)
-      : Constructor(cmp),
-        comparator_(cmp) {
+      : Constructor(cmp), comparator_(cmp) {
     db_ = nullptr;
     NewDB();
   }
@@ -654,15 +653,15 @@ std::ostream& operator<<(std::ostream& os, const TestArgs& args) {
 
 static std::vector<TestArgs> GenerateArgList() {
   std::vector<TestArgs> test_args;
-  std::vector<TestType> test_types = {
-      BLOCK_BASED_TABLE_TEST,
+  std::vector<TestType> test_types = {BLOCK_BASED_TABLE_TEST,
 #ifndef ROCKSDB_LITE
-      PLAIN_TABLE_SEMI_FIXED_PREFIX,
-      PLAIN_TABLE_FULL_STR_PREFIX,
-      PLAIN_TABLE_TOTAL_ORDER,
+                                      PLAIN_TABLE_SEMI_FIXED_PREFIX,
+                                      PLAIN_TABLE_FULL_STR_PREFIX,
+                                      PLAIN_TABLE_TOTAL_ORDER,
 #endif  // !ROCKSDB_LITE
-      BLOCK_TEST,
-      MEMTABLE_TEST, DB_TEST};
+                                      BLOCK_TEST,
+                                      MEMTABLE_TEST,
+                                      DB_TEST};
   std::vector<bool> reverse_compare_types = {false, true};
   std::vector<int> restart_intervals = {16, 1, 1024};
   std::vector<uint32_t> compression_parallel_threads = {1, 4};
@@ -747,9 +746,8 @@ class FixedOrLessPrefixTransform : public SliceTransform {
   const size_t prefix_len_;
 
  public:
-  explicit FixedOrLessPrefixTransform(size_t prefix_len) :
-      prefix_len_(prefix_len) {
-  }
+  explicit FixedOrLessPrefixTransform(size_t prefix_len)
+      : prefix_len_(prefix_len) {}
 
   const char* Name() const override { return "rocksdb.FixedPrefix"; }
 
@@ -964,8 +962,8 @@ class HarnessTest : public testing::Test {
         case 2: {
           std::string key = PickRandomKey(rnd, keys);
           model_iter = data.lower_bound(key);
-          if (kVerbose) fprintf(stderr, "Seek '%s'\n",
-                                EscapeString(key).c_str());
+          if (kVerbose)
+            fprintf(stderr, "Seek '%s'\n", EscapeString(key).c_str());
           iter->Seek(Slice(key));
           ASSERT_OK(iter->status());
           ASSERT_EQ(ToString(data, model_iter), ToString(iter));
@@ -978,7 +976,7 @@ class HarnessTest : public testing::Test {
             iter->Prev();
             ASSERT_OK(iter->status());
             if (model_iter == data.begin()) {
-              model_iter = data.end();   // Wrap around to invalid value
+              model_iter = data.end();  // Wrap around to invalid value
             } else {
               --model_iter;
             }
@@ -1047,14 +1045,14 @@ class HarnessTest : public testing::Test {
           break;
         case 1: {
           // Attempt to return something smaller than an existing key
-          if (result.size() > 0 && result[result.size() - 1] > '\0'
-              && (!only_support_prefix_seek_
-                  || options_.prefix_extractor->Transform(result).size()
-                  < result.size())) {
+          if (result.size() > 0 && result[result.size() - 1] > '\0' &&
+              (!only_support_prefix_seek_ ||
+               options_.prefix_extractor->Transform(result).size() <
+                   result.size())) {
             result[result.size() - 1]--;
           }
           break;
-      }
+        }
         case 2: {
           // Return something larger than an existing key
           Increment(options_.comparator, &result);
@@ -1103,8 +1101,7 @@ static bool Between(uint64_t val, uint64_t low, uint64_t high) {
   bool result = (val >= low) && (val <= high);
   if (!result) {
     fprintf(stderr, "Value %llu is not in range [%llu, %llu]\n",
-            (unsigned long long)(val),
-            (unsigned long long)(low),
+            (unsigned long long)(val), (unsigned long long)(low),
             (unsigned long long)(high));
   }
   return result;
@@ -1147,15 +1144,21 @@ class BlockBasedTableTest
     test_path_ = test::PerThreadDBPath("block_based_table_tracing_test");
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace_file";
-    TraceOptions trace_opt;
+
+    BlockCacheTraceWriterOptions trace_writer_opt;
+    BlockCacheTraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
                                  &trace_writer));
+    std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+        NewBlockCacheTraceWriter(env_->GetSystemClock().get(), trace_writer_opt,
+                                 std::move(trace_writer));
+    ASSERT_NE(block_cache_trace_writer, nullptr);
     // Always return Status::OK().
     assert(c->block_cache_tracer_
-               .StartTrace(env_->GetSystemClock().get(), trace_opt,
-                           std::move(trace_writer))
+               .StartTrace(trace_opt, std::move(block_cache_trace_writer))
                .ok());
+
     {
       std::string user_key = "k01";
       InternalKey internal_key(user_key, 0, kTypeValue);
@@ -1177,8 +1180,8 @@ class BlockBasedTableTest
 
     {
       std::unique_ptr<TraceReader> trace_reader;
-      Status s =
-          NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
+      Status s = NewFileTraceReader(env_, EnvOptions(), trace_file_path_,
+                                    &trace_reader);
       EXPECT_OK(s);
       BlockCacheTraceReader reader(std::move(trace_reader));
       BlockCacheTraceHeader header;
@@ -1213,10 +1216,10 @@ class BlockBasedTableTest
         } else {
           EXPECT_EQ(access.referenced_key, "");
           EXPECT_EQ(access.get_id, 0);
-          EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
+          EXPECT_FALSE(access.get_from_user_specified_snapshot);
           EXPECT_EQ(access.referenced_data_size, 0);
           EXPECT_EQ(access.num_keys_in_block, 0);
-          EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+          EXPECT_FALSE(access.referenced_key_exist_in_block);
         }
         index++;
       }
@@ -1243,8 +1246,7 @@ class BBTTailPrefetchTest : public TableTest {};
 class FileChecksumTestHelper {
  public:
   FileChecksumTestHelper(bool convert_to_internal_key = false)
-      : convert_to_internal_key_(convert_to_internal_key) {
-  }
+      : convert_to_internal_key_(convert_to_internal_key) {}
   ~FileChecksumTestHelper() {}
 
   void CreateWritableFile() {
@@ -1362,22 +1364,18 @@ INSTANTIATE_TEST_CASE_P(FormatVersions, BlockBasedTableTest,
 // This test serves as the living tutorial for the prefix scan of user collected
 // properties.
 TEST_F(TablePropertyTest, PrefixScanTest) {
-  UserCollectedProperties props{{"num.111.1", "1"},
-                                {"num.111.2", "2"},
-                                {"num.111.3", "3"},
-                                {"num.333.1", "1"},
-                                {"num.333.2", "2"},
-                                {"num.333.3", "3"},
-                                {"num.555.1", "1"},
-                                {"num.555.2", "2"},
-                                {"num.555.3", "3"}, };
+  UserCollectedProperties props{
+      {"num.111.1", "1"}, {"num.111.2", "2"}, {"num.111.3", "3"},
+      {"num.333.1", "1"}, {"num.333.2", "2"}, {"num.333.3", "3"},
+      {"num.555.1", "1"}, {"num.555.2", "2"}, {"num.555.3", "3"},
+  };
 
   // prefixes that exist
   for (const std::string prefix : {"num.111", "num.333", "num.555"}) {
     int num = 0;
     for (auto pos = props.lower_bound(prefix);
          pos != props.end() &&
-             pos->first.compare(0, prefix.size(), prefix) == 0;
+         pos->first.compare(0, prefix.size(), prefix) == 0;
          ++pos) {
       ++num;
       auto key = prefix + "." + std::to_string(num);
@@ -2025,7 +2023,6 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
   // [ k05         ]    k05
   // [ k06 k07     ]    k07
 
-
   // Simple
   PrefetchRange(&c, &opt, &table_options,
                 /*key_range=*/"k01", "k05",
@@ -2063,35 +2060,35 @@ TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
     // Make each key/value an individual block
     table_options.block_size = 64;
     switch (i) {
-    case 0:
-      // Binary search index
-      table_options.index_type = BlockBasedTableOptions::kBinarySearch;
-      options.table_factory.reset(new BlockBasedTableFactory(table_options));
-      break;
-    case 1:
-      // Hash search index
-      table_options.index_type = BlockBasedTableOptions::kHashSearch;
-      options.table_factory.reset(new BlockBasedTableFactory(table_options));
-      options.prefix_extractor.reset(NewFixedPrefixTransform(4));
-      break;
-    case 2:
-      // Hash search index with filter policy
-      table_options.index_type = BlockBasedTableOptions::kHashSearch;
-      table_options.filter_policy.reset(NewBloomFilterPolicy(10));
-      options.table_factory.reset(new BlockBasedTableFactory(table_options));
-      options.prefix_extractor.reset(NewFixedPrefixTransform(4));
-      break;
-    case 3:
-      // Two-level index
-      table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
-      options.table_factory.reset(new BlockBasedTableFactory(table_options));
-      break;
-    case 4:
-      // Binary search with first key
-      table_options.index_type =
-          BlockBasedTableOptions::kBinarySearchWithFirstKey;
-      options.table_factory.reset(new BlockBasedTableFactory(table_options));
-      break;
+      case 0:
+        // Binary search index
+        table_options.index_type = BlockBasedTableOptions::kBinarySearch;
+        options.table_factory.reset(new BlockBasedTableFactory(table_options));
+        break;
+      case 1:
+        // Hash search index
+        table_options.index_type = BlockBasedTableOptions::kHashSearch;
+        options.table_factory.reset(new BlockBasedTableFactory(table_options));
+        options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+        break;
+      case 2:
+        // Hash search index with filter policy
+        table_options.index_type = BlockBasedTableOptions::kHashSearch;
+        table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+        options.table_factory.reset(new BlockBasedTableFactory(table_options));
+        options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+        break;
+      case 3:
+        // Two-level index
+        table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+        options.table_factory.reset(new BlockBasedTableFactory(table_options));
+        break;
+      case 4:
+        // Binary search with first key
+        table_options.index_type =
+            BlockBasedTableOptions::kBinarySearchWithFirstKey;
+        options.table_factory.reset(new BlockBasedTableFactory(table_options));
+        break;
     }
 
     TableConstructor c(BytewiseComparator(),
@@ -2250,7 +2247,8 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
   // Corrupt checksum type (123 is invalid)
   auto& sink = *c.TEST_GetSink();
   size_t len = sink.contents_.size();
-  ASSERT_EQ(sink.contents_[len - Footer::kNewVersionsEncodedLength], kCRC32c);
+  ASSERT_EQ(sink.contents_[len - Footer::kNewVersionsEncodedLength],
+            table_options.checksum);
   sink.contents_[len - Footer::kNewVersionsEncodedLength] = char{123};
 
   // (Re-)Open table file with bad checksum type
@@ -2258,8 +2256,9 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
   const MutableCFOptions new_moptions(options);
   Status s = c.Reopen(new_ioptions, new_moptions);
   ASSERT_NOK(s);
+  // "test" is file name
   ASSERT_EQ(s.ToString(),
-            "Corruption: Corrupt or unsupported checksum type: 123");
+            "Corruption: Corrupt or unsupported checksum type: 123 in test");
 }
 
 namespace {
@@ -2445,7 +2444,12 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
   }
 
   // find the upper bound of prefixes
-  std::vector<std::string> upper_bound = {keys[1], keys[2], keys[7], keys[9], };
+  std::vector<std::string> upper_bound = {
+      keys[1],
+      keys[2],
+      keys[7],
+      keys[9],
+  };
 
   // find existing keys
   for (const auto& item : kvmap) {
@@ -3051,8 +3055,8 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
@@ -3061,22 +3065,22 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   record.get_id = 1;
   record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = false;
   record.referenced_key = encoded_key;
-  record.referenced_key_exist_in_block = Boolean::kTrue;
-  record.is_cache_hit = Boolean::kTrue;
+  record.referenced_key_exist_in_block = true;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceIndexBlock;
   expected_records.push_back(record);
-  record.is_cache_hit = Boolean::kFalse;
+  record.is_cache_hit = false;
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
   // The second get should all observe cache hits.
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   record.get_id = 2;
   record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = false;
   record.referenced_key = encoded_key;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceIndexBlock;
@@ -3116,15 +3120,15 @@ TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   // Then we should have two records for only index blocks.
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserApproximateSize;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   expected_records.push_back(record);
   VerifyBlockAccessTrace(&c, expected_records);
@@ -3169,24 +3173,24 @@ TEST_P(BlockBasedTableTest, TracingIterator) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   // Then we should have three records for index and two data block access.
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserIterator;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
-  record.is_cache_hit = Boolean::kFalse;
+  record.is_cache_hit = false;
   expected_records.push_back(record);
   expected_records.push_back(record);
   // When we iterate this file for the second time, we should observe all cache
   // hits.
   record.block_type = TraceType::kBlockTraceIndexBlock;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
@@ -3962,19 +3966,19 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   c.Finish(options, ioptions, moptions, table_options, internal_comparator,
            &keys, &kvmap);
 
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01a"),      0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"),   10000,  11000));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"), 0, 0));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"), 0, 0));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01a"), 0, 0));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 0, 0));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 10000, 11000));
   // k04 and k05 will be in two consecutive blocks, the index is
   // an arbitrary slice between k04 and k05, either before or after k04a
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04a"), 10000, 211000));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k05"),  210000, 211000));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k06"),  510000, 511000));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k07"),  510000, 511000));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),  610000, 612000));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k05"), 210000, 211000));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k06"), 510000, 511000));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k07"), 510000, 511000));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 610000, 612000));
   c.ResetTableReader();
 }
 
@@ -4038,8 +4042,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
 
   if (!XPRESS_Supported()) {
     fprintf(stderr, "skipping xpress and xpress compression tests\n");
-  }
-  else {
+  } else {
     compression_state.push_back(kXpressCompression);
   }
 
@@ -4804,9 +4807,9 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     Footer footer;
     IOOptions opts;
-    ASSERT_OK(ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
-                                 file_size, &footer,
-                                 kBlockBasedTableMagicNumber));
+    ASSERT_OK(ReadFooterFromFile(opts, file, *FileSystem::Default(),
+                                 nullptr /* prefetch_buffer */, file_size,
+                                 &footer, kBlockBasedTableMagicNumber));
 
     auto BlockFetchHelper = [&](const BlockHandle& handle, BlockType block_type,
                                 BlockContents* contents) {
@@ -4890,7 +4893,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   // read footer
   Footer footer;
   IOOptions opts;
-  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(),
+  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(), *FileSystem::Default(),
                                nullptr /* prefetch_buffer */, table_size,
                                &footer, kBlockBasedTableMagicNumber));
 
@@ -4968,7 +4971,7 @@ TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
   // read footer
   Footer footer;
   IOOptions opts;
-  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(),
+  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(), *FileSystem::Default(),
                                nullptr /* prefetch_buffer */, table_size,
                                &footer, kBlockBasedTableMagicNumber));
 

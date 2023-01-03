@@ -204,6 +204,9 @@ class DBImpl : public DB {
   using DB::Merge;
   Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) override;
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& ts, const Slice& value) override;
+
   using DB::Delete;
   Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
                 const Slice& key) override;
@@ -568,8 +571,12 @@ class DBImpl : public DB {
 
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
-      const TraceOptions& options,
+      const TraceOptions& trace_options,
       std::unique_ptr<TraceWriter>&& trace_writer) override;
+
+  Status StartBlockCacheTrace(
+      const BlockCacheTraceOptions& options,
+      std::unique_ptr<BlockCacheTraceWriter>&& trace_writer) override;
 
   using DB::EndBlockCacheTrace;
   Status EndBlockCacheTrace() override;
@@ -1154,7 +1161,7 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForPeridicTaskRun(std::function<void()> callback) const;
+  void TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
@@ -2016,14 +2023,6 @@ class DBImpl : public DB {
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer,
                           CompactionJobInfo* compaction_job_info);
-
-  // Wait for current IngestExternalFile() calls to finish.
-  // REQUIRES: mutex_ held
-  void WaitForIngestFile();
-#else
-  // IngestExternalFile is not supported in ROCKSDB_LITE so this function
-  // will be no-op
-  void WaitForIngestFile() {}
 #endif  // ROCKSDB_LITE
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
@@ -2673,6 +2672,10 @@ class DBImpl : public DB {
   // seqno_time_mapping_ stores the sequence number to time mapping, it's not
   // thread safe, both read and write need db mutex hold.
   SeqnoToTimeMapping seqno_time_mapping_;
+
+  // stop write token that is acquired when LockWal() is called. Destructed
+  // when UnlockWal() is called.
+  std::unique_ptr<WriteControllerToken> lock_wal_write_token_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

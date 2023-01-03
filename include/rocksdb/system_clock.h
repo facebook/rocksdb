@@ -27,7 +27,7 @@ struct ConfigOptions;
 // operating system time-related functionality.
 class SystemClock : public Customizable {
  public:
-  virtual ~SystemClock() {}
+  ~SystemClock() override {}
 
   static const char* Type() { return "SystemClock"; }
   static Status CreateFromString(const ConfigOptions& options,

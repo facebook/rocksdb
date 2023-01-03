@@ -62,6 +62,15 @@ Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
   }
 }
 
+Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
+                     const Slice& key, const Slice& ts, const Slice& val) {
+  const Status s = FailIfTsMismatchCf(column_family, ts, /*ts_for_read=*/false);
+  if (!s.ok()) {
+    return s;
+  }
+  return DB::Merge(o, column_family, key, ts, val);
+}
+
 Status DBImpl::Delete(const WriteOptions& write_options,
                       ColumnFamilyHandle* column_family, const Slice& key) {
   const Status s = FailIfCfHasTs(column_family);
@@ -915,6 +924,15 @@ Status DBImpl::WriteImplWALOnly(
       write_thread->ExitAsBatchGroupLeader(write_group, status);
       return status;
     }
+  } else {
+    InstrumentedMutexLock lock(&mutex_);
+    Status status = DelayWrite(/*num_bytes=*/0ull, write_options);
+    if (!status.ok()) {
+      WriteThread::WriteGroup write_group;
+      write_thread->EnterAsBatchGroupLeader(&w, &write_group);
+      write_thread->ExitAsBatchGroupLeader(write_group, status);
+      return status;
+    }
   }
 
   WriteThread::WriteGroup write_group;
@@ -1753,6 +1771,7 @@ uint64_t DBImpl::GetMaxTotalWalSize() const {
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::DelayWrite(uint64_t num_bytes,
                           const WriteOptions& write_options) {
+  mutex_.AssertHeld();
   uint64_t time_delayed = 0;
   bool delayed = false;
   {
@@ -2406,4 +2425,21 @@ Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   }
   return Write(opt, &batch);
 }
+
+Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
+                 const Slice& key, const Slice& ts, const Slice& value) {
+  ColumnFamilyHandle* default_cf = DefaultColumnFamily();
+  assert(default_cf);
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
+  Status s = batch.Merge(column_family, key, ts, value);
+  if (!s.ok()) {
+    return s;
+  }
+  return Write(opt, &batch);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

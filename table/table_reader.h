@@ -9,16 +9,17 @@
 
 #pragma once
 #include <memory>
+
 #include "db/range_tombstone_fragmenter.h"
 #if USE_COROUTINES
 #include "folly/experimental/coro/Coroutine.h"
 #include "folly/experimental/coro/Task.h"
 #endif
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/table_reader_caller.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/multiget_context.h"
-#include "table/table_reader_caller.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -161,8 +162,8 @@ class TableReader {
   // persists the data on a non volatile storage medium like disk/SSD
   virtual Status Prefetch(const Slice* begin = nullptr,
                           const Slice* end = nullptr) {
-    (void) begin;
-    (void) end;
+    (void)begin;
+    (void)end;
     // Default implementation is NOOP.
     // The child class should implement functionality when applicable
     return Status::OK();

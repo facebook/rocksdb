@@ -865,8 +865,11 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
 
   uint64_t seqno_time_cadence = 0;
   if (min_time_duration != std::numeric_limits<uint64_t>::max()) {
+    // round up to 1 when the time_duration is smaller than
+    // kMaxSeqnoTimePairsPerCF
     seqno_time_cadence =
-        min_time_duration / SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+        (min_time_duration + SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF - 1) /
+        SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
   }
 
   Status s;
@@ -1056,16 +1059,31 @@ void DBImpl::DumpStats() {
     return;
   }
 
+  // Also probe block cache(s) for problems, dump to info log
+  UnorderedSet<Cache*> probed_caches;
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
     for (auto cfd : versions_->GetRefedColumnFamilySet()) {
-      if (cfd->initialized()) {
-        // Release DB mutex for gathering cache entry stats. Pass over all
-        // column families for this first so that other stats are dumped
-        // near-atomically.
-        InstrumentedMutexUnlock u(&mutex_);
-        cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+      if (!cfd->initialized()) {
+        continue;
+      }
+
+      // Release DB mutex for gathering cache entry stats. Pass over all
+      // column families for this first so that other stats are dumped
+      // near-atomically.
+      InstrumentedMutexUnlock u(&mutex_);
+      cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
+
+      // Probe block cache for problems (if not already via another CF)
+      if (immutable_db_options_.info_log) {
+        auto* table_factory = cfd->ioptions()->table_factory.get();
+        assert(table_factory != nullptr);
+        Cache* cache =
+            table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
+        if (cache && probed_caches.insert(cache).second) {
+          cache->ReportProblems(immutable_db_options_.info_log);
+        }
       }
     }
 
@@ -1076,18 +1094,7 @@ void DBImpl::DumpStats() {
     default_cf_internal_stats_->GetStringProperty(*property_info, *property,
                                                   &stats);
 
-    property = &DB::Properties::kCFStatsNoFileHistogram;
-    property_info = GetPropertyInfo(*property);
-    assert(property_info != nullptr);
-    assert(!property_info->need_out_of_mutex);
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->initialized()) {
-        cfd->internal_stats()->GetStringProperty(*property_info, *property,
-                                                 &stats);
-      }
-    }
-
-    property = &DB::Properties::kCFFileHistogram;
+    property = &InternalStats::kPeriodicCFStats;
     property_info = GetPropertyInfo(*property);
     assert(property_info != nullptr);
     assert(!property_info->need_out_of_mutex);
@@ -1354,7 +1361,7 @@ Status DBImpl::SetDBOptions(
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
       versions_->ChangeFileOptions(mutable_db_options_);
-      //TODO(xiez): clarify why apply optimize for read to write options
+      // TODO(xiez): clarify why apply optimize for read to write options
       file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
           file_options_for_compaction_, immutable_db_options_);
       file_options_for_compaction_.compaction_readahead_size =
@@ -1563,21 +1570,31 @@ Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
 }
 
 Status DBImpl::LockWAL() {
-  log_write_mutex_.Lock();
-  auto cur_log_writer = logs_.back().writer;
-  IOStatus status = cur_log_writer->WriteBuffer();
-  if (!status.ok()) {
-    ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
-                    status.ToString().c_str());
-    // In case there is a fs error we should set it globally to prevent the
-    // future writes
-    WriteStatusCheck(status);
+  {
+    InstrumentedMutexLock lock(&mutex_);
+    WriteThread::Writer w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
+    WriteThread::Writer nonmem_w;
+    if (two_write_queues_) {
+      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    }
+
+    lock_wal_write_token_ = write_controller_.GetStopToken();
+
+    if (two_write_queues_) {
+      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+    }
+    write_thread_.ExitUnbatched(&w);
   }
-  return static_cast<Status>(status);
+  return FlushWAL(/*sync=*/false);
 }
 
 Status DBImpl::UnlockWAL() {
-  log_write_mutex_.Unlock();
+  {
+    InstrumentedMutexLock lock(&mutex_);
+    lock_wal_write_token_.reset();
+  }
+  bg_cv_.SignalAll();
   return Status::OK();
 }
 
@@ -1816,7 +1833,8 @@ InternalIterator* DBImpl::NewInternalIterator(
   MergeIteratorBuilder merge_iter_builder(
       &cfd->internal_comparator(), arena,
       !read_options.total_order_seek &&
-          super_version->mutable_cf_options.prefix_extractor != nullptr);
+          super_version->mutable_cf_options.prefix_extractor != nullptr,
+      read_options.iterate_upper_bound);
   // Collect iterator for mutable memtable
   auto mem_iter = super_version->mem->NewIterator(read_options, arena);
   Status s;
@@ -2354,8 +2372,8 @@ std::vector<Status> DBImpl::MultiGet(
     std::string* timestamp = timestamps ? &(*timestamps)[keys_read] : nullptr;
 
     LookupKey lkey(keys[keys_read], consistent_seqnum, read_options.timestamp);
-    auto cfh =
-        static_cast_with_check<ColumnFamilyHandleImpl>(column_family[keys_read]);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+        column_family[keys_read]);
     SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
     assert(mgd_iter != multiget_cf_data.end());
@@ -3980,8 +3998,7 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
 void DBImpl::CleanupSuperVersion(SuperVersion* sv) {
   // Release SuperVersion
   if (sv->Unref()) {
-    bool defer_purge =
-            immutable_db_options().avoid_unnecessary_blocking_io;
+    bool defer_purge = immutable_db_options().avoid_unnecessary_blocking_io;
     {
       InstrumentedMutexLock l(&mutex_);
       sv->Cleanup();
@@ -5182,8 +5199,9 @@ Status DBImpl::IngestExternalFiles(
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
-                                file_options_, &snapshots_, arg.options,
-                                &directories_, &event_logger_, io_tracer_);
+                                mutable_db_options_, file_options_, &snapshots_,
+                                arg.options, &directories_, &event_logger_,
+                                io_tracer_);
   }
 
   // TODO(yanqin) maybe make jobs run in parallel
@@ -5311,10 +5329,12 @@ Status DBImpl::IngestExternalFiles(
     // Run ingestion jobs.
     if (status.ok()) {
       for (size_t i = 0; i != num_cfs; ++i) {
+        mutex_.AssertHeld();
         status = ingestion_jobs[i].Run();
         if (!status.ok()) {
           break;
         }
+        ingestion_jobs[i].RegisterRange();
       }
     }
     if (status.ok()) {
@@ -5368,6 +5388,10 @@ Status DBImpl::IngestExternalFiles(
         versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
         versions_->SetLastSequence(last_seqno + consumed_seqno_count);
       }
+    }
+
+    for (auto& job : ingestion_jobs) {
+      job.UnregisterRange();
     }
 
     if (status.ok()) {
@@ -5515,6 +5539,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
 
       num_running_ingest_file_++;
       assert(!cfd->IsDropped());
+      mutex_.AssertHeld();
       status = import_job.Run();
 
       // Install job edit [Mutex will be unlocked here]
@@ -5665,8 +5690,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
     }
   }
 
-  bool defer_purge =
-          immutable_db_options().avoid_unnecessary_blocking_io;
+  bool defer_purge = immutable_db_options().avoid_unnecessary_blocking_io;
   {
     InstrumentedMutexLock l(&mutex_);
     for (auto sv : sv_list) {
@@ -5741,13 +5765,6 @@ void DBImpl::NotifyOnExternalFileIngested(
   }
 }
 
-void DBImpl::WaitForIngestFile() {
-  mutex_.AssertHeld();
-  while (num_running_ingest_file_ > 0) {
-    bg_cv_.Wait();
-  }
-}
-
 Status DBImpl::StartTrace(const TraceOptions& trace_options,
                           std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock(&trace_mutex_);
@@ -5779,8 +5796,24 @@ Status DBImpl::NewDefaultReplayer(
 Status DBImpl::StartBlockCacheTrace(
     const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
-  return block_cache_tracer_.StartTrace(immutable_db_options_.clock,
-                                        trace_options, std::move(trace_writer));
+  BlockCacheTraceOptions block_trace_opts;
+  block_trace_opts.sampling_frequency = trace_options.sampling_frequency;
+
+  BlockCacheTraceWriterOptions trace_writer_opt;
+  trace_writer_opt.max_trace_file_size = trace_options.max_trace_file_size;
+
+  std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+      NewBlockCacheTraceWriter(env_->GetSystemClock().get(), trace_writer_opt,
+                               std::move(trace_writer));
+
+  return block_cache_tracer_.StartTrace(block_trace_opts,
+                                        std::move(block_cache_trace_writer));
+}
+
+Status DBImpl::StartBlockCacheTrace(
+    const BlockCacheTraceOptions& trace_options,
+    std::unique_ptr<BlockCacheTraceWriter>&& trace_writer) {
+  return block_cache_tracer_.StartTrace(trace_options, std::move(trace_writer));
 }
 
 Status DBImpl::EndBlockCacheTrace() {

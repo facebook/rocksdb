@@ -293,7 +293,7 @@ bool UniversalCompactionPicker::NeedsCompaction(
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, SequenceNumber /* earliest_memtable_seqno */) {
+    LogBuffer* log_buffer) {
   UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
                                      mutable_cf_options, mutable_db_options,
                                      vstorage, this, log_buffer);
@@ -308,9 +308,10 @@ void UniversalCompactionBuilder::SortedRun::Dump(char* out_buf,
     if (file->fd.GetPathId() == 0 || !print_path) {
       snprintf(out_buf, out_buf_size, "file %" PRIu64, file->fd.GetNumber());
     } else {
-      snprintf(out_buf, out_buf_size, "file %" PRIu64
-                                      "(path "
-                                      "%" PRIu32 ")",
+      snprintf(out_buf, out_buf_size,
+               "file %" PRIu64
+               "(path "
+               "%" PRIu32 ")",
                file->fd.GetNumber(), file->fd.GetPathId());
     }
   } else {
@@ -399,6 +400,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   if (!vstorage_->FilesMarkedForPeriodicCompaction().empty()) {
     // Always need to do a full compaction for periodic compaction.
     c = PickPeriodicCompaction();
+    TEST_SYNC_POINT_CALLBACK("PostPickPeriodicCompaction", c);
   }
 
   // Check for size amplification.
@@ -407,6 +409,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
           static_cast<size_t>(
               mutable_cf_options_.level0_file_num_compaction_trigger)) {
     if ((c = PickCompactionToReduceSizeAmp()) != nullptr) {
+      TEST_SYNC_POINT("PickCompactionToReduceSizeAmpReturnNonnullptr");
       ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: compacting for size amp\n",
                        cf_name_.c_str());
     } else {
@@ -416,6 +419,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
           mutable_cf_options_.compaction_options_universal.size_ratio;
 
       if ((c = PickCompactionToReduceSortedRuns(ratio, UINT_MAX)) != nullptr) {
+        TEST_SYNC_POINT("PickCompactionToReduceSortedRunsReturnNonnullptr");
         ROCKS_LOG_BUFFER(log_buffer_,
                          "[%s] Universal: compacting for size ratio\n",
                          cf_name_.c_str());
@@ -456,6 +460,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
 
   if (c == nullptr) {
     if ((c = PickDeleteTriggeredCompaction()) != nullptr) {
+      TEST_SYNC_POINT("PickDeleteTriggeredCompactionReturnNonnullptr");
       ROCKS_LOG_BUFFER(log_buffer_,
                        "[%s] Universal: delete triggered compaction\n",
                        cf_name_.c_str());
@@ -743,6 +748,13 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
     grandparents = vstorage_->LevelFiles(sorted_runs_[first_index_after].level);
   }
 
+  if (output_level != 0 &&
+      picker_->FilesRangeOverlapWithCompaction(
+          inputs, output_level,
+          Compaction::EvaluatePenultimateLevel(vstorage_, ioptions_,
+                                               start_level, output_level))) {
+    return nullptr;
+  }
   CompactionReason compaction_reason;
   if (max_number_of_files_to_compact == UINT_MAX) {
     compaction_reason = CompactionReason::kUniversalSizeRatio;
@@ -1081,6 +1093,24 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   inputs.push_back(second_last_level_inputs);
   inputs.push_back(bottom_level_inputs);
 
+  int start_level = Compaction::kInvalidLevel;
+  for (const auto& in : inputs) {
+    if (!in.empty()) {
+      // inputs should already be sorted by level
+      start_level = in.level;
+      break;
+    }
+  }
+
+  // intra L0 compactions outputs could have overlap
+  if (output_level != 0 &&
+      picker_->FilesRangeOverlapWithCompaction(
+          inputs, output_level,
+          Compaction::EvaluatePenultimateLevel(vstorage_, ioptions_,
+                                               start_level, output_level))) {
+    return nullptr;
+  }
+
   // TODO support multi paths?
   uint32_t path_id = 0;
   return new Compaction(
@@ -1210,7 +1240,10 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       if (!output_level_inputs.empty()) {
         inputs.push_back(output_level_inputs);
       }
-      if (picker_->FilesRangeOverlapWithCompaction(inputs, output_level)) {
+      if (picker_->FilesRangeOverlapWithCompaction(
+              inputs, output_level,
+              Compaction::EvaluatePenultimateLevel(
+                  vstorage_, ioptions_, start_level, output_level))) {
         return nullptr;
       }
 
@@ -1310,6 +1343,15 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
     // if it's not including all sorted_runs, it can only output to the level
     // above the `end_index + 1` sorted_run.
     output_level = sorted_runs_[end_index + 1].level - 1;
+  }
+
+  // intra L0 compactions outputs could have overlap
+  if (output_level != 0 &&
+      picker_->FilesRangeOverlapWithCompaction(
+          inputs, output_level,
+          Compaction::EvaluatePenultimateLevel(vstorage_, ioptions_,
+                                               start_level, output_level))) {
+    return nullptr;
   }
 
   // We never check size for

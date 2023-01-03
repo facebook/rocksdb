@@ -234,8 +234,8 @@ void ErrorHandler::CancelErrorRecovery() {
   // We'll release the lock before calling sfm, so make sure no new
   // recovery gets scheduled at that point
   auto_recovery_ = false;
-  SstFileManagerImpl* sfm = reinterpret_cast<SstFileManagerImpl*>(
-      db_options_.sst_file_manager.get());
+  SstFileManagerImpl* sfm =
+      reinterpret_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm) {
     // This may or may not cancel a pending recovery
     db_mutex_->Unlock();
@@ -292,8 +292,8 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
   bool found = false;
 
   {
-    auto entry = ErrorSeverityMap.find(std::make_tuple(reason, bg_err.code(),
-          bg_err.subcode(), paranoid));
+    auto entry = ErrorSeverityMap.find(
+        std::make_tuple(reason, bg_err.code(), bg_err.subcode(), paranoid));
     if (entry != ErrorSeverityMap.end()) {
       sev = entry->second;
       found = true;
@@ -301,8 +301,8 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
   }
 
   if (!found) {
-    auto entry = DefaultErrorSeverityMap.find(std::make_tuple(reason,
-          bg_err.code(), paranoid));
+    auto entry = DefaultErrorSeverityMap.find(
+        std::make_tuple(reason, bg_err.code(), paranoid));
     if (entry != DefaultErrorSeverityMap.end()) {
       sev = entry->second;
       found = true;
