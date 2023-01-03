@@ -1,5 +1,8 @@
 name: Check buck targets and code format
 on: [push, pull_request]
+permissions:
+  contents: read
+
 jobs:
   check:
     name: Check TARGETS file and code format

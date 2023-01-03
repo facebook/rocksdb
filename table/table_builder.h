@@ -22,6 +22,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
+#include "table/unique_id_impl.h"
 #include "trace_replay/block_cache_tracer.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -40,25 +41,8 @@ struct TableReaderOptions {
       bool _force_direct_prefetch = false, int _level = -1,
       BlockCacheTracer* const _block_cache_tracer = nullptr,
       size_t _max_file_size_for_l0_meta_pin = 0,
-      const std::string& _cur_db_session_id = "", uint64_t _cur_file_num = 0)
-      : TableReaderOptions(
-            _ioptions, _prefix_extractor, _env_options, _internal_comparator,
-            _skip_filters, _immortal, _force_direct_prefetch, _level,
-            0 /* _largest_seqno */, _block_cache_tracer,
-            _max_file_size_for_l0_meta_pin, _cur_db_session_id, _cur_file_num) {
-  }
-
-  // @param skip_filters Disables loading/accessing the filter block
-  TableReaderOptions(
-      const ImmutableOptions& _ioptions,
-      const std::shared_ptr<const SliceTransform>& _prefix_extractor,
-      const EnvOptions& _env_options,
-      const InternalKeyComparator& _internal_comparator, bool _skip_filters,
-      bool _immortal, bool _force_direct_prefetch, int _level,
-      SequenceNumber _largest_seqno,
-      BlockCacheTracer* const _block_cache_tracer,
-      size_t _max_file_size_for_l0_meta_pin,
-      const std::string& _cur_db_session_id, uint64_t _cur_file_num)
+      const std::string& _cur_db_session_id = "", uint64_t _cur_file_num = 0,
+      UniqueId64x2 _unique_id = {}, SequenceNumber _largest_seqno = 0)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -71,7 +55,8 @@ struct TableReaderOptions {
         block_cache_tracer(_block_cache_tracer),
         max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin),
         cur_db_session_id(_cur_db_session_id),
-        cur_file_num(_cur_file_num) {}
+        cur_file_num(_cur_file_num),
+        unique_id(_unique_id) {}
 
   const ImmutableOptions& ioptions;
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
@@ -88,7 +73,7 @@ struct TableReaderOptions {
   // What level this table/file is on, -1 for "not set, don't know." Used
   // for level-specific statistics.
   int level;
-  // largest seqno in the table
+  // largest seqno in the table (or 0 means unknown???)
   SequenceNumber largest_seqno;
   BlockCacheTracer* const block_cache_tracer;
   // Largest L0 file size whose meta-blocks may be pinned (can be zero when
@@ -98,6 +83,9 @@ struct TableReaderOptions {
   std::string cur_db_session_id;
 
   uint64_t cur_file_num;
+
+  // Known unique_id or {}, kNullUniqueId64x2 means unknown
+  UniqueId64x2 unique_id;
 };
 
 struct TableBuilderOptions {

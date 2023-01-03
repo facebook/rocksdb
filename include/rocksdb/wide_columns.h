@@ -5,12 +5,14 @@
 
 #pragma once
 
+#include <ostream>
 #include <tuple>
 #include <utility>
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -69,6 +71,101 @@ inline bool operator!=(const WideColumn& lhs, const WideColumn& rhs) {
   return !(lhs == rhs);
 }
 
+inline std::ostream& operator<<(std::ostream& os, const WideColumn& column) {
+  const bool hex =
+      (os.flags() & std::ios_base::basefield) == std::ios_base::hex;
+  os << column.name().ToString(hex) << ':' << column.value().ToString(hex);
+
+  return os;
+}
+
+// A collection of wide columns.
 using WideColumns = std::vector<WideColumn>;
+
+// The anonymous default wide column (an empty Slice).
+extern const Slice kDefaultWideColumnName;
+
+// An empty set of wide columns.
+extern const WideColumns kNoWideColumns;
+
+// A self-contained collection of wide columns. Used for the results of
+// wide-column queries.
+class PinnableWideColumns {
+ public:
+  const WideColumns& columns() const { return columns_; }
+  size_t serialized_size() const { return value_.size(); }
+
+  void SetPlainValue(const Slice& value);
+  void SetPlainValue(const Slice& value, Cleanable* cleanable);
+
+  Status SetWideColumnValue(const Slice& value);
+  Status SetWideColumnValue(const Slice& value, Cleanable* cleanable);
+
+  void Reset();
+
+ private:
+  void CopyValue(const Slice& value);
+  void PinOrCopyValue(const Slice& value, Cleanable* cleanable);
+  void CreateIndexForPlainValue();
+  Status CreateIndexForWideColumns();
+
+  PinnableSlice value_;
+  WideColumns columns_;
+};
+
+inline void PinnableWideColumns::CopyValue(const Slice& value) {
+  value_.PinSelf(value);
+}
+
+inline void PinnableWideColumns::PinOrCopyValue(const Slice& value,
+                                                Cleanable* cleanable) {
+  if (!cleanable) {
+    CopyValue(value);
+    return;
+  }
+
+  value_.PinSlice(value, cleanable);
+}
+
+inline void PinnableWideColumns::CreateIndexForPlainValue() {
+  columns_ = WideColumns{{kDefaultWideColumnName, value_}};
+}
+
+inline void PinnableWideColumns::SetPlainValue(const Slice& value) {
+  CopyValue(value);
+  CreateIndexForPlainValue();
+}
+
+inline void PinnableWideColumns::SetPlainValue(const Slice& value,
+                                               Cleanable* cleanable) {
+  PinOrCopyValue(value, cleanable);
+  CreateIndexForPlainValue();
+}
+
+inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value) {
+  CopyValue(value);
+  return CreateIndexForWideColumns();
+}
+
+inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value,
+                                                      Cleanable* cleanable) {
+  PinOrCopyValue(value, cleanable);
+  return CreateIndexForWideColumns();
+}
+
+inline void PinnableWideColumns::Reset() {
+  value_.Reset();
+  columns_.clear();
+}
+
+inline bool operator==(const PinnableWideColumns& lhs,
+                       const PinnableWideColumns& rhs) {
+  return lhs.columns() == rhs.columns();
+}
+
+inline bool operator!=(const PinnableWideColumns& lhs,
+                       const PinnableWideColumns& rhs) {
+  return !(lhs == rhs);
+}
 
 }  // namespace ROCKSDB_NAMESPACE

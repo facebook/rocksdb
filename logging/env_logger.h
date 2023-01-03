@@ -57,12 +57,12 @@ class EnvLogger : public Logger {
       // Preserve iostats not to pollute writes from user writes. We might
       // need a better solution than this.
       SetPerfLevel(PerfLevel::kDisable);
-      iostats_context.disable_iostats = true;
+      IOSTATS_SET_DISABLE(true);
       logger.mutex_.Lock();
     }
     ~FileOpGuard() {
       logger_.mutex_.Unlock();
-      iostats_context.disable_iostats = false;
+      IOSTATS_SET_DISABLE(false);
       SetPerfLevel(prev_perf_level_);
     }
 

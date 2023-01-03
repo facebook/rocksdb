@@ -65,7 +65,7 @@ struct TestKey {
 };
 
 // return a slice backed by test_key
-inline Slice TestKeyToSlice(std::string &s, const TestKey& test_key) {
+inline Slice TestKeyToSlice(std::string& s, const TestKey& test_key) {
   s.clear();
   PutFixed64(&s, test_key.prefix);
   PutFixed64(&s, test_key.sorted);
@@ -73,20 +73,18 @@ inline Slice TestKeyToSlice(std::string &s, const TestKey& test_key) {
 }
 
 inline const TestKey SliceToTestKey(const Slice& slice) {
-  return TestKey(DecodeFixed64(slice.data()),
-    DecodeFixed64(slice.data() + 8));
+  return TestKey(DecodeFixed64(slice.data()), DecodeFixed64(slice.data() + 8));
 }
 
 class TestKeyComparator : public Comparator {
  public:
-
   // Compare needs to be aware of the possibility of a and/or b is
   // prefix only
   int Compare(const Slice& a, const Slice& b) const override {
     const TestKey kkey_a = SliceToTestKey(a);
     const TestKey kkey_b = SliceToTestKey(b);
-    const TestKey *key_a = &kkey_a;
-    const TestKey *key_b = &kkey_b;
+    const TestKey* key_a = &kkey_a;
+    const TestKey* key_b = &kkey_b;
     if (key_a->prefix != key_b->prefix) {
       if (key_a->prefix < key_b->prefix) return -1;
       if (key_a->prefix > key_b->prefix) return 1;
@@ -211,7 +209,7 @@ class SamePrefixTransform : public SliceTransform {
   bool FullLengthEnabled(size_t* /*len*/) const override { return false; }
 };
 
-}  // namespace
+}  // anonymous namespace
 
 class PrefixTest : public testing::Test {
  public:
@@ -242,9 +240,7 @@ class PrefixTest : public testing::Test {
     return std::shared_ptr<DB>(db);
   }
 
-  void FirstOption() {
-    option_config_ = kBegin;
-  }
+  void FirstOption() { option_config_ = kBegin; }
 
   bool NextOptions(int bucket_count) {
     // skip some options
@@ -604,7 +600,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
     HistogramImpl hist_put_comparison;
     // insert x random prefix, each with y continuous element.
     for (auto prefix : prefixes) {
-       for (uint64_t sorted = 0; sorted < FLAGS_items_per_prefix; sorted++) {
+      for (uint64_t sorted = 0; sorted < FLAGS_items_per_prefix; sorted++) {
         TestKey test_key(prefix, sorted);
 
         std::string s;
@@ -619,8 +615,9 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       }
     }
 
-    std::cout << "Put key comparison: \n" << hist_put_comparison.ToString()
-              << "Put time: \n" << hist_put_time.ToString();
+    std::cout << "Put key comparison: \n"
+              << hist_put_comparison.ToString() << "Put time: \n"
+              << hist_put_time.ToString();
 
     // test seek existing keys
     HistogramImpl hist_seek_time;
@@ -639,8 +636,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       auto key_prefix = options_.prefix_extractor->Transform(key);
       uint64_t total_keys = 0;
       for (iter->Seek(key);
-           iter->Valid() && iter->key().starts_with(key_prefix);
-           iter->Next()) {
+           iter->Valid() && iter->key().starts_with(key_prefix); iter->Next()) {
         if (FLAGS_trigger_deadlock) {
           std::cout << "Behold the deadlock!\n";
           db->Delete(write_options, iter->key());
@@ -649,12 +645,12 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       }
       hist_seek_time.Add(timer.ElapsedNanos());
       hist_seek_comparison.Add(get_perf_context()->user_key_comparison_count);
-      ASSERT_EQ(total_keys, FLAGS_items_per_prefix - FLAGS_items_per_prefix/2);
+      ASSERT_EQ(total_keys,
+                FLAGS_items_per_prefix - FLAGS_items_per_prefix / 2);
     }
 
     std::cout << "Seek key comparison: \n"
-              << hist_seek_comparison.ToString()
-              << "Seek time: \n"
+              << hist_seek_comparison.ToString() << "Seek time: \n"
               << hist_seek_time.ToString();
 
     // test non-existing keys
@@ -662,8 +658,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
     HistogramImpl hist_no_seek_comparison;
 
     for (auto prefix = FLAGS_total_prefixes;
-         prefix < FLAGS_total_prefixes + 10000;
-         prefix++) {
+         prefix < FLAGS_total_prefixes + 10000; prefix++) {
       TestKey test_key(prefix, 0);
       std::string s;
       Slice key = TestKeyToSlice(s, test_key);
@@ -672,7 +667,8 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       StopWatchNano timer(SystemClock::Default().get(), true);
       iter->Seek(key);
       hist_no_seek_time.Add(timer.ElapsedNanos());
-      hist_no_seek_comparison.Add(get_perf_context()->user_key_comparison_count);
+      hist_no_seek_comparison.Add(
+          get_perf_context()->user_key_comparison_count);
       ASSERT_TRUE(!iter->Valid());
       ASSERT_OK(iter->status());
     }
@@ -894,6 +890,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();

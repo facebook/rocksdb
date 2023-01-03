@@ -5,6 +5,7 @@
 //
 
 #include <sstream>
+
 #include "monitoring/perf_context_imp.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -17,9 +18,7 @@ PerfContext perf_context;
 thread_local PerfContext perf_context;
 #endif
 
-PerfContext* get_perf_context() {
-  return &perf_context;
-}
+PerfContext* get_perf_context() { return &perf_context; }
 
 PerfContext::~PerfContext() {
 #if !defined(NPERF_CONTEXT) && !defined(OS_SOLARIS)
@@ -37,11 +36,22 @@ PerfContext::PerfContext(const PerfContext& other) {
   block_read_byte = other.block_read_byte;
   block_read_time = other.block_read_time;
   block_cache_index_hit_count = other.block_cache_index_hit_count;
+  block_cache_standalone_handle_count =
+      other.block_cache_standalone_handle_count;
+  block_cache_real_handle_count = other.block_cache_real_handle_count;
   index_block_read_count = other.index_block_read_count;
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
   secondary_cache_hit_count = other.secondary_cache_hit_count;
+  compressed_sec_cache_insert_real_count =
+      other.compressed_sec_cache_insert_real_count;
+  compressed_sec_cache_insert_dummy_count =
+      other.compressed_sec_cache_insert_dummy_count;
+  compressed_sec_cache_uncompressed_bytes =
+      other.compressed_sec_cache_uncompressed_bytes;
+  compressed_sec_cache_compressed_bytes =
+      other.compressed_sec_cache_compressed_bytes;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -59,6 +69,7 @@ PerfContext::PerfContext(const PerfContext& other) {
   internal_delete_skipped_count = other.internal_delete_skipped_count;
   internal_recent_skipped_count = other.internal_recent_skipped_count;
   internal_merge_count = other.internal_merge_count;
+  internal_range_del_reseek_count = other.internal_range_del_reseek_count;
   write_wal_time = other.write_wal_time;
   get_snapshot_time = other.get_snapshot_time;
   get_from_memtable_time = other.get_from_memtable_time;
@@ -144,11 +155,22 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   block_read_byte = other.block_read_byte;
   block_read_time = other.block_read_time;
   block_cache_index_hit_count = other.block_cache_index_hit_count;
+  block_cache_standalone_handle_count =
+      other.block_cache_standalone_handle_count;
+  block_cache_real_handle_count = other.block_cache_real_handle_count;
   index_block_read_count = other.index_block_read_count;
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
   secondary_cache_hit_count = other.secondary_cache_hit_count;
+  compressed_sec_cache_insert_real_count =
+      other.compressed_sec_cache_insert_real_count;
+  compressed_sec_cache_insert_dummy_count =
+      other.compressed_sec_cache_insert_dummy_count;
+  compressed_sec_cache_uncompressed_bytes =
+      other.compressed_sec_cache_uncompressed_bytes;
+  compressed_sec_cache_compressed_bytes =
+      other.compressed_sec_cache_compressed_bytes;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -166,6 +188,7 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   internal_delete_skipped_count = other.internal_delete_skipped_count;
   internal_recent_skipped_count = other.internal_recent_skipped_count;
   internal_merge_count = other.internal_merge_count;
+  internal_range_del_reseek_count = other.internal_range_del_reseek_count;
   write_wal_time = other.write_wal_time;
   get_snapshot_time = other.get_snapshot_time;
   get_from_memtable_time = other.get_from_memtable_time;
@@ -253,11 +276,22 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   block_read_byte = other.block_read_byte;
   block_read_time = other.block_read_time;
   block_cache_index_hit_count = other.block_cache_index_hit_count;
+  block_cache_standalone_handle_count =
+      other.block_cache_standalone_handle_count;
+  block_cache_real_handle_count = other.block_cache_real_handle_count;
   index_block_read_count = other.index_block_read_count;
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
   secondary_cache_hit_count = other.secondary_cache_hit_count;
+  compressed_sec_cache_insert_real_count =
+      other.compressed_sec_cache_insert_real_count;
+  compressed_sec_cache_insert_dummy_count =
+      other.compressed_sec_cache_insert_dummy_count;
+  compressed_sec_cache_uncompressed_bytes =
+      other.compressed_sec_cache_uncompressed_bytes;
+  compressed_sec_cache_compressed_bytes =
+      other.compressed_sec_cache_compressed_bytes;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -275,6 +309,7 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   internal_delete_skipped_count = other.internal_delete_skipped_count;
   internal_recent_skipped_count = other.internal_recent_skipped_count;
   internal_merge_count = other.internal_merge_count;
+  internal_range_del_reseek_count = other.internal_range_del_reseek_count;
   write_wal_time = other.write_wal_time;
   get_snapshot_time = other.get_snapshot_time;
   get_from_memtable_time = other.get_from_memtable_time;
@@ -359,11 +394,17 @@ void PerfContext::Reset() {
   block_read_byte = 0;
   block_read_time = 0;
   block_cache_index_hit_count = 0;
+  block_cache_standalone_handle_count = 0;
+  block_cache_real_handle_count = 0;
   index_block_read_count = 0;
   block_cache_filter_hit_count = 0;
   filter_block_read_count = 0;
   compression_dict_block_read_count = 0;
   secondary_cache_hit_count = 0;
+  compressed_sec_cache_insert_real_count = 0;
+  compressed_sec_cache_insert_dummy_count = 0;
+  compressed_sec_cache_uncompressed_bytes = 0;
+  compressed_sec_cache_compressed_bytes = 0;
   block_checksum_time = 0;
   block_decompress_time = 0;
   get_read_bytes = 0;
@@ -381,6 +422,7 @@ void PerfContext::Reset() {
   internal_delete_skipped_count = 0;
   internal_recent_skipped_count = 0;
   internal_merge_count = 0;
+  internal_range_del_reseek_count = 0;
   write_wal_time = 0;
 
   get_snapshot_time = 0;
@@ -456,15 +498,14 @@ void PerfContext::Reset() {
     ss << #counter << " = " << counter << ", ";  \
   }
 
-#define PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(counter)         \
-  if (per_level_perf_context_enabled && \
-      level_to_perf_context) {                                    \
-    ss << #counter << " = ";                                      \
-    for (auto& kv : *level_to_perf_context) {                     \
-      if (!exclude_zero_counters || (kv.second.counter > 0)) {    \
-        ss << kv.second.counter << "@level" << kv.first << ", ";  \
-      }                                                           \
-    }                                                             \
+#define PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(counter)        \
+  if (per_level_perf_context_enabled && level_to_perf_context) { \
+    ss << #counter << " = ";                                     \
+    for (auto& kv : *level_to_perf_context) {                    \
+      if (!exclude_zero_counters || (kv.second.counter > 0)) {   \
+        ss << kv.second.counter << "@level" << kv.first << ", "; \
+      }                                                          \
+    }                                                            \
   }
 
 void PerfContextByLevel::Reset() {
@@ -489,11 +530,17 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_read_byte);
   PERF_CONTEXT_OUTPUT(block_read_time);
   PERF_CONTEXT_OUTPUT(block_cache_index_hit_count);
+  PERF_CONTEXT_OUTPUT(block_cache_standalone_handle_count);
+  PERF_CONTEXT_OUTPUT(block_cache_real_handle_count);
   PERF_CONTEXT_OUTPUT(index_block_read_count);
   PERF_CONTEXT_OUTPUT(block_cache_filter_hit_count);
   PERF_CONTEXT_OUTPUT(filter_block_read_count);
   PERF_CONTEXT_OUTPUT(compression_dict_block_read_count);
   PERF_CONTEXT_OUTPUT(secondary_cache_hit_count);
+  PERF_CONTEXT_OUTPUT(compressed_sec_cache_insert_real_count);
+  PERF_CONTEXT_OUTPUT(compressed_sec_cache_insert_dummy_count);
+  PERF_CONTEXT_OUTPUT(compressed_sec_cache_uncompressed_bytes);
+  PERF_CONTEXT_OUTPUT(compressed_sec_cache_compressed_bytes);
   PERF_CONTEXT_OUTPUT(block_checksum_time);
   PERF_CONTEXT_OUTPUT(block_decompress_time);
   PERF_CONTEXT_OUTPUT(get_read_bytes);
@@ -509,6 +556,7 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(internal_delete_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_recent_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_merge_count);
+  PERF_CONTEXT_OUTPUT(internal_range_del_reseek_count);
   PERF_CONTEXT_OUTPUT(write_wal_time);
   PERF_CONTEXT_OUTPUT(get_snapshot_time);
   PERF_CONTEXT_OUTPUT(get_from_memtable_time);
@@ -588,11 +636,11 @@ void PerfContext::EnablePerLevelPerfContext() {
   per_level_perf_context_enabled = true;
 }
 
-void PerfContext::DisablePerLevelPerfContext(){
+void PerfContext::DisablePerLevelPerfContext() {
   per_level_perf_context_enabled = false;
 }
 
-void PerfContext::ClearPerLevelPerfContext(){
+void PerfContext::ClearPerLevelPerfContext() {
   if (level_to_perf_context != nullptr) {
     level_to_perf_context->clear();
     delete level_to_perf_context;

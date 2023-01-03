@@ -88,6 +88,19 @@ void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
   result->append(kTsMax.data(), ts_sz);
 }
 
+void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                   size_t ts_sz) {
+  assert(ts_sz > 0);
+  result->append(key.data(), key.size() - ts_sz);
+
+  static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+  if (ts_sz < strlen(kTsMax)) {
+    result->append(kTsMax, ts_sz);
+  } else {
+    result->append(std::string(ts_sz, '\xff'));
+  }
+}
+
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
   std::string result = "'";
   if (log_err_key) {
@@ -135,6 +148,31 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
     }
   }
   return r;
+}
+
+int InternalKeyComparator::Compare(const Slice& a,
+                                   const ParsedInternalKey& b) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  //    decreasing type (though sequence# should be enough to disambiguate)
+  int r = user_comparator_.Compare(ExtractUserKey(a), b.user_key);
+  if (r == 0) {
+    const uint64_t anum =
+        DecodeFixed64(a.data() + a.size() - kNumInternalBytes);
+    const uint64_t bnum = (b.sequence << 8) | b.type;
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+int InternalKeyComparator::Compare(const ParsedInternalKey& a,
+                                   const Slice& b) const {
+  return -Compare(b, a);
 }
 
 LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,

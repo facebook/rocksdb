@@ -298,11 +298,10 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   options.max_log_file_size = 1024;
   ASSERT_OK(CreateLoggerFromOptions(test_dir_, options, &logger));
   AutoRollLogger* auto_roll_logger =
-    dynamic_cast<AutoRollLogger*>(logger.get());
+      dynamic_cast<AutoRollLogger*>(logger.get());
   ASSERT_TRUE(auto_roll_logger);
-  RollLogFileBySizeTest(
-      auto_roll_logger, options.max_log_file_size,
-      kSampleMessage + ":CreateLoggerFromOptions - size");
+  RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
+                        kSampleMessage + ":CreateLoggerFromOptions - size");
 
   // Only roll by Time
   options.env = nse.get();
@@ -446,18 +445,13 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   // (1) Need to pin the old logger before beginning the roll, as rolling grabs
   //     the mutex, which would prevent us from accessing the old logger. This
   //     also marks flush_thread with AutoRollLogger::Flush:PinnedLogger.
-  // (2) Need to reset logger during EnvLogger::Flush() to exercise a race
-  //     condition case, which is executing the flush with the pinned (old)
-  //     logger after auto-roll logger has cut over to a new logger.
+  // (2) New logger will be cut in AutoRollLogger::RollLogFile only when flush
+  //     is completed and reference to pinned logger is released.
   // (3) EnvLogger::Flush() happens in both threads but its SyncPoints only
   //     are enabled in flush_thread (the one pinning the old logger).
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
       {{"AutoRollLogger::Flush:PinnedLogger",
-        "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
-       {"EnvLogger::Flush:Begin1",
-        "AutoRollLogger::ResetLogger:BeforeNewLogger"},
-       {"AutoRollLogger::ResetLogger:AfterNewLogger",
-        "EnvLogger::Flush:Begin2"}},
+        "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"}},
       {{"AutoRollLogger::Flush:PinnedLogger", "EnvLogger::Flush:Begin1"},
        {"AutoRollLogger::Flush:PinnedLogger", "EnvLogger::Flush:Begin2"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -508,7 +502,7 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   }
   std::ifstream inFile(log_file_.c_str());
   size_t lines = std::count(std::istreambuf_iterator<char>(inFile),
-                         std::istreambuf_iterator<char>(), '\n');
+                            std::istreambuf_iterator<char>(), '\n');
   ASSERT_EQ(log_lines, lines);
   inFile.close();
 }
@@ -546,7 +540,7 @@ TEST_F(AutoRollLoggerTest, Close) {
 
   std::ifstream inFile(log_file_.c_str());
   size_t lines = std::count(std::istreambuf_iterator<char>(inFile),
-                         std::istreambuf_iterator<char>(), '\n');
+                            std::istreambuf_iterator<char>(), '\n');
   ASSERT_EQ(log_lines, lines);
   inFile.close();
 }
@@ -619,7 +613,7 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
 
     const auto oldfiles = GetOldFileNames(env_, newfname);
 
-    ASSERT_EQ(oldfiles.size(), (size_t) 2);
+    ASSERT_EQ(oldfiles.size(), (size_t)2);
 
     for (auto& oldfname : oldfiles) {
       // verify that the files rolled over
@@ -697,6 +691,7 @@ TEST_F(AutoRollLoggerTest, RenameError) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

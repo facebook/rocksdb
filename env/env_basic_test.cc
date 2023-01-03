@@ -305,7 +305,7 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
     read += result.size();
   }
   ASSERT_TRUE(write_data == read_data);
-  delete [] scratch;
+  delete[] scratch;
 }
 
 TEST_P(EnvMoreTestWithParam, GetModTime) {
@@ -395,6 +395,7 @@ TEST_P(EnvMoreTestWithParam, GetChildrenIgnoresDotAndDotDot) {
 
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

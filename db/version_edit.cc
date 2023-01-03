@@ -20,9 +20,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-}  // anonymous namespace
+namespace {}  // anonymous namespace
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
@@ -137,7 +135,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   bool min_log_num_written = false;
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
-    if (!f.smallest.Valid() || !f.largest.Valid()) {
+    if (!f.smallest.Valid() || !f.largest.Valid() ||
+        f.epoch_number == kUnknownEpochNumber) {
       return false;
     }
     PutVarint32(dst, kNewFile4);
@@ -186,6 +185,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
                              &varint_file_creation_time);
     PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
 
+    PutVarint32(dst, NewFileCustomTag::kEpochNumber);
+    std::string varint_epoch_number;
+    PutVarint64(&varint_epoch_number, f.epoch_number);
+    PutLengthPrefixedSlice(dst, Slice(varint_epoch_number));
+
     PutVarint32(dst, NewFileCustomTag::kFileChecksum);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
 
@@ -226,6 +230,13 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       PutVarint32(dst, NewFileCustomTag::kUniqueId);
       std::string unique_id_str = EncodeUniqueIdBytes(&unique_id);
       PutLengthPrefixedSlice(dst, Slice(unique_id_str));
+    }
+    if (f.compensated_range_deletion_size) {
+      PutVarint32(dst, kCompensatedRangeDeletionSize);
+      std::string compensated_range_deletion_size;
+      PutVarint64(&compensated_range_deletion_size,
+                  f.compensated_range_deletion_size);
+      PutLengthPrefixedSlice(dst, Slice(compensated_range_deletion_size));
     }
 
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
@@ -354,6 +365,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "invalid file creation time";
           }
           break;
+        case kEpochNumber:
+          if (!GetVarint64(&field, &f.epoch_number)) {
+            return "invalid epoch number";
+          }
+          break;
         case kFileChecksum:
           f.file_checksum = field.ToString();
           break;
@@ -393,6 +409,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           if (!DecodeUniqueIdBytes(field.ToString(), &f.unique_id).ok()) {
             f.unique_id = kNullUniqueId64x2;
             return "invalid unique id";
+          }
+          break;
+        case kCompensatedRangeDeletionSize:
+          if (!GetVarint64(&field, &f.compensated_range_deletion_size)) {
+            return "Invalid compensated range deletion size";
           }
           break;
         default:
@@ -501,8 +522,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
 
       case kCompactCursor:
-        if (GetLevel(&input, &level, &msg) &&
-            GetInternalKey(&input, &key)) {
+        if (GetLevel(&input, &level, &msg) && GetInternalKey(&input, &key)) {
           // Here we re-use the output format of compact pointer in LevelDB
           // to persist compact_cursors_
           compact_cursors_.push_back(std::make_pair(level, key));
@@ -811,6 +831,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
+    r.append(" epoch_number:");
+    AppendNumberTo(&r, f.epoch_number);
     r.append(" file_checksum:");
     r.append(Slice(f.file_checksum).ToString(true));
     r.append(" file_checksum_func_name: ");
@@ -930,6 +952,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
       jw << "OldestAncesterTime" << f.oldest_ancester_time;
       jw << "FileCreationTime" << f.file_creation_time;
+      jw << "EpochNumber" << f.epoch_number;
       jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
       jw << "FileChecksumFuncName" << f.file_checksum_func_name;
       if (f.temperature != Temperature::kUnknown) {

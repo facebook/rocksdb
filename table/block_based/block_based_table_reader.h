@@ -70,9 +70,6 @@ class BlockBasedTable : public TableReader {
   static const std::string kFullFilterBlockPrefix;
   static const std::string kPartitionedFilterBlockPrefix;
 
-  // All the below fields control iterator readahead
-  static const int kMinNumFileReadsToStartAutoReadahead = 2;
-
   // 1-byte compression type + 32-bit checksum
   static constexpr size_t kBlockTrailerSize = 5;
 
@@ -111,7 +108,8 @@ class BlockBasedTable : public TableReader {
       TailPrefetchStats* tail_prefetch_stats = nullptr,
       BlockCacheTracer* const block_cache_tracer = nullptr,
       size_t max_file_size_for_l0_meta_pin = 0,
-      const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0);
+      const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0,
+      UniqueId64x2 expected_unique_id = {});
 
   bool PrefixRangeMayMatch(const Slice& internal_key,
                            const ReadOptions& read_options,
@@ -140,6 +138,10 @@ class BlockBasedTable : public TableReader {
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
+
+  Status MultiGetFilter(const ReadOptions& read_options,
+                        const SliceTransform* prefix_extractor,
+                        MultiGetRange* mget_range) override;
 
   DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
                                   const ReadOptions& readOptions,
@@ -227,15 +229,9 @@ class BlockBasedTable : public TableReader {
 
   class IndexReaderCommon;
 
-  // Maximum SST file size that uses standard CacheKey encoding scheme.
-  // See GetCacheKey to explain << 2. + 3 is permitted because it is trimmed
-  // off by >> 2 in GetCacheKey.
-  static constexpr uint64_t kMaxFileSizeStandardEncoding =
-      (OffsetableCacheKey::kMaxOffsetStandardEncoding << 2) + 3;
-
   static void SetupBaseCacheKey(const TableProperties* properties,
                                 const std::string& cur_db_session_id,
-                                uint64_t cur_file_number, uint64_t file_size,
+                                uint64_t cur_file_number,
                                 OffsetableCacheKey* out_base_cache_key,
                                 bool* out_is_stable = nullptr);
 
@@ -253,16 +249,16 @@ class BlockBasedTable : public TableReader {
     return static_cast<size_t>(handle.size() + kBlockTrailerSize);
   }
 
-  // It's the caller's responsibility to make sure that this is
-  // for raw block contents, which contains the compression
-  // byte in the end.
+  // It is the caller's responsibility to make sure that this is called with
+  // block-based table serialized block contents, which contains the compression
+  // byte in the trailer after `block_size`.
   static inline CompressionType GetBlockCompressionType(const char* block_data,
                                                         size_t block_size) {
     return static_cast<CompressionType>(block_data[block_size]);
   }
   static inline CompressionType GetBlockCompressionType(
       const BlockContents& contents) {
-    assert(contents.is_raw_block);
+    assert(contents.has_trailer);
     return GetBlockCompressionType(contents.data.data(), contents.data.size());
   }
 
@@ -331,7 +327,7 @@ class BlockBasedTable : public TableReader {
   Status InsertEntryToCache(const CacheTier& cache_tier, Cache* block_cache,
                             const Slice& key,
                             const Cache::CacheItemHelper* cache_helper,
-                            std::unique_ptr<TBlocklike>& block_holder,
+                            std::unique_ptr<TBlocklike>&& block_holder,
                             size_t charge, Cache::Handle** cache_handle,
                             Cache::Priority priority) const;
 
@@ -415,13 +411,13 @@ class BlockBasedTable : public TableReader {
                                BlockType block_type, const bool wait,
                                GetContext* get_context) const;
 
-  // Put a raw block (maybe compressed) to the corresponding block caches.
-  // This method will perform decompression against raw_block if needed and then
-  // populate the block caches.
+  // Put a maybe compressed block to the corresponding block caches.
+  // This method will perform decompression against block_contents if needed
+  // and then populate the block caches.
   // On success, Status::OK will be returned; also @block will be populated with
   // uncompressed block and its cache handle.
   //
-  // Allocated memory managed by raw_block_contents will be transferred to
+  // Allocated memory managed by block_contents will be transferred to
   // PutDataBlockToCache(). After the call, the object will be invalid.
   // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
@@ -429,8 +425,8 @@ class BlockBasedTable : public TableReader {
   Status PutDataBlockToCache(const Slice& cache_key, Cache* block_cache,
                              Cache* block_cache_compressed,
                              CachableEntry<TBlocklike>* cached_block,
-                             BlockContents* raw_block_contents,
-                             CompressionType raw_block_comp_type,
+                             BlockContents&& block_contents,
+                             CompressionType block_comp_type,
                              const UncompressionDict& uncompression_dict,
                              MemoryAllocator* memory_allocator,
                              BlockType block_type,
@@ -601,7 +597,7 @@ struct BlockBasedTable::Rep {
   bool prefix_filtering;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
 
-  std::shared_ptr<const FragmentedRangeTombstoneList> fragmented_range_dels;
+  std::shared_ptr<FragmentedRangeTombstoneList> fragmented_range_dels;
 
   // If global_seqno is used, all Keys in this file will have the same
   // seqno with value `global_seqno`.
@@ -661,25 +657,28 @@ struct BlockBasedTable::Rep {
   uint64_t sst_number_for_tracing() const {
     return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
-  void CreateFilePrefetchBuffer(size_t readahead_size,
-                                size_t max_readahead_size,
-                                std::unique_ptr<FilePrefetchBuffer>* fpb,
-                                bool implicit_auto_readahead,
-                                uint64_t num_file_reads) const {
+  void CreateFilePrefetchBuffer(
+      size_t readahead_size, size_t max_readahead_size,
+      std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
+      uint64_t num_file_reads,
+      uint64_t num_file_reads_for_auto_readahead) const {
     fpb->reset(new FilePrefetchBuffer(
         readahead_size, max_readahead_size,
         !ioptions.allow_mmap_reads /* enable */, false /* track_min_offset */,
-        implicit_auto_readahead, num_file_reads, ioptions.fs.get(),
-        ioptions.clock, ioptions.stats));
+        implicit_auto_readahead, num_file_reads,
+        num_file_reads_for_auto_readahead, ioptions.fs.get(), ioptions.clock,
+        ioptions.stats));
   }
 
   void CreateFilePrefetchBufferIfNotExists(
       size_t readahead_size, size_t max_readahead_size,
       std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
-      uint64_t num_file_reads) const {
+      uint64_t num_file_reads,
+      uint64_t num_file_reads_for_auto_readahead) const {
     if (!(*fpb)) {
       CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb,
-                               implicit_auto_readahead, num_file_reads);
+                               implicit_auto_readahead, num_file_reads,
+                               num_file_reads_for_auto_readahead);
     }
   }
 

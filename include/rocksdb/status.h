@@ -48,7 +48,7 @@ class Status {
     if (!checked_) {
       fprintf(stderr, "Failed to check Status %p\n", this);
       port::PrintStack();
-      abort();
+      std::abort();
     }
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   }
@@ -134,6 +134,9 @@ class Status {
 
   Status(Code _code, SubCode _subcode, Severity _sev, const Slice& msg)
       : Status(_code, _subcode, msg, "", _sev) {}
+
+  static Status CopyAppendMessage(const Status& s, const Slice& delim,
+                                  const Slice& msg);
 
   Severity severity() const {
     MarkChecked();

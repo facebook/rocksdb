@@ -610,6 +610,52 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBWALTest, LockWal) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    DestroyAndReopen(options);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->LoadDependency(
+        {{"DBWALTest::LockWal:AfterGetSortedWal",
+          "DBWALTest::LockWal:BeforeFlush:1"}});
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_OK(Put("foo", "v"));
+    ASSERT_OK(Put("bar", "v"));
+    port::Thread worker([&]() {
+      TEST_SYNC_POINT("DBWALTest::LockWal:BeforeFlush:1");
+      Status tmp_s = db_->Flush(FlushOptions());
+      ASSERT_OK(tmp_s);
+    });
+
+    ASSERT_OK(db_->LockWAL());
+    // Verify writes are stopped
+    WriteOptions wopts;
+    wopts.no_slowdown = true;
+    Status s = db_->Put(wopts, "foo", "dontcare");
+    ASSERT_TRUE(s.IsIncomplete());
+    {
+      VectorLogPtr wals;
+      ASSERT_OK(db_->GetSortedWalFiles(wals));
+      ASSERT_FALSE(wals.empty());
+    }
+    TEST_SYNC_POINT("DBWALTest::LockWal:AfterGetSortedWal");
+    FlushOptions flush_opts;
+    flush_opts.wait = false;
+    s = db_->Flush(flush_opts);
+    ASSERT_TRUE(s.IsTryAgain());
+    ASSERT_OK(db_->UnlockWAL());
+    ASSERT_OK(db_->Put(WriteOptions(), "foo", "dontcare"));
+
+    worker.join();
+
+    SyncPoint::GetInstance()->DisableProcessing();
+  } while (ChangeWalOptions());
+}
+#endif  //! ROCKSDB_LITE
+
 class DBRecoveryTestBlobError
     : public DBWALTest,
       public testing::WithParamInterface<std::string> {
@@ -1524,8 +1570,25 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
       /*wait=*/false, /*allow_write_stall=*/true, handles_[0]));
 
   bool called = false;
+  std::atomic<int> bg_flush_threads{0};
+  std::atomic<bool> wal_synced{false};
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCallFlush:start", [&](void* /*arg*/) {
+        int cur = bg_flush_threads.load();
+        int desired = cur + 1;
+        if (cur > 0 ||
+            !bg_flush_threads.compare_exchange_strong(cur, desired)) {
+          while (!wal_synced.load()) {
+            // Wait until the other bg flush thread finishes committing WAL sync
+            // operation to the MANIFEST.
+          }
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTableToOutputFile:CommitWal:1",
+      [&](void* /*arg*/) { wal_synced.store(true); });
   // This callback will be called when the first bg flush thread reaches the
   // point before entering the MANIFEST write queue after flushing the SST
   // file.
@@ -1581,6 +1644,89 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   ASSERT_OK(s);
   assert(db1);
   delete db1;
+}
+
+TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
+  Options options = CurrentOptions();
+  options.track_and_verify_wals_in_manifest = true;
+  DestroyAndReopen(options);
+
+  // Accumulate memtable m1 and create the 1st wal (i.e, 4.log)
+  ASSERT_OK(Put(Key(1), ""));
+  ASSERT_OK(Put(Key(2), ""));
+  ASSERT_OK(Put(Key(3), ""));
+
+  const std::string wal_file_path = db_->GetName() + "/000004.log";
+
+  // Coerce the following sequence of events:
+  // (1) Flush() marks 4.log to be obsoleted, 8.log to be the latest (i.e,
+  // active) log and release the lock
+  // (2) SyncWAL() proceeds with the lock. It
+  // creates a new manifest and syncs all the inactive wals before the latest
+  // (i.e, active log), which is 4.log. Note that SyncWAL() is not aware of the
+  // fact that 4.log has marked as to be obseleted. Prior to the fix, such wal
+  // sync will then add a WAL addition record of 4.log to the new manifest
+  // without any special treatment.
+  // (3) BackgroundFlush() will eventually purge 4.log.
+  bool wal_synced = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FindObsoleteFiles::PostMutexUnlock", [&](void*) {
+        ASSERT_OK(env_->FileExists(wal_file_path));
+
+        SyncPoint::GetInstance()->SetCallBack(
+            "VersionSet::ProcessManifestWrites:"
+            "PostDecidingCreateNewManifestOrNot",
+            [&](void* arg) {
+              bool* new_descriptor_log = (bool*)arg;
+              *new_descriptor_log = true;
+            });
+
+        ASSERT_OK(db_->SyncWAL());
+        wal_synced = true;
+      });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DeleteObsoleteFileImpl:AfterDeletion2", [&](void* arg) {
+        std::string* file_name = (std::string*)arg;
+        if (*file_name == wal_file_path) {
+          TEST_SYNC_POINT(
+              "DBWALTest::"
+              "FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
+              "PostDeleteWAL");
+        }
+      });
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallFlush:FilesFound",
+        "PreConfrimObsoletedWALSynced"},
+       {"DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
+        "PostDeleteWAL",
+        "PreConfrimWALDeleted"}});
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Flush());
+
+  TEST_SYNC_POINT("PreConfrimObsoletedWALSynced");
+  ASSERT_TRUE(wal_synced);
+
+  TEST_SYNC_POINT("PreConfrimWALDeleted");
+  // BackgroundFlush() purged 4.log
+  // because the memtable associated with the WAL was flushed and new WAL was
+  // created (i.e, 8.log)
+  ASSERT_TRUE(env_->FileExists(wal_file_path).IsNotFound());
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // To verify the corruption of "Missing WAL with log number: 4" under
+  // `options.track_and_verify_wals_in_manifest = true` is fixed.
+  //
+  // Before the fix, `db_->SyncWAL()` will sync and record WAL addtion of the
+  // obseleted WAL 4.log in a new manifest without any special treament.
+  // This will result in missing-wal corruption in DB::Reopen().
+  Status s = TryReopen(options);
+  EXPECT_OK(s);
 }
 
 // Test scope:

@@ -9,6 +9,7 @@
 
 #ifdef GFLAGS
 #pragma once
+
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 
@@ -34,13 +35,10 @@ class StressTest {
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
   virtual void FinishInitDb(SharedState*);
-
   void TrackExpectedState(SharedState* shared);
-
   void OperateDb(ThreadState* thread);
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
-
   void PrintStatistics();
 
  protected:
@@ -54,6 +52,18 @@ class StressTest {
   Status SetOptions(ThreadState* thread);
 
 #ifndef ROCKSDB_LITE
+  // For transactionsDB, there can be txns prepared but not yet committeed
+  // right before previous stress run crash.
+  // They will be recovered and processed through
+  // ProcessRecoveredPreparedTxnsHelper on the start of current stress run.
+  void ProcessRecoveredPreparedTxns(SharedState* shared);
+
+  // Default implementation will first update ExpectedState to be
+  // `SharedState::UNKNOWN` for each keys in `txn` and then randomly
+  // commit or rollback `txn`.
+  virtual void ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
+                                                  SharedState* shared);
+
   Status NewTxn(WriteOptions& write_opts, Transaction** txn);
 
   Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
@@ -94,23 +104,20 @@ class StressTest {
   virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                          const ReadOptions& read_opts,
                          const std::vector<int>& cf_ids,
-                         const std::vector<int64_t>& keys, char (&value)[100],
-                         std::unique_ptr<MutexLock>& lock) = 0;
+                         const std::vector<int64_t>& keys,
+                         char (&value)[100]) = 0;
 
   virtual Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
                             const std::vector<int>& rand_column_families,
-                            const std::vector<int64_t>& rand_keys,
-                            std::unique_ptr<MutexLock>& lock) = 0;
+                            const std::vector<int64_t>& rand_keys) = 0;
 
   virtual Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
                                  const std::vector<int>& rand_column_families,
-                                 const std::vector<int64_t>& rand_keys,
-                                 std::unique_ptr<MutexLock>& lock) = 0;
+                                 const std::vector<int64_t>& rand_keys) = 0;
 
   virtual void TestIngestExternalFile(
       ThreadState* thread, const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys,
-      std::unique_ptr<MutexLock>& lock) = 0;
+      const std::vector<int64_t>& rand_keys) = 0;
 
   // Issue compact range, starting with start_key, whose integer value
   // is rand_key.
@@ -151,6 +158,13 @@ class StressTest {
   virtual Status TestIterate(ThreadState* thread, const ReadOptions& read_opts,
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys);
+
+  virtual Status TestIterateAgainstExpected(
+      ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */) {
+    return Status::NotSupported();
+  }
 
   // Enum used by VerifyIterator() to identify the mode to validate.
   enum LastIterateOp {
@@ -214,6 +228,17 @@ class StressTest {
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
                          int64_t key) const;
 
+  void VerificationAbort(SharedState* shared, std::string msg, int cf,
+                         int64_t key, Slice value_from_db,
+                         Slice value_from_expected) const;
+
+  void VerificationAbort(SharedState* shared, int cf, int64_t key,
+                         const Slice& value, const WideColumns& columns,
+                         const WideColumns& expected_columns) const;
+
+  static std::string DebugString(const Slice& value, const WideColumns& columns,
+                                 const WideColumns& expected_columns);
+
   void PrintEnv() const;
 
   void Open(SharedState* shared);
@@ -227,7 +252,8 @@ class StressTest {
                                    TransactionDBOptions& /*txn_db_opts*/) {}
 #endif
 
-  void MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+  // Returns whether the timestamp of read_opts is updated.
+  bool MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
                                             std::string& ts_str,
                                             Slice& ts_slice,
                                             ReadOptions& read_opts);

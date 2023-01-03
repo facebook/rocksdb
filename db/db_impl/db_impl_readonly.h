@@ -9,10 +9,12 @@
 
 #include <string>
 #include <vector>
+
 #include "db/db_impl/db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO: Share common structure with CompactedDBImpl and DBImplSecondary
 class DBImplReadOnly : public DBImpl {
  public:
   DBImplReadOnly(const DBOptions& options, const std::string& dbname);
@@ -140,6 +142,16 @@ class DBImplReadOnly : public DBImpl {
       ColumnFamilyHandle** /*handle*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
+  // FIXME: some missing overrides for more "write" functions
+
+ protected:
+#ifndef ROCKSDB_LITE
+  Status FlushForGetLiveFiles() override {
+    // No-op for read-only DB
+    return Status::OK();
+  }
+#endif  // !ROCKSDB_LITE
 
  private:
   // A "helper" function for DB::OpenForReadOnly without column families

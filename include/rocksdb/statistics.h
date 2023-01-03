@@ -448,6 +448,11 @@ enum Tickers : uint32_t {
   // # of bytes written into blob cache.
   BLOB_DB_CACHE_BYTES_WRITE,
 
+  // Time spent in the ReadAsync file system call
+  READ_ASYNC_MICROS,
+  // Number of errors returned to the async read callback
+  ASYNC_READ_ERROR_COUNT,
+
   TICKER_ENUM_MAX
 };
 
@@ -564,6 +569,9 @@ enum Histograms : uint32_t {
 
   // Number of levels requiring IO for MultiGet
   NUM_LEVEL_READ_PER_MULTIGET,
+
+  // Wait time for aborting async read in FilePrefetchBuffer destructor
+  ASYNC_PREFETCH_ABORT_MICROS,
 
   HISTOGRAM_ENUM_MAX,
 };

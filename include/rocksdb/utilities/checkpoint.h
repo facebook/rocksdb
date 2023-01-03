@@ -10,6 +10,7 @@
 
 #include <string>
 #include <vector>
+
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {

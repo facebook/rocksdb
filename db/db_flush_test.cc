@@ -57,7 +57,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   Reopen(options);
   FlushOptions no_wait;
   no_wait.wait = false;
-  no_wait.allow_write_stall=true;
+  no_wait.allow_write_stall = true;
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"VersionSet::LogAndApply:WriteManifest",
@@ -1822,8 +1822,8 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
 #ifndef ROCKSDB_LITE
   uint64_t num_bg_errors;
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBackgroundErrors,
-                                  &num_bg_errors));
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBackgroundErrors, &num_bg_errors));
   ASSERT_GT(num_bg_errors, 0);
 #endif  // ROCKSDB_LITE
 
@@ -3030,6 +3030,44 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
   Close();
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBAtomicFlushTest, NoWaitWhenWritesStopped) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = GetParam();
+  options.max_write_buffer_number = 2;
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+
+  Reopen(options);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::DelayWrite:Start",
+        "DBAtomicFlushTest::NoWaitWhenWritesStopped:0"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+  for (int i = 0; i < options.max_write_buffer_number; ++i) {
+    ASSERT_OK(Put("k" + std::to_string(i), "v" + std::to_string(i)));
+  }
+  std::thread stalled_writer([&]() { ASSERT_OK(Put("k", "v")); });
+
+  TEST_SYNC_POINT("DBAtomicFlushTest::NoWaitWhenWritesStopped:0");
+
+  {
+    FlushOptions flush_opts;
+    flush_opts.wait = false;
+    flush_opts.allow_write_stall = true;
+    ASSERT_TRUE(db_->Flush(flush_opts).IsTryAgain());
+  }
+
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  stalled_writer.join();
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,

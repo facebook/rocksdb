@@ -248,7 +248,7 @@ size_t End(const FSReadRequest& r) {
 FSReadRequest Align(const FSReadRequest& r, size_t alignment) {
   FSReadRequest req;
   req.offset = static_cast<uint64_t>(
-    TruncateToPageBoundary(alignment, static_cast<size_t>(r.offset)));
+      TruncateToPageBoundary(alignment, static_cast<size_t>(r.offset)));
   req.len = Roundup(End(r), alignment) - req.offset;
   req.scratch = nullptr;
   return req;
@@ -381,6 +381,7 @@ IOStatus RandomAccessFileReader::MultiRead(
         }
       }
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
+      RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
 #ifndef ROCKSDB_LITE
@@ -470,8 +471,10 @@ IOStatus RandomAccessFileReader::ReadAsync(
                     (uintptr_t(req.scratch) & (alignment - 1)) == 0;
   read_async_info->is_aligned_ = is_aligned;
 
+  uint64_t elapsed = 0;
   if (use_direct_io() && is_aligned == false) {
     FSReadRequest aligned_req = Align(req, alignment);
+    aligned_req.status.PermitUncheckedError();
 
     // Allocate aligned buffer.
     read_async_info->buf_.Alignment(alignment);
@@ -489,12 +492,17 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
     assert(read_async_info->buf_.CurrentSize() == 0);
 
+    StopWatch sw(clock_, nullptr /*stats*/, 0 /*hist_type*/, &elapsed,
+                 true /*overwrite*/, true /*delay_enabled*/);
     s = file_->ReadAsync(aligned_req, opts, read_async_callback,
                          read_async_info, io_handle, del_fn, nullptr /*dbg*/);
   } else {
+    StopWatch sw(clock_, nullptr /*stats*/, 0 /*hist_type*/, &elapsed,
+                 true /*overwrite*/, true /*delay_enabled*/);
     s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
                          io_handle, del_fn, nullptr /*dbg*/);
   }
+  RecordTick(stats_, READ_ASYNC_MICROS, elapsed);
 
 // Suppress false positive clang analyzer warnings.
 // Memory is not released if file_->ReadAsync returns !s.ok(), because
@@ -573,6 +581,8 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
   }
   if (req.status.ok()) {
     RecordInHistogram(stats_, ASYNC_READ_BYTES, req.result.size());
+  } else if (!req.status.IsAborted()) {
+    RecordTick(stats_, ASYNC_READ_ERROR_COUNT, 1);
   }
 #ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {

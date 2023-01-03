@@ -111,7 +111,7 @@ class TraceAnalyzerTest : public testing::Test {
     single_iter->SeekForPrev("b");
     ASSERT_OK(single_iter->status());
     delete single_iter;
-    std::this_thread::sleep_for (std::chrono::seconds(1));
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
     db_->Get(ro, "g", &value).PermitUncheckedError();
 
@@ -874,6 +874,7 @@ TEST_F(TraceAnalyzerTest, MultiGet) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -230,6 +230,12 @@ inline Unsigned128 ReverseBits(Unsigned128 v) {
          ReverseBits(Upper64of128(v));
 }
 
+template <>
+inline Unsigned128 DownwardInvolution(Unsigned128 v) {
+  return (Unsigned128{DownwardInvolution(Upper64of128(v))} << 64) |
+         DownwardInvolution(Upper64of128(v) ^ Lower64of128(v));
+}
+
 template <typename T>
 struct IsUnsignedUpTo128
     : std::integral_constant<bool, std::is_unsigned<T>::value ||

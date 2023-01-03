@@ -62,6 +62,15 @@ Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
   }
 }
 
+Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
+                     const Slice& key, const Slice& ts, const Slice& val) {
+  const Status s = FailIfTsMismatchCf(column_family, ts, /*ts_for_read=*/false);
+  if (!s.ok()) {
+    return s;
+  }
+  return DB::Merge(o, column_family, key, ts, val);
+}
+
 Status DBImpl::Delete(const WriteOptions& write_options,
                       ColumnFamilyHandle* column_family, const Slice& key) {
   const Status s = FailIfCfHasTs(column_family);
@@ -109,6 +118,17 @@ Status DBImpl::DeleteRange(const WriteOptions& write_options,
     return s;
   }
   return DB::DeleteRange(write_options, column_family, begin_key, end_key);
+}
+
+Status DBImpl::DeleteRange(const WriteOptions& write_options,
+                           ColumnFamilyHandle* column_family,
+                           const Slice& begin_key, const Slice& end_key,
+                           const Slice& ts) {
+  const Status s = FailIfTsMismatchCf(column_family, ts, /*ts_for_read=*/false);
+  if (!s.ok()) {
+    return s;
+  }
+  return DB::DeleteRange(write_options, column_family, begin_key, end_key, ts);
 }
 
 void DBImpl::SetRecoverableStatePreReleaseCallback(
@@ -904,6 +924,15 @@ Status DBImpl::WriteImplWALOnly(
       write_thread->ExitAsBatchGroupLeader(write_group, status);
       return status;
     }
+  } else {
+    InstrumentedMutexLock lock(&mutex_);
+    Status status = DelayWrite(/*num_bytes=*/0ull, write_options);
+    if (!status.ok()) {
+      WriteThread::WriteGroup write_group;
+      write_thread->EnterAsBatchGroupLeader(&w, &write_group);
+      write_thread->ExitAsBatchGroupLeader(write_group, status);
+      return status;
+    }
   }
 
   WriteThread::WriteGroup write_group;
@@ -1089,6 +1118,9 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
     // Maybe change the return status to void?
     error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
+  } else {
+    // Force writable file to be continue writable.
+    logs_.back().writer->file()->reset_seen_error();
   }
 }
 
@@ -1645,12 +1677,6 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
   // thread is writing to another DB with the same write buffer, they may also
   // be flushed. We may end up with flushing much more DBs than needed. It's
   // suboptimal but still correct.
-  ROCKS_LOG_INFO(
-      immutable_db_options_.info_log,
-      "Flushing column family with oldest memtable entry. Write buffers are "
-      "using %" ROCKSDB_PRIszt " bytes out of a total of %" ROCKSDB_PRIszt ".",
-      write_buffer_manager_->memory_usage(),
-      write_buffer_manager_->buffer_size());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
   autovector<ColumnFamilyData*> cfds;
@@ -1664,9 +1690,11 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
       if (cfd->IsDropped()) {
         continue;
       }
-      if (!cfd->mem()->IsEmpty()) {
-        // We only consider active mem table, hoping immutable memtable is
-        // already in the process of flushing.
+      if (!cfd->mem()->IsEmpty() && !cfd->imm()->IsFlushPendingOrRunning()) {
+        // We only consider flush on CFs with bytes in the mutable memtable,
+        // and no immutable memtables for which flush has yet to finish. If
+        // we triggered flush on CFs already trying to flush, we would risk
+        // creating too many immutable memtables leading to write stalls.
         uint64_t seq = cfd->mem()->GetCreationSeq();
         if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
           cfd_picked = cfd;
@@ -1678,6 +1706,15 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
       cfds.push_back(cfd_picked);
     }
     MaybeFlushStatsCF(&cfds);
+  }
+  if (!cfds.empty()) {
+    ROCKS_LOG_INFO(
+        immutable_db_options_.info_log,
+        "Flushing triggered to alleviate write buffer memory usage. Write "
+        "buffer is using %" ROCKSDB_PRIszt
+        " bytes out of a total of %" ROCKSDB_PRIszt ".",
+        write_buffer_manager_->memory_usage(),
+        write_buffer_manager_->buffer_size());
   }
 
   WriteThread::Writer nonmem_w;
@@ -1734,6 +1771,7 @@ uint64_t DBImpl::GetMaxTotalWalSize() const {
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::DelayWrite(uint64_t num_bytes,
                           const WriteOptions& write_options) {
+  mutex_.AssertHeld();
   uint64_t time_delayed = 0;
   bool delayed = false;
   {
@@ -1741,6 +1779,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
                  &time_delayed);
     uint64_t delay =
         write_controller_.GetDelay(immutable_db_options_.clock, num_bytes);
+    TEST_SYNC_POINT("DBImpl::DelayWrite:Start");
     if (delay > 0) {
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
@@ -1750,8 +1789,8 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       // Notify write_thread_ about the stall so it can setup a barrier and
       // fail any pending writers with no_slowdown
       write_thread_.BeginWriteStall();
-      TEST_SYNC_POINT("DBImpl::DelayWrite:BeginWriteStallDone");
       mutex_.Unlock();
+      TEST_SYNC_POINT("DBImpl::DelayWrite:BeginWriteStallDone");
       // We will delay the write until we have slept for `delay` microseconds
       // or we don't need a delay anymore. We check for cancellation every 1ms
       // (slightly longer because WriteController minimum delay is 1ms, in
@@ -1776,7 +1815,8 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     // might wait here indefinitely as the background compaction may never
     // finish successfully, resulting in the stall condition lasting
     // indefinitely
-    while (error_handler_.GetBGError().ok() && write_controller_.IsStopped()) {
+    while (error_handler_.GetBGError().ok() && write_controller_.IsStopped() &&
+           !shutting_down_.load(std::memory_order_relaxed)) {
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
       }
@@ -1802,9 +1842,13 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
   // proceed
   Status s;
   if (write_controller_.IsStopped()) {
-    // If writes are still stopped, it means we bailed due to a background
-    // error
-    s = Status::Incomplete(error_handler_.GetBGError().ToString());
+    if (!shutting_down_.load(std::memory_order_relaxed)) {
+      // If writes are still stopped and db not shutdown, it means we bailed
+      // due to a background error
+      s = Status::Incomplete(error_handler_.GetBGError().ToString());
+    } else {
+      s = Status::ShutdownInProgress("stalled writes");
+    }
   }
   if (error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();
@@ -2065,6 +2109,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                  "[%s] New memtable created with log file: #%" PRIu64
                  ". Immutable memtables: %d.\n",
                  cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
+  // There should be no concurrent write as the thread is at the front of
+  // writer queue
+  cfd->mem()->ConstructFragmentedRangeTombstones();
+
   mutex_.Lock();
   if (recycle_log_number != 0) {
     // Since renaming the file is done outside DB mutex, we need to ensure
@@ -2080,6 +2128,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (!logs_.empty()) {
       // Alway flush the buffer of the last log before switching to a new one
       log::Writer* cur_log_writer = logs_.back().writer;
+      if (error_handler_.IsRecoveryInProgress()) {
+        // In recovery path, we force another try of writing WAL buffer.
+        cur_log_writer->file()->reset_seen_error();
+      }
       io_s = cur_log_writer->WriteBuffer();
       if (s.ok()) {
         s = io_s;
@@ -2147,7 +2199,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
       VersionEdit wal_deletion;
       wal_deletion.DeleteWalsBefore(min_wal_number_to_keep);
-      s = versions_->LogAndApplyToDefaultColumnFamily(&wal_deletion, &mutex_);
+      s = versions_->LogAndApplyToDefaultColumnFamily(&wal_deletion, &mutex_,
+                                                      directories_.GetDbDir());
       if (!s.ok() && versions_->io_status().IsIOError()) {
         s = error_handler_.SetBGError(versions_->io_status(),
                                       BackgroundErrorReason::kManifestWrite);
@@ -2344,6 +2397,24 @@ Status DB::DeleteRange(const WriteOptions& opt,
   return Write(opt, &batch);
 }
 
+Status DB::DeleteRange(const WriteOptions& opt,
+                       ColumnFamilyHandle* column_family,
+                       const Slice& begin_key, const Slice& end_key,
+                       const Slice& ts) {
+  ColumnFamilyHandle* default_cf = DefaultColumnFamily();
+  assert(default_cf);
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
+  Status s = batch.DeleteRange(column_family, begin_key, end_key, ts);
+  if (!s.ok()) {
+    return s;
+  }
+  return Write(opt, &batch);
+}
+
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                  const Slice& key, const Slice& value) {
   WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
@@ -2354,4 +2425,21 @@ Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   }
   return Write(opt, &batch);
 }
+
+Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
+                 const Slice& key, const Slice& ts, const Slice& value) {
+  ColumnFamilyHandle* default_cf = DefaultColumnFamily();
+  assert(default_cf);
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
+  Status s = batch.Merge(column_family, key, ts, value);
+  if (!s.ok()) {
+    return s;
+  }
+  return Write(opt, &batch);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

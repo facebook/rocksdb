@@ -92,7 +92,7 @@ bool NotifyCollectTableCollectorsOnAdd(
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    uint64_t block_raw_bytes, uint64_t block_compressed_bytes_fast,
+    uint64_t block_uncomp_bytes, uint64_t block_compressed_bytes_fast,
     uint64_t block_compressed_bytes_slow);
 
 // NotifyCollectTableCollectorsOnFinish() triggers the `Finish` event for all

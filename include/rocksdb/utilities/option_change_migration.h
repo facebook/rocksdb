@@ -6,6 +6,7 @@
 #pragma once
 
 #include <string>
+
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -14,6 +15,10 @@ namespace ROCKSDB_NAMESPACE {
 // Multiple column families is not supported.
 // It is best-effort. No guarantee to succeed.
 // A full compaction may be executed.
+// If the target options use FIFO compaction, the FIFO condition might be
+// sacrificed: for data migrated, data inserted later might be dropped
+// earlier. This is to gurantee FIFO compaction won't drop all the
+// migrated data to fit max_table_files_size.
 Status OptionChangeMigration(std::string dbname, const Options& old_opts,
                              const Options& new_opts);
 }  // namespace ROCKSDB_NAMESPACE

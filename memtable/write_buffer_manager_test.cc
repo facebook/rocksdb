@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/write_buffer_manager.h"
+
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -194,7 +195,7 @@ TEST_F(ChargeWriteBufferTest, Basic) {
   ASSERT_GE(cache->GetPinnedUsage(), 44 * 256 * 1024);
   ASSERT_LT(cache->GetPinnedUsage(), 44 * 256 * 1024 + kMetaDataChargeOverhead);
 
-  // Destory write buffer manger should free everything
+  // Destroy write buffer manger should free everything
   wbf.reset();
   ASSERT_EQ(cache->GetPinnedUsage(), 0);
 }
@@ -298,6 +299,7 @@ TEST_F(ChargeWriteBufferTest, BasicWithCacheFull) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

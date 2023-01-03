@@ -13,8 +13,6 @@
 #include <set>
 #include <sstream>
 
-#include "cache/clock_cache.h"
-#include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
@@ -292,19 +290,16 @@ class CacheBench {
     }
 
     if (FLAGS_cache_type == "clock_cache") {
-      cache_ = ExperimentalNewClockCache(
-          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
-          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
-      if (!cache_) {
-        fprintf(stderr, "Clock cache not supported.\n");
-        exit(1);
-      }
-    } else if (FLAGS_cache_type == "fast_lru_cache") {
-      cache_ = NewFastLRUCache(
-          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
-          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
+      fprintf(stderr, "Old clock cache implementation has been removed.\n");
+      exit(1);
+    } else if (FLAGS_cache_type == "hyper_clock_cache") {
+      cache_ = HyperClockCacheOptions(FLAGS_cache_size, FLAGS_value_bytes,
+                                      FLAGS_num_shard_bits)
+                   .MakeSharedCache();
     } else if (FLAGS_cache_type == "lru_cache") {
-      LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
+      LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
+                           false /* strict_capacity_limit */,
+                           0.5 /* high_pri_pool_ratio */);
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
@@ -439,6 +434,8 @@ class CacheBench {
     uint64_t total_key_size = 0;
     uint64_t total_charge = 0;
     uint64_t total_entry_count = 0;
+    uint64_t table_occupancy = 0;
+    uint64_t table_size = 0;
     std::set<Cache::DeleterFn> deleters;
     StopWatchNano timer(clock);
 
@@ -454,6 +451,9 @@ class CacheBench {
             std::ostringstream ostr;
             ostr << "Most recent cache entry stats:\n"
                  << "Number of entries: " << total_entry_count << "\n"
+                 << "Table occupancy: " << table_occupancy << " / "
+                 << table_size << " = "
+                 << (100.0 * table_occupancy / table_size) << "%\n"
                  << "Total charge: " << BytesToHumanString(total_charge) << "\n"
                  << "Average key size: "
                  << (1.0 * total_key_size / total_entry_count) << "\n"
@@ -490,6 +490,8 @@ class CacheBench {
       Cache::ApplyToAllEntriesOptions opts;
       opts.average_entries_per_lock = FLAGS_gather_stats_entries_per_lock;
       shared->GetCacheBench()->cache_->ApplyToAllEntries(fn, opts);
+      table_occupancy = shared->GetCacheBench()->cache_->GetOccupancyCount();
+      table_size = shared->GetCacheBench()->cache_->GetTableAddressCount();
       stats_hist->Add(timer.ElapsedNanos() / 1000);
     }
   }
@@ -806,7 +808,6 @@ class StressCacheKey {
 
     uint64_t max_file_count =
         uint64_t{FLAGS_sck_files_per_day} * FLAGS_sck_days_per_run;
-    uint64_t file_size = FLAGS_sck_file_size_mb * uint64_t{1024} * 1024U;
     uint32_t report_count = 0;
     uint32_t collisions_this_run = 0;
     size_t db_i = 0;
@@ -834,8 +835,7 @@ class StressCacheKey {
       }
       bool is_stable;
       BlockBasedTable::SetupBaseCacheKey(&dbs_[db_i], /* ignored */ "",
-                                         /* ignored */ 42, file_size, &ock,
-                                         &is_stable);
+                                         /* ignored */ 42, &ock, &is_stable);
       assert(is_stable);
       // Get a representative cache key, which later we analytically generalize
       // to a range.
@@ -845,13 +845,11 @@ class StressCacheKey {
         reduced_key = GetSliceHash64(ck.AsSlice()) >> shift_away;
       } else if (FLAGS_sck_footer_unique_id) {
         // Special case: keep only file number, not session counter
-        uint32_t a = DecodeFixed32(ck.AsSlice().data() + 4) >> shift_away_a;
-        uint32_t b = DecodeFixed32(ck.AsSlice().data() + 12) >> shift_away_b;
-        reduced_key = (uint64_t{a} << 32) + b;
+        reduced_key = DecodeFixed64(ck.AsSlice().data()) >> shift_away;
       } else {
         // Try to keep file number and session counter (shift away other bits)
         uint32_t a = DecodeFixed32(ck.AsSlice().data()) << shift_away_a;
-        uint32_t b = DecodeFixed32(ck.AsSlice().data() + 12) >> shift_away_b;
+        uint32_t b = DecodeFixed32(ck.AsSlice().data() + 4) >> shift_away_b;
         reduced_key = (uint64_t{a} << 32) + b;
       }
       if (reduced_key == 0) {

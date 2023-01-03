@@ -91,7 +91,8 @@ extern "C" bool RocksDbIOUringEnable() { return true; }
 std::unique_ptr<char, Deleter> NewAligned(const size_t size, const char ch) {
   char* ptr = nullptr;
 #ifdef OS_WIN
-  if (nullptr == (ptr = reinterpret_cast<char*>(_aligned_malloc(size, kPageSize)))) {
+  if (nullptr ==
+      (ptr = reinterpret_cast<char*>(_aligned_malloc(size, kPageSize)))) {
     return std::unique_ptr<char, Deleter>(nullptr, Deleter(_aligned_free));
   }
   std::unique_ptr<char, Deleter> uptr(ptr, Deleter(_aligned_free));
@@ -183,8 +184,7 @@ TEST_F(EnvPosixTest, AreFilesSame) {
   std::string same_file_link_name = same_file_name + "_link";
 
   std::unique_ptr<WritableFile> same_file;
-  ASSERT_OK(env->NewWritableFile(same_file_name,
-    &same_file, soptions));
+  ASSERT_OK(env->NewWritableFile(same_file_name, &same_file, soptions));
   same_file->Append("random_data");
   ASSERT_OK(same_file->Flush());
   same_file.reset();
@@ -681,7 +681,7 @@ TEST_P(EnvPosixTestWithParam, TwoPools) {
 }
 
 TEST_P(EnvPosixTestWithParam, DecreaseNumBgThreads) {
-  constexpr int kWaitMicros = 60000000; // 1min
+  constexpr int kWaitMicros = 60000000;  // 1min
 
   std::vector<test::SleepingBackgroundTask> tasks(10);
 
@@ -988,7 +988,6 @@ bool IsUniqueIDValid(const std::string& s) {
 const size_t MAX_ID_SIZE = 100;
 char temp_id[MAX_ID_SIZE];
 
-
 }  // namespace
 
 // Determine whether we can use the FS_IOC_GETVERSION ioctl
@@ -1030,12 +1029,12 @@ class IoctlFriendlyTmpdir {
   explicit IoctlFriendlyTmpdir() {
     char dir_buf[100];
 
-    const char *fmt = "%s/rocksdb.XXXXXX";
-    const char *tmp = getenv("TEST_IOCTL_FRIENDLY_TMPDIR");
+    const char* fmt = "%s/rocksdb.XXXXXX";
+    const char* tmp = getenv("TEST_IOCTL_FRIENDLY_TMPDIR");
 
 #ifdef OS_WIN
 #define rmdir _rmdir
-    if(tmp == nullptr) {
+    if (tmp == nullptr) {
       tmp = getenv("TMP");
     }
 
@@ -1066,8 +1065,10 @@ class IoctlFriendlyTmpdir {
           // Diagnose ioctl-related failure only if this is the
           // directory specified via that envvar.
           if (tmp && tmp == d) {
-            fprintf(stderr, "TEST_IOCTL_FRIENDLY_TMPDIR-specified directory is "
-                    "not suitable: %s\n", d.c_str());
+            fprintf(stderr,
+                    "TEST_IOCTL_FRIENDLY_TMPDIR-specified directory is "
+                    "not suitable: %s\n",
+                    d.c_str());
           }
           rmdir(dir_buf);  // ignore failure
         }
@@ -1078,22 +1079,32 @@ class IoctlFriendlyTmpdir {
       }
     }
 
-    fprintf(stderr, "failed to find an ioctl-friendly temporary directory;"
+    // check if it's running test within a docker container, in which case, the
+    // file system inside `overlayfs` may not support FS_IOC_GETVERSION
+    // skip the tests
+    struct stat buffer;
+    if (stat("/.dockerenv", &buffer) == 0) {
+      is_supported_ = false;
+      return;
+    }
+
+    fprintf(stderr,
+            "failed to find an ioctl-friendly temporary directory;"
             " specify one via the TEST_IOCTL_FRIENDLY_TMPDIR envvar\n");
     std::abort();
 #endif
-}
-
-  ~IoctlFriendlyTmpdir() {
-    rmdir(dir_.c_str());
   }
 
-  const std::string& name() const {
-    return dir_;
-  }
+  ~IoctlFriendlyTmpdir() { rmdir(dir_.c_str()); }
+
+  const std::string& name() const { return dir_; }
+
+  bool is_supported() const { return is_supported_; }
 
  private:
   std::string dir_;
+
+  bool is_supported_ = true;
 };
 
 #ifndef ROCKSDB_LITE
@@ -1102,8 +1113,10 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   EnvOptions options;
   options.use_direct_writes = true;
   options.use_mmap_writes = false;
-  IoctlFriendlyTmpdir ift;
-  ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
+  std::string fname = test::PerThreadDBPath(env_, "positioned_append");
+  SetupSyncPointsToMockDirectIO();
+
+  ASSERT_OK(env_->NewWritableFile(fname, &writable_file, options));
   const size_t kBlockSize = 4096;
   const size_t kDataSize = kPageSize;
   // Write a page worth of 'a'
@@ -1119,7 +1132,7 @@ TEST_F(EnvPosixTest, PositionedAppend) {
 
   // Verify the above
   std::unique_ptr<SequentialFile> seq_file;
-  ASSERT_OK(env_->NewSequentialFile(ift.name() + "/f", &seq_file, options));
+  ASSERT_OK(env_->NewSequentialFile(fname, &seq_file, options));
   size_t scratch_len = kPageSize * 2;
   std::unique_ptr<char[]> scratch(new char[scratch_len]);
   Slice result;
@@ -1139,6 +1152,11 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
     IoctlFriendlyTmpdir ift;
+    if (!ift.is_supported()) {
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
+      return;
+    }
     std::string fname = ift.name() + "/testfile";
     std::unique_ptr<WritableFile> wfile;
     ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
@@ -1181,13 +1199,13 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 TEST_P(EnvPosixTestWithParam, AllocateTest) {
   if (env_ == Env::Default()) {
-    IoctlFriendlyTmpdir ift;
-    std::string fname = ift.name() + "/preallocate_testfile";
-
+    SetupSyncPointsToMockDirectIO();
+    std::string fname = test::PerThreadDBPath(env_, "preallocate_testfile");
     // Try fallocate in a file to see whether the target file system supports
     // it.
     // Skip the test if fallocate is not supported.
-    std::string fname_test_fallocate = ift.name() + "/preallocate_testfile_2";
+    std::string fname_test_fallocate =
+        test::PerThreadDBPath(env_, "preallocate_testfile_2");
     int fd = -1;
     do {
       fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
@@ -1253,7 +1271,7 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
 
 // Returns true if any of the strings in ss are the prefix of another string.
 bool HasPrefix(const std::unordered_set<std::string>& ss) {
-  for (const std::string& s: ss) {
+  for (const std::string& s : ss) {
     if (s.empty()) {
       return true;
     }
@@ -1277,6 +1295,11 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
 
     // Create the files
     IoctlFriendlyTmpdir ift;
+    if (!ift.is_supported()) {
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
+      return;
+    }
     std::vector<std::string> fnames;
     for (int i = 0; i < 1000; ++i) {
       fnames.push_back(ift.name() + "/" + "testfile" + std::to_string(i));
@@ -1318,6 +1341,11 @@ TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
 
     IoctlFriendlyTmpdir ift;
+    if (!ift.is_supported()) {
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
+      return;
+    }
     std::string fname = ift.name() + "/" + "testfile";
 
     // Check that after file is deleted we don't get same ID again in a new
@@ -1476,19 +1504,23 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     for (int i = 0; i < num_reads; i++) {
       int rnd_off;
       // No repeat offsets.
-      while (start_offsets.find(rnd_off = rnd.Uniform(81920)) != start_offsets.end()) {}
+      while (start_offsets.find(rnd_off = rnd.Uniform(81920)) !=
+             start_offsets.end()) {
+      }
       start_offsets.insert(rnd_off);
     }
     std::vector<size_t> offsets;
     std::vector<size_t> lens;
     // std::set already sorted the offsets.
-    for (int so: start_offsets) {
+    for (int so : start_offsets) {
       offsets.push_back(so);
     }
     for (size_t i = 0; i + 1 < offsets.size(); i++) {
-      lens.push_back(static_cast<size_t>(rnd.Uniform(static_cast<int>(offsets[i + 1] - offsets[i])) + 1));
+      lens.push_back(static_cast<size_t>(
+          rnd.Uniform(static_cast<int>(offsets[i + 1] - offsets[i])) + 1));
     }
-    lens.push_back(static_cast<size_t>(rnd.Uniform(static_cast<int>(kTotalSize - offsets.back())) + 1));
+    lens.push_back(static_cast<size_t>(
+        rnd.Uniform(static_cast<int>(kTotalSize - offsets.back())) + 1));
     ASSERT_EQ(num_reads, lens.size());
 
     // Create requests
@@ -1510,8 +1542,9 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     // Validate results
     for (int i = 0; i < num_reads; ++i) {
       ASSERT_OK(reqs[i].status);
-      ASSERT_EQ(Slice(expected_data.data() + offsets[i], lens[i]).ToString(true),
-                reqs[i].result.ToString(true));
+      ASSERT_EQ(
+          Slice(expected_data.data() + offsets[i], lens[i]).ToString(true),
+          reqs[i].result.ToString(true));
     }
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -1724,57 +1757,60 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
   // Create file.
   {
     std::unique_ptr<WritableFile> wfile;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
-      if (soptions.use_direct_writes) {
-        soptions.use_direct_writes = false;
-      }
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX)
+    if (soptions.use_direct_writes) {
+      soptions.use_direct_writes = false;
+    }
 #endif
-      ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
-      ASSERT_OK(wfile->Append(slice));
-      ASSERT_OK(wfile->InvalidateCache(0, 0));
-      ASSERT_OK(wfile->Close());
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    ASSERT_OK(wfile->Append(slice));
+    ASSERT_OK(wfile->InvalidateCache(0, 0));
+    ASSERT_OK(wfile->Close());
   }
 
-    // Random Read
-    {
-      std::unique_ptr<RandomAccessFile> file;
-      auto scratch = NewAligned(kSectorSize, 0);
-      Slice result;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
-      if (soptions.use_direct_reads) {
-        soptions.use_direct_reads = false;
-      }
-#endif
-      ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
-      ASSERT_OK(file->Read(0, kSectorSize, &result, scratch.get()));
-      ASSERT_EQ(memcmp(scratch.get(), data.get(), kSectorSize), 0);
-      ASSERT_OK(file->InvalidateCache(0, 11));
-      ASSERT_OK(file->InvalidateCache(0, 0));
+  // Random Read
+  {
+    std::unique_ptr<RandomAccessFile> file;
+    auto scratch = NewAligned(kSectorSize, 0);
+    Slice result;
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX)
+    if (soptions.use_direct_reads) {
+      soptions.use_direct_reads = false;
     }
+#endif
+    ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+    ASSERT_OK(file->Read(0, kSectorSize, &result, scratch.get()));
+    ASSERT_EQ(memcmp(scratch.get(), data.get(), kSectorSize), 0);
+    ASSERT_OK(file->InvalidateCache(0, 11));
+    ASSERT_OK(file->InvalidateCache(0, 0));
+  }
 
-    // Sequential Read
-    {
-      std::unique_ptr<SequentialFile> file;
-      auto scratch = NewAligned(kSectorSize, 0);
-      Slice result;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
-      if (soptions.use_direct_reads) {
-        soptions.use_direct_reads = false;
-      }
-#endif
-      ASSERT_OK(env_->NewSequentialFile(fname, &file, soptions));
-      if (file->use_direct_io()) {
-        ASSERT_OK(file->PositionedRead(0, kSectorSize, &result, scratch.get()));
-      } else {
-        ASSERT_OK(file->Read(kSectorSize, &result, scratch.get()));
-      }
-      ASSERT_EQ(memcmp(scratch.get(), data.get(), kSectorSize), 0);
-      ASSERT_OK(file->InvalidateCache(0, 11));
-      ASSERT_OK(file->InvalidateCache(0, 0));
+  // Sequential Read
+  {
+    std::unique_ptr<SequentialFile> file;
+    auto scratch = NewAligned(kSectorSize, 0);
+    Slice result;
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX)
+    if (soptions.use_direct_reads) {
+      soptions.use_direct_reads = false;
     }
-    // Delete the file
-    ASSERT_OK(env_->DeleteFile(fname));
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+#endif
+    ASSERT_OK(env_->NewSequentialFile(fname, &file, soptions));
+    if (file->use_direct_io()) {
+      ASSERT_OK(file->PositionedRead(0, kSectorSize, &result, scratch.get()));
+    } else {
+      ASSERT_OK(file->Read(kSectorSize, &result, scratch.get()));
+    }
+    ASSERT_EQ(memcmp(scratch.get(), data.get(), kSectorSize), 0);
+    ASSERT_OK(file->InvalidateCache(0, 11));
+    ASSERT_OK(file->InvalidateCache(0, 0));
+  }
+  // Delete the file
+  ASSERT_OK(env_->DeleteFile(fname));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
 #endif  // OS_LINUX || OS_WIN
 
@@ -1901,52 +1937,53 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
   std::unique_ptr<WritableFile> srcfile;
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
-    if (soptions.use_direct_writes) {
-      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-          "NewWritableFile:O_DIRECT", [&](void* arg) {
-            int* val = static_cast<int*>(arg);
-            *val &= ~O_DIRECT;
-          });
-    }
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
+  if (soptions.use_direct_writes) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "NewWritableFile:O_DIRECT", [&](void* arg) {
+          int* val = static_cast<int*>(arg);
+          *val &= ~O_DIRECT;
+        });
+  }
 #endif
-    ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
-    srcfile->SetPreallocationBlockSize(1024 * 1024);
+  ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
+  srcfile->SetPreallocationBlockSize(1024 * 1024);
 
-    // No writes should mean no preallocation
-    size_t block_size, last_allocated_block;
+  // No writes should mean no preallocation
+  size_t block_size, last_allocated_block;
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 0UL);
+
+  // Small write should preallocate one block
+  size_t kStrSize = 4096;
+  auto data = NewAligned(kStrSize, 'A');
+  Slice str(data.get(), kStrSize);
+  srcfile->PrepareWrite(srcfile->GetFileSize(), kStrSize);
+  ASSERT_OK(srcfile->Append(str));
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 1UL);
+
+  // Write an entire preallocation block, make sure we increased by two.
+  {
+    auto buf_ptr = NewAligned(block_size, ' ');
+    Slice buf(buf_ptr.get(), block_size);
+    srcfile->PrepareWrite(srcfile->GetFileSize(), block_size);
+    ASSERT_OK(srcfile->Append(buf));
     srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-    ASSERT_EQ(last_allocated_block, 0UL);
+    ASSERT_EQ(last_allocated_block, 2UL);
+  }
 
-    // Small write should preallocate one block
-    size_t kStrSize = 4096;
-    auto data = NewAligned(kStrSize, 'A');
-    Slice str(data.get(), kStrSize);
-    srcfile->PrepareWrite(srcfile->GetFileSize(), kStrSize);
-    ASSERT_OK(srcfile->Append(str));
+  // Write five more blocks at once, ensure we're where we need to be.
+  {
+    auto buf_ptr = NewAligned(block_size * 5, ' ');
+    Slice buf = Slice(buf_ptr.get(), block_size * 5);
+    srcfile->PrepareWrite(srcfile->GetFileSize(), buf.size());
+    ASSERT_OK(srcfile->Append(buf));
     srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-    ASSERT_EQ(last_allocated_block, 1UL);
-
-    // Write an entire preallocation block, make sure we increased by two.
-    {
-      auto buf_ptr = NewAligned(block_size, ' ');
-      Slice buf(buf_ptr.get(), block_size);
-      srcfile->PrepareWrite(srcfile->GetFileSize(), block_size);
-      ASSERT_OK(srcfile->Append(buf));
-      srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-      ASSERT_EQ(last_allocated_block, 2UL);
-    }
-
-    // Write five more blocks at once, ensure we're where we need to be.
-    {
-      auto buf_ptr = NewAligned(block_size * 5, ' ');
-      Slice buf = Slice(buf_ptr.get(), block_size * 5);
-      srcfile->PrepareWrite(srcfile->GetFileSize(), buf.size());
-      ASSERT_OK(srcfile->Append(buf));
-      srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-      ASSERT_EQ(last_allocated_block, 7UL);
-    }
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+    ASSERT_EQ(last_allocated_block, 7UL);
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
 
 // Test that the two ways to get children file attributes (in bulk or
@@ -1963,58 +2000,52 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
   for (int i = 0; i < kNumChildren; ++i) {
     const std::string path = test_base_dir + "/testfile_" + std::to_string(i);
     std::unique_ptr<WritableFile> file;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
-      if (soptions.use_direct_writes) {
-        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-            "NewWritableFile:O_DIRECT", [&](void* arg) {
-              int* val = static_cast<int*>(arg);
-              *val &= ~O_DIRECT;
-            });
-      }
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
+    if (soptions.use_direct_writes) {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "NewWritableFile:O_DIRECT", [&](void* arg) {
+            int* val = static_cast<int*>(arg);
+            *val &= ~O_DIRECT;
+          });
+    }
 #endif
-      ASSERT_OK(env_->NewWritableFile(path, &file, soptions));
-      auto buf_ptr = NewAligned(data.size(), 'T');
-      Slice buf(buf_ptr.get(), data.size());
-      ASSERT_OK(file->Append(buf));
-      data.append(std::string(4096, 'T'));
+    ASSERT_OK(env_->NewWritableFile(path, &file, soptions));
+    auto buf_ptr = NewAligned(data.size(), 'T');
+    Slice buf(buf_ptr.get(), data.size());
+    ASSERT_OK(file->Append(buf));
+    data.append(std::string(4096, 'T'));
   }
 
-    std::vector<Env::FileAttributes> file_attrs;
-    ASSERT_OK(env_->GetChildrenFileAttributes(test_base_dir, &file_attrs));
-    for (int i = 0; i < kNumChildren; ++i) {
-      const std::string name = "testfile_" + std::to_string(i);
-      const std::string path = test_base_dir + "/" + name;
+  std::vector<Env::FileAttributes> file_attrs;
+  ASSERT_OK(env_->GetChildrenFileAttributes(test_base_dir, &file_attrs));
+  for (int i = 0; i < kNumChildren; ++i) {
+    const std::string name = "testfile_" + std::to_string(i);
+    const std::string path = test_base_dir + "/" + name;
 
-      auto file_attrs_iter = std::find_if(
-          file_attrs.begin(), file_attrs.end(),
-          [&name](const Env::FileAttributes& fm) { return fm.name == name; });
-      ASSERT_TRUE(file_attrs_iter != file_attrs.end());
-      uint64_t size;
-      ASSERT_OK(env_->GetFileSize(path, &size));
-      ASSERT_EQ(size, 4096 * i);
-      ASSERT_EQ(size, file_attrs_iter->size_bytes);
-    }
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
-    for (int i = 0; i < kNumChildren; ++i) {
-      const std::string path = test_base_dir + "/testfile_" + std::to_string(i);
-      ASSERT_OK(env_->DeleteFile(path));
-    }
-    ASSERT_OK(env_->DeleteDir(test_base_dir));
+    auto file_attrs_iter = std::find_if(
+        file_attrs.begin(), file_attrs.end(),
+        [&name](const Env::FileAttributes& fm) { return fm.name == name; });
+    ASSERT_TRUE(file_attrs_iter != file_attrs.end());
+    uint64_t size;
+    ASSERT_OK(env_->GetFileSize(path, &size));
+    ASSERT_EQ(size, 4096 * i);
+    ASSERT_EQ(size, file_attrs_iter->size_bytes);
+    ASSERT_OK(env_->DeleteFile(path));
+  }
+  ASSERT_OK(env_->DeleteDir(test_base_dir));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
 
 // Test that all WritableFileWrapper forwards all calls to WritableFile.
 TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
   class Base : public WritableFile {
    public:
-    mutable int *step_;
+    mutable int* step_;
 
-    void inc(int x) const {
-      EXPECT_EQ(x, (*step_)++);
-    }
+    void inc(int x) const { EXPECT_EQ(x, (*step_)++); }
 
-    explicit Base(int* step) : step_(step) {
-      inc(0);
-    }
+    explicit Base(int* step) : step_(step) { inc(0); }
 
     Status Append(const Slice& /*data*/) override {
       inc(1);
@@ -2347,32 +2378,31 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
 }
 
 class TestEnv : public EnvWrapper {
-  public:
-    explicit TestEnv() : EnvWrapper(Env::Default()),
-                close_count(0) { }
-    const char* Name() const override { return "TestEnv"; }
-    class TestLogger : public Logger {
-     public:
-      using Logger::Logv;
-      explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
-      ~TestLogger() override {
-        if (!closed_) {
-          Status s = CloseHelper();
-          s.PermitUncheckedError();
-        }
+ public:
+  explicit TestEnv() : EnvWrapper(Env::Default()), close_count(0) {}
+  const char* Name() const override { return "TestEnv"; }
+  class TestLogger : public Logger {
+   public:
+    using Logger::Logv;
+    explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+    ~TestLogger() override {
+      if (!closed_) {
+        Status s = CloseHelper();
+        s.PermitUncheckedError();
       }
-      void Logv(const char* /*format*/, va_list /*ap*/) override {}
+    }
+    void Logv(const char* /*format*/, va_list /*ap*/) override {}
 
-     protected:
-      Status CloseImpl() override { return CloseHelper(); }
+   protected:
+    Status CloseImpl() override { return CloseHelper(); }
 
-     private:
-      Status CloseHelper() {
-        env->CloseCountInc();
-        return Status::OK();
-      }
-      TestEnv* env;
-    };
+   private:
+    Status CloseHelper() {
+      env->CloseCountInc();
+      return Status::OK();
+    }
+    TestEnv* env;
+  };
 
   void CloseCountInc() { close_count++; }
 
@@ -2479,7 +2509,8 @@ class EnvFSTestWithParam
       env_ptr_ = NewCompositeEnv(fs_);
     }
     if (env_non_null && !env_default && fs_default) {
-      env_ptr_ = std::unique_ptr<Env>(new FaultInjectionTestEnv(Env::Default()));
+      env_ptr_ =
+          std::unique_ptr<Env>(new FaultInjectionTestEnv(Env::Default()));
       fs_.reset();
     }
     if (env_non_null && !env_default && !fs_default) {
@@ -2547,17 +2578,16 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
 // 1. True means Options::env is non-null, false means null
 // 2. True means use Env::Default, false means custom
 // 3. True means use FileSystem::Default, false means custom
-INSTANTIATE_TEST_CASE_P(
-    EnvFSTest, EnvFSTestWithParam,
-    ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                       ::testing::Bool()));
+INSTANTIATE_TEST_CASE_P(EnvFSTest, EnvFSTestWithParam,
+                        ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Bool()));
 // This test ensures that default Env and those allocated by
 // NewCompositeEnv() all share the same threadpool
 TEST_F(EnvTest, MultipleCompositeEnv) {
   std::shared_ptr<FaultInjectionTestFS> fs1 =
-    std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+      std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
   std::shared_ptr<FaultInjectionTestFS> fs2 =
-    std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+      std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
   std::unique_ptr<Env> env1 = NewCompositeEnv(fs1);
   std::unique_ptr<Env> env2 = NewCompositeEnv(fs2);
   Env::Default()->SetBackgroundThreads(8, Env::HIGH);

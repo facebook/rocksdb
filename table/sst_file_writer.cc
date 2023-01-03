@@ -25,7 +25,7 @@ const std::string ExternalSstFilePropertyNames::kGlobalSeqno =
 
 #ifndef ROCKSDB_LITE
 
-const size_t kFadviseTrigger = 1024 * 1024; // 1MB
+const size_t kFadviseTrigger = 1024 * 1024;  // 1MB
 
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
@@ -131,15 +131,10 @@ struct SstFileWriter::Rep {
     return AddImpl(user_key_with_ts, value, value_type);
   }
 
-  Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
-    if (internal_comparator.user_comparator()->timestamp_size() != 0) {
-      return Status::InvalidArgument("Timestamp size mismatch");
-    }
-
+  Status DeleteRangeImpl(const Slice& begin_key, const Slice& end_key) {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
-
     RangeTombstone tombstone(begin_key, end_key, 0 /* Sequence Number */);
     if (file_info.num_range_del_entries == 0) {
       file_info.smallest_range_del_key.assign(tombstone.start_key_.data(),
@@ -170,14 +165,52 @@ struct SstFileWriter::Rep {
     return Status::OK();
   }
 
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
+    if (internal_comparator.user_comparator()->timestamp_size() != 0) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+    return DeleteRangeImpl(begin_key, end_key);
+  }
+
+  // begin_key and end_key should be users keys without timestamp.
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key,
+                     const Slice& timestamp) {
+    const size_t timestamp_size = timestamp.size();
+
+    if (internal_comparator.user_comparator()->timestamp_size() !=
+        timestamp_size) {
+      return Status::InvalidArgument("Timestamp size mismatch");
+    }
+
+    const size_t begin_key_size = begin_key.size();
+    const size_t end_key_size = end_key.size();
+    if (begin_key.data() + begin_key_size == timestamp.data() ||
+        end_key.data() + begin_key_size == timestamp.data()) {
+      assert(memcmp(begin_key.data() + begin_key_size,
+                    end_key.data() + end_key_size, timestamp_size) == 0);
+      Slice begin_key_with_ts(begin_key.data(),
+                              begin_key_size + timestamp_size);
+      Slice end_key_with_ts(end_key.data(), end_key.size() + timestamp_size);
+      return DeleteRangeImpl(begin_key_with_ts, end_key_with_ts);
+    }
+    std::string begin_key_with_ts;
+    begin_key_with_ts.reserve(begin_key_size + timestamp_size);
+    begin_key_with_ts.append(begin_key.data(), begin_key_size);
+    begin_key_with_ts.append(timestamp.data(), timestamp_size);
+    std::string end_key_with_ts;
+    end_key_with_ts.reserve(end_key_size + timestamp_size);
+    end_key_with_ts.append(end_key.data(), end_key_size);
+    end_key_with_ts.append(timestamp.data(), timestamp_size);
+    return DeleteRangeImpl(begin_key_with_ts, end_key_with_ts);
+  }
+
   Status InvalidatePageCache(bool closing) {
     Status s = Status::OK();
     if (invalidate_page_cache == false) {
       // Fadvise disabled
       return s;
     }
-    uint64_t bytes_since_last_fadvise =
-      builder->FileSize() - last_fadvise_size;
+    uint64_t bytes_since_last_fadvise = builder->FileSize() - last_fadvise_size;
     if (bytes_since_last_fadvise > kFadviseTrigger || closing) {
       TEST_SYNC_POINT_CALLBACK("SstFileWriter::Rep::InvalidatePageCache",
                                &(bytes_since_last_fadvise));
@@ -346,6 +379,11 @@ Status SstFileWriter::DeleteRange(const Slice& begin_key,
   return rep_->DeleteRange(begin_key, end_key);
 }
 
+Status SstFileWriter::DeleteRange(const Slice& begin_key, const Slice& end_key,
+                                  const Slice& timestamp) {
+  return rep_->DeleteRange(begin_key, end_key, timestamp);
+}
+
 Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   Rep* r = rep_.get();
   if (!r->builder) {
@@ -383,9 +421,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   return s;
 }
 
-uint64_t SstFileWriter::FileSize() {
-  return rep_->file_info.file_size;
-}
+uint64_t SstFileWriter::FileSize() { return rep_->file_info.file_size; }
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -11,8 +11,9 @@
 
 #pragma once
 #include <stdint.h>
-#include <unordered_map>
+
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "options/db_options.h"
@@ -54,8 +55,7 @@ extern std::string ArchivalDirectory(const std::string& dbname);
 
 //  Return the name of the archived log file with the specified number
 //  in the db named by "dbname". The result will be prefixed with "dbname".
-extern std::string ArchivedLogFileName(const std::string& dbname,
-                                       uint64_t num);
+extern std::string ArchivedLogFileName(const std::string& dbname, uint64_t num);
 
 extern std::string MakeTableFileName(const std::string& name, uint64_t number);
 
@@ -140,8 +140,7 @@ extern std::string TempOptionsFileName(const std::string& dbname,
 
 // Return the name to use for a metadatabase. The result will be prefixed with
 // "dbname".
-extern std::string MetaDatabaseName(const std::string& dbname,
-                                    uint64_t number);
+extern std::string MetaDatabaseName(const std::string& dbname, uint64_t number);
 
 // Return the name of the Identity file which stores a unique number for the db
 // that will get regenerated if the db loses all its data and is recreated fresh
@@ -160,10 +159,12 @@ extern bool ParseFileName(const std::string& filename, uint64_t* number,
                           FileType* type, WalFileType* log_type = nullptr);
 
 // Make the CURRENT file point to the descriptor file with the
-// specified number.
+// specified number. On its success and when dir_contains_current_file is not
+// nullptr, the function will fsync the directory containing the CURRENT file
+// when
 extern IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
                                uint64_t descriptor_number,
-                               FSDirectory* directory_to_fsync);
+                               FSDirectory* dir_contains_current_file);
 
 // Make the IDENTITY file for the db
 extern Status SetIdentityFile(Env* env, const std::string& dbname,

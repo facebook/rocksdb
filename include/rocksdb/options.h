@@ -516,22 +516,25 @@ struct DBOptions {
   // Default: false
   bool track_and_verify_wals_in_manifest = false;
 
-  // EXPERIMENTAL: This API/behavior is subject to change
-  // If true, during DB-open it verifies the SST unique id between MANIFEST
-  // and SST properties, which is to make sure the SST is not overwritten or
-  // misplaced. A corruption error will be reported if mismatch detected, but
-  // only when MANIFEST tracks the unique id, which starts from version 7.3.
-  // The unique id is an internal unique id and subject to change.
+  // If true, verifies the SST unique id between MANIFEST and actual file
+  // each time an SST file is opened. This check ensures an SST file is not
+  // overwritten or misplaced. A corruption error will be reported if mismatch
+  // detected, but only when MANIFEST tracks the unique id, which starts from
+  // RocksDB version 7.3. Although the tracked internal unique id is related
+  // to the one returned by GetUniqueIdFromTableProperties, that is subject to
+  // change.
+  // NOTE: verification is currently only done on SST files using block-based
+  // table format.
   //
-  // Note:
-  // 1. if enabled, it opens every SST files during DB open to read the unique
-  //    id from SST properties, so it's recommended to have `max_open_files=-1`
-  //    to pre-open the SST files before the verification.
-  // 2. existing SST files won't have its unique_id tracked in MANIFEST, then
-  //    verification will be skipped.
+  // Setting to false should only be needed in case of unexpected problems.
   //
-  // Default: false
-  bool verify_sst_unique_id_in_manifest = false;
+  // Although an early version of this option opened all SST files for
+  // verification on DB::Open, that is no longer guaranteed. However, as
+  // documented in an above option, if max_open_files is -1, DB will open all
+  // files on DB::Open().
+  //
+  // Default: true
+  bool verify_sst_unique_id_in_manifest = true;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
@@ -905,7 +908,8 @@ struct DBOptions {
   // can be passed into multiple DBs and it will track the sum of size of all
   // the DBs. If the total size of all live memtables of all the DBs exceeds
   // a limit, a flush will be triggered in the next DB to which the next write
-  // is issued.
+  // is issued, as long as there is one or more column family not already
+  // flushing.
   //
   // If the object is only passed to one DB, the behavior is the same as
   // db_write_buffer_size. When write_buffer_manager is set, the value set will
@@ -1281,30 +1285,37 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 
-  // By default, RocksDB recovery fails if any table/blob file referenced in
+  // By default, RocksDB recovery fails if any table/blob file referenced in the
+  // final version reconstructed from the
   // MANIFEST are missing after scanning the MANIFEST pointed to by the
-  // CURRENT file.
-  // Best-efforts recovery is another recovery mode that tolerates missing or
-  // corrupted table or blob files.
+  // CURRENT file. It can also fail if verification of unique SST id fails.
+  // Best-efforts recovery is another recovery mode that does not necessarily
+  // fail when certain table/blob files are missing/corrupted or have mismatched
+  // unique id table property. Instead, best-efforts recovery recovers each
+  // column family to a point in the MANIFEST that corresponds to a version. In
+  // such a version, all valid table/blob files referenced have the expected
+  // file size. For table files, their unique id table property match the
+  // MANIFEST.
+  //
   // Best-efforts recovery does not need a valid CURRENT file, and tries to
   // recover the database using one of the available MANIFEST files in the db
   // directory.
-  // Best-efforts recovery recovers database to a state in which the database
-  // includes only table and blob files whose actual sizes match the
-  // information in the chosen MANIFEST without holes in the history.
   // Best-efforts recovery tries the available MANIFEST files from high file
   // numbers (newer) to low file numbers (older), and stops after finding the
   // first MANIFEST file from which the db can be recovered to a state without
-  // invalid (missing/file-mismatch) table and blob files.
-  // It is possible that the database can be restored to an empty state with no
-  // table or blob files.
-  // Regardless of this option, the IDENTITY file is updated if needed during
-  // recovery to match the DB ID in the MANIFEST (if previously using
-  // write_dbid_to_manifest) or to be in some valid state (non-empty DB ID).
-  // Currently, not compatible with atomic flush. Furthermore, WAL files will
-  // not be used for recovery if best_efforts_recovery is true.
-  // Also requires either 1) LOCK file exists or 2) underlying env's LockFile()
-  // call returns ok even for non-existing LOCK file.
+  // invalid (missing/filesize-mismatch/unique-id-mismatch) table and blob
+  // files. It is possible that the database can be restored to an empty state
+  // with no table or blob files.
+  //
+  // Regardless of this option, the IDENTITY file
+  // is updated if needed during recovery to match the DB ID in the MANIFEST (if
+  // previously using write_dbid_to_manifest) or to be in some valid state
+  // (non-empty DB ID). Currently, not compatible with atomic flush.
+  // Furthermore, WAL files will not be used for recovery if
+  // best_efforts_recovery is true. Also requires either 1) LOCK file exists or
+  // 2) underlying env's LockFile() call returns ok even for non-existing LOCK
+  // file.
+  //
   // Default: false
   bool best_efforts_recovery = false;
 
@@ -1476,7 +1487,7 @@ struct ReadOptions {
   const Slice* iterate_lower_bound;
 
   // "iterate_upper_bound" defines the extent up to which the forward iterator
-  // can returns entries. Once the bound is reached, Valid() will be false.
+  // can return entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry. If prefix_extractor is not null:
   // 1. If options.auto_prefix_mode = true, iterate_upper_bound will be used
@@ -1684,6 +1695,17 @@ struct ReadOptions {
   //
   // Default: false
   bool async_io;
+
+  // Experimental
+  //
+  // If async_io is set, then this flag controls whether we read SST files
+  // in multiple levels asynchronously. Enabling this flag can help reduce
+  // MultiGet latency by maximizing the number of SST files read in
+  // parallel if the keys in the MultiGet batch are in different levels. It
+  // comes at the expense of slightly higher CPU overhead.
+  //
+  // Default: true
+  bool optimize_multiget_for_io;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
@@ -1911,7 +1933,8 @@ struct IngestExternalFileOptions {
   // that where created before the file was ingested.
   bool snapshot_consistency = true;
   // If set to false, IngestExternalFile() will fail if the file key range
-  // overlaps with existing keys or tombstones in the DB.
+  // overlaps with existing keys or tombstones or output of ongoing compaction
+  // during file ingestion in the DB.
   bool allow_global_seqno = true;
   // If set to false and the file key range overlaps with the memtable key range
   // (memtable flush required), IngestExternalFile will fail.
@@ -2082,7 +2105,8 @@ struct LiveFilesStorageInfoOptions {
   // Whether to populate FileStorageInfo::file_checksum* or leave blank
   bool include_checksum_info = false;
   // Flushes memtables if total size in bytes of live WAL files is >= this
-  // number. Default: always force a flush without checking sizes.
+  // number (and DB is not read-only).
+  // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
 };
 #endif  // !ROCKSDB_LITE

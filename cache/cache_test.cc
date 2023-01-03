@@ -15,16 +15,14 @@
 #include <string>
 #include <vector>
 
-#include "cache/clock_cache.h"
-#include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
-// FastLRUCache and ClockCache only support 16-byte keys, so some of
-// the tests originally wrote for LRUCache do not work on the other caches.
+// HyperClockCache only supports 16-byte keys, so some of the tests
+// originally written for LRUCache do not work on the other caches.
 // Those tests were adapted to use 16-byte keys. We kept the original ones.
 // TODO: Remove the original tests if they ever become unused.
 
@@ -76,8 +74,7 @@ void EraseDeleter2(const Slice& /*key*/, void* value) {
 }
 
 const std::string kLRU = "lru";
-const std::string kClock = "clock";
-const std::string kFast = "fast";
+const std::string kHyperClock = "hyper_clock";
 
 }  // anonymous namespace
 
@@ -87,7 +84,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
   static std::string type_;
 
   static void Deleter(const Slice& key, void* v) {
-    if (type_ == kFast || type_ == kClock) {
+    if (type_ == kHyperClock) {
       current_->deleted_keys_.push_back(DecodeKey16Bytes(key));
     } else {
       current_->deleted_keys_.push_back(DecodeKey32Bits(key));
@@ -106,6 +103,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> cache2_;
 
+  size_t estimated_value_size_ = 1;
+
   CacheTest()
       : cache_(NewCache(kCacheSize, kNumShardBits, false)),
         cache2_(NewCache(kCacheSize2, kNumShardBits2, false)) {
@@ -120,15 +119,10 @@ class CacheTest : public testing::TestWithParam<std::string> {
     if (type == kLRU) {
       return NewLRUCache(capacity);
     }
-    if (type == kClock) {
-      return ExperimentalNewClockCache(
-          capacity, 1 /*estimated_value_size*/, -1 /*num_shard_bits*/,
-          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
-    }
-    if (type == kFast) {
-      return NewFastLRUCache(
-          capacity, 1 /*estimated_value_size*/, -1 /*num_shard_bits*/,
-          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
+    if (type == kHyperClock) {
+      return HyperClockCacheOptions(
+                 capacity, estimated_value_size_ /*estimated_value_size*/)
+          .MakeSharedCache();
     }
     return nullptr;
   }
@@ -146,27 +140,22 @@ class CacheTest : public testing::TestWithParam<std::string> {
       co.metadata_charge_policy = charge_policy;
       return NewLRUCache(co);
     }
-    if (type == kClock) {
-      return ExperimentalNewClockCache(capacity, 1 /*estimated_value_size*/,
-                                       num_shard_bits, strict_capacity_limit,
-                                       charge_policy);
-    }
-    if (type == kFast) {
-      return NewFastLRUCache(capacity, 1 /*estimated_value_size*/,
-                             num_shard_bits, strict_capacity_limit,
-                             charge_policy);
+    if (type == kHyperClock) {
+      return HyperClockCacheOptions(capacity, 1 /*estimated_value_size*/,
+                                    num_shard_bits, strict_capacity_limit,
+                                    nullptr /*allocator*/, charge_policy)
+          .MakeSharedCache();
     }
     return nullptr;
   }
 
   // These functions encode/decode keys in tests cases that use
   // int keys.
-  // Currently, FastLRUCache requires keys to be 16B long, whereas
-  // LRUCache and ClockCache don't, so the encoding depends on
-  // the cache type.
+  // Currently, HyperClockCache requires keys to be 16B long, whereas
+  // LRUCache doesn't, so the encoding depends on the cache type.
   std::string EncodeKey(int k) {
     auto type = GetParam();
-    if (type == kFast || type == kClock) {
+    if (type == kHyperClock) {
       return EncodeKey16Bytes(k);
     } else {
       return EncodeKey32Bits(k);
@@ -175,7 +164,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   int DecodeKey(const Slice& k) {
     auto type = GetParam();
-    if (type == kFast || type == kClock) {
+    if (type == kHyperClock) {
       return DecodeKey16Bytes(k);
     } else {
       return DecodeKey32Bits(k);
@@ -201,29 +190,21 @@ class CacheTest : public testing::TestWithParam<std::string> {
     cache->Erase(EncodeKey(key));
   }
 
-  int Lookup(int key) {
-    return Lookup(cache_, key);
-  }
+  int Lookup(int key) { return Lookup(cache_, key); }
 
   void Insert(int key, int value, int charge = 1) {
     Insert(cache_, key, value, charge);
   }
 
-  void Erase(int key) {
-    Erase(cache_, key);
-  }
+  void Erase(int key) { Erase(cache_, key); }
 
-  int Lookup2(int key) {
-    return Lookup(cache2_, key);
-  }
+  int Lookup2(int key) { return Lookup(cache2_, key); }
 
   void Insert2(int key, int value, int charge = 1) {
     Insert(cache2_, key, value, charge);
   }
 
-  void Erase2(int key) {
-    Erase(cache2_, key);
-  }
+  void Erase2(int key) { Erase(cache2_, key); }
 };
 
 CacheTest* CacheTest::current_;
@@ -239,7 +220,10 @@ TEST_P(CacheTest, UsageTest) {
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 0, false, kFullChargeCacheMetadata);
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(0, precise_cache->GetUsage());
+  size_t baseline_meta_usage = precise_cache->GetUsage();
+  if (type != kHyperClock) {
+    ASSERT_EQ(0, baseline_meta_usage);
+  }
 
   size_t usage = 0;
   char value[10] = "abcdef";
@@ -258,13 +242,17 @@ TEST_P(CacheTest, UsageTest) {
                                     kv_size, DumbDeleter));
     usage += kv_size;
     ASSERT_EQ(usage, cache->GetUsage());
-    ASSERT_LT(usage, precise_cache->GetUsage());
+    if (type == kHyperClock) {
+      ASSERT_EQ(baseline_meta_usage + usage, precise_cache->GetUsage());
+    } else {
+      ASSERT_LT(usage, precise_cache->GetUsage());
+    }
   }
 
   cache->EraseUnRefEntries();
   precise_cache->EraseUnRefEntries();
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(0, precise_cache->GetUsage());
+  ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
 
   // make sure the cache will be overloaded
   for (size_t i = 1; i < kCapacity; ++i) {
@@ -284,7 +272,15 @@ TEST_P(CacheTest, UsageTest) {
   ASSERT_GT(kCapacity, cache->GetUsage());
   ASSERT_GT(kCapacity, precise_cache->GetUsage());
   ASSERT_LT(kCapacity * 0.95, cache->GetUsage());
-  ASSERT_LT(kCapacity * 0.95, precise_cache->GetUsage());
+  if (type != kHyperClock) {
+    ASSERT_LT(kCapacity * 0.95, precise_cache->GetUsage());
+  } else {
+    // estimated value size of 1 is weird for clock cache, because
+    // almost all of the capacity will be used for metadata, and due to only
+    // using power of 2 table sizes, we might hit strict occupancy limit
+    // before hitting capacity limit.
+    ASSERT_LT(kCapacity * 0.80, precise_cache->GetUsage());
+  }
 }
 
 // TODO: This test takes longer than expected on ClockCache. This is
@@ -301,6 +297,10 @@ TEST_P(CacheTest, PinnedUsageTest) {
   const size_t kCapacity = 200000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 8, false, kFullChargeCacheMetadata);
+  size_t baseline_meta_usage = precise_cache->GetUsage();
+  if (type != kHyperClock) {
+    ASSERT_EQ(0, baseline_meta_usage);
+  }
 
   size_t pinned_usage = 0;
   char value[10] = "abcdef";
@@ -390,7 +390,7 @@ TEST_P(CacheTest, PinnedUsageTest) {
   cache->EraseUnRefEntries();
   precise_cache->EraseUnRefEntries();
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(0, precise_cache->GetUsage());
+  ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
 }
 
 TEST_P(CacheTest, HitAndMiss) {
@@ -398,25 +398,39 @@ TEST_P(CacheTest, HitAndMiss) {
 
   Insert(100, 101);
   ASSERT_EQ(101, Lookup(100));
-  ASSERT_EQ(-1,  Lookup(200));
-  ASSERT_EQ(-1,  Lookup(300));
+  ASSERT_EQ(-1, Lookup(200));
+  ASSERT_EQ(-1, Lookup(300));
 
   Insert(200, 201);
   ASSERT_EQ(101, Lookup(100));
   ASSERT_EQ(201, Lookup(200));
-  ASSERT_EQ(-1,  Lookup(300));
+  ASSERT_EQ(-1, Lookup(300));
 
   Insert(100, 102);
-  ASSERT_EQ(102, Lookup(100));
+  if (GetParam() == kHyperClock) {
+    // ClockCache usually doesn't overwrite on Insert
+    ASSERT_EQ(101, Lookup(100));
+  } else {
+    ASSERT_EQ(102, Lookup(100));
+  }
   ASSERT_EQ(201, Lookup(200));
-  ASSERT_EQ(-1,  Lookup(300));
+  ASSERT_EQ(-1, Lookup(300));
 
   ASSERT_EQ(1U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[0]);
-  ASSERT_EQ(101, deleted_values_[0]);
+  if (GetParam() == kHyperClock) {
+    ASSERT_EQ(102, deleted_values_[0]);
+  } else {
+    ASSERT_EQ(101, deleted_values_[0]);
+  }
 }
 
 TEST_P(CacheTest, InsertSameKey) {
+  if (GetParam() == kHyperClock) {
+    ROCKSDB_GTEST_BYPASS(
+        "ClockCache doesn't guarantee Insert overwrite same key.");
+    return;
+  }
   Insert(1, 1);
   Insert(1, 2);
   ASSERT_EQ(2, Lookup(1));
@@ -429,19 +443,24 @@ TEST_P(CacheTest, Erase) {
   Insert(100, 101);
   Insert(200, 201);
   Erase(100);
-  ASSERT_EQ(-1,  Lookup(100));
+  ASSERT_EQ(-1, Lookup(100));
   ASSERT_EQ(201, Lookup(200));
   ASSERT_EQ(1U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[0]);
   ASSERT_EQ(101, deleted_values_[0]);
 
   Erase(100);
-  ASSERT_EQ(-1,  Lookup(100));
+  ASSERT_EQ(-1, Lookup(100));
   ASSERT_EQ(201, Lookup(200));
   ASSERT_EQ(1U, deleted_keys_.size());
 }
 
 TEST_P(CacheTest, EntriesArePinned) {
+  if (GetParam() == kHyperClock) {
+    ROCKSDB_GTEST_BYPASS(
+        "ClockCache doesn't guarantee Insert overwrite same key.");
+    return;
+  }
   Insert(100, 101);
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(100));
   ASSERT_EQ(101, DecodeValue(cache_->Value(h1)));
@@ -474,10 +493,9 @@ TEST_P(CacheTest, EntriesArePinned) {
 TEST_P(CacheTest, EvictionPolicy) {
   Insert(100, 101);
   Insert(200, 201);
-
   // Frequently used entry must be kept around
   for (int i = 0; i < 2 * kCacheSize; i++) {
-    Insert(1000+i, 2000+i);
+    Insert(1000 + i, 2000 + i);
     ASSERT_EQ(101, Lookup(100));
   }
   ASSERT_EQ(101, Lookup(100));
@@ -502,6 +520,12 @@ TEST_P(CacheTest, ExternalRefPinsEntries) {
     // being evicted in the first kCacheSize iterations
     for (int j = 0; j < 2 * kCacheSize + 100; j++) {
       Insert(1000 + j, 2000 + j);
+    }
+    // Clock cache is even more stateful and needs more churn to evict
+    if (GetParam() == kHyperClock) {
+      for (int j = 0; j < kCacheSize; j++) {
+        Insert(11000 + j, 11000 + j);
+      }
     }
     if (i < 2) {
       ASSERT_EQ(101, Lookup(100));
@@ -642,7 +666,7 @@ TEST_P(CacheTest, HeavyEntries) {
       ASSERT_EQ(1000 + i, r);
     }
   }
-  ASSERT_LE(cached_weight, kCacheSize + kCacheSize/10);
+  ASSERT_LE(cached_weight, kCacheSize + kCacheSize / 10);
 }
 
 TEST_P(CacheTest, NewId) {
@@ -660,7 +684,7 @@ class Value {
 
 namespace {
 void deleter(const Slice& /*key*/, void* value) {
-  delete static_cast<Value *>(value);
+  delete static_cast<Value*>(value);
 }
 }  // namespace
 
@@ -697,9 +721,9 @@ TEST_P(CacheTest, ReleaseWithoutErase) {
 
 TEST_P(CacheTest, SetCapacity) {
   auto type = GetParam();
-  if (type == kFast || type == kClock) {
+  if (type == kHyperClock) {
     ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache and ClockCache don't support arbitrary capacity "
+        "FastLRUCache and HyperClockCache don't support arbitrary capacity "
         "adjustments.");
     return;
   }
@@ -751,14 +775,6 @@ TEST_P(CacheTest, SetCapacity) {
 }
 
 TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
-  auto type = GetParam();
-  if (type == kFast) {
-    ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache only supports a limited number of "
-        "inserts beyond "
-        "capacity.");
-    return;
-  }
   // test1: set the flag to false. Insert more keys than capacity. See if they
   // all go through.
   std::shared_ptr<Cache> cache = NewCache(5, 0, false);
@@ -810,17 +826,12 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
 }
 
 TEST_P(CacheTest, OverCapacity) {
-  auto type = GetParam();
-  if (type == kClock) {
-    ROCKSDB_GTEST_BYPASS("Requires LRU eviction policy.");
-    return;
-  }
   size_t n = 10;
 
   // a LRUCache with n entries and one shard only
   std::shared_ptr<Cache> cache = NewCache(n, 0, false);
 
-  std::vector<Cache::Handle*> handles(n+1);
+  std::vector<Cache::Handle*> handles(n + 1);
 
   // Insert n+1 entries, but not releasing.
   for (int i = 0; i < static_cast<int>(n + 1); i++) {
@@ -842,23 +853,34 @@ TEST_P(CacheTest, OverCapacity) {
   for (int i = 0; i < static_cast<int>(n + 1); i++) {
     cache->Release(handles[i]);
   }
-  // Make sure eviction is triggered.
-  cache->SetCapacity(n);
 
-  // cache is under capacity now since elements were released
-  ASSERT_EQ(n, cache->GetUsage());
+  if (GetParam() == kHyperClock) {
+    // Make sure eviction is triggered.
+    ASSERT_OK(cache->Insert(EncodeKey(-1), nullptr, 1, &deleter, &handles[0]));
 
-  // element 0 is evicted and the rest is there
-  // This is consistent with the LRU policy since the element 0
-  // was released first
-  for (int i = 0; i < static_cast<int>(n + 1); i++) {
-    std::string key = EncodeKey(i + 1);
-    auto h = cache->Lookup(key);
-    if (h) {
-      ASSERT_NE(static_cast<size_t>(i), 0U);
-      cache->Release(h);
-    } else {
-      ASSERT_EQ(static_cast<size_t>(i), 0U);
+    // cache is under capacity now since elements were released
+    ASSERT_GE(n, cache->GetUsage());
+
+    // clean up
+    cache->Release(handles[0]);
+  } else {
+    // LRUCache checks for over-capacity in Release.
+
+    // cache is exactly at capacity now with minimal eviction
+    ASSERT_EQ(n, cache->GetUsage());
+
+    // element 0 is evicted and the rest is there
+    // This is consistent with the LRU policy since the element 0
+    // was released first
+    for (int i = 0; i < static_cast<int>(n + 1); i++) {
+      std::string key = EncodeKey(i + 1);
+      auto h = cache->Lookup(key);
+      if (h) {
+        ASSERT_NE(static_cast<size_t>(i), 0U);
+        cache->Release(h);
+      } else {
+        ASSERT_EQ(static_cast<size_t>(i), 0U);
+      }
     }
   }
 }
@@ -869,7 +891,7 @@ void legacy_callback(void* value, size_t charge) {
   legacy_callback_state.push_back(
       {DecodeValue(value), static_cast<int>(charge)});
 }
-};
+};  // namespace
 
 TEST_P(CacheTest, ApplyToAllCacheEntriesTest) {
   std::vector<std::pair<int, int>> inserted;
@@ -966,19 +988,31 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
 }
 
 TEST_P(CacheTest, DefaultShardBits) {
-  // test1: set the flag to false. Insert more keys than capacity. See if they
-  // all go through.
-  std::shared_ptr<Cache> cache = NewCache(16 * 1024L * 1024L);
-  ShardedCache* sc = dynamic_cast<ShardedCache*>(cache.get());
+  // Prevent excessive allocation (to save time & space)
+  estimated_value_size_ = 100000;
+  // Implementations use different minimum shard sizes
+  size_t min_shard_size =
+      (GetParam() == kHyperClock ? 32U * 1024U : 512U) * 1024U;
+
+  std::shared_ptr<Cache> cache = NewCache(32U * min_shard_size);
+  ShardedCacheBase* sc = dynamic_cast<ShardedCacheBase*>(cache.get());
   ASSERT_EQ(5, sc->GetNumShardBits());
 
-  cache = NewLRUCache(511 * 1024L, -1, true);
-  sc = dynamic_cast<ShardedCache*>(cache.get());
+  cache = NewCache(min_shard_size / 1000U * 999U);
+  sc = dynamic_cast<ShardedCacheBase*>(cache.get());
   ASSERT_EQ(0, sc->GetNumShardBits());
 
-  cache = NewLRUCache(1024L * 1024L * 1024L, -1, true);
-  sc = dynamic_cast<ShardedCache*>(cache.get());
+  cache = NewCache(3U * 1024U * 1024U * 1024U);
+  sc = dynamic_cast<ShardedCacheBase*>(cache.get());
+  // current maximum of 6
   ASSERT_EQ(6, sc->GetNumShardBits());
+
+  if constexpr (sizeof(size_t) > 4) {
+    cache = NewCache(128U * min_shard_size);
+    sc = dynamic_cast<ShardedCacheBase*>(cache.get());
+    // current maximum of 6
+    ASSERT_EQ(6, sc->GetNumShardBits());
+  }
 }
 
 TEST_P(CacheTest, GetChargeAndDeleter) {
@@ -990,13 +1024,9 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
   cache_->Release(h1);
 }
 
-std::shared_ptr<Cache> (*new_clock_cache_func)(size_t, size_t, int, bool,
-                                               CacheMetadataChargePolicy) =
-    ExperimentalNewClockCache;
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(kLRU, kClock, kFast));
-INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,
-                        testing::Values(kLRU, kFast));
+                        testing::Values(kLRU, kHyperClock));
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest, testing::Values(kLRU));
 
 }  // namespace ROCKSDB_NAMESPACE
 

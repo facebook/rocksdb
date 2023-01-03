@@ -85,6 +85,13 @@ DEFINE_bool(test_batches_snapshots, false,
 DEFINE_bool(atomic_flush, false,
             "If set, enables atomic flush in the options.\n");
 
+DEFINE_int32(
+    manual_wal_flush_one_in, 0,
+    "If non-zero, then `FlushWAL(bool sync)`, where `bool sync` is randomly "
+    "decided, will be explictly called in db stress once for every N ops "
+    "on average. Setting `manual_wal_flush_one_in` to be greater than 0 "
+    "implies `Options::manual_wal_flush = true` is set.");
+
 DEFINE_bool(test_cf_consistency, false,
             "If set, runs the stress test dedicated to verifying writes to "
             "multiple column families are consistent. Setting this implies "
@@ -483,6 +490,16 @@ DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
 
+DEFINE_bool(enable_tiered_storage, false, "Set last_level_temperature");
+
+DEFINE_int64(preclude_last_level_data_seconds, 0,
+             "Preclude data from the last level. Used with tiered storage "
+             "feature to preclude new data from comacting to the last level.");
+
+DEFINE_int64(
+    preserve_internal_time_seconds, 0,
+    "Preserve internal time information which is attached to each SST.");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
@@ -852,6 +869,10 @@ DEFINE_bool(use_merge, false,
             "On true, replaces all writes with a Merge "
             "that behaves like a Put");
 
+DEFINE_uint32(use_put_entity_one_in, 0,
+              "If greater than zero, PutEntity will be used once per every N "
+              "write ops on average.");
+
 DEFINE_bool(use_full_merge_v1, false,
             "On true, use a merge operator that implement the deprecated "
             "version of FullMerge");
@@ -916,7 +937,9 @@ DEFINE_bool(sync_fault_injection, false,
 
 DEFINE_bool(best_efforts_recovery, false,
             "If true, use best efforts recovery.");
-DEFINE_bool(skip_verifydb, false, "If true, skip VerifyDb() calls.");
+DEFINE_bool(skip_verifydb, false,
+            "If true, skip VerifyDb() calls and Get()/Iterator verifications"
+            "against expected state.");
 
 DEFINE_bool(enable_compaction_filter, false,
             "If true, configures a compaction filter that returns a kRemove "
@@ -934,6 +957,12 @@ DEFINE_uint64(batch_protection_bytes_per_key, 0,
               "If nonzero, enables integrity protection in `WriteBatch` at the "
               "specified number of bytes per key. Currently the only supported "
               "nonzero value is eight.");
+
+DEFINE_uint32(
+    memtable_protection_bytes_per_key, 0,
+    "If nonzero, enables integrity protection in memtable entries at the "
+    "specified number of bytes per key. Currently the supported "
+    "nonzero values are 1, 2, 4 and 8.");
 
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
@@ -1014,5 +1043,32 @@ DEFINE_int32(
 DEFINE_bool(allow_data_in_errors,
             ROCKSDB_NAMESPACE::Options().allow_data_in_errors,
             "If true, allow logging data, e.g. key, value in LOG files.");
+
+DEFINE_int32(verify_iterator_with_expected_state_one_in, 0,
+             "If non-zero, when TestIterate() is to be called, there is a "
+             "1/verify_iterator_with_expected_state_one_in "
+             "chance that the iterator is verified against the expected state "
+             "file, instead of comparing keys between two iterators.");
+
+DEFINE_uint64(readahead_size, 0, "Iterator readahead size");
+DEFINE_uint64(initial_auto_readahead_size, 0,
+              "Initial auto readahead size for prefetching during Iteration");
+DEFINE_uint64(max_auto_readahead_size, 0,
+              "Max auto readahead size for prefetching during Iteration");
+DEFINE_uint64(
+    num_file_reads_for_auto_readahead, 0,
+    "Num of sequential reads to enable auto prefetching during Iteration");
+
+DEFINE_bool(
+    preserve_unverified_changes, false,
+    "DB files of the current run will all be preserved in `FLAGS_db`. DB files "
+    "from the last run will be preserved in `FLAGS_db/unverified` until the "
+    "first verification succeeds. Expected state files from the last run will "
+    "be preserved similarly under `FLAGS_expected_values_dir/unverified` when "
+    "`--expected_values_dir` is nonempty.");
+
+DEFINE_uint64(stats_dump_period_sec,
+              ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
+              "Gap between printing stats to log in seconds");
 
 #endif  // GFLAGS

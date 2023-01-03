@@ -233,7 +233,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_CACHE_ADD, "rocksdb.blobdb.cache.add"},
     {BLOB_DB_CACHE_ADD_FAILURES, "rocksdb.blobdb.cache.add.failures"},
     {BLOB_DB_CACHE_BYTES_READ, "rocksdb.blobdb.cache.bytes.read"},
-    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"}};
+    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"},
+    {READ_ASYNC_MICROS, "rocksdb.read.async.micros"},
+    {ASYNC_READ_ERROR_COUNT, "rocksdb.async.read.error.count"}};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},
@@ -295,6 +297,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {PREFETCHED_BYTES_DISCARDED, "rocksdb.prefetched.bytes.discarded"},
     {MULTIGET_IO_BATCH_SIZE, "rocksdb.multiget.io.batch.size"},
     {NUM_LEVEL_READ_PER_MULTIGET, "rocksdb.num.level.read.per.multiget"},
+    {ASYNC_PREFETCH_ABORT_MICROS, "rocksdb.async.prefetch.abort.micros"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
@@ -468,7 +471,7 @@ namespace {
 // a buffer size used for temp string buffers
 const int kTmpStrBufferSize = 200;
 
-} // namespace
+}  // namespace
 
 std::string StatisticsImpl::ToString() const {
   MutexLock lock(&aggregate_lock_);

@@ -94,8 +94,6 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   options_.level0_file_num_compaction_trigger = kLevel0Trigger;
   options_.compression = kNoCompression;
 
-  OpenDB();
-
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"CompactFilesImpl:0", "BackgroundCallCompaction:0"},
       {"BackgroundCallCompaction:1", "CompactFilesImpl:1"},
@@ -331,16 +329,13 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
       return true;
     }
 
-    void SetDB(DB* db) {
-      db_ = db;
-    }
+    void SetDB(DB* db) { db_ = db; }
 
     const char* Name() const override { return "FilterWithGet"; }
 
    private:
     DB* db_;
   };
-
 
   std::shared_ptr<FilterWithGet> cf(new FilterWithGet());
 
@@ -454,6 +449,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

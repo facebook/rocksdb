@@ -26,16 +26,16 @@ CompactedDBImpl::CompactedDBImpl(const DBOptions& options,
       version_(nullptr),
       user_comparator_(nullptr) {}
 
-CompactedDBImpl::~CompactedDBImpl() {
-}
+CompactedDBImpl::~CompactedDBImpl() {}
 
 size_t CompactedDBImpl::FindFile(const Slice& key) {
   size_t right = files_.num_files - 1;
   auto cmp = [&](const FdWithKeyRange& f, const Slice& k) -> bool {
     return user_comparator_->Compare(ExtractUserKey(f.largest_key), k) < 0;
   };
-  return static_cast<size_t>(std::lower_bound(files_.files,
-                            files_.files + right, key, cmp) - files_.files);
+  return static_cast<size_t>(
+      std::lower_bound(files_.files, files_.files + right, key, cmp) -
+      files_.files);
 }
 
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
@@ -72,9 +72,9 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
   LookupKey lkey(key, kMaxSequenceNumber, options.timestamp);
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, lkey.user_key(), value, ts,
-                         nullptr, nullptr, true, nullptr, nullptr, nullptr,
-                         nullptr, &read_cb);
+                         GetContext::kNotFound, lkey.user_key(), value,
+                         /*columns=*/nullptr, ts, nullptr, nullptr, true,
+                         nullptr, nullptr, nullptr, nullptr, &read_cb);
 
   const FdWithKeyRange& f = files_.files[FindFile(lkey.user_key())];
   if (user_comparator_->CompareWithoutTimestamp(
@@ -159,7 +159,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(
       std::string* timestamp = timestamps ? &(*timestamps)[idx] : nullptr;
       GetContext get_context(
           user_comparator_, nullptr, nullptr, nullptr, GetContext::kNotFound,
-          lkey.user_key(), &pinnable_val,
+          lkey.user_key(), &pinnable_val, /*columns=*/nullptr,
           user_comparator_->timestamp_size() > 0 ? timestamp : nullptr, nullptr,
           nullptr, true, nullptr, nullptr, nullptr, nullptr, &read_cb);
       Status s = r->Get(options, lkey.internal_key(), &get_context, nullptr);
@@ -228,8 +228,8 @@ Status CompactedDBImpl::Init(const Options& options) {
   return Status::NotSupported("no file exists");
 }
 
-Status CompactedDBImpl::Open(const Options& options,
-                             const std::string& dbname, DB** dbptr) {
+Status CompactedDBImpl::Open(const Options& options, const std::string& dbname,
+                             DB** dbptr) {
   *dbptr = nullptr;
 
   if (options.max_open_files != -1) {
@@ -242,7 +242,7 @@ Status CompactedDBImpl::Open(const Options& options,
   std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
   Status s = db->Init(options);
   if (s.ok()) {
-    s = db->StartPeriodicWorkScheduler();
+    s = db->StartPeriodicTaskScheduler();
   }
   if (s.ok()) {
     ROCKS_LOG_INFO(db->immutable_db_options_.info_log,

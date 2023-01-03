@@ -240,10 +240,10 @@ enum class CacheTier : uint8_t {
   kNonVolatileBlockTier = 0x01,
 };
 
-enum UpdateStatus {    // Return status For inplace update callback
-  UPDATE_FAILED   = 0, // Nothing to update
-  UPDATED_INPLACE = 1, // Value updated inplace
-  UPDATED         = 2, // No inplace update. Merged value set
+enum UpdateStatus {     // Return status For inplace update callback
+  UPDATE_FAILED = 0,    // Nothing to update
+  UPDATED_INPLACE = 1,  // Value updated inplace
+  UPDATED = 2,          // No inplace update. Merged value set
 };
 
 enum class PrepopulateBlobCache : uint8_t {
@@ -271,7 +271,10 @@ struct AdvancedColumnFamilyOptions {
   // read amplification because a get request has to check in all of these
   // files. Also, an in-memory merge may result in writing lesser
   // data to storage if there are duplicate records in each of these
-  // individual write buffers.  Default: 1
+  // individual write buffers.
+  // If atomic flush is enabled (options.atomic_flush == true), then this
+  // option will be sanitized to 1.
+  // Default: 1
   int min_write_buffer_number_to_merge = 1;
 
   // DEPRECATED
@@ -648,6 +651,15 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool level_compaction_dynamic_level_bytes = false;
 
+  // Allows RocksDB to generate files that are not exactly the target_file_size
+  // only for the non-bottommost files. Which can reduce the write-amplification
+  // from compaction. The file size could be from 0 to 2x target_file_size.
+  // Once enabled, non-bottommost compaction will try to cut the files align
+  // with the next level file boundaries (grandparent level).
+  //
+  // Default: true
+  bool level_compaction_dynamic_file_size = true;
+
   // Default: 10.
   //
   // Dynamically changeable through SetOptions() API
@@ -671,6 +683,17 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint64_t max_compaction_bytes = 0;
+
+  // When setting up compaction input files, we ignore the
+  // `max_compaction_bytes` limit when pulling in input files that are entirely
+  // within output key range.
+  //
+  // Default: true
+  //
+  // Dynamically changeable through SetOptions() API
+  // We could remove this knob and always ignore the limit once it is proven
+  // safe.
+  bool ignore_max_compaction_bytes_for_input = true;
 
   // All writes will be slowed down to at least delayed_write_rate if estimated
   // bytes needed to be compaction exceed this threshold.
@@ -872,12 +895,19 @@ struct AdvancedColumnFamilyOptions {
 
   // EXPERIMENTAL
   // The feature is still in development and is incomplete.
-  // If this option is set, when creating bottommost files, pass this
+  // If this option is set, when creating the last level files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
   //
+  // Note: the feature is changed from `bottommost_temperature` to
+  //  `last_level_temperature` which now only apply for the last level files.
+  //  The option name `bottommost_temperature` is kept only for migration, the
+  //  behavior is the same as `last_level_temperature`. Please stop using
+  //  `bottommost_temperature` and will be removed in next release.
+  //
   // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
+  Temperature last_level_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
   // The feature is still in development and is incomplete.
@@ -885,8 +915,39 @@ struct AdvancedColumnFamilyOptions {
   // will be precluded from the last level.
   // 0 means no key will be precluded from the last level.
   //
+  // Note: when enabled, universal size amplification (controlled by option
+  //  `compaction_options_universal.max_size_amplification_percent`) calculation
+  //  will exclude the last level. As the feature is designed for tiered storage
+  //  and a typical setting is the last level is cold tier which is likely not
+  //  size constrained, the size amp is going to be only for non-last levels.
+  //
   // Default: 0 (disable the feature)
+  //
+  // Not dynamically changeable, change it requires db restart.
   uint64_t preclude_last_level_data_seconds = 0;
+
+  // EXPERIMENTAL
+  // If this option is set, it will preserve the internal time information about
+  // the data until it's older than the specified time here.
+  // Internally the time information is a map between sequence number and time,
+  // which is the same as `preclude_last_level_data_seconds`. But it won't
+  // preclude the data from the last level and the data in the last level won't
+  // have the sequence number zeroed out.
+  // Internally, rocksdb would sample the sequence number to time pair and store
+  // that in SST property "rocksdb.seqno.time.map". The information is currently
+  // only used for tiered storage compaction (option
+  // `preclude_last_level_data_seconds`).
+  //
+  // Note: if both `preclude_last_level_data_seconds` and this option is set, it
+  //  will preserve the max time of the 2 options and compaction still preclude
+  //  the data based on `preclude_last_level_data_seconds`.
+  //  The higher the preserve_time is, the less the sampling frequency will be (
+  //  which means less accuracy of the time estimation).
+  //
+  // Default: 0 (disable the feature)
+  //
+  // Not dynamically changeable, change it requires db restart.
+  uint64_t preserve_internal_time_seconds = 0;
 
   // When set, large values (blobs) are written to separate blob files, and
   // only pointers to them are stored in SST files. This can reduce write
@@ -990,26 +1051,41 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   int blob_file_starting_level = 0;
 
-  // This feature is WORK IN PROGRESS
-  // If non-NULL use the specified cache for blobs.
-  // If NULL, rocksdb will not use a blob cache.
+  // The Cache object to use for blobs. Using a dedicated object for blobs and
+  // using the same object for the block and blob caches are both supported. In
+  // the latter case, note that blobs are less valuable from a caching
+  // perspective than SST blocks, and some cache implementations have
+  // configuration options that can be used to prioritize items accordingly (see
+  // Cache::Priority and LRUCacheOptions::{high,low}_pri_pool_ratio).
   //
   // Default: nullptr (disabled)
   std::shared_ptr<Cache> blob_cache = nullptr;
 
-  // If enabled, prepopulate warm/hot blobs which are already in memory into
-  // blob cache at the time of flush. On a flush, the blob that is in memory (in
-  // memtables) get flushed to the device. If using Direct IO, additional IO is
-  // incurred to read this blob back into memory again, which is avoided by
-  // enabling this option. This further helps if the workload exhibits high
-  // temporal locality, where most of the reads go to recently written data.
-  // This also helps in case of the remote file system since it involves network
-  // traffic and higher latencies.
+  // Enable/disable prepopulating the blob cache. When set to kFlushOnly, BlobDB
+  // will insert newly written blobs into the blob cache during flush. This can
+  // improve performance when reading back these blobs would otherwise be
+  // expensive (e.g. when using direct I/O or remote storage), or when the
+  // workload has a high temporal locality.
   //
   // Default: disabled
   //
   // Dynamically changeable through the SetOptions() API
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+
+  // Enable memtable per key-value checksum protection.
+  //
+  // Each entry in memtable will be suffixed by a per key-value checksum.
+  // This options determines the size of such checksums.
+  //
+  // It is suggested to turn on write batch per key-value
+  // checksum protection together with this option, so that the checksum
+  // computation is done outside of writer threads (memtable kv checksum can be
+  // computed from write batch checksum) See
+  // WriteOptions::protection_bytes_per_key for more detail.
+  //
+  // Default: 0 (no protection)
+  // Supported values: 0, 1, 2, 4, 8.
+  uint32_t memtable_protection_bytes_per_key = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

@@ -416,6 +416,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, initial_auto_readahead_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"num_file_reads_for_auto_readahead",
+         {offsetof(struct BlockBasedTableOptions,
+                   num_file_reads_for_auto_readahead),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 
 #endif  // ROCKSDB_LITE
 };
@@ -454,6 +459,7 @@ void BlockBasedTableFactory::InitializeOptions() {
     // It makes little sense to pay overhead for mid-point insertion while the
     // block size is only 8MB.
     co.high_pri_pool_ratio = 0.0;
+    co.low_pri_pool_ratio = 0.0;
     table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||
@@ -468,7 +474,8 @@ void BlockBasedTableFactory::InitializeOptions() {
   }
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       table_options_.index_block_restart_interval != 1) {
-    // Currently kHashSearch is incompatible with index_block_restart_interval > 1
+    // Currently kHashSearch is incompatible with
+    // index_block_restart_interval > 1
     table_options_.index_block_restart_interval = 1;
   }
   if (table_options_.partition_filters &&
@@ -518,32 +525,32 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
 
   // More complex test of shared key space, in case the instances are wrappers
   // for some shared underlying cache.
-  std::string sentinel_key(size_t{1}, '\0');
+  CacheKey sentinel_key = CacheKey::CreateUniqueForProcessLifetime();
   static char kRegularBlockCacheMarker = 'b';
   static char kCompressedBlockCacheMarker = 'c';
   static char kPersistentCacheMarker = 'p';
   if (bbto.block_cache) {
     bbto.block_cache
-        ->Insert(Slice(sentinel_key), &kRegularBlockCacheMarker, 1,
+        ->Insert(sentinel_key.AsSlice(), &kRegularBlockCacheMarker, 1,
                  GetNoopDeleterForRole<CacheEntryRole::kMisc>())
         .PermitUncheckedError();
   }
   if (bbto.block_cache_compressed) {
     bbto.block_cache_compressed
-        ->Insert(Slice(sentinel_key), &kCompressedBlockCacheMarker, 1,
+        ->Insert(sentinel_key.AsSlice(), &kCompressedBlockCacheMarker, 1,
                  GetNoopDeleterForRole<CacheEntryRole::kMisc>())
         .PermitUncheckedError();
   }
   if (bbto.persistent_cache) {
     // Note: persistent cache copies the data, not keeping the pointer
     bbto.persistent_cache
-        ->Insert(Slice(sentinel_key), &kPersistentCacheMarker, 1)
+        ->Insert(sentinel_key.AsSlice(), &kPersistentCacheMarker, 1)
         .PermitUncheckedError();
   }
   // If we get something different from what we inserted, that indicates
   // dangerously overlapping key spaces.
   if (bbto.block_cache) {
-    auto handle = bbto.block_cache->Lookup(Slice(sentinel_key));
+    auto handle = bbto.block_cache->Lookup(sentinel_key.AsSlice());
     if (handle) {
       auto v = static_cast<char*>(bbto.block_cache->Value(handle));
       char c = *v;
@@ -562,7 +569,7 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
     }
   }
   if (bbto.block_cache_compressed) {
-    auto handle = bbto.block_cache_compressed->Lookup(Slice(sentinel_key));
+    auto handle = bbto.block_cache_compressed->Lookup(sentinel_key.AsSlice());
     if (handle) {
       auto v = static_cast<char*>(bbto.block_cache_compressed->Value(handle));
       char c = *v;
@@ -585,7 +592,7 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
   if (bbto.persistent_cache) {
     std::unique_ptr<char[]> data;
     size_t size = 0;
-    bbto.persistent_cache->Lookup(Slice(sentinel_key), &data, &size)
+    bbto.persistent_cache->Lookup(sentinel_key.AsSlice(), &data, &size)
         .PermitUncheckedError();
     if (data && size > 0) {
       if (data[0] == kRegularBlockCacheMarker) {
@@ -622,8 +629,8 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
       table_reader_options.block_cache_tracer,
       table_reader_options.max_file_size_for_l0_meta_pin,
-      table_reader_options.cur_db_session_id,
-      table_reader_options.cur_file_num);
+      table_reader_options.cur_db_session_id, table_reader_options.cur_file_num,
+      table_reader_options.unique_id);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -892,6 +899,10 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize,
            "  initial_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
            table_options_.initial_auto_readahead_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  num_file_reads_for_auto_readahead: %" PRIu64 "\n",
+           table_options_.num_file_reads_for_auto_readahead);
   ret.append(buffer);
   return ret;
 }

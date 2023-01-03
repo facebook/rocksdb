@@ -41,45 +41,6 @@ Cache::CreateCallback GetCreateCallback(size_t read_amp_bytes_per_bit,
 }
 
 template <>
-class BlocklikeTraits<BlockContents> {
- public:
-  static BlockContents* Create(BlockContents&& contents,
-                               size_t /* read_amp_bytes_per_bit */,
-                               Statistics* /* statistics */,
-                               bool /* using_zstd */,
-                               const FilterPolicy* /* filter_policy */) {
-    return new BlockContents(std::move(contents));
-  }
-
-  static uint32_t GetNumRestarts(const BlockContents& /* contents */) {
-    return 0;
-  }
-
-  static size_t SizeCallback(void* obj) {
-    assert(obj != nullptr);
-    BlockContents* ptr = static_cast<BlockContents*>(obj);
-    return ptr->data.size();
-  }
-
-  static Status SaveToCallback(void* from_obj, size_t from_offset,
-                               size_t length, void* out) {
-    assert(from_obj != nullptr);
-    BlockContents* ptr = static_cast<BlockContents*>(from_obj);
-    const char* buf = ptr->data.data();
-    assert(length == ptr->data.size());
-    (void)from_offset;
-    memcpy(out, buf, length);
-    return Status::OK();
-  }
-
-  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType /*block_type*/) {
-    // E.g. compressed cache
-    return GetCacheItemHelperForRole<BlockContents,
-                                     CacheEntryRole::kOtherBlock>();
-  }
-};
-
-template <>
 class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
   static ParsedFullFilterBlock* Create(BlockContents&& contents,
