@@ -72,7 +72,7 @@ class BlockBuilder {
   // Returns an estimated block size after appending key and value.
   size_t EstimateSizeAfterKV(const Slice& key, const Slice& value) const;
 
-  // Return true iff no entries have been added since the last Reset()
+  // Return true if no entries have been added since the last Reset()
   bool empty() const { return buffer_.empty(); }
 
  private:
