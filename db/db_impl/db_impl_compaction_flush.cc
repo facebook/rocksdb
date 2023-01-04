@@ -2199,7 +2199,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
             s = SwitchMemtable(cfd_stats, &context);
             FlushRequest req{{cfd_stats, flush_memtable_id}};
             flush_reqs.emplace_back(std::move(req));
-            memtable_ids_to_wait.emplace_back(cfd->GetLatestImmTableID());
+            memtable_ids_to_wait.emplace_back(cfd_stats->GetLatestImmTableID());
           }
         }
       }
