@@ -1550,6 +1550,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           0 /* file_creation_time */, db_id_, db_session_id_,
           0 /* target_file_size */, meta.fd.GetNumber());
       SeqnoToTimeMapping empty_seqno_time_mapping;
+      Version* version = cfd->current();
+      version->Ref();
       s = BuildTable(
           dbname_, versions_.get(), immutable_db_options_, tboptions,
           file_options_for_compaction_, cfd->table_cache(), iter.get(),
@@ -1559,7 +1561,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           io_tracer_, BlobFileCreationReason::kRecovery,
           empty_seqno_time_mapping, &event_logger_, job_id, Env::IO_HIGH,
           nullptr /* table_properties */, write_hint,
-          nullptr /*full_history_ts_low*/, &blob_callback_);
+          nullptr /*full_history_ts_low*/, &blob_callback_, version);
+      version->Unref();
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -1583,13 +1586,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   constexpr int level = 0;
 
   if (s.ok() && has_output) {
-    edit->AddFile(
-        level, meta.fd.GetNumber(), meta.fd.GetPathId(), meta.fd.GetFileSize(),
-        meta.smallest, meta.largest, meta.fd.smallest_seqno,
-        meta.fd.largest_seqno, meta.marked_for_compaction, meta.temperature,
-        meta.oldest_blob_file_number, meta.oldest_ancester_time,
-        meta.file_creation_time, meta.epoch_number, meta.file_checksum,
-        meta.file_checksum_func_name, meta.unique_id);
+    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
+                  meta.fd.GetFileSize(), meta.smallest, meta.largest,
+                  meta.fd.smallest_seqno, meta.fd.largest_seqno,
+                  meta.marked_for_compaction, meta.temperature,
+                  meta.oldest_blob_file_number, meta.oldest_ancester_time,
+                  meta.file_creation_time, meta.epoch_number,
+                  meta.file_checksum, meta.file_checksum_func_name,
+                  meta.unique_id, meta.compensated_range_deletion_size);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);

@@ -665,7 +665,8 @@ class Repairer {
             table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.epoch_number, table->meta.file_checksum,
-            table->meta.file_checksum_func_name, table->meta.unique_id);
+            table->meta.file_checksum_func_name, table->meta.unique_id,
+            table->meta.compensated_range_deletion_size);
       }
       s = dummy_version_builder.Apply(&dummy_edit);
       if (s.ok()) {

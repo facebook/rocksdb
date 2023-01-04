@@ -143,7 +143,7 @@ Status ImportColumnFamilyJob::Run() {
         file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
         file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
         current_time, file_metadata.epoch_number, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, f.unique_id);
+        kUnknownFileChecksumFuncName, f.unique_id, 0);
     s = dummy_version_builder.Apply(&dummy_version_edit);
   }
   if (s.ok()) {

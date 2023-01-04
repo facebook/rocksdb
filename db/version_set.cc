@@ -2960,7 +2960,7 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   file_meta->num_deletions = tp->num_deletions;
   file_meta->raw_value_size = tp->raw_value_size;
   file_meta->raw_key_size = tp->raw_key_size;
-
+  file_meta->num_range_deletions = tp->num_range_deletions;
   return true;
 }
 
@@ -3062,11 +3062,15 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
         // size of deletion entries in a stable workload, the deletion
         // compensation logic might introduce unwanted effet which changes the
         // shape of LSM tree.
-        if (file_meta->num_deletions * 2 >= file_meta->num_entries) {
+        if ((file_meta->num_deletions - file_meta->num_range_deletions) * 2 >=
+            file_meta->num_entries) {
           file_meta->compensated_file_size +=
-              (file_meta->num_deletions * 2 - file_meta->num_entries) *
+              ((file_meta->num_deletions - file_meta->num_range_deletions) * 2 -
+               file_meta->num_entries) *
               average_value_size * kDeletionWeightOnCompaction;
         }
+        file_meta->compensated_file_size +=
+            file_meta->compensated_range_deletion_size;
       }
     }
   }
@@ -6215,7 +6219,8 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->marked_for_compaction, f->temperature,
                        f->oldest_blob_file_number, f->oldest_ancester_time,
                        f->file_creation_time, f->epoch_number, f->file_checksum,
-                       f->file_checksum_func_name, f->unique_id);
+                       f->file_checksum_func_name, f->unique_id,
+                       f->compensated_range_deletion_size);
         }
       }
 
@@ -6293,8 +6298,9 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
   const int num_non_empty_levels = vstorage->num_non_empty_levels();
   end_level = (end_level == -1) ? num_non_empty_levels
                                 : std::min(end_level, num_non_empty_levels);
-
-  assert(start_level <= end_level);
+  if (end_level <= start_level) {
+    return 0;
+  }
 
   // Outline of the optimization that uses options.files_size_error_margin.
   // When approximating the files total size that is used to store a keys range,
