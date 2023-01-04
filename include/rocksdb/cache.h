@@ -363,11 +363,14 @@ extern std::shared_ptr<Cache> NewClockCache(
 // NOTE: This API is for expert use only and is more intended for providing
 // custom implementations than for calling into. It is subject to change
 // as RocksDB evolves, especially the RocksDB block cache.
+//
+// INTERNAL: See typed_cache.h for convenient wrappers on top of this API.
 class Cache {
- public:  // opaque types
+ public:  // types hidden from API client
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
 
+ public:  // types hidden from Cache implementation
   // Opaque payload of a cache entry
   struct ValueType {};
 
@@ -442,10 +445,16 @@ class Cache {
   // cache into the secondary cache. May be extended in the future. An
   // instance of this struct is expected to outlive the cache.
   struct CacheItemHelper {
+    // Function for deleting a value on its removal from the Cache. Only
+    // nullptr for "placeholder" entries that require no destruction.
     DeleterFn del_cb;  // (<- Most performance critical)
+    // Next three are used for persisting values as described above.
+    // If any is nullptr, then all three should be nullptr and persisting the
+    // entry to/from secondary cache is not supported.
     SizeCallback size_cb;
     SaveToCallback saveto_cb;
     CreateCallback create_cb;
+    // Classification of the entry for monitoring purposes in block cache.
     CacheEntryRole role;
 
     constexpr CacheItemHelper()
@@ -523,10 +532,11 @@ class Cache {
   // with secondary-cache-compatible mappings.
   //
   // The helper argument is saved by the cache and will be used when the
-  // inserted object is evicted or promoted to the secondary cache. It,
-  // therefore, must outlive the cache. Callers may use &kNoopCacheItemHelper
-  // as a trivial helper (no deleter for the value, no secondary cache).
-  // `helper` must not be nullptr, for maximum efficiency.
+  // inserted object is evicted or considered for promotion to the secondary
+  // cache. Promotion to secondary cache is only enabled if helper->size_cb
+  // != nullptr. The helper must outlive the cache. Callers may use
+  // &kNoopCacheItemHelper as a trivial helper (no deleter for the value,
+  // no secondary cache). `helper` must not be nullptr (efficiency).
   //
   // If handle is not nullptr, returns a handle that corresponds to the
   // mapping. The caller must call this->Release(handle) when the returned
@@ -543,8 +553,8 @@ class Cache {
   // the item is only inserted into the primary cache. It may
   // defer the insertion to the secondary cache as it sees fit.
   //
-  // When the inserted entry is no longer needed, the key and
-  // value will be passed to "deleter".
+  // When the inserted entry is no longer needed, it will be destroyed using
+  // helper->del_cb (if non-nullptr).
   virtual Status Insert(const Slice& key, ValueType* value,
                         const CacheItemHelper* helper, size_t charge,
                         Handle** handle = nullptr,

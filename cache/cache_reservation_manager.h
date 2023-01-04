@@ -197,7 +197,7 @@ class CacheReservationManagerImpl
 
   static constexpr std::size_t GetDummyEntrySize() { return kSizeDummyEntry; }
 
-  // For testing only - it is to help ensure the NoopDeleterForRole<R>
+  // For testing only - it is to help ensure the CacheItemHelperForRole<R>
   // accessed from CacheReservationManagerImpl and the one accessed from the
   // test are from the same translation units
   static const Cache::CacheItemHelper *TEST_GetCacheItemHelperForRole();
