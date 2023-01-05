@@ -111,7 +111,7 @@ class TraceAnalyzerTest : public testing::Test {
     single_iter->SeekForPrev("b");
     ASSERT_OK(single_iter->status());
     delete single_iter;
-    std::this_thread::sleep_for (std::chrono::seconds(1));
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
     db_->Get(ro, "g", &value).PermitUncheckedError();
 
@@ -160,7 +160,8 @@ class TraceAnalyzerTest : public testing::Test {
 
     std::vector<std::string> result;
     std::string line;
-    while (lf_reader.ReadLine(&line)) {
+    while (
+        lf_reader.ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
       result.push_back(line);
     }
 
@@ -873,6 +874,7 @@ TEST_F(TraceAnalyzerTest, MultiGet) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

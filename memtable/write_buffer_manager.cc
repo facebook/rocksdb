@@ -82,7 +82,7 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 
   // We absorb the error since WriteBufferManager is not able to handle
   // this failure properly. Ideallly we should prevent this allocation
-  // from happening if this cache reservation fails.
+  // from happening if this cache charging fails.
   // [TODO] We'll need to improve it in the future and figure out what to do on
   // error
   s.PermitUncheckedError();

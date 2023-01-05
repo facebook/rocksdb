@@ -115,8 +115,8 @@ Status WritePreparedTxn::PrepareInternal() {
   // For each duplicate key we account for a new sub-batch
   prepare_batch_cnt_ = GetWriteBatch()->SubBatchCnt();
   // Having AddPrepared in the PreReleaseCallback allows in-order addition of
-  // prepared entries to PreparedHeap and hence enables an optimization. Refer to
-  // SmallestUnCommittedSeq for more details.
+  // prepared entries to PreparedHeap and hence enables an optimization. Refer
+  // to SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
       wpt_db_, db_impl_, prepare_batch_cnt_,
       db_impl_->immutable_db_options().two_write_queues, kFirstPrepareBatch);
@@ -267,7 +267,9 @@ Status WritePreparedTxn::RollbackInternal() {
   assert(db_impl_);
   assert(wpt_db_);
 
-  WriteBatch rollback_batch;
+  WriteBatch rollback_batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                            write_options_.protection_bytes_per_key,
+                            0 /* default_cf_ts_sz */);
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
   auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();

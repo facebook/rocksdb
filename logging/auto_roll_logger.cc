@@ -90,10 +90,22 @@ void AutoRollLogger::RollLogFile() {
   uint64_t now = clock_->NowMicros();
   std::string old_fname;
   do {
-    old_fname = OldInfoLogFileName(
-      dbname_, now, db_absolute_path_, db_log_dir_);
+    old_fname =
+        OldInfoLogFileName(dbname_, now, db_absolute_path_, db_log_dir_);
     now++;
   } while (fs_->FileExists(old_fname, io_options_, &io_context_).ok());
+  // Wait for logger_ reference count to turn to 1 as it might be pinned by
+  // Flush. Pinned Logger can't be closed till Flush is completed on that
+  // Logger.
+  while (logger_.use_count() > 1) {
+  }
+  // Close the existing logger first to release the existing handle
+  // before renaming the file using the file system. If this call
+  // fails there is nothing much we can do and we will continue with the
+  // rename and hence ignoring the result status.
+  if (logger_) {
+    logger_->Close().PermitUncheckedError();
+  }
   Status s = fs_->RenameFile(log_fname_, old_fname, io_options_, &io_context_);
   if (!s.ok()) {
     // What should we do on error?
@@ -161,7 +173,7 @@ std::string AutoRollLogger::ValistToString(const char* format,
   char buffer[MAXBUFFERSIZE];
 
   int count = vsnprintf(buffer, MAXBUFFERSIZE, format, args);
-  (void) count;
+  (void)count;
   assert(count >= 0);
 
   return buffer;
@@ -270,6 +282,7 @@ Status CreateLoggerFromOptions(const std::string& dbname,
   Env* env = options.env;
   std::string db_absolute_path;
   Status s = env->GetAbsolutePath(dbname, &db_absolute_path);
+  TEST_SYNC_POINT_CALLBACK("rocksdb::CreateLoggerFromOptions:AfterGetPath", &s);
   if (!s.ok()) {
     return s;
   }
@@ -277,10 +290,30 @@ Status CreateLoggerFromOptions(const std::string& dbname,
       InfoLogFileName(dbname, db_absolute_path, options.db_log_dir);
 
   const auto& clock = env->GetSystemClock();
-  env->CreateDirIfMissing(dbname)
-      .PermitUncheckedError();  // In case it does not exist
-  // Currently we only support roll by time-to-roll and log size
+  // In case it does not exist.
+  s = env->CreateDirIfMissing(dbname);
+  if (!s.ok()) {
+    if (options.db_log_dir.empty()) {
+      return s;
+    } else {
+      // Ignore the error returned during creation of dbname because dbname and
+      // db_log_dir can be on different filesystems in which case dbname will
+      // not exist and error should be ignored. db_log_dir creation will handle
+      // the error in case there is any error in the creation of dbname on same
+      // filesystem.
+      s = Status::OK();
+    }
+  }
+  assert(s.ok());
+
+  if (!options.db_log_dir.empty()) {
+    s = env->CreateDirIfMissing(options.db_log_dir);
+    if (!s.ok()) {
+      return s;
+    }
+  }
 #ifndef ROCKSDB_LITE
+  // Currently we only support roll by time-to-roll and log size
   if (options.log_file_time_to_roll > 0 || options.max_log_file_size > 0) {
     AutoRollLogger* result = new AutoRollLogger(
         env->GetFileSystem(), clock, dbname, options.db_log_dir,
@@ -301,6 +334,28 @@ Status CreateLoggerFromOptions(const std::string& dbname,
     s = env->RenameFile(
         fname, OldInfoLogFileName(dbname, clock->NowMicros(), db_absolute_path,
                                   options.db_log_dir));
+
+    // The operation sequence of "FileExists -> Rename" is not atomic. It's
+    // possible that FileExists returns OK but file gets deleted before Rename.
+    // This can cause Rename to return IOError with subcode PathNotFound.
+    // Although it may be a rare case and applications should be discouraged
+    // to not concurrently modifying the contents of the directories accessed
+    // by the database instance, it is still helpful if we can perform some
+    // simple handling of this case. Therefore, we do the following:
+    // 1. if Rename() returns IOError with PathNotFound subcode, then we check
+    //    whether the source file, i.e. LOG, exists.
+    // 2. if LOG exists, it means Rename() failed due to something else. Then
+    //    we report error.
+    // 3. if LOG does not exist, it means it may have been removed/renamed by
+    //    someone else. Since it does not exist, we can reset Status to OK so
+    //    that this caller can try creating a new LOG file. If this succeeds,
+    //    we should still allow it.
+    if (s.IsPathNotFound()) {
+      s = env->FileExists(fname);
+      if (s.IsNotFound()) {
+        s = Status::OK();
+      }
+    }
   } else if (s.IsNotFound()) {
     // "LOG" is not required to exist since this could be a new DB.
     s = Status::OK();

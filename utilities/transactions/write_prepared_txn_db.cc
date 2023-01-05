@@ -166,6 +166,15 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
     // increased for this batch.
     return Status::OK();
   }
+
+  if (write_options_orig.protection_bytes_per_key > 0) {
+    auto s = WriteBatchInternal::UpdateProtectionInfo(
+        batch, write_options_orig.protection_bytes_per_key);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   if (batch_cnt == 0) {  // not provided, then compute it
     // TODO(myabandeh): add an option to allow user skipping this cost
     SubBatchCounter counter(*GetCFComparatorMap());
@@ -299,7 +308,6 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
   cf_map_.reset(cf_map);
   handle_map_.reset(handle_map);
 }
-
 
 std::vector<Status> WritePreparedTxnDB::MultiGet(
     const ReadOptions& options,
@@ -599,7 +607,8 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
 bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
                                         CommitEntry64b* entry_64b,
                                         CommitEntry* entry) const {
-  *entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].load(std::memory_order_acquire);
+  *entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].load(
+      std::memory_order_acquire);
   bool valid = entry_64b->Parse(indexed_seq, entry, FORMAT);
   return valid;
 }
@@ -608,8 +617,9 @@ bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
                                         const CommitEntry& new_entry,
                                         CommitEntry* evicted_entry) {
   CommitEntry64b new_entry_64b(new_entry, FORMAT);
-  CommitEntry64b evicted_entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].exchange(
-      new_entry_64b, std::memory_order_acq_rel);
+  CommitEntry64b evicted_entry_64b =
+      commit_cache_[static_cast<size_t>(indexed_seq)].exchange(
+          new_entry_64b, std::memory_order_acq_rel);
   bool valid = evicted_entry_64b.Parse(indexed_seq, evicted_entry, FORMAT);
   return valid;
 }
@@ -726,9 +736,10 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
     assert(snap_impl->GetSequenceNumber() > max);
     if (snap_impl->GetSequenceNumber() <= max) {
       throw std::runtime_error(
-          "Snapshot seq " + ToString(snap_impl->GetSequenceNumber()) +
-          " after " + ToString(retry) +
-          " retries is still less than futre_max_evicted_seq_" + ToString(max));
+          "Snapshot seq " + std::to_string(snap_impl->GetSequenceNumber()) +
+          " after " + std::to_string(retry) +
+          " retries is still less than futre_max_evicted_seq_" +
+          std::to_string(max));
     }
   }
   EnhanceSnapshot(snap_impl, min_uncommitted);

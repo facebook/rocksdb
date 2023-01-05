@@ -224,8 +224,8 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
   // Now cf_path_0_ in cache_ has been properly decreased and cf_path_0_'s entry
   // is dropped from cache
   ASSERT_EQ(0, cache_->Size());
-  ASSERT_OK(DestroyDB(dbname_, options,
-      {{"cf1", cf_options}, {"cf2", cf_options}}));
+  ASSERT_OK(
+      DestroyDB(dbname_, options, {{"cf1", cf_options}, {"cf2", cf_options}}));
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
@@ -313,8 +313,8 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
     delete db;
     ASSERT_EQ(0, cache_->Size());
   }
-  ASSERT_OK(DestroyDB(dbname_, options,
-      {{"cf1", cf_options}, {"cf2", cf_options}}));
+  ASSERT_OK(
+      DestroyDB(dbname_, options, {{"cf1", cf_options}, {"cf2", cf_options}}));
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, DestroyColumnFamilyHandle) {
@@ -515,6 +515,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
 #endif  // OS_LINUX
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

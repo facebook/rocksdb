@@ -13,15 +13,14 @@
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-}  // anonymous namespace
+namespace {}  // anonymous namespace
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
@@ -78,6 +77,7 @@ void VersionEdit::Clear() {
   has_max_column_family_ = false;
   has_min_log_number_to_keep_ = false;
   has_last_sequence_ = false;
+  compact_cursors_.clear();
   deleted_files_.clear();
   new_files_.clear();
   blob_file_additions_.clear();
@@ -120,6 +120,13 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_last_sequence_) {
     PutVarint32Varint64(dst, kLastSequence, last_sequence_);
   }
+  for (size_t i = 0; i < compact_cursors_.size(); i++) {
+    if (compact_cursors_[i].second.Valid()) {
+      PutVarint32(dst, kCompactCursor);
+      PutVarint32(dst, compact_cursors_[i].first);  // level
+      PutLengthPrefixedSlice(dst, compact_cursors_[i].second.Encode());
+    }
+  }
   for (const auto& deleted : deleted_files_) {
     PutVarint32Varint32Varint64(dst, kDeletedFile, deleted.first /* level */,
                                 deleted.second /* file number */);
@@ -128,7 +135,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   bool min_log_num_written = false;
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
-    if (!f.smallest.Valid() || !f.largest.Valid()) {
+    if (!f.smallest.Valid() || !f.largest.Valid() ||
+        f.epoch_number == kUnknownEpochNumber) {
       return false;
     }
     PutVarint32(dst, kNewFile4);
@@ -177,22 +185,17 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
                              &varint_file_creation_time);
     PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
 
+    PutVarint32(dst, NewFileCustomTag::kEpochNumber);
+    std::string varint_epoch_number;
+    PutVarint64(&varint_epoch_number, f.epoch_number);
+    PutLengthPrefixedSlice(dst, Slice(varint_epoch_number));
+
     PutVarint32(dst, NewFileCustomTag::kFileChecksum);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
 
     PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
 
-    if (f.max_timestamp != kDisableUserTimestamp) {
-      if (f.min_timestamp.size() != f.max_timestamp.size()) {
-        assert(false);
-        return false;
-      }
-      PutVarint32(dst, NewFileCustomTag::kMinTimestamp);
-      PutLengthPrefixedSlice(dst, Slice(f.min_timestamp));
-      PutVarint32(dst, NewFileCustomTag::kMaxTimestamp);
-      PutLengthPrefixedSlice(dst, Slice(f.max_timestamp));
-    }
     if (f.fd.GetPathId() != 0) {
       PutVarint32(dst, NewFileCustomTag::kPathId);
       char p = static_cast<char>(f.fd.GetPathId());
@@ -221,6 +224,21 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       PutVarint64(&oldest_blob_file_number, f.oldest_blob_file_number);
       PutLengthPrefixedSlice(dst, Slice(oldest_blob_file_number));
     }
+    UniqueId64x2 unique_id = f.unique_id;
+    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:UniqueId", &unique_id);
+    if (unique_id != kNullUniqueId64x2) {
+      PutVarint32(dst, NewFileCustomTag::kUniqueId);
+      std::string unique_id_str = EncodeUniqueIdBytes(&unique_id);
+      PutLengthPrefixedSlice(dst, Slice(unique_id_str));
+    }
+    if (f.compensated_range_deletion_size) {
+      PutVarint32(dst, kCompensatedRangeDeletionSize);
+      std::string compensated_range_deletion_size;
+      PutVarint64(&compensated_range_deletion_size,
+                  f.compensated_range_deletion_size);
+      PutLengthPrefixedSlice(dst, Slice(compensated_range_deletion_size));
+    }
+
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
 
@@ -322,10 +340,6 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         return "new-file4 custom field";
       }
       if (custom_tag == kTerminate) {
-        if (f.min_timestamp.size() != f.max_timestamp.size()) {
-          assert(false);
-          return "new-file4 custom field timestamp size mismatch error";
-        }
         break;
       }
       if (!GetLengthPrefixedSlice(input, &field)) {
@@ -349,6 +363,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         case kFileCreationTime:
           if (!GetVarint64(&field, &f.file_creation_time)) {
             return "invalid file creation time";
+          }
+          break;
+        case kEpochNumber:
+          if (!GetVarint64(&field, &f.epoch_number)) {
+            return "invalid epoch number";
           }
           break;
         case kFileChecksum:
@@ -386,11 +405,16 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             }
           }
           break;
-        case kMinTimestamp:
-          f.min_timestamp = field.ToString();
+        case kUniqueId:
+          if (!DecodeUniqueIdBytes(field.ToString(), &f.unique_id).ok()) {
+            f.unique_id = kNullUniqueId64x2;
+            return "invalid unique id";
+          }
           break;
-        case kMaxTimestamp:
-          f.max_timestamp = field.ToString();
+        case kCompensatedRangeDeletionSize:
+          if (!GetVarint64(&field, &f.compensated_range_deletion_size)) {
+            return "Invalid compensated range deletion size";
+          }
           break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
@@ -497,15 +521,14 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
-      case kCompactPointer:
-        if (GetLevel(&input, &level, &msg) &&
-            GetInternalKey(&input, &key)) {
-          // we don't use compact pointers anymore,
-          // but we should not fail if they are still
-          // in manifest
+      case kCompactCursor:
+        if (GetLevel(&input, &level, &msg) && GetInternalKey(&input, &key)) {
+          // Here we re-use the output format of compact pointer in LevelDB
+          // to persist compact_cursors_
+          compact_cursors_.push_back(std::make_pair(level, key));
         } else {
           if (!msg) {
-            msg = "compaction pointer";
+            msg = "compaction cursor";
           }
         }
         break;
@@ -776,6 +799,12 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  LastSeq: ");
     AppendNumberTo(&r, last_sequence_);
   }
+  for (const auto& level_and_compact_cursor : compact_cursors_) {
+    r.append("\n  CompactCursor: ");
+    AppendNumberTo(&r, level_and_compact_cursor.first);
+    r.append(" ");
+    r.append(level_and_compact_cursor.second.DebugString(hex_key));
+  }
   for (const auto& deleted_file : deleted_files_) {
     r.append("\n  DeleteFile: ");
     AppendNumberTo(&r, deleted_file.first);
@@ -798,17 +827,12 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       r.append(" blob_file:");
       AppendNumberTo(&r, f.oldest_blob_file_number);
     }
-    if (f.min_timestamp != kDisableUserTimestamp) {
-      assert(f.max_timestamp != kDisableUserTimestamp);
-      r.append(" min_timestamp:");
-      r.append(Slice(f.min_timestamp).ToString(true));
-      r.append(" max_timestamp:");
-      r.append(Slice(f.max_timestamp).ToString(true));
-    }
     r.append(" oldest_ancester_time:");
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
+    r.append(" epoch_number:");
+    AppendNumberTo(&r, f.epoch_number);
     r.append(" file_checksum:");
     r.append(Slice(f.file_checksum).ToString(true));
     r.append(" file_checksum_func_name: ");
@@ -817,7 +841,15 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       r.append(" temperature: ");
       // Maybe change to human readable format whenthe feature becomes
       // permanent
-      r.append(ToString(static_cast<int>(f.temperature)));
+      r.append(std::to_string(static_cast<int>(f.temperature)));
+    }
+    if (f.unique_id != kNullUniqueId64x2) {
+      r.append(" unique_id(internal): ");
+      UniqueId64x2 id = f.unique_id;
+      r.append(InternalUniqueIdToHumanString(&id));
+      r.append(" public_unique_id: ");
+      InternalUniqueIdToExternal(&id);
+      r.append(UniqueIdToHumanString(EncodeUniqueIdBytes(&id)));
     }
   }
 
@@ -918,17 +950,13 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "FileSize" << f.fd.GetFileSize();
       jw << "SmallestIKey" << f.smallest.DebugString(hex_key);
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
-      if (f.min_timestamp != kDisableUserTimestamp) {
-        assert(f.max_timestamp != kDisableUserTimestamp);
-        jw << "MinTimestamp" << Slice(f.min_timestamp).ToString(true);
-        jw << "MaxTimestamp" << Slice(f.max_timestamp).ToString(true);
-      }
       jw << "OldestAncesterTime" << f.oldest_ancester_time;
       jw << "FileCreationTime" << f.file_creation_time;
+      jw << "EpochNumber" << f.epoch_number;
       jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
       jw << "FileChecksumFuncName" << f.file_checksum_func_name;
       if (f.temperature != Temperature::kUnknown) {
-        jw << "temperature" << ToString(static_cast<int>(f.temperature));
+        jw << "temperature" << std::to_string(static_cast<int>(f.temperature));
       }
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;

@@ -77,9 +77,7 @@ class CuckooTableDBTest : public testing::Test {
     return db_->Put(WriteOptions(), k, v);
   }
 
-  Status Delete(const std::string& k) {
-    return db_->Delete(WriteOptions(), k);
-  }
+  Status Delete(const std::string& k) { return db_->Delete(WriteOptions(), k); }
 
   std::string Get(const std::string& k) {
     ReadOptions options;
@@ -95,8 +93,8 @@ class CuckooTableDBTest : public testing::Test {
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
-                                 &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + std::to_string(level), &property));
     return atoi(property.c_str());
   }
 
@@ -313,23 +311,21 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
   // Write some keys using plain table.
   std::shared_ptr<TableFactory> block_based_factory(
       NewBlockBasedTableFactory());
-  std::shared_ptr<TableFactory> plain_table_factory(
-      NewPlainTableFactory());
-  std::shared_ptr<TableFactory> cuckoo_table_factory(
-      NewCuckooTableFactory());
+  std::shared_ptr<TableFactory> plain_table_factory(NewPlainTableFactory());
+  std::shared_ptr<TableFactory> cuckoo_table_factory(NewCuckooTableFactory());
   options.create_if_missing = false;
-  options.table_factory.reset(NewAdaptiveTableFactory(
-    plain_table_factory, block_based_factory, plain_table_factory,
-    cuckoo_table_factory));
+  options.table_factory.reset(
+      NewAdaptiveTableFactory(plain_table_factory, block_based_factory,
+                              plain_table_factory, cuckoo_table_factory));
   Reopen(&options);
   ASSERT_OK(Put("key4", "v4"));
   ASSERT_OK(Put("key1", "v5"));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   // Write some keys using block based table.
-  options.table_factory.reset(NewAdaptiveTableFactory(
-    block_based_factory, block_based_factory, plain_table_factory,
-    cuckoo_table_factory));
+  options.table_factory.reset(
+      NewAdaptiveTableFactory(block_based_factory, block_based_factory,
+                              plain_table_factory, cuckoo_table_factory));
   Reopen(&options);
   ASSERT_OK(Put("key5", "v6"));
   ASSERT_OK(Put("key2", "v7"));
@@ -345,6 +341,7 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
 
 int main(int argc, char** argv) {
   if (ROCKSDB_NAMESPACE::port::kLittleEndian) {
+    ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
   } else {

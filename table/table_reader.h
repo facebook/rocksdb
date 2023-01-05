@@ -9,12 +9,17 @@
 
 #pragma once
 #include <memory>
+
 #include "db/range_tombstone_fragmenter.h"
+#if USE_COROUTINES
+#include "folly/experimental/coro/Coroutine.h"
+#include "folly/experimental/coro/Task.h"
+#endif
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/table_reader_caller.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/multiget_context.h"
-#include "table/table_reader_caller.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -82,6 +87,20 @@ class TableReader {
   virtual uint64_t ApproximateSize(const Slice& start, const Slice& end,
                                    TableReaderCaller caller) = 0;
 
+  struct Anchor {
+    Anchor(const Slice& _user_key, size_t _range_size)
+        : user_key(_user_key.ToStringView()), range_size(_range_size) {}
+    std::string user_key;
+    size_t range_size;
+  };
+
+  // Now try to return approximately 128 anchor keys.
+  // The last one tends to be the largest key.
+  virtual Status ApproximateKeyAnchors(const ReadOptions& /*read_options*/,
+                                       std::vector<Anchor>& /*anchors*/) {
+    return Status::NotSupported("ApproximateKeyAnchors() not supported.");
+  }
+
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   virtual void SetupForCompaction() = 0;
@@ -110,6 +129,15 @@ class TableReader {
                      const SliceTransform* prefix_extractor,
                      bool skip_filters = false) = 0;
 
+  // Use bloom filters in the table file, if present, to filter out keys. The
+  // mget_range will be updated to skip keys that get a negative result from
+  // the filter lookup.
+  virtual Status MultiGetFilter(const ReadOptions& /*readOptions*/,
+                                const SliceTransform* /*prefix_extractor*/,
+                                MultiGetContext::Range* /*mget_range*/) {
+    return Status::NotSupported();
+  }
+
   virtual void MultiGet(const ReadOptions& readOptions,
                         const MultiGetContext::Range* mget_range,
                         const SliceTransform* prefix_extractor,
@@ -120,13 +148,22 @@ class TableReader {
     }
   }
 
+#if USE_COROUTINES
+  virtual folly::coro::Task<void> MultiGetCoroutine(
+      const ReadOptions& readOptions, const MultiGetContext::Range* mget_range,
+      const SliceTransform* prefix_extractor, bool skip_filters = false) {
+    MultiGet(readOptions, mget_range, prefix_extractor, skip_filters);
+    co_return;
+  }
+#endif  // USE_COROUTINES
+
   // Prefetch data corresponding to a give range of keys
   // Typically this functionality is required for table implementations that
   // persists the data on a non volatile storage medium like disk/SSD
   virtual Status Prefetch(const Slice* begin = nullptr,
                           const Slice* end = nullptr) {
-    (void) begin;
-    (void) end;
+    (void)begin;
+    (void)end;
     // Default implementation is NOOP.
     // The child class should implement functionality when applicable
     return Status::OK();

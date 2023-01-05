@@ -9,10 +9,9 @@
 
 #include <string>
 
-#include "port/port.h"
-
 #include "db/compaction/compaction.h"
 #include "file/delete_scheduler.h"
+#include "port/port.h"
 #include "rocksdb/sst_file_manager.h"
 
 namespace ROCKSDB_NAMESPACE {

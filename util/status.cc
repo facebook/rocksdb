@@ -8,11 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/status.h"
+
 #include <stdio.h>
 #ifdef OS_WIN
 #include <string.h>
 #endif
 #include <cstring>
+
 #include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -65,6 +67,13 @@ Status::Status(Code _code, SubCode _subcode, const Slice& msg,
   }
   result[size] = '\0';  // null terminator for C style string
   state_.reset(result);
+}
+
+Status Status::CopyAppendMessage(const Status& s, const Slice& delim,
+                                 const Slice& msg) {
+  // (No attempt at efficiency)
+  return Status(s.code(), s.subcode(), s.severity(),
+                std::string(s.getState()) + delim.ToString() + msg.ToString());
 }
 
 std::string Status::ToString() const {

@@ -89,7 +89,7 @@ class TestCompactionListener : public EventListener {
  public:
   explicit TestCompactionListener(EventListenerTest* test) : test_(test) {}
 
-  void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) override {
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
     std::lock_guard<std::mutex> lock(mutex_);
     compacted_dbs_.push_back(db);
     ASSERT_GT(ci.input_files.size(), 0U);
@@ -172,9 +172,9 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
 
   TestCompactionListener* listener = new TestCompactionListener(this);
   options.listeners.emplace_back(listener);
-  std::vector<std::string> cf_names = {
-      "pikachu", "ilya", "muromec", "dobrynia",
-      "nikitich", "alyosha", "popovich"};
+  std::vector<std::string> cf_names = {"pikachu",  "ilya",     "muromec",
+                                       "dobrynia", "nikitich", "alyosha",
+                                       "popovich"};
   CreateAndReopenWithCF(cf_names, options);
   ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
 
@@ -214,8 +214,7 @@ class TestFlushListener : public EventListener {
   virtual ~TestFlushListener() {
     prev_fc_info_.status.PermitUncheckedError();  // Ignore the status
   }
-  void OnTableFileCreated(
-      const TableFileCreationInfo& info) override {
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
     // remember the info for later checking the FlushJobInfo.
     prev_fc_info_ = info;
     ASSERT_GT(info.db_name.size(), 0U);
@@ -250,8 +249,7 @@ class TestFlushListener : public EventListener {
 #endif  // ROCKSDB_USING_THREAD_STATUS
   }
 
-  void OnFlushCompleted(
-      DB* db, const FlushJobInfo& info) override {
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     flushed_dbs_.push_back(db);
     flushed_column_family_names_.push_back(info.cf_name);
     if (info.triggered_writes_slowdown) {
@@ -317,9 +315,9 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
 #endif  // ROCKSDB_USING_THREAD_STATUS
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-  std::vector<std::string> cf_names = {
-      "pikachu", "ilya", "muromec", "dobrynia",
-      "nikitich", "alyosha", "popovich"};
+  std::vector<std::string> cf_names = {"pikachu",  "ilya",     "muromec",
+                                       "dobrynia", "nikitich", "alyosha",
+                                       "popovich"};
   options.table_properties_collector_factories.push_back(
       std::make_shared<TestPropertiesCollectorFactory>());
   CreateAndReopenWithCF(cf_names, options);
@@ -421,9 +419,9 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
     listeners.emplace_back(new TestFlushListener(options.env, this));
   }
 
-  std::vector<std::string> cf_names = {
-      "pikachu", "ilya", "muromec", "dobrynia",
-      "nikitich", "alyosha", "popovich"};
+  std::vector<std::string> cf_names = {"pikachu",  "ilya",     "muromec",
+                                       "dobrynia", "nikitich", "alyosha",
+                                       "popovich"};
 
   options.create_if_missing = true;
   for (int i = 0; i < kNumListeners; ++i) {
@@ -433,13 +431,13 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   ColumnFamilyOptions cf_opts(options);
 
   std::vector<DB*> dbs;
-  std::vector<std::vector<ColumnFamilyHandle *>> vec_handles;
+  std::vector<std::vector<ColumnFamilyHandle*>> vec_handles;
 
   for (int d = 0; d < kNumDBs; ++d) {
-    ASSERT_OK(DestroyDB(dbname_ + ToString(d), options));
+    ASSERT_OK(DestroyDB(dbname_ + std::to_string(d), options));
     DB* db;
     std::vector<ColumnFamilyHandle*> handles;
-    ASSERT_OK(DB::Open(options, dbname_ + ToString(d), &db));
+    ASSERT_OK(DB::Open(options, dbname_ + std::to_string(d), &db));
     for (size_t c = 0; c < cf_names.size(); ++c) {
       ColumnFamilyHandle* handle;
       ASSERT_OK(db->CreateColumnFamily(cf_opts, cf_names[c], &handle));
@@ -452,8 +450,8 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
 
   for (int d = 0; d < kNumDBs; ++d) {
     for (size_t c = 0; c < cf_names.size(); ++c) {
-      ASSERT_OK(dbs[d]->Put(WriteOptions(), vec_handles[d][c],
-                cf_names[c], cf_names[c]));
+      ASSERT_OK(dbs[d]->Put(WriteOptions(), vec_handles[d][c], cf_names[c],
+                            cf_names[c]));
     }
   }
 
@@ -482,7 +480,6 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
       }
     }
   }
-
 
   for (auto handles : vec_handles) {
     for (auto h : handles) {
@@ -527,7 +524,8 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   // keep writing until writes are forced to stop.
   for (int i = 0; static_cast<int>(cf_meta.file_count) < kSlowdownTrigger * 10;
        ++i) {
-    ASSERT_OK(Put(1, ToString(i), std::string(10000, 'x'), WriteOptions()));
+    ASSERT_OK(
+        Put(1, std::to_string(i), std::string(10000, 'x'), WriteOptions()));
     FlushOptions fo;
     fo.allow_write_stall = true;
     ASSERT_OK(db_->Flush(fo, handles_[1]));
@@ -886,16 +884,17 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
 }
 
 class MemTableSealedListener : public EventListener {
-private:
+ private:
   SequenceNumber latest_seq_number_;
-public:
+
+ public:
   MemTableSealedListener() {}
   void OnMemTableSealed(const MemTableInfo& info) override {
     latest_seq_number_ = info.first_seqno;
   }
 
   void OnFlushCompleted(DB* /*db*/,
-    const FlushJobInfo& flush_job_info) override {
+                        const FlushJobInfo& flush_job_info) override {
     ASSERT_LE(flush_job_info.smallest_seqno, latest_seq_number_);
   }
 };
@@ -910,8 +909,8 @@ TEST_F(EventListenerTest, MemTableSealedListenerTest) {
 
   for (unsigned int i = 0; i < 10; i++) {
     std::string tag = std::to_string(i);
-    ASSERT_OK(Put("foo"+tag, "aaa"));
-    ASSERT_OK(Put("bar"+tag, "bbb"));
+    ASSERT_OK(Put("foo" + tag, "aaa"));
+    ASSERT_OK(Put("bar" + tag, "bbb"));
 
     ASSERT_OK(Flush());
   }
@@ -1590,6 +1589,7 @@ TEST_F(EventListenerTest, BlobDBFileTest) {
 #endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

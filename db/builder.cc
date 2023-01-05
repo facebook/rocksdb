@@ -37,6 +37,7 @@
 #include "table/block_based/block_based_table_builder.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
@@ -65,12 +66,14 @@ Status BuildTable(
     SequenceNumber job_snapshot, SnapshotChecker* snapshot_checker,
     bool paranoid_file_checks, InternalStats* internal_stats,
     IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
-    BlobFileCreationReason blob_creation_reason, EventLogger* event_logger,
+    BlobFileCreationReason blob_creation_reason,
+    const SeqnoToTimeMapping& seqno_to_time_mapping, EventLogger* event_logger,
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
-    uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes) {
+    BlobFileCompletionCallback* blob_callback, Version* version,
+    uint64_t* num_input_entries, uint64_t* memtable_payload_bytes,
+    uint64_t* memtable_garbage_bytes) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -88,7 +91,7 @@ Status BuildTable(
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
-                                       snapshots));
+                                       snapshots, full_history_ts_low));
   uint64_t num_unfragmented_tombstones = 0;
   uint64_t total_tombstone_payload_bytes = 0;
   for (auto& range_del_iter : range_del_iters) {
@@ -180,15 +183,19 @@ Status BuildTable(
         snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
-        (mutable_cf_options.enable_blob_files && blob_file_additions)
+        (mutable_cf_options.enable_blob_files &&
+         tboptions.level_at_creation >=
+             mutable_cf_options.blob_file_starting_level &&
+         blob_file_additions)
             ? new BlobFileBuilder(
                   versions, fs, &ioptions, &mutable_cf_options, &file_options,
-                  job_id, tboptions.column_family_id,
-                  tboptions.column_family_name, io_priority, write_hint,
-                  io_tracer, blob_callback, blob_creation_reason,
-                  &blob_file_paths, blob_file_additions)
+                  tboptions.db_id, tboptions.db_session_id, job_id,
+                  tboptions.column_family_id, tboptions.column_family_name,
+                  io_priority, write_hint, io_tracer, blob_callback,
+                  blob_creation_reason, &blob_file_paths, blob_file_additions)
             : nullptr);
 
+    const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
         iter, tboptions.internal_comparator.user_comparator(), &merge,
         kMaxSequenceNumber, &snapshots, earliest_write_conflict_snapshot,
@@ -196,11 +203,10 @@ Status BuildTable(
         ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
+        ioptions.enforce_single_del_contracts,
+        /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
         /*compaction=*/nullptr, compaction_filter.get(),
-        /*shutting_down=*/nullptr,
-        /*manual_compaction_paused=*/nullptr,
-        /*manual_compaction_canceled=*/nullptr, db_options.info_log,
-        full_history_ts_low);
+        /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
@@ -241,9 +247,17 @@ Status BuildTable(
         auto tombstone = range_del_it->Tombstone();
         auto kv = tombstone.Serialize();
         builder->Add(kv.first.Encode(), kv.second);
-        meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
-                                       tombstone.seq_,
+        InternalKey tombstone_end = tombstone.SerializeEndKey();
+        meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,
                                        tboptions.internal_comparator);
+        if (version) {
+          SizeApproximationOptions approx_opts;
+          approx_opts.files_size_error_margin = 0.1;
+          meta->compensated_range_deletion_size += versions->ApproximateSize(
+              approx_opts, version, kv.first.Encode(), tombstone_end.Encode(),
+              0 /* start_level */, -1 /* end_level */,
+              TableReaderCaller::kFlush);
+        }
       }
     }
 
@@ -256,6 +270,15 @@ Status BuildTable(
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
+      std::string seqno_time_mapping_str;
+      seqno_to_time_mapping.Encode(
+          seqno_time_mapping_str, meta->fd.smallest_seqno,
+          meta->fd.largest_seqno, meta->file_creation_time);
+      builder->SetSeqnoTimeTableProperties(
+          seqno_time_mapping_str,
+          ioptions.compaction_style == CompactionStyle::kCompactionStyleFIFO
+              ? meta->file_creation_time
+              : meta->oldest_ancester_time);
       s = builder->Finish();
     }
     if (io_status->ok()) {
@@ -267,7 +290,8 @@ Status BuildTable(
       meta->fd.file_size = file_size;
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
-      tp = builder->GetTableProperties(); // refresh now that builder is finished
+      tp = builder
+               ->GetTableProperties();  // refresh now that builder is finished
       if (memtable_payload_bytes != nullptr &&
           memtable_garbage_bytes != nullptr) {
         const CompactionIterationStats& ci_stats = c_iter.iter_stats();
@@ -309,6 +333,15 @@ Status BuildTable(
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
       file_checksum = meta->file_checksum;
       file_checksum_func_name = meta->file_checksum_func_name;
+      // Set unique_id only if db_id and db_session_id exist
+      if (!tboptions.db_id.empty() && !tboptions.db_session_id.empty()) {
+        if (!GetSstInternalUniqueId(tboptions.db_id, tboptions.db_session_id,
+                                    meta->fd.GetNumber(), &(meta->unique_id))
+                 .ok()) {
+          // if failed to get unique id, just set it Null
+          meta->unique_id = kNullUniqueId64x2;
+        }
+      }
     }
 
     if (s.ok()) {
@@ -330,10 +363,9 @@ Status BuildTable(
     if (s.ok() && !empty) {
       // Verify that the table is usable
       // We set for_compaction to false and don't OptimizeForCompactionTableRead
-      // here because this is a special case after we finish the table building
+      // here because this is a special case after we finish the table building.
       // No matter whether use_direct_io_for_flush_and_compaction is true,
-      // we will regrad this verification as user reads since the goal is
-      // to cache it here for further user reads
+      // the goal is to cache it here for further user reads.
       ReadOptions read_options;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           read_options, file_options, tboptions.internal_comparator, *meta,

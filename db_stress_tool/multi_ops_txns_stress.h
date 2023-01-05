@@ -222,23 +222,19 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                  const ReadOptions& read_opts, const std::vector<int>& cf_ids,
-                 const std::vector<int64_t>& keys, char (&value)[100],
-                 std::unique_ptr<MutexLock>& lock) override;
+                 const std::vector<int64_t>& keys, char (&value)[100]) override;
 
   Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
                     const std::vector<int>& rand_column_families,
-                    const std::vector<int64_t>& rand_keys,
-                    std::unique_ptr<MutexLock>& lock) override;
+                    const std::vector<int64_t>& rand_keys) override;
 
   Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
                          const std::vector<int>& rand_column_families,
-                         const std::vector<int64_t>& rand_keys,
-                         std::unique_ptr<MutexLock>& lock) override;
+                         const std::vector<int64_t>& rand_keys) override;
 
   void TestIngestExternalFile(ThreadState* thread,
                               const std::vector<int>& rand_column_families,
-                              const std::vector<int64_t>& rand_keys,
-                              std::unique_ptr<MutexLock>& lock) override;
+                              const std::vector<int64_t>& rand_keys) override;
 
   void TestCompactRange(ThreadState* thread, int64_t rand_key,
                         const Slice& start_key,
@@ -349,6 +345,10 @@ class MultiOpsTxnsStressTest : public StressTest {
   uint32_t GenerateNextC(ThreadState* thread);
 
 #ifndef ROCKSDB_LITE
+  // Randomly commit or rollback `txn`
+  void ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
+                                          SharedState*) override;
+
   // Some applications, e.g. MyRocks writes a KV pair to the database via
   // commit-time-write-batch (ctwb) in additional to the transaction's regular
   // write batch. The key is usually constant representing some system
@@ -356,6 +356,13 @@ class MultiOpsTxnsStressTest : public StressTest {
   // actual value of the metadata. Method WriteToCommitTimeWriteBatch()
   // emulates this scenario.
   Status WriteToCommitTimeWriteBatch(Transaction& txn);
+
+  Status CommitAndCreateTimestampedSnapshotIfNeeded(ThreadState* thread,
+                                                    Transaction& txn);
+
+  void SetupSnapshot(ThreadState* thread, ReadOptions& read_opts,
+                     Transaction& txn,
+                     std::shared_ptr<const Snapshot>& snapshot);
 #endif  //! ROCKSDB_LITE
 
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_a_;

@@ -28,7 +28,7 @@ namespace log {
 /**
  * Writer is a general purpose log stream writer. It provides an append-only
  * abstraction for writing data. The details of the how the data is written is
- * handled by the WriteableFile sub-class implementation.
+ * handled by the WritableFile sub-class implementation.
  *
  * File format:
  *
@@ -96,11 +96,11 @@ class Writer {
 
   IOStatus Close();
 
-  bool TEST_BufferIsEmpty();
+  bool BufferIsEmpty();
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;
-  size_t block_offset_;       // Current offset in block
+  size_t block_offset_;  // Current offset in block
   uint64_t log_number_;
   bool recycle_log_files_;
 

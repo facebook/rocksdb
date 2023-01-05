@@ -100,6 +100,10 @@ const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
     "blob_garbage_collection_force_threshold";
 const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
     "blob_compaction_readahead_size";
+const std::string LDBCommand::ARG_BLOB_FILE_STARTING_LEVEL =
+    "blob_file_starting_level";
+const std::string LDBCommand::ARG_PREPOPULATE_BLOB_CACHE =
+    "prepopulate_blob_cache";
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
 const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
     "dump_uncompressed_blobs";
@@ -113,11 +117,12 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  LDBCommandExecuteResult* exec_state);
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties, bool decode_blob_index);
+                 bool show_properties, bool decode_blob_index,
+                 std::string from_key = "", std::string to_key = "");
 
 void DumpBlobFile(const std::string& filename, bool is_key_hex,
                   bool is_value_hex, bool dump_uncompressed_blobs);
-};
+};  // namespace
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
     int argc, char const* const* argv, const Options& options,
@@ -160,7 +165,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
   const std::string OPTION_PREFIX = "--";
 
   for (const auto& arg : args) {
-    if (arg[0] == '-' && arg[1] == '-'){
+    if (arg[0] == '-' && arg[1] == '-') {
       std::vector<std::string> splits = StringSplit(arg, '=');
       // --option_name=option_value
       if (splits.size() == 2) {
@@ -214,6 +219,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   } else if (parsed_params.cmd == DeleteCommand::Name()) {
     return new DeleteCommand(parsed_params.cmd_params, parsed_params.option_map,
                              parsed_params.flags);
+  } else if (parsed_params.cmd == SingleDeleteCommand::Name()) {
+    return new SingleDeleteCommand(parsed_params.cmd_params,
+                                   parsed_params.option_map,
+                                   parsed_params.flags);
   } else if (parsed_params.cmd == DeleteRangeCommand::Name()) {
     return new DeleteRangeCommand(parsed_params.cmd_params,
                                   parsed_params.option_map,
@@ -286,8 +295,7 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
                                        parsed_params.flags);
   } else if (parsed_params.cmd == CheckPointCommand::Name()) {
     return new CheckPointCommand(parsed_params.cmd_params,
-                                 parsed_params.option_map,
-                                 parsed_params.flags);
+                                 parsed_params.option_map, parsed_params.flags);
   } else if (parsed_params.cmd == RepairCommand::Name()) {
     return new RepairCommand(parsed_params.cmd_params, parsed_params.option_map,
                              parsed_params.flags);
@@ -505,6 +513,8 @@ void LDBCommand::CloseDB() {
     for (auto& pair : cf_handles_) {
       delete pair.second;
     }
+    Status s = db_->Close();
+    s.PermitUncheckedError();
     delete db_;
     db_ = nullptr;
   }
@@ -547,6 +557,8 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF,
                                   ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD,
                                   ARG_BLOB_COMPACTION_READAHEAD_SIZE,
+                                  ARG_BLOB_FILE_STARTING_LEVEL,
+                                  ARG_PREPOPULATE_BLOB_CACHE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
@@ -813,6 +825,34 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     }
   }
 
+  int blob_file_starting_level;
+  if (ParseIntOption(option_map_, ARG_BLOB_FILE_STARTING_LEVEL,
+                     blob_file_starting_level, exec_state_)) {
+    if (blob_file_starting_level >= 0) {
+      cf_opts->blob_file_starting_level = blob_file_starting_level;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_FILE_STARTING_LEVEL + " must be >= 0.");
+    }
+  }
+
+  int prepopulate_blob_cache;
+  if (ParseIntOption(option_map_, ARG_PREPOPULATE_BLOB_CACHE,
+                     prepopulate_blob_cache, exec_state_)) {
+    switch (prepopulate_blob_cache) {
+      case 0:
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+        break;
+      case 1:
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+        break;
+      default:
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            ARG_PREPOPULATE_BLOB_CACHE +
+            " must be 0 (disable) or 1 (flush only).");
+    }
+  }
+
   auto itr = option_map_.find(ARG_AUTO_COMPACTION);
   if (itr != option_map_.end()) {
     cf_opts->disable_auto_compactions = !StringToBool(itr->second);
@@ -843,7 +883,7 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
 
   int write_buffer_size;
   if (ParseIntOption(option_map_, ARG_WRITE_BUFFER_SIZE, write_buffer_size,
-        exec_state_)) {
+                     exec_state_)) {
     if (write_buffer_size > 0) {
       cf_opts->write_buffer_size = write_buffer_size;
     } else {
@@ -1243,7 +1283,7 @@ void DBLoaderCommand::DoCommand() {
     } else if (0 == line.find("Created bg thread 0x")) {
       // ignore this line
     } else {
-      bad_lines ++;
+      bad_lines++;
     }
   }
 
@@ -1286,7 +1326,7 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
+                      /*db_id*/ "", /*db_session_id*/ "");
   Status s = versions.DumpManifest(options, file, verbose, hex, json);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
@@ -1332,7 +1372,6 @@ ManifestDumpCommand::ManifestDumpCommand(
 }
 
 void ManifestDumpCommand::DoCommand() {
-
   std::string manifestfile;
 
   if (!path_.empty()) {
@@ -1428,7 +1467,7 @@ Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
+                      /*db_id*/ "", /*db_session_id*/ "");
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
                                   immutable_db_options.fs.get());
@@ -1689,7 +1728,7 @@ void IncBucketCounts(std::vector<uint64_t>& bucket_counts, int ttl_start,
   (void)num_buckets;
 #endif
   assert(time_range > 0 && timekv >= ttl_start && bucket_size > 0 &&
-    timekv < (ttl_start + time_range) && num_buckets > 1);
+         timekv < (ttl_start + time_range) && num_buckets > 1);
   int bucket = (timekv - ttl_start) / bucket_size;
   bucket_counts[bucket]++;
 }
@@ -1698,7 +1737,7 @@ void PrintBucketCounts(const std::vector<uint64_t>& bucket_counts,
                        int ttl_start, int ttl_end, int bucket_size,
                        int num_buckets) {
   int time_point = ttl_start;
-  for(int i = 0; i < num_buckets - 1; i++, time_point += bucket_size) {
+  for (int i = 0; i < num_buckets - 1; i++, time_point += bucket_size) {
     fprintf(stdout, "Keys in range %s to %s : %lu\n",
             TimeToHumanString(time_point).c_str(),
             TimeToHumanString(time_point + bucket_size).c_str(),
@@ -1743,10 +1782,10 @@ InternalDumpCommand::InternalDumpCommand(
   if (itr != options.end()) {
     delim_ = itr->second;
     count_delim_ = true;
-   // fprintf(stdout,"delim = %c\n",delim_[0]);
+    // fprintf(stdout,"delim = %c\n",delim_[0]);
   } else {
     count_delim_ = IsFlagPresent(flags, ARG_COUNT_DELIM);
-    delim_=".";
+    delim_ = ".";
   }
 
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
@@ -1800,8 +1839,8 @@ void InternalDumpCommand::DoCommand() {
   }
   std::string rtype1, rtype2, row, val;
   rtype2 = "";
-  uint64_t c=0;
-  uint64_t s1=0,s2=0;
+  uint64_t c = 0;
+  uint64_t s1 = 0, s2 = 0;
 
   long long count = 0;
   for (auto& key_version : key_versions) {
@@ -1816,25 +1855,24 @@ void InternalDumpCommand::DoCommand() {
     int k;
     if (count_delim_) {
       rtype1 = "";
-      s1=0;
+      s1 = 0;
       row = ikey.Encode().ToString();
       val = key_version.value;
-      for(k=0;row[k]!='\x01' && row[k]!='\0';k++)
-        s1++;
-      for(k=0;val[k]!='\x01' && val[k]!='\0';k++)
-        s1++;
-      for(int j=0;row[j]!=delim_[0] && row[j]!='\0' && row[j]!='\x01';j++)
-        rtype1+=row[j];
-      if(rtype2.compare("") && rtype2.compare(rtype1)!=0) {
+      for (k = 0; row[k] != '\x01' && row[k] != '\0'; k++) s1++;
+      for (k = 0; val[k] != '\x01' && val[k] != '\0'; k++) s1++;
+      for (int j = 0; row[j] != delim_[0] && row[j] != '\0' && row[j] != '\x01';
+           j++)
+        rtype1 += row[j];
+      if (rtype2.compare("") && rtype2.compare(rtype1) != 0) {
         fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
                 rtype2.c_str(), c, s2);
-        c=1;
-        s2=s1;
+        c = 1;
+        s2 = s1;
         rtype2 = rtype1;
       } else {
         c++;
-        s2+=s1;
-        rtype2=rtype1;
+        s2 += s1;
+        rtype2 = rtype1;
       }
     }
 
@@ -1860,7 +1898,7 @@ void InternalDumpCommand::DoCommand() {
     // Terminate if maximum number of keys have been dumped
     if (max_keys_ > 0 && count >= max_keys_) break;
   }
-  if(count_delim_) {
+  if (count_delim_) {
     fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
             rtype2.c_str(), c, s2);
   } else {
@@ -1925,7 +1963,7 @@ DBDumperCommand::DBDumperCommand(
     count_delim_ = true;
   } else {
     count_delim_ = IsFlagPresent(flags, ARG_COUNT_DELIM);
-    delim_=".";
+    delim_ = ".";
   }
 
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
@@ -2005,7 +2043,7 @@ void DBDumperCommand::DoCommand() {
         break;
       case kTableFile:
         DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true,
-                    decode_blob_index_);
+                    decode_blob_index_, from_, to_);
         break;
       case kDescriptorFile:
         DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
@@ -2073,13 +2111,13 @@ void DBDumperCommand::DoDumpCommand() {
   int bucket_size;
   if (!ParseIntOption(option_map_, ARG_TTL_BUCKET, bucket_size, exec_state_) ||
       bucket_size <= 0) {
-    bucket_size = time_range; // Will have just 1 bucket by default
+    bucket_size = time_range;  // Will have just 1 bucket by default
   }
-  //cretaing variables for row count of each type
+  // cretaing variables for row count of each type
   std::string rtype1, rtype2, row, val;
   rtype2 = "";
-  uint64_t c=0;
-  uint64_t s1=0,s2=0;
+  uint64_t c = 0;
+  uint64_t s1 = 0, s2 = 0;
 
   // At this point, bucket_size=0 => time_range=0
   int num_buckets = (bucket_size >= time_range)
@@ -2097,11 +2135,9 @@ void DBDumperCommand::DoDumpCommand() {
   for (; iter->Valid(); iter->Next()) {
     int rawtime = 0;
     // If end marker was specified, we stop before it
-    if (!null_to_ && (iter->key().ToString() >= to_))
-      break;
+    if (!null_to_ && (iter->key().ToString() >= to_)) break;
     // Terminate if maximum number of keys have been dumped
-    if (max_keys == 0)
-      break;
+    if (max_keys == 0) break;
     if (is_db_ttl_) {
       TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(iter);
       rawtime = it_ttl->ttl_timestamp();
@@ -2121,21 +2157,20 @@ void DBDumperCommand::DoDumpCommand() {
       rtype1 = "";
       row = iter->key().ToString();
       val = iter->value().ToString();
-      s1 = row.size()+val.size();
-      for(int j=0;row[j]!=delim_[0] && row[j]!='\0';j++)
-        rtype1+=row[j];
-      if(rtype2.compare("") && rtype2.compare(rtype1)!=0) {
+      s1 = row.size() + val.size();
+      for (int j = 0; row[j] != delim_[0] && row[j] != '\0'; j++)
+        rtype1 += row[j];
+      if (rtype2.compare("") && rtype2.compare(rtype1) != 0) {
         fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
                 rtype2.c_str(), c, s2);
-        c=1;
-        s2=s1;
+        c = 1;
+        s2 = s1;
         rtype2 = rtype1;
       } else {
-          c++;
-          s2+=s1;
-          rtype2=rtype1;
+        c++;
+        s2 += s1;
+        rtype2 = rtype1;
       }
-
     }
 
     if (count_only_) {
@@ -2156,7 +2191,7 @@ void DBDumperCommand::DoDumpCommand() {
   if (num_buckets > 1 && is_db_ttl_) {
     PrintBucketCounts(bucket_counts, ttl_start, ttl_end, bucket_size,
                       num_buckets);
-  } else if(count_delim_) {
+  } else if (count_delim_) {
     fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
             rtype2.c_str(), c, s2);
   } else {
@@ -2187,7 +2222,7 @@ ReduceDBLevelsCommand::ReduceDBLevelsCommand(
   ParseIntOption(option_map_, ARG_NEW_LEVELS, new_levels_, exec_state_);
   print_old_levels_ = IsFlagPresent(flags, ARG_PRINT_OLD_LEVELS);
 
-  if(new_levels_ <= 0) {
+  if (new_levels_ <= 0) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         " Use --" + ARG_NEW_LEVELS + " to specify a new level number\n");
   }
@@ -2198,9 +2233,8 @@ std::vector<std::string> ReduceDBLevelsCommand::PrepareArgs(
   std::vector<std::string> ret;
   ret.push_back("reduce_levels");
   ret.push_back("--" + ARG_DB + "=" + db_path);
-  ret.push_back("--" + ARG_NEW_LEVELS + "=" +
-                ROCKSDB_NAMESPACE::ToString(new_levels));
-  if(print_old_level) {
+  ret.push_back("--" + ARG_NEW_LEVELS + "=" + std::to_string(new_levels));
+  if (print_old_level) {
     ret.push_back("--" + ARG_PRINT_OLD_LEVELS);
   }
   return ret;
@@ -2225,8 +2259,7 @@ void ReduceDBLevelsCommand::OverrideBaseCFOptions(
   cf_opts->max_bytes_for_level_multiplier = 1;
 }
 
-Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
-    int* levels) {
+Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt, int* levels) {
   ImmutableDBOptions db_options(opt);
   EnvOptions soptions;
   std::shared_ptr<Cache> tc(
@@ -2236,7 +2269,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   WriteBufferManager wb(opt.db_write_buffer_size);
   VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
+                      /*db_id*/ "", /*db_session_id*/ "");
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));
@@ -2324,9 +2357,9 @@ ChangeCompactionStyleCommand::ChangeCompactionStyleCommand(
       old_compaction_style_(-1),
       new_compaction_style_(-1) {
   ParseIntOption(option_map_, ARG_OLD_COMPACTION_STYLE, old_compaction_style_,
-    exec_state_);
+                 exec_state_);
   if (old_compaction_style_ != kCompactionStyleLevel &&
-     old_compaction_style_ != kCompactionStyleUniversal) {
+      old_compaction_style_ != kCompactionStyleUniversal) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "Use --" + ARG_OLD_COMPACTION_STYLE + " to specify old compaction " +
         "style. Check ldb help for proper compaction style value.\n");
@@ -2334,9 +2367,9 @@ ChangeCompactionStyleCommand::ChangeCompactionStyleCommand(
   }
 
   ParseIntOption(option_map_, ARG_NEW_COMPACTION_STYLE, new_compaction_style_,
-    exec_state_);
+                 exec_state_);
   if (new_compaction_style_ != kCompactionStyleLevel &&
-     new_compaction_style_ != kCompactionStyleUniversal) {
+      new_compaction_style_ != kCompactionStyleUniversal) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "Use --" + ARG_NEW_COMPACTION_STYLE + " to specify new compaction " +
         "style. Check ldb help for proper compaction style value.\n");
@@ -2393,7 +2426,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
   std::string property;
   std::string files_per_level;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
+    db_->GetProperty(GetCfHandle(),
+                     "rocksdb.num-files-at-level" + std::to_string(i),
                      &property);
 
     // format print string
@@ -2421,7 +2455,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
   files_per_level = "";
   int num_files = 0;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
+    db_->GetProperty(GetCfHandle(),
+                     "rocksdb.num-files-at-level" + std::to_string(i),
                      &property);
 
     // format print string
@@ -2436,7 +2471,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Number of db files at "
           "level 0 after compaction is " +
-          ToString(num_files) + ", not 1.\n");
+          std::to_string(num_files) + ", not 1.\n");
       return;
     }
     // other levels should have no file
@@ -2444,8 +2479,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Number of db files at "
           "level " +
-          ToString(i) + " after compaction is " + ToString(num_files) +
-          ", not 0.\n");
+          std::to_string(i) + " after compaction is " +
+          std::to_string(num_files) + ", not 0.\n");
       return;
     }
   }
@@ -2573,8 +2608,9 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
   const auto& fs = options.env->GetFileSystem();
   FileOptions soptions(options);
   std::unique_ptr<SequentialFileReader> wal_file_reader;
-  Status status = SequentialFileReader::Create(fs, wal_file, soptions,
-                                               &wal_file_reader, nullptr);
+  Status status = SequentialFileReader::Create(
+      fs, wal_file, soptions, &wal_file_reader, nullptr /* dbg */,
+      nullptr /* rate_limiter */);
   if (!status.ok()) {
     if (exec_state) {
       *exec_state = LDBCommandExecuteResult::Failed("Failed to open WAL file " +
@@ -2673,7 +2709,6 @@ WALDumperCommand::WALDumperCommand(
     wal_file_ = itr->second;
   }
 
-
   print_header_ = IsFlagPresent(flags, ARG_PRINT_HEADER);
   print_values_ = IsFlagPresent(flags, ARG_PRINT_VALUE);
   is_write_committed_ = ParseBooleanOption(options, ARG_WRITE_COMMITTED, true);
@@ -2736,7 +2771,7 @@ void GetCommand::DoCommand() {
   Status st = db_->Get(ReadOptions(), GetCfHandle(), key_, &value);
   if (st.ok()) {
     fprintf(stdout, "%s\n",
-              (is_value_hex_ ? StringToHex(value) : value).c_str());
+            (is_value_hex_ ? StringToHex(value) : value).c_str());
   } else {
     std::stringstream oss;
     oss << "Get failed: " << st.ToString();
@@ -2974,9 +3009,9 @@ void ScanCommand::DoCommand() {
             TimeToHumanString(ttl_start).c_str(),
             TimeToHumanString(ttl_end).c_str());
   }
-  for ( ;
-        it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
-        it->Next()) {
+  for (;
+       it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
+       it->Next()) {
     if (is_db_ttl_) {
       TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(it);
       int rawtime = it_ttl->ttl_timestamp();
@@ -3055,6 +3090,42 @@ void DeleteCommand::DoCommand() {
     return;
   }
   Status st = db_->Delete(WriteOptions(), GetCfHandle(), key_);
+  if (st.ok()) {
+    fprintf(stdout, "OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  }
+}
+
+SingleDeleteCommand::SingleDeleteCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false,
+                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+  if (params.size() != 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "KEY must be specified for the single delete command");
+  } else {
+    key_ = params.at(0);
+    if (is_key_hex_) {
+      key_ = HexToString(key_);
+    }
+  }
+}
+
+void SingleDeleteCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(SingleDeleteCommand::Name() + " <key>");
+  ret.append("\n");
+}
+
+void SingleDeleteCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  Status st = db_->SingleDelete(WriteOptions(), GetCfHandle(), key_);
   if (st.ok()) {
     fprintf(stdout, "OK\n");
   } else {
@@ -3174,8 +3245,9 @@ void DBQuerierCommand::Help(std::string& ret) {
   ret.append(DBQuerierCommand::Name());
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
-  ret.append("    Starts a REPL shell.  Type help for list of available "
-             "commands.");
+  ret.append(
+      "    Starts a REPL shell.  Type help for list of available "
+      "commands.");
   ret.append("\n");
 }
 
@@ -3202,7 +3274,7 @@ void DBQuerierCommand::DoCommand() {
       if (pos2 == std::string::npos) {
         break;
       }
-      tokens.push_back(line.substr(pos, pos2-pos));
+      tokens.push_back(line.substr(pos, pos2 - pos));
       pos = pos2 + 1;
     }
     tokens.push_back(line.substr(pos));
@@ -3236,8 +3308,8 @@ void DBQuerierCommand::DoCommand() {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
       s = db_->Get(read_options, GetCfHandle(), Slice(key), &value);
       if (s.ok()) {
-        fprintf(stdout, "%s\n", PrintKeyValue(key, value,
-              is_key_hex_, is_value_hex_).c_str());
+        fprintf(stdout, "%s\n",
+                PrintKeyValue(key, value, is_key_hex_, is_value_hex_).c_str());
       } else {
         if (s.IsNotFound()) {
           fprintf(stdout, "Not found %s\n", tokens[1].c_str());
@@ -3524,9 +3596,8 @@ void RestoreCommand::DoCommand() {
 namespace {
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties, bool decode_blob_index) {
-  std::string from_key;
-  std::string to_key;
+                 bool show_properties, bool decode_blob_index,
+                 std::string from_key, std::string to_key) {
   if (filename.length() <= 4 ||
       filename.rfind(".sst") != filename.length() - 4) {
     std::cout << "Invalid sst file name." << std::endl;
@@ -3538,9 +3609,8 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
       2 * 1024 * 1024 /* readahead_size */,
       /* verify_checksum */ false, output_hex, decode_blob_index);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
-                                    false,            // has_from
-                                    from_key, false,  // has_to
-                                    to_key);
+                                    !from_key.empty(), from_key,
+                                    !to_key.empty(), to_key);
   if (!st.ok()) {
     std::cerr << "Error in reading SST file " << filename << st.ToString()
               << std::endl;
@@ -4119,7 +4189,12 @@ void UnsafeRemoveSstFileCommand::DoCommand() {
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
     edit.DeleteFile(level, sst_file_number_);
-    s = w.LogAndApply(cfd, &edit);
+    std::unique_ptr<FSDirectory> db_dir;
+    s = options_.env->GetFileSystem()->NewDirectory(db_path_, IOOptions(),
+                                                    &db_dir, nullptr);
+    if (s.ok()) {
+      s = w.LogAndApply(cfd, &edit, db_dir.get());
+    }
   }
 
   if (!s.ok()) {

@@ -355,7 +355,8 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
   // Binary Search. avoid opening all files.
   while (end >= start) {
     int64_t mid = start + (end - start) / 2;  // Avoid overflow.
-    SequenceNumber current_seq_num = all_logs.at(static_cast<size_t>(mid))->StartSequence();
+    SequenceNumber current_seq_num =
+        all_logs.at(static_cast<size_t>(mid))->StartSequence();
     if (current_seq_num == target) {
       end = mid;
       break;
@@ -366,7 +367,8 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
     }
   }
   // end could be -ve.
-  size_t start_index = static_cast<size_t>(std::max(static_cast<int64_t>(0), end));
+  size_t start_index =
+      static_cast<size_t>(std::max(static_cast<int64_t>(0), end));
   // The last wal file is always included
   all_logs.erase(all_logs.begin(), all_logs.begin() + start_index);
   return Status::OK();
@@ -378,9 +380,8 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   *sequence = 0;
   if (type != kAliveLogFile && type != kArchivedLogFile) {
     ROCKS_LOG_ERROR(db_options_.info_log, "[WalManger] Unknown file type %s",
-                    ToString(type).c_str());
-    return Status::NotSupported(
-        "File Type Not Known " + ToString(type));
+                    std::to_string(type).c_str());
+    return Status::NotSupported("File Type Not Known " + std::to_string(type));
   }
   {
     MutexLock l(&read_first_record_cache_mutex_);
@@ -469,9 +470,8 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   };
 
   std::unique_ptr<FSSequentialFile> file;
-  Status status = fs_->NewSequentialFile(fname,
-                                         fs_->OptimizeForLogRead(file_options_),
-                                         &file, nullptr);
+  Status status = fs_->NewSequentialFile(
+      fname, fs_->OptimizeForLogRead(file_options_), &file, nullptr);
   std::unique_ptr<SequentialFileReader> file_reader(
       new SequentialFileReader(std::move(file), fname, io_tracer_));
 
@@ -508,10 +508,20 @@ Status WalManager::ReadFirstLine(const std::string& fname,
     }
   }
 
-  // ReadRecord might have returned false on EOF, which means that the log file
-  // is empty. Or, a failure may have occurred while processing the first entry.
-  // In any case, return status and set sequence number to 0.
-  *sequence = 0;
+  if (status.ok() && reader.IsCompressedAndEmptyFile()) {
+    // In case of wal_compression, it writes a `kSetCompressionType` record
+    // which is not associated with any sequence number. As result for an empty
+    // file, GetSortedWalsOfType() will skip these WALs causing the operations
+    // to fail.
+    // Therefore, in order to avoid that failure, it sets sequence_number to 1
+    // indicating those WALs should be included.
+    *sequence = 1;
+  } else {
+    // ReadRecord might have returned false on EOF, which means that the log
+    // file is empty. Or, a failure may have occurred while processing the first
+    // entry. In any case, return status and set sequence number to 0.
+    *sequence = 0;
+  }
   return status;
 }
 

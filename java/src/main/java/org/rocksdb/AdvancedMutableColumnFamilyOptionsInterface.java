@@ -82,6 +82,30 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   double memtablePrefixBloomSizeRatio();
 
   /**
+   * Threshold used in the MemPurge (memtable garbage collection)
+   * feature. A value of 0.0 corresponds to no MemPurge,
+   * a value of 1.0 will trigger a MemPurge as often as possible.
+   *
+   * Default: 0.0 (disabled)
+   *
+   * @param experimentalMempurgeThreshold the threshold used by
+   *     the MemPurge decider.
+   * @return the reference to the current options.
+   */
+  T setExperimentalMempurgeThreshold(double experimentalMempurgeThreshold);
+
+  /**
+   * Threshold used in the MemPurge (memtable garbage collection)
+   * feature. A value of 0.0 corresponds to no MemPurge,
+   * a value of 1.0 will trigger a MemPurge as often as possible.
+   *
+   * Default: 0 (disabled)
+   *
+   * @return the threshold used by the MemPurge decider
+   */
+  double experimentalMempurgeThreshold();
+
+  /**
    * Enable whole key bloom filter in memtable. Note this will only take effect
    * if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
    * can potentially reduce CPU usage for point-look-ups.
@@ -753,6 +777,52 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * @return the current compaction readahead for blob files
    */
   long blobCompactionReadaheadSize();
+
+  /**
+   * Set a certain LSM tree level to enable blob files.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param blobFileStartingLevel the starting level to enable blob files
+   *
+   * @return the reference to the current options.
+   */
+  T setBlobFileStartingLevel(final int blobFileStartingLevel);
+
+  /**
+   * Get the starting LSM tree level to enable blob files.
+   *
+   * Default: 0
+   *
+   * @return the current LSM tree level to enable blob files.
+   */
+  int blobFileStartingLevel();
+
+  /**
+   * Set a certain prepopulate blob cache option.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param prepopulateBlobCache the prepopulate blob cache option
+   *
+   * @return the reference to the current options.
+   */
+  T setPrepopulateBlobCache(final PrepopulateBlobCache prepopulateBlobCache);
+
+  /**
+   * Get the prepopulate blob cache option.
+   *
+   * Default: 0
+   *
+   * @return the current prepopulate blob cache option.
+   */
+  PrepopulateBlobCache prepopulateBlobCache();
 
   //
   // END options for blobs (integrated BlobDB)

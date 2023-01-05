@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <algorithm>
 #include <cinttypes>
 #include <cmath>
@@ -15,6 +16,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/slice.h"
@@ -150,7 +152,7 @@ std::string TimeToHumanString(int unixtime) {
   char time_buffer[80];
   time_t rawtime = unixtime;
   struct tm tInfo;
-  struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+  struct tm* timeinfo = port::LocalTimeR(&rawtime, &tInfo);
   assert(timeinfo == &tInfo);
   strftime(time_buffer, 80, "%c", timeinfo);
   return std::string(time_buffer);
@@ -315,7 +317,8 @@ uint32_t ParseUint32(const std::string& value) {
 
 int32_t ParseInt32(const std::string& value) {
   int64_t num = ParseInt64(value);
-  if (num <= port::kMaxInt32 && num >= port::kMinInt32) {
+  if (num <= std::numeric_limits<int32_t>::max() &&
+      num >= std::numeric_limits<int32_t>::min()) {
     return static_cast<int32_t>(num);
   } else {
     throw std::out_of_range(value);
@@ -431,7 +434,7 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
     if (i > 0) {
       *value += ":";
     }
-    *value += ToString(vec[i]);
+    *value += std::to_string(vec[i]);
   }
   return true;
 }

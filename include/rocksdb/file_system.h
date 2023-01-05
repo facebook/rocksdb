@@ -53,6 +53,7 @@ struct ConfigOptions;
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
 
+// DEPRECATED
 // Priority of an IO request. This is a hint and does not guarantee any
 // particular QoS.
 // IO_LOW - Typically background reads/writes such as compaction/flush
@@ -86,6 +87,7 @@ struct IOOptions {
   // Timeout for the operation in microseconds
   std::chrono::microseconds timeout;
 
+  // DEPRECATED
   // Priority - high or low
   IOPriority prio;
 
@@ -110,6 +112,10 @@ struct IOOptions {
   // fsync, set this to force the fsync
   bool force_dir_fsync;
 
+  // Can be used by underlying file systems to skip recursing through sub
+  // directories and list only files in GetChildren API.
+  bool do_not_recurse;
+
   IOOptions() : IOOptions(false) {}
 
   explicit IOOptions(bool force_dir_fsync_)
@@ -117,7 +123,8 @@ struct IOOptions {
         prio(IOPriority::kIOLow),
         rate_limiter_priority(Env::IO_TOTAL),
         type(IOType::kUnknown),
-        force_dir_fsync(force_dir_fsync_) {}
+        force_dir_fsync(force_dir_fsync_),
+        do_not_recurse(false) {}
 };
 
 struct DirFsyncOptions {
@@ -337,8 +344,7 @@ class FileSystem : public Customizable {
   // The returned file may be concurrently accessed by multiple threads.
   virtual IOStatus NewRandomAccessFile(
       const std::string& fname, const FileOptions& file_opts,
-      std::unique_ptr<FSRandomAccessFile>* result,
-      IODebugContext* dbg) = 0;
+      std::unique_ptr<FSRandomAccessFile>* result, IODebugContext* dbg) = 0;
   // These values match Linux definition
   // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/fcntl.h#n56
   enum WriteLifeTimeHint {
@@ -490,7 +496,8 @@ class FileSystem : public Customizable {
   virtual IOStatus Truncate(const std::string& /*fname*/, size_t /*size*/,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported("Truncate is not supported for this FileSystem");
+    return IOStatus::NotSupported(
+        "Truncate is not supported for this FileSystem");
   }
 
   // Create the specified directory. Returns error if directory exists.
@@ -527,7 +534,8 @@ class FileSystem : public Customizable {
                             const std::string& /*target*/,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported("LinkFile is not supported for this FileSystem");
+    return IOStatus::NotSupported(
+        "LinkFile is not supported for this FileSystem");
   }
 
   virtual IOStatus NumFileLinks(const std::string& /*fname*/,
@@ -541,7 +549,8 @@ class FileSystem : public Customizable {
                                 const std::string& /*second*/,
                                 const IOOptions& /*options*/, bool* /*res*/,
                                 IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported("AreFilesSame is not supported for this FileSystem");
+    return IOStatus::NotSupported(
+        "AreFilesSame is not supported for this FileSystem");
   }
 
   // Lock the specified file.  Used to prevent concurrent access to
@@ -579,7 +588,7 @@ class FileSystem : public Customizable {
   // logger.
   virtual IOStatus NewLogger(const std::string& fname, const IOOptions& io_opts,
                              std::shared_ptr<Logger>* result,
-                             IODebugContext* dbg) = 0;
+                             IODebugContext* dbg);
 
   // Get full directory name for this db.
   virtual IOStatus GetAbsolutePath(const std::string& db_path,
@@ -605,7 +614,7 @@ class FileSystem : public Customizable {
   // the FileOptions in the parameters, but is optimized for writing log files.
   // Default implementation returns the copy of the same object.
   virtual FileOptions OptimizeForLogWrite(const FileOptions& file_options,
-                                         const DBOptions& db_options) const;
+                                          const DBOptions& db_options) const;
 
   // OptimizeForManifestWrite will create a new FileOptions object that is a
   // copy of the FileOptions in the parameters, but is optimized for writing
@@ -760,7 +769,7 @@ struct FSReadRequest {
   // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
 
-  // A buffer that MultiRead()  can optionally place data in. It can
+  // A buffer that MultiRead() can optionally place data in. It can
   // ignore this and allocate its own buffer.
   // The lifecycle of scratch will be until IO is completed.
   //
@@ -949,7 +958,7 @@ class FSWritableFile {
   virtual ~FSWritableFile() {}
 
   // Append data to the end of the file
-  // Note: A WriteableFile object must support either Append or
+  // Note: A WritableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
@@ -1019,7 +1028,9 @@ class FSWritableFile {
                             IODebugContext* /*dbg*/) {
     return IOStatus::OK();
   }
-  virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
+  virtual IOStatus Close(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) = 0;
+
   virtual IOStatus Flush(const IOOptions& options, IODebugContext* dbg) = 0;
   virtual IOStatus Sync(const IOOptions& options,
                         IODebugContext* dbg) = 0;  // sync data
@@ -1265,6 +1276,12 @@ class FSDirectory {
     return Fsync(options, dbg);
   }
 
+  // Close directory
+  virtual IOStatus Close(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported("Close");
+  }
+
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
   }
@@ -1313,8 +1330,7 @@ class FileSystemWrapper : public FileSystem {
   FileSystem* target() const { return target_.get(); }
 
   // The following text is boilerplate that forwards all methods to target()
-  IOStatus NewSequentialFile(const std::string& f,
-                             const FileOptions& file_opts,
+  IOStatus NewSequentialFile(const std::string& f, const FileOptions& file_opts,
                              std::unique_ptr<FSSequentialFile>* r,
                              IODebugContext* dbg) override {
     return target_->NewSequentialFile(f, file_opts, r, dbg);
@@ -1341,8 +1357,7 @@ class FileSystemWrapper : public FileSystem {
                              const FileOptions& file_opts,
                              std::unique_ptr<FSWritableFile>* r,
                              IODebugContext* dbg) override {
-    return target_->ReuseWritableFile(fname, old_fname, file_opts, r,
-                                      dbg);
+    return target_->ReuseWritableFile(fname, old_fname, file_opts, r, dbg);
   }
   IOStatus NewRandomRWFile(const std::string& fname,
                            const FileOptions& file_opts,
@@ -1459,7 +1474,7 @@ class FileSystemWrapper : public FileSystem {
   }
 
   FileOptions OptimizeForLogRead(
-                  const FileOptions& file_options) const override {
+      const FileOptions& file_options) const override {
     return target_->OptimizeForLogRead(file_options);
   }
   FileOptions OptimizeForManifestRead(
@@ -1467,7 +1482,7 @@ class FileSystemWrapper : public FileSystem {
     return target_->OptimizeForManifestRead(file_options);
   }
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,
-                                 const DBOptions& db_options) const override {
+                                  const DBOptions& db_options) const override {
     return target_->OptimizeForLogWrite(file_options, db_options);
   }
   FileOptions OptimizeForManifestWrite(
@@ -1807,6 +1822,10 @@ class FSDirectoryWrapper : public FSDirectory {
       const IOOptions& options, IODebugContext* dbg,
       const DirFsyncOptions& dir_fsync_options) override {
     return target_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
+  }
+
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    return target_->Close(options, dbg);
   }
 
   size_t GetUniqueId(char* id, size_t max_size) const override {

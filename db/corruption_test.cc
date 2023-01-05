@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/options.h"
 #ifndef ROCKSDB_LITE
 
 #include <fcntl.h>
@@ -64,7 +65,7 @@ class ErrorEnv : public EnvWrapper {
     return target()->NewWritableFile(fname, result, soptions);
   }
 };
-}  // namespace
+}  // anonymous namespace
 class CorruptionTest : public testing::Test {
  public:
   std::shared_ptr<Env> env_guard_;
@@ -137,9 +138,7 @@ class CorruptionTest : public testing::Test {
     return DB::Open(opt, dbname_, &db_);
   }
 
-  void Reopen(Options* options = nullptr) {
-    ASSERT_OK(TryReopen(options));
-  }
+  void Reopen(Options* options = nullptr) { ASSERT_OK(TryReopen(options)); }
 
   void RepairDB() {
     delete db_;
@@ -155,7 +154,7 @@ class CorruptionTest : public testing::Test {
         DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
         ASSERT_OK(dbi->TEST_FlushMemTable());
       }
-      //if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
+      // if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
       Slice key = Key(i + start, &key_space);
       batch.Clear();
       ASSERT_OK(batch.Put(key, Value(i + start, &value_space)));
@@ -182,8 +181,7 @@ class CorruptionTest : public testing::Test {
       ASSERT_OK(iter->status());
       uint64_t key;
       Slice in(iter->key());
-      if (!ConsumeDecimalNumber(&in, &key) ||
-          !in.empty() ||
+      if (!ConsumeDecimalNumber(&in, &key) || !in.empty() ||
           key < next_expected) {
         bad_keys++;
         continue;
@@ -199,10 +197,11 @@ class CorruptionTest : public testing::Test {
     iter->status().PermitUncheckedError();
     delete iter;
 
-    fprintf(stderr,
-      "expected=%d..%d; got=%d; bad_keys=%d; bad_values=%d; missed=%llu\n",
-            min_expected, max_expected, correct, bad_keys, bad_values,
-            static_cast<unsigned long long>(missed));
+    fprintf(
+        stderr,
+        "expected=%d..%d; got=%d; bad_keys=%d; bad_values=%d; missed=%llu\n",
+        min_expected, max_expected, correct, bad_keys, bad_values,
+        static_cast<unsigned long long>(missed));
     ASSERT_LE(min_expected, correct);
     ASSERT_GE(max_expected, correct);
   }
@@ -216,8 +215,7 @@ class CorruptionTest : public testing::Test {
     std::string fname;
     int picked_number = -1;
     for (size_t i = 0; i < filenames.size(); i++) {
-      if (ParseFileName(filenames[i], &number, &type) &&
-          type == filetype &&
+      if (ParseFileName(filenames[i], &number, &type) && type == filetype &&
           static_cast<int>(number) > picked_number) {  // Pick latest file
         fname = dbname_ + "/" + filenames[i];
         picked_number = static_cast<int>(number);
@@ -225,7 +223,8 @@ class CorruptionTest : public testing::Test {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    ASSERT_OK(test::CorruptFile(env_, fname, offset, bytes_to_corrupt));
+    ASSERT_OK(test::CorruptFile(env_, fname, offset, bytes_to_corrupt,
+                                /*verify_checksum*/ filetype == kTableFile));
   }
 
   // corrupts exactly one file at level `level`. if no file found at level,
@@ -242,7 +241,6 @@ class CorruptionTest : public testing::Test {
     }
     FAIL() << "no file found at level";
   }
-
 
   int Property(const std::string& name) {
     std::string property;
@@ -308,7 +306,7 @@ class CorruptionTest : public testing::Test {
     uint64_t new_size = old_size - bytes_to_truncate;
     // If bytes_to_truncate == 0, it will do full truncation.
     if (bytes_to_truncate == 0) {
-      new_size = old_size;
+      new_size = 0;
     }
     ASSERT_OK(test::TruncateFile(env_, path, new_size));
   }
@@ -521,6 +519,90 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   ASSERT_TRUE(TryReopen().IsCorruption());
 }
 
+TEST_F(CorruptionTest, TableFileFooterMagic) {
+  Build(100);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  Check(100, 100);
+  // Corrupt the whole footer
+  Corrupt(kTableFile, -100, 100);
+  Status s = TryReopen();
+  ASSERT_TRUE(s.IsCorruption());
+  // Contains useful message, and magic number should be the first thing
+  // reported as corrupt.
+  ASSERT_TRUE(s.ToString().find("magic number") != std::string::npos);
+  // with file name
+  ASSERT_TRUE(s.ToString().find(".sst") != std::string::npos);
+}
+
+TEST_F(CorruptionTest, TableFileFooterNotMagic) {
+  Build(100);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  Check(100, 100);
+  // Corrupt footer except magic number
+  Corrupt(kTableFile, -100, 92);
+  Status s = TryReopen();
+  ASSERT_TRUE(s.IsCorruption());
+  // The next thing checked after magic number is format_version
+  ASSERT_TRUE(s.ToString().find("format_version") != std::string::npos);
+  // with file name
+  ASSERT_TRUE(s.ToString().find(".sst") != std::string::npos);
+}
+
+TEST_F(CorruptionTest, TableFileWrongSize) {
+  Build(100);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  Check(100, 100);
+
+  // ********************************************
+  // Make the file bigger by appending to it
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(1U, metadata.size());
+  std::string filename = dbname_ + metadata[0].name;
+  const auto& fs = options_.env->GetFileSystem();
+  {
+    std::unique_ptr<FSWritableFile> f;
+    ASSERT_OK(fs->ReopenWritableFile(filename, FileOptions(), &f, nullptr));
+    ASSERT_OK(f->Append("blahblah", IOOptions(), nullptr));
+    ASSERT_OK(f->Close(IOOptions(), nullptr));
+  }
+
+  // DB actually accepts this without paranoid checks, relying on size
+  // recorded in manifest to locate the SST footer.
+  options_.paranoid_checks = false;
+  options_.skip_checking_sst_file_sizes_on_db_open = false;
+  Reopen();
+  Check(100, 100);
+
+  // But reports the issue with paranoid checks
+  options_.paranoid_checks = true;
+  Status s = TryReopen();
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("file size mismatch") != std::string::npos);
+
+  // ********************************************
+  // Make the file smaller with truncation.
+  // First leaving a partial footer, and then completely removing footer.
+  for (size_t bytes_lost : {8, 100}) {
+    ASSERT_OK(
+        test::TruncateFile(env_, filename, metadata[0].size - bytes_lost));
+
+    // Reported well with paranoid checks
+    options_.paranoid_checks = true;
+    s = TryReopen();
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("file size mismatch") != std::string::npos);
+
+    // Without paranoid checks, not reported until read
+    options_.paranoid_checks = false;
+    Reopen();
+    Check(0, 0);  // Missing data
+  }
+}
+
 TEST_F(CorruptionTest, MissingDescriptor) {
   Build(1000);
   RepairDB();
@@ -553,7 +635,10 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "hello"));
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   ASSERT_OK(dbi->TEST_FlushMemTable());
-  ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
 
   Corrupt(kDescriptorFile, 0, 1000);
   Status s = TryReopen();
@@ -760,6 +845,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
     delete db_;
     db_ = nullptr;
     s = DestroyDB(dbname_, options);
+    ASSERT_OK(s);
     std::shared_ptr<mock::MockTableFactory> mock =
         std::make_shared<mock::MockTableFactory>();
     options.table_factory = mock;
@@ -770,7 +856,9 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
     DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
     ASSERT_OK(dbi->TEST_FlushMemTable());
     mock->SetCorruptionMode(mode);
-    s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    s = dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
     if (mode == mock::MockTableFactory::kCorruptNone) {
       ASSERT_OK(s);
     } else {
@@ -806,7 +894,10 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
     } else {
       DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
       ASSERT_OK(dbi->TEST_FlushMemTable());
-      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(
+          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
     }
     db_->ReleaseSnapshot(snap);
   }
@@ -842,7 +933,10 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
     } else {
       DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
       ASSERT_OK(dbi->TEST_FlushMemTable());
-      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(
+          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
     }
     db_->ReleaseSnapshot(snap);
   }
@@ -875,7 +969,10 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
     } else {
       DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
       ASSERT_OK(dbi->TEST_FlushMemTable());
-      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(
+          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
     }
     db_->ReleaseSnapshot(snap);
   }
@@ -902,7 +999,10 @@ TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
 
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   ASSERT_OK(dbi->TEST_FlushMemTable());
-  Status s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  Status s =
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsCorruption());
 }
@@ -928,7 +1028,10 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
 
   mock->SetCorruptionMode(mock::MockTableFactory::kCorruptNone);
   ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "true"}}));
-  ASSERT_NOK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_NOK(
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
 }
 
 TEST_F(CorruptionTest, FlushKeyOrderCheck) {
@@ -975,7 +1078,10 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo2", "v1"));
   ASSERT_OK(db_->Put(WriteOptions(), "foo4", "v1"));
   ASSERT_OK(dbi->TEST_FlushMemTable());
-  ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
@@ -1049,15 +1155,22 @@ INSTANTIATE_TEST_CASE_P(CorruptionTest, CrashDuringRecoveryWithCorruptionTest,
 // "Column family inconsistency: SST file contains data beyond the point of
 // corruption" error will be hit, causing recovery to fail.
 //
-// After adding the fix, corrupted WALs whose numbers are larger than the
-// corrupted wal and smaller than the new WAL are moved to a separate folder.
-// Only after new WAL is synced, RocksDB persist a new MANIFEST with column
-// families to ensure RocksDB is in consistent state.
+// After adding the fix, only after new WAL is synced, RocksDB persist a new
+// MANIFEST with column families to ensure RocksDB is in consistent state.
 // RocksDB writes an empty WriteBatch as a sentinel to the new WAL which is
 // synced immediately afterwards. The sequence number of the sentinel
 // WriteBatch will be the next sequence number immediately after the largest
 // sequence number recovered from previous WALs and MANIFEST because of which DB
 // will be in consistent state.
+// If a future recovery starts from the new MANIFEST, then it means the new WAL
+// is successfully synced. Due to the sentinel empty write batch at the
+// beginning, kPointInTimeRecovery of WAL is guaranteed to go after this point.
+// If future recovery starts from the old MANIFEST, it means the writing the new
+// MANIFEST failed. It won't have the "SST ahead of WAL" error.
+//
+// The combination of corrupting a WAL and injecting an error during subsequent
+// re-open exposes the bug of prematurely persisting a new MANIFEST with
+// advanced ColumnFamilyData::log_number.
 TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   CloseDb();
   Options options;
@@ -1068,7 +1181,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   options.env = env_;
   ASSERT_OK(DestroyDB(dbname_, options));
   options.create_if_missing = true;
-  options.max_write_buffer_number = 3;
+  options.max_write_buffer_number = 8;
 
   Reopen(&options);
   Status s;
@@ -1094,13 +1207,16 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
 
     // Write one key to test_cf.
     ASSERT_OK(db_->Put(WriteOptions(), handles[1], "old_key", "dontcare"));
+    ASSERT_OK(db_->Flush(FlushOptions(), handles[1]));
+
     // Write to default_cf and flush this cf several times to advance wal
-    // number.
+    // number. TEST_SwitchMemtable makes sure WALs are not synced and test can
+    // corrupt un-sync WAL.
     for (int i = 0; i < 2; ++i) {
-      ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i), "value"));
+      ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i),
+                         "value" + std::to_string(i)));
       ASSERT_OK(dbimpl->TEST_SwitchMemtable());
     }
-    ASSERT_OK(db_->Put(WriteOptions(), handles[1], "dontcare", "dontcare"));
 
     for (auto* h : handles) {
       delete h;
@@ -1109,12 +1225,13 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
     CloseDb();
   }
 
-  // 2. Corrupt second last wal file to emulate power reset which caused the DB
-  // to lose the un-synced WAL.
+  // 2. Corrupt second last un-syned wal file to emulate power reset which
+  // caused the DB to lose the un-synced WAL.
   {
     std::vector<uint64_t> file_nums;
     GetSortedWalFiles(file_nums);
     size_t size = file_nums.size();
+    assert(size >= 2);
     uint64_t log_num = file_nums[size - 2];
     CorruptFileWithTruncation(FileType::kWalFile, log_num,
                               /*bytes_to_truncate=*/8);
@@ -1131,25 +1248,31 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   // Case2: If avoid_flush_during_recovery = false, all column families have
   // flushed their data from WAL to L0 during recovery, and none of them will
   // ever need to read the WALs again.
+
+  // 4. Fault is injected to fail the recovery.
   {
-    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::GetLogSizeAndMaybeTruncate:0", [&](void* arg) {
+          auto* tmp_s = reinterpret_cast<Status*>(arg);
+          assert(tmp_s);
+          *tmp_s = Status::IOError("Injected");
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    handles.clear();
+    options.avoid_flush_during_recovery = true;
     s = DB::Open(options, dbname_, cf_descs, &handles, &db_);
-    ASSERT_OK(s);
+    ASSERT_TRUE(s.IsIOError());
+    ASSERT_EQ("IO error: Injected", s.ToString());
     for (auto* h : handles) {
       delete h;
     }
-    handles.clear();
     CloseDb();
-  }
 
-  // 4. Corrupt max_wal_num to emulate second power reset which caused the
-  // DB to again lose the un-synced WAL.
-  {
-    std::vector<uint64_t> file_nums;
-    GetSortedWalFiles(file_nums);
-    size_t size = file_nums.size();
-    uint64_t log_num = file_nums[size - 1];
-    CorruptFileWithTruncation(FileType::kWalFile, log_num);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 
   // 5. After second crash reopen the db with second corruption. Default family
@@ -1172,6 +1295,23 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   {
     options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
     ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+
+    // Verify that data is not lost.
+    {
+      std::string v;
+      ASSERT_OK(db_->Get(ReadOptions(), handles[1], "old_key", &v));
+      ASSERT_EQ("dontcare", v);
+
+      v.clear();
+      ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(0), &v));
+      ASSERT_EQ("value" + std::to_string(0), v);
+
+      // Since  it's corrupting second last wal, below key is not found.
+      v.clear();
+      ASSERT_EQ(db_->Get(ReadOptions(), "key" + std::to_string(1), &v),
+                Status::NotFound());
+    }
+
     for (auto* h : handles) {
       delete h;
     }
@@ -1187,15 +1327,22 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
 // file contains data beyond the point of corruption" error will be hit, causing
 // recovery to fail.
 //
-// After adding the fix, corrupted WALs whose numbers are larger than the
-// corrupted wal and smaller than the new WAL are moved to a separate folder.
-// Only after new WAL is synced, RocksDB persist a new MANIFEST with column
-// families to ensure RocksDB is in consistent state.
+// After adding the fix, only after new WAL is synced, RocksDB persist a new
+// MANIFEST with column families to ensure RocksDB is in consistent state.
 // RocksDB writes an empty WriteBatch as a sentinel to the new WAL which is
 // synced immediately afterwards. The sequence number of the sentinel
 // WriteBatch will be the next sequence number immediately after the largest
 // sequence number recovered from previous WALs and MANIFEST because of which DB
 // will be in consistent state.
+// If a future recovery starts from the new MANIFEST, then it means the new WAL
+// is successfully synced. Due to the sentinel empty write batch at the
+// beginning, kPointInTimeRecovery of WAL is guaranteed to go after this point.
+// If future recovery starts from the old MANIFEST, it means the writing the new
+// MANIFEST failed. It won't have the "SST ahead of WAL" error.
+//
+// The combination of corrupting a WAL and injecting an error during subsequent
+// re-open exposes the bug of prematurely persisting a new MANIFEST with
+// advanced ColumnFamilyData::log_number.
 TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   CloseDb();
   Options options;
@@ -1229,7 +1376,6 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   // advance wal number so that some column families have advanced log_number
   // while other don't.
   {
-    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
     ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
                                   &handles, &txn_db));
 
@@ -1238,6 +1384,8 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
     ASSERT_OK(txn->Put(handles[1], "foo", "value"));
     ASSERT_OK(txn->SetName("txn0"));
     ASSERT_OK(txn->Prepare());
+    ASSERT_OK(txn_db->Flush(FlushOptions()));
+
     delete txn;
     txn = nullptr;
 
@@ -1246,17 +1394,19 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
 
     // Put and flush cf0
     for (int i = 0; i < 2; ++i) {
-      ASSERT_OK(txn_db->Put(WriteOptions(), "dontcare", "value"));
+      ASSERT_OK(txn_db->Put(WriteOptions(), "key" + std::to_string(i),
+                            "value" + std::to_string(i)));
       ASSERT_OK(dbimpl->TEST_SwitchMemtable());
     }
 
     // Put cf1
     txn = txn_db->BeginTransaction(WriteOptions(), TransactionOptions());
-    ASSERT_OK(txn->Put(handles[1], "foo1", "value"));
+    ASSERT_OK(txn->Put(handles[1], "foo1", "value1"));
     ASSERT_OK(txn->Commit());
 
     delete txn;
     txn = nullptr;
+
     for (auto* h : handles) {
       delete h;
     }
@@ -1270,6 +1420,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
     std::vector<uint64_t> file_nums;
     GetSortedWalFiles(file_nums);
     size_t size = file_nums.size();
+    assert(size >= 2);
     uint64_t log_num = file_nums[size - 2];
     CorruptFileWithTruncation(FileType::kWalFile, log_num,
                               /*bytes_to_truncate=*/8);
@@ -1279,20 +1430,33 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   // family has higher log number than corrupted wal number. There may be old
   // WAL files that it must not delete because they can contain data of
   // uncommitted transactions. As a result, min_log_number_to_keep won't change.
-  {
-    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
-    ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
-                                  &handles, &txn_db));
 
+  {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::Open::BeforeSyncWAL", [&](void* arg) {
+          auto* tmp_s = reinterpret_cast<Status*>(arg);
+          assert(tmp_s);
+          *tmp_s = Status::IOError("Injected");
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    handles.clear();
+    s = TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs, &handles,
+                            &txn_db);
+    ASSERT_TRUE(s.IsIOError());
+    ASSERT_EQ("IO error: Injected", s.ToString());
     for (auto* h : handles) {
       delete h;
     }
-    handles.clear();
-    delete txn_db;
+    CloseDb();
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 
-  // 4. Corrupt max_wal_num to emulate second power reset which caused the
-  // DB to again lose the un-synced WAL.
+  // 4. Corrupt max_wal_num.
   {
     std::vector<uint64_t> file_nums;
     GetSortedWalFiles(file_nums);
@@ -1311,14 +1475,180 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   // recovered from previous WALs and MANIFEST, db will be in consistent state
   // and opens successfully.
   {
-    options.avoid_flush_during_recovery = false;
-
     ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
                                   &handles, &txn_db));
+
+    // Verify that data is not lost.
+    {
+      std::string v;
+      // Key not visible since it's not committed.
+      ASSERT_EQ(txn_db->Get(ReadOptions(), handles[1], "foo", &v),
+                Status::NotFound());
+
+      v.clear();
+      ASSERT_OK(txn_db->Get(ReadOptions(), "key" + std::to_string(0), &v));
+      ASSERT_EQ("value" + std::to_string(0), v);
+
+      // Last WAL is corrupted which contains two keys below.
+      v.clear();
+      ASSERT_EQ(txn_db->Get(ReadOptions(), "key" + std::to_string(1), &v),
+                Status::NotFound());
+      v.clear();
+      ASSERT_EQ(txn_db->Get(ReadOptions(), handles[1], "foo1", &v),
+                Status::NotFound());
+    }
+
     for (auto* h : handles) {
       delete h;
     }
     delete txn_db;
+  }
+}
+
+// This test is similar to
+// CrashDuringRecoveryWithCorruptionTest.CrashDuringRecovery except it calls
+// flush and corrupts Last WAL. It calls flush to sync some of the WALs and
+// remaining are unsyned one of which is then corrupted to simulate crash.
+//
+// In case of non-TransactionDB with avoid_flush_during_recovery = true, RocksDB
+// won't flush the data from WAL to L0 for all column families if possible. As a
+// result, not all column families can increase their log_numbers, and
+// min_log_number_to_keep won't change.
+// It may prematurely persist a new MANIFEST even before we can declare the DB
+// is in consistent state after recovery (this is when the new WAL is synced)
+// and advances log_numbers for some column families.
+//
+// If there is power failure before we sync the new WAL, we will end up in
+// a situation in which after persisting the MANIFEST, RocksDB will see some
+// column families' log_numbers larger than the corrupted wal, and
+// "Column family inconsistency: SST file contains data beyond the point of
+// corruption" error will be hit, causing recovery to fail.
+//
+// After adding the fix, only after new WAL is synced, RocksDB persist a new
+// MANIFEST with column families to ensure RocksDB is in consistent state.
+// RocksDB writes an empty WriteBatch as a sentinel to the new WAL which is
+// synced immediately afterwards. The sequence number of the sentinel
+// WriteBatch will be the next sequence number immediately after the largest
+// sequence number recovered from previous WALs and MANIFEST because of which DB
+// will be in consistent state.
+// If a future recovery starts from the new MANIFEST, then it means the new WAL
+// is successfully synced. Due to the sentinel empty write batch at the
+// beginning, kPointInTimeRecovery of WAL is guaranteed to go after this point.
+// If future recovery starts from the old MANIFEST, it means the writing the new
+// MANIFEST failed. It won't have the "SST ahead of WAL" error.
+
+// The combination of corrupting a WAL and injecting an error during subsequent
+// re-open exposes the bug of prematurely persisting a new MANIFEST with
+// advanced ColumnFamilyData::log_number.
+TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
+  CloseDb();
+  Options options;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.avoid_flush_during_recovery = false;
+  options.env = env_;
+  options.create_if_missing = true;
+
+  ASSERT_OK(DestroyDB(dbname_, options));
+  Reopen(&options);
+
+  ColumnFamilyHandle* cfh = nullptr;
+  const std::string test_cf_name = "test_cf";
+  Status s = db_->CreateColumnFamily(options, test_cf_name, &cfh);
+  ASSERT_OK(s);
+  delete cfh;
+
+  CloseDb();
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, options);
+  std::vector<ColumnFamilyHandle*> handles;
+
+  {
+    ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+
+    // Write one key to test_cf.
+    ASSERT_OK(db_->Put(WriteOptions(), handles[1], "old_key", "dontcare"));
+
+    // Write to default_cf and flush this cf several times to advance wal
+    // number.
+    for (int i = 0; i < 2; ++i) {
+      ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i),
+                         "value" + std::to_string(i)));
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    }
+
+    ASSERT_OK(db_->Put(WriteOptions(), handles[1], "dontcare", "dontcare"));
+    for (auto* h : handles) {
+      delete h;
+    }
+    handles.clear();
+    CloseDb();
+  }
+
+  // Corrupt second last un-syned wal file to emulate power reset which
+  // caused the DB to lose the un-synced WAL.
+  {
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    size_t size = file_nums.size();
+    uint64_t log_num = file_nums[size - 1];
+    CorruptFileWithTruncation(FileType::kWalFile, log_num,
+                              /*bytes_to_truncate=*/8);
+  }
+
+  // Fault is injected to fail the recovery.
+  {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::GetLogSizeAndMaybeTruncate:0", [&](void* arg) {
+          auto* tmp_s = reinterpret_cast<Status*>(arg);
+          assert(tmp_s);
+          *tmp_s = Status::IOError("Injected");
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    handles.clear();
+    options.avoid_flush_during_recovery = true;
+    s = DB::Open(options, dbname_, cf_descs, &handles, &db_);
+    ASSERT_TRUE(s.IsIOError());
+    ASSERT_EQ("IO error: Injected", s.ToString());
+    for (auto* h : handles) {
+      delete h;
+    }
+    CloseDb();
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+
+  // Reopen db again
+  {
+    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+    ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+
+    // Verify that data is not lost.
+    {
+      std::string v;
+      ASSERT_OK(db_->Get(ReadOptions(), handles[1], "old_key", &v));
+      ASSERT_EQ("dontcare", v);
+
+      for (int i = 0; i < 2; ++i) {
+        v.clear();
+        ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &v));
+        ASSERT_EQ("value" + std::to_string(i), v);
+      }
+
+      // Since it's corrupting last wal after Flush, below key is not found.
+      v.clear();
+      ASSERT_EQ(db_->Get(ReadOptions(), handles[1], "dontcare", &v),
+                Status::NotFound());
+    }
+
+    for (auto* h : handles) {
+      delete h;
+    }
   }
 }
 

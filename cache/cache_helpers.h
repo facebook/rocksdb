@@ -84,6 +84,16 @@ class CacheHandleGuard {
   Cache::Handle* GetCacheHandle() const { return handle_; }
   T* GetValue() const { return value_; }
 
+  void TransferTo(Cleanable* cleanable) {
+    if (cleanable) {
+      if (handle_ != nullptr) {
+        assert(cache_);
+        cleanable->RegisterCleanup(&ReleaseCacheHandle, cache_, handle_);
+      }
+    }
+    ResetFields();
+  }
+
   void Reset() {
     ReleaseHandle();
     ResetFields();
@@ -103,6 +113,16 @@ class CacheHandleGuard {
     cache_ = nullptr;
     handle_ = nullptr;
     value_ = nullptr;
+  }
+
+  static void ReleaseCacheHandle(void* arg1, void* arg2) {
+    Cache* const cache = static_cast<Cache*>(arg1);
+    assert(cache);
+
+    Cache::Handle* const cache_handle = static_cast<Cache::Handle*>(arg2);
+    assert(cache_handle);
+
+    cache->Release(cache_handle);
   }
 
  private:

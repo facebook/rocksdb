@@ -81,8 +81,8 @@ public abstract class AbstractMutableOptions {
     protected abstract T build(final String[] keys, final String[] values);
 
     public T build() {
-      final String keys[] = new String[options.size()];
-      final String values[] = new String[options.size()];
+      final String[] keys = new String[options.size()];
+      final String[] values = new String[options.size()];
 
       int i = 0;
       for (final Map.Entry<K, MutableOptionValue<?>> option : options.entrySet()) {
@@ -227,7 +227,7 @@ public abstract class AbstractMutableOptions {
       } catch (NumberFormatException nfe) {
         final double doubleValue = Double.parseDouble(value);
         if (doubleValue != Math.round(doubleValue))
-          throw new IllegalArgumentException("Unable to parse or round " + value + " to int");
+          throw new IllegalArgumentException("Unable to parse or round " + value + " to long");
         return Math.round(doubleValue);
       }
     }
@@ -245,7 +245,7 @@ public abstract class AbstractMutableOptions {
       } catch (NumberFormatException nfe) {
         final double doubleValue = Double.parseDouble(value);
         if (doubleValue != Math.round(doubleValue))
-          throw new IllegalArgumentException("Unable to parse or round " + value + " to long");
+          throw new IllegalArgumentException("Unable to parse or round " + value + " to int");
         return (int) Math.round(doubleValue);
       }
     }
@@ -341,8 +341,18 @@ public abstract class AbstractMutableOptions {
           return setIntArray(key, value);
 
         case ENUM:
-          final CompressionType compressionType = CompressionType.getFromInternal(valueStr);
-          return setEnum(key, compressionType);
+          String optionName = key.name();
+          if (optionName.equals("prepopulate_blob_cache")) {
+            final PrepopulateBlobCache prepopulateBlobCache =
+                PrepopulateBlobCache.getFromInternal(valueStr);
+            return setEnum(key, prepopulateBlobCache);
+          } else if (optionName.equals("compression")
+              || optionName.equals("blob_compression_type")) {
+            final CompressionType compressionType = CompressionType.getFromInternal(valueStr);
+            return setEnum(key, compressionType);
+          } else {
+            throw new IllegalArgumentException("Unknown enum type: " + key.name());
+          }
 
         default:
           throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());

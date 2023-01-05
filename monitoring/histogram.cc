@@ -26,7 +26,8 @@ HistogramBucketMapper::HistogramBucketMapper() {
   // size of array buckets_ in HistogramImpl
   bucketValues_ = {1, 2};
   double bucket_val = static_cast<double>(bucketValues_.back());
-  while ((bucket_val = 1.5 * bucket_val) <= static_cast<double>(port::kMaxUint64)) {
+  while ((bucket_val = 1.5 * bucket_val) <=
+         static_cast<double>(std::numeric_limits<uint64_t>::max())) {
     bucketValues_.push_back(static_cast<uint64_t>(bucket_val));
     // Extracts two most significant digits to make histogram buckets more
     // human-readable. E.g., 172 becomes 170.
@@ -51,11 +52,10 @@ size_t HistogramBucketMapper::IndexForValue(const uint64_t value) const {
 }
 
 namespace {
-  const HistogramBucketMapper bucketMapper;
+const HistogramBucketMapper bucketMapper;
 }
 
-HistogramStat::HistogramStat()
-  : num_buckets_(bucketMapper.BucketCount()) {
+HistogramStat::HistogramStat() : num_buckets_(bucketMapper.BucketCount()) {
   assert(num_buckets_ == sizeof(buckets_) / sizeof(*buckets_));
   Clear();
 }
@@ -108,12 +108,14 @@ void HistogramStat::Merge(const HistogramStat& other) {
   uint64_t old_min = min();
   uint64_t other_min = other.min();
   while (other_min < old_min &&
-         !min_.compare_exchange_weak(old_min, other_min)) {}
+         !min_.compare_exchange_weak(old_min, other_min)) {
+  }
 
   uint64_t old_max = max();
   uint64_t other_max = other.max();
   while (other_max > old_max &&
-         !max_.compare_exchange_weak(old_max, other_max)) {}
+         !max_.compare_exchange_weak(old_max, other_max)) {
+  }
 
   num_.fetch_add(other.num(), std::memory_order_relaxed);
   sum_.fetch_add(other.sum(), std::memory_order_relaxed);
@@ -123,9 +125,7 @@ void HistogramStat::Merge(const HistogramStat& other) {
   }
 }
 
-double HistogramStat::Median() const {
-  return Percentile(50.0);
-}
+double HistogramStat::Median() const { return Percentile(50.0); }
 
 double HistogramStat::Percentile(double p) const {
   double threshold = num() * (p / 100.0);
@@ -135,14 +135,14 @@ double HistogramStat::Percentile(double p) const {
     cumulative_sum += bucket_value;
     if (cumulative_sum >= threshold) {
       // Scale linearly within this bucket
-      uint64_t left_point = (b == 0) ? 0 : bucketMapper.BucketLimit(b-1);
+      uint64_t left_point = (b == 0) ? 0 : bucketMapper.BucketLimit(b - 1);
       uint64_t right_point = bucketMapper.BucketLimit(b);
       uint64_t left_sum = cumulative_sum - bucket_value;
       uint64_t right_sum = cumulative_sum;
       double pos = 0;
       uint64_t right_left_diff = right_sum - left_sum;
       if (right_left_diff != 0) {
-       pos = (threshold - left_sum) / right_left_diff;
+        pos = (threshold - left_sum) / right_left_diff;
       }
       double r = left_point + (right_point - left_point) * pos;
       uint64_t cur_min = min();
@@ -163,21 +163,23 @@ double HistogramStat::Average() const {
 }
 
 double HistogramStat::StandardDeviation() const {
-  uint64_t cur_num = num();
-  uint64_t cur_sum = sum();
-  uint64_t cur_sum_squares = sum_squares();
-  if (cur_num == 0) return 0;
+  double cur_num =
+      static_cast<double>(num());  // Use double to avoid integer overflow
+  double cur_sum = static_cast<double>(sum());
+  double cur_sum_squares = static_cast<double>(sum_squares());
+  if (cur_num == 0.0) {
+    return 0.0;
+  }
   double variance =
-      static_cast<double>(cur_sum_squares * cur_num - cur_sum * cur_sum) /
-      static_cast<double>(cur_num * cur_num);
-  return std::sqrt(variance);
+      (cur_sum_squares * cur_num - cur_sum * cur_sum) / (cur_num * cur_num);
+  return std::sqrt(std::max(variance, 0.0));
 }
+
 std::string HistogramStat::ToString() const {
   uint64_t cur_num = num();
   std::string r;
   char buf[1650];
-  snprintf(buf, sizeof(buf),
-           "Count: %" PRIu64 " Average: %.4f  StdDev: %.2f\n",
+  snprintf(buf, sizeof(buf), "Count: %" PRIu64 " Average: %.4f  StdDev: %.2f\n",
            cur_num, Average(), StandardDeviation());
   r.append(buf);
   snprintf(buf, sizeof(buf),
@@ -191,7 +193,7 @@ std::string HistogramStat::ToString() const {
            Percentile(99.99));
   r.append(buf);
   r.append("------------------------------------------------------\n");
-  if (cur_num == 0) return r;   // all buckets are empty
+  if (cur_num == 0) return r;  // all buckets are empty
   const double mult = 100.0 / cur_num;
   uint64_t cumulative_sum = 0;
   for (unsigned int b = 0; b < num_buckets_; b++) {
@@ -201,11 +203,11 @@ std::string HistogramStat::ToString() const {
     snprintf(buf, sizeof(buf),
              "%c %7" PRIu64 ", %7" PRIu64 " ] %8" PRIu64 " %7.3f%% %7.3f%% ",
              (b == 0) ? '[' : '(',
-             (b == 0) ? 0 : bucketMapper.BucketLimit(b-1),  // left
-              bucketMapper.BucketLimit(b),  // right
-              bucket_value,                   // count
-             (mult * bucket_value),           // percentage
-             (mult * cumulative_sum));       // cumulative percentage
+             (b == 0) ? 0 : bucketMapper.BucketLimit(b - 1),  // left
+             bucketMapper.BucketLimit(b),                     // right
+             bucket_value,                                    // count
+             (mult * bucket_value),                           // percentage
+             (mult * cumulative_sum));  // cumulative percentage
     r.append(buf);
 
     // Add hash marks based on percentage; 20 marks for 100%.
@@ -216,7 +218,7 @@ std::string HistogramStat::ToString() const {
   return r;
 }
 
-void HistogramStat::Data(HistogramData * const data) const {
+void HistogramStat::Data(HistogramData* const data) const {
   assert(data);
   data->median = Median();
   data->percentile95 = Percentile(95);
@@ -234,13 +236,9 @@ void HistogramImpl::Clear() {
   stats_.Clear();
 }
 
-bool HistogramImpl::Empty() const {
-  return stats_.Empty();
-}
+bool HistogramImpl::Empty() const { return stats_.Empty(); }
 
-void HistogramImpl::Add(uint64_t value) {
-  stats_.Add(value);
-}
+void HistogramImpl::Add(uint64_t value) { stats_.Add(value); }
 
 void HistogramImpl::Merge(const Histogram& other) {
   if (strcmp(Name(), other.Name()) == 0) {
@@ -253,28 +251,20 @@ void HistogramImpl::Merge(const HistogramImpl& other) {
   stats_.Merge(other.stats_);
 }
 
-double HistogramImpl::Median() const {
-  return stats_.Median();
-}
+double HistogramImpl::Median() const { return stats_.Median(); }
 
 double HistogramImpl::Percentile(double p) const {
   return stats_.Percentile(p);
 }
 
-double HistogramImpl::Average() const {
-  return stats_.Average();
-}
+double HistogramImpl::Average() const { return stats_.Average(); }
 
 double HistogramImpl::StandardDeviation() const {
- return stats_.StandardDeviation();
+  return stats_.StandardDeviation();
 }
 
-std::string HistogramImpl::ToString() const {
-  return stats_.ToString();
-}
+std::string HistogramImpl::ToString() const { return stats_.ToString(); }
 
-void HistogramImpl::Data(HistogramData * const data) const {
-  stats_.Data(data);
-}
+void HistogramImpl::Data(HistogramData* const data) const { stats_.Data(data); }
 
 }  // namespace ROCKSDB_NAMESPACE

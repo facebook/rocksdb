@@ -1,3 +1,10 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+#include "db/version_builder.h"
 #ifndef ROCKSDB_LITE
 
 #include "db/import_column_family_job.h"
@@ -15,6 +22,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
+#include "table/unique_id_impl.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -38,40 +46,6 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   auto num_files = files_to_import_.size();
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
-  } else if (num_files > 1) {
-    // Verify that passed files don't have overlapping ranges in any particular
-    // level.
-    int min_level = 1;  // Check for overlaps in Level 1 and above.
-    int max_level = -1;
-    for (const auto& file_metadata : metadata_) {
-      if (file_metadata.level > max_level) {
-        max_level = file_metadata.level;
-      }
-    }
-    for (int level = min_level; level <= max_level; ++level) {
-      autovector<const IngestedFileInfo*> sorted_files;
-      for (size_t i = 0; i < num_files; i++) {
-        if (metadata_[i].level == level) {
-          sorted_files.push_back(&files_to_import_[i]);
-        }
-      }
-
-      std::sort(
-          sorted_files.begin(), sorted_files.end(),
-          [this](const IngestedFileInfo* info1, const IngestedFileInfo* info2) {
-            return cfd_->internal_comparator().Compare(
-                       info1->smallest_internal_key,
-                       info2->smallest_internal_key) < 0;
-          });
-
-      for (size_t i = 0; i + 1 < sorted_files.size(); i++) {
-        if (cfd_->internal_comparator().Compare(
-                sorted_files[i]->largest_internal_key,
-                sorted_files[i + 1]->smallest_internal_key) >= 0) {
-          return Status::InvalidArgument("Files have overlapping ranges");
-        }
-      }
-    }
   }
 
   for (const auto& f : files_to_import_) {
@@ -97,6 +71,9 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
         hardlink_files = false;
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "Try to link file %s but it's not supported : %s",
+                       f.internal_file_path.c_str(), status.ToString().c_str());
       }
     }
     if (!hardlink_files) {
@@ -133,9 +110,6 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
 // REQUIRES: we have become the only writer by entering both write_thread_ and
 // nonmem_write_thread_
 Status ImportColumnFamilyJob::Run() {
-  Status status;
-  edit_.SetColumnFamily(cfd_->GetID());
-
   // We use the import time as the ancester time. This is the time the data
   // is written to the database.
   int64_t temp_current_time = 0;
@@ -146,27 +120,67 @@ Status ImportColumnFamilyJob::Run() {
         static_cast<uint64_t>(temp_current_time);
   }
 
-  for (size_t i = 0; i < files_to_import_.size(); ++i) {
+  // Recover files' epoch number using dummy VersionStorageInfo
+  VersionBuilder dummy_version_builder(
+      cfd_->current()->version_set()->file_options(), cfd_->ioptions(),
+      cfd_->table_cache(), cfd_->current()->storage_info(),
+      cfd_->current()->version_set(),
+      cfd_->GetFileMetadataCacheReservationManager());
+  VersionStorageInfo dummy_vstorage(
+      &cfd_->internal_comparator(), cfd_->user_comparator(),
+      cfd_->NumberLevels(), cfd_->ioptions()->compaction_style,
+      nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
+      EpochNumberRequirement::kMightMissing);
+  Status s;
+  for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
 
-    edit_.AddFile(file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key,
-                  f.largest_internal_key, file_metadata.smallest_seqno,
-                  file_metadata.largest_seqno, false, file_metadata.temperature,
-                  kInvalidBlobFileNumber, oldest_ancester_time, current_time,
-                  kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                  kDisableUserTimestamp, kDisableUserTimestamp);
+    VersionEdit dummy_version_edit;
+    dummy_version_edit.AddFile(
+        file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
+        f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
+        file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
+        file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
+        current_time, file_metadata.epoch_number, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, f.unique_id, 0);
+    s = dummy_version_builder.Apply(&dummy_version_edit);
+  }
+  if (s.ok()) {
+    s = dummy_version_builder.SaveTo(&dummy_vstorage);
+  }
+  if (s.ok()) {
+    dummy_vstorage.RecoverEpochNumbers(cfd_);
+  }
 
-    // If incoming sequence number is higher, update local sequence number.
-    if (file_metadata.largest_seqno > versions_->LastSequence()) {
-      versions_->SetLastAllocatedSequence(file_metadata.largest_seqno);
-      versions_->SetLastPublishedSequence(file_metadata.largest_seqno);
-      versions_->SetLastSequence(file_metadata.largest_seqno);
+  // Record changes from this CF import in VersionEdit, including files with
+  // recovered epoch numbers
+  if (s.ok()) {
+    edit_.SetColumnFamily(cfd_->GetID());
+
+    for (int level = 0; level < dummy_vstorage.num_levels(); level++) {
+      for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
+        edit_.AddFile(level, *file_meta);
+        // If incoming sequence number is higher, update local sequence number.
+        if (file_meta->fd.largest_seqno > versions_->LastSequence()) {
+          versions_->SetLastAllocatedSequence(file_meta->fd.largest_seqno);
+          versions_->SetLastPublishedSequence(file_meta->fd.largest_seqno);
+          versions_->SetLastSequence(file_meta->fd.largest_seqno);
+        }
+      }
     }
   }
 
-  return status;
+  // Release resources occupied by the dummy VersionStorageInfo
+  for (int level = 0; level < dummy_vstorage.num_levels(); level++) {
+    for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
+      file_meta->refs--;
+      if (file_meta->refs <= 0) {
+        delete file_meta;
+      }
+    }
+  }
+  return s;
 }
 
 void ImportColumnFamilyJob::Cleanup(const Status& status) {
@@ -218,8 +232,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   std::unique_ptr<FSRandomAccessFile> sst_file;
   std::unique_ptr<RandomAccessFileReader> sst_file_reader;
 
-  status = fs_->NewRandomAccessFile(external_file, env_options_,
-                                    &sst_file, nullptr);
+  status =
+      fs_->NewRandomAccessFile(external_file, env_options_, &sst_file, nullptr);
   if (!status.ok()) {
     return status;
   }
@@ -285,9 +299,17 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
 
   file_to_import->table_properties = *props;
 
+  auto s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                                  props->orig_file_number,
+                                  &(file_to_import->unique_id));
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get SST unique id for file %s",
+                   file_to_import->internal_file_path.c_str());
+  }
+
   return status;
 }
-
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

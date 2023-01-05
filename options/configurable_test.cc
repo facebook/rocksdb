@@ -173,7 +173,7 @@ TEST_F(ConfigurableTest, GetOptionsTest) {
   int i = 11;
   for (auto opt : {"", "shared.", "unique.", "pointer."}) {
     std::string value;
-    std::string expected = ToString(i);
+    std::string expected = std::to_string(i);
     std::string opt_name = opt;
     ASSERT_OK(
         simple->ConfigureOption(config_options_, opt_name + "int", expected));
@@ -872,6 +872,7 @@ INSTANTIATE_TEST_CASE_P(
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);

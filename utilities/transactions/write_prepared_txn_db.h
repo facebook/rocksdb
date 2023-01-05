@@ -397,8 +397,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       if (delta >= format.DELTA_UPPERBOUND) {
         throw std::runtime_error(
             "commit_seq >> prepare_seq. The allowed distance is " +
-            ToString(format.DELTA_UPPERBOUND) + " commit_seq is " +
-            ToString(cs) + " prepare_seq is " + ToString(ps));
+            std::to_string(format.DELTA_UPPERBOUND) + " commit_seq is " +
+            std::to_string(cs) + " prepare_seq is " + std::to_string(ps));
       }
       rep_ = (ps << format.PAD_BITS) & ~format.COMMIT_FILTER;
       rep_ = rep_ | delta;

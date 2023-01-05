@@ -24,7 +24,7 @@ class MemoryTest : public testing::Test {
     assert(Env::Default()->CreateDirIfMissing(kDbDir).ok());
   }
 
-  std::string GetDBName(int id) { return kDbDir + "db_" + ToString(id); }
+  std::string GetDBName(int id) { return kDbDir + "db_" + std::to_string(id); }
 
   void UpdateUsagesHistory(const std::vector<DB*>& dbs) {
     std::map<MemoryUtil::UsageType, uint64_t> usage_by_type;
@@ -261,6 +261,7 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
 
 int main(int argc, char** argv) {
 #if !(defined NDEBUG) || !defined(OS_WIN)
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 #else
