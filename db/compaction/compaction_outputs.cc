@@ -190,11 +190,58 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   // etc.
   const Slice& internal_key = c_iter.key();
   const uint64_t previous_overlapped_bytes = grandparent_overlapped_bytes_;
-  size_t num_grandparent_boundaries_crossed =
-      UpdateGrandparentBoundaryInfo(internal_key);
+  const InternalKeyComparator* icmp =
+      &compaction_->column_family_data()->internal_comparator();
+  // if compaction_->output_level() == 0, there is no need to update grandparent
+  // info, and that `grandparent` should be empty.
+  size_t num_grandparent_boundaries_crossed = 0;
+  bool should_stop_for_ttl = false;
+  if (compaction_->output_level() > 0) {
+    num_grandparent_boundaries_crossed =
+        UpdateGrandparentBoundaryInfo(internal_key);
+    // TTL state should be updated for each key
+    if (!files_to_cut_for_ttl_.empty()) {
+      if (cur_files_to_cut_for_ttl_ != -1) {
+        // Previous key is inside the range of a file
+        if (icmp->Compare(internal_key,
+                          files_to_cut_for_ttl_[cur_files_to_cut_for_ttl_]
+                              ->largest.Encode()) > 0) {
+          next_files_to_cut_for_ttl_ = cur_files_to_cut_for_ttl_ + 1;
+          cur_files_to_cut_for_ttl_ = -1;
+          should_stop_for_ttl = true;
+        }
+      } else {
+        // Look for the key position
+        while (next_files_to_cut_for_ttl_ <
+               static_cast<int>(files_to_cut_for_ttl_.size())) {
+          if (icmp->Compare(internal_key,
+                            files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
+                                ->smallest.Encode()) >= 0) {
+            if (icmp->Compare(internal_key,
+                              files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
+                                  ->largest.Encode()) <= 0) {
+              // With in the current file
+              cur_files_to_cut_for_ttl_ = next_files_to_cut_for_ttl_;
+              should_stop_for_ttl = true;
+              break;
+            }
+            // Beyond the current file
+            next_files_to_cut_for_ttl_++;
+          } else {
+            // Still fall into the gap
+            break;
+          }
+        }
+      }
+    }
+  }
 
   if (!HasBuilder()) {
     return false;
+  }
+
+  if (should_stop_for_ttl) {
+    return true;
   }
 
   // If there's user defined partitioner, check that first
@@ -213,9 +260,6 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   if (current_output_file_size_ >= compaction_->max_output_file_size()) {
     return true;
   }
-
-  const InternalKeyComparator* icmp =
-      &compaction_->column_family_data()->internal_comparator();
 
   // Check if it needs to split for RoundRobin
   // Invalid local_output_split_key indicates that we do not need to split
@@ -287,41 +331,6 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
                 (50 + std::min(grandparent_boundary_switched_num_ * 5,
                                size_t{40}))) {
       return true;
-    }
-  }
-
-  // check ttl file boundaries if there's any
-  if (!files_to_cut_for_ttl_.empty()) {
-    if (cur_files_to_cut_for_ttl_ != -1) {
-      // Previous key is inside the range of a file
-      if (icmp->Compare(internal_key,
-                        files_to_cut_for_ttl_[cur_files_to_cut_for_ttl_]
-                            ->largest.Encode()) > 0) {
-        next_files_to_cut_for_ttl_ = cur_files_to_cut_for_ttl_ + 1;
-        cur_files_to_cut_for_ttl_ = -1;
-        return true;
-      }
-    } else {
-      // Look for the key position
-      while (next_files_to_cut_for_ttl_ <
-             static_cast<int>(files_to_cut_for_ttl_.size())) {
-        if (icmp->Compare(internal_key,
-                          files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
-                              ->smallest.Encode()) >= 0) {
-          if (icmp->Compare(internal_key,
-                            files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
-                                ->largest.Encode()) <= 0) {
-            // With in the current file
-            cur_files_to_cut_for_ttl_ = next_files_to_cut_for_ttl_;
-            return true;
-          }
-          // Beyond the current file
-          next_files_to_cut_for_ttl_++;
-        } else {
-          // Still fall into the gap
-          break;
-        }
-      }
     }
   }
 
