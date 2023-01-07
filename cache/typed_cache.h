@@ -44,7 +44,7 @@ namespace ROCKSDB_NAMESPACE {
 #define CACHE_TYPE_DEFS()                     \
   using Priority = Cache::Priority;           \
   using Handle = Cache::Handle;               \
-  using ValueType = Cache::ValueType;         \
+  using ObjectPtr = Cache::ObjectPtr;         \
   using CreateContext = Cache::CreateContext; \
   using CacheItemHelper = Cache::CacheItemHelper /* caller ; */
 
@@ -102,25 +102,13 @@ class BasicTypedCacheHelperFns {
   using TValuePtr = std::remove_extent_t<TValue>*;
 
  protected:
-  inline static ValueType* UpCastValue(TValuePtr value) {
-    // We don't strictly require values to extend ValueType, but it's a
-    // good idea
-    if constexpr (std::is_convertible_v<TValuePtr, ValueType*>) {
-      return value;
-    } else {
-      return reinterpret_cast<ValueType*>(value);
-    }
-  }
-  inline static TValuePtr DownCastValue(ValueType* value) {
-    if constexpr (std::is_convertible_v<TValuePtr, ValueType*>) {
-      return static_cast<TValuePtr>(value);
-    } else {
-      return reinterpret_cast<TValuePtr>(value);
-    }
+  inline static ObjectPtr UpCastValue(TValuePtr value) { return value; }
+  inline static TValuePtr DownCastValue(ObjectPtr value) {
+    return static_cast<TValuePtr>(value);
   }
 
-  static void Delete(ValueType* value, MemoryAllocator* allocator) {
-    // FIXME: Currently, no callers actually allocate the ValueType objects
+  static void Delete(ObjectPtr value, MemoryAllocator* allocator) {
+    // FIXME: Currently, no callers actually allocate the ObjectPtr objects
     // using the custom allocator, just subobjects that keep a reference to
     // the allocator themselves (with CacheAllocationPtr).
     if (/*DISABLED*/ false && allocator) {
@@ -129,7 +117,7 @@ class BasicTypedCacheHelperFns {
       }
       allocator->Deallocate(value);
     } else {
-      // Like delete but properly handles ValueType=char[] etc.
+      // Like delete but properly handles TValue=char[] etc.
       std::default_delete<TValue>{}(DownCastValue(value));
     }
   }
@@ -214,13 +202,13 @@ class FullTypedCacheHelperFns : public BasicTypedCacheHelperFns<TValue> {
   using BasicTypedCacheHelperFns<TValue>::DownCastValue;
   using BasicTypedCacheHelperFns<TValue>::UpCastValue;
 
-  static size_t Size(ValueType* v) {
+  static size_t Size(ObjectPtr v) {
     TValuePtr value = DownCastValue(v);
     auto slice = value->ContentSlice();
     return slice.size();
   }
 
-  static Status SaveTo(ValueType* v, size_t from_offset, size_t length,
+  static Status SaveTo(ObjectPtr v, size_t from_offset, size_t length,
                        char* out) {
     TValuePtr value = DownCastValue(v);
     auto slice = value->ContentSlice();
@@ -231,7 +219,7 @@ class FullTypedCacheHelperFns : public BasicTypedCacheHelperFns<TValue> {
   }
 
   static Status Create(const Slice& data, CreateContext* context,
-                       MemoryAllocator* allocator, ValueType** out_obj,
+                       MemoryAllocator* allocator, ObjectPtr* out_obj,
                        size_t* out_charge) {
     std::unique_ptr<TValue> value = nullptr;
     if constexpr (sizeof(TCreateContext) > 0) {
@@ -304,7 +292,7 @@ class FullTypedCacheInterface
       Priority priority = Priority::LOW,
       CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier,
       size_t* out_charge = nullptr) {
-    ValueType* value;
+    ObjectPtr value;
     size_t charge;
     Status st = kFullHelper.create_cb(data, create_context,
                                       this->cache_->memory_allocator(), &value,

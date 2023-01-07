@@ -21,7 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
  public:
-  CompressedSecondaryCacheResultHandle(Cache::ValueType* value, size_t size)
+  CompressedSecondaryCacheResultHandle(Cache::ObjectPtr value, size_t size)
       : value_(value), size_(size) {}
   ~CompressedSecondaryCacheResultHandle() override = default;
 
@@ -34,12 +34,12 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 
   void Wait() override {}
 
-  Cache::ValueType* Value() override { return value_; }
+  Cache::ObjectPtr Value() override { return value_; }
 
   size_t Size() override { return size_; }
 
  private:
-  Cache::ValueType* value_;
+  Cache::ObjectPtr value_;
   size_t size_;
 };
 
@@ -83,7 +83,7 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   const char* Name() const override { return "CompressedSecondaryCache"; }
 
-  Status Insert(const Slice& key, Cache::ValueType* value,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(

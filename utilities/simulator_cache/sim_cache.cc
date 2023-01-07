@@ -165,7 +165,7 @@ class SimCacheImpl : public SimCache {
   }
 
   using Cache::Insert;
-  Status Insert(const Slice& key, Cache::ValueType* value,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge, Handle** handle,
                 Priority priority) override {
     // The handle and value passed in are for real cache, so we pass nullptr
@@ -213,7 +213,7 @@ class SimCacheImpl : public SimCache {
     key_only_cache_->Erase(key);
   }
 
-  Cache::ValueType* Value(Handle* handle) override {
+  Cache::ObjectPtr Value(Handle* handle) override {
     return cache_->Value(handle);
   }
 
@@ -247,9 +247,8 @@ class SimCacheImpl : public SimCache {
   }
 
   void ApplyToAllEntries(
-      const std::function<void(const Slice& key, ValueType* value,
-                               size_t charge, const CacheItemHelper* helper)>&
-          callback,
+      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
+                               const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) override {
     cache_->ApplyToAllEntries(callback, opts);
   }

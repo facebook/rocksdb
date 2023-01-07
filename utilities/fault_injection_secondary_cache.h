@@ -31,7 +31,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
 
   const char* Name() const override { return "FaultInjectionSecondaryCache"; }
 
-  Status Insert(const Slice& key, Cache::ValueType* value,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
@@ -70,7 +70,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
 
     void Wait() override;
 
-    Cache::ValueType* Value() override;
+    Cache::ObjectPtr Value() override;
 
     size_t Size() override;
 
@@ -82,7 +82,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
 
     FaultInjectionSecondaryCache* cache_;
     std::unique_ptr<SecondaryCacheResultHandle> base_;
-    Cache::ValueType* value_;
+    Cache::ObjectPtr value_;
     size_t size_;
   };
 

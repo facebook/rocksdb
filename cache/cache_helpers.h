@@ -17,14 +17,7 @@ template <typename T>
 T* GetFromCacheHandle(Cache* cache, Cache::Handle* handle) {
   assert(cache);
   assert(handle);
-  Cache::ValueType* value = cache->Value(handle);
-  // We don't strictly require values to extend ValueType, but it's a
-  // good idea
-  if constexpr (std::is_convertible_v<T*, Cache::ValueType*>) {
-    return static_cast<T*>(value);
-  } else {
-    return reinterpret_cast<T*>(value);
-  }
+  return static_cast<T*>(cache->Value(handle));
 }
 
 // Turns a T* into a Slice so it can be used as a key with Cache.

@@ -180,7 +180,7 @@ class CachableEntry {
     assert(cache_ != nullptr);
     assert(cache_handle_ != nullptr);
 
-    value_ = reinterpret_cast<T*>(cache_->Value(cache_handle_));
+    value_ = static_cast<T*>(cache_->Value(cache_handle_));
   }
 
   bool IsReady() {

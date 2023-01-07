@@ -24,7 +24,7 @@ namespace lru_cache {
 
 namespace {
 // A distinct pointer value for marking "dummy" cache entries
-struct DummyValue : public Cache::ValueType {
+struct DummyValue {
   char val[12] = "kDummyValue";
 };
 DummyValue kDummyValue{};
@@ -173,7 +173,7 @@ void LRUCacheShard::EraseUnRefEntries() {
 }
 
 void LRUCacheShard::ApplyToSomeEntries(
-    const std::function<void(const Slice& key, Cache::ValueType* value,
+    const std::function<void(const Slice& key, Cache::ObjectPtr value,
                              size_t charge,
                              const Cache::CacheItemHelper* helper)>& callback,
     size_t average_entries_per_lock, size_t* state) {
@@ -675,7 +675,7 @@ bool LRUCacheShard::Release(LRUHandle* e, bool /*useful*/,
 }
 
 Status LRUCacheShard::Insert(const Slice& key, uint32_t hash,
-                             Cache::ValueType* value,
+                             Cache::ObjectPtr value,
                              const Cache::CacheItemHelper* helper,
                              size_t charge, LRUHandle** handle,
                              Cache::Priority priority) {
@@ -798,7 +798,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   });
 }
 
-Cache::ValueType* LRUCache::Value(Handle* handle) {
+Cache::ObjectPtr LRUCache::Value(Handle* handle) {
   auto h = reinterpret_cast<const LRUHandle*>(handle);
   assert(!h->IsPending() || h->value == nullptr);
   assert(h->value != &kDummyValue);

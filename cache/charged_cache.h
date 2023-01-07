@@ -23,9 +23,8 @@ class ChargedCache : public Cache {
                std::shared_ptr<Cache> block_cache);
   ~ChargedCache() override = default;
 
-  Status Insert(const Slice& key, ValueType* value,
-                const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
+  Status Insert(const Slice& key, ObjectPtr obj, const CacheItemHelper* helper,
+                size_t charge, Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override;
 
   Cache::Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
@@ -55,7 +54,7 @@ class ChargedCache : public Cache {
     return cache_->HasStrictCapacityLimit();
   }
 
-  ValueType* Value(Cache::Handle* handle) override {
+  ObjectPtr Value(Cache::Handle* handle) override {
     return cache_->Value(handle);
   }
 
@@ -90,9 +89,8 @@ class ChargedCache : public Cache {
   }
 
   void ApplyToAllEntries(
-      const std::function<void(const Slice& key, ValueType* value,
-                               size_t charge, const CacheItemHelper* helper)>&
-          callback,
+      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
+                               const CacheItemHelper* helper)>& callback,
       const Cache::ApplyToAllEntriesOptions& opts) override {
     cache_->ApplyToAllEntries(callback, opts);
   }

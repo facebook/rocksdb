@@ -305,7 +305,7 @@ constexpr double kLoadFactor = 0.7;
 constexpr double kStrictLoadFactor = 0.84;
 
 struct ClockHandleBasicData {
-  Cache::ValueType* value = nullptr;
+  Cache::ObjectPtr value = nullptr;
   const Cache::CacheItemHelper* helper = nullptr;
   // A lossless, reversible hash of the fixed-size (16 byte) cache key. This
   // eliminates the need to store a hash separately.
@@ -606,7 +606,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   void SetStrictCapacityLimit(bool strict_capacity_limit);
 
   Status Insert(const Slice& key, const UniqueId64x2& hashed_key,
-                Cache::ValueType* value, const Cache::CacheItemHelper* helper,
+                Cache::ObjectPtr value, const Cache::CacheItemHelper* helper,
                 size_t charge, HandleImpl** handle, Cache::Priority priority);
 
   HandleImpl* Lookup(const Slice& key, const UniqueId64x2& hashed_key);
@@ -634,7 +634,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   size_t GetTableAddressCount() const;
 
   void ApplyToSomeEntries(
-      const std::function<void(const Slice& key, Cache::ValueType* value,
+      const std::function<void(const Slice& key, Cache::ObjectPtr obj,
                                size_t charge,
                                const Cache::CacheItemHelper* helper)>& callback,
       size_t average_entries_per_lock, size_t* state);
@@ -684,7 +684,7 @@ class HyperClockCache
 
   const char* Name() const override { return "HyperClockCache"; }
 
-  Cache::ValueType* Value(Handle* handle) override;
+  Cache::ObjectPtr Value(Handle* handle) override;
 
   size_t GetCharge(Handle* handle) const override;
 

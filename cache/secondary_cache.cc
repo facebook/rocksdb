@@ -11,21 +11,21 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-void NoopDelete(Cache::ValueType*, MemoryAllocator*) {}
+void NoopDelete(Cache::ObjectPtr, MemoryAllocator*) {}
 
-size_t SliceSize(Cache::ValueType* obj) {
-  return reinterpret_cast<Slice*>(obj)->size();
+size_t SliceSize(Cache::ObjectPtr obj) {
+  return static_cast<Slice*>(obj)->size();
 }
 
-Status SliceSaveTo(Cache::ValueType* from_obj, size_t from_offset,
-                   size_t length, char* out) {
-  const Slice& slice = *reinterpret_cast<Slice*>(from_obj);
+Status SliceSaveTo(Cache::ObjectPtr from_obj, size_t from_offset, size_t length,
+                   char* out) {
+  const Slice& slice = *static_cast<Slice*>(from_obj);
   std::memcpy(out, slice.data() + from_offset, length);
   return Status::OK();
 }
 
 Status FailCreate(const Slice&, Cache::CreateContext*, MemoryAllocator*,
-                  Cache::ValueType**, size_t*) {
+                  Cache::ObjectPtr*, size_t*) {
   return Status::NotSupported("Only for dumping data into SecondaryCache");
 }
 
@@ -35,9 +35,7 @@ Status SecondaryCache::InsertSaved(const Slice& key, const Slice& saved) {
   static Cache::CacheItemHelper helper{CacheEntryRole::kMisc, &NoopDelete,
                                        &SliceSize, &SliceSaveTo, &FailCreate};
   // NOTE: depends on Insert() being synchronous, not keeping pointer `&saved`
-  return Insert(key,
-                reinterpret_cast<Cache::ValueType*>(const_cast<Slice*>(&saved)),
-                &helper);
+  return Insert(key, const_cast<Slice*>(&saved), &helper);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

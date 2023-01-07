@@ -903,7 +903,7 @@ class CacheWrapper : public Cache {
 
   const char* Name() const override { return target_->Name(); }
 
-  Status Insert(const Slice& key, ValueType* value,
+  Status Insert(const Slice& key, ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
                 Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
@@ -924,7 +924,7 @@ class CacheWrapper : public Cache {
     return target_->Release(handle, erase_if_last_ref);
   }
 
-  ValueType* Value(Handle* handle) override { return target_->Value(handle); }
+  ObjectPtr Value(Handle* handle) override { return target_->Value(handle); }
 
   void Erase(const Slice& key) override { target_->Erase(key); }
   uint64_t NewId() override { return target_->NewId(); }
@@ -958,9 +958,8 @@ class CacheWrapper : public Cache {
   }
 
   void ApplyToAllEntries(
-      const std::function<void(const Slice& key, ValueType* value,
-                               size_t charge, const CacheItemHelper* helper)>&
-          callback,
+      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
+                               const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) override {
     target_->ApplyToAllEntries(callback, opts);
   }
@@ -988,7 +987,7 @@ class TargetCacheChargeTrackingCache : public CacheWrapper {
  public:
   explicit TargetCacheChargeTrackingCache(std::shared_ptr<Cache> target);
 
-  Status Insert(const Slice& key, ValueType* value,
+  Status Insert(const Slice& key, ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
                 Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override;

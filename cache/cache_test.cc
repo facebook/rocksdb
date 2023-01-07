@@ -56,12 +56,8 @@ int DecodeKey32Bits(const Slice& k) {
   return DecodeFixed32(k.data());
 }
 
-Cache::ValueType* EncodeValue(uintptr_t v) {
-  return reinterpret_cast<Cache::ValueType*>(v);
-}
-
-Cache::ValueType* EncodeValue(void* v) {
-  return reinterpret_cast<Cache::ValueType*>(v);
+Cache::ObjectPtr EncodeValue(uintptr_t v) {
+  return reinterpret_cast<Cache::ObjectPtr>(v);
 }
 
 int DecodeValue(void* v) {
@@ -70,19 +66,19 @@ int DecodeValue(void* v) {
 
 const Cache::CacheItemHelper kDumbHelper{
     CacheEntryRole::kMisc,
-    [](Cache::ValueType* /*value*/, MemoryAllocator* /*alloc*/) {}};
+    [](Cache::ObjectPtr /*value*/, MemoryAllocator* /*alloc*/) {}};
 
 const Cache::CacheItemHelper kEraseOnDeleteHelper1{
     CacheEntryRole::kMisc,
-    [](Cache::ValueType* value, MemoryAllocator* /*alloc*/) {
-      Cache* cache = reinterpret_cast<Cache*>(value);
+    [](Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
+      Cache* cache = static_cast<Cache*>(value);
       cache->Erase("foo");
     }};
 
 const Cache::CacheItemHelper kEraseOnDeleteHelper2{
     CacheEntryRole::kMisc,
-    [](Cache::ValueType* value, MemoryAllocator* /*alloc*/) {
-      Cache* cache = reinterpret_cast<Cache*>(value);
+    [](Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
+      Cache* cache = static_cast<Cache*>(value);
       cache->Erase(EncodeKey16Bytes(1234));
     }};
 
@@ -96,7 +92,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
   static CacheTest* current_;
   static std::string type_;
 
-  static void Deleter(Cache::ValueType* v, MemoryAllocator*) {
+  static void Deleter(Cache::ObjectPtr v, MemoryAllocator*) {
     current_->deleted_values_.push_back(DecodeValue(v));
   }
   static constexpr Cache::CacheItemHelper kHelper{CacheEntryRole::kMisc,
@@ -245,9 +241,8 @@ TEST_P(CacheTest, UsageTest) {
       key = EncodeKey(i);
     }
     auto kv_size = key.size() + 5;
-    ASSERT_OK(cache->Insert(key, EncodeValue(value), &kDumbHelper, kv_size));
-    ASSERT_OK(
-        precise_cache->Insert(key, EncodeValue(value), &kDumbHelper, kv_size));
+    ASSERT_OK(cache->Insert(key, value, &kDumbHelper, kv_size));
+    ASSERT_OK(precise_cache->Insert(key, value, &kDumbHelper, kv_size));
     usage += kv_size;
     ASSERT_EQ(usage, cache->GetUsage());
     if (type == kHyperClock) {
@@ -270,10 +265,8 @@ TEST_P(CacheTest, UsageTest) {
     } else {
       key = EncodeKey(static_cast<int>(1000 + i));
     }
-    ASSERT_OK(
-        cache->Insert(key, EncodeValue(value), &kDumbHelper, key.size() + 5));
-    ASSERT_OK(precise_cache->Insert(key, EncodeValue(value), &kDumbHelper,
-                                    key.size() + 5));
+    ASSERT_OK(cache->Insert(key, value, &kDumbHelper, key.size() + 5));
+    ASSERT_OK(precise_cache->Insert(key, value, &kDumbHelper, key.size() + 5));
   }
 
   // the usage should be close to the capacity
@@ -328,11 +321,10 @@ TEST_P(CacheTest, PinnedUsageTest) {
     auto kv_size = key.size() + 5;
     Cache::Handle* handle;
     Cache::Handle* handle_in_precise_cache;
-    ASSERT_OK(
-        cache->Insert(key, EncodeValue(value), &kDumbHelper, kv_size, &handle));
+    ASSERT_OK(cache->Insert(key, value, &kDumbHelper, kv_size, &handle));
     assert(handle);
-    ASSERT_OK(precise_cache->Insert(key, EncodeValue(value), &kDumbHelper,
-                                    kv_size, &handle_in_precise_cache));
+    ASSERT_OK(precise_cache->Insert(key, value, &kDumbHelper, kv_size,
+                                    &handle_in_precise_cache));
     assert(handle_in_precise_cache);
     pinned_usage += kv_size;
     ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
@@ -372,10 +364,8 @@ TEST_P(CacheTest, PinnedUsageTest) {
     } else {
       key = EncodeKey(static_cast<int>(1000 + i));
     }
-    ASSERT_OK(
-        cache->Insert(key, EncodeValue(value), &kDumbHelper, key.size() + 5));
-    ASSERT_OK(precise_cache->Insert(key, EncodeValue(value), &kDumbHelper,
-                                    key.size() + 5));
+    ASSERT_OK(cache->Insert(key, value, &kDumbHelper, key.size() + 5));
+    ASSERT_OK(precise_cache->Insert(key, value, &kDumbHelper, key.size() + 5));
   }
   ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
   ASSERT_EQ(precise_cache_pinned_usage, precise_cache->GetPinnedUsage());
@@ -616,7 +606,7 @@ TEST_P(CacheTest, EraseFromDeleter) {
   }
 
   ASSERT_OK(cache->Insert(foo, nullptr, &kDumbHelper, 1));
-  ASSERT_OK(cache->Insert(bar, EncodeValue(cache.get()), erase_helper, 1));
+  ASSERT_OK(cache->Insert(bar, cache.get(), erase_helper, 1));
 
   cache->Erase(bar);
   ASSERT_EQ(nullptr, cache->Lookup(foo));
@@ -890,7 +880,7 @@ TEST_P(CacheTest, OverCapacity) {
 
 TEST_P(CacheTest, ApplyToAllEntriesTest) {
   std::vector<std::string> callback_state;
-  const auto callback = [&](const Slice& key, Cache::ValueType* value,
+  const auto callback = [&](const Slice& key, Cache::ObjectPtr value,
                             size_t charge,
                             const Cache::CacheItemHelper* helper) {
     callback_state.push_back(std::to_string(DecodeKey(key)) + "," +
@@ -935,7 +925,7 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
 
   // For callback
   int special_count = 0;
-  const auto callback = [&](const Slice&, Cache::ValueType*, size_t charge,
+  const auto callback = [&](const Slice&, Cache::ObjectPtr, size_t charge,
                             const Cache::CacheItemHelper*) {
     if (charge == static_cast<size_t>(kSpecialCharge)) {
       ++special_count;

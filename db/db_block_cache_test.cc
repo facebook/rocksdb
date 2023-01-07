@@ -405,7 +405,7 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
   using CacheWrapper::CacheWrapper;
 
   using Cache::Insert;
-  Status Insert(const Slice& /*key*/, Cache::ValueType* /*value*/,
+  Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
                 const CacheItemHelper* /*helper*/, size_t /*charge*/,
                 Handle** /*handle*/, Priority /*priority*/) override {
     return Status::NotSupported();
@@ -826,7 +826,7 @@ class MockCache : public LRUCache {
 
   using ShardedCache::Insert;
 
-  Status Insert(const Slice& key, Cache::ValueType* value,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper, size_t charge,
                 Handle** handle, Priority priority) override {
     if (priority == Priority::LOW) {
@@ -1279,7 +1279,7 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 static void ClearCache(Cache* cache) {
   std::deque<std::string> keys;
   Cache::ApplyToAllEntriesOptions opts;
-  auto callback = [&](const Slice& key, Cache::ValueType*, size_t /*charge*/,
+  auto callback = [&](const Slice& key, Cache::ObjectPtr, size_t /*charge*/,
                       const Cache::CacheItemHelper* helper) {
     if (helper && helper->role == CacheEntryRole::kMisc) {
       // Keep the stats collector
@@ -1547,8 +1547,7 @@ void DummyFillCache(Cache& cache, size_t entry_size,
   for (size_t my_usage = 0; my_usage < capacity;) {
     size_t charge = std::min(entry_size, capacity - my_usage);
     Cache::Handle* handle;
-    Status st = cache.Insert(ck.WithOffset(my_usage).AsSlice(),
-                             reinterpret_cast<Cache::ValueType*>(fake_value),
+    Status st = cache.Insert(ck.WithOffset(my_usage).AsSlice(), fake_value,
                              &kNoopCacheItemHelper, charge, &handle);
     ASSERT_OK(st);
     handles.emplace_back(&cache, handle);

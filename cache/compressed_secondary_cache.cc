@@ -69,7 +69,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   MemoryAllocator* allocator = cache_options_.memory_allocator.get();
 
   Status s;
-  Cache::ValueType* value{nullptr};
+  Cache::ObjectPtr value{nullptr};
   size_t charge{0};
   if (cache_options_.compression_type == kNoCompression) {
     s = helper->create_cb(Slice(ptr->get(), handle_value_charge),
@@ -115,7 +115,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 }
 
 Status CompressedSecondaryCache::Insert(const Slice& key,
-                                        Cache::ValueType* value,
+                                        Cache::ObjectPtr value,
                                         const Cache::CacheItemHelper* helper) {
   if (value == nullptr) {
     return Status::InvalidArgument();
@@ -175,13 +175,10 @@ Status CompressedSecondaryCache::Insert(const Slice& key,
     size_t charge{0};
     CacheValueChunk* value_chunks_head =
         SplitValueIntoChunks(val, cache_options_.compression_type, charge);
-    return cache_->Insert(
-        key, reinterpret_cast<Cache::ValueType*>(value_chunks_head),
-        internal_helper, charge);
+    return cache_->Insert(key, value_chunks_head, internal_helper, charge);
   } else {
     CacheAllocationPtr* buf = new CacheAllocationPtr(std::move(ptr));
-    return cache_->Insert(key, reinterpret_cast<Cache::ValueType*>(buf),
-                          internal_helper, size);
+    return cache_->Insert(key, buf, internal_helper, size);
   }
 }
 
@@ -290,9 +287,8 @@ const Cache::CacheItemHelper* CompressedSecondaryCache::GetHelper(
   if (enable_custom_split_merge) {
     static const Cache::CacheItemHelper kHelper{
         CacheEntryRole::kMisc,
-        [](Cache::ValueType* obj, MemoryAllocator* /*alloc*/) {
-          CacheValueChunk* chunks_head =
-              reinterpret_cast<CacheValueChunk*>(obj);
+        [](Cache::ObjectPtr obj, MemoryAllocator* /*alloc*/) {
+          CacheValueChunk* chunks_head = static_cast<CacheValueChunk*>(obj);
           while (chunks_head != nullptr) {
             CacheValueChunk* tmp_chunk = chunks_head;
             chunks_head = chunks_head->next;
@@ -304,8 +300,8 @@ const Cache::CacheItemHelper* CompressedSecondaryCache::GetHelper(
   } else {
     static const Cache::CacheItemHelper kHelper{
         CacheEntryRole::kMisc,
-        [](Cache::ValueType* obj, MemoryAllocator* /*alloc*/) {
-          delete reinterpret_cast<CacheAllocationPtr*>(obj);
+        [](Cache::ObjectPtr obj, MemoryAllocator* /*alloc*/) {
+          delete static_cast<CacheAllocationPtr*>(obj);
           obj = nullptr;
         }};
     return &kHelper;

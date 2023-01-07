@@ -3537,7 +3537,7 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     const char* Name() const override { return "MyBlockCache"; }
 
-    Status Insert(const Slice& key, Cache::ValueType* value,
+    Status Insert(const Slice& key, Cache::ObjectPtr value,
                   const CacheItemHelper* helper, size_t charge,
                   Handle** handle = nullptr,
                   Priority priority = Priority::LOW) override {

@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 // A handle for lookup result. The handle may not be immediately ready or
 // have a valid value. The caller must call isReady() to determine if its
 // ready, and call Wait() in order to block until it becomes ready.
-// The caller must call value() after it becomes ready to determine if the
+// The caller must call Value() after it becomes ready to determine if the
 // handle successfullly read the item.
 class SecondaryCacheResultHandle {
  public:
@@ -32,8 +32,9 @@ class SecondaryCacheResultHandle {
   // Block until handle becomes ready
   virtual void Wait() = 0;
 
-  // Return the value. If nullptr, it means the lookup was unsuccessful
-  virtual Cache::ValueType* Value() = 0;
+  // Return the cache entry object (also known as value). If nullptr, it means
+  // the lookup was unsuccessful.
+  virtual Cache::ObjectPtr Value() = 0;
 
   // Return the size of value
   virtual size_t Size() = 0;
@@ -74,7 +75,7 @@ class SecondaryCache : public Customizable {
   // Lookup() might return the same parsed value back. But more typically, if
   // the implementation only uses `value` for getting persistable data during
   // the call, then the default implementation of `InsertSaved()` suffices.
-  virtual Status Insert(const Slice& key, Cache::ValueType* value,
+  virtual Status Insert(const Slice& key, Cache::ObjectPtr obj,
                         const Cache::CacheItemHelper* helper) = 0;
 
   // Insert a value from its saved/persistable data (typically uncompressed

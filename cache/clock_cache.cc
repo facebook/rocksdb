@@ -1006,7 +1006,7 @@ void ClockCacheShard<Table>::EraseUnRefEntries() {
 
 template <class Table>
 void ClockCacheShard<Table>::ApplyToSomeEntries(
-    const std::function<void(const Slice& key, Cache::ValueType* value,
+    const std::function<void(const Slice& key, Cache::ObjectPtr value,
                              size_t charge,
                              const Cache::CacheItemHelper* helper)>& callback,
     size_t average_entries_per_lock, size_t* state) {
@@ -1079,7 +1079,7 @@ void ClockCacheShard<Table>::SetStrictCapacityLimit(
 template <class Table>
 Status ClockCacheShard<Table>::Insert(const Slice& key,
                                       const UniqueId64x2& hashed_key,
-                                      Cache::ValueType* value,
+                                      Cache::ObjectPtr value,
                                       const Cache::CacheItemHelper* helper,
                                       size_t charge, HandleImpl** handle,
                                       Cache::Priority priority) {
@@ -1233,7 +1233,7 @@ HyperClockCache::HyperClockCache(
   });
 }
 
-Cache::ValueType* HyperClockCache::Value(Handle* handle) {
+Cache::ObjectPtr HyperClockCache::Value(Handle* handle) {
   return reinterpret_cast<const HandleImpl*>(handle)->value;
 }
 

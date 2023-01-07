@@ -49,7 +49,7 @@ class CacheShardBase {
     HashCref GetHash() const;
     ...
   };
-  Status Insert(const Slice& key, HashCref hash, Cache::ValueType* value,
+  Status Insert(const Slice& key, HashCref hash, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper, size_t charge,
                 HandleImpl** handle, Cache::Priority priority) = 0;
   HandleImpl* Lookup(const Slice& key, HashCref hash,
@@ -73,7 +73,7 @@ class CacheShardBase {
   // *state == 0 and implementation sets *state = SIZE_MAX to indicate
   // completion.
   void ApplyToSomeEntries(
-      const std::function<void(const Slice& key, ValueType* value,
+      const std::function<void(const Slice& key, ObjectPtr value,
                                size_t charge,
                                const Cache::CacheItemHelper* helper)>& callback,
       size_t average_entries_per_lock, size_t* state) = 0;
@@ -169,7 +169,7 @@ class ShardedCache : public ShardedCacheBase {
         [s_c_l](CacheShard* cs) { cs->SetStrictCapacityLimit(s_c_l); });
   }
 
-  Status Insert(const Slice& key, ValueType* value,
+  Status Insert(const Slice& key, ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
                 Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
@@ -229,9 +229,8 @@ class ShardedCache : public ShardedCacheBase {
     return SumOverShards2(&CacheShard::GetTableAddressCount);
   }
   void ApplyToAllEntries(
-      const std::function<void(const Slice& key, ValueType* value,
-                               size_t charge, const CacheItemHelper* helper)>&
-          callback,
+      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
+                               const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) override {
     uint32_t num_shards = GetNumShards();
     // Iterate over part of each shard, rotating between shards, to

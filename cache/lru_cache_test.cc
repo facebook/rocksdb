@@ -664,12 +664,12 @@ TEST_F(ClockCacheTest, ClockEvictionTest) {
 }
 
 namespace {
-struct DeleteCounter : public Cache::ValueType {
+struct DeleteCounter {
   int deleted = 0;
 };
 const Cache::CacheItemHelper kDeleteCounterHelper{
     CacheEntryRole::kMisc,
-    [](Cache::ValueType* value, MemoryAllocator* /*alloc*/) {
+    [](Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
       static_cast<DeleteCounter*>(value)->deleted += 1;
     }};
 }  // namespace
@@ -909,7 +909,7 @@ class TestSecondaryCache : public SecondaryCache {
 
   void ResetInjectFailure() { inject_failure_ = false; }
 
-  Status Insert(const Slice& key, Cache::ValueType* value,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper) override {
     if (inject_failure_) {
       return Status::Corruption("Insertion Data Corrupted");
@@ -952,7 +952,7 @@ class TestSecondaryCache : public SecondaryCache {
     TypedHandle* handle = cache_.Lookup(key);
     num_lookups_++;
     if (handle) {
-      Cache::ValueType* value = nullptr;
+      Cache::ObjectPtr value = nullptr;
       size_t charge = 0;
       Status s;
       if (type != ResultType::DEFER_AND_FAIL) {
@@ -1006,7 +1006,7 @@ class TestSecondaryCache : public SecondaryCache {
   class TestSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
    public:
     TestSecondaryCacheResultHandle(Cache* cache, Cache::Handle* handle,
-                                   Cache::ValueType* value, size_t size,
+                                   Cache::ObjectPtr value, size_t size,
                                    ResultType type)
         : cache_(cache),
           handle_(handle),
@@ -1024,7 +1024,7 @@ class TestSecondaryCache : public SecondaryCache {
 
     void Wait() override {}
 
-    Cache::ValueType* Value() override {
+    Cache::ObjectPtr Value() override {
       assert(is_ready_);
       return value_;
     }
@@ -1036,7 +1036,7 @@ class TestSecondaryCache : public SecondaryCache {
    private:
     Cache* cache_;
     Cache::Handle* handle_;
-    Cache::ValueType* value_;
+    Cache::ObjectPtr value_;
     size_t size_;
     bool is_ready_;
   };
@@ -1071,7 +1071,7 @@ class LRUCacheSecondaryCacheTest : public LRUCacheTest,
   ~LRUCacheSecondaryCacheTest() {}
 
  protected:
-  class TestItem : public Cache::ValueType {
+  class TestItem {
    public:
     TestItem(const char* buf, size_t size) : buf_(new char[size]), size_(size) {
       memcpy(buf_.get(), buf, size);
@@ -1087,11 +1087,11 @@ class LRUCacheSecondaryCacheTest : public LRUCacheTest,
     size_t size_;
   };
 
-  static size_t SizeCallback(Cache::ValueType* obj) {
+  static size_t SizeCallback(Cache::ObjectPtr obj) {
     return static_cast<TestItem*>(obj)->Size();
   }
 
-  static Status SaveToCallback(Cache::ValueType* from_obj, size_t from_offset,
+  static Status SaveToCallback(Cache::ObjectPtr from_obj, size_t from_offset,
                                size_t length, char* out) {
     TestItem* item = static_cast<TestItem*>(from_obj);
     char* buf = item->Buf();
@@ -1101,14 +1101,14 @@ class LRUCacheSecondaryCacheTest : public LRUCacheTest,
     return Status::OK();
   }
 
-  static void DeletionCallback(Cache::ValueType* obj,
+  static void DeletionCallback(Cache::ObjectPtr obj,
                                MemoryAllocator* /*alloc*/) {
     delete static_cast<TestItem*>(obj);
   }
 
   static Cache::CacheItemHelper helper_;
 
-  static Status SaveToCallbackFail(Cache::ValueType* /*from_obj*/,
+  static Status SaveToCallbackFail(Cache::ObjectPtr /*from_obj*/,
                                    size_t /*from_offset*/, size_t /*length*/,
                                    char* /*out*/) {
     return Status::NotSupported();
@@ -1118,7 +1118,7 @@ class LRUCacheSecondaryCacheTest : public LRUCacheTest,
 
   static Status CreateCallback(const Slice& data, Cache::CreateContext* context,
                                MemoryAllocator* /*allocator*/,
-                               Cache::ValueType** out_obj, size_t* out_charge) {
+                               Cache::ObjectPtr* out_obj, size_t* out_charge) {
     auto t = static_cast<LRUCacheSecondaryCacheTest*>(context);
     if (t->fail_create_) {
       return Status::NotSupported();
@@ -1986,7 +1986,7 @@ class LRUCacheWithStat : public LRUCache {
   }
   ~LRUCacheWithStat() {}
 
-  Status Insert(const Slice& key, Cache::ValueType* value,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
                 Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {

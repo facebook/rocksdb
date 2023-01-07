@@ -226,35 +226,35 @@ struct KeyGen {
   }
 };
 
-Cache::ValueType* createValue(Random64& rnd) {
+Cache::ObjectPtr createValue(Random64& rnd) {
   char* rv = new char[FLAGS_value_bytes];
   // Fill with some filler data, and take some CPU time
   for (uint32_t i = 0; i < FLAGS_value_bytes; i += 8) {
     EncodeFixed64(rv + i, rnd.Next());
   }
-  return reinterpret_cast<Cache::ValueType*>(rv);
+  return rv;
 }
 
 // Callbacks for secondary cache
-size_t SizeFn(Cache::ValueType* /*obj*/) { return FLAGS_value_bytes; }
+size_t SizeFn(Cache::ObjectPtr /*obj*/) { return FLAGS_value_bytes; }
 
-Status SaveToFn(Cache::ValueType* from_obj, size_t /*from_offset*/,
+Status SaveToFn(Cache::ObjectPtr from_obj, size_t /*from_offset*/,
                 size_t length, char* out) {
   memcpy(out, from_obj, length);
   return Status::OK();
 }
 
 Status CreateFn(const Slice& data, Cache::CreateContext* /*context*/,
-                MemoryAllocator* /*allocator*/, Cache::ValueType** out_obj,
+                MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
                 size_t* out_charge) {
-  *out_obj = reinterpret_cast<Cache::ValueType*>(new char[data.size()]);
+  *out_obj = new char[data.size()];
   memcpy(*out_obj, data.data(), data.size());
   *out_charge = data.size();
   return Status::OK();
 };
 
-void DeleteFn(Cache::ValueType* value, MemoryAllocator* /*alloc*/) {
-  delete[] reinterpret_cast<char*>(value);
+void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
+  delete[] static_cast<char*>(value);
 }
 
 Cache::CacheItemHelper helper1(CacheEntryRole::kDataBlock, DeleteFn, SizeFn,
@@ -483,8 +483,8 @@ class CacheBench {
       total_charge = 0;
       total_entry_count = 0;
       helpers.clear();
-      auto fn = [&](const Slice& key, Cache::ValueType* /*value*/,
-                    size_t charge, const Cache::CacheItemHelper* helper) {
+      auto fn = [&](const Slice& key, Cache::ObjectPtr /*value*/, size_t charge,
+                    const Cache::CacheItemHelper* helper) {
         total_key_size += key.size();
         total_charge += charge;
         ++total_entry_count;
@@ -552,7 +552,7 @@ class CacheBench {
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data
-            result += NPHash64(reinterpret_cast<char*>(cache_->Value(handle)),
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                                FLAGS_value_bytes);
           }
         } else {
@@ -581,7 +581,7 @@ class CacheBench {
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data
-            result += NPHash64(reinterpret_cast<char*>(cache_->Value(handle)),
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                                FLAGS_value_bytes);
           }
         }

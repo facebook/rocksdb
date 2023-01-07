@@ -49,7 +49,7 @@ namespace lru_cache {
 // While refs > 0, public properties like value and deleter must not change.
 
 struct LRUHandle {
-  Cache::ValueType* value;
+  Cache::ObjectPtr value;
   const Cache::CacheItemHelper* helper;
   // An entry is not added to the LRUHandleTable until the secondary cache
   // lookup is complete, so its safe to have this union.
@@ -335,7 +335,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   void SetLowPriorityPoolRatio(double low_pri_pool_ratio);
 
   // Like Cache methods, but with an extra "hash" parameter.
-  Status Insert(const Slice& key, uint32_t hash, Cache::ValueType* value,
+  Status Insert(const Slice& key, uint32_t hash, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper, size_t charge,
                 LRUHandle** handle, Cache::Priority priority);
 
@@ -360,7 +360,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   size_t GetTableAddressCount() const;
 
   void ApplyToSomeEntries(
-      const std::function<void(const Slice& key, Cache::ValueType* value,
+      const std::function<void(const Slice& key, Cache::ObjectPtr value,
                                size_t charge,
                                const Cache::CacheItemHelper* helper)>& callback,
       size_t average_entries_per_lock, size_t* state);
@@ -495,7 +495,7 @@ class LRUCache
                kDontChargeCacheMetadata,
            std::shared_ptr<SecondaryCache> secondary_cache = nullptr);
   const char* Name() const override { return "LRUCache"; }
-  ValueType* Value(Handle* handle) override;
+  ObjectPtr Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;
   const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
   void WaitAll(std::vector<Handle*>& handles) override;

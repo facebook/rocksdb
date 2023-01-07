@@ -17,10 +17,10 @@ ChargedCache::ChargedCache(std::shared_ptr<Cache> cache,
               CacheReservationManagerImpl<CacheEntryRole::kBlobCache>>(
               block_cache))) {}
 
-Status ChargedCache::Insert(const Slice& key, ValueType* value,
+Status ChargedCache::Insert(const Slice& key, ObjectPtr obj,
                             const CacheItemHelper* helper, size_t charge,
                             Handle** handle, Priority priority) {
-  Status s = cache_->Insert(key, value, helper, charge, handle, priority);
+  Status s = cache_->Insert(key, obj, helper, charge, handle, priority);
   if (s.ok()) {
     // Insert may cause the cache entry eviction if the cache is full. So we
     // directly call the reservation manager to update the total memory used

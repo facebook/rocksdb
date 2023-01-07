@@ -108,7 +108,7 @@ class CacheDumperImpl : public CacheDumper {
   IOStatus WriteHeader();
   IOStatus WriteFooter();
   bool ShouldFilterOut(const Slice& key);
-  std::function<void(const Slice&, Cache::ValueType*, size_t,
+  std::function<void(const Slice&, Cache::ObjectPtr, size_t,
                      const Cache::CacheItemHelper*)>
   DumpOneBlockCallBack(std::string& buf);
 

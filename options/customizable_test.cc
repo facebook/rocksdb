@@ -1324,7 +1324,7 @@ class TestSecondaryCache : public SecondaryCache {
  public:
   static const char* kClassName() { return "Test"; }
   const char* Name() const override { return kClassName(); }
-  Status Insert(const Slice& /*key*/, Cache::ValueType* /*value*/,
+  Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
                 const Cache::CacheItemHelper* /*helper*/) override {
     return Status::NotSupported();
   }

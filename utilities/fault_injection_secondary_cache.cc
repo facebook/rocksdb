@@ -36,7 +36,7 @@ void FaultInjectionSecondaryCache::ResultHandle::Wait() {
   UpdateHandleValue(this);
 }
 
-Cache::ValueType* FaultInjectionSecondaryCache::ResultHandle::Value() {
+Cache::ObjectPtr FaultInjectionSecondaryCache::ResultHandle::Value() {
   return value_;
 }
 
@@ -77,7 +77,7 @@ FaultInjectionSecondaryCache::GetErrorContext() {
 }
 
 Status FaultInjectionSecondaryCache::Insert(
-    const Slice& key, Cache::ValueType* value,
+    const Slice& key, Cache::ObjectPtr value,
     const Cache::CacheItemHelper* helper) {
   ErrorContext* ctx = GetErrorContext();
   if (ctx->rand.OneIn(prob_)) {

@@ -1724,7 +1724,7 @@ TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
 
 template <CacheEntryRole R>
 Status TargetCacheChargeTrackingCache<R>::Insert(const Slice& key,
-                                                 ValueType* value,
+                                                 ObjectPtr value,
                                                  const CacheItemHelper* helper,
                                                  size_t charge, Handle** handle,
                                                  Priority priority) {

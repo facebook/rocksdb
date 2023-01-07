@@ -664,10 +664,10 @@ std::function<void()> Blah() {
   return [&]() { ++x; };
 }
 
-std::function<void(const Slice& key, Cache::ValueType* value, size_t charge,
+std::function<void(const Slice& key, Cache::ObjectPtr value, size_t charge,
                    const Cache::CacheItemHelper* helper)>
 InternalStats::CacheEntryRoleStats::GetEntryCallback() {
-  return [&](const Slice& /*key*/, Cache::ValueType* /*value*/, size_t charge,
+  return [&](const Slice& /*key*/, Cache::ObjectPtr /*value*/, size_t charge,
              const Cache::CacheItemHelper* helper) -> void {
     size_t role_idx =
         static_cast<size_t>(helper ? helper->role : CacheEntryRole::kMisc);

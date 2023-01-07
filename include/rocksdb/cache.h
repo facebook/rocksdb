@@ -352,10 +352,10 @@ extern std::shared_ptr<Cache> NewClockCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
 
-// A Cache maps keys to values resident in memory, tracks reference counts
-// on those key-value entries, and is able to remove unreferenced entries
+// A Cache maps keys to objects resident in memory, tracks reference counts
+// on those key-object entries, and is able to remove unreferenced entries
 // whenever it wants. All operations are fully thread safe except as noted.
-// Inserted values have a specified "charge" which is some quantity in
+// Inserted entries have a specified "charge" which is some quantity in
 // unspecified units, typically bytes of memory used. A Cache will typically
 // have a finite capacity in units of charge, and evict entries as needed
 // to stay at or below that capacity.
@@ -371,11 +371,12 @@ class Cache {
   struct Handle {};
 
  public:  // types hidden from Cache implementation
-  // Opaque payload of a cache entry
-  struct ValueType {};
+  // Pointer to cached object of unspecified type. (This type alias is
+  // provided for clarity, not really for type checking.)
+  using ObjectPtr = void*;
 
-  // Opaque object providing context (settings, etc.) to create parsed
-  // primary cache entries from (serialized) secondary cache entries.
+  // Opaque object providing context (settings, etc.) to create objects
+  // for primary cache from saved (serialized) secondary cache entries.
   struct CreateContext {};
 
  public:  // type defs
@@ -410,43 +411,47 @@ class Cache {
   // so anything required for these operations should be contained in the
   // object itself.
   //
-  // The SizeCallback takes a Value* pointer to the object and returns the size
+  // The SizeCallback takes a pointer to the object and returns the size
   // of the persistable data. It can be used by the secondary cache to allocate
   // memory if needed.
   //
   // RocksDB callbacks are NOT exception-safe. A callback completing with an
   // exception can lead to undefined behavior in RocksDB, including data loss,
   // unreported corruption, deadlocks, and more.
-  using SizeCallback = size_t (*)(ValueType* obj);
+  using SizeCallback = size_t (*)(ObjectPtr obj);
 
-  // The SaveToCallback takes a Value* object pointer and saves the persistable
+  // The SaveToCallback takes an object pointer and saves the persistable
   // data into a buffer. The secondary cache may decide to not store it in a
   // contiguous buffer, in which case this callback will be called multiple
   // times with increasing offset
-  using SaveToCallback = Status (*)(ValueType* from_obj, size_t from_offset,
-                                    size_t length, char* out);
+  using SaveToCallback = Status (*)(ObjectPtr from_obj, size_t from_offset,
+                                    size_t length, char* out_buf);
 
-  // A function pointer type for custom destruction of an entry's
-  // value. The Cache is responsible for copying and reclaiming space
-  // for the key, but values are managed by the caller. Generally a DeleterFn
-  // can be nullptr if the ValueType* does not need destruction (e.g. nullptr or
+  // A function pointer type for destruction of a cache object. This will
+  // typically call the destructor for the appropriate type of the object.
+  // The Cache is responsible for copying and reclaiming space for the key,
+  // but objects are managed in part using this callback. Generally a DeleterFn
+  // can be nullptr if the ObjectPtr does not need destruction (e.g. nullptr or
   // pointer into static data).
-  using DeleterFn = void (*)(ValueType* obj, MemoryAllocator* allocator);
+  using DeleterFn = void (*)(ObjectPtr obj, MemoryAllocator* allocator);
 
   // The CreateCallback is takes in a buffer from the NVM cache and constructs
   // an object using it. The callback doesn't have ownership of the buffer and
   // should copy the contents into its own buffer. The CreateContext* is
   // provided by Lookup and may be used to follow DB- or CF-specific settings.
+  // In case of some error, non-OK is returned and the caller should ignore
+  // any result in out_obj. (The implementation must clean up after itself.)
   using CreateCallback = Status (*)(const Slice& data, CreateContext* context,
                                     MemoryAllocator* allocator,
-                                    ValueType** out_obj, size_t* out_charge);
+                                    ObjectPtr* out_obj, size_t* out_charge);
 
   // A struct with pointers to helper functions for spilling items from the
   // cache into the secondary cache. May be extended in the future. An
   // instance of this struct is expected to outlive the cache.
   struct CacheItemHelper {
-    // Function for deleting a value on its removal from the Cache. Only
-    // nullptr for "placeholder" entries that require no destruction.
+    // Function for deleting an object on its removal from the Cache.
+    // nullptr is only for entries that require no destruction, such as
+    // "placeholder" cache entries with nullptr object.
     DeleterFn del_cb;  // (<- Most performance critical)
     // Next three are used for persisting values as described above.
     // If any is nullptr, then all three should be nullptr and persisting the
@@ -524,27 +529,27 @@ class Cache {
   // multiple DBs share the same cache and the set of DBs can change
   // over time.
 
-  // Insert a mapping from key->value into the cache and assign it
+  // Insert a mapping from key->object into the cache and assign it
   // the specified charge against the total cache capacity. If
   // strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::MemoryLimit. `value` must be non-nullptr for this
-  // Insert() because Value() == nullptr is reserved for indicating failure
-  // with secondary-cache-compatible mappings.
+  // return Status::MemoryLimit. `obj` must be non-nullptr if compatible
+  // with secondary cache (helper->size_cb != nullptr), because Value() ==
+  // nullptr is reserved for indicating some secondary cache failure cases.
+  // On success, returns OK and takes ownership of `obj`, eventually deleting
+  // it with helper->del_cb. On non-OK return, the caller maintains ownership
+  // of `obj` so will often need to delete it in such cases.
   //
   // The helper argument is saved by the cache and will be used when the
   // inserted object is evicted or considered for promotion to the secondary
   // cache. Promotion to secondary cache is only enabled if helper->size_cb
   // != nullptr. The helper must outlive the cache. Callers may use
-  // &kNoopCacheItemHelper as a trivial helper (no deleter for the value,
+  // &kNoopCacheItemHelper as a trivial helper (no deleter for the object,
   // no secondary cache). `helper` must not be nullptr (efficiency).
   //
-  // If handle is not nullptr, returns a handle that corresponds to the
-  // mapping. The caller must call this->Release(handle) when the returned
-  // mapping is no longer needed. In case of error caller is responsible to
-  // cleanup the value (i.e. calling "deleter").
-  //
-  // If handle is nullptr, it is as if Release is called immediately after
-  // insert. In case of error value will be cleanup.
+  // If `handle` is not nullptr and return status is OK, `handle` is set
+  // to a Handle* for the entry. The caller must call this->Release(handle)
+  // when the returned entry is no longer needed. If `handle` is nullptr, it is
+  // as if Release is called immediately after Insert.
   //
   // Regardless of whether the item was inserted into the cache,
   // it will attempt to insert it into the secondary cache if one is
@@ -555,7 +560,7 @@ class Cache {
   //
   // When the inserted entry is no longer needed, it will be destroyed using
   // helper->del_cb (if non-nullptr).
-  virtual Status Insert(const Slice& key, ValueType* value,
+  virtual Status Insert(const Slice& key, ObjectPtr obj,
                         const CacheItemHelper* helper, size_t charge,
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) = 0;
@@ -567,7 +572,7 @@ class Cache {
   // create_cb, and a secondary cache is configured, then the secondary
   // cache is also queried if lookup in the primary cache fails. If found
   // in secondary cache, the provided create_db and create_context are
-  // used to promote the entry to an object value in the primary cache.
+  // used to promote the entry to an object in the primary cache.
   // In that case, the helper may be saved and used later when the object
   // is evicted, so as usual, the pointed-to helper must outlive the cache.
   //
@@ -578,8 +583,8 @@ class Cache {
   // * Pending, not ready (IsReady() == false) - secondary cache is still
   // working to retrieve the value. Might become ready any time.
   // * Pending, ready (IsReady() == true) - secondary cache has the value
-  // but it has not been loaded into primary cache. Call to Wait()/WaitAll()
-  // will not block.
+  // but it has not been loaded as an object into primary cache. Call to
+  // Wait()/WaitAll() will not block.
   //
   // IMPORTANT: Pending handles are not thread-safe, and only these functions
   // are allowed on them: Value(), IsReady(), Wait(), WaitAll(). Even Release()
@@ -626,11 +631,12 @@ class Cache {
   // REQUIRES: handle must have been returned by a method on *this.
   virtual bool Release(Handle* handle, bool erase_if_last_ref = false) = 0;
 
-  // Return the value encapsulated in a handle returned by a
-  // successful Lookup().
+  // Return the object assiciated with a handle returned by a successful
+  // Lookup(). For historical reasons, this is also known at the "value"
+  // associated with the key.
   // REQUIRES: handle must not have been released yet.
   // REQUIRES: handle must have been returned by a method on *this.
-  virtual ValueType* Value(Handle* handle) = 0;
+  virtual ObjectPtr Value(Handle* handle) = 0;
 
   // If the cache contains the entry for the key, erase it.  Note that the
   // underlying entry will be kept around until all existing handles
@@ -708,9 +714,8 @@ class Cache {
   // entries is iterated over if other threads are operating on the Cache
   // also.
   virtual void ApplyToAllEntries(
-      const std::function<void(const Slice& key, ValueType* value,
-                               size_t charge, const CacheItemHelper* helper)>&
-          callback,
+      const std::function<void(const Slice& key, ObjectPtr obj, size_t charge,
+                               const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) = 0;
 
   // Remove all entries.
@@ -749,7 +754,7 @@ class Cache {
 
   // Convert a "pending" handle into a full thread-shareable handle by
   // * If necessary, wait until secondary cache finishes loading the value.
-  // * Construct the value for primary cache and set it in the handle.
+  // * Construct the object for primary cache and set it in the handle.
   // Even after Wait() on a pending handle, the caller must check for
   // Value() == nullptr in case of failure. This call is not thread-safe
   // on pending handles. This call has no effect on non-pending handles.

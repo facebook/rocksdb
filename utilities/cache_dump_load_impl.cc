@@ -107,10 +107,10 @@ bool CacheDumperImpl::ShouldFilterOut(const Slice& key) {
 // type, decide if the block needs to be dumped based on the filter, and write
 // the block through the provided writer. `buf` is passed in for efficiennt
 // reuse.
-std::function<void(const Slice&, Cache::ValueType*, size_t,
+std::function<void(const Slice&, Cache::ObjectPtr, size_t,
                    const Cache::CacheItemHelper*)>
 CacheDumperImpl::DumpOneBlockCallBack(std::string& buf) {
-  return [&](const Slice& key, Cache::ValueType* value, size_t /*charge*/,
+  return [&](const Slice& key, Cache::ObjectPtr value, size_t /*charge*/,
              const Cache::CacheItemHelper* helper) {
     if (helper == nullptr || helper->size_cb == nullptr ||
         helper->saveto_cb == nullptr) {

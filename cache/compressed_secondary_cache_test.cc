@@ -23,7 +23,7 @@ class CompressedSecondaryCacheTest : public testing::Test,
   ~CompressedSecondaryCacheTest() override = default;
 
  protected:
-  class TestItem : public Cache::ValueType {
+  class TestItem {
    public:
     TestItem(const char* buf, size_t size) : buf_(new char[size]), size_(size) {
       memcpy(buf_.get(), buf, size);
@@ -38,11 +38,11 @@ class CompressedSecondaryCacheTest : public testing::Test,
     size_t size_;
   };
 
-  static size_t SizeCallback(Cache::ValueType* obj) {
+  static size_t SizeCallback(Cache::ObjectPtr obj) {
     return static_cast<TestItem*>(obj)->Size();
   }
 
-  static Status SaveToCallback(Cache::ValueType* from_obj, size_t from_offset,
+  static Status SaveToCallback(Cache::ObjectPtr from_obj, size_t from_offset,
                                size_t length, char* out) {
     auto item = static_cast<TestItem*>(from_obj);
     const char* buf = item->Buf();
@@ -52,20 +52,20 @@ class CompressedSecondaryCacheTest : public testing::Test,
     return Status::OK();
   }
 
-  static void DeletionCallback(Cache::ValueType* obj,
+  static void DeletionCallback(Cache::ObjectPtr obj,
                                MemoryAllocator* /*alloc*/) {
     delete static_cast<TestItem*>(obj);
     obj = nullptr;
   }
 
-  static Status SaveToCallbackFail(Cache::ValueType* /*obj*/, size_t /*offset*/,
+  static Status SaveToCallbackFail(Cache::ObjectPtr /*obj*/, size_t /*offset*/,
                                    size_t /*size*/, char* /*out*/) {
     return Status::NotSupported();
   }
 
   static Status CreateCallback(const Slice& data, Cache::CreateContext* context,
                                MemoryAllocator* /*allocator*/,
-                               Cache::ValueType** out_obj, size_t* out_charge) {
+                               Cache::ObjectPtr* out_obj, size_t* out_charge) {
     auto t = static_cast<CompressedSecondaryCacheTest*>(context);
     if (t->fail_create_) {
       return Status::NotSupported();
@@ -699,8 +699,7 @@ class CompressedSecondaryCacheTest : public testing::Test,
     current_chunk = current_chunk->next;
     ASSERT_EQ(current_chunk->size, 98);
 
-    sec_cache->GetHelper(true)->del_cb(
-        reinterpret_cast<Cache::ValueType*>(chunks_head), /*alloc*/ nullptr);
+    sec_cache->GetHelper(true)->del_cb(chunks_head, /*alloc*/ nullptr);
   }
 
   void MergeChunksIntoValueTest() {
@@ -781,8 +780,7 @@ class CompressedSecondaryCacheTest : public testing::Test,
     std::string value_str{value.get(), charge};
     ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
 
-    sec_cache->GetHelper(true)->del_cb(
-        reinterpret_cast<Cache::ValueType*>(chunks_head), /*alloc*/ nullptr);
+    sec_cache->GetHelper(true)->del_cb(chunks_head, /*alloc*/ nullptr);
   }
 
  private:

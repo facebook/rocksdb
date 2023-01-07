@@ -527,7 +527,7 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
   // for some shared underlying cache.
   static Cache::CacheItemHelper kHelper{CacheEntryRole::kMisc};
   CacheKey sentinel_key = CacheKey::CreateUniqueForProcessLifetime();
-  struct SentinelValue : public Cache::ValueType {
+  struct SentinelValue {
     explicit SentinelValue(char _c) : c(_c) {}
     char c;
   };

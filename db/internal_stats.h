@@ -472,7 +472,7 @@ class InternalStats {
     }
 
     void BeginCollection(Cache*, SystemClock*, uint64_t start_time_micros);
-    std::function<void(const Slice& key, Cache::ValueType* value, size_t charge,
+    std::function<void(const Slice& key, Cache::ObjectPtr value, size_t charge,
                        const Cache::CacheItemHelper* helper)>
     GetEntryCallback();
     void EndCollection(Cache*, SystemClock*, uint64_t end_time_micros);

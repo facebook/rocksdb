@@ -1222,7 +1222,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
-      auto value = reinterpret_cast<BlobContents*>(sec_handle0->Value());
+      auto value = static_cast<BlobContents*>(sec_handle0->Value());
       ASSERT_NE(value, nullptr);
       ASSERT_EQ(value->data(), blobs[0]);
       delete value;
@@ -1271,7 +1271,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       const Slice key0 = cache_key0.AsSlice();
       auto handle0 = blob_cache->BasicLookup(key0, statistics);
       ASSERT_NE(handle0, nullptr);
-      auto value = reinterpret_cast<BlobContents*>(blob_cache->Value(handle0));
+      auto value = static_cast<BlobContents*>(blob_cache->Value(handle0));
       ASSERT_NE(value, nullptr);
       ASSERT_EQ(value->data(), blobs[0]);
       blob_cache->Release(handle0);

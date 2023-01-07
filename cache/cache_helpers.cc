@@ -23,7 +23,7 @@ Status WarmInCache(Cache* cache, const Slice& key, const Slice& contents,
                    Cache::Priority priority, size_t* out_charge) {
   assert(helper);
   assert(helper->create_cb);
-  Cache::ValueType* value;
+  Cache::ObjectPtr value;
   size_t charge;
   Status st = helper->create_cb(contents, create_context,
                                 cache->memory_allocator(), &value, &charge);
@@ -33,8 +33,6 @@ Status WarmInCache(Cache* cache, const Slice& key, const Slice& contents,
     if (out_charge) {
       *out_charge = charge;
     }
-  } else if (helper->del_cb) {
-    helper->del_cb(value, cache->memory_allocator());
   }
   return st;
 }
