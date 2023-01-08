@@ -218,7 +218,7 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   }
 
   ParsedInternalKey parsed_start_key() const {
-    return ParsedInternalKey(pos_->start_key, kMaxSequenceNumber,
+    return ParsedInternalKey(pos_->start_key, seq(),
                              kTypeRangeDeletion);
   }
   ParsedInternalKey parsed_end_key() const {

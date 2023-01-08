@@ -476,8 +476,6 @@ Status CompactionOutputs::AddRangeDels(
     ParseInternalKey(next_table_min_key, &next_table_min_key_parsed,
                      false /* log_err_key */)
         .PermitUncheckedError();
-    // TODO: ensure next_table_min_key cannot have kMaxSequenceNumber even if
-    // it is a range tombstone sentinel key.
     assert(next_table_min_key_parsed.sequence < kMaxSequenceNumber);
     upper_bound_buf.Set(next_table_min_key_parsed.user_key,
                         next_table_min_key_parsed.sequence + 1,
