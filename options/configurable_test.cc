@@ -795,8 +795,9 @@ void ConfigurableParamTest::TestConfigureOptions(
   while (found_one && !unused.empty()) {
     found_one = false;
     for (auto iter = unused.begin(); iter != unused.end();) {
-      if (copy->ConfigureOption(config_options, iter->first, iter->second)
-              .ok()) {
+      Status s =
+          copy->ConfigureOption(config_options, iter->first, iter->second);
+      if (s.ok()) {
         found_one = true;
         iter = unused.erase(iter);
       } else {
