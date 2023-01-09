@@ -527,29 +527,20 @@ Status CompactionOutputs::AddRangeDels(
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
     InternalKey tombstone_start = std::move(kv.first);
-    InternalKey smallest_candidate{tombstone_start};
     if (lower_bound != nullptr &&
-        icmp.Compare(smallest_candidate.Encode(), *lower_bound) < 0) {
-      smallest_candidate.DecodeFrom(*lower_bound);
+        icmp.Compare(tombstone_start.Encode(), *lower_bound) < 0) {
+      tombstone_start.DecodeFrom(*lower_bound);
     }
 
     InternalKey tombstone_end = tombstone.SerializeEndKey();
-    InternalKey largest_candidate{tombstone_end};
     if (upper_bound != nullptr &&
-        icmp.Compare(*upper_bound, largest_candidate.Encode()) < 0) {
-      largest_candidate.DecodeFrom(*upper_bound);
+        icmp.Compare(*upper_bound, tombstone_end.Encode()) < 0) {
+      tombstone_end.DecodeFrom(*upper_bound);
     }
 
-    meta.UpdateBoundariesForRange(smallest_candidate, largest_candidate,
+    meta.UpdateBoundariesForRange(tombstone_start, tombstone_end,
                                   tombstone.seq_, icmp);
     if (!bottommost_level) {
-      // Range tombstones are truncated at file boundaries
-      if (icmp.Compare(tombstone_start, meta.smallest) < 0) {
-        tombstone_start = meta.smallest;
-      }
-      if (icmp.Compare(tombstone_end, meta.largest) > 0) {
-        tombstone_end = meta.largest;
-      }
       SizeApproximationOptions approx_opts;
       approx_opts.files_size_error_margin = 0.1;
       auto approximate_covered_size =
