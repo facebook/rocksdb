@@ -6,9 +6,7 @@
  */
 package org.rocksdb.jmh;
 
-import org.openjdk.jmh.annotations.*;
-import org.rocksdb.*;
-import org.rocksdb.util.FileUtils;
+import static org.rocksdb.util.KVUtils.ba;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -18,8 +16,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.rocksdb.util.KVUtils.ba;
+import org.openjdk.jmh.annotations.*;
+import org.rocksdb.*;
+import org.rocksdb.util.FileUtils;
 
 @State(Scope.Benchmark)
 public class PutBenchmarks {
@@ -152,10 +151,10 @@ public class PutBenchmarks {
         if (buffers.isEmpty()) {
           try {
             Thread.sleep(1000);
-            } catch (InterruptedException ie) {
-              return null;
-            }
-            continue;  
+          } catch (InterruptedException ie) {
+            return null;
+          }
+          continue;
         }
         return buffers.remove(0);
       }
@@ -202,14 +201,20 @@ public class PutBenchmarks {
 
   @Benchmark
   public void putByteBuffers(final Counter counter) throws RocksDBException {
-    ByteBuffer keyBuf = borrow(keyBuffersBB); keyBuf.clear();
-    ByteBuffer valueBuf = borrow(valueBuffersBB); valueBuf.clear();
+    ByteBuffer keyBuf = borrow(keyBuffersBB);
+    keyBuf.clear();
+    ByteBuffer valueBuf = borrow(valueBuffersBB);
+    valueBuf.clear();
 
     final int i = counter.next();
     final byte[] keyPrefix = ba("key" + i);
     final byte[] valuePrefix = ba("value" + i);
-    keyBuf.put(keyPrefix, 0, keyPrefix.length); keyBuf.position(keySize); keyBuf.flip();
-    valueBuf.put(valuePrefix, 0, valuePrefix.length); valueBuf.position(valueSize); valueBuf.flip();
+    keyBuf.put(keyPrefix, 0, keyPrefix.length);
+    keyBuf.position(keySize);
+    keyBuf.flip();
+    valueBuf.put(valuePrefix, 0, valuePrefix.length);
+    valueBuf.position(valueSize);
+    valueBuf.flip();
     db.put(getColumnFamily(), new WriteOptions(), keyBuf, valueBuf);
 
     repay(keyBuffersBB, keyBuf);
