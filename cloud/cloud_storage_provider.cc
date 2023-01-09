@@ -308,20 +308,13 @@ IOStatus CloudStorageProviderImpl::NewCloudReadableFile(
 IOStatus CloudStorageProviderImpl::GetCloudObject(
     const std::string& bucket_name, const std::string& object_path,
     const std::string& local_destination) {
-  return GetCloudObjectAndVersion(bucket_name, object_path, local_destination,
-                                  nullptr /* version */);
-}
-
-IOStatus CloudStorageProviderImpl::GetCloudObjectAndVersion(
-    const std::string& bucket_name, const std::string& object_path,
-    const std::string& local_destination, std::string* version) {
   const auto& local_fs = cfs_->GetBaseFileSystem();
   std::string tmp_destination =
       local_destination + ".tmp-" + std::to_string(rng_.Next());
 
   uint64_t remote_size;
   auto s = DoGetCloudObject(bucket_name, object_path, tmp_destination,
-                            &remote_size, version);
+                            &remote_size);
   const IOOptions io_opts;
   IODebugContext* dbg = nullptr;
   if (!s.ok()) {

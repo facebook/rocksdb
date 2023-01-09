@@ -40,7 +40,6 @@
 #include <cinttypes>
 #include <fstream>
 #include <iostream>
-#include <optional>
 
 #include "cloud/aws/aws_file.h"
 #include "cloud/aws/aws_file_system.h"
@@ -386,9 +385,6 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                             std::vector<std::string>* result) override;
   IOStatus ExistsCloudObject(const std::string& bucket_name,
                              const std::string& object_path) override;
-  IOStatus TEST_ExistsCloudObject(const std::string& bucket_name,
-                                  const std::string& object_path,
-                                  const std::string& version) override;
   IOStatus GetCloudObjectSize(const std::string& bucket_name,
                               const std::string& object_path,
                               uint64_t* filesize) override;
@@ -421,8 +417,7 @@ class S3StorageProvider : public CloudStorageProviderImpl {
   IOStatus DoGetCloudObject(const std::string& bucket_name,
                             const std::string& object_path,
                             const std::string& destination,
-                            uint64_t* remote_size,
-                            std::string* version) override;
+                            uint64_t* remote_size) override;
   IOStatus DoPutCloudObject(const std::string& local_file,
                             const std::string& bucket_name,
                             const std::string& object_path,
@@ -437,15 +432,9 @@ class S3StorageProvider : public CloudStorageProviderImpl {
     std::string* etag = nullptr;
   };
 
-  // Retrieves metadata from an object (no version specified)
+  // Retrieves metadata from an object
   IOStatus HeadObject(const std::string& bucket, const std::string& path,
                       HeadObjectResult* result);
-
-  // Retrieves metadata from an object with the specified version
-  IOStatus HeadObjectWithVersion(const std::string& bucket,
-                                 const std::string& path,
-                                 const std::string& requested_version,
-                                 HeadObjectResult* result);
 
   // Retrieves metadata from an object based on a HeadObject request
   // REQUIRES: result != nullptr
@@ -695,13 +684,6 @@ IOStatus S3StorageProvider::ExistsCloudObject(const std::string& bucket_name,
   return HeadObject(bucket_name, object_path, &result);
 }
 
-IOStatus S3StorageProvider::TEST_ExistsCloudObject(
-    const std::string& bucket_name, const std::string& object_path,
-    const std::string& version) {
-  HeadObjectResult result;                                                 
-  return HeadObjectWithVersion(bucket_name, object_path, version, &result);
-}
-
 // Return size of cloud object
 IOStatus S3StorageProvider::GetCloudObjectSize(const std::string& bucket_name,
                                                const std::string& object_path,
@@ -783,16 +765,6 @@ IOStatus S3StorageProvider::HeadObject(const std::string& bucket_name,
   Aws::S3::Model::HeadObjectRequest request;
   request.SetBucket(ToAwsString(bucket_name));
   request.SetKey(ToAwsString(object_path));
-  return HeadObject(request, result);
-}
-
-IOStatus S3StorageProvider::HeadObjectWithVersion(
-    const std::string& bucket_name, const std::string& object_path,
-    const std::string& requested_version, HeadObjectResult* result) {
-  Aws::S3::Model::HeadObjectRequest request;
-  request.SetBucket(ToAwsString(bucket_name));
-  request.SetKey(ToAwsString(object_path));
-  request.SetVersionId(ToAwsString(requested_version));
   return HeadObject(request, result);
 }
 
@@ -940,8 +912,7 @@ class IOStreamWithOwnedBuf : public std::iostream {
 IOStatus S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
                                              const std::string& object_path,
                                              const std::string& destination,
-                                             uint64_t* remote_size,
-                                             std::string* version) {
+                                             uint64_t* remote_size) {
   if (s3client_->HasTransferManager()) {
     // AWS Transfer manager does not work if we provide our stream
     // implementation because of https://github.com/aws/aws-sdk-cpp/issues/1732.
@@ -962,10 +933,6 @@ IOStatus S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
         handle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED;
     if (success) {
       *remote_size = handle->GetBytesTotalSize();
-      if (version) {
-        *version = std::string(handle->GetVersionId().data(),
-                               handle->GetVersionId().length());
-      }
     } else {
       const auto& error = handle->GetLastError();
       std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
@@ -1012,10 +979,6 @@ IOStatus S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
       auto outcome = s3client_->GetCloudObject(request);
       if (outcome.IsSuccess()) {
         *remote_size = outcome.GetResult().GetContentLength();
-        if (version) {
-          *version = std::string(outcome.GetResult().GetVersionId().data(),
-                                 outcome.GetResult().GetVersionId().length());
-        }
       } else {
         const auto& error = outcome.GetError();
         std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
