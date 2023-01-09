@@ -2,6 +2,7 @@ package org.rocksdb;
 
 import java.lang.foreign.*;
 import java.lang.invoke.*;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 public class DBFFI implements AutoCloseable {
@@ -22,7 +23,6 @@ public class DBFFI implements AutoCloseable {
   public DBFFI(final RocksDB rocksDB) throws RocksDBException {
     this.rocksDB = rocksDB;
 
-    //final String name = "Java_org_rocksdb_RocksDB_getDirect";
     final String name = "rocksdb_ffi_get";
 
     final SymbolLookup symbolLookup = SymbolLookup.loaderLookup();
@@ -45,8 +45,12 @@ public class DBFFI implements AutoCloseable {
         ValueLayout.ADDRESS.withName("pinnable_slice")
     ).withName("output_slice");
 
+    //The first of these is more typed/readable, but prevents the outputSliceLayout being written by 'C' code
+    //(or prevents such a result from being altered
+    //functionDescriptor_rocksdb_ffi_get =
+    //    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, inputSliceLayout, outputSliceLayout);
     functionDescriptor_rocksdb_ffi_get =
-        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, inputSliceLayout, outputSliceLayout);
+        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
 
     final Linker linker = Linker.nativeLinker();
     methodHandle_rocksdb_ffi_get = linker.downcallHandle(
@@ -89,8 +93,8 @@ public class DBFFI implements AutoCloseable {
       final Object result = methodHandle_rocksdb_ffi_get.invoke(
           MemoryAddress.ofLong(rocksDB.nativeHandle_),
           MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_),
-          inputSegment,
-          outputSegment);
+          inputSegment.address(),
+          outputSegment.address());
       if (!(result instanceof Integer)) {
         throw new RocksDBException("rocksdb_ffi_get.invokeExact returned: " + result);
       }
@@ -109,6 +113,11 @@ public class DBFFI implements AutoCloseable {
           //The "never closed" global() session may well be correct,
           //because the underlying pinnable slice should get explicitly cleared by us, not by the session
           final MemorySegment valueSegment = MemorySegment.ofAddress(data, size, MemorySession.global());
+          final StringBuilder sbOut  = new StringBuilder();
+          for (int i = 0; i < valueSegment.byteSize(); i++) {
+            sbOut.append(valueSegment.get(ValueLayout.OfByte.JAVA_BYTE, i));
+          }
+          final String value = new String(valueSegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
 
           return code;
         }
