@@ -23,8 +23,7 @@ LocalManifestReader::LocalManifestReader(std::shared_ptr<Logger> info_log,
     : info_log_(std::move(info_log)), cfs_(cfs) {}
 
 IOStatus LocalManifestReader::GetLiveFilesLocally(
-    const std::string& local_dbname, std::set<uint64_t>* list,
-    std::string* manifest_file_version) const {
+    const std::string& local_dbname, std::set<uint64_t>* list) const {
   auto* cfs_impl = dynamic_cast<CloudFileSystemImpl*>(cfs_);
   assert(cfs_impl);
   // cloud manifest should be set in CloudFileSystem, and it should map to local
@@ -36,30 +35,10 @@ IOStatus LocalManifestReader::GetLiveFilesLocally(
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
   IOStatus s;
   {
-    auto cloud_storage_provider =
-        std::dynamic_pointer_cast<CloudStorageProviderImpl>(
-            cfs_impl->GetStorageProvider());
-    assert(cloud_storage_provider);
     // file name here doesn't matter, it will always be mapped to the correct Manifest file.
     // use empty epoch here so that it will be recognized as manifest file type
     auto local_manifest_file = cfs_impl->RemapFilename(
         ManifestFileWithEpoch(local_dbname, "" /* epoch */));
-
-    if (manifest_file_version != nullptr) {
-      // Only fetch the latest Manifest file from cloud when we ask for the version number.
-      auto remote_manifest_file =
-          cfs_impl->GetSrcObjectPath() + "/" + basename(local_manifest_file);
-
-      s = cloud_storage_provider->GetCloudObjectAndVersion(
-          cfs_impl->GetSrcBucketName(), remote_manifest_file,
-          local_manifest_file, manifest_file_version);
-      if (!s.ok()) {
-        return s;
-      }
-
-      // Assuming that we are running on versioned s3 when asking for version
-      assert(!manifest_file_version->empty());
-    }
 
     std::unique_ptr<FSSequentialFile> file;
     s = cfs_impl->NewSequentialFile(local_manifest_file, FileOptions(), &file,

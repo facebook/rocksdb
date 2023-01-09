@@ -610,19 +610,6 @@ class CloudFileSystem : public FileSystem {
   virtual IOStatus FindAllLiveFiles(const std::string& local_dbname,
                                     std::vector<std::string>* live_sst_files,
                                     std::string* manifest_file) = 0;
-  // Find the list of live files based on CloudManifest and Manifest in local
-  // db. Also, fetch the current Manifest file before reading.
-  //
-  // Besides returning live file paths, it also return the version of the
-  // fetched manfiest file, if the cloud storage has versioning enabled
-  //
-  // NOTE: be careful with using this function since it will override the local
-  // Manifest file in `local_dbname`!
-  // 
-  // REQUIRES: cloud storage has versioning enabled
-  virtual IOStatus FindAllLiveFilesAndFetchManifest(
-      const std::string& local_dbname, std::vector<std::string>* live_sst_files,
-      std::string* manifest_file, std::string* manifest_file_version) = 0;
 
   // Apply cloud manifest delta to in-memory cloud manifest. Does not change the
   // on-disk state.

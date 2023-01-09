@@ -23,7 +23,7 @@
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "rocksdb/cloud/cloud_file_system.h"
-#include "rocksdb/cloud/cloud_storage_provider.h"
+//#include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -491,13 +491,9 @@ TEST_F(CloudTest, FindAllLiveFilesTest) {
 
   std::vector<std::string> tablefiles;
   std::string manifest;
-  std::string manifest_file_version;
-
   // fetch latest manifest to local
-  ASSERT_OK(GetCloudFileSystem()->FindAllLiveFilesAndFetchManifest(
-      dbname_, &tablefiles, &manifest, &manifest_file_version));
+  ASSERT_OK(GetCloudFileSystem()->FindAllLiveFiles(dbname_, &tablefiles, &manifest));
   EXPECT_EQ(tablefiles.size(), 1);
-  EXPECT_FALSE(manifest_file_version.empty());
 
   for (auto name: tablefiles) {
     EXPECT_EQ(GetFileType(name), RocksDBFileType::kSstFile);
@@ -509,12 +505,10 @@ TEST_F(CloudTest, FindAllLiveFilesTest) {
 
   EXPECT_EQ(GetFileType(manifest), RocksDBFileType::kManifestFile);
   // verify that manifest file indeed exists in cloud
-  auto cloud_storage = std::dynamic_pointer_cast<CloudStorageProviderImpl>(
-      GetCloudFileSystem()->GetStorageProvider());
-  EXPECT_OK(cloud_storage->TEST_ExistsCloudObject(
-      GetCloudFileSystem()->GetSrcBucketName(),
-      GetCloudFileSystem()->GetSrcObjectPath() + pathsep + manifest,
-      manifest_file_version));
+  auto storage_provider = GetCloudFileSystem()->GetStorageProvider();
+  auto bucket_name = GetCloudFileSystem()->GetSrcBucketName();
+  auto object_path = GetCloudFileSystem()->GetSrcObjectPath() + pathsep + manifest;
+  EXPECT_OK(storage_provider->ExistsCloudObject(bucket_name, object_path));
 }
 
 // Files of dropped CF should not be included in live files

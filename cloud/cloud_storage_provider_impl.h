@@ -125,13 +125,6 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
   IOStatus GetCloudObject(const std::string& bucket_name,
                           const std::string& object_path,
                           const std::string& local_destination) override;
-  virtual IOStatus GetCloudObjectAndVersion(
-      const std::string& bucket_name, const std::string& object_path,
-      const std::string& local_destination, std::string* version);
-  // check that a version of cloud object exists. Only used in tests
-  virtual IOStatus TEST_ExistsCloudObject(const std::string& bucket_name,
-                                          const std::string& object_path,
-                                          const std::string& version) = 0;
   IOStatus PutCloudObject(const std::string& local_file,
                           const std::string& bucket_name,
                           const std::string& object_path) override;
@@ -154,8 +147,7 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
   virtual IOStatus DoGetCloudObject(const std::string& bucket_name,
                                     const std::string& object_path,
                                     const std::string& local_path,
-                                    uint64_t* remote_size,
-                                    std::string* version) = 0;
+                                    uint64_t* remote_size) = 0;
   virtual IOStatus DoPutCloudObject(const std::string& local_file,
                                     const std::string& object_path,
                                     const std::string& bucket_name,

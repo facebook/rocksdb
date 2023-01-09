@@ -157,9 +157,6 @@ class CloudFileSystemImpl : public CloudFileSystem {
   IOStatus FindAllLiveFiles(const std::string& local_dbname,
                             std::vector<std::string>* live_sst_files,
                             std::string* manifest_file) override;
-  IOStatus FindAllLiveFilesAndFetchManifest(
-      const std::string& local_dbname, std::vector<std::string>* live_sst_files,
-      std::string* manifest_file, std::string* manifest_file_version) override;
 
   IOStatus extractParents(const std::string& bucket_name_prefix,
                           const DbidList& dbid_list, DbidParents* parents);

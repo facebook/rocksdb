@@ -2329,19 +2329,10 @@ Status CloudFileSystemImpl::CheckValidity() const {
 IOStatus CloudFileSystemImpl::FindAllLiveFiles(
     const std::string& local_dbname, std::vector<std::string>* live_sst_files,
     std::string* manifest_file) {
-  return FindAllLiveFilesAndFetchManifest(local_dbname, live_sst_files,
-                                          manifest_file,
-                                          nullptr /* manifest_file_version */);
-}
-
-IOStatus CloudFileSystemImpl::FindAllLiveFilesAndFetchManifest(
-    const std::string& local_dbname, std::vector<std::string>* live_sst_files,
-    std::string* manifest_file, std::string* manifest_file_version) {
   std::unique_ptr<LocalManifestReader> extractor(
       new LocalManifestReader(info_log_, this));
   std::set<uint64_t> file_nums;
-  auto st = extractor->GetLiveFilesLocally(local_dbname, &file_nums,
-                                           manifest_file_version);
+  auto st = extractor->GetLiveFilesLocally(local_dbname, &file_nums);
   if (!st.ok()) {
     return st;
   }
