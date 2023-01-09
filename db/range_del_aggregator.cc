@@ -501,7 +501,6 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
   const InternalKeyComparator* icmp_;
   const Slice* lower_bound_;
   const Slice* upper_bound_;
-  bool upper_bound_inclusive_;
   BinaryHeap<TruncatedRangeDelIterator*, StartKeyMinComparator> heap_;
   std::vector<TruncatedRangeDelIterator*> children_;
 
