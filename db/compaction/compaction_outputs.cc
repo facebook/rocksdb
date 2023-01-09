@@ -429,9 +429,9 @@ Status CompactionOutputs::AddRangeDels(
     // (an LSM invariant violation), we allow the earlier file to include the
     // boundary user key up to `kMaxSequenceNumber,kTypeRangeDeletion`. The
     // later file can begin at the boundary user key at
-    // `kMaxSequenceNumber-1,kTypeDeletion`, which is a larger internal key. No
-    // real key version can fall in the gap between these internal keys so the
-    // gap produces no loss in coverage.
+    // `kMaxSequenceNumber-1,kTypeRangeDeletion`, which is a larger internal
+    // key. No real key version can fall in the gap between these internal keys
+    // so the gap produces no loss in coverage.
     if (comp_start_user_key != nullptr) {
       lower_bound_buf.Set(*comp_start_user_key, kMaxSequenceNumber - 1,
                           kTypeRangeDeletion);
@@ -457,7 +457,7 @@ Status CompactionOutputs::AddRangeDels(
 
   if (next_table_min_key.empty()) {
     // This is the last file in the subcompaction. See above for the reason why
-    // `kMaxSequenceNumber,kTypeDeletion` is chosen.
+    // `kMaxSequenceNumber,kTypeRangeDeletion` is chosen.
     if (comp_end_user_key != nullptr) {
       upper_bound_buf.Set(*comp_end_user_key, kMaxSequenceNumber,
                           kTypeRangeDeletion);
