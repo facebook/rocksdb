@@ -127,7 +127,10 @@ std::shared_ptr<T> MakeSharedCacheHandleGuard(Cache* cache,
   return std::shared_ptr<T>(wrapper, GetFromCacheHandle<T>(cache, handle));
 }
 
-Status WarmInCache(Cache* cache, const Slice& key, const Slice& contents,
+// Given the persistable data (saved) for a block cache entry, parse that
+// into a cache entry object and insert it into the given cache. The charge
+// of the new entry can be returned to the caller through `out_charge`.
+Status WarmInCache(Cache* cache, const Slice& key, const Slice& saved,
                    Cache::CreateContext* create_context,
                    const Cache::CacheItemHelper* helper,
                    Cache::Priority priority = Cache::Priority::LOW,

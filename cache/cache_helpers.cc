@@ -17,7 +17,7 @@ void ReleaseCacheHandleCleanup(void* arg1, void* arg2) {
   cache->Release(cache_handle);
 }
 
-Status WarmInCache(Cache* cache, const Slice& key, const Slice& contents,
+Status WarmInCache(Cache* cache, const Slice& key, const Slice& saved,
                    Cache::CreateContext* create_context,
                    const Cache::CacheItemHelper* helper,
                    Cache::Priority priority, size_t* out_charge) {
@@ -25,7 +25,7 @@ Status WarmInCache(Cache* cache, const Slice& key, const Slice& contents,
   assert(helper->create_cb);
   Cache::ObjectPtr value;
   size_t charge;
-  Status st = helper->create_cb(contents, create_context,
+  Status st = helper->create_cb(saved, create_context,
                                 cache->memory_allocator(), &value, &charge);
   if (st.ok()) {
     st =
