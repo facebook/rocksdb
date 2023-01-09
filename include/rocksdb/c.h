@@ -1894,6 +1894,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_io_timeout(
     rocksdb_readoptions_t*, uint64_t microseconds);
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_async_io(
+    rocksdb_readoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_readoptions_get_async_io(
+    rocksdb_readoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_timestamp(
     rocksdb_readoptions_t*, const char* ts, size_t tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_iter_start_ts(
