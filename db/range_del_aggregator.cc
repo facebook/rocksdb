@@ -429,15 +429,18 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
     for (auto& child : children_) {
       if (lower_bound_ != nullptr) {
         child->Seek(ExtractUserKey(*lower_bound_));
+        // Since the above `Seek()` operates on a user key while `lower_bound_`
+        // is an internal key, we may need to advance `child` farther for it to
+        // be in bounds.
+        while (child->Valid() && BeforeStartKey(child)) {
+          child->InternalNext();
+        }
       } else {
         child->SeekToFirst();
       }
       if (child->Valid()) {
         heap_.push(child);
       }
-    }
-    while (Valid() && BeforeStartKey(heap_.top())) {
-      Next();
     }
   }
 
