@@ -470,18 +470,27 @@ Status CompactionOutputs::AddRangeDels(
       upper_bound = nullptr;
     }
   } else {
-    // Extend into the gap up to one seqno above where the next file begins.
-    // That ensures both no overlap and no loss of range tombstone coverage.
+    // There is another file coming whose coverage will begin at
+    // `next_table_min_key`. The current file needs to extend range tombstone
+    // coverage through its own keys (through `meta.largest`) and through user
+    // keys preceding `next_table_min_key`'s user key.
     ParsedInternalKey next_table_min_key_parsed;
     ParseInternalKey(next_table_min_key, &next_table_min_key_parsed,
                      false /* log_err_key */)
         .PermitUncheckedError();
     assert(next_table_min_key_parsed.sequence < kMaxSequenceNumber);
-    upper_bound_buf.Set(next_table_min_key_parsed.user_key,
-                        next_table_min_key_parsed.sequence + 1,
-                        kTypeRangeDeletion);
-    upper_bound_guard = upper_bound_buf.Encode();
-    upper_bound = &upper_bound_guard;
+
+    if (meta.largest.size() > 0 &&
+        ucmp->EqualWithoutTimestamp(next_table_min_key_parsed.user_key,
+                                    meta.largest.user_key())) {
+      upper_bound_guard = meta.largest.Encode();
+      upper_bound = &upper_bound_guard;
+    } else {
+      upper_bound_buf.Set(next_table_min_key_parsed.user_key,
+                          kMaxSequenceNumber, kTypeRangeDeletion);
+      upper_bound_guard = upper_bound_buf.Encode();
+      upper_bound = &upper_bound_guard;
+    }
   }
 
   Slice user_lower_bound_guard, user_upper_bound_guard;
