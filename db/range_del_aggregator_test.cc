@@ -640,15 +640,12 @@ TEST_F(RangeDelAggregatorTest, CompactionAggregatorEmptyIteratorRight) {
     range_del_agg.AddTombstones(std::move(input_iter));
   }
 
-  Slice start("p");
-  Slice end("q");
-  auto range_del_compaction_iter1 =
-      range_del_agg.NewIterator(&start, &end, false /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter1.get(), {});
-
-  auto range_del_compaction_iter2 =
-      range_del_agg.NewIterator(&start, &end, true /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter2.get(), {});
+  InternalKey start_buf("p", 0, kTypeRangeDeletion);
+  InternalKey end_buf("q", 0, kTypeRangeDeletion);
+  Slice start = start_buf.Encode();
+  Slice end = end_buf.Encode();
+  auto range_del_compaction_iter = range_del_agg.NewIterator(&start, &end);
+  VerifyFragmentedRangeDels(range_del_compaction_iter.get(), {});
 }
 
 TEST_F(RangeDelAggregatorTest, CompactionAggregatorBoundedIterator) {
@@ -665,18 +662,13 @@ TEST_F(RangeDelAggregatorTest, CompactionAggregatorBoundedIterator) {
     range_del_agg.AddTombstones(std::move(input_iter));
   }
 
-  Slice start("bb");
-  Slice end("e");
-  auto range_del_compaction_iter1 =
-      range_del_agg.NewIterator(&start, &end, false /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter1.get(),
+  InternalKey start_buf("bb", 0, kTypeRangeDeletion);
+  InternalKey end_buf("e", 9, kTypeRangeDeletion);
+  Slice start = start_buf.Encode();
+  Slice end = end_buf.Encode();
+  auto range_del_compaction_iter = range_del_agg.NewIterator(&start, &end);
+  VerifyFragmentedRangeDels(range_del_compaction_iter.get(),
                             {{"a", "c", 10}, {"c", "e", 10}, {"c", "e", 8}});
-
-  auto range_del_compaction_iter2 =
-      range_del_agg.NewIterator(&start, &end, true /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(
-      range_del_compaction_iter2.get(),
-      {{"a", "c", 10}, {"c", "e", 10}, {"c", "e", 8}, {"e", "g", 8}});
 }
 
 TEST_F(RangeDelAggregatorTest,
@@ -694,29 +686,19 @@ TEST_F(RangeDelAggregatorTest,
     range_del_agg.AddTombstones(std::move(input_iter));
   }
 
-  Slice start("bb");
-  Slice end("e");
-  auto range_del_compaction_iter1 =
-      range_del_agg.NewIterator(&start, &end, false /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter1.get(), {{"a", "b", 10},
-                                                               {"b", "c", 20},
-                                                               {"b", "c", 10},
-                                                               {"c", "d", 10},
-                                                               {"c", "d", 8},
-                                                               {"d", "f", 30},
-                                                               {"d", "f", 8},
-                                                               {"f", "g", 8}});
-
-  auto range_del_compaction_iter2 =
-      range_del_agg.NewIterator(&start, &end, true /* end_key_inclusive */);
-  VerifyFragmentedRangeDels(range_del_compaction_iter2.get(), {{"a", "b", 10},
-                                                               {"b", "c", 20},
-                                                               {"b", "c", 10},
-                                                               {"c", "d", 10},
-                                                               {"c", "d", 8},
-                                                               {"d", "f", 30},
-                                                               {"d", "f", 8},
-                                                               {"f", "g", 8}});
+  InternalKey start_buf("bb", 0, kTypeRangeDeletion);
+  InternalKey end_buf("e", 0, kTypeRangeDeletion);
+  Slice start = start_buf.Encode();
+  Slice end = end_buf.Encode();
+  auto range_del_compaction_iter = range_del_agg.NewIterator(&start, &end);
+  VerifyFragmentedRangeDels(range_del_compaction_iter.get(), {{"a", "b", 10},
+                                                              {"b", "c", 20},
+                                                              {"b", "c", 10},
+                                                              {"c", "d", 10},
+                                                              {"c", "d", 8},
+                                                              {"d", "f", 30},
+                                                              {"d", "f", 8},
+                                                              {"f", "g", 8}});
 }
 
 }  // namespace ROCKSDB_NAMESPACE

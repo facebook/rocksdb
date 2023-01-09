@@ -491,63 +491,16 @@ Status CompactionOutputs::AddRangeDels(
     }
   }
 
-  Slice user_lower_bound_guard, user_upper_bound_guard;
-  Slice *user_lower_bound, *user_upper_bound;
-  if (lower_bound != nullptr) {
-    user_lower_bound_guard = ExtractUserKey(*lower_bound);
-    user_lower_bound = &user_lower_bound_guard;
-  } else {
-    user_lower_bound = nullptr;
-  }
-  if (upper_bound != nullptr) {
-    user_upper_bound_guard = ExtractUserKey(*upper_bound);
-    user_upper_bound = &user_upper_bound_guard;
-  } else {
-    user_upper_bound = nullptr;
-  }
-
-  bool has_overlapping_endpoints;
-  if (user_upper_bound != nullptr && meta.largest.size() > 0) {
-    has_overlapping_endpoints =
-        ucmp->CompareWithoutTimestamp(meta.largest.user_key(),
-                                      *user_upper_bound) == 0;
-  } else {
-    has_overlapping_endpoints = false;
-  }
-
   // The end key of the subcompaction must be bigger or equal to the upper
   // bound. If the end of subcompaction is null or the upper bound is null,
   // it means that this file is the last file in the compaction. So there
   // will be no overlapping between this file and others.
-  assert(comp_end_user_key == nullptr || user_upper_bound == nullptr ||
-         ucmp->CompareWithoutTimestamp(*user_upper_bound, *comp_end_user_key) <=
-             0);
-  auto it = range_del_agg_->NewIterator(user_lower_bound, user_upper_bound,
-                                        has_overlapping_endpoints);
-  // Position the range tombstone output iterator. There may be tombstone
-  // fragments that are entirely out of range, so make sure that we do not
-  // include those.
-  if (user_lower_bound != nullptr) {
-    it->Seek(*user_lower_bound);
-  } else {
-    it->SeekToFirst();
-  }
-  for (; it->Valid(); it->Next()) {
+  assert(comp_end_user_key == nullptr || upper_bound == nullptr ||
+         ucmp->CompareWithoutTimestamp(ExtractUserKey(*upper_bound),
+                                       *comp_end_user_key) <= 0);
+  auto it = range_del_agg_->NewIterator(lower_bound, upper_bound);
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
     auto tombstone = it->Tombstone();
-    if (user_upper_bound != nullptr) {
-      int cmp = ucmp->CompareWithoutTimestamp(*user_upper_bound,
-                                              tombstone.start_key_);
-      if ((has_overlapping_endpoints && cmp < 0) ||
-          (!has_overlapping_endpoints && cmp <= 0)) {
-        // Tombstones starting after user_upper_bound only need to be included
-        // in the next table. If the current SST ends before user_upper_bound,
-        // i.e., `has_overlapping_endpoints == false`, we can also skip over
-        // range tombstones that start exactly at user_upper_bound. Such range
-        // tombstones will be included in the next file and are not relevant
-        // to the point keys or endpoints of the current file.
-        break;
-      }
-    }
 
     const size_t ts_sz = ucmp->timestamp_size();
     // Garbage collection for range tombstones.
@@ -569,8 +522,9 @@ Status CompactionOutputs::AddRangeDels(
     }
 
     auto kv = tombstone.Serialize();
-    assert(user_lower_bound == nullptr ||
-           ucmp->CompareWithoutTimestamp(*user_lower_bound, kv.second) < 0);
+    assert(lower_bound == nullptr ||
+           ucmp->CompareWithoutTimestamp(ExtractUserKey(*lower_bound),
+                                         kv.second) < 0);
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
     InternalKey tombstone_start = std::move(kv.first);
