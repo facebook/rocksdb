@@ -247,7 +247,7 @@ class PrefixTest : public testing::Test {
     option_config_++;
     if (option_config_ < kEnd) {
       options_.prefix_extractor.reset(NewFixedPrefixTransform(8));
-      switch(option_config_) {
+      switch (option_config_) {
         case kHashSkipList:
           options_.memtable_factory.reset(
               NewHashSkipListRepFactory(bucket_count, FLAGS_skiplist_height));

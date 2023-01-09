@@ -309,8 +309,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   options.max_log_file_size = 0;
   options.log_file_time_to_roll = 2;
   ASSERT_OK(CreateLoggerFromOptions(test_dir_, options, &logger));
-  auto_roll_logger =
-    dynamic_cast<AutoRollLogger*>(logger.get());
+  auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
   RollLogFileByTimeTest(options.env->GetFileSystem(), nsc, auto_roll_logger,
                         options.log_file_time_to_roll,
                         kSampleMessage + ":CreateLoggerFromOptions - time");
@@ -320,8 +319,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   options.max_log_file_size = 1024 * 5;
   options.log_file_time_to_roll = 2;
   ASSERT_OK(CreateLoggerFromOptions(test_dir_, options, &logger));
-  auto_roll_logger =
-    dynamic_cast<AutoRollLogger*>(logger.get());
+  auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
   RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
                         kSampleMessage + ":CreateLoggerFromOptions - both");
   RollLogFileByTimeTest(options.env->GetFileSystem(), nsc, auto_roll_logger,

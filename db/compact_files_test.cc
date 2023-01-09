@@ -94,6 +94,8 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   options_.level0_file_num_compaction_trigger = kLevel0Trigger;
   options_.compression = kNoCompression;
 
+  OpenDB();
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"CompactFilesImpl:0", "BackgroundCallCompaction:0"},
       {"BackgroundCallCompaction:1", "CompactFilesImpl:1"},
@@ -369,10 +371,9 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
   }
   // Check that passing `CompressionType::kDisableCompressionOption` to
   // `CompactFiles` causes it to use the column family compression options.
-  for (auto compaction_style :
-       {CompactionStyle::kCompactionStyleLevel,
-        CompactionStyle::kCompactionStyleUniversal,
-        CompactionStyle::kCompactionStyleNone}) {
+  for (auto compaction_style : {CompactionStyle::kCompactionStyleLevel,
+                                CompactionStyle::kCompactionStyleUniversal,
+                                CompactionStyle::kCompactionStyleNone}) {
     ASSERT_OK(DestroyDB(db_name_, options_));
     options_.compaction_style = compaction_style;
     // L0: Snappy, L1: ZSTD, L2: Snappy

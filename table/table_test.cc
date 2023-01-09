@@ -569,8 +569,7 @@ class InternalIteratorFromIterator : public InternalIterator {
 class DBConstructor : public Constructor {
  public:
   explicit DBConstructor(const Comparator* cmp)
-      : Constructor(cmp),
-        comparator_(cmp) {
+      : Constructor(cmp), comparator_(cmp) {
     dbname_ = test::PerThreadDBPath("table_testdb");
     db_ = nullptr;
     NewDB();
