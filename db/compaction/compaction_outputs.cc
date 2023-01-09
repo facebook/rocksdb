@@ -523,7 +523,7 @@ Status CompactionOutputs::AddRangeDels(
     auto kv = tombstone.Serialize();
     assert(lower_bound == nullptr ||
            ucmp->CompareWithoutTimestamp(ExtractUserKey(*lower_bound),
-                                         kv.second) < 0);
+                                         kv.second) <= 0);
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
     InternalKey tombstone_start = std::move(kv.first);
