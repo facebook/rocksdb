@@ -515,6 +515,8 @@ DEFINE_int32(max_background_compactions,
              " that can occur in parallel.");
 
 DEFINE_uint64(subcompactions, 1,
+              "For CompactRange, set max_subcompactions for each compaction "
+              "job in this CompactRange, for auto compactions, this is "
               "Maximum number of subcompactions to divide L0-L1 compactions "
               "into.");
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
@@ -5656,6 +5658,8 @@ class Benchmark {
       // auto compactionOptions = CompactionOptions();
       // db->CompactFiles(compactionOptions, file_names, 0);
       auto compactionOptions = CompactRangeOptions();
+      compactionOptions.max_subcompactions =
+          static_cast<uint32_t>(FLAGS_subcompactions);
       db->CompactRange(compactionOptions, nullptr, nullptr);
     } else {
       fprintf(stdout,
@@ -8155,15 +8159,18 @@ class Benchmark {
     CompactRangeOptions cro;
     cro.bottommost_level_compaction =
         BottommostLevelCompaction::kForceOptimized;
+    cro.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     db->CompactRange(cro, nullptr, nullptr);
   }
 
   void CompactAll() {
+    CompactRangeOptions cro;
+    cro.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     if (db_.db != nullptr) {
-      db_.db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      db_.db->CompactRange(cro, nullptr, nullptr);
     }
     for (const auto& db_with_cfh : multi_dbs_) {
-      db_with_cfh.db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      db_with_cfh.db->CompactRange(cro, nullptr, nullptr);
     }
   }
 
