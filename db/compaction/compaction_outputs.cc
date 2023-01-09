@@ -416,7 +416,6 @@ Status CompactionOutputs::AddRangeDels(
   InternalKey lower_bound_buf, upper_bound_buf;
   Slice lower_bound_guard, upper_bound_guard;
   const Slice *lower_bound, *upper_bound;
-  bool lower_bound_from_sub_compact = false;
   bool lower_bound_from_range_tombstone = false;
   size_t output_size = outputs_.size();
   if (output_size == 1) {
@@ -442,7 +441,6 @@ Status CompactionOutputs::AddRangeDels(
     } else {
       lower_bound = nullptr;
     }
-    lower_bound_from_sub_compact = true;
   } else if (range_tombstone_lower_bound_.size() > 0) {
     assert(meta.smallest.size() == 0 ||
            icmp.Compare(range_tombstone_lower_bound_, meta.smallest) <= 0);
@@ -577,110 +575,18 @@ Status CompactionOutputs::AddRangeDels(
     builder_->Add(kv.first.Encode(), kv.second);
     InternalKey tombstone_start = std::move(kv.first);
     InternalKey smallest_candidate{tombstone_start};
-    if (user_lower_bound != nullptr &&
-        ucmp->CompareWithoutTimestamp(smallest_candidate.user_key(),
-                                      *user_lower_bound) <= 0) {
-      // Pretend the smallest key has the same user key as user_lower_bound
-      // (the max key in the previous table or subcompaction) in order for
-      // files to appear key-space partitioned.
-      if (lower_bound_from_sub_compact) {
-        // When user_lower_bound is chosen by a subcompaction
-        // (lower_bound_from_sub_compact), we know that subcompactions over
-        // smaller keys cannot contain any keys at user_lower_bound. We also
-        // know that smaller subcompactions exist, because otherwise the
-        // subcompaction woud be unbounded on the left. As a result, we know
-        // that no other files on the output level will contain actual keys at
-        // user_lower_bound (an output file may have a largest key of
-        // user_lower_bound@kMaxSequenceNumber, but this only indicates a large
-        // range tombstone was truncated). Therefore, it is safe to use the
-        // tombstone's sequence number, to ensure that keys at user_lower_bound
-        // at lower levels are covered by truncated tombstones.
-        if (ts_sz) {
-          assert(tombstone.ts_.size() == ts_sz);
-          smallest_candidate = InternalKey(*user_lower_bound, tombstone.seq_,
-                                           kTypeRangeDeletion, tombstone.ts_);
-        } else {
-          smallest_candidate = InternalKey(*user_lower_bound, tombstone.seq_,
-                                           kTypeRangeDeletion);
-        }
-      } else if (lower_bound_from_range_tombstone) {
-        // When user_lower_bound is chosen from a range tombtone start key:
-        // Range tombstone keys can be truncated at file boundaries of the files
-        // that contain them.
-        //
-        // If this lower bound is from a range tombstone key that is not
-        // truncated, i.e., it was not truncated when reading from the input
-        // files, then its sequence number and `op_type` will be
-        // kMaxSequenceNumber and kTypeRangeDeletion (see
-        // TruncatedRangeDelIterator::start_key()). In this case, when this key
-        // was used as the upper bound to cut the previous compaction output
-        // file, the previous file's largest key could have the same value as
-        // this key (see the upperbound logic below). To guarantee
-        // non-overlapping ranges between output files, we use the range
-        // tombstone's actual sequence number (tombstone.seq_) for the lower
-        // bound of this file. If this range tombstone key is truncated, then
-        // the previous file's largest key will be smaller than this range
-        // tombstone key, so we can use it as the lower bound directly.
-        if (ExtractInternalKeyFooter(range_tombstone_lower_bound_.Encode()) ==
-            kRangeTombstoneSentinel) {
-          if (ts_sz) {
-            smallest_candidate =
-                InternalKey(range_tombstone_lower_bound_.user_key(),
-                            tombstone.seq_, kTypeRangeDeletion, tombstone.ts_);
-          } else {
-            smallest_candidate =
-                InternalKey(range_tombstone_lower_bound_.user_key(),
-                            tombstone.seq_, kTypeRangeDeletion);
-          }
-        } else {
-          assert(GetInternalKeySeqno(range_tombstone_lower_bound_.Encode()) <
-                 kMaxSequenceNumber);
-          smallest_candidate = range_tombstone_lower_bound_;
-        }
-      } else {
-        // If user_lower_bound was chosen by the smallest data key in the file,
-        // choose lowest seqnum so this file's smallest internal key comes
-        // after the previous file's largest. The fake seqnum is OK because
-        // the read path's file-picking code only considers user key.
-        smallest_candidate =
-            InternalKey(*user_lower_bound, 0, kTypeRangeDeletion);
-      }
+    if (lower_bound != nullptr &&
+        icmp.Compare(smallest_candidate.Encode(), *lower_bound) < 0) {
+      smallest_candidate.DecodeFrom(*lower_bound);
     }
+
     InternalKey tombstone_end = tombstone.SerializeEndKey();
     InternalKey largest_candidate{tombstone_end};
-    if (user_upper_bound != nullptr &&
-        ucmp->CompareWithoutTimestamp(*user_upper_bound,
-                                      largest_candidate.user_key()) <= 0) {
-      // Pretend the largest key has the same user key as user_upper_bound (the
-      // min key in the following table or subcompaction) in order for files
-      // to appear key-space partitioned.
-      //
-      // Choose highest seqnum so this file's largest internal key comes
-      // before the next file's/subcompaction's smallest. The fake seqnum is
-      // OK because the read path's file-picking code only considers the
-      // user key portion.
-      //
-      // Note Seek() also creates InternalKey with (user_key,
-      // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
-      // kTypeRangeDeletion (0xF), so the range tombstone comes before the
-      // Seek() key in InternalKey's ordering. So Seek() will look in the
-      // next file for the user key
-      if (ts_sz) {
-        static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
-        if (ts_sz <= strlen(kTsMax)) {
-          largest_candidate =
-              InternalKey(*user_upper_bound, kMaxSequenceNumber,
-                          kTypeRangeDeletion, Slice(kTsMax, ts_sz));
-        } else {
-          largest_candidate =
-              InternalKey(*user_upper_bound, kMaxSequenceNumber,
-                          kTypeRangeDeletion, std::string(ts_sz, '\xff'));
-        }
-      } else {
-        largest_candidate = InternalKey(*user_upper_bound, kMaxSequenceNumber,
-                                        kTypeRangeDeletion);
-      }
+    if (upper_bound != nullptr &&
+        icmp.Compare(*upper_bound, largest_candidate.Encode()) < 0) {
+      largest_candidate.DecodeFrom(*upper_bound);
     }
+
 #ifndef NDEBUG
     SequenceNumber smallest_ikey_seqnum = kMaxSequenceNumber;
     if (meta.smallest.size() > 0) {
