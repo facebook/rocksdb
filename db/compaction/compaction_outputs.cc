@@ -498,8 +498,22 @@ Status CompactionOutputs::AddRangeDels(
          ucmp->CompareWithoutTimestamp(ExtractUserKey(*upper_bound),
                                        *comp_end_user_key) <= 0);
   auto it = range_del_agg_->NewIterator(lower_bound, upper_bound);
+  bool reached_lower_bound = false;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     auto tombstone = it->Tombstone();
+    auto kv = tombstone.Serialize();
+    InternalKey tombstone_end = tombstone.SerializeEndKey();
+
+    // TODO: the underlying iterator should support clamping the bounds.
+    if (!reached_lower_bound && lower_bound != nullptr &&
+        icmp.Compare(tombstone_end.Encode(), *lower_bound) < 0) {
+      continue;
+    }
+    reached_lower_bound = true;
+    if (upper_bound != nullptr &&
+        icmp.Compare(*upper_bound, kv.first.Encode()) < 0) {
+      break;
+    }
 
     const size_t ts_sz = ucmp->timestamp_size();
     // Garbage collection for range tombstones.
@@ -520,7 +534,6 @@ Status CompactionOutputs::AddRangeDels(
       continue;
     }
 
-    auto kv = tombstone.Serialize();
     assert(lower_bound == nullptr ||
            ucmp->CompareWithoutTimestamp(ExtractUserKey(*lower_bound),
                                          kv.second) <= 0);
@@ -532,7 +545,6 @@ Status CompactionOutputs::AddRangeDels(
       tombstone_start.DecodeFrom(*lower_bound);
     }
 
-    InternalKey tombstone_end = tombstone.SerializeEndKey();
     if (upper_bound != nullptr &&
         icmp.Compare(*upper_bound, tombstone_end.Encode()) < 0) {
       tombstone_end.DecodeFrom(*upper_bound);
