@@ -30,6 +30,8 @@ extern "C" int rocksdb_ffi_get(ROCKSDB_NAMESPACE::DB* db,
     value->data = value_slice->data();
     value->size = value_slice->size();
     value->pinnable_slice = value_slice;
+  } else {
+    delete value_slice;
   }
   return status.code();
 }

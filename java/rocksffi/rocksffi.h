@@ -8,11 +8,14 @@
 
 #pragma once
 
-// #include <cstddef>
+#include <cstddef>
 #include <rocksdb/slice.h>
 #include <stddef.h>
 
 #include <string>
+
+#include "rocksdb/db.h"
+#include "rocksdb/status.h"
 
 typedef struct rocksdb_input_slice {
   const char* data;

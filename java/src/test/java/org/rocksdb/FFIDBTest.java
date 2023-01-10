@@ -36,22 +36,41 @@ public class FFIDBTest {
   }
 
   @Test
-  public void get() throws RocksDBException {
+  public void getPinnableSlice() throws RocksDBException {
     usingFFI(dbFFI -> {
       try {
         final RocksDB db = dbFFI.getRocksDB();
         db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
-        FFIPinnableSlice pinnableSlice = dbFFI.get("key2");
-        assertThat(pinnableSlice.code).isEqualTo(Status.Code.NotFound);
-        assertThat(pinnableSlice.reset()).isEqualTo(Status.Code.Ok);
-        pinnableSlice = dbFFI.get("key1");
-        assertThat(pinnableSlice.code).isEqualTo(Status.Code.Ok);
-        assertThat(pinnableSlice.data).isNotSameAs(Optional.empty());
-        final byte[] bytes = pinnableSlice.data.get().toArray(ValueLayout.JAVA_BYTE);
+        var getPinnableSlice = dbFFI.getPinnableSlice("key2");
+        assertThat(getPinnableSlice.code()).isEqualTo(Status.Code.NotFound);
+        getPinnableSlice = dbFFI.getPinnableSlice("key1");
+        assertThat(getPinnableSlice.code()).isEqualTo(Status.Code.Ok);
+        assertThat(getPinnableSlice.pinnableSlice().get().data()).isNotSameAs(Optional.empty());
+        final byte[] bytes = getPinnableSlice.pinnableSlice().get().data().toArray(ValueLayout.JAVA_BYTE);
+        getPinnableSlice.pinnableSlice().get().reset();
         assertThat(new String(bytes, StandardCharsets.UTF_8)).isEqualTo("value1");
       } catch (final RocksDBException e) {
         throw new RuntimeException(e);
       }
+      return null;
+    });
+  }
+
+  @Test
+  public void get() throws RocksDBException {
+    usingFFI(dbFFI -> {
+      final RocksDB db = dbFFI.getRocksDB();
+      try {
+        db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
+        var getBytes = dbFFI.get("key2");
+        assertThat(getBytes.code()).isEqualTo(Status.Code.NotFound);
+        getBytes = dbFFI.get("key1");
+        assertThat(getBytes.code()).isEqualTo(Status.Code.Ok);
+        assertThat(new String(getBytes.value(), StandardCharsets.UTF_8)).isEqualTo("value1");
+      } catch (final RocksDBException e) {
+        throw new RuntimeException(e);
+      }
+
       return null;
     });
   }
