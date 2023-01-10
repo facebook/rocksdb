@@ -2,7 +2,7 @@
 
 ## Git Setup
 
-Keep the remote names as 'sightmachine' and facebook
+Keep the remote names as `sightmachine` and `facebook`
 
 ```
 > git remote -v
@@ -15,7 +15,7 @@ sightmachine    git@github.com:sightmachine/rocksdb (push)
 
 ## Git flow
 
-upstream:
+facebook:
 * work happens in multiple branches
 * branches are named `7.8.fb`
 * tags are named `v7.8.3`
@@ -26,10 +26,10 @@ sightmachine:
 * *this* will be git default branch (https://github.com/sightmachine/rocksdb/settings/branches)
 * sightmachine patches will be added on top of it.
 
-* switching to another upstream branch ( e.g. 7.9.2)
-  * push tag to sightmachine `git push sightmachine v7.9.2`
+* When switching to another upstream branch ( e.g. 7.9.2)
+  * push facebook tag to sightmachine `git push sightmachine v7.9.2`
   * branch `sm-main-7.9.2` create from upstream tag `v7.9.2`
-  * the changes fom `v7.8.3..sm-main-7.8.3` cherry-picked to `sm-main-7.9.2`
+  * the changes from `v7.8.3...sm-main-7.8.3` cherry-picked to `sm-main-7.9.2`
 	* squashing the change makes may make it easier to apply this step.
 	* merge-commits can wreck this step, avoid them.
   * git default branch change to `sm-main-7.9.2` https://github.com/sightmachine/rocksdb/settings/branches
@@ -41,16 +41,16 @@ sightmachine:
   * A PR based on branch `sm-main-7.8.3` will be opened
   * The pr will be merge-ff to `sm-main-7.8.3`
 	* don't create merge-commits as it'll be problem when cherry-picking to next version.
-  * tag will be placed to make a release build.
+  * tag `sm-v7.8.3.4` will be placed to make a release build.
 
 
 ## CirclCI setup
 
-We want to actively mirror few fb branches to our branch,
-but do not want to trigger circlci on these, 
+We want to actively mirror few fb branches to our fork,
+but do not want to trigger circlci on these,
 so we use "Only build pull requests: ON"
 https://app.circleci.com/settings/project/github/sightmachine/rocksdb/advanced
-Note that the default branch will be build by CirclCI.
+Note that the default branch will always be build by CirclCI after merge.
 
 * build on any branch at tag named `sm-v7.8.3.1` makes RELEASE builds
   * version in jfrog would be `7.8.3.1`
@@ -59,7 +59,7 @@ Note that the default branch will be build by CirclCI.
 
 ## Sync branches
 
-Syncing up branches to our repo allows us to view our patch better in the 
+Syncing up branches to our repo allows us to view our patch better in the
 github's PR view.
 
 We only want to sync selected branches
@@ -68,7 +68,7 @@ We only want to sync selected branches
 * 7.9.fb
 * main
 
-This can be done by github's UI, or from console:
+This can be done by github's UI ( preferred) , or from console also:
 
 ```
 ## get everything, get rid of gone branches.
@@ -86,18 +86,11 @@ syncbranch()
 	   git switch sm-head
 }
 
-syncbranch main
 syncbranch 7.7.fb
 syncbranch 7.8.fb
 syncbranch 7.9.fb
 
 ```
 
-However tags can only exported from CLI
-Note: I'm not sure if this is good idea or not.
-```
-## push all tags to sightmachine
-git push sightmachine --tags
-
-```
-
+Do NOT needlessly migrate branch and tag from facebook to sightmachine repo, they only
+clutter without adding any value.

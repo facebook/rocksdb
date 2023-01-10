@@ -335,22 +335,49 @@ workflows:
             - test-macos
             - test-windows
             - test-linux
+          filters:
+            tags:
+              only: /^sm-v.*/
       - test-macos:
           requires:
             - make-jar
+          filters:
+            tags:
+              only: /^sm-v.*/
       - test-windows:
           requires:
             - make-jar
+          filters:
+            tags:
+              only: /^sm-v.*/
       - test-linux:
           requires:
             - make-jar
+          filters:
+            tags:
+              only: /^sm-v.*/
       - make-jar:
           requires:
             - build-macos-cmake-arm64
             - build-macos-cmake-x86_64
             - build-windows-cmake
             - build-linux-cmake
-      - build-macos-cmake-x86_64
-      - build-macos-cmake-arm64
-      - build-windows-cmake
-      - build-linux-cmake
+          filters:
+            tags:
+              only: /^sm-v.*/
+      - build-macos-cmake-x86_64:
+          filters:
+            tags:
+              only: /^sm-v.*/
+      - build-macos-cmake-arm64:
+          filters:
+            tags:
+              only: /^sm-v.*/
+      - build-windows-cmake:
+          filters:
+            tags:
+              only: /^sm-v.*/
+      - build-linux-cmake:
+          filters:
+            tags:
+              only: /^sm-v.*/
