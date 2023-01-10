@@ -189,6 +189,15 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   // always update grandparent information like overlapped file number, size
   // etc.
   const Slice& internal_key = c_iter.key();
+#ifndef NDEBUG
+  bool should_stop = false;
+  std::pair<bool*, const Slice> p{&should_stop, internal_key};
+  TEST_SYNC_POINT_CALLBACK("CompactionOutputs::ShouldStopBefore", (void*)&p);
+  if (should_stop) {
+    return true;
+  }
+#endif  // NDEBUG
+
   const uint64_t previous_overlapped_bytes = grandparent_overlapped_bytes_;
   size_t num_grandparent_boundaries_crossed =
       UpdateGrandparentBoundaryInfo(internal_key);
@@ -419,6 +428,7 @@ Status CompactionOutputs::AddRangeDels(
   bool lower_bound_from_sub_compact = false;
   bool lower_bound_from_range_tombstone = false;
   size_t output_size = outputs_.size();
+  // Determine lower bound user key
   if (output_size == 1) {
     // For the first output table, include range tombstones before the min
     // key but after the subcompaction boundary.
@@ -440,26 +450,44 @@ Status CompactionOutputs::AddRangeDels(
   } else {
     lower_bound = nullptr;
   }
+  // Determine upper bound user key
   if (!next_table_min_key.empty()) {
-    // This may be the last file in the subcompaction in some cases, so we
-    // need to compare the end key of subcompaction with the next file start
-    // key. When the end key is chosen by the subcompaction, we know that
-    // it must be the biggest key in output file. Therefore, it is safe to
-    // use the smaller key as the upper bound of the output file, to ensure
-    // that there is no overlapping between different output files.
     upper_bound_guard = ExtractUserKey(next_table_min_key);
-    if (comp_end_user_key != nullptr &&
-        ucmp->CompareWithoutTimestamp(upper_bound_guard, *comp_end_user_key) >=
+    upper_bound = &upper_bound_guard;
+    assert(!comp_end_user_key ||
+           ucmp->CompareWithoutTimestamp(upper_bound_guard,
+                                         *comp_end_user_key) < 0);
+    // For range tombstone-only output files, if start key and end key
+    // are the same, we can drop them as the LSM tree does not contain
+    // any key that is in this range.
+    if (meta.smallest.size() == 0) {
+      assert(meta.largest.size() == 0);
+      if (lower_bound_from_sub_compact) {
+        if (comp_start_user_key) {
+          assert(ucmp->CompareWithoutTimestamp(*comp_start_user_key,
+                                               upper_bound_guard) <= 0);
+          if (ucmp->CompareWithoutTimestamp(*comp_start_user_key,
+                                            upper_bound_guard) == 0) {
+            return Status::OK();
+          }
+        }
+      } else if (lower_bound_from_range_tombstone) {
+        assert(ucmp->CompareWithoutTimestamp(
+                   range_tombstone_lower_bound_.user_key(),
+                   upper_bound_guard) <= 0);
+        if (ucmp->CompareWithoutTimestamp(
+                range_tombstone_lower_bound_.user_key(), upper_bound_guard) ==
             0) {
-      upper_bound = comp_end_user_key;
-    } else {
-      upper_bound = &upper_bound_guard;
+          return Status::OK();
+        }
+      }
     }
   } else {
     // This is the last file in the subcompaction, so extend until the
     // subcompaction ends.
     upper_bound = comp_end_user_key;
   }
+
   bool has_overlapping_endpoints;
   if (upper_bound != nullptr && meta.largest.size() > 0) {
     has_overlapping_endpoints = ucmp->CompareWithoutTimestamp(

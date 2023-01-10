@@ -29,6 +29,13 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Iterator that wraps around a FragmentedRangeTombstoneIterator,
+// with optional InternalKey upper and lower bound. Both bounds are inclusive
+// and truncates the underlying FragmentedRangeTombstoneIterator.
+// This is intended to represent range tombstones from SST files
+// where range tombstones could be truncated at file boundaries.
+//
+// REQUIRES: smallest <= largest.
 class TruncatedRangeDelIterator {
  public:
   TruncatedRangeDelIterator(
@@ -36,6 +43,10 @@ class TruncatedRangeDelIterator {
       const InternalKeyComparator* icmp, const InternalKey* smallest,
       const InternalKey* largest);
 
+  // Returns true iff the underlying FragmentedRangeTombstoneIterator is valid,
+  // i.e., it points to a range tombstone, and the range tombstone overlaps with
+  // the range specified by this iterator's upper and lower bounds [smallest,
+  // largest].
   bool Valid() const;
 
   void Next() { iter_->TopNext(); }
@@ -44,17 +55,31 @@ class TruncatedRangeDelIterator {
   void InternalNext() { iter_->Next(); }
 
   // Seeks to the tombstone with the highest visible sequence number that covers
-  // target (a user key). If no such tombstone exists, the position will be at
-  // the earliest tombstone that ends after target.
+  // `target` (a user key).
+  // If no such tombstone exists, the position will be at the earliest tombstone
+  // that ends after target. If target is larger than `largest`, then this
+  // iterator is invalidated. If target is smaller than `smallest`, then will do
+  // Seek on smallest.user_key instead.
+  //
   // REQUIRES: target is a user key.
   void Seek(const Slice& target);
 
   // Seeks to the tombstone with the highest visible sequence number that covers
-  // target (a user key). If no such tombstone exists, the position will be at
+  // `target` (a user key). If no such tombstone exists, the position will be at
   // the latest tombstone that starts before target.
+  // If target is less than `smallest`, then this iterator will be invalidated.
+  // If target is larger than `largest`, then will do SeekForPrev on
+  // largest.user_key instead.
   void SeekForPrev(const Slice& target);
 
+  // Position the iterator at the first range tombstone.
+  // If `smallest` was specified, position the iterator at the first range
+  // tombstone that ends after smallest.user_key.
   void SeekToFirst();
+
+  // Position the iterator at the last range tombstone.
+  // If `largest` was specified, position the iterator at the first range
+  // tombstone that starts no later than largest.user_key.
   void SeekToLast();
 
   ParsedInternalKey start_key() const {

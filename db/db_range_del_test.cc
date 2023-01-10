@@ -3177,6 +3177,185 @@ TEST_F(DBRangeDelTest, SingleKeyFile) {
   }
 }
 
+TEST_F(DBRangeDelTest, AddRangeDelsSameLowerAndUpperBound) {
+  // Test for an edge case where CompactionOutputs::AddRangeDels()
+  // is called with an empty range: `lower_bound_from_range_tombstone = true`
+  // and `range_tombstone_lower_bound_ = next_table_min_key`. This used to
+  // happen when CompactionOutputs::ShouldStopBefore() had bugs.
+  // This could cause a file's smallest and largest key to be incorrectly set
+  // such that smallest > largest, and fail some assertions in iterator and/or
+  // assertion in VersionSet::ApproximateSize().
+  Options opts = CurrentOptions();
+  opts.disable_auto_compactions = true;
+  opts.target_file_size_base = 1 << 10;
+  opts.level_compaction_dynamic_file_size = false;
+  DestroyAndReopen(opts);
+
+  Random rnd(301);
+  // Create file at bottommost level so the manual compaction below is
+  // non-bottommost level and goes through code path like compensate range
+  // tombstone size.
+  ASSERT_OK(Put(Key(1), "v1"));
+  ASSERT_OK(Put(Key(4), "v2"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  ASSERT_OK(Put(Key(1), rnd.RandomString(4 << 10)));
+  ASSERT_OK(Put(Key(3), rnd.RandomString(4 << 10)));
+  // So Key(3) does not get dropped.
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(2),
+                             Key(4)));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(3), rnd.RandomString(4 << 10)));
+  ASSERT_OK(Put(Key(4), rnd.RandomString(4 << 10)));
+  ASSERT_OK(Flush());
+
+  MoveFilesToLevel(1);
+  // Each file will have two keys, with Key(3) straddle between two files.
+  // File 1: Key(1)@1, Key(3)@6, DeleteRange ends at Key(3)@6
+  // File 2: Key(3)@4, Key(4)@7, DeleteRange start from Key(3)@4
+  ASSERT_EQ(NumTableFilesAtLevel(1), 2);
+
+  // For compaction output file cutting decisions
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionOutputs::ShouldStopBefore", [opts](void* p) {
+        auto* pair = (std::pair<bool*, const Slice>*)p;
+        // Cut at Key(3)s from file 2. There should be two such keys: Key(3)@4
+        // as range tombstone sentinel, and the point key Key(3)@4 itself.
+        if ((opts.comparator->Compare(ExtractUserKey(pair->second), Key(3)) ==
+             0) &&
+            (GetInternalKeySeqno(pair->second) <= 4)) {
+          *(pair->first) = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::string begin_key = Key(0);
+  std::string end_key = Key(5);
+  Slice begin_slice{begin_key};
+  Slice end_slice{end_key};
+  ASSERT_OK(dbfull()->RunManualCompaction(
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd(),
+      1, 2, CompactRangeOptions(), &begin_slice, &end_slice, true,
+      true /* disallow_trivial_move */,
+      std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
+      "" /*trim_ts*/));
+  // iterate through to check if any assertion breaks
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
+  iter->SeekToFirst();
+  std::vector<int> expected{1, 3, 4};
+  for (auto i : expected) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), Key(i));
+    iter->Next();
+  }
+  ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBRangeDelTest, AddRangeDelsSingleUserKeyTombstoneOnlyFile) {
+  // Test for an edge case where CompactionOutputs::AddRangeDels()
+  // is called with an SST file that has no point keys, and that
+  // the lower bound and upper bound have the same user key.
+  // This could cause a file's smallest and largest key to be incorrectly set
+  // such that smallest > largest, and fail some assertions in iterator and/or
+  // assertion in VersionSet::ApproximateSize().
+  Options opts = CurrentOptions();
+  opts.disable_auto_compactions = true;
+  opts.target_file_size_base = 1 << 10;
+  opts.level_compaction_dynamic_file_size = false;
+  DestroyAndReopen(opts);
+
+  Random rnd(301);
+  // Create file at bottommost level so the manual compaction below is
+  // non-bottommost level and goes through code path like compensate range
+  // tombstone size.
+  ASSERT_OK(Put(Key(1), "v1"));
+  ASSERT_OK(Put(Key(4), "v2"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  ASSERT_OK(Put(Key(1), rnd.RandomString(10)));
+  // Key(3)@4
+  ASSERT_OK(Put(Key(3), rnd.RandomString(10)));
+  const Snapshot* snapshot1 = db_->GetSnapshot();
+  // Key(3)@5
+  ASSERT_OK(Put(Key(3), rnd.RandomString(10)));
+  const Snapshot* snapshot2 = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(2),
+                             Key(4)));
+  // Key(3)@7
+  ASSERT_OK(Put(Key(3), rnd.RandomString(10)));
+  ASSERT_OK(Flush());
+
+  // L0 -> L1 compaction: cut output into two files:
+  // File 1: Key(1), Key(3)@7, Range tombstone ends at Key(3)@7
+  // File 2: Key(3)@5, Key(3)@4, Range tombstone starts from Key(3)@5
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionOutputs::ShouldStopBefore", [opts](void* p) {
+        auto* pair = (std::pair<bool*, const Slice>*)p;
+        if ((opts.comparator->Compare(ExtractUserKey(pair->second), Key(3)) ==
+             0) &&
+            (GetInternalKeySeqno(pair->second) <= 6)) {
+          *(pair->first) = true;
+          SyncPoint::GetInstance()->DisableProcessing();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::string begin_key = Key(0);
+  std::string end_key = Key(5);
+  Slice begin_slice{begin_key};
+  Slice end_slice{end_key};
+  ASSERT_OK(dbfull()->RunManualCompaction(
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd(),
+      0, 1, CompactRangeOptions(), &begin_slice, &end_slice, true,
+      true /* disallow_trivial_move */,
+      std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
+      "" /*trim_ts*/));
+  ASSERT_EQ(NumTableFilesAtLevel(1), 2);
+
+  // L1 -> L2 compaction, drop the snapshot protecting Key(3)@5.
+  // Let ShouldStopBefore() return true for Key(3)@5 (delete range sentinel)
+  // and Key(3)@4.
+  // Output should have two files:
+  // File 1: Key(1), Key(3)@7, range tombstone ends at Key(3)@7
+  // File dropped: range tombstone only file (from Key(3)@5 to Key(3)@4)
+  // File 2: Range tombstone starting from Key(3)@4, Key(3)@4
+  db_->ReleaseSnapshot(snapshot2);
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionOutputs::ShouldStopBefore", [opts](void* p) {
+        auto* pair = (std::pair<bool*, const Slice>*)p;
+        if ((opts.comparator->Compare(ExtractUserKey(pair->second), Key(3)) ==
+             0) &&
+            (GetInternalKeySeqno(pair->second) <= 6)) {
+          *(pair->first) = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(dbfull()->RunManualCompaction(
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd(),
+      1, 2, CompactRangeOptions(), &begin_slice, &end_slice, true,
+      true /* disallow_trivial_move */,
+      std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
+      "" /*trim_ts*/));
+  ASSERT_EQ(NumTableFilesAtLevel(2), 2);
+  // iterate through to check if any assertion breaks
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
+  iter->SeekToFirst();
+  std::vector<int> expected{1, 3, 4};
+  for (auto i : expected) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key(), Key(i));
+    iter->Next();
+  }
+  ASSERT_TRUE(iter->status().ok() && !iter->Valid());
+  db_->ReleaseSnapshot(snapshot1);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

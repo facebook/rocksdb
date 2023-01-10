@@ -68,8 +68,11 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       // the truncated end key can cover the largest key in this sstable, reduce
       // its sequence number by 1.
       parsed_largest.sequence -= 1;
-      // This line is not needed for correctness, but it ensures that the
-      // truncated end key is not covering keys from the next SST file.
+      // This ensures that the truncated end key (parsed_larged) does not cover
+      // keys from the next SST file, i.e., parsed_largest <= next file's
+      // smallest key. Current use cases do not require this op_type change for
+      // correctness (and can continue to use kTypeRangeDeletion), but it is
+      // safer to do so here.
       parsed_largest.type = kValueTypeForSeek;
     }
     largest_ = &parsed_largest;
@@ -104,7 +107,13 @@ void TruncatedRangeDelIterator::Seek(const Slice& target) {
 // NOTE: target is a user key, with timestamp if enabled.
 void TruncatedRangeDelIterator::SeekForPrev(const Slice& target) {
   if (smallest_ != nullptr &&
-      icmp_->Compare(ParsedInternalKey(target, 0, kTypeRangeDeletion),
+      // op_type only matters here when `smallest_` has seqno 0. In that case,
+      // if `target` has the same user key as `smallest_` we should not
+      // invalidate this iter. Use kValueTypeForSeekForPrev instead of
+      // kTypeRangeDeletion here so that all op_type is covered. This removes a
+      // previous dependency on how file.smallest is updated during compaction
+      // for seqno=0 case (which capped op_type at kTypeRangeDeletion).
+      icmp_->Compare(ParsedInternalKey(target, 0, kValueTypeForSeekForPrev),
                      *smallest_) < 0) {
     iter_->Invalidate();
     return;
