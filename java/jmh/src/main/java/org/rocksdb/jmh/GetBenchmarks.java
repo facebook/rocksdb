@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.openjdk.jmh.annotations.*;
 import org.rocksdb.*;
+import org.rocksdb.FFIDB.GetPinnableSlice;
 import org.rocksdb.util.FileUtils;
 
 @State(Scope.Benchmark)
@@ -44,6 +45,7 @@ public class GetBenchmarks {
   private AtomicInteger cfHandlesIdx;
   ColumnFamilyHandle[] cfHandles;
   RocksDB db;
+  FFIDB dbFFI;
   private final AtomicInteger keyIndex = new AtomicInteger();
   private ByteBuffer keyBuf;
   private ByteBuffer valueBuf;
@@ -82,6 +84,7 @@ public class GetBenchmarks {
     final List<ColumnFamilyHandle> cfHandlesList = new ArrayList<>(cfDescriptors.size());
     db = RocksDB.open(options, dbDir.toAbsolutePath().toString(), cfDescriptors, cfHandlesList);
     cfHandles = cfHandlesList.toArray(new ColumnFamilyHandle[0]);
+    dbFFI = new FFIDB(db);
 
     // store initial data for retrieving via get
     keyArr = new byte[keySize];
@@ -211,5 +214,16 @@ public class GetBenchmarks {
     //    valueBuf.get(ret);
     //    System.out.println(str(ret));
     //    valueBuf.flip();
+  }
+
+  @Benchmark
+  public void ffiGet() throws RocksDBException {
+    dbFFI.get(getColumnFamily(), getKeyArr());
+  }
+
+  @Benchmark
+  public void ffiGetPinnableSlice() throws RocksDBException {
+    final GetPinnableSlice result = dbFFI.getPinnableSlice(getColumnFamily(), getKeyArr());
+    result.pinnableSlice().get().reset();
   }
 }

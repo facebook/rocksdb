@@ -5,7 +5,7 @@ import java.util.Optional;
 
 public record FFIPinnableSlice(MemorySegment data, MemorySegment outputSlice) {
 
-  final void reset() throws RocksDBException {
+  public void reset() throws RocksDBException {
     try {
       FFIMethod.ResetOutput.invoke(outputSlice.address());
     } catch (final Throwable methodException) {

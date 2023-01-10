@@ -41,9 +41,9 @@ public class FFIDBTest {
       try {
         final RocksDB db = dbFFI.getRocksDB();
         db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
-        var getPinnableSlice = dbFFI.getPinnableSlice("key2");
+        var getPinnableSlice = dbFFI.getPinnableSlice("key2".getBytes());
         assertThat(getPinnableSlice.code()).isEqualTo(Status.Code.NotFound);
-        getPinnableSlice = dbFFI.getPinnableSlice("key1");
+        getPinnableSlice = dbFFI.getPinnableSlice("key1".getBytes());
         assertThat(getPinnableSlice.code()).isEqualTo(Status.Code.Ok);
         assertThat(getPinnableSlice.pinnableSlice().get().data()).isNotSameAs(Optional.empty());
         final byte[] bytes = getPinnableSlice.pinnableSlice().get().data().toArray(ValueLayout.JAVA_BYTE);
@@ -62,9 +62,9 @@ public class FFIDBTest {
       final RocksDB db = dbFFI.getRocksDB();
       try {
         db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
-        var getBytes = dbFFI.get("key2");
+        var getBytes = dbFFI.get("key2".getBytes());
         assertThat(getBytes.code()).isEqualTo(Status.Code.NotFound);
-        getBytes = dbFFI.get("key1");
+        getBytes = dbFFI.get("key1".getBytes());
         assertThat(getBytes.code()).isEqualTo(Status.Code.Ok);
         assertThat(new String(getBytes.value(), StandardCharsets.UTF_8)).isEqualTo("value1");
       } catch (final RocksDBException e) {

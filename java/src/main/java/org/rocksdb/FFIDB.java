@@ -1,9 +1,9 @@
 package org.rocksdb;
 
 import java.lang.foreign.*;
-import java.lang.invoke.*;
-import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 public class FFIDB implements AutoCloseable {
   static {
@@ -32,6 +32,12 @@ public class FFIDB implements AutoCloseable {
       memorySession.close();
   }
 
+  public static void copy(final MemorySegment addr, final byte[] bytes) {
+    final var heapSegment = MemorySegment.ofArray(bytes);
+    addr.copyFrom(heapSegment);
+    addr.set(JAVA_BYTE, bytes.length, (byte)0);
+  }
+
   public record GetBytes(Status.Code code, byte[] value, long size) {
 
     /**
@@ -57,11 +63,11 @@ public class FFIDB implements AutoCloseable {
       }
     }
   }
-  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final String key, final byte[] value) throws RocksDBException {
+  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final byte[] value) throws RocksDBException {
     return GetBytes.fromPinnable(getPinnableSlice(columnFamilyHandle, key), value);
   }
 
-  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final String key) throws RocksDBException {
+  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key) throws RocksDBException {
     final var pinnable = getPinnableSlice(columnFamilyHandle, key);
     byte[] value = null;
     if (pinnable.code == Status.Code.Ok) {
@@ -71,13 +77,13 @@ public class FFIDB implements AutoCloseable {
     return GetBytes.fromPinnable(pinnable, value);
   }
 
-  public GetBytes get(final String key) throws RocksDBException {
+  public GetBytes get(final byte[] key) throws RocksDBException {
     return get(rocksDB.getDefaultColumnFamily(), key);
   }
 
   public record GetPinnableSlice(Status.Code code, Optional<FFIPinnableSlice> pinnableSlice) {}
 
-  public GetPinnableSlice getPinnableSlice(final String key) throws RocksDBException {
+  public GetPinnableSlice getPinnableSlice(final byte[] key) throws RocksDBException {
     return getPinnableSlice(rocksDB.getDefaultColumnFamily(), key);
   }
 
@@ -89,10 +95,11 @@ public class FFIDB implements AutoCloseable {
    * @return an object wrapping status and (if the status is ok) a pinnable slice referring to the value of the key
    * @throws RocksDBException
    */
-  public GetPinnableSlice getPinnableSlice(final ColumnFamilyHandle columnFamilyHandle, final String key)
+  public GetPinnableSlice getPinnableSlice(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
       throws RocksDBException {
     try {
-      final MemorySegment keySegment = segmentAllocator.allocateUtf8String(key);
+      final MemorySegment keySegment = segmentAllocator.allocate(key.length + 1);
+      copy(keySegment, key);
       final MemorySegment inputSegment = segmentAllocator.allocate(FFILayout.InputSlice.Layout);
       FFILayout.InputSlice.Data.set(inputSegment, keySegment.address());
       FFILayout.InputSlice.Size.set(

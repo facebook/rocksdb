@@ -21,12 +21,8 @@ extern "C" int rocksdb_ffi_get(ROCKSDB_NAMESPACE::DB* db,
   ROCKSDB_NAMESPACE::Slice key_slice(key->data, key->size);
   ROCKSDB_NAMESPACE::PinnableSlice* value_slice =
       new ROCKSDB_NAMESPACE::PinnableSlice();
-  std::cout << "key size: " << key->size << ", key data: " << key->data
-            << std::endl;
   auto status = db->Get(read_options, cf, key_slice, value_slice);
   if (status.ok()) {
-    std::cout << "value size: " << value_slice->size()
-              << ", value data: " << value_slice->data() << std::endl;
     value->data = value_slice->data();
     value->size = value_slice->size();
     value->pinnable_slice = value_slice;
