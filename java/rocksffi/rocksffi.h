@@ -8,24 +8,26 @@
 
 #pragma once
 
-//#include <cstddef>
-#include <string>
-#include <stddef.h>
+// #include <cstddef>
 #include <rocksdb/slice.h>
+#include <stddef.h>
+
+#include <string>
 
 typedef struct rocksdb_input_slice {
-    const char *data;
-    size_t size;
+  const char* data;
+  size_t size;
 } rocksdb_input_slice_t;
 
 typedef struct rocksdb_output_slice {
-    const char *data;
-    size_t size;
-    ROCKSDB_NAMESPACE::PinnableSlice* pinnable_slice;
+  const char* data;
+  size_t size;
+  ROCKSDB_NAMESPACE::PinnableSlice* pinnable_slice;
 } rocksdb_output_slice_t;
 
-
-extern "C" int rocksdb_ffi_get(ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
-rocksdb_input_slice_t* key, rocksdb_output_slice_t* value);
+extern "C" int rocksdb_ffi_get(ROCKSDB_NAMESPACE::DB* db,
+                               ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
+                               rocksdb_input_slice_t* key,
+                               rocksdb_output_slice_t* value);
 
 extern "C" int rocksdb_ffi_reset_output(rocksdb_output_slice_t* value);

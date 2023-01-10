@@ -105,7 +105,7 @@ ARCH := $(shell getconf LONG_BIT)
 SHA256_CMD ?= sha256sum
 
 JAVA_TESTS = \
-	org.rocksdb.DBFFITest
+	org.rocksdb.FFIDBTest
 JAVA_TESTS0 = \
 	org.rocksdb.BackupEngineOptionsTest\
 	org.rocksdb.BackupEngineTest\
@@ -132,7 +132,7 @@ JAVA_TESTS0 = \
 	org.rocksdb.CompressionOptionsTest\
 	org.rocksdb.CompressionTypesTest\
 	org.rocksdb.DBOptionsTest\
-	org.rocksdb.DBFFITest\
+	org.rocksdb.FFIDBTest\
 	org.rocksdb.DirectSliceTest\
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.EnvOptionsTest\
