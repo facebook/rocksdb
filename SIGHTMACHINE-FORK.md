@@ -57,6 +57,15 @@ Note that the default branch will always be build by CirclCI after merge.
 * anything else makes SNAPSHOT builds, with version from `includes/rocksdb/version.h`
   * version in jfrog would be `7.8.3-SNAPSHOT`
 
+* Pushing a tag makes a release build.
+```
+git switch sm-main-7.8.3
+git tag sm-v7.8.3.4
+git push sightmachine sm-v7.8.3.4
+```
+
+The version `sm-rocksdb:sm-rocksdbjni:7.8.3.4` will be available after half an hour.
+
 ## Sync branches
 
 Syncing up branches to our repo allows us to view our patch better in the
