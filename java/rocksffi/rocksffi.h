@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <rocksdb/slice.h>
+#include "rocksdb/slice.h"
 #include <stddef.h>
 
 #include <cstddef>

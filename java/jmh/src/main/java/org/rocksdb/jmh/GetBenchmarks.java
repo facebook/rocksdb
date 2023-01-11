@@ -84,7 +84,7 @@ public class GetBenchmarks {
     final List<ColumnFamilyHandle> cfHandlesList = new ArrayList<>(cfDescriptors.size());
     db = RocksDB.open(options, dbDir.toAbsolutePath().toString(), cfDescriptors, cfHandlesList);
     cfHandles = cfHandlesList.toArray(new ColumnFamilyHandle[0]);
-    dbFFI = new FFIDB(db);
+    dbFFI = new FFIDB(db, cfHandlesList);
 
     // store initial data for retrieving via get
     keyArr = new byte[keySize];

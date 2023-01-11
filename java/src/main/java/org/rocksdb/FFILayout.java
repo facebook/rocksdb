@@ -13,9 +13,9 @@ import java.lang.invoke.VarHandle;
 /**
  * A FFI {@link MemoryLayout} corresponding to each of the structure(s) passed to/from RocksDB C++
  * by the Java side API
- * <p/>
+ * <p>
  * Some layouts/structures are (or will be) used in more than one API call
- * <p/>
+ * <p>
  * Each layout is associated with a {@link VarHandle} for each of the elements of the layout.
  * The layout and its {@link VarHandle}s are bundled together as static objects of a static class.
  */
