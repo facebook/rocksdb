@@ -190,6 +190,14 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   // etc.
   const Slice& internal_key = c_iter.key();
   const uint64_t previous_overlapped_bytes = grandparent_overlapped_bytes_;
+#ifndef NDEBUG
+  bool should_stop = false;
+  std::pair<bool*, const Slice> p{&should_stop, internal_key};
+  TEST_SYNC_POINT_CALLBACK("CompactionOutputs::ShouldStopBefore", (void*)&p);
+  if (should_stop) {
+    return true;
+  }
+#endif  // NDEBUG
   size_t num_grandparent_boundaries_crossed =
       UpdateGrandparentBoundaryInfo(internal_key);
 
