@@ -4,10 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_test_util.h"
+#include "file/file_prefetch_buffer.h"
+#include "file/file_util.h"
+#include "rocksdb/file_system.h"
 #include "test_util/sync_point.h"
 #ifdef GFLAGS
 #include "tools/io_tracer_parser_tool.h"
 #endif
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -2023,6 +2027,77 @@ TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
   Close();
 }
 #endif  // GFLAGS
+
+class FilePrefetchBufferTest : public testing::Test {
+ public:
+  void SetUp() override {
+    SetupSyncPointsToMockDirectIO();
+    env_ = Env::Default();
+    fs_ = FileSystem::Default();
+    test_dir_ = test::PerThreadDBPath("file_prefetch_buffer_test");
+    ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+  }
+
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
+
+  void Write(const std::string& fname, const std::string& content) {
+    std::unique_ptr<FSWritableFile> f;
+    ASSERT_OK(fs_->NewWritableFile(Path(fname), FileOptions(), &f, nullptr));
+    ASSERT_OK(f->Append(content, IOOptions(), nullptr));
+    ASSERT_OK(f->Close(IOOptions(), nullptr));
+  }
+
+  void Read(const std::string& fname, const FileOptions& opts,
+            std::unique_ptr<RandomAccessFileReader>* reader) {
+    std::string fpath = Path(fname);
+    std::unique_ptr<FSRandomAccessFile> f;
+    ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
+    reader->reset(new RandomAccessFileReader(std::move(f), fpath,
+                                             env_->GetSystemClock().get()));
+  }
+
+  void AssertResult(const std::string& content,
+                    const std::vector<FSReadRequest>& reqs) {
+    for (const auto& r : reqs) {
+      ASSERT_OK(r.status);
+      ASSERT_EQ(r.len, r.result.size());
+      ASSERT_EQ(content.substr(r.offset, r.len), r.result.ToString());
+    }
+  }
+
+  FileSystem* fs() { return fs_.get(); }
+
+ private:
+  Env* env_;
+  std::shared_ptr<FileSystem> fs_;
+  std::string test_dir_;
+
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
+};
+
+TEST_F(FilePrefetchBufferTest, SeekWithBlockCacheHit) {
+  std::string fname = "seek-with-block-cache-hit";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  FilePrefetchBuffer fpb(16384, 16384, true, false, false, 0, 0, fs());
+  Slice result;
+  // Simulate a seek of 4096 bytes at offset 0. Due to the readahead settings,
+  // it will do two reads of 4096+8192 and 8192
+  Status s = fpb.PrefetchAsync(IOOptions(), r.get(), 0, 4096, &result);
+  ASSERT_EQ(s, Status::TryAgain());
+  // Simulate a block cache hit
+  fpb.UpdateReadPattern(0, 4096, false);
+  // Now read some data that straddles the two prefetch buffers - offset 8192 to
+  // 16384
+  ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), 8192, 8192,
+                                        &result, &s, Env::IOPriority::IO_LOW));
+}
 #endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
