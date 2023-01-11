@@ -32,6 +32,7 @@ sightmachine:
   * the changes from `v7.8.3...sm-main-7.8.3` cherry-picked to `sm-main-7.9.2`
 	* squashing the change makes may make it easier to apply this step.
 	* merge-commits can wreck this step, avoid them.
+	* run `git diff v7.7.3...v7.8.3 -- Makefile java/Makefile` to see if new source files (e.g. tests) need to be added to CMakeLists.txt.
   * git default branch change to `sm-main-7.9.2` https://github.com/sightmachine/rocksdb/settings/branches
 
 
