@@ -649,6 +649,7 @@ set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
         cache/cache_key.cc
+        cache/cache_helpers.cc
         cache/cache_reservation_manager.cc
         cache/charged_cache.cc
         cache/clock_cache.cc
@@ -806,6 +807,7 @@ set(SOURCES
         table/block_based/block_based_table_iterator.cc
         table/block_based/block_based_table_reader.cc
         table/block_based/block_builder.cc
+        table/block_based/block_cache.cc
         table/block_based/block_prefetcher.cc
         table/block_based/block_prefix_index.cc
         table/block_based/data_block_hash_index.cc

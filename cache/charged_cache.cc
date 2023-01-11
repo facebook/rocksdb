@@ -17,25 +17,10 @@ ChargedCache::ChargedCache(std::shared_ptr<Cache> cache,
               CacheReservationManagerImpl<CacheEntryRole::kBlobCache>>(
               block_cache))) {}
 
-Status ChargedCache::Insert(const Slice& key, void* value, size_t charge,
-                            DeleterFn deleter, Handle** handle,
-                            Priority priority) {
-  Status s = cache_->Insert(key, value, charge, deleter, handle, priority);
-  if (s.ok()) {
-    // Insert may cause the cache entry eviction if the cache is full. So we
-    // directly call the reservation manager to update the total memory used
-    // in the cache.
-    assert(cache_res_mgr_);
-    cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
-        .PermitUncheckedError();
-  }
-  return s;
-}
-
-Status ChargedCache::Insert(const Slice& key, void* value,
+Status ChargedCache::Insert(const Slice& key, ObjectPtr obj,
                             const CacheItemHelper* helper, size_t charge,
                             Handle** handle, Priority priority) {
-  Status s = cache_->Insert(key, value, helper, charge, handle, priority);
+  Status s = cache_->Insert(key, obj, helper, charge, handle, priority);
   if (s.ok()) {
     // Insert may cause the cache entry eviction if the cache is full. So we
     // directly call the reservation manager to update the total memory used
@@ -45,24 +30,23 @@ Status ChargedCache::Insert(const Slice& key, void* value,
         .PermitUncheckedError();
   }
   return s;
-}
-
-Cache::Handle* ChargedCache::Lookup(const Slice& key, Statistics* stats) {
-  return cache_->Lookup(key, stats);
 }
 
 Cache::Handle* ChargedCache::Lookup(const Slice& key,
                                     const CacheItemHelper* helper,
-                                    const CreateCallback& create_cb,
+                                    CreateContext* create_context,
                                     Priority priority, bool wait,
                                     Statistics* stats) {
-  auto handle = cache_->Lookup(key, helper, create_cb, priority, wait, stats);
+  auto handle =
+      cache_->Lookup(key, helper, create_context, priority, wait, stats);
   // Lookup may promote the KV pair from the secondary cache to the primary
   // cache. So we directly call the reservation manager to update the total
   // memory used in the cache.
-  assert(cache_res_mgr_);
-  cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
-      .PermitUncheckedError();
+  if (helper && helper->create_cb) {
+    assert(cache_res_mgr_);
+    cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+        .PermitUncheckedError();
+  }
   return handle;
 }
 

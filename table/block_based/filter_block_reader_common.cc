@@ -6,6 +6,7 @@
 
 #include "table/block_based/filter_block_reader_common.h"
 
+#include "block_cache.h"
 #include "monitoring/perf_context_imp.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/parsed_full_filter_block.h"
@@ -17,7 +18,7 @@ Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
     const ReadOptions& read_options, bool use_cache, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<TBlocklike>* filter_block, BlockType block_type) {
+    CachableEntry<TBlocklike>* filter_block) {
   PERF_TIMER_GUARD(read_filter_block_nanos);
 
   assert(table);
@@ -30,7 +31,7 @@ Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
   const Status s =
       table->RetrieveBlock(prefetch_buffer, read_options, rep->filter_handle,
                            UncompressionDict::GetEmptyDict(), filter_block,
-                           block_type, get_context, lookup_context,
+                           get_context, lookup_context,
                            /* for_compaction */ false, use_cache,
                            /* wait_for_cache */ true, /* async_read */ false);
 
@@ -68,7 +69,7 @@ template <typename TBlocklike>
 Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<TBlocklike>* filter_block, BlockType block_type,
+    CachableEntry<TBlocklike>* filter_block,
     Env::IOPriority rate_limiter_priority) const {
   assert(filter_block);
 
@@ -85,7 +86,7 @@ Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
 
   return ReadFilterBlock(table_, nullptr /* prefetch_buffer */, read_options,
                          cache_filter_blocks(), get_context, lookup_context,
-                         filter_block, block_type);
+                         filter_block);
 }
 
 template <typename TBlocklike>
@@ -158,7 +159,7 @@ bool FilterBlockReaderCommon<TBlocklike>::IsFilterCompatible(
 
 // Explicitly instantiate templates for both "blocklike" types we use.
 // This makes it possible to keep the template definitions in the .cc file.
-template class FilterBlockReaderCommon<Block>;
+template class FilterBlockReaderCommon<Block_kFilterPartitionIndex>;
 template class FilterBlockReaderCommon<ParsedFullFilterBlock>;
 
 }  // namespace ROCKSDB_NAMESPACE
