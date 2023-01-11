@@ -550,6 +550,7 @@ Status CompactionOutputs::AddRangeDels(
       tombstone_end.DecodeFrom(*upper_bound);
     }
 
+    assert(icmp.Compare(tombstone_start, tombstone_end) <= 0);
     meta.UpdateBoundariesForRange(tombstone_start, tombstone_end,
                                   tombstone.seq_, icmp);
     if (!bottommost_level) {
