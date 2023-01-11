@@ -217,6 +217,11 @@ public class GetBenchmarks {
   }
 
   @Benchmark
+  public void ffiPreallocatedGet() throws RocksDBException {
+    dbFFI.get(getColumnFamily(), getKeyArr(), getValueArr());
+  }
+
+  @Benchmark
   public void ffiGet() throws RocksDBException {
     dbFFI.get(getColumnFamily(), getKeyArr());
   }
