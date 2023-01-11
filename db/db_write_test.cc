@@ -451,6 +451,227 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
     ASSERT_LE(bytes_num, 1024 * 100);
 }
 
+TEST_P(DBWriteTest, DisableWriteStall) {
+  Options options = GetOptions();
+  options.disable_write_stall = true;
+  options.max_write_buffer_number = 2;
+  options.use_options_file = false;
+  Reopen(options);
+  db_->PauseBackgroundWork();
+  ASSERT_OK(Put("k1", "v1"));
+  FlushOptions opts;
+  opts.wait = false;
+  opts.allow_write_stall = true;
+  ASSERT_OK(db_->Flush(opts));
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(db_->Flush(opts));
+
+  // no write stall since it's disabled
+  ASSERT_OK(Put("k3", "v3"));
+
+  // now enable write stall
+  ASSERT_OK(db_->SetOptions({{"disable_write_stall", "false"}}));
+
+  WriteOptions wopts;
+  wopts.no_slowdown = true;
+  auto st = db_->Put(wopts, "k4", "v4");
+  EXPECT_TRUE(st.IsIncomplete());
+
+  // now disable again
+  ASSERT_OK(db_->SetOptions({{"disable_write_stall", "true"}}));
+  // no write stall since it's disabled
+  ASSERT_OK(Put("k4", "v4"));
+
+  // verify that disable write stall will unblock writes
+  ASSERT_OK(db_->SetOptions({{"disable_write_stall", "false"}}));
+
+  std::thread t([&]() {
+    // writes will be blocked due to write stall
+    // but once we disable write stall, the writes are unblocked
+    ASSERT_OK(Put("k5", "v5"));
+  });
+  // sleep to make sure t is blocked on write. Not ideal but it works
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  ASSERT_OK(db_->SetOptions({{"disable_write_stall", "true"}}));
+  t.join();
+
+  Close();
+}
+
+class DummyListener : public ReplicationLogListener {
+   public:
+    std::string OnReplicationLogRecord(
+        ReplicationLogRecord /*record*/) override {
+        seq_ += 1;
+        return std::to_string(seq_);
+    }
+
+   private:
+    std::atomic_int seq_{0};
+};
+
+// verifies that when `disable_write_stall` is the only cf option we set,
+// there won't be manifest updates
+TEST_P(DBWriteTest, DisableWriteStallNotWriteManifest) {
+  Options options = GetOptions();
+  options.disable_write_stall = false;
+  // make sure manifest update seq is bumped
+  options.replication_log_listener = std::make_shared<DummyListener>();
+  options.atomic_flush = true;
+  Reopen(options);
+
+  uint64_t manifestUpdateSeq;
+  ASSERT_OK(db_->GetManifestUpdateSequence(&manifestUpdateSeq));
+
+  db_->SetOptions({{"disable_write_stall", "true"}});
+
+  uint64_t newManifestUpdateSeq;
+  ASSERT_OK(db_->GetManifestUpdateSequence(&newManifestUpdateSeq));
+
+  EXPECT_EQ(manifestUpdateSeq, newManifestUpdateSeq);
+
+  Close();
+}
+
+void functionTrampoline(void* arg) {
+    (*reinterpret_cast<std::function<void()>*>(arg))();
+}
+
+// Test the case that non-trival compaction is triggered before we disable write stall
+// and make sure compaction job with old mutable_cf_options won't cause write stall
+TEST_P(DBWriteTest, AutoCompactionBeforeDisableWriteStall) {
+  const int kNumKeysPerFile = 100;
+
+  Options options;
+  options.env = env_;
+  options.use_options_file = false;
+
+  // auto flush/compaction enabled so that write stall will be triggered
+  options.disable_auto_compactions = false;
+  options.disable_auto_flush = false;
+
+  // set write buffer number to trigger write stall
+  options.max_write_buffer_number = 2;
+  options.disable_write_stall = false;
+
+  // set compaction trigger to trigger non trival auto compaction
+  options.num_levels = 3;
+  options.level0_file_num_compaction_trigger = 3;
+
+  // large write buffer size so auto flush never triggered
+  options.write_buffer_size = 10 << 20;
+
+  options.max_background_jobs = 2;
+
+  options.info_log = info_log_;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1])->cfd();
+
+  Random rnd(301);
+
+  for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
+       num++) {
+    std::vector<std::string> values;
+    // Write 100KB (100 values, each 1K)
+    for (int i = 0; i < kNumKeysPerFile; i++) {
+      values.push_back(rnd.RandomString(990));
+      ASSERT_OK(Put(1, Key(i), values[i]));
+    }
+    ASSERT_OK(dbfull()->Flush({}, handles_[1]));
+    ASSERT_EQ(NumTableFilesAtLevel(0, 1), num + 1);
+  }
+
+  // We are trying to simulate following case:
+  // 1. non trival compaction job scheduled but not starting yet
+  // 2. continuous writes trigger flush, which generates too many memtables and
+  // stalls writes
+  // 3. disable write stall through setOption API
+  // 4. compaction job is done. Even though it installs super version with stale
+  // `mutable_cf_options`, which still has `disable_write_stall=false`, the
+  // writes are not stalled since latest `mutable_cf_options` has
+  // `disable_write_stall=true`
+  // 5. flush jobs are done
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
+        "DBWriteTest::CompactionBeforeDisableWriteStall:BeforeDisableWriteStall"},
+        {
+          "DBWriteTest::CompactionBeforeDisableWriteStall:AfterDisableWriteStall",
+          "CompactionJob::Run():Start"
+        }});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Write one more file to trigger auto compaction
+  std::vector<std::string> values;
+  for (int i = 0; i < kNumKeysPerFile; i++) {
+    values.push_back(rnd.RandomString(990));
+    ASSERT_OK(Put(1, Key(i), values[i]));
+  }
+  ASSERT_OK(dbfull()->Flush({}, handles_[1]));
+
+  TEST_SYNC_POINT("DBWriteTest::CompactionBeforeDisableWriteStall:BeforeDisableWriteStall");
+  // writes not stalled yet
+  EXPECT_FALSE(cfd->GetSuperVersion()->mutable_cf_options.disable_write_stall);
+  EXPECT_FALSE(dbfull()
+                   ->GetVersionSet()
+                   ->GetColumnFamilySet()
+                   ->write_controller()
+                   ->IsStopped());
+
+  auto cork = std::make_shared<std::atomic<bool>>();
+  cork->store(true);
+  std::function<void()> corkFunction = [cork]() {
+    while (cork->load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  };
+
+  // schedule high priority jobs to block the flush from finishing.
+  // We can't `pauseBackgroundWork` here since that would prevent the compaction
+  // from finishing as well
+  for (int i = 0; i < 2; i++) {
+    env_->Schedule(&functionTrampoline, &corkFunction, rocksdb::Env::Priority::HIGH);
+  }
+
+  ASSERT_OK(Put(1, "k1", "v1"));
+  FlushOptions fopts;
+  fopts.wait = false;
+  fopts.allow_write_stall = true;
+  ASSERT_OK(dbfull()->Flush(fopts, handles_[1]));
+  ASSERT_OK(Put(1, "k2", "v2"));
+  // write stall condition triggered after this flush
+  ASSERT_OK(dbfull()->Flush(fopts, handles_[1]));
+  EXPECT_EQ(cfd->imm()->NumNotFlushed(), 2);
+  EXPECT_TRUE(dbfull()
+                  ->GetVersionSet()
+                  ->GetColumnFamilySet()
+                  ->write_controller()
+                  ->IsStopped());
+
+  ASSERT_OK(db_->SetOptions(
+    handles_[1], {{"disable_write_stall", "true"}}));
+
+  TEST_SYNC_POINT("DBWriteTest::CompactionBeforeDisableWriteStall:AfterDisableWriteStall");
+
+  ASSERT_OK(dbfull()->TEST_WaitForScheduledCompaction());
+  // compaction job installs super version with stale mutable_cf_options
+  EXPECT_FALSE(cfd->GetSuperVersion()->mutable_cf_options.disable_write_stall);
+  // but latest mutable_cf_options should be correctly set
+  EXPECT_TRUE(cfd->GetLatestMutableCFOptions()->disable_write_stall);
+  // and writes are not stalled!
+  EXPECT_FALSE(dbfull()->GetVersionSet()->GetColumnFamilySet()->write_controller()->IsStopped());
+
+  WriteOptions wopts;
+  wopts.no_slowdown = true;
+  EXPECT_OK(db_->Put(wopts, handles_[1], "k3", "v3"));
+
+  cork->store(false);
+  // wait for flush to be done
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
                                         DBTestBase::kConcurrentWALWrites,

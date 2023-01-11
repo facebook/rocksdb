@@ -848,6 +848,9 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
     uint64_t num_compaction_needed_bytes,
     const MutableCFOptions& mutable_cf_options,
     const ImmutableCFOptions& immutable_cf_options) {
+  if (mutable_cf_options.disable_write_stall) {
+    return {WriteStallCondition::kNormal, WriteStallCause::kNone};
+  }
   if (!mutable_cf_options.disable_auto_flush &&
       num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
     return {WriteStallCondition::kStopped, WriteStallCause::kMemtableLimit};
@@ -890,10 +893,28 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
     uint64_t compaction_needed_bytes =
         vstorage->estimated_compaction_needed_bytes();
 
-    auto write_stall_condition_and_cause = GetWriteStallConditionAndCause(
-        imm()->NumNotFlushed(), vstorage->l0_delay_trigger_count(),
-        vstorage->estimated_compaction_needed_bytes(), mutable_cf_options,
-        *ioptions());
+    // NOTE: we should check latest `mutable_cf_options_` instead of
+    // the passed `mutable_cf_options`. We want to make sure that
+    // once `disable_write_stall=true` is set, there won't be any
+    // write stall afterwards. But it's possible for async compaction jobs
+    // to install new super version with stale `mutable_cf_options`. For
+    // example:
+    // - Compaction starts with own copy of
+    // `mutable_cf_options(disable_write_stall=false)`
+    // - `SetOptions()` with `disable_write_stall=true`
+    // - Compaction finishes and calls `InstallSuperVersion` with
+    // `mutable_cf_options(disable_write_stall=true)`
+    std::pair<WriteStallCondition, ColumnFamilyData::WriteStallCause>
+        write_stall_condition_and_cause;
+    if (mutable_cf_options_.disable_write_stall) {
+      write_stall_condition_and_cause = {WriteStallCondition::kNormal,
+                                         WriteStallCause::kNone};
+    } else {
+      write_stall_condition_and_cause = GetWriteStallConditionAndCause(
+          imm()->NumNotFlushed(), vstorage->l0_delay_trigger_count(),
+          vstorage->estimated_compaction_needed_bytes(), mutable_cf_options,
+          *ioptions());
+    }
     write_stall_condition = write_stall_condition_and_cause.first;
     auto write_stall_cause = write_stall_condition_and_cause.second;
 
@@ -1301,10 +1322,10 @@ void ColumnFamilyData::InstallSuperVersion(
     // `old_superversion->mutable_cf_options.disable_auto_flush !=
     // new_superversion->mutable_cf_options.disable_auto_flush` here since
     // following sequence of actions is possible:
-    // - Flush/Compaction starts with own copy of `mutable_cf_options`
+    // - Compaction starts with own copy of `mutable_cf_options`
     // (`disable_auto_flush=true`)
     // - `SetOptions()` with `disable_auto_flush=false`
-    // - Flush/Compaction finishes and calls `InstallSuperVersion` with
+    // - Compaction finishes and calls `InstallSuperVersion` with
     // `mutable_cf_options`(`disable_auto_flush=true`)
     //
     // At this time, old_superversion has `disable_auto_flush=false` while

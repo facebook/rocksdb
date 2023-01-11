@@ -1427,6 +1427,12 @@ Status DBImpl::SetOptions(
     return Status::InvalidArgument("empty input");
   }
 
+  bool only_set_disable_write_stall = false;
+  if (options_map.size() == 1 &&
+      options_map.find("disable_write_stall") != options_map.end()) {
+    only_set_disable_write_stall = true;
+  }
+
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
@@ -1437,10 +1443,14 @@ Status DBImpl::SetOptions(
     s = cfd->SetOptions(db_options, options_map);
     if (s.ok()) {
       new_options = *cfd->GetLatestMutableCFOptions();
-      // Append new version to recompute compaction score.
-      VersionEdit dummy_edit;
-      s = versions_->LogAndApply(cfd, new_options, &dummy_edit, &mutex_,
-                                 directories_.GetDbDir());
+      // If the only thing we change is `disable_write_stall`, there is no need
+      // to append the dummy version
+      if (!only_set_disable_write_stall) {
+        // Append new version to recompute compaction score.
+        VersionEdit dummy_edit;
+        s = versions_->LogAndApply(cfd, new_options, &dummy_edit, &mutex_,
+                                   directories_.GetDbDir());
+      }
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.

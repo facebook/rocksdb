@@ -1057,6 +1057,9 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status TEST_WaitForCompact(bool waitUnscheduled = false);
 
+  // Wait until all scheduled compactions are done
+  Status TEST_WaitForScheduledCompaction();
+
   // Wait for any background purge
   Status TEST_WaitForPurge();
 

@@ -3089,7 +3089,7 @@ TEST_F(DBFlushTest, AutoCompactionBeforeEnablingFlush) {
   // created but not running yet
   // - SetOptions with disable_auto_flush=false starts
   // - SetOptions with disable_auto_flush=false done
-  // - CompactionJob continues to run and InstallSuperVersionw with old
+  // - CompactionJob continues to run and InstallSuperVersion with old
   // mutable_cf_options(disable_auto_flush=true)
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",

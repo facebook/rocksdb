@@ -217,6 +217,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->inplace_update_num_locks = moptions.inplace_update_num_locks;
   cf_opts->prefix_extractor = moptions.prefix_extractor;
   cf_opts->disable_auto_flush = moptions.disable_auto_flush;
+  cf_opts->disable_write_stall = moptions.disable_write_stall;
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;

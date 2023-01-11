@@ -250,6 +250,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.disable_auto_flush, false);
+  ASSERT_EQ(new_cf_opt.disable_write_stall, false);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
