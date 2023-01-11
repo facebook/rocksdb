@@ -214,19 +214,17 @@ class PosixEnv : public CompositeEnv {
   const char* NickName() const override { return kDefaultName(); }
 
   ~PosixEnv() override {
-    if (this == Env::Default()) {
-      for (const auto tid : threads_to_join_) {
-        pthread_join(tid, nullptr);
-      }
-      for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
-        thread_pools_[pool_id].JoinAllThreads();
-      }
-      // Do not delete the thread_status_updater_ in order to avoid the
-      // free after use when Env::Default() is destructed while some other
-      // child threads are still trying to update thread status. All
-      // PosixEnv instances use the same thread_status_updater_, so never
-      // explicitly delete it.
+    for (const auto tid : threads_to_join_) {
+      pthread_join(tid, nullptr);
     }
+    for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
+      thread_pools_[pool_id].JoinAllThreads();
+    }
+    // Do not delete the thread_status_updater_ in order to avoid the
+    // free after use when Env::Default() is destructed while some other
+    // child threads are still trying to update thread status. All
+    // PosixEnv instances use the same thread_status_updater_, so never
+    // explicitly delete it.
   }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
@@ -389,6 +387,7 @@ class PosixEnv : public CompositeEnv {
 
  private:
   friend Env* Env::Default();
+  friend Env* Env::NewEnv();
   // Constructs the default Env, a singleton
   PosixEnv();
 
@@ -498,13 +497,16 @@ Env* Env::Default() {
   // of their construction, having this call here guarantees that
   // the destructor of static PosixEnv will go first, then the
   // the singletons of ThreadLocalPtr.
-  ThreadLocalPtr::InitSingletons();
-  CompressionContextCache::InitSingleton();
-  INIT_SYNC_POINT_SINGLETONS();
+  Env::InitSingletons();
   // ~PosixEnv must be called on exit
   //**TODO: Can we make this a STATIC_AVOID_DESTRUCTION?
   static PosixEnv default_env;
   return &default_env;
+}
+
+Env* Env::NewEnv() {
+  Env::InitSingletons();
+  return new PosixEnv();
 }
 
 //
