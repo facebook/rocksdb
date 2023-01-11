@@ -18,8 +18,11 @@ public class FFIDB implements AutoCloseable {
   public FFIDB(final RocksDB rocksDB) throws RocksDBException {
     this.rocksDB = rocksDB;
 
-    memorySession = MemorySession.openConfined();
-    segmentAllocator = SegmentAllocator.newNativeArena(memorySession);
+    // The allocator is "just the session".
+    // We have experimented with a static SegmentAllocator.newNativeArena(memorySession)
+    // but that runs out of memory - there's no cleanup, and no explicit free
+    memorySession = MemorySession.openImplicit();
+    segmentAllocator = memorySession;
   }
 
   public RocksDB getRocksDB() {
