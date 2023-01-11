@@ -482,6 +482,13 @@ Status CompactionOutputs::AddRangeDels(
                                     meta.largest.user_key())) {
       upper_bound_guard = meta.largest.Encode();
       upper_bound = &upper_bound_guard;
+    } else if (lower_bound != nullptr &&
+               ucmp->EqualWithoutTimestamp(
+                   ExtractUserKey(*lower_bound),
+                   next_table_min_key_parsed.user_key)) {
+      // There are no in-bounds user keys preceding `next_table_min_key`, and no
+      // point keys in this file either. Leave the file empty.
+      return Status::OK();
     } else {
       upper_bound_buf.Set(next_table_min_key_parsed.user_key,
                           kMaxSequenceNumber, kTypeRangeDeletion);
