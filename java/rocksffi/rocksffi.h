@@ -8,10 +8,10 @@
 
 #pragma once
 
-#include <cstddef>
 #include <rocksdb/slice.h>
 #include <stddef.h>
 
+#include <cstddef>
 #include <string>
 
 #include "rocksdb/db.h"

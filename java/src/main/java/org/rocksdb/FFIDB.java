@@ -1,26 +1,50 @@
-package org.rocksdb;
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
-import java.lang.foreign.*;
-import java.util.Optional;
+package org.rocksdb;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
+import java.lang.foreign.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * The object on which all FFI RocksDB methods exist. It wraps a JNI-style {@link RocksDB object}
+ * as an initial convenience. A fully-fledged FFI RocksDB could and should be made not to depend on
+ * that, which will need to happen as and when FFI completely replaces JNI.
+ */
 public class FFIDB implements AutoCloseable {
   static {
     RocksDB.loadLibrary();
   }
 
   private final RocksDB rocksDB;
+  private final List<ColumnFamilyHandle> columnFamilyHandleList;
 
   private final MemorySession memorySession;
   private final SegmentAllocator segmentAllocator;
 
-  public FFIDB(final RocksDB rocksDB) throws RocksDBException {
+  public FFIDB(final RocksDB rocksDB, final List<ColumnFamilyHandle> columnFamilyHandleList)
+      throws RocksDBException {
     this.rocksDB = rocksDB;
+    this.columnFamilyHandleList = new ArrayList<>(columnFamilyHandleList);
 
-    // The allocator is "just the session".
+    // The allocator is "just the session". This should mean that allocated memory is cleaned using
+    // the built in {@link Cleaner} when GC gets to it.
+    //
     // We have experimented with a static SegmentAllocator.newNativeArena(memorySession)
-    // but that runs out of memory - there's no cleanup, and no explicit free
+    // but that runs out of memory - there's no cleanup, and no explicit free.
+    // It's possible to imagine efficiencies like cycling through a pair of native arenas and
+    // closing them in turn; that way we deterministically dispose of the memory we allocated.
+    //
+    // To do this, we would need to worry about {@link MemorySegments} which live beyond the API
+    // call frame. At present our {@link OutputSlice} has this lifetime, because it is returned as
+    // part of the pinnable slice object in {@code getPinnable()} and passed again to {@link
+    // FFIPinnableSlice#reset}. This could be fixed.
     memorySession = MemorySession.openImplicit();
     segmentAllocator = memorySession;
   }
@@ -29,20 +53,25 @@ public class FFIDB implements AutoCloseable {
     return this.rocksDB;
   }
 
+  public List<ColumnFamilyHandle> getColumnFamilies() {
+    return this.columnFamilyHandleList;
+  }
+
+  /**
+   * A memory session may or may not be closeable.
+   */
   @Override
   public void close() {
-    if (memorySession != null)
+    if (memorySession != null && memorySession.isCloseable())
       memorySession.close();
   }
 
   public static void copy(final MemorySegment addr, final byte[] bytes) {
     final var heapSegment = MemorySegment.ofArray(bytes);
     addr.copyFrom(heapSegment);
-    addr.set(JAVA_BYTE, bytes.length, (byte)0);
   }
 
   public record GetBytes(Status.Code code, byte[] value, long size) {
-
     /**
      * Convert the pinnable slice based result into a byte[]-based result
      * <p/>
@@ -52,9 +81,10 @@ public class FFIDB implements AutoCloseable {
      * @param slice to copy from
      * @param value to copy to
      * @return an object containing status (and the byte[] if the status is ok)
-     * @throws RocksDBException
+     * @throws RocksDBException if an error is reported by the underlying RocksDB
      */
-    static GetBytes fromPinnable(final GetPinnableSlice slice, final byte[] value) throws RocksDBException {
+    static GetBytes fromPinnable(final GetPinnableSlice slice, final byte[] value)
+        throws RocksDBException {
       if (slice.code == Status.Code.Ok) {
         final var pinnableSlice = slice.pinnableSlice().get();
         final var size = pinnableSlice.data().byteSize();
@@ -66,11 +96,13 @@ public class FFIDB implements AutoCloseable {
       }
     }
   }
-  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final byte[] value) throws RocksDBException {
+  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final byte[] value) throws RocksDBException {
     return GetBytes.fromPinnable(getPinnableSlice(columnFamilyHandle, key), value);
   }
 
-  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key) throws RocksDBException {
+  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
+      throws RocksDBException {
     final var pinnable = getPinnableSlice(columnFamilyHandle, key);
     byte[] value = null;
     if (pinnable.code == Status.Code.Ok) {
@@ -95,17 +127,18 @@ public class FFIDB implements AutoCloseable {
    *
    * @param columnFamilyHandle column family containing the value to read
    * @param key of the value to read
-   * @return an object wrapping status and (if the status is ok) a pinnable slice referring to the value of the key
+   * @return an object wrapping status and (if the status is ok) a pinnable slice referring to the
+   *     value of the key
    * @throws RocksDBException
    */
   public GetPinnableSlice getPinnableSlice(
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key) throws RocksDBException {
-    final MemorySegment keySegment = segmentAllocator.allocate(key.length + 1);
+    final MemorySegment keySegment = segmentAllocator.allocate(key.length);
     copy(keySegment, key);
     final MemorySegment inputSegment = segmentAllocator.allocate(FFILayout.InputSlice.Layout);
     FFILayout.InputSlice.Data.set(inputSegment, keySegment.address());
     FFILayout.InputSlice.Size.set(
-        inputSegment, keySegment.byteSize() - 1); // ignore null-terminator, of C-style string
+        inputSegment, keySegment.byteSize()); // ignore null-terminator, of C-style string
 
     final MemorySegment outputSegment = segmentAllocator.allocate(FFILayout.OutputSlice.Layout);
 

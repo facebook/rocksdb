@@ -1,3 +1,8 @@
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 package org.rocksdb;
 
 import java.lang.foreign.GroupLayout;
@@ -5,6 +10,15 @@ import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.VarHandle;
 
+/**
+ * A FFI {@link MemoryLayout} corresponding to each of the structure(s) passed to/from RocksDB C++
+ * by the Java side API
+ * <p/>
+ * Some layouts/structures are (or will be) used in more than one API call
+ * <p/>
+ * Each layout is associated with a {@link VarHandle} for each of the elements of the layout.
+ * The layout and its {@link VarHandle}s are bundled together as static objects of a static class.
+ */
 public class FFILayout {
   public static class InputSlice {
     static final GroupLayout Layout =

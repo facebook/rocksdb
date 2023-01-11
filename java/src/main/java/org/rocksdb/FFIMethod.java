@@ -1,16 +1,25 @@
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 package org.rocksdb;
 
 import java.lang.foreign.*;
 import java.lang.invoke.MethodHandle;
 import java.util.Optional;
 
+/**
+ * Helper class creates a MethodHandle for each of the known C++ methods which support our RocksDB
+ * Java interface
+ */
 public class FFIMethod {
+  private static final Linker linker = Linker.nativeLinker();
+  private static final SymbolLookup symbolLookup = SymbolLookup.loaderLookup();
+
   public static MethodHandle Lookup(final String name, final FunctionDescriptor functionDescriptor)
       throws RocksDBException {
-    final Linker linker = Linker.nativeLinker();
-    final SymbolLookup symbolLookup = SymbolLookup.loaderLookup();
     final Optional<MemorySegment> symbolSegment = symbolLookup.lookup(name);
-
     if (symbolSegment.isPresent()) {
       return linker.downcallHandle(symbolSegment.get(), functionDescriptor);
     }
