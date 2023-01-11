@@ -40,6 +40,11 @@ Env* Env::Default() {
   return port::envptr;
 }
 
+Env* env::NewEnv() {
+  Env::InitSingletons();
+  return new port::WinEnv();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif

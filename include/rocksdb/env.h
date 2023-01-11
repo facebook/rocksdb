@@ -225,6 +225,13 @@ class Env : public Customizable {
   // The result of Default() belongs to rocksdb and must never be deleted.
   static Env* Default();
 
+  // Return a new default enviroment suitable for the current operating
+  // User should delete this env by themself
+  static Env* NewEnv();
+
+  // Initializes the singletons before env constructed
+  static void InitSingletons();
+
   // See FileSystem::RegisterDbPaths.
   virtual Status RegisterDbPaths(const std::vector<std::string>& /*paths*/) {
     return Status::OK();

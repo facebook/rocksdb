@@ -26,6 +26,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/autovector.h"
+#include "util/thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -838,6 +839,12 @@ std::string Env::GenerateUniqueId() {
            result[19] == 'b');
   }
   return result;
+}
+
+void Env::InitSingletons() {
+  ThreadLocalPtr::InitSingletons();
+  CompressionContextCache::InitSingleton();
+  INIT_SYNC_POINT_SINGLETONS();
 }
 
 SequentialFile::~SequentialFile() {}
