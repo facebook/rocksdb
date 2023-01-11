@@ -46,6 +46,44 @@ void BlockCreateContext::Create(std::unique_ptr<UncompressionDict>* parsed_out,
       block.data, std::move(block.allocation), using_zstd));
 }
 
+namespace {
+// For getting SecondaryCache-compatible helpers from a BlockType. This is
+// useful for accessing block cache in untyped contexts, such as for generic
+// cache warming in table builder.
+constexpr std::array<const Cache::CacheItemHelper*,
+                     static_cast<unsigned>(BlockType::kInvalid) + 1>
+    kCacheItemFullHelperForBlockType{{
+        &BlockCacheInterface<Block_kData>::kFullHelper,
+        &BlockCacheInterface<ParsedFullFilterBlock>::kFullHelper,
+        &BlockCacheInterface<Block_kFilterPartitionIndex>::kFullHelper,
+        nullptr,  // kProperties
+        &BlockCacheInterface<UncompressionDict>::kFullHelper,
+        &BlockCacheInterface<Block_kRangeDeletion>::kFullHelper,
+        nullptr,  // kHashIndexPrefixes
+        nullptr,  // kHashIndexMetadata
+        nullptr,  // kMetaIndex (not yet stored in block cache)
+        &BlockCacheInterface<Block_kIndex>::kFullHelper,
+        nullptr,  // kInvalid
+    }};
+
+// For getting basic helpers from a BlockType (no SecondaryCache support)
+constexpr std::array<const Cache::CacheItemHelper*,
+                     static_cast<unsigned>(BlockType::kInvalid) + 1>
+    kCacheItemBasicHelperForBlockType{{
+        &BlockCacheInterface<Block_kData>::kBasicHelper,
+        &BlockCacheInterface<ParsedFullFilterBlock>::kBasicHelper,
+        &BlockCacheInterface<Block_kFilterPartitionIndex>::kBasicHelper,
+        nullptr,  // kProperties
+        &BlockCacheInterface<UncompressionDict>::kBasicHelper,
+        &BlockCacheInterface<Block_kRangeDeletion>::kBasicHelper,
+        nullptr,  // kHashIndexPrefixes
+        nullptr,  // kHashIndexMetadata
+        nullptr,  // kMetaIndex (not yet stored in block cache)
+        &BlockCacheInterface<Block_kIndex>::kBasicHelper,
+        nullptr,  // kInvalid
+    }};
+}  // namespace
+
 const Cache::CacheItemHelper* GetCacheItemHelper(
     BlockType block_type, CacheTier lowest_used_cache_tier) {
   if (lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier) {

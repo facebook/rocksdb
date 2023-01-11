@@ -102,7 +102,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
     // Insert a dummy handle.
     cache_
-        ->Insert(key, /*value=*/nullptr,
+        ->Insert(key, /*obj=*/nullptr,
                  GetHelper(cache_options_.enable_custom_split_merge),
                  /*charge=*/0)
         .PermitUncheckedError();
@@ -126,7 +126,7 @@ Status CompressedSecondaryCache::Insert(const Slice& key,
   if (lru_handle == nullptr) {
     PERF_COUNTER_ADD(compressed_sec_cache_insert_dummy_count, 1);
     // Insert a dummy handle if the handle is evicted for the first time.
-    return cache_->Insert(key, /*value=*/nullptr, internal_helper,
+    return cache_->Insert(key, /*obj=*/nullptr, internal_helper,
                           /*charge=*/0);
   } else {
     cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
