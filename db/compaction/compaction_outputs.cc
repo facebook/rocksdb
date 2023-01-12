@@ -436,12 +436,13 @@ Status CompactionOutputs::AddRangeDels(
     // To achieve this while preventing files from overlapping in internal key
     // (an LSM invariant violation), we allow the earlier file to include the
     // boundary user key up to `kMaxSequenceNumber,kTypeRangeDeletion`. The
-    // later file can begin at the boundary user key at
-    // `kMaxSequenceNumber-1,kTypeRangeDeletion`, which is a larger internal
-    // key. No real key version can fall in the gap between these internal keys
-    // so the gap produces no loss in coverage.
+    // later file can begin at the boundary user key at the newest key version
+    // it contains. At this point that version number is unknown since we have
+    // not processed the range tombstones yet, so permit any version. Same story
+    // applies to timestamp, and a non-nullptr `comp_start_user_key` should have
+    // `kMaxTs` here, which similarly permits any timestamp.
     if (comp_start_user_key != nullptr) {
-      lower_bound_buf.Set(*comp_start_user_key, kMaxSequenceNumber - 1,
+      lower_bound_buf.Set(*comp_start_user_key, kMaxSequenceNumber,
                           kTypeRangeDeletion);
       lower_bound_guard = lower_bound_buf.Encode();
       lower_bound = &lower_bound_guard;
@@ -521,14 +522,10 @@ Status CompactionOutputs::AddRangeDels(
 
     // TODO: the underlying iterator should support clamping the bounds.
     if (!reached_lower_bound && lower_bound != nullptr &&
-        icmp.Compare(tombstone_end.Encode(), *lower_bound) < 0) {
+        icmp.Compare(tombstone_end.Encode(), *lower_bound) <= 0) {
       continue;
     }
     reached_lower_bound = true;
-    if (upper_bound != nullptr &&
-        icmp.Compare(*upper_bound, kv.first.Encode()) < 0) {
-      break;
-    }
 
     const size_t ts_sz = ucmp->timestamp_size();
     // Garbage collection for range tombstones.
@@ -552,9 +549,31 @@ Status CompactionOutputs::AddRangeDels(
     assert(lower_bound == nullptr ||
            ucmp->CompareWithoutTimestamp(ExtractUserKey(*lower_bound),
                                          kv.second) <= 0);
+    InternalKey tombstone_start = kv.first;
+    if (lower_bound != nullptr &&
+        ucmp->CompareWithoutTimestamp(ExtractUserKey(tombstone_start.Encode()),
+                                      ExtractUserKey(*lower_bound)) < 0) {
+      // This just updates the non-timestamp portion of `tombstone_start`'s user
+      // key. Ideally there would be a simpler API usage
+      ParsedInternalKey tombstone_start_parsed;
+      ParseInternalKey(tombstone_start.Encode(), &tombstone_start_parsed,
+                       false /* log_err_key */)
+          .PermitUncheckedError();
+      std::string ts =
+          tombstone_start_parsed.GetTimestamp(ucmp->timestamp_size())
+              .ToString();
+      tombstone_start_parsed.user_key = ExtractUserKey(*lower_bound);
+      tombstone_start_parsed.SetTimestamp(ts);
+      tombstone_start.SetFrom(tombstone_start_parsed);
+    }
+    if (upper_bound != nullptr &&
+        icmp.Compare(*upper_bound, tombstone_start.Encode()) < 0) {
+      break;
+    }
+
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
-    InternalKey tombstone_start = std::move(kv.first);
+
     if (lower_bound != nullptr &&
         icmp.Compare(tombstone_start.Encode(), *lower_bound) < 0) {
       tombstone_start.DecodeFrom(*lower_bound);
