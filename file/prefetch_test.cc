@@ -2053,6 +2053,7 @@ class FilePrefetchBufferTest : public testing::Test {
     fs_ = FileSystem::Default();
     test_dir_ = test::PerThreadDBPath("file_prefetch_buffer_test");
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+    stats_ = CreateDBStatistics();
   }
 
   void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
@@ -2069,8 +2070,9 @@ class FilePrefetchBufferTest : public testing::Test {
     std::string fpath = Path(fname);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
-    reader->reset(new RandomAccessFileReader(std::move(f), fpath,
-                                             env_->GetSystemClock().get()));
+    reader->reset(new RandomAccessFileReader(
+        std::move(f), fpath, env_->GetSystemClock().get(),
+        /*io_tracer=*/nullptr, stats_.get()));
   }
 
   void AssertResult(const std::string& content,
@@ -2083,11 +2085,13 @@ class FilePrefetchBufferTest : public testing::Test {
   }
 
   FileSystem* fs() { return fs_.get(); }
+  Statistics* stats() { return stats_.get(); }
 
  private:
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
   std::string test_dir_;
+  std::shared_ptr<Statistics> stats_;
 
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 };
@@ -2116,6 +2120,53 @@ TEST_F(FilePrefetchBufferTest, SeekWithBlockCacheHit) {
   ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), 8192, 8192,
                                         &result, &s, Env::IOPriority::IO_LOW));
 }
+
+TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
+  std::string fname = "seek-with-block-cache-hit";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  FilePrefetchBuffer fpb(
+      /*readahead_size=*/8192, /*max_readahead_size=*/16384, /*enable=*/true,
+      /*track_min_offset=*/false, /*implicit_auto_readahead=*/false,
+      /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0, fs());
+
+  int read_async_called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::ReadAsync",
+      [&](void* /*arg*/) { read_async_called++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Slice async_result;
+  // Simulate a seek of 4000 bytes at offset 3000. Due to the readahead
+  // settings, it will do two reads of 4000+4096 and 4096
+  Status s = fpb.PrefetchAsync(IOOptions(), r.get(), 3000, 4000, &async_result);
+  // Platforms that don't have IO uring may not support async IO
+  ASSERT_TRUE(s.IsTryAgain() || s.IsNotSupported());
+
+  ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), /*offset=*/3000,
+                                        /*length=*/4000, &async_result, &s,
+                                        Env::IOPriority::IO_LOW));
+  // No sync call should be made.
+  HistogramData sst_read_micros;
+  stats()->histogramData(SST_READ_MICROS, &sst_read_micros);
+  ASSERT_EQ(sst_read_micros.count, 0);
+
+  // Number of async calls should be.
+  ASSERT_EQ(read_async_called, 2);
+  // Length should be 4000.
+  ASSERT_EQ(async_result.size(), 4000);
+  // Data correctness.
+  Slice result(content.c_str() + 3000, 4000);
+  ASSERT_EQ(result.size(), 4000);
+  ASSERT_EQ(result, async_result);
+}
+
 #endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
