@@ -107,6 +107,10 @@ GetBenchmarks.preallocatedByteBufferGet        no_column_family        1000     
 GetBenchmarks.preallocatedByteBufferGet        no_column_family      100000        128         4096  thrpt   25   90748.674 ±  1539.931  ops/s
 GetBenchmarks.preallocatedByteBufferGet        no_column_family      100000        128        32768  thrpt   25   41996.446 ±   196.801  ops/s
 
+Try again with blackholes and random reads
+```bash
+java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,32768 -p columnFamilyTestType="no_column_family" org.rocksdb.jmh.GetBenchmarks
+```
 
 ## Appendix - Java 19 installation
 
