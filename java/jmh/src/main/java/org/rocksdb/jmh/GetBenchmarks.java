@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.infra.Blackhole;
 import org.rocksdb.*;
 import org.rocksdb.FFIDB.GetPinnableSlice;
 import org.rocksdb.util.FileUtils;
@@ -161,10 +162,27 @@ public class GetBenchmarks {
     return idx;
   }
 
+  /*
+   * Random within the key range
+   */
+  private int random() {
+    return (int) (Math.random() * keyCount);
+  }
+
   // String -> byte[]
   private byte[] getKeyArr() {
     final int MAX_LEN = 9; // key100000
     final int keyIdx = next();
+    final byte[] keyPrefix = ba("key" + keyIdx);
+    System.arraycopy(keyPrefix, 0, keyArr, 0, keyPrefix.length);
+    Arrays.fill(keyArr, keyPrefix.length, MAX_LEN, (byte) 0x30);
+    return keyArr;
+  }
+
+  // String -> byte[]
+  private byte[] getRandomKeyArr() {
+    final int MAX_LEN = 9; // key100000
+    final int keyIdx = random();
     final byte[] keyPrefix = ba("key" + keyIdx);
     System.arraycopy(keyPrefix, 0, keyArr, 0, keyPrefix.length);
     Arrays.fill(keyArr, keyPrefix.length, MAX_LEN, (byte) 0x30);
@@ -196,18 +214,22 @@ public class GetBenchmarks {
   }
 
   @Benchmark
-  public void get() throws RocksDBException {
-    db.get(getColumnFamily(), getKeyArr());
+  public void get(Blackhole blackhole) throws RocksDBException {
+    blackhole.consume(db.get(getColumnFamily(), getKeyArr()));
   }
 
   @Benchmark
-  public void preallocatedGet() throws RocksDBException {
-    db.get(getColumnFamily(), getKeyArr(), getValueArr());
+  public void preallocatedGet(Blackhole blackhole) throws RocksDBException {
+    byte[] value = getValueArr();
+    int res = db.get(getColumnFamily(), getKeyArr(), value);
+    blackhole.consume(value);
   }
 
   @Benchmark
-  public void preallocatedByteBufferGet() throws RocksDBException {
-    int res = db.get(getColumnFamily(), readOptions, getKeyBuf(), getValueBuf());
+  public void preallocatedByteBufferGet(Blackhole blackhole) throws RocksDBException {
+    ByteBuffer value = getValueBuf();
+    int res = db.get(getColumnFamily(), readOptions, getKeyBuf(), value);
+    blackhole.consume(value);
     // For testing correctness:
     //    assert res > 0;
     //    final byte[] ret = new byte[valueSize];
@@ -217,18 +239,33 @@ public class GetBenchmarks {
   }
 
   @Benchmark
-  public void ffiPreallocatedGet() throws RocksDBException {
-    dbFFI.get(getColumnFamily(), getKeyArr(), getValueArr());
+  public void ffiPreallocatedGet(Blackhole blackhole) throws RocksDBException {
+    byte[] value = getValueArr();
+    dbFFI.get(getColumnFamily(), getKeyArr(), value);
+    blackhole.consume(value);
   }
 
   @Benchmark
-  public void ffiGet() throws RocksDBException {
-    dbFFI.get(getColumnFamily(), getKeyArr());
+  public void ffiPreallocatedGetRandom(Blackhole blackhole) throws RocksDBException {
+    byte[] value = getValueArr();
+    dbFFI.get(getColumnFamily(), getRandomKeyArr(), value);
+    blackhole.consume(value);
   }
 
   @Benchmark
-  public void ffiGetPinnableSlice() throws RocksDBException {
+  public void ffiGet(Blackhole blackhole) throws RocksDBException {
+    blackhole.consume(dbFFI.get(getColumnFamily(), getKeyArr()));
+  }
+
+  @Benchmark
+  public void ffiGetRandom(Blackhole blackhole) throws RocksDBException {
+    blackhole.consume(dbFFI.get(getColumnFamily(), getRandomKeyArr()));
+  }
+
+  @Benchmark
+  public void ffiGetPinnableSlice(Blackhole blackhole) throws RocksDBException {
     final GetPinnableSlice result = dbFFI.getPinnableSlice(getColumnFamily(), getKeyArr());
+    blackhole.consume(result);
     result.pinnableSlice().get().reset();
   }
 }

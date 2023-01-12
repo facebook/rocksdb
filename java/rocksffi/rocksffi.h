@@ -8,13 +8,13 @@
 
 #pragma once
 
-#include "rocksdb/slice.h"
 #include <stddef.h>
 
 #include <cstddef>
 #include <string>
 
 #include "rocksdb/db.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
 typedef struct rocksdb_input_slice {
