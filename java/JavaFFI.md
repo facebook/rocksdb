@@ -37,7 +37,9 @@ The called `C++` is invoked entirely natively. It does not have to access any Ja
 
 ### Our Approach
 
-While we could in principle avoid writing any C++, it is truly mind-boggling to think about how to lay out C++ structures in `Java`, so to begin with it is easier to write some very simple stubs in C++ which can immediately call into the object-oriented core of RocksDB. We define a few simple structures with which to pass parameters to and receive results from the `C`-like method(s) we implement.
+While we could in principle avoid writing any C++, it is truly mind-boggling to think about how to lay out C++ structures in `Java`, so to begin with it is easier to write some very simple stubs in C++ which can immediately call into the object-oriented core of RocksDB. We define structures with which to pass parameters to and receive results from the `C`-like method(s) we implement.
+
+#### `C++` Side
 
 The first method we implement is
 ```C
@@ -62,9 +64,48 @@ typedef struct rocksdb_output_slice {
 } rocksdb_output_slice_t;
 ```
 
+#### `Java` Side
+
+ - An `FFIMethod` class to advertise a `java.lang.invoke.MethodHandle` for each of our helper stubs
+
+ ```java
+  public static MethodHandle Get; // handle which refers to the rocksdb_ffi_get method in C++
+  public static MethodHandle ResetOutput; // handle which refers to the rocksdb_ffi_reset_output method in C++
+```
+ - An `FFILayout` class to describe each of the passed structures (`rocksdb_input_slice` and `rocksdb_output_slice`) in `Java` terms
+
+ ```java
+ public static class InputSlice {
+  static final GroupLayout Layout = ...
+  static final VarHandle Data = ...
+  static final VarHandle Size =  ...
+ };
+
+ public static class OutputSlice {
+  static final GroupLayout Layout = ...
+  static final VarHandle Data = ...
+  static final VarHandle Size =  ...
+ };
+ ```
+
+ - The `FFIDB` class, which implements the public Java FFI API methods, making use of `FFIMethod` and `FFILayout` to make the code for each individual method as idiomatic and efficient as possible. This class also contains `java.lang.foreign.MemorySession` and `java.lang.foreign.SegmentAllocator` objects which control the lifetime of native memory sessions and allow us to allocate lifetime-limited native memory which can be written and read by Java, and passed to native methods.
+
+ ```java
+ public GetPinnableSlice getPinnableSlice(
+      final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
+ ```
+
+The flow of any RocksDB FFI API method becomes:
+ 1. Allocate `MemorySegment`s for `C++` structures using `Layout`s from `FFILayout`
+ 2. Write to the allocated structures using `VarHandle`s from `FFILayout`
+ 3. Invoke the native method using the `MethodHandle` from `FFIMethod` and addresses of instantiated `MemorySegment`s, or value types, as parameters
+ 4. Read the call result and the output parameter(s), again using `VarHandle`s from `FFILayout` to perform the mapping.
+
+For the `getPinnableSlice()` method, on successful return from an invocation of `rocksdb_ffi_get()`, the `OutputSlice` will contain the `data` and `size` fields of a pinnable slice (see below) containing the requested value. A `MemorySegment` referring to the native memory of the pinnable slice can then be constructed, and used to retrieve the value in whatever fashion we choose.
+
 ### Pinnable Slices
 
-RocksDB now offers core (C++) API methods using the concept of a [`PinnableSlice`](http://rocksdb.org/blog/2017/08/24/pinnableslice.html) to return fetched data values while reducing copies to a minimum. We take advantage of this to base our central `get()` method(s) on `PinnableSlice`s. Methods mirroring the existing `JNI`-based API can then be implemented in pure Java by wrapping the core `get()`.
+RocksDB offers core (C++) API methods using the concept of a [`PinnableSlice`](http://rocksdb.org/blog/2017/08/24/pinnableslice.html) to return fetched data values while reducing copies to a minimum. We take advantage of this to base our central `get()` method(s) on `PinnableSlice`s. Methods mirroring the existing `JNI`-based API can then be implemented in pure Java by wrapping the core `get()`.
 
 So we implement
 ```java

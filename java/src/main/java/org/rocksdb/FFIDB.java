@@ -138,7 +138,7 @@ public class FFIDB implements AutoCloseable {
     final MemorySegment inputSegment = segmentAllocator.allocate(FFILayout.InputSlice.Layout);
     FFILayout.InputSlice.Data.set(inputSegment, keySegment.address());
     FFILayout.InputSlice.Size.set(
-        inputSegment, keySegment.byteSize()); // ignore null-terminator, of C-style string
+        inputSegment, keySegment.byteSize());
 
     final MemorySegment outputSegment = segmentAllocator.allocate(FFILayout.OutputSlice.Layout);
 
