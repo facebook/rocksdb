@@ -205,6 +205,22 @@ public class GetBenchmarks {
     return keyBuf;
   }
 
+  // String -> ByteBuffer
+  private ByteBuffer getRandomKeyBuf() {
+    final int MAX_LEN = 9; // key100000
+    final int keyIdx = random();
+    final String keyStr = "key" + keyIdx;
+    for (int i = 0; i < keyStr.length(); ++i) {
+      keyBuf.put(i, (byte) keyStr.charAt(i));
+    }
+    for (int i = keyStr.length(); i < MAX_LEN; ++i) {
+      keyBuf.put(i, (byte) 0x30);
+    }
+    // Reset position for future reading
+    keyBuf.position(0);
+    return keyBuf;
+  }
+
   private byte[] getValueArr() {
     return valueArr;
   }
@@ -229,6 +245,19 @@ public class GetBenchmarks {
   public void preallocatedByteBufferGet(Blackhole blackhole) throws RocksDBException {
     ByteBuffer value = getValueBuf();
     int res = db.get(getColumnFamily(), readOptions, getKeyBuf(), value);
+    blackhole.consume(value);
+    // For testing correctness:
+    //    assert res > 0;
+    //    final byte[] ret = new byte[valueSize];
+    //    valueBuf.get(ret);
+    //    System.out.println(str(ret));
+    //    valueBuf.flip();
+  }
+
+  @Benchmark
+  public void preallocatedByteBufferGetRandom(Blackhole blackhole) throws RocksDBException {
+    ByteBuffer value = getValueBuf();
+    int res = db.get(getColumnFamily(), readOptions, getRandomKeyBuf(), value);
     blackhole.consume(value);
     // For testing correctness:
     //    assert res > 0;
