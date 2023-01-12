@@ -165,13 +165,24 @@ class NonBatchedOpsStressTest : public StressTest {
           const WideColumns& columns_from_db = columns.columns();
 
           std::string from_db;
-          if (s.ok() && !columns_from_db.empty() &&
-              columns_from_db[0].name() == kDefaultWideColumnName) {
-            from_db = columns_from_db[0].value().ToString();
+
+          if (s.ok()) {
+            if (!columns_from_db.empty() &&
+                columns_from_db[0].name() == kDefaultWideColumnName) {
+              from_db = columns_from_db[0].value().ToString();
+            }
+
+            const WideColumns expected_columns =
+                GenerateExpectedWideColumns(GetValueBase(from_db), from_db);
+            if (columns_from_db != expected_columns) {
+              VerificationAbort(shared, static_cast<int>(cf), i, from_db,
+                                columns_from_db, expected_columns);
+              break;
+            }
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            &columns_from_db, s, /* strict */ true);
+                            s, /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
