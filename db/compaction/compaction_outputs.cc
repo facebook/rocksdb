@@ -459,6 +459,7 @@ Status CompactionOutputs::AddRangeDels(
   } else {
     it->SeekToFirst();
   }
+  Slice last_tombstone_start_user_key{};
   for (; it->Valid(); it->Next()) {
     auto tombstone = it->Tombstone();
     if (upper_bound != nullptr) {
@@ -593,22 +594,29 @@ Status CompactionOutputs::AddRangeDels(
     meta.UpdateBoundariesForRange(smallest_candidate, largest_candidate,
                                   tombstone.seq_, icmp);
     if (!bottommost_level) {
-      // Range tombstones are truncated at file boundaries
-      if (icmp.Compare(tombstone_start, meta.smallest) < 0) {
-        tombstone_start = meta.smallest;
+      bool start_user_key_changed =
+          last_tombstone_start_user_key.empty() ||
+          ucmp->CompareWithoutTimestamp(last_tombstone_start_user_key,
+                                        tombstone.start_key_) < 0;
+      last_tombstone_start_user_key = tombstone.start_key_;
+      if (start_user_key_changed) {
+        // Range tombstones are truncated at file boundaries
+        if (icmp.Compare(tombstone_start, meta.smallest) < 0) {
+          tombstone_start = meta.smallest;
+        }
+        if (icmp.Compare(tombstone_end, meta.largest) > 0) {
+          tombstone_end = meta.largest;
+        }
+        SizeApproximationOptions approx_opts;
+        approx_opts.files_size_error_margin = 0.1;
+        auto approximate_covered_size =
+            compaction_->input_version()->version_set()->ApproximateSize(
+                approx_opts, compaction_->input_version(),
+                tombstone_start.Encode(), tombstone_end.Encode(),
+                compaction_->output_level() + 1 /* start_level */,
+                -1 /* end_level */, kCompaction);
+        meta.compensated_range_deletion_size += approximate_covered_size;
       }
-      if (icmp.Compare(tombstone_end, meta.largest) > 0) {
-        tombstone_end = meta.largest;
-      }
-      SizeApproximationOptions approx_opts;
-      approx_opts.files_size_error_margin = 0.1;
-      auto approximate_covered_size =
-          compaction_->input_version()->version_set()->ApproximateSize(
-              approx_opts, compaction_->input_version(),
-              tombstone_start.Encode(), tombstone_end.Encode(),
-              compaction_->output_level() + 1 /* start_level */,
-              -1 /* end_level */, kCompaction);
-      meta.compensated_range_deletion_size += approximate_covered_size;
     }
     // The smallest key in a file is used for range tombstone truncation, so
     // it cannot have a seqnum of 0 (unless the smallest data key in a file
