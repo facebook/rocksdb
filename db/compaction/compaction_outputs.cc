@@ -605,9 +605,8 @@ Status CompactionOutputs::AddRangeDels(
         // covered, or that they have the same user key. If they have the same
         // user key, then the internal key range should only be within this
         // level, and no keys from older levels is covered.
-        if (ucmp->CompareWithoutTimestamp(
-                ExtractUserKey(tombstone_start.Encode()),
-                ExtractUserKey(tombstone_end.user_key())) < 0) {
+        if (ucmp->CompareWithoutTimestamp(tombstone_start.user_key(),
+                                          tombstone_end.user_key()) < 0) {
           SizeApproximationOptions approx_opts;
           approx_opts.files_size_error_margin = 0.1;
           auto approximate_covered_size =
