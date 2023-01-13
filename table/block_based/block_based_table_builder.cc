@@ -21,6 +21,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "block_cache.h"
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
@@ -41,7 +42,6 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#include "table/block_based/block_like_traits.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
@@ -335,6 +335,7 @@ struct BlockBasedTableBuilder::Rep {
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
+  BlockCreateContext create_context;
 
   uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
   void set_offset(uint64_t o) { offset.store(o, std::memory_order_relaxed); }
@@ -443,6 +444,9 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
+        create_context(&table_options, ioptions.stats,
+                       compression_type == kZSTD ||
+                           compression_type == kZSTDNotFinalCompression),
         status_ok(true),
         io_status_ok(true) {
     if (tbo.target_file_size == 0) {
@@ -1240,6 +1244,10 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   handle->set_size(block_contents.size());
   assert(status().ok());
   assert(io_status().ok());
+  if (uncompressed_block_data == nullptr) {
+    uncompressed_block_data = &block_contents;
+    assert(type == kNoCompression);
+  }
 
   {
     IOStatus io_s = r->file->Append(block_contents);
@@ -1291,12 +1299,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
         warm_cache = false;
     }
     if (warm_cache) {
-      if (type == kNoCompression) {
-        s = InsertBlockInCacheHelper(block_contents, handle, block_type);
-      } else if (uncompressed_block_data != nullptr) {
-        s = InsertBlockInCacheHelper(*uncompressed_block_data, handle,
-                                     block_type);
-      }
+      s = InsertBlockInCacheHelper(*uncompressed_block_data, handle,
+                                   block_type);
       if (!s.ok()) {
         r->SetStatus(s);
         return;
@@ -1425,13 +1429,14 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
     const Slice& block_contents, const CompressionType type,
     const BlockHandle* handle) {
   Rep* r = rep_;
-  Cache* block_cache_compressed = r->table_options.block_cache_compressed.get();
+  CompressedBlockCacheInterface block_cache_compressed{
+      r->table_options.block_cache_compressed.get()};
   Status s;
-  if (type != kNoCompression && block_cache_compressed != nullptr) {
+  if (type != kNoCompression && block_cache_compressed) {
     size_t size = block_contents.size();
 
-    auto ubuf =
-        AllocateBlock(size + 1, block_cache_compressed->memory_allocator());
+    auto ubuf = AllocateBlock(size + 1,
+                              block_cache_compressed.get()->memory_allocator());
     memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 
@@ -1443,10 +1448,9 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
 
     CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
 
-    s = block_cache_compressed->Insert(
+    s = block_cache_compressed.Insert(
         key.AsSlice(), block_contents_to_cache,
-        block_contents_to_cache->ApproximateMemoryUsage(),
-        &DeleteCacheEntry<BlockContents>);
+        block_contents_to_cache->ApproximateMemoryUsage());
     if (s.ok()) {
       RecordTick(rep_->ioptions.stats, BLOCK_CACHE_COMPRESSED_ADD);
     } else {
@@ -1462,65 +1466,19 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
 Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     const Slice& block_contents, const BlockHandle* handle,
     BlockType block_type) {
-  Status s;
-  switch (block_type) {
-    case BlockType::kData:
-    case BlockType::kIndex:
-    case BlockType::kFilterPartitionIndex:
-      s = InsertBlockInCache<Block>(block_contents, handle, block_type);
-      break;
-    case BlockType::kFilter:
-      s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
-                                                    block_type);
-      break;
-    case BlockType::kCompressionDictionary:
-      s = InsertBlockInCache<UncompressionDict>(block_contents, handle,
-                                                block_type);
-      break;
-    default:
-      // no-op / not cached
-      break;
-  }
-  return s;
-}
 
-template <typename TBlocklike>
-Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
-                                                  const BlockHandle* handle,
-                                                  BlockType block_type) {
-  // Uncompressed regular block cache
   Cache* block_cache = rep_->table_options.block_cache.get();
   Status s;
-  if (block_cache != nullptr) {
-    size_t size = block_contents.size();
-    auto buf = AllocateBlock(size, block_cache->memory_allocator());
-    memcpy(buf.get(), block_contents.data(), size);
-    BlockContents results(std::move(buf), size);
-
+  auto helper =
+      GetCacheItemHelper(block_type, rep_->ioptions.lowest_used_cache_tier);
+  if (block_cache && helper && helper->create_cb) {
     CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
-
-    const size_t read_amp_bytes_per_bit =
-        rep_->table_options.read_amp_bytes_per_bit;
-
-    // TODO akanksha:: Dedup below code by calling
-    // BlockBasedTable::PutDataBlockToCache.
-    std::unique_ptr<TBlocklike> block_holder(
-        BlocklikeTraits<TBlocklike>::Create(
-            std::move(results), read_amp_bytes_per_bit,
-            rep_->ioptions.statistics.get(),
-            false /*rep_->blocks_definitely_zstd_compressed*/,
-            rep_->table_options.filter_policy.get()));
-
-    assert(block_holder->own_bytes());
-    size_t charge = block_holder->ApproximateMemoryUsage();
-    s = block_cache->Insert(
-        key.AsSlice(), block_holder.get(),
-        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
-        nullptr, Cache::Priority::LOW);
+    size_t charge;
+    s = WarmInCache(block_cache, key.AsSlice(), block_contents,
+                    &rep_->create_context, helper, Cache::Priority::LOW,
+                    &charge);
 
     if (s.ok()) {
-      // Release ownership of block_holder.
-      block_holder.release();
       BlockBasedTable::UpdateCacheInsertionMetrics(
           block_type, nullptr /*get_context*/, charge, s.IsOkOverwritten(),
           rep_->ioptions.stats);

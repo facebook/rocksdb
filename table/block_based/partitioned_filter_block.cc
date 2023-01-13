@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include "block_cache.h"
 #include "block_type.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
@@ -185,7 +186,8 @@ Slice PartitionedFilterBlockBuilder::Finish(
 }
 
 PartitionedFilterBlockReader::PartitionedFilterBlockReader(
-    const BlockBasedTable* t, CachableEntry<Block>&& filter_block)
+    const BlockBasedTable* t,
+    CachableEntry<Block_kFilterPartitionIndex>&& filter_block)
     : FilterBlockReaderCommon(t, std::move(filter_block)) {}
 
 std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
@@ -196,11 +198,11 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
   assert(table->get_rep());
   assert(!pin || prefetch);
 
-  CachableEntry<Block> filter_block;
+  CachableEntry<Block_kFilterPartitionIndex> filter_block;
   if (prefetch || !use_cache) {
-    const Status s = ReadFilterBlock(
-        table, prefetch_buffer, ro, use_cache, nullptr /* get_context */,
-        lookup_context, &filter_block, BlockType::kFilterPartitionIndex);
+    const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
+                                     nullptr /* get_context */, lookup_context,
+                                     &filter_block);
     if (!s.ok()) {
       IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
@@ -260,7 +262,8 @@ void PartitionedFilterBlockReader::PrefixesMayMatch(
 }
 
 BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
-    const CachableEntry<Block>& filter_block, const Slice& entry) const {
+    const CachableEntry<Block_kFilterPartitionIndex>& filter_block,
+    const Slice& entry) const {
   IndexBlockIter iter;
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
@@ -313,7 +316,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
   const Status s =
       table()->RetrieveBlock(prefetch_buffer, read_options, fltr_blk_handle,
                              UncompressionDict::GetEmptyDict(), filter_block,
-                             BlockType::kFilter, get_context, lookup_context,
+                             get_context, lookup_context,
                              /* for_compaction */ false, /* use_cache */ true,
                              /* wait_for_cache */ true, /* async_read */ false);
 
@@ -325,10 +328,9 @@ bool PartitionedFilterBlockReader::MayMatch(
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
     Env::IOPriority rate_limiter_priority,
     FilterFunction filter_function) const {
-  CachableEntry<Block> filter_block;
-  Status s = GetOrReadFilterBlock(
-      no_io, get_context, lookup_context, &filter_block,
-      BlockType::kFilterPartitionIndex, rate_limiter_priority);
+  CachableEntry<Block_kFilterPartitionIndex> filter_block;
+  Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
+                                  &filter_block, rate_limiter_priority);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -364,10 +366,10 @@ void PartitionedFilterBlockReader::MayMatch(
     BlockCacheLookupContext* lookup_context,
     Env::IOPriority rate_limiter_priority,
     FilterManyFunction filter_function) const {
-  CachableEntry<Block> filter_block;
-  Status s = GetOrReadFilterBlock(
-      no_io, range->begin()->get_context, lookup_context, &filter_block,
-      BlockType::kFilterPartitionIndex, rate_limiter_priority);
+  CachableEntry<Block_kFilterPartitionIndex> filter_block;
+  Status s =
+      GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
+                           &filter_block, rate_limiter_priority);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return;  // Any/all may match
@@ -455,11 +457,10 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
 
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
 
-  CachableEntry<Block> filter_block;
+  CachableEntry<Block_kFilterPartitionIndex> filter_block;
 
   Status s = GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                                   &lookup_context, &filter_block,
-                                  BlockType::kFilterPartitionIndex,
                                   ro.rate_limiter_priority);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep->ioptions.logger,
@@ -517,7 +518,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        /* wait */ true, /* for_compaction */ false, &block, BlockType::kFilter,
+        /* wait */ true, /* for_compaction */ false, &block,
         nullptr /* get_context */, &lookup_context, nullptr /* contents */,
         false);
     if (!s.ok()) {

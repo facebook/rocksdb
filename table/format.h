@@ -276,7 +276,7 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
 // decompression function.
 // * "Parsed block" - an in-memory form of a block in block cache, as it is
 // used by the table reader. Different C++ types are used depending on the
-// block type (see block_like_traits.h). Only trivially parsable block types
+// block type (see block_cache.h). Only trivially parsable block types
 // use BlockContents as the parsed form.
 //
 struct BlockContents {

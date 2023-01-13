@@ -236,6 +236,9 @@ class Block {
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
 
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return contents_.data; }
+
  private:
   BlockContents contents_;
   const char* data_;         // contents_.data.data()

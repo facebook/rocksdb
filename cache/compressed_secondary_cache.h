@@ -21,7 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
  public:
-  CompressedSecondaryCacheResultHandle(void* value, size_t size)
+  CompressedSecondaryCacheResultHandle(Cache::ObjectPtr value, size_t size)
       : value_(value), size_(size) {}
   ~CompressedSecondaryCacheResultHandle() override = default;
 
@@ -34,12 +34,12 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 
   void Wait() override {}
 
-  void* Value() override { return value_; }
+  Cache::ObjectPtr Value() override { return value_; }
 
   size_t Size() override { return size_; }
 
  private:
-  void* value_;
+  Cache::ObjectPtr value_;
   size_t size_;
 };
 
@@ -83,12 +83,13 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   const char* Name() const override { return "CompressedSecondaryCache"; }
 
-  Status Insert(const Slice& key, void* value,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
-      const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-      bool advise_erase, bool& is_in_sec_cache) override;
+      const Slice& key, const Cache::CacheItemHelper* helper,
+      Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
+      bool& is_in_sec_cache) override;
 
   bool SupportForceErase() const override { return true; }
 
@@ -129,8 +130,8 @@ class CompressedSecondaryCache : public SecondaryCache {
   CacheAllocationPtr MergeChunksIntoValue(const void* chunks_head,
                                           size_t& charge);
 
-  // An implementation of Cache::DeleterFn.
-  static Cache::DeleterFn GetDeletionCallback(bool enable_custom_split_merge);
+  // TODO: clean up to use cleaner interfaces in typed_cache.h
+  const Cache::CacheItemHelper* GetHelper(bool enable_custom_split_merge) const;
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
   mutable port::Mutex capacity_mutex_;

@@ -1324,13 +1324,14 @@ class TestSecondaryCache : public SecondaryCache {
  public:
   static const char* kClassName() { return "Test"; }
   const char* Name() const override { return kClassName(); }
-  Status Insert(const Slice& /*key*/, void* /*value*/,
+  Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
                 const Cache::CacheItemHelper* /*helper*/) override {
     return Status::NotSupported();
   }
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
-      const Slice& /*key*/, const Cache::CreateCallback& /*create_cb*/,
-      bool /*wait*/, bool /*advise_erase*/, bool& is_in_sec_cache) override {
+      const Slice& /*key*/, const Cache::CacheItemHelper* /*helper*/,
+      Cache::CreateContext* /*create_context*/, bool /*wait*/,
+      bool /*advise_erase*/, bool& is_in_sec_cache) override {
     is_in_sec_cache = true;
     return nullptr;
   }

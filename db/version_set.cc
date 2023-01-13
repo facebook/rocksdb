@@ -2511,7 +2511,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         std::vector<folly::coro::Task<Status>> mget_tasks;
         while (f != nullptr) {
           MultiGetRange file_range = fp.CurrentFileRange();
-          Cache::Handle* table_handle = nullptr;
+          TableCache::TypedHandle* table_handle = nullptr;
           bool skip_filters =
               IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                               fp.IsHitFileLastInLevel());
@@ -2693,7 +2693,7 @@ Status Version::ProcessBatch(
   }
   while (f) {
     MultiGetRange file_range = fp.CurrentFileRange();
-    Cache::Handle* table_handle = nullptr;
+    TableCache::TypedHandle* table_handle = nullptr;
     bool skip_filters = IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                                         fp.IsHitFileLastInLevel());
     bool skip_range_deletions = false;
@@ -6879,16 +6879,16 @@ Status VersionSet::VerifyFileMetadata(ColumnFamilyData* cfd,
 
     InternalStats* internal_stats = cfd->internal_stats();
 
+    TableCache::TypedHandle* handle = nullptr;
     FileMetaData meta_copy = meta;
     status = table_cache->FindTable(
-        ReadOptions(), file_opts, *icmp, meta_copy,
-        &(meta_copy.table_reader_handle), pe,
+        ReadOptions(), file_opts, *icmp, meta_copy, &handle, pe,
         /*no_io=*/false, /*record_read_stats=*/true,
         internal_stats->GetFileReadHist(level), false, level,
         /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
         meta_copy.temperature);
-    if (meta_copy.table_reader_handle) {
-      table_cache->ReleaseHandle(meta_copy.table_reader_handle);
+    if (handle) {
+      table_cache->get_cache().Release(handle);
     }
   }
   return status;

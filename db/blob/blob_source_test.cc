@@ -1150,15 +1150,6 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   auto blob_cache = options_.blob_cache;
   auto secondary_cache = lru_cache_opts_.secondary_cache;
 
-  Cache::CreateCallback create_cb = [](const void* buf, size_t size,
-                                       void** out_obj,
-                                       size_t* charge) -> Status {
-    CacheAllocationPtr allocation(new char[size]);
-
-    return BlobContents::CreateCallback(std::move(allocation), buf, size,
-                                        out_obj, charge);
-  };
-
   {
     // GetBlob
     std::vector<PinnableSlice> values(keys.size());
@@ -1219,14 +1210,15 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[0]);
       const Slice key0 = cache_key.AsSlice();
-      auto handle0 = blob_cache->Lookup(key0, statistics);
+      auto handle0 = blob_cache->BasicLookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
 
       // key0's item should be in the secondary cache.
       bool is_in_sec_cache = false;
-      auto sec_handle0 =
-          secondary_cache->Lookup(key0, create_cb, true,
-                                  /*advise_erase=*/true, is_in_sec_cache);
+      auto sec_handle0 = secondary_cache->Lookup(
+          key0, &BlobSource::SharedCacheInterface::kFullHelper,
+          /*context*/ nullptr, true,
+          /*advise_erase=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
@@ -1246,14 +1238,15 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
       const Slice key1 = cache_key.AsSlice();
-      auto handle1 = blob_cache->Lookup(key1, statistics);
+      auto handle1 = blob_cache->BasicLookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
       blob_cache->Release(handle1);
 
       bool is_in_sec_cache = false;
-      auto sec_handle1 =
-          secondary_cache->Lookup(key1, create_cb, true,
-                                  /*advise_erase=*/true, is_in_sec_cache);
+      auto sec_handle1 = secondary_cache->Lookup(
+          key1, &BlobSource::SharedCacheInterface::kFullHelper,
+          /*context*/ nullptr, true,
+          /*advise_erase=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
@@ -1276,7 +1269,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key0 should be in the primary cache.
       CacheKey cache_key0 = base_cache_key.WithOffset(blob_offsets[0]);
       const Slice key0 = cache_key0.AsSlice();
-      auto handle0 = blob_cache->Lookup(key0, statistics);
+      auto handle0 = blob_cache->BasicLookup(key0, statistics);
       ASSERT_NE(handle0, nullptr);
       auto value = static_cast<BlobContents*>(blob_cache->Value(handle0));
       ASSERT_NE(value, nullptr);
@@ -1286,12 +1279,12 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key1 is not in the primary cache and is in the secondary cache.
       CacheKey cache_key1 = base_cache_key.WithOffset(blob_offsets[1]);
       const Slice key1 = cache_key1.AsSlice();
-      auto handle1 = blob_cache->Lookup(key1, statistics);
+      auto handle1 = blob_cache->BasicLookup(key1, statistics);
       ASSERT_EQ(handle1, nullptr);
 
       // erase key0 from the primary cache.
       blob_cache->Erase(key0);
-      handle0 = blob_cache->Lookup(key0, statistics);
+      handle0 = blob_cache->BasicLookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
 
       // key1 promotion should succeed due to the primary cache being empty. we
@@ -1307,7 +1300,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // in the secondary cache. So, the primary cache's Lookup() without
       // secondary cache support cannot see it. (NOTE: The dummy handle used
       // to be a leaky abstraction but not anymore.)
-      handle1 = blob_cache->Lookup(key1, statistics);
+      handle1 = blob_cache->BasicLookup(key1, statistics);
       ASSERT_EQ(handle1, nullptr);
 
       // But after another access, it is promoted to primary cache
@@ -1315,7 +1308,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                                                blob_offsets[1]));
 
       // And Lookup() can find it (without secondary cache support)
-      handle1 = blob_cache->Lookup(key1, statistics);
+      handle1 = blob_cache->BasicLookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
       ASSERT_NE(blob_cache->Value(handle1), nullptr);
       blob_cache->Release(handle1);

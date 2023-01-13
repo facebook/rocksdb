@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "cache/typed_cache.h"
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "options/cf_options.h"
@@ -55,6 +56,16 @@ class TableCache {
              const std::shared_ptr<IOTracer>& io_tracer,
              const std::string& db_session_id);
   ~TableCache();
+
+  // Cache interface for table cache
+  using CacheInterface =
+      BasicTypedCacheInterface<TableReader, CacheEntryRole::kMisc>;
+  using TypedHandle = CacheInterface::TypedHandle;
+
+  // Cache interface for row cache
+  using RowCacheInterface =
+      BasicTypedCacheInterface<std::string, CacheEntryRole::kMisc>;
+  using RowHandle = RowCacheInterface::TypedHandle;
 
   // Return an iterator for the specified file number (the corresponding
   // file length must be exactly "file_size" bytes).  If "table_reader_ptr"
@@ -124,7 +135,7 @@ class TableCache {
       const FileMetaData& file_meta,
       const std::shared_ptr<const SliceTransform>& prefix_extractor,
       HistogramImpl* file_read_hist, int level,
-      MultiGetContext::Range* mget_range, Cache::Handle** table_handle);
+      MultiGetContext::Range* mget_range, TypedHandle** table_handle);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
@@ -142,17 +153,10 @@ class TableCache {
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
       bool skip_range_deletions = false, int level = -1,
-      Cache::Handle* table_handle = nullptr);
+      TypedHandle* table_handle = nullptr);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
-
-  // Query whether specified file number is currently in cache
-  static bool HasEntry(Cache* cache, uint64_t file_number);
-
-  // Clean table handle and erase it from the table cache
-  // Used in DB close, or the file is not live anymore.
-  void EraseHandle(const FileDescriptor& fd, Cache::Handle* handle);
 
   // Find table reader
   // @param skip_filters Disables loading/accessing the filter block
@@ -160,16 +164,13 @@ class TableCache {
   Status FindTable(
       const ReadOptions& ro, const FileOptions& toptions,
       const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta, Cache::Handle**,
+      const FileMetaData& file_meta, TypedHandle**,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       const bool no_io = false, bool record_read_stats = true,
       HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
       int level = -1, bool prefetch_index_and_filter_in_cache = true,
       size_t max_file_size_for_l0_meta_pin = 0,
       Temperature file_temperature = Temperature::kUnknown);
-
-  // Get TableReader from a cache handle.
-  TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
 
   // Get the table properties of a given table.
   // @no_io: indicates if we should load table to the cache if it is not present
@@ -212,10 +213,7 @@ class TableCache {
       const InternalKeyComparator& internal_comparator,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr);
 
-  // Release the handle from a cache
-  void ReleaseHandle(Cache::Handle* handle);
-
-  Cache* get_cache() const { return cache_; }
+  CacheInterface& get_cache() { return cache_; }
 
   // Capacity of the backing Cache that indicates infinite TableCache capacity.
   // For example when max_open_files is -1 we set the backing Cache to this.
@@ -224,7 +222,7 @@ class TableCache {
   // The tables opened with this TableCache will be immortal, i.e., their
   // lifetime is as long as that of the DB.
   void SetTablesAreImmortal() {
-    if (cache_->GetCapacity() >= kInfiniteCapacity) {
+    if (cache_.get()->GetCapacity() >= kInfiniteCapacity) {
       immortal_tables_ = true;
     }
   }
@@ -263,7 +261,7 @@ class TableCache {
 
   const ImmutableOptions& ioptions_;
   const FileOptions& file_options_;
-  Cache* const cache_;
+  CacheInterface cache_;
   std::string row_cache_id_;
   bool immortal_tables_;
   BlockCacheTracer* const block_cache_tracer_;

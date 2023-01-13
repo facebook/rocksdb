@@ -14,6 +14,7 @@
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
 #include "cache/lru_cache.h"
+#include "cache/typed_cache.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -365,9 +366,7 @@ class PersistentCacheFromCache : public PersistentCache {
     }
     std::unique_ptr<char[]> copy{new char[size]};
     std::copy_n(data, size, copy.get());
-    Status s = cache_->Insert(
-        key, copy.get(), size,
-        GetCacheEntryDeleterForRole<char[], CacheEntryRole::kMisc>());
+    Status s = cache_.Insert(key, copy.get(), size);
     if (s.ok()) {
       copy.release();
     }
@@ -376,13 +375,13 @@ class PersistentCacheFromCache : public PersistentCache {
 
   Status Lookup(const Slice& key, std::unique_ptr<char[]>* data,
                 size_t* size) override {
-    auto handle = cache_->Lookup(key);
+    auto handle = cache_.Lookup(key);
     if (handle) {
-      char* ptr = static_cast<char*>(cache_->Value(handle));
-      *size = cache_->GetCharge(handle);
+      char* ptr = cache_.Value(handle);
+      *size = cache_.get()->GetCharge(handle);
       data->reset(new char[*size]);
       std::copy_n(ptr, *size, data->get());
-      cache_->Release(handle);
+      cache_.Release(handle);
       return Status::OK();
     } else {
       return Status::NotFound();
@@ -395,10 +394,10 @@ class PersistentCacheFromCache : public PersistentCache {
 
   std::string GetPrintableOptions() const override { return ""; }
 
-  uint64_t NewId() override { return cache_->NewId(); }
+  uint64_t NewId() override { return cache_.get()->NewId(); }
 
  private:
-  std::shared_ptr<Cache> cache_;
+  BasicTypedSharedCacheInterface<char[], CacheEntryRole::kMisc> cache_;
   bool read_only_;
 };
 
@@ -406,8 +405,8 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
   using CacheWrapper::CacheWrapper;
 
   using Cache::Insert;
-  Status Insert(const Slice& /*key*/, void* /*value*/, size_t /*charge*/,
-                void (*)(const Slice& key, void* value) /*deleter*/,
+  Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
+                const CacheItemHelper* /*helper*/, size_t /*charge*/,
                 Handle** /*handle*/, Priority /*priority*/) override {
     return Status::NotSupported();
   }
@@ -827,16 +826,15 @@ class MockCache : public LRUCache {
 
   using ShardedCache::Insert;
 
-  Status Insert(const Slice& key, void* value,
-                const Cache::CacheItemHelper* helper_cb, size_t charge,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
+                const Cache::CacheItemHelper* helper, size_t charge,
                 Handle** handle, Priority priority) override {
-    DeleterFn delete_cb = helper_cb->del_cb;
     if (priority == Priority::LOW) {
       low_pri_insert_count++;
     } else {
       high_pri_insert_count++;
     }
-    return LRUCache::Insert(key, value, charge, delete_cb, handle, priority);
+    return LRUCache::Insert(key, value, helper, charge, handle, priority);
   }
 };
 
@@ -916,7 +914,10 @@ class LookupLiarCache : public CacheWrapper {
       : CacheWrapper(std::move(target)) {}
 
   using Cache::Lookup;
-  Handle* Lookup(const Slice& key, Statistics* stats) override {
+  Handle* Lookup(const Slice& key, const CacheItemHelper* helper = nullptr,
+                 CreateContext* create_context = nullptr,
+                 Priority priority = Priority::LOW, bool wait = true,
+                 Statistics* stats = nullptr) override {
     if (nth_lookup_not_found_ == 1) {
       nth_lookup_not_found_ = 0;
       return nullptr;
@@ -924,7 +925,8 @@ class LookupLiarCache : public CacheWrapper {
     if (nth_lookup_not_found_ > 1) {
       --nth_lookup_not_found_;
     }
-    return CacheWrapper::Lookup(key, stats);
+    return CacheWrapper::Lookup(key, helper, create_context, priority, wait,
+                                stats);
   }
 
   // 1 == next lookup, 2 == after next, etc.
@@ -1275,12 +1277,11 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 }
 
 static void ClearCache(Cache* cache) {
-  auto roles = CopyCacheDeleterRoleMap();
   std::deque<std::string> keys;
   Cache::ApplyToAllEntriesOptions opts;
-  auto callback = [&](const Slice& key, void* /*value*/, size_t /*charge*/,
-                      Cache::DeleterFn deleter) {
-    if (roles.find(deleter) == roles.end()) {
+  auto callback = [&](const Slice& key, Cache::ObjectPtr, size_t /*charge*/,
+                      const Cache::CacheItemHelper* helper) {
+    if (helper && helper->role == CacheEntryRole::kMisc) {
       // Keep the stats collector
       return;
     }
@@ -1450,14 +1451,13 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       ClearCache(cache.get());
       Cache::Handle* h = nullptr;
       if (strcmp(cache->Name(), "LRUCache") == 0) {
-        ASSERT_OK(cache->Insert("Fill-it-up", nullptr, capacity + 1,
-                                GetNoopDeleterForRole<CacheEntryRole::kMisc>(),
-                                &h, Cache::Priority::HIGH));
+        ASSERT_OK(cache->Insert("Fill-it-up", nullptr, &kNoopCacheItemHelper,
+                                capacity + 1, &h, Cache::Priority::HIGH));
       } else {
         // For ClockCache we use a 16-byte key.
-        ASSERT_OK(cache->Insert("Fill-it-up-xxxxx", nullptr, capacity + 1,
-                                GetNoopDeleterForRole<CacheEntryRole::kMisc>(),
-                                &h, Cache::Priority::HIGH));
+        ASSERT_OK(cache->Insert("Fill-it-up-xxxxx", nullptr,
+                                &kNoopCacheItemHelper, capacity + 1, &h,
+                                Cache::Priority::HIGH));
       }
       ASSERT_GT(cache->GetUsage(), cache->GetCapacity());
       expected = {};
@@ -1548,7 +1548,7 @@ void DummyFillCache(Cache& cache, size_t entry_size,
     size_t charge = std::min(entry_size, capacity - my_usage);
     Cache::Handle* handle;
     Status st = cache.Insert(ck.WithOffset(my_usage).AsSlice(), fake_value,
-                             charge, /*deleter*/ nullptr, &handle);
+                             &kNoopCacheItemHelper, charge, &handle);
     ASSERT_OK(st);
     handles.emplace_back(&cache, handle);
     my_usage += charge;
