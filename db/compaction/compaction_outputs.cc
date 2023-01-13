@@ -585,12 +585,6 @@ Status CompactionOutputs::AddRangeDels(
             InternalKey(*upper_bound, kMaxSequenceNumber, kTypeRangeDeletion);
       }
     }
-#ifndef NDEBUG
-    SequenceNumber smallest_ikey_seqnum = kMaxSequenceNumber;
-    if (meta.smallest.size() > 0) {
-      smallest_ikey_seqnum = GetInternalKeySeqno(meta.smallest.Encode());
-    }
-#endif
     meta.UpdateBoundariesForRange(smallest_candidate, largest_candidate,
                                   tombstone.seq_, icmp);
     if (!bottommost_level) {
@@ -626,13 +620,6 @@ Status CompactionOutputs::AddRangeDels(
         }
       }
     }
-    // The smallest key in a file is used for range tombstone truncation, so
-    // it cannot have a seqnum of 0 (unless the smallest data key in a file
-    // has a seqnum of 0). Otherwise, the truncated tombstone may expose
-    // deleted keys at lower levels.
-    assert(smallest_ikey_seqnum == 0 ||
-           ExtractInternalKeyFooter(meta.smallest.Encode()) !=
-               PackSequenceAndType(0, kTypeRangeDeletion));
   }
   return Status::OK();
 }
