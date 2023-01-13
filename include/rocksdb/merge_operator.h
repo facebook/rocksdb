@@ -115,6 +115,18 @@ class MergeOperator : public Customizable {
     // client can set this field to the operand (or existing_value) instead of
     // using new_value.
     Slice& existing_operand;
+    // Indicates a specific failure reason. It is only meaningful to provide a
+    // failure reason when returning `false` from the API populating the
+    // `MergeOperationOutput`. Currently RocksDB operations handle these
+    // `Status` values as follows:
+    //
+    // - `Status::OK()`: fallback to default (`Status::Corruption()`)
+    // - `Status::Corruption()`: any op fails with `Status::Corruption()`
+    // - `Status::Aborted()`:
+    //   - Background ops (flush/compaction) copy the original input operands to
+    //     the output file without any merging
+    //   - User read ops fail with `Status::Aborted()`
+    Status status;
   };
 
   // This function applies a stack of merge operands in chronological order
