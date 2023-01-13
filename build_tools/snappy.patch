@@ -1,0 +1,11 @@
+--- snappy.cc.orig	2023-01-13 10:58:55.195720145 +0530
++++ snappy.cc	2023-01-13 10:59:30.055570184 +0530
+@@ -1361,7 +1361,7 @@
+ #if __cplusplus >= 201402L
+ constexpr bool VerifyCalculateNeeded() {
+   for (int i = 0; i < 1; i++) {
+-    if (CalculateNeeded(i) != (char_table[i] >> 11) + 1) return false;
++    if (CalculateNeeded(i) != (uint32_t)(char_table[i] >> 11) + 1) return false;
+   }
+   return true;
+ }

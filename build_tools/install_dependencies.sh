@@ -3,6 +3,9 @@
 
 set -e
 
+
+SCRIPT_DIR=$(dirname $(readlink -f $0))
+
 J=-j8
 
 ## Install static dependencies for compiling static rocksdbjava with cmake.
@@ -119,6 +122,28 @@ with_jemalloc()  # makes libjemalloc_pic.a
     cmakeflags JEMALLOC -DJeMalloc_INCLUDE_DIRS=$DIR/$DEST/include -DJeMalloc_LIBRARIES=$DIR/$DEST/lib/libjemalloc_pic.a
 }
 
+with_snappy()
+{
+    ORG=google
+    REPO=snappy
+    TAG=1.1.9
+    DEST=snappy
+    ROOT=$REPO-$TAG
+
+    echo Compiling $ORG/$REPO[$TAG] to $DIR/$DEST/ >&2
+    cd $DIR/
+    download $REPO-$TAG.tar.gz https://github.com/$ORG/$REPO/archive/refs/tags/$TAG.tar.gz
+    rm -fr $REPO-$TAG $DIR/$DEST/
+    tar xf $REPO-$TAG.tar.gz
+    cd $ROOT
+
+    patch -p 0 < $SCRIPT_DIR/snappy.patch
+    cmake -B build -DSNAPPY_BUILD_TESTS=OFF -DSNAPPY_BUILD_BENCHMARKS=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=$DIR/$DEST/ -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_CXX_COMPILER_ID=Clang
+    cmake --build build/ -t install -v --config Release
+
+    cmakeflags SNAPPY -DSNAPPY_INCLUDE=$DIR/$DEST/include -DSNAPPY_LIBS=$DIR/$DEST/lib/libsnappy.a
+
+}
 with_jni() # ensure JAVA_HOME is set.
 {
     if [ -z "$JAVA_HOME" ]
@@ -148,6 +173,7 @@ do
         uring|iouring)  with_iouring   > $DIR/iouring.log;;
         lz4)            with_lz4       > $DIR/lz4.log;;
         jemalloc)       with_jemalloc  > $DIR/jemalloc.log;;
+        snappy)         with_snappy    > $DIR/snappy.log;;
         *) usage;;
     esac
 done
