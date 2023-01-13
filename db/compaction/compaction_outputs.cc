@@ -607,15 +607,23 @@ Status CompactionOutputs::AddRangeDels(
         if (icmp.Compare(tombstone_end, meta.largest) > 0) {
           tombstone_end = meta.largest;
         }
-        SizeApproximationOptions approx_opts;
-        approx_opts.files_size_error_margin = 0.1;
-        auto approximate_covered_size =
-            compaction_->input_version()->version_set()->ApproximateSize(
-                approx_opts, compaction_->input_version(),
-                tombstone_start.Encode(), tombstone_end.Encode(),
-                compaction_->output_level() + 1 /* start_level */,
-                -1 /* end_level */, kCompaction);
-        meta.compensated_range_deletion_size += approximate_covered_size;
+        // if tombstone_start >= tombstone_end, then either no key range is
+        // covered, or that they have the same user key. If they have the same
+        // user key, then the internal key range should only be within this
+        // level, and no keys from older levels is covered.
+        if (ucmp->CompareWithoutTimestamp(
+                ExtractUserKey(tombstone_start.Encode()),
+                ExtractUserKey(tombstone_end.user_key())) < 0) {
+          SizeApproximationOptions approx_opts;
+          approx_opts.files_size_error_margin = 0.1;
+          auto approximate_covered_size =
+              compaction_->input_version()->version_set()->ApproximateSize(
+                  approx_opts, compaction_->input_version(),
+                  tombstone_start.Encode(), tombstone_end.Encode(),
+                  compaction_->output_level() + 1 /* start_level */,
+                  -1 /* end_level */, kCompaction);
+          meta.compensated_range_deletion_size += approximate_covered_size;
+        }
       }
     }
     // The smallest key in a file is used for range tombstone truncation, so
