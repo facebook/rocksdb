@@ -39,8 +39,6 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit_handler.h"
-#include "table/compaction_merging_iterator.h"
-
 #if USE_COROUTINES
 #include "folly/experimental/coro/BlockingWait.h"
 #include "folly/experimental/coro/Collect.h"
@@ -6592,14 +6590,6 @@ InternalIterator* VersionSet::MakeInputIterator(
                                               c->num_input_levels() - 1
                                         : c->num_input_levels());
   InternalIterator** list = new InternalIterator*[space];
-  // First item in the pair is a pointer to range tombstones.
-  // Second item is a pointer to a member of a LevelIterator,
-  // that will be initialized to where CompactionMergingIterator stores
-  // pointer to its range tombstones. This is used by LevelIterator
-  // to update pointer to range tombstones as it traverse different SST files.
-  std::vector<
-      std::pair<TruncatedRangeDelIterator*, TruncatedRangeDelIterator***>>
-      range_tombstones;
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
@@ -6620,7 +6610,7 @@ InternalIterator* VersionSet::MakeInputIterator(
                   end.value(), fmd.smallest.user_key()) < 0) {
             continue;
           }
-          TruncatedRangeDelIterator* range_tombstone_iter = nullptr;
+
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
               cfd->internal_comparator(), fmd, range_del_agg,
@@ -6633,13 +6623,10 @@ InternalIterator* VersionSet::MakeInputIterator(
               MaxFileSizeForL0MetaPin(*c->mutable_cf_options()),
               /*smallest_compaction_key=*/nullptr,
               /*largest_compaction_key=*/nullptr,
-              /*allow_unprepared_value=*/false,
-              /*range_del_iter=*/&range_tombstone_iter);
-          range_tombstones.emplace_back(range_tombstone_iter, nullptr);
+              /*allow_unprepared_value=*/false);
         }
       } else {
         // Create concatenating iterator for the files from this level
-        TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr;
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
@@ -6648,15 +6635,14 @@ InternalIterator* VersionSet::MakeInputIterator(
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
             /*level=*/static_cast<int>(c->level(which)), range_del_agg,
-            c->boundaries(which), false, &tombstone_iter_ptr);
-        range_tombstones.emplace_back(nullptr, tombstone_iter_ptr);
+            c->boundaries(which));
       }
     }
   }
   assert(num <= space);
-  InternalIterator* result = NewCompactionMergingIterator(
-      &c->column_family_data()->internal_comparator(), list,
-      static_cast<int>(num), range_tombstones);
+  InternalIterator* result =
+      NewMergingIterator(&c->column_family_data()->internal_comparator(), list,
+                         static_cast<int>(num));
   delete[] list;
   return result;
 }

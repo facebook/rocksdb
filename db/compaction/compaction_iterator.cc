@@ -377,7 +377,6 @@ void CompactionIterator::NextFromInput() {
     value_ = input_.value();
     blob_value_.Reset();
     iter_stats_.num_input_records++;
-    is_range_del_ = input_.IsDeleteRangeSentinelKey();
 
     Status pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
     if (!pik_status.ok()) {
@@ -397,10 +396,7 @@ void CompactionIterator::NextFromInput() {
       break;
     }
     TEST_SYNC_POINT_CALLBACK("CompactionIterator:ProcessKV", &ikey_);
-    if (is_range_del_) {
-      validity_info_.SetValid(kRangeDeletion);
-      break;
-    }
+
     // Update input statistics
     if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion ||
         ikey_.type == kTypeDeletionWithTimestamp) {
@@ -622,14 +618,6 @@ void CompactionIterator::NextFromInput() {
 
       ParsedInternalKey next_ikey;
       AdvanceInputIter();
-      while (input_.Valid() && input_.IsDeleteRangeSentinelKey() &&
-             ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
-                 .ok() &&
-             cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
-        // skip range tombstone start keys with the same user key
-        // since they are not "real" point keys.
-        AdvanceInputIter();
-      }
 
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
@@ -637,7 +625,6 @@ void CompactionIterator::NextFromInput() {
           ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
           cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
-        assert(!input_.IsDeleteRangeSentinelKey());
 #ifndef NDEBUG
         const Compaction* c =
             compaction_ ? compaction_->real_compaction() : nullptr;
@@ -862,14 +849,12 @@ void CompactionIterator::NextFromInput() {
       // Note that a deletion marker of type kTypeDeletionWithTimestamp will be
       // considered to have a different user key unless the timestamp is older
       // than *full_history_ts_low_.
-      //
-      // Range tombstone start keys are skipped as they are not "real" keys.
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
              input_.Valid() &&
              (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                   .ok()) &&
              cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
-             (prev_snapshot == 0 || input_.IsDeleteRangeSentinelKey() ||
+             (prev_snapshot == 0 ||
               DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot))) {
         AdvanceInputIter();
       }
@@ -1162,12 +1147,10 @@ void CompactionIterator::DecideOutputLevel() {
 
 void CompactionIterator::PrepareOutput() {
   if (Valid()) {
-    if (LIKELY(!is_range_del_)) {
-      if (ikey_.type == kTypeValue) {
-        ExtractLargeValueIfNeeded();
-      } else if (ikey_.type == kTypeBlobIndex) {
-        GarbageCollectBlobIfNeeded();
-      }
+    if (ikey_.type == kTypeValue) {
+      ExtractLargeValueIfNeeded();
+    } else if (ikey_.type == kTypeBlobIndex) {
+      GarbageCollectBlobIfNeeded();
     }
 
     if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
@@ -1190,7 +1173,7 @@ void CompactionIterator::PrepareOutput() {
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ &&
         !output_to_penultimate_level_ &&
-        ikey_.sequence < preserve_time_min_seqno_ && !is_range_del_) {
+        ikey_.sequence < preserve_time_min_seqno_) {
       if (ikey_.type == kTypeDeletion ||
           (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
         ROCKS_LOG_FATAL(

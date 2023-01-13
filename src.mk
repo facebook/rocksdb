@@ -198,7 +198,6 @@ LIB_SOURCES =                                                   \
   table/get_context.cc                                          \
   table/iterator.cc                                             \
   table/merging_iterator.cc                                     \
-  table/compaction_merging_iterator.cc                          \
   table/meta_blocks.cc                                          \
   table/persistent_cache_helper.cc                              \
   table/plain/plain_table_bloom.cc                              \
