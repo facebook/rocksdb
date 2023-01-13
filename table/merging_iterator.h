@@ -12,7 +12,6 @@
 #include "db/range_del_aggregator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/types.h"
-#include "table/iterator_wrapper.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -90,83 +89,4 @@ class MergeIteratorBuilder {
       range_del_iter_ptrs_;
 };
 
-// For merging iterator to process range tombstones, we treat the start and end
-// keys of a range tombstone as point keys and put them into the minHeap/maxHeap
-// used in merging iterator. Take minHeap for example, we are able to keep track
-// of currently "active" range tombstones (the ones whose start keys are popped
-// but end keys are still in the heap) in `active_`. This `active_` set of range
-// tombstones is then used to quickly determine whether the point key at heap
-// top is deleted (by heap property, the point key at heap top must be within
-// internal key range of active range tombstones).
-//
-// The HeapItem struct represents 3 types of elements in the minHeap/maxHeap:
-// point key and the start and end keys of a range tombstone.
-struct HeapItem {
-  HeapItem() = default;
-
-  enum Type { ITERATOR, DELETE_RANGE_START, DELETE_RANGE_END };
-  IteratorWrapper iter;
-  size_t level = 0;
-  ParsedInternalKey parsed_ikey;
-  std::string range_tombstone_key;
-  // Will be overwritten before use, initialize here so compiler does not
-  // complain.
-  Type type = ITERATOR;
-
-  explicit HeapItem(size_t _level, InternalIteratorBase<Slice>* _iter)
-      : level(_level), type(Type::ITERATOR) {
-    iter.Set(_iter);
-  }
-
-  void SetTombstoneKey(ParsedInternalKey&& pik) {
-    // op_type is already initialized in MergingIterator::Finish().
-    parsed_ikey.user_key = pik.user_key;
-    parsed_ikey.sequence = pik.sequence;
-  }
-
-  void SetTombstoneForCompaction(const ParsedInternalKey&& pik) {
-    range_tombstone_key.clear();
-    AppendInternalKey(&range_tombstone_key, pik);
-  }
-
-  Slice key() const {
-    if (LIKELY(type == ITERATOR)) {
-      return iter.key();
-    }
-    return range_tombstone_key;
-  }
-
-  bool IsDeleteRangeSentinelKey() const {
-    if (LIKELY(type == ITERATOR)) {
-      return iter.IsDeleteRangeSentinelKey();
-    }
-    return false;
-  }
-};
-
-class MinHeapItemComparator {
- public:
-  explicit MinHeapItemComparator(const InternalKeyComparator* comparator)
-      : comparator_(comparator) {}
-  bool operator()(HeapItem* a, HeapItem* b) const {
-    if (LIKELY(a->type == HeapItem::ITERATOR)) {
-      if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->iter.key(), b->iter.key()) > 0;
-      } else {
-        return comparator_->Compare(a->iter.key(), b->parsed_ikey) > 0;
-      }
-    } else {
-      if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->parsed_ikey, b->iter.key()) > 0;
-      } else {
-        return comparator_->Compare(a->parsed_ikey, b->parsed_ikey) > 0;
-      }
-    }
-  }
-
- private:
-  const InternalKeyComparator* comparator_;
-};
-
-using MergerMinIterHeap = BinaryHeap<HeapItem*, MinHeapItemComparator>;
 }  // namespace ROCKSDB_NAMESPACE
