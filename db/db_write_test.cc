@@ -513,6 +513,10 @@ class DummyListener : public ReplicationLogListener {
 // verifies that when `disable_write_stall` is the only cf option we set,
 // there won't be manifest updates
 TEST_P(DBWriteTest, DisableWriteStallNotWriteManifest) {
+  // pipelined write is conflicted with atomic flush
+  if (GetParam() == kPipelinedWrite) {
+    return ;
+  }
   Options options = GetOptions();
   options.disable_write_stall = false;
   // make sure manifest update seq is bumped
