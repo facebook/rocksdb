@@ -169,6 +169,8 @@ static inline void AsmVolatilePause() {
   asm volatile("isb");
 #elif defined(__powerpc64__)
   asm volatile("or 27,27,27");
+#elif defined(__loongarch64)
+  asm volatile("dbar 0");
 #endif
   // it's okay for other platforms to be no-ops
 }

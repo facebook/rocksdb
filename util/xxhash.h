@@ -1287,7 +1287,8 @@ XXH_PUBLIC_API XXH128_hash_t XXH128(const void* data, size_t len, XXH64_hash_t s
 
 #ifndef XXH_FORCE_ALIGN_CHECK  /* can be defined externally */
 #  if defined(__i386)  || defined(__x86_64__) || defined(__aarch64__) \
-   || defined(_M_IX86) || defined(_M_X64)     || defined(_M_ARM64) /* visual */
+   || defined(_M_IX86) || defined(_M_X64)     || defined(_M_ARM64) \
+   || defined(__loongarch64) /* visual */
 #    define XXH_FORCE_ALIGN_CHECK 0
 #  else
 #    define XXH_FORCE_ALIGN_CHECK 1
