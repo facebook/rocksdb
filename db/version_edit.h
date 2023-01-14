@@ -282,6 +282,7 @@ struct FileMetaData {
     if (largest.size() == 0 || icmp.Compare(largest, end) < 0) {
       largest = end;
     }
+    assert(icmp.Compare(smallest, largest) <= 0);
     fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
     fd.largest_seqno = std::max(fd.largest_seqno, seqno);
   }
