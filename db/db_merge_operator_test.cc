@@ -202,6 +202,58 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 
+TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
+  const int kNumOperands = 3;
+  Options options;
+  options.merge_operator.reset(new TestPutOperator());
+  options.env = env_;
+  Reopen(options);
+
+  for (int i = 0; i < kNumOperands; ++i) {
+    if (i == 0) {
+      ASSERT_OK(Merge("k1", "aborted_with_status"));
+    } else {
+      ASSERT_OK(Merge("k1", "ok"));
+    }
+  }
+
+  auto check_query = [&](Slice key) {
+    {
+      std::string value;
+      ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsAborted());
+    }
+
+    {
+      std::unique_ptr<Iterator> iter;
+      iter.reset(db_->NewIterator(ReadOptions()));
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->status().IsAborted());
+    }
+
+    std::vector<PinnableSlice> values(kNumOperands);
+    GetMergeOperandsOptions merge_operands_info;
+    merge_operands_info.expected_max_number_of_operands = kNumOperands;
+    int num_operands_found = 0;
+    ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                    key, values.data(), &merge_operands_info,
+                                    &num_operands_found));
+    ASSERT_EQ(kNumOperands, num_operands_found);
+    for (int i = 0; i < num_operands_found; ++i) {
+      if (i == 0) {
+        ASSERT_EQ(values[i], "aborted_with_status");
+      } else {
+        ASSERT_EQ(values[i], "ok");
+      }
+    }
+  };
+
+  check_query("k1");
+  ASSERT_OK(Flush());
+  check_query("k1");
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  check_query("k1");
+}
+
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
                                  public testing::WithParamInterface<bool> {
  public:
