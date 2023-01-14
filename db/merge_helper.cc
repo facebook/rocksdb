@@ -106,9 +106,18 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
 
   if (!success) {
     RecordTick(statistics, NUMBER_MERGE_FAILURES);
-    return Status::Corruption("Error: Could not perform merge.");
+    // Only specific `Status`es currently propagated are `Status::Corruption()`s
+    // and `Status::Aborted()`s (see `MergeOperationOutput::status` API doc).
+    // For anything else (should be only `Status::OK()`), return a generic
+    // `Status::Corruption()`.
+    if (!merge_out.status.IsCorruption() && !merge_out.status.IsAborted()) {
+      assert(merge_out.status.ok());
+      return Status::Corruption("Error: Could not perform merge.");
+    }
+    return merge_out.status;
   }
 
+  assert(merge_out.status.ok());
   return Status::OK();
 }
 
