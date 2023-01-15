@@ -289,10 +289,24 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   check_query("k1");
   ASSERT_OK(Flush());
   check_query("k1");
-  CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
   check_query("k1");
+
+  // Case 4: Verify obsolete data removal still happens
+  ASSERT_OK(Delete("k1"));
+  ASSERT_OK(Delete("k2"));
+  ASSERT_EQ("NOT_FOUND", Get("k1"));
+  ASSERT_EQ("NOT_FOUND", Get("k2"));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction =
+      BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("", FilesPerLevel());
 }
 
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
