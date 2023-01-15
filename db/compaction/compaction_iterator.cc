@@ -178,6 +178,12 @@ void CompactionIterator::Next() {
       ikey_.user_key = current_key_.GetUserKey();
       validity_info_.SetValid(ValidContext::kMerge1);
     } else {
+      if (merge_until_status_.IsMergeInProgress()) {
+        // only merge operands were produced. reset the user key, since the
+        // batch produced by the merge operator should not shadow any keys
+        // coming after the merges
+        has_current_user_key_ = false;
+      }
       // We consumed all pinned merge operands, release pinned iterators
       pinned_iters_mgr_.ReleasePinnedData();
       // MergeHelper moves the iterator to the first record after the merged
@@ -880,14 +886,15 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s = merge_helper_->MergeUntil(
+      merge_until_status_ = merge_helper_->MergeUntil(
           &input_, range_del_agg_, prev_snapshot, bottommost_level_,
           allow_data_in_errors_, blob_fetcher_.get(), full_history_ts_low_,
           prefetch_buffers_.get(), &iter_stats_);
       merge_out_iter_.SeekToFirst();
 
-      if (!s.ok() && !s.IsMergeInProgress()) {
-        status_ = s;
+      if (!merge_until_status_.ok() &&
+          !merge_until_status_.IsMergeInProgress()) {
+        status_ = merge_until_status_;
         return;
       } else if (merge_out_iter_.Valid()) {
         // NOTE: key, value, and ikey_ refer to old entries.
