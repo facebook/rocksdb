@@ -73,7 +73,8 @@ class GetContext {
     kFound,
     kDeleted,
     kCorrupt,
-    kMerge,  // saver contains the current merge result (the operands)
+    kMerge,        // saver contains the current merge result (the operands)
+    kMergeFailed,  // `merge_status_` contains the non-OK status
     kUnexpectedBlobIndex,
   };
   GetContextStats get_context_stats_;
@@ -154,6 +155,8 @@ class GetContext {
     ts_from_rangetombstone_ = true;
   }
 
+  Status merge_status() { return merge_status_; }
+
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
   // If a non-null string is passed, all the SaveValue calls will be
@@ -200,6 +203,7 @@ class GetContext {
   bool ts_from_rangetombstone_{false};
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
+  Status merge_status_;
   SequenceNumber* max_covering_tombstone_seq_;
   SystemClock* clock_;
   // If a key is found, seq_ will be set to the SequenceNumber of most recent
