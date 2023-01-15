@@ -295,10 +295,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         return s;
       }
 
-      // TODO(noetzli) If the merge operator returns false, we are currently
-      // (almost) silently dropping the put/delete. That's probably not what we
-      // want. Also if we're in compaction and it's a put, it would be nice to
-      // run compaction filter on it.
+      // TODO: if we're in compaction and it's a put, it would be nice to run
+      // compaction filter on it.
       std::string merge_result;
 
       if (range_del_agg &&
@@ -377,10 +375,14 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         merge_context_.Clear();
         keys_.emplace_front(std::move(original_key));
         merge_context_.PushOperand(merge_result);
-      }
 
-      // move iter to the next entry
-      iter->Next();
+        // move iter to the next entry
+        iter->Next();
+      } else if (s.IsAborted()) {
+        // Change to `Status::OK()` so the merge operands will be output.
+        // Leave `iter` at the non-merge entry so it will be output after.
+        s = Status::OK();
+      }
       return s;
     } else {
       // hit a merge
@@ -506,6 +508,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       merge_context_.Clear();
       keys_.emplace_front(std::move(original_key));
       merge_context_.PushOperand(merge_result);
+    } else if (s.IsAborted()) {
+      // Change to `Status::OK()` so the merge operands will be output.
+      s = Status::OK();
     }
   } else {
     // We haven't seen the beginning of the key nor a Put/Delete.
