@@ -209,6 +209,7 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   options.env = env_;
   Reopen(options);
 
+  // Case 1: Pure `Merge()`
   for (int i = 0; i < kNumOperands; ++i) {
     if (i == 0) {
       ASSERT_OK(Merge("k1", "aborted_with_status"));
@@ -250,10 +251,29 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   check_query("k1");
   ASSERT_OK(Flush());
   check_query("k1");
+  {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+  check_query("k1");
+
+  // Case 2: `Merge()`s on top of a `Status::Aborted()`-triggering `Put()`
+  for (int i = 0; i < kNumOperands; ++i) {
+    if (i == 0) {
+      ASSERT_OK(Put("k2", "aborted_with_status"));
+    } else {
+      ASSERT_OK(Merge("k2", "ok"));
+    }
+  }
+
+  check_query("k2");
+  ASSERT_OK(Flush());
+  check_query("k2");
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  check_query("k1");
+  check_query("k2");
 }
 
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
