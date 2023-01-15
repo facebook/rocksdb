@@ -209,15 +209,6 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   options.env = env_;
   Reopen(options);
 
-  // Case 1: Pure `Merge()`
-  for (int i = 0; i < kNumOperands; ++i) {
-    if (i == 0) {
-      ASSERT_OK(Merge("k1", "aborted_with_status"));
-    } else {
-      ASSERT_OK(Merge("k1", "ok"));
-    }
-  }
-
   auto check_query = [&](Slice key) {
     {
       std::string value;
@@ -248,6 +239,14 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
     }
   };
 
+  // Case 1: Pure `Merge()`
+  for (int i = 0; i < kNumOperands; ++i) {
+    if (i == 0) {
+      ASSERT_OK(Merge("k1", "aborted_with_status"));
+    } else {
+      ASSERT_OK(Merge("k1", "ok"));
+    }
+  }
   check_query("k1");
   ASSERT_OK(Flush());
   check_query("k1");
@@ -267,7 +266,6 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
       ASSERT_OK(Merge("k2", "ok"));
     }
   }
-
   check_query("k2");
   ASSERT_OK(Flush());
   check_query("k2");
