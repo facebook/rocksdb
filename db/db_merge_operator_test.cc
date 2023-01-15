@@ -202,6 +202,8 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 
+#ifndef ROCKSDB_LITE
+
 TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   const int kNumOperands = 3;
   Options options;
@@ -307,6 +309,8 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("", FilesPerLevel());
 }
+
+#endif  // ROCKSDB_LITE
 
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
                                  public testing::WithParamInterface<bool> {
