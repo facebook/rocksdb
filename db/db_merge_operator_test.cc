@@ -221,7 +221,7 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   auto check_query = [&](Slice key) {
     {
       std::string value;
-      ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsAborted());
+      ASSERT_TRUE(db_->Get(ReadOptions(), key, &value).IsAborted());
     }
 
     {
@@ -253,7 +253,8 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   check_query("k1");
   {
     CompactRangeOptions cro;
-    cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
     ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   }
   check_query("k1");
