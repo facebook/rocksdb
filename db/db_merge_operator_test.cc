@@ -250,7 +250,9 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   check_query("k1");
   ASSERT_OK(Flush());
   check_query("k1");
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   check_query("k1");
 }
 
