@@ -303,8 +303,7 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   ASSERT_EQ("NOT_FOUND", Get("k1"));
   ASSERT_EQ("NOT_FOUND", Get("k2"));
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction =
-      BottommostLevelCompaction::kForceOptimized;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("", FilesPerLevel());
 }
