@@ -85,8 +85,7 @@ class MergeHelper {
   //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
-  // - MergeInProgress: Put/Delete not encountered, and didn't reach the start
-  //   of key's history. Output consists of merge operands only.
+  // - MergeInProgress: Output consists of merge operands only.
   // - Corruption: Merge operator reported unsuccessful merge or a corrupted
   //   key has been encountered and not expected (applies only when compiling
   //   with asserts removed).

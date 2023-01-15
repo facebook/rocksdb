@@ -379,9 +379,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         // move iter to the next entry
         iter->Next();
       } else if (s.IsAborted()) {
-        // Change to `Status::OK()` so the merge operands will be output.
-        // Leave `iter` at the non-merge entry so it will be output after.
-        s = Status::OK();
+        // Change to `Status::MergeInProgress()` to denote output consists of
+        // merge operands only. Leave `iter` at the non-merge entry so it will
+        // be output after.
+        s = Status::MergeInProgress();
       }
       return s;
     } else {
@@ -509,8 +510,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       keys_.emplace_front(std::move(original_key));
       merge_context_.PushOperand(merge_result);
     } else if (s.IsAborted()) {
-      // Change to `Status::OK()` so the merge operands will be output.
-      s = Status::OK();
+      // Change to `Status::MergeInProgress()` to denote output consists of
+      // merge operands only.
+      s = Status::MergeInProgress();
     }
   } else {
     // We haven't seen the beginning of the key nor a Put/Delete.
