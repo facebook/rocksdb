@@ -75,9 +75,6 @@ GetContext::GetContext(
     *seq_ = kMaxSequenceNumber;
   }
   sample_ = should_sample_file_read();
-  // The default `merge_status_` does not need to be checked since it is
-  // overwritten as soon as merge operator is used
-  merge_status_.PermitUncheckedError();
 }
 
 GetContext::GetContext(const Comparator* ucmp,

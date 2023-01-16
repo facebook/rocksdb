@@ -122,6 +122,14 @@ class GetContext {
 
   GetContext() = delete;
 
+  ~GetContext() {
+    // The default `merge_status_` does not need to be checked since it is
+    // overwritten as soon as merge operator is used. This might be better off
+    // in the constructor but that currently has challenges when GetContext is
+    // used in a vector and the vector has underlying movements
+    merge_status_.PermitUncheckedError();
+  }
+
   // This can be called to indicate that a key may be present, but cannot be
   // confirmed due to IO not allowed
   void MarkKeyMayExist();
