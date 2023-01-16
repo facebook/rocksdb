@@ -23,14 +23,26 @@ typedef struct rocksdb_input_slice {
 } rocksdb_input_slice_t;
 
 typedef struct rocksdb_output_slice {
+  char* data;
+  size_t capacity;
+  size_t size;
+} rocksdb_output_slice_t;
+
+typedef struct rocksdb_pinnable_slice {
   const char* data;
   size_t size;
   ROCKSDB_NAMESPACE::PinnableSlice* pinnable_slice;
-} rocksdb_output_slice_t;
+  bool is_pinned;
+} rocksdb_pinnable_slice_t;
 
-extern "C" int rocksdb_ffi_get(ROCKSDB_NAMESPACE::DB* db,
+extern "C" int rocksdb_ffi_get_pinnable(ROCKSDB_NAMESPACE::DB* db,
                                ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
                                rocksdb_input_slice_t* key,
-                               rocksdb_output_slice_t* value);
+                               rocksdb_pinnable_slice_t* value);
 
-extern "C" int rocksdb_ffi_reset_output(rocksdb_output_slice_t* value);
+extern "C" int rocksdb_ffi_reset_pinnable(rocksdb_pinnable_slice_t* value);
+
+extern "C" int rocksdb_ffi_get_output(ROCKSDB_NAMESPACE::DB* db,
+                                    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
+                                    rocksdb_input_slice_t* key,
+                                    rocksdb_output_slice_t* value);

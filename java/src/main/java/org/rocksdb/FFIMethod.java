@@ -29,16 +29,21 @@ public class FFIMethod {
 
   static {
     try {
-      Get = Lookup("rocksdb_ffi_get",
+      GetPinnable = Lookup("rocksdb_ffi_get_pinnable",
           FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS,
               ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-      ResetOutput = Lookup("rocksdb_ffi_reset_output",
+      ResetPinnable = Lookup("rocksdb_ffi_reset_pinnable",
           FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+      GetOutput = Lookup("rocksdb_ffi_get_output",
+          FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS,
+              ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     } catch (final RocksDBException e) {
       throw new RuntimeException(e);
     }
   }
 
-  public static MethodHandle Get;
-  public static MethodHandle ResetOutput;
+  public static MethodHandle GetPinnable;
+  public static MethodHandle ResetPinnable;
+
+  public static MethodHandle GetOutput;
 }

@@ -5,11 +5,16 @@
 
 package org.rocksdb;
 
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.rocksdb.util.FFIUtil.usingFFI;
 
+import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -34,7 +39,7 @@ public class FFIDBTest {
         assertThat(getPinnableSlice.code()).isEqualTo(Status.Code.Ok);
         assertThat(getPinnableSlice.pinnableSlice().get().data()).isNotNull();
         final byte[] bytes =
-            getPinnableSlice.pinnableSlice().get().data().toArray(ValueLayout.JAVA_BYTE);
+            getPinnableSlice.pinnableSlice().get().data().toArray(JAVA_BYTE);
         getPinnableSlice.pinnableSlice().get().reset();
         assertThat(new String(bytes, UTF_8)).isEqualTo("value1");
       } catch (final RocksDBException e) {
@@ -59,6 +64,41 @@ public class FFIDBTest {
         throw new RuntimeException(e);
       }
 
+      return null;
+    });
+  }
+
+  @Test
+  public void getOutputSlice() throws RocksDBException {
+    usingFFI(dbFolder, dbFFI -> {
+      try {
+        final RocksDB db = dbFFI.getRocksDB();
+        db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
+        final MemorySegment outputSegment = dbFFI.allocateSegment(32);
+
+        var getOutputSlice = dbFFI.getOutputSlice(outputSegment, "key2".getBytes());
+        assertThat(getOutputSlice.code()).isEqualTo(Status.Code.NotFound);
+        assertThat(getOutputSlice.outputSlice().isPresent()).isFalse();
+
+        getOutputSlice = dbFFI.getOutputSlice(outputSegment, "key1".getBytes());
+        assertThat(getOutputSlice.code()).isEqualTo(Status.Code.Ok);
+        assertThat(getOutputSlice.outputSlice().isPresent()).isTrue();
+        var outputSlice = getOutputSlice.outputSlice().get();
+        assertThat(outputSlice.outputSize()).isEqualTo("value1".getBytes().length);
+        var value = outputSlice.outputSegment().toArray(JAVA_BYTE);
+        assertThat(value).startsWith("value1".getBytes(UTF_8));
+
+        final MemorySegment shortOutputSegment = dbFFI.allocateSegment(5);
+        getOutputSlice = dbFFI.getOutputSlice(shortOutputSegment, "key1".getBytes());
+        assertThat(getOutputSlice.code()).isEqualTo(Status.Code.Ok);
+        assertThat(getOutputSlice.outputSlice().isPresent()).isTrue();
+        outputSlice = getOutputSlice.outputSlice().get();
+        assertThat(outputSlice.outputSize()).isEqualTo("value1".getBytes().length);
+        value = outputSlice.outputSegment().toArray(JAVA_BYTE);
+        assertThat(value).startsWith("value".getBytes(UTF_8));
+      } catch (final RocksDBException e) {
+        throw new RuntimeException(e);
+      }
       return null;
     });
   }

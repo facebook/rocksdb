@@ -153,6 +153,59 @@ Try again with blackholes and random reads
 java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,32768 -p columnFamilyTestType="no_column_family" org.rocksdb.jmh.GetBenchmarks
 ```
 
+Benchmark                                      (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt       Score       Error  Units
+GetBenchmarks.ffiGet                                 no_column_family        1000        128         4096  thrpt   25  217876.519 ±  3309.037  ops/s
+GetBenchmarks.ffiGet                                 no_column_family        1000        128        32768  thrpt   25   73455.880 ±   841.959  ops/s
+GetBenchmarks.ffiGet                                 no_column_family      100000        128         4096  thrpt   25  186084.217 ±  2754.198  ops/s
+GetBenchmarks.ffiGet                                 no_column_family      100000        128        32768  thrpt   25   71162.465 ±   694.022  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128         4096  thrpt   10  329102.456 ± 14533.886  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128        32768  thrpt   12  309860.938 ± 11869.614  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128         4096  thrpt   20  265861.892 ±  9518.749  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128        32768  thrpt   25  247915.935 ±  8198.503  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family        1000        128         4096  thrpt   25  211490.769 ±  4737.985  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family        1000        128        32768  thrpt   25   73436.235 ±   625.641  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family      100000        128         4096  thrpt   25  154337.979 ±  7357.341  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family      100000        128        32768  thrpt   25   64663.287 ±   532.092  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128         4096  thrpt   16  277313.829 ± 13468.979  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128        32768  thrpt   25  124648.924 ±  4263.363  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128         4096  thrpt   25  221155.515 ±  5350.733  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128        32768  thrpt   25  120291.800 ±  3158.055  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128         4096  thrpt   20  264165.834 ± 12585.443  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128        32768  thrpt   25  134182.261 ±  3124.800  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128         4096  thrpt   25  181692.741 ±  6555.699  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128        32768  thrpt   25  102209.776 ±  2383.202  ops/s
+GetBenchmarks.get                                    no_column_family        1000        128         4096  thrpt   25  435813.818 ±  6681.278  ops/s
+GetBenchmarks.get                                    no_column_family        1000        128        32768  thrpt   25   33807.290 ±   339.596  ops/s
+GetBenchmarks.get                                    no_column_family      100000        128         4096  thrpt   25   79340.105 ±  1234.592  ops/s
+GetBenchmarks.get                                    no_column_family      100000        128        32768  thrpt   25   32802.629 ±   239.976  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128         4096  thrpt   25  609231.502 ± 11054.486  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128        32768  thrpt   25   44448.275 ±   328.637  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128         4096  thrpt   25   89325.742 ±  1655.260  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128        32768  thrpt   25   42635.926 ±   245.988  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128         4096  thrpt   25  586584.027 ±  3552.413  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128        32768  thrpt   25   54566.007 ±   584.362  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128         4096  thrpt   25   81700.797 ±   747.270  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128        32768  thrpt   25   39924.987 ±   339.746  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family        1000        128         4096  thrpt   25  590154.718 ±  3838.651  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family        1000        128        32768  thrpt   25   44034.334 ±   194.302  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family      100000        128         4096  thrpt   25   91288.859 ±  1165.102  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family      100000        128        32768  thrpt   25   41693.055 ±   401.816  ops/s
+
+
+Mac, quick test before rebuild:
+```bash
+java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,32768 -p columnFamilyTestType="no_column_family" GetBenchmarks.ffiPreallocatedGet -wi 1 -to 1m -i 1
+```
+Benchmark                               (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt       Score       Error  Units
+GetBenchmarks.ffiPreallocatedGet              no_column_family        1000        128         4096  thrpt    5  682075.182 ± 52066.697  ops/s
+GetBenchmarks.ffiPreallocatedGet              no_column_family        1000        128        32768  thrpt    5  372018.275 ±  6886.836  ops/s
+GetBenchmarks.ffiPreallocatedGet              no_column_family      100000        128         4096  thrpt    5  591213.923 ± 24094.153  ops/s
+GetBenchmarks.ffiPreallocatedGet              no_column_family      100000        128        32768  thrpt    5  314162.618 ±  8974.219  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom        no_column_family        1000        128         4096  thrpt    5  663096.167 ± 71197.629  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom        no_column_family        1000        128        32768  thrpt    5  373251.122 ±  6185.674  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom        no_column_family      100000        128         4096  thrpt    5  381631.337 ±  5170.190  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom        no_column_family      100000        128        32768  thrpt    5  255783.037 ±  8470.694  ops/s
+
 ## Appendix - Java 19 installation
 
 I followed the instructions to install [Azul](https://docs.azul.com/core/zulu-openjdk/install/debian). Then you still need to pick the right java locally:

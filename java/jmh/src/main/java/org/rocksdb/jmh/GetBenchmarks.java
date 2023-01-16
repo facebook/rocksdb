@@ -9,6 +9,8 @@ package org.rocksdb.jmh;
 import static org.rocksdb.util.KVUtils.ba;
 
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.MemorySession;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,10 +18,25 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.openjdk.jmh.annotations.*;
+
+import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.Level;
+import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.infra.Blackhole;
-import org.rocksdb.*;
+import org.rocksdb.ColumnFamilyDescriptor;
+import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.DBOptions;
+import org.rocksdb.FFIDB;
+import org.rocksdb.FFIDB.GetOutputSlice;
 import org.rocksdb.FFIDB.GetPinnableSlice;
+import org.rocksdb.FlushOptions;
+import org.rocksdb.ReadOptions;
+import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
 import org.rocksdb.util.FileUtils;
 
 @State(Scope.Benchmark)
@@ -52,6 +69,7 @@ public class GetBenchmarks {
   private ByteBuffer valueBuf;
   private byte[] keyArr;
   private byte[] valueArr;
+  private MemorySegment outputSlice;
 
   @Setup(Level.Trial)
   public void setup() throws IOException, RocksDBException {
@@ -114,6 +132,8 @@ public class GetBenchmarks {
     keyBuf.flip();
     valueBuf.put(valueArr);
     valueBuf.flip();
+
+    outputSlice = MemorySession.openImplicit().allocate(valueSize);
   }
 
   @TearDown(Level.Trial)
@@ -296,5 +316,12 @@ public class GetBenchmarks {
     final GetPinnableSlice result = dbFFI.getPinnableSlice(getColumnFamily(), getKeyArr());
     blackhole.consume(result);
     result.pinnableSlice().get().reset();
+  }
+
+  @Benchmark
+  public void ffiGetOutputSlice(Blackhole blackhole) throws RocksDBException {
+    final GetOutputSlice result = dbFFI.getOutputSlice(getColumnFamily(), outputSlice, getKeyArr());
+    blackhole.consume(result);
+    blackhole.consume(outputSlice);
   }
 }

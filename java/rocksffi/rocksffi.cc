@@ -13,10 +13,14 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 
-extern "C" int rocksdb_ffi_get(ROCKSDB_NAMESPACE::DB* db,
+/**
+ * @brief get the value at the key, returning a (possibly pinned) slice
+ *
+ */
+extern "C" int rocksdb_ffi_get_pinnable(ROCKSDB_NAMESPACE::DB* db,
                                ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
                                rocksdb_input_slice_t* key,
-                               rocksdb_output_slice_t* value) {
+                               rocksdb_pinnable_slice_t* value) {
   ROCKSDB_NAMESPACE::ReadOptions read_options;
   ROCKSDB_NAMESPACE::Slice key_slice(key->data, key->size);
   ROCKSDB_NAMESPACE::PinnableSlice* value_slice =
@@ -26,12 +30,38 @@ extern "C" int rocksdb_ffi_get(ROCKSDB_NAMESPACE::DB* db,
     value->data = value_slice->data();
     value->size = value_slice->size();
     value->pinnable_slice = value_slice;
+    value->is_pinned = value_slice->IsPinned();
   } else {
     delete value_slice;
   }
   return status.code();
 }
 
-extern "C" int rocksdb_ffi_reset_output(rocksdb_output_slice_t* /*value*/) {
+extern "C" int rocksdb_ffi_reset_pinnable(rocksdb_pinnable_slice_t* value) {
+  auto* value_slice = value->pinnable_slice;
+  delete value_slice;
   return ROCKSDB_NAMESPACE::Status::Code::kOk;
+}
+
+/**
+ * @brief get, returning the value copied into the supplied value buffer
+ *
+ * Because there is only ever 1 transition of the Java/C++ boundary,
+ * this may be more efficient than the pinnable slice version for small value
+ * sizes.
+ */
+extern "C" int rocksdb_ffi_get_output(ROCKSDB_NAMESPACE::DB* db,
+                                    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
+                                    rocksdb_input_slice_t* key,
+                                    rocksdb_output_slice_t* value) {
+  ROCKSDB_NAMESPACE::ReadOptions read_options;
+  ROCKSDB_NAMESPACE::Slice key_slice(key->data, key->size);
+  ROCKSDB_NAMESPACE::PinnableSlice value_slice;
+  auto status = db->Get(read_options, cf, key_slice, &value_slice);
+  if (status.ok()) {
+    auto copy_size = std::min(value_slice.size(), value->capacity);
+    std::memcpy(value->data, value_slice.data(), copy_size);
+    value->size = value_slice.size();
+  }
+  return status.code();
 }

@@ -35,12 +35,13 @@ public class FFILayout {
     static final VarHandle Size = Layout.varHandle(MemoryLayout.PathElement.groupElement("size"));
   };
 
-  public static class OutputSlice {
+  public static class PinnableSlice {
     static final GroupLayout Layout = MemoryLayout
                                           .structLayout(ValueLayout.ADDRESS.withName("data"),
                                               ValueLayout.JAVA_LONG.withName("size"),
-                                              ValueLayout.ADDRESS.withName("pinnable_slice"))
-                                          .withName("output_slice");
+                                              ValueLayout.ADDRESS.withName("pinnable_slice"),
+                                              ValueLayout.JAVA_BOOLEAN.withName("is_pinned"))
+                                          .withName("pinnable_slice");
 
     static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data"));
 
@@ -48,5 +49,23 @@ public class FFILayout {
 
     static final VarHandle PinnableSlice =
         Layout.varHandle(MemoryLayout.PathElement.groupElement("pinnable_slice"));
+
+    static final VarHandle IsPinned =
+        Layout.varHandle(MemoryLayout.PathElement.groupElement("is_pinned"));
   };
+
+  public static class OutputSlice {
+
+    static final GroupLayout Layout = MemoryLayout
+        .structLayout(ValueLayout.ADDRESS.withName("data"),
+            ValueLayout.JAVA_LONG.withName("capacity"),
+            ValueLayout.JAVA_LONG.withName("size"))
+        .withName("output_slice");
+
+    static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data"));
+
+    static final VarHandle Capacity = Layout.varHandle(MemoryLayout.PathElement.groupElement("capacity"));
+
+    static final VarHandle Size = Layout.varHandle(MemoryLayout.PathElement.groupElement("size"));
+  }
 }
