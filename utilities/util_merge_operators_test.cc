@@ -26,6 +26,7 @@ class UtilMergeOperatorTest : public testing::Test {
         key, &existing_value_slice, operands_slice, nullptr);
     MergeOperator::MergeOperationOutput merge_out(result, result_operand);
     merge_operator_->FullMergeV2(merge_in, &merge_out);
+    merge_out.status.PermitUncheckedError();
 
     if (result_operand.data()) {
       result.assign(result_operand.data(), result_operand.size());
@@ -44,6 +45,7 @@ class UtilMergeOperatorTest : public testing::Test {
                                                       operands_slice, nullptr);
     MergeOperator::MergeOperationOutput merge_out(result, result_operand);
     merge_operator_->FullMergeV2(merge_in, &merge_out);
+    merge_out.status.PermitUncheckedError();
 
     if (result_operand.data()) {
       result.assign(result_operand.data(), result_operand.size());
