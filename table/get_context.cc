@@ -76,7 +76,7 @@ GetContext::GetContext(
   }
   sample_ = should_sample_file_read();
   // The default `merge_status_` does not need to be checked since it is
-  // replaced as soon as merge operator is used
+  // overwritten as soon as merge operator is used
   merge_status_.PermitUncheckedError();
 }
 

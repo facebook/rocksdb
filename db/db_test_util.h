@@ -878,14 +878,16 @@ class TestPutOperator : public MergeOperator {
  public:
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const override {
-    static const std::map<std::string, Status> bad_operand_to_status = {
-        {"corrupted", Status::OK()},
-        {"corrupted_with_status", Status::Corruption()},
-        {"aborted_with_status", Status::Aborted()}};
+    static const std::map<std::string, Status::Code>
+        bad_operand_to_status_code = {
+            {"corrupted", Status::Code::kOk},
+            {"corrupted_with_status", Status::Code::kCorruption},
+            {"aborted_with_status", Status::Code::kAborted}};
     auto check_operand = [](Slice operand_val, Status* status) -> bool {
-      auto iter = bad_operand_to_status.find(operand_val.ToString());
-      if (iter != bad_operand_to_status.end()) {
-        *status = iter->second;
+      auto iter = bad_operand_to_status_code.find(operand_val.ToString());
+      if (iter != bad_operand_to_status_code.end()) {
+        *status = Status(iter->second, Status::SubCode::kNone,
+                         Status::Severity::kNoError, "" /* msg */);
         return false;
       }
       return true;
