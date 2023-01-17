@@ -123,90 +123,80 @@ public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] ke
 
 ## Benchmark Results
 
+Full benchmark on Ubuntu, with some new benchmarks.
+  - Random key order of `get()`
+  - black holes for all the data, to make sure nothing is optimized away
 ```bash
-java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,32768 -p columnFamilyTestType="no_column_family" GetBenchmarks.ffiGet GetBenchmarks.ffiPreallocatedGet GetBenchmarks.get GetBenchmarks.preallocatedByteBufferGet
-```
-Benchmark                                (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt       Score       Error  Units
-GetBenchmarks.ffiGet                           no_column_family        1000        128         4096  thrpt   25  216264.521 ±  5064.949  ops/s
-GetBenchmarks.ffiGet                           no_column_family        1000        128        32768  thrpt   25   72842.402 ±   962.917  ops/s
-GetBenchmarks.ffiGet                           no_column_family      100000        128         4096  thrpt   25  186828.809 ±  3783.224  ops/s
-GetBenchmarks.ffiGet                           no_column_family      100000        128        32768  thrpt   25   70760.762 ±   798.062  ops/s
-GetBenchmarks.ffiGetPinnableSlice              no_column_family        1000        128         4096  thrpt   11  323278.311 ± 15350.480  ops/s
-GetBenchmarks.ffiGetPinnableSlice              no_column_family        1000        128        32768  thrpt   11  320001.496 ± 12194.165  ops/s
-GetBenchmarks.ffiGetPinnableSlice              no_column_family      100000        128         4096  thrpt   20  259207.135 ± 13027.294  ops/s
-GetBenchmarks.ffiGetPinnableSlice              no_column_family      100000        128        32768  thrpt   25  243099.411 ±  8058.344  ops/s
-GetBenchmarks.ffiPreallocatedGet               no_column_family        1000        128         4096  thrpt   17  277894.024 ±  9749.571  ops/s
-GetBenchmarks.ffiPreallocatedGet               no_column_family        1000        128        32768  thrpt   25  128061.008 ±  5055.099  ops/s
-GetBenchmarks.ffiPreallocatedGet               no_column_family      100000        128         4096  thrpt   25  220541.564 ±  5584.571  ops/s
-GetBenchmarks.ffiPreallocatedGet               no_column_family      100000        128        32768  thrpt   25  121156.753 ±  2959.019  ops/s
-GetBenchmarks.get                              no_column_family        1000        128         4096  thrpt   25  425373.590 ± 11322.522  ops/s
-GetBenchmarks.get                              no_column_family        1000        128        32768  thrpt   25   33773.970 ±   248.451  ops/s
-GetBenchmarks.get                              no_column_family      100000        128         4096  thrpt   25   80270.043 ±  1452.013  ops/s
-GetBenchmarks.get                              no_column_family      100000        128        32768  thrpt   25   32793.864 ±   200.596  ops/s
-GetBenchmarks.preallocatedByteBufferGet        no_column_family        1000        128         4096  thrpt   25  614322.268 ±  4332.494  ops/s
-GetBenchmarks.preallocatedByteBufferGet        no_column_family        1000        128        32768  thrpt   25   44277.221 ±   363.899  ops/s
-GetBenchmarks.preallocatedByteBufferGet        no_column_family      100000        128         4096  thrpt   25   90748.674 ±  1539.931  ops/s
-GetBenchmarks.preallocatedByteBufferGet        no_column_family      100000        128        32768  thrpt   25   41996.446 ±   196.801  ops/s
-
-Try again with blackholes and random reads
-```bash
-java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,32768 -p columnFamilyTestType="no_column_family" org.rocksdb.jmh.GetBenchmarks
+java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,32768,130072 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks
 ```
 
-Benchmark                                      (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt       Score       Error  Units
-GetBenchmarks.ffiGet                                 no_column_family        1000        128         4096  thrpt   25  217876.519 ±  3309.037  ops/s
-GetBenchmarks.ffiGet                                 no_column_family        1000        128        32768  thrpt   25   73455.880 ±   841.959  ops/s
-GetBenchmarks.ffiGet                                 no_column_family      100000        128         4096  thrpt   25  186084.217 ±  2754.198  ops/s
-GetBenchmarks.ffiGet                                 no_column_family      100000        128        32768  thrpt   25   71162.465 ±   694.022  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128         4096  thrpt   10  329102.456 ± 14533.886  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128        32768  thrpt   12  309860.938 ± 11869.614  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128         4096  thrpt   20  265861.892 ±  9518.749  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128        32768  thrpt   25  247915.935 ±  8198.503  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family        1000        128         4096  thrpt   25  211490.769 ±  4737.985  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family        1000        128        32768  thrpt   25   73436.235 ±   625.641  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family      100000        128         4096  thrpt   25  154337.979 ±  7357.341  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family      100000        128        32768  thrpt   25   64663.287 ±   532.092  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128         4096  thrpt   16  277313.829 ± 13468.979  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128        32768  thrpt   25  124648.924 ±  4263.363  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128         4096  thrpt   25  221155.515 ±  5350.733  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128        32768  thrpt   25  120291.800 ±  3158.055  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128         4096  thrpt   20  264165.834 ± 12585.443  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128        32768  thrpt   25  134182.261 ±  3124.800  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128         4096  thrpt   25  181692.741 ±  6555.699  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128        32768  thrpt   25  102209.776 ±  2383.202  ops/s
-GetBenchmarks.get                                    no_column_family        1000        128         4096  thrpt   25  435813.818 ±  6681.278  ops/s
-GetBenchmarks.get                                    no_column_family        1000        128        32768  thrpt   25   33807.290 ±   339.596  ops/s
-GetBenchmarks.get                                    no_column_family      100000        128         4096  thrpt   25   79340.105 ±  1234.592  ops/s
-GetBenchmarks.get                                    no_column_family      100000        128        32768  thrpt   25   32802.629 ±   239.976  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128         4096  thrpt   25  609231.502 ± 11054.486  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128        32768  thrpt   25   44448.275 ±   328.637  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128         4096  thrpt   25   89325.742 ±  1655.260  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128        32768  thrpt   25   42635.926 ±   245.988  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128         4096  thrpt   25  586584.027 ±  3552.413  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128        32768  thrpt   25   54566.007 ±   584.362  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128         4096  thrpt   25   81700.797 ±   747.270  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128        32768  thrpt   25   39924.987 ±   339.746  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family        1000        128         4096  thrpt   25  590154.718 ±  3838.651  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family        1000        128        32768  thrpt   25   44034.334 ±   194.302  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family      100000        128         4096  thrpt   25   91288.859 ±  1165.102  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family      100000        128        32768  thrpt   25   41693.055 ±   401.816  ops/s
+GetBenchmarks.ffiGetOutputSlice                      no_column_family      100000        128         4096  thrpt   25   64291.419 ±  1151.756  ops/s
+GetBenchmarks.ffiGetOutputSlice                      no_column_family      100000        128        32768  thrpt   25   35393.140 ±   384.554  ops/s
+GetBenchmarks.ffiGetOutputSlice                      no_column_family      100000        128       130072  thrpt   25   16530.851 ±    99.670  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128         4096  thrpt   12  313545.690 ± 16898.814  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128        32768  thrpt   25   41810.122 ±   724.093  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128       130072  thrpt   25   17750.190 ±   108.777  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128         4096  thrpt   25   69277.791 ±  1210.060  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128        32768  thrpt   25   39351.842 ±   620.683  ops/s
+GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128       130072  thrpt   25   18732.541 ±    92.323  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family        1000        128         4096  thrpt   25  205367.451 ±  5164.557  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family        1000        128        32768  thrpt   25   34612.870 ±   234.713  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family        1000        128       130072  thrpt   25   12751.282 ±   109.208  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family      100000        128         4096  thrpt   25   56741.818 ±  1300.424  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family      100000        128        32768  thrpt   25   27485.112 ±   171.642  ops/s
+GetBenchmarks.ffiGetRandom                           no_column_family      100000        128       130072  thrpt   25   12381.439 ±    98.442  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128         4096  thrpt   18  271751.737 ±  9780.256  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128        32768  thrpt   25   35637.209 ±   405.370  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128       130072  thrpt   25   15145.986 ±    98.809  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128         4096  thrpt   25   63117.034 ±  1215.064  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128        32768  thrpt   25   34275.593 ±   374.325  ops/s
+GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128       130072  thrpt   25   15990.968 ±   104.256  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128         4096  thrpt   20  258443.188 ± 14367.215  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128        32768  thrpt   25   43861.215 ±   630.738  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128       130072  thrpt   25   15898.718 ±   102.746  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128         4096  thrpt   25   60738.330 ±   751.122  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128        32768  thrpt   25   32985.292 ±   392.325  ops/s
+GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128       130072  thrpt   25   15216.205 ±   110.312  ops/s
+GetBenchmarks.get                                    no_column_family        1000        128         4096  thrpt   25  431788.444 ±  3634.249  ops/s
+GetBenchmarks.get                                    no_column_family        1000        128        32768  thrpt   25   33664.813 ±   201.615  ops/s
+GetBenchmarks.get                                    no_column_family        1000        128       130072  thrpt   25   12799.269 ±    48.901  ops/s
+GetBenchmarks.get                                    no_column_family      100000        128         4096  thrpt   25   79331.711 ±  1183.335  ops/s
+GetBenchmarks.get                                    no_column_family      100000        128        32768  thrpt   25   32350.676 ±   373.255  ops/s
+GetBenchmarks.get                                    no_column_family      100000        128       130072  thrpt   25   13387.083 ±    52.474  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128         4096  thrpt   25  630485.342 ±  5278.869  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128        32768  thrpt   25   44259.667 ±   391.591  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128       130072  thrpt   25   16633.185 ±    90.660  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128         4096  thrpt   25   87879.488 ±  1339.351  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128        32768  thrpt   25   41779.097 ±   294.259  ops/s
+GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128       130072  thrpt   25   17471.879 ±    61.928  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128         4096  thrpt   25  595411.259 ±  9503.950  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128        32768  thrpt   25   54021.417 ±   572.407  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128       130072  thrpt   25   17630.588 ±    72.573  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128         4096  thrpt   25   82298.320 ±   615.037  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128        32768  thrpt   25   39524.029 ±   355.461  ops/s
+GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128       130072  thrpt   25   16740.203 ±    83.641  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family        1000        128         4096  thrpt   25  634987.901 ±  8801.232  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family        1000        128        32768  thrpt   25   44281.741 ±   218.671  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family        1000        128       130072  thrpt   25   16624.144 ±   100.715  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family      100000        128         4096  thrpt   25   90174.327 ±  1027.447  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family      100000        128        32768  thrpt   25   41856.085 ±   581.119  ops/s
+GetBenchmarks.preallocatedGet                        no_column_family      100000        128       130072  thrpt   25   17399.334 ±   100.069  ops/s
 
-
-Mac, quick test before rebuild:
+Try again, with all together and profiling
 ```bash
-java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,32768 -p columnFamilyTestType="no_column_family" GetBenchmarks.ffiPreallocatedGet -wi 1 -to 1m -i 1
+java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks -prof stack
 ```
-Benchmark                               (columnFamilyTestType)  (keyCount)  (keySize)  (valueSize)   Mode  Cnt       Score       Error  Units
-GetBenchmarks.ffiPreallocatedGet              no_column_family        1000        128         4096  thrpt    5  682075.182 ± 52066.697  ops/s
-GetBenchmarks.ffiPreallocatedGet              no_column_family        1000        128        32768  thrpt    5  372018.275 ±  6886.836  ops/s
-GetBenchmarks.ffiPreallocatedGet              no_column_family      100000        128         4096  thrpt    5  591213.923 ± 24094.153  ops/s
-GetBenchmarks.ffiPreallocatedGet              no_column_family      100000        128        32768  thrpt    5  314162.618 ±  8974.219  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom        no_column_family        1000        128         4096  thrpt    5  663096.167 ± 71197.629  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom        no_column_family        1000        128        32768  thrpt    5  373251.122 ±  6185.674  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom        no_column_family      100000        128         4096  thrpt    5  381631.337 ±  5170.190  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom        no_column_family      100000        128        32768  thrpt    5  255783.037 ±  8470.694  ops/s
 
-## Appendix - Java 19 installation
+## Appendix
+### Processing
+
+Use [`q`](http://harelba.github.io/q/) to select the csv output for analysis and graphing.
+
+```bash
+q "select Benchmark,Score from jmhrun.csv where keyCount=1000 and valueSize=4096" -d, -H -C readwrite
+```
+
+### Java 19 installation
 
 I followed the instructions to install [Azul](https://docs.azul.com/core/zulu-openjdk/install/debian). Then you still need to pick the right java locally:
 ```bash
