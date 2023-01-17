@@ -11,11 +11,11 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
-#include <memory>
 
 #include "db/version_set.h"
 #include "file/file_util.h"
@@ -85,9 +85,25 @@ class WalManager {
   Status RetainProbableWalFiles(VectorLogPtr& all_logs,
                                 const SequenceNumber target);
 
+  // ReadFirstRecord checks the read_first_record_cache_ to see if the entry
+  // exists or not. If not, it will read the WAL file.
+  // In case of wal_compression, WAL contains a `kSetCompressionType` record
+  // which is not associated with any sequence number. So the sequence_number is
+  // set to 1 if that WAL doesn't include any other record (basically empty) in
+  // order to include that WAL and is inserted in read_first_record_cache_.
+  // Therefore, sequence_number is used as boolean if WAL should be included or
+  // not and that sequence_number shouldn't be use for any other purpose.
   Status ReadFirstRecord(const WalFileType type, const uint64_t number,
                          SequenceNumber* sequence);
 
+  // In case of no wal_compression, ReadFirstLine returns status.ok() and
+  // sequence == 0 if the file exists, but is empty.
+  // In case of wal_compression, WAL contains
+  // `kSetCompressionType` record which is not associated with any sequence
+  // number if that WAL doesn't include any other record (basically empty). As
+  // result for an empty file, GetSortedWalsOfType() will skip these WALs
+  // causing the operations to fail. To avoid that, it sets sequence_number to
+  // 1 inorder to include that WAL.
   Status ReadFirstLine(const std::string& fname, const uint64_t number,
                        SequenceNumber* sequence);
 
@@ -113,7 +129,7 @@ class WalManager {
 
   // obsolete files will be deleted every this seconds if ttl deletion is
   // enabled and archive size_limit is disabled.
-  static const uint64_t kDefaultIntervalToDeleteObsoleteWAL = 600;
+  static constexpr uint64_t kDefaultIntervalToDeleteObsoleteWAL = 600;
 
   std::shared_ptr<IOTracer> io_tracer_;
 };

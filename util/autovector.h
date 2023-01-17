@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "port/lang.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -35,7 +36,7 @@ class autovector : public std::vector<T> {
 // full-fledged generic container.
 //
 // Currently we don't support:
-//  * reserve()/shrink_to_fit()
+//  * shrink_to_fit()
 //     If used correctly, in most cases, people should not touch the
 //     underlying vector at all.
 //  * random insert()/erase(), please only use push_back()/pop_back().
@@ -51,28 +52,28 @@ template <class T, size_t kSize = 8>
 class autovector {
  public:
   // General STL-style container member types.
-  typedef T value_type;
-  typedef typename std::vector<T>::difference_type difference_type;
-  typedef typename std::vector<T>::size_type size_type;
-  typedef value_type& reference;
-  typedef const value_type& const_reference;
-  typedef value_type* pointer;
-  typedef const value_type* const_pointer;
+  using value_type = T;
+  using difference_type = typename std::vector<T>::difference_type;
+  using size_type = typename std::vector<T>::size_type;
+  using reference = value_type&;
+  using const_reference = const value_type&;
+  using pointer = value_type*;
+  using const_pointer = const value_type*;
 
   // This class is the base for regular/const iterator
   template <class TAutoVector, class TValueType>
   class iterator_impl {
    public:
     // -- iterator traits
-    typedef iterator_impl<TAutoVector, TValueType> self_type;
-    typedef TValueType value_type;
-    typedef TValueType& reference;
-    typedef TValueType* pointer;
-    typedef typename TAutoVector::difference_type difference_type;
-    typedef std::random_access_iterator_tag iterator_category;
+    using self_type = iterator_impl<TAutoVector, TValueType>;
+    using value_type = TValueType;
+    using reference = TValueType&;
+    using pointer = TValueType*;
+    using difference_type = typename TAutoVector::difference_type;
+    using iterator_category = std::random_access_iterator_tag;
 
     iterator_impl(TAutoVector* vect, size_t index)
-        : vect_(vect), index_(index) {};
+        : vect_(vect), index_(index){};
     iterator_impl(const iterator_impl&) = default;
     ~iterator_impl() {}
     iterator_impl& operator=(const iterator_impl&) = default;
@@ -138,9 +139,7 @@ class autovector {
       return &(*vect_)[index_];
     }
 
-    reference operator[](difference_type len) const {
-      return *(*this + len);
-    }
+    reference operator[](difference_type len) const { return *(*this + len); }
 
     // -- Logical Operators
     bool operator==(const self_type& other) const {
@@ -175,10 +174,10 @@ class autovector {
     size_t index_ = 0;
   };
 
-  typedef iterator_impl<autovector, value_type> iterator;
-  typedef iterator_impl<const autovector, const value_type> const_iterator;
-  typedef std::reverse_iterator<iterator> reverse_iterator;
-  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+  using iterator = iterator_impl<autovector, value_type>;
+  using const_iterator = iterator_impl<const autovector, const value_type>;
+  using reverse_iterator = std::reverse_iterator<iterator>;
+  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
   autovector() : values_(reinterpret_cast<pointer>(buf_)) {}
 
@@ -221,6 +220,16 @@ class autovector {
   }
 
   bool empty() const { return size() == 0; }
+
+  size_type capacity() const { return kSize + vect_.capacity(); }
+
+  void reserve(size_t cap) {
+    if (cap > kSize) {
+      vect_.reserve(cap - kSize);
+    }
+
+    assert(cap <= capacity());
+  }
 
   const_reference operator[](size_type n) const {
     assert(n < size());
@@ -288,6 +297,16 @@ class autovector {
   }
 
   template <class... Args>
+#if _LIBCPP_STD_VER > 14
+  reference emplace_back(Args&&... args) {
+    if (num_stack_items_ < kSize) {
+      return *(new ((void*)(&values_[num_stack_items_++]))
+                   value_type(std::forward<Args>(args)...));
+    } else {
+      return vect_.emplace_back(std::forward<Args>(args)...);
+    }
+  }
+#else
   void emplace_back(Args&&... args) {
     if (num_stack_items_ < kSize) {
       new ((void*)(&values_[num_stack_items_++]))
@@ -296,6 +315,7 @@ class autovector {
       vect_.emplace_back(std::forward<Args>(args)...);
     }
   }
+#endif
 
   void pop_back() {
     assert(!empty());
@@ -319,6 +339,9 @@ class autovector {
   autovector(const autovector& other) { assign(other); }
 
   autovector& operator=(const autovector& other) { return assign(other); }
+
+  autovector(autovector&& other) noexcept { *this = std::move(other); }
+  autovector& operator=(autovector&& other);
 
   // -- Iterator Operations
   iterator begin() { return iterator(this, 0); }
@@ -352,7 +375,8 @@ class autovector {
 };
 
 template <class T, size_t kSize>
-autovector<T, kSize>& autovector<T, kSize>::assign(const autovector& other) {
+autovector<T, kSize>& autovector<T, kSize>::assign(
+    const autovector<T, kSize>& other) {
   values_ = reinterpret_cast<pointer>(buf_);
   // copy the internal vector
   vect_.assign(other.vect_.begin(), other.vect_.end());
@@ -363,5 +387,20 @@ autovector<T, kSize>& autovector<T, kSize>::assign(const autovector& other) {
 
   return *this;
 }
+
+template <class T, size_t kSize>
+autovector<T, kSize>& autovector<T, kSize>::operator=(
+    autovector<T, kSize>&& other) {
+  values_ = reinterpret_cast<pointer>(buf_);
+  vect_ = std::move(other.vect_);
+  size_t n = other.num_stack_items_;
+  num_stack_items_ = n;
+  other.num_stack_items_ = 0;
+  for (size_t i = 0; i < n; ++i) {
+    values_[i] = std::move(other.values_[i]);
+  }
+  return *this;
+}
+
 #endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

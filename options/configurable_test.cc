@@ -173,7 +173,7 @@ TEST_F(ConfigurableTest, GetOptionsTest) {
   int i = 11;
   for (auto opt : {"", "shared.", "unique.", "pointer."}) {
     std::string value;
-    std::string expected = ToString(i);
+    std::string expected = std::to_string(i);
     std::string opt_name = opt;
     ASSERT_OK(
         simple->ConfigureOption(config_options_, opt_name + "int", expected));
@@ -329,6 +329,40 @@ TEST_F(ConfigurableTest, PrepareOptionsTest) {
   ASSERT_OK(c->ConfigureFromString(config_options_, "prepared=0"));
   ASSERT_EQ(*cp, 1);
   ASSERT_EQ(*up, 0);
+}
+
+TEST_F(ConfigurableTest, CopyObjectTest) {
+  class CopyConfigurable : public Configurable {
+   public:
+    CopyConfigurable() : prepared_(0), validated_(0) {}
+    Status PrepareOptions(const ConfigOptions& options) override {
+      prepared_++;
+      return Configurable::PrepareOptions(options);
+    }
+    Status ValidateOptions(const DBOptions& db_opts,
+                           const ColumnFamilyOptions& cf_opts) const override {
+      validated_++;
+      return Configurable::ValidateOptions(db_opts, cf_opts);
+    }
+    int prepared_;
+    mutable int validated_;
+  };
+
+  CopyConfigurable c1;
+  ConfigOptions config_options;
+  Options options;
+
+  ASSERT_OK(c1.PrepareOptions(config_options));
+  ASSERT_OK(c1.ValidateOptions(options, options));
+  ASSERT_EQ(c1.prepared_, 1);
+  ASSERT_EQ(c1.validated_, 1);
+  CopyConfigurable c2 = c1;
+  ASSERT_OK(c1.PrepareOptions(config_options));
+  ASSERT_OK(c1.ValidateOptions(options, options));
+  ASSERT_EQ(c2.prepared_, 1);
+  ASSERT_EQ(c2.validated_, 1);
+  ASSERT_EQ(c1.prepared_, 2);
+  ASSERT_EQ(c1.validated_, 2);
 }
 
 TEST_F(ConfigurableTest, MutableOptionsTest) {
@@ -622,6 +656,30 @@ TEST_F(ConfigurableTest, TestNoCompare) {
   ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_FALSE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
 }
+
+TEST_F(ConfigurableTest, NullOptionMapTest) {
+  std::unique_ptr<Configurable> base;
+  std::unordered_set<std::string> names;
+  std::string str;
+
+  base.reset(
+      SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode, nullptr));
+  ASSERT_NOK(base->ConfigureFromString(config_options_, "int=10"));
+  ASSERT_NOK(base->ConfigureFromString(config_options_, "int=20"));
+  ASSERT_NOK(base->ConfigureOption(config_options_, "int", "20"));
+  ASSERT_NOK(base->GetOption(config_options_, "int", &str));
+  ASSERT_NE(base->GetOptions<TestOptions>("c"), nullptr);
+  ASSERT_OK(base->GetOptionNames(config_options_, &names));
+  ASSERT_EQ(names.size(), 0UL);
+  ASSERT_OK(base->PrepareOptions(config_options_));
+  ASSERT_OK(base->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  std::unique_ptr<Configurable> copy;
+  copy.reset(
+      SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode, nullptr));
+  ASSERT_OK(base->GetOptionString(config_options_, &str));
+  ASSERT_OK(copy->ConfigureFromString(config_options_, str));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &str));
+}
 #endif
 
 static std::unordered_map<std::string, ConfigTestFactoryFunc> TestFactories = {
@@ -814,6 +872,7 @@ INSTANTIATE_TEST_CASE_P(
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);

@@ -33,14 +33,14 @@ std::shared_ptr<EncryptionProvider> EncryptionProvider::NewCTRProvider(
   return std::make_shared<CTREncryptionProvider>(cipher);
 }
 
-  // Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
-  // written by this routine.  Sets "*result" to the data that was
-  // read (including if fewer than "n" bytes were successfully read).
-  // May set "*result" to point at data in "scratch[0..n-1]", so
-  // "scratch[0..n-1]" must be live when "*result" is used.
-  // If an error was encountered, returns a non-OK status.
-  //
-  // REQUIRES: External synchronization
+// Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
+// written by this routine.  Sets "*result" to the data that was
+// read (including if fewer than "n" bytes were successfully read).
+// May set "*result" to point at data in "scratch[0..n-1]", so
+// "scratch[0..n-1]" must be live when "*result" is used.
+// If an error was encountered, returns a non-OK status.
+//
+// REQUIRES: External synchronization
 IOStatus EncryptedSequentialFile::Read(size_t n, const IOOptions& options,
                                        Slice* result, char* scratch,
                                        IODebugContext* dbg) {
@@ -89,16 +89,16 @@ size_t EncryptedSequentialFile::GetRequiredBufferAlignment() const {
   return file_->GetRequiredBufferAlignment();
 }
 
-  // Remove any kind of caching of data from the offset to offset+length
-  // of this file. If the length is 0, then it refers to the end of file.
-  // If the system is not caching the file contents, then this is a noop.
+// Remove any kind of caching of data from the offset to offset+length
+// of this file. If the length is 0, then it refers to the end of file.
+// If the system is not caching the file contents, then this is a noop.
 IOStatus EncryptedSequentialFile::InvalidateCache(size_t offset,
                                                   size_t length) {
   return file_->InvalidateCache(offset + prefixLength_, length);
 }
 
-  // Positioned Read for direct I/O
-  // If Direct I/O enabled, offset, n, and scratch should be properly aligned
+// Positioned Read for direct I/O
+// If Direct I/O enabled, offset, n, and scratch should be properly aligned
 IOStatus EncryptedSequentialFile::PositionedRead(uint64_t offset, size_t n,
                                                  const IOOptions& options,
                                                  Slice* result, char* scratch,
@@ -118,16 +118,16 @@ IOStatus EncryptedSequentialFile::PositionedRead(uint64_t offset, size_t n,
   return io_s;
 }
 
-  // Read up to "n" bytes from the file starting at "offset".
-  // "scratch[0..n-1]" may be written by this routine.  Sets "*result"
-  // to the data that was read (including if fewer than "n" bytes were
-  // successfully read).  May set "*result" to point at data in
-  // "scratch[0..n-1]", so "scratch[0..n-1]" must be live when
-  // "*result" is used.  If an error was encountered, returns a non-OK
-  // status.
-  //
-  // Safe for concurrent use by multiple threads.
-  // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
+// Read up to "n" bytes from the file starting at "offset".
+// "scratch[0..n-1]" may be written by this routine.  Sets "*result"
+// to the data that was read (including if fewer than "n" bytes were
+// successfully read).  May set "*result" to point at data in
+// "scratch[0..n-1]", so "scratch[0..n-1]" must be live when
+// "*result" is used.  If an error was encountered, returns a non-OK
+// status.
+//
+// Safe for concurrent use by multiple threads.
+// If Direct I/O enabled, offset, n, and scratch should be aligned properly.
 IOStatus EncryptedRandomAccessFile::Read(uint64_t offset, size_t n,
                                          const IOOptions& options,
                                          Slice* result, char* scratch,
@@ -146,7 +146,7 @@ IOStatus EncryptedRandomAccessFile::Read(uint64_t offset, size_t n,
   return io_s;
 }
 
-  // Readahead the file starting from offset by n bytes for caching.
+// Readahead the file starting from offset by n bytes for caching.
 IOStatus EncryptedRandomAccessFile::Prefetch(uint64_t offset, size_t n,
                                              const IOOptions& options,
                                              IODebugContext* dbg) {
@@ -154,21 +154,21 @@ IOStatus EncryptedRandomAccessFile::Prefetch(uint64_t offset, size_t n,
   return file_->Prefetch(offset + prefixLength_, n, options, dbg);
 }
 
-  // Tries to get an unique ID for this file that will be the same each time
-  // the file is opened (and will stay the same while the file is open).
-  // Furthermore, it tries to make this ID at most "max_size" bytes. If such an
-  // ID can be created this function returns the length of the ID and places it
-  // in "id"; otherwise, this function returns 0, in which case "id"
-  // may not have been modified.
-  //
-  // This function guarantees, for IDs from a given environment, two unique ids
-  // cannot be made equal to each other by adding arbitrary bytes to one of
-  // them. That is, no unique ID is the prefix of another.
-  //
-  // This function guarantees that the returned ID will not be interpretable as
-  // a single varint.
-  //
-  // Note: these IDs are only valid for the duration of the process.
+// Tries to get an unique ID for this file that will be the same each time
+// the file is opened (and will stay the same while the file is open).
+// Furthermore, it tries to make this ID at most "max_size" bytes. If such an
+// ID can be created this function returns the length of the ID and places it
+// in "id"; otherwise, this function returns 0, in which case "id"
+// may not have been modified.
+//
+// This function guarantees, for IDs from a given environment, two unique ids
+// cannot be made equal to each other by adding arbitrary bytes to one of
+// them. That is, no unique ID is the prefix of another.
+//
+// This function guarantees that the returned ID will not be interpretable as
+// a single varint.
+//
+// Note: these IDs are only valid for the duration of the process.
 size_t EncryptedRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   return file_->GetUniqueId(id, max_size);
 };
@@ -177,21 +177,21 @@ void EncryptedRandomAccessFile::Hint(AccessPattern pattern) {
   file_->Hint(pattern);
 }
 
-  // Indicates the upper layers if the current RandomAccessFile implementation
-  // uses direct IO.
+// Indicates the upper layers if the current RandomAccessFile implementation
+// uses direct IO.
 bool EncryptedRandomAccessFile::use_direct_io() const {
   return file_->use_direct_io();
 }
 
-  // Use the returned alignment value to allocate
-  // aligned buffer for Direct I/O
+// Use the returned alignment value to allocate
+// aligned buffer for Direct I/O
 size_t EncryptedRandomAccessFile::GetRequiredBufferAlignment() const {
   return file_->GetRequiredBufferAlignment();
 }
 
-  // Remove any kind of caching of data from the offset to offset+length
-  // of this file. If the length is 0, then it refers to the end of file.
-  // If the system is not caching the file contents, then this is a noop.
+// Remove any kind of caching of data from the offset to offset+length
+// of this file. If the length is 0, then it refers to the end of file.
+// If the system is not caching the file contents, then this is a noop.
 IOStatus EncryptedRandomAccessFile::InvalidateCache(size_t offset,
                                                     size_t length) {
   return file_->InvalidateCache(offset + prefixLength_, length);
@@ -255,14 +255,20 @@ IOStatus EncryptedWritableFile::PositionedAppend(const Slice& data,
   return file_->PositionedAppend(dataToAppend, offset, options, dbg);
 }
 
-  // Indicates the upper layers if the current WritableFile implementation
-  // uses direct IO.
+// Indicates the upper layers if the current WritableFile implementation
+// uses direct IO.
 bool EncryptedWritableFile::use_direct_io() const {
   return file_->use_direct_io();
 }
 
-  // Use the returned alignment value to allocate
-  // aligned buffer for Direct I/O
+// true if Sync() and Fsync() are safe to call concurrently with Append()
+// and Flush().
+bool EncryptedWritableFile::IsSyncThreadSafe() const {
+  return file_->IsSyncThreadSafe();
+}
+
+// Use the returned alignment value to allocate
+// aligned buffer for Direct I/O
 size_t EncryptedWritableFile::GetRequiredBufferAlignment() const {
   return file_->GetRequiredBufferAlignment();
 }
@@ -357,14 +363,14 @@ bool EncryptedRandomRWFile::use_direct_io() const {
   return file_->use_direct_io();
 }
 
-  // Use the returned alignment value to allocate
-  // aligned buffer for Direct I/O
+// Use the returned alignment value to allocate
+// aligned buffer for Direct I/O
 size_t EncryptedRandomRWFile::GetRequiredBufferAlignment() const {
   return file_->GetRequiredBufferAlignment();
 }
 
-  // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when use_direct_io() returns true.
+// Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
+// Pass aligned buffer when use_direct_io() returns true.
 IOStatus EncryptedRandomRWFile::Write(uint64_t offset, const Slice& data,
                                       const IOOptions& options,
                                       IODebugContext* dbg) {
@@ -391,9 +397,9 @@ IOStatus EncryptedRandomRWFile::Write(uint64_t offset, const Slice& data,
   return file_->Write(offset, dataToWrite, options, dbg);
 }
 
-  // Read up to `n` bytes starting from offset `offset` and store them in
-  // result, provided `scratch` size should be at least `n`.
-  // Returns Status::OK() on success.
+// Read up to `n` bytes starting from offset `offset` and store them in
+// result, provided `scratch` size should be at least `n`.
+// Returns Status::OK() on success.
 IOStatus EncryptedRandomRWFile::Read(uint64_t offset, size_t n,
                                      const IOOptions& options, Slice* result,
                                      char* scratch, IODebugContext* dbg) const {
@@ -432,11 +438,20 @@ IOStatus EncryptedRandomRWFile::Close(const IOOptions& options,
 }
 
 namespace {
+static std::unordered_map<std::string, OptionTypeInfo> encrypted_fs_type_info =
+    {
+        {"provider",
+         OptionTypeInfo::AsCustomSharedPtr<EncryptionProvider>(
+             0 /* No offset, whole struct*/, OptionVerificationType::kByName,
+             OptionTypeFlags::kNone)},
+};
 // EncryptedFileSystemImpl implements an FileSystemWrapper that adds encryption
 // to files stored on disk.
 class EncryptedFileSystemImpl : public EncryptedFileSystem {
  public:
-  const char* Name() const override { return "EncryptedFS"; }
+  const char* Name() const override {
+    return EncryptedFileSystem::kClassName();
+  }
   // Returns the raw encryption provider that should be used to write the input
   // encrypted file.  If there is no such provider, NotFound is returned.
   IOStatus GetWritableProvider(const std::string& /*fname*/,
@@ -658,6 +673,7 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
                           const std::shared_ptr<EncryptionProvider>& provider)
       : EncryptedFileSystem(base) {
     provider_ = provider;
+    RegisterOptions("EncryptionProvider", &provider_, &encrypted_fs_type_info);
   }
 
   Status AddCipher(const std::string& descriptor, const char* cipher,
@@ -904,10 +920,28 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
 };
 }  // namespace
 
+Status NewEncryptedFileSystemImpl(
+    const std::shared_ptr<FileSystem>& base,
+    const std::shared_ptr<EncryptionProvider>& provider,
+    std::unique_ptr<FileSystem>* result) {
+  result->reset(new EncryptedFileSystemImpl(base, provider));
+  return Status::OK();
+}
+
 std::shared_ptr<FileSystem> NewEncryptedFS(
     const std::shared_ptr<FileSystem>& base,
     const std::shared_ptr<EncryptionProvider>& provider) {
-  return std::make_shared<EncryptedFileSystemImpl>(base, provider);
+  std::unique_ptr<FileSystem> efs;
+  Status s = NewEncryptedFileSystemImpl(base, provider, &efs);
+  if (s.ok()) {
+    s = efs->PrepareOptions(ConfigOptions());
+  }
+  if (s.ok()) {
+    std::shared_ptr<FileSystem> result(efs.release());
+    return result;
+  } else {
+    return nullptr;
+  }
 }
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.
@@ -919,7 +953,8 @@ Env* NewEncryptedEnv(Env* base_env,
 
 // Encrypt one or more (partial) blocks of data at the file offset.
 // Length of data is given in dataSize.
-Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char *data, size_t dataSize) {
+Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char* data,
+                                        size_t dataSize) {
   // Calculate block index
   auto blockSize = BlockSize();
   uint64_t blockIndex = fileOffset / blockSize;
@@ -931,7 +966,7 @@ Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char *data, size_t 
 
   // Encrypt individual blocks.
   while (1) {
-    char *block = data;
+    char* block = data;
     size_t n = std::min(dataSize, blockSize - blockOffset);
     if (n != blockSize) {
       // We're not encrypting a full block.
@@ -964,7 +999,8 @@ Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char *data, size_t 
 
 // Decrypt one or more (partial) blocks of data at the file offset.
 // Length of data is given in dataSize.
-Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char *data, size_t dataSize) {
+Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char* data,
+                                        size_t dataSize) {
   // Calculate block index
   auto blockSize = BlockSize();
   uint64_t blockIndex = fileOffset / blockSize;
@@ -976,7 +1012,7 @@ Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char *data, size_t 
 
   // Decrypt individual blocks.
   while (1) {
-    char *block = data;
+    char* block = data;
     size_t n = std::min(dataSize, blockSize - blockOffset);
     if (n != blockSize) {
       // We're not decrypting a full block.
@@ -1103,6 +1139,15 @@ CTREncryptionProvider::CTREncryptionProvider(
     const std::shared_ptr<BlockCipher>& c)
     : cipher_(c) {
   RegisterOptions("Cipher", &cipher_, &ctr_encryption_provider_type_info);
+}
+
+bool CTREncryptionProvider::IsInstanceOf(const std::string& name) const {
+  // Special case for test purposes.
+  if (name == "1://test" && cipher_ != nullptr) {
+    return cipher_->IsInstanceOf(ROT13BlockCipher::kClassName());
+  } else {
+    return EncryptionProvider::IsInstanceOf(name);
+  }
 }
 
 // GetPrefixLength returns the length of the prefix that is added to every file
@@ -1240,10 +1285,10 @@ static void RegisterEncryptionBuiltins() {
   static std::once_flag once;
   std::call_once(once, [&]() {
     auto lib = ObjectRegistry::Default()->AddLibrary("encryption");
-    std::string ctr =
-        std::string(CTREncryptionProvider::kClassName()) + "?(://test)";
-    lib->Register<EncryptionProvider>(
-        std::string(CTREncryptionProvider::kClassName()) + "(://test)?",
+    // Match "CTR" or "CTR://test"
+    lib->AddFactory<EncryptionProvider>(
+        ObjectLibrary::PatternEntry(CTREncryptionProvider::kClassName(), true)
+            .AddSuffix("://test"),
         [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
            std::string* /*errmsg*/) {
           if (EndsWith(uri, "://test")) {
@@ -1256,7 +1301,7 @@ static void RegisterEncryptionBuiltins() {
           return guard->get();
         });
 
-    lib->Register<EncryptionProvider>(
+    lib->AddFactory<EncryptionProvider>(
         "1://test", [](const std::string& /*uri*/,
                        std::unique_ptr<EncryptionProvider>* guard,
                        std::string* /*errmsg*/) {
@@ -1266,8 +1311,10 @@ static void RegisterEncryptionBuiltins() {
           return guard->get();
         });
 
-    lib->Register<BlockCipher>(
-        std::string(ROT13BlockCipher::kClassName()) + "(:.*)?",
+    // Match "ROT13" or "ROT13:[0-9]+"
+    lib->AddFactory<BlockCipher>(
+        ObjectLibrary::PatternEntry(ROT13BlockCipher::kClassName(), true)
+            .AddNumber(":"),
         [](const std::string& uri, std::unique_ptr<BlockCipher>* guard,
            std::string* /* errmsg */) {
           size_t colon = uri.find(':');
@@ -1299,6 +1346,6 @@ Status EncryptionProvider::CreateFromString(
                                               result);
 }
 
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -12,7 +12,10 @@ namespace port {
 
 // Install a signal handler to print callstack on the following signals:
 // SIGILL SIGSEGV SIGBUS SIGABRT
-// Currently supports linux only. No-op otherwise.
+// And also (Linux ony for now) overrides security settings to allow outside
+// processes to attach to this one as a debugger. ONLY USE FOR NON-SECURITY
+// CRITICAL PROCESSES such as unit tests or benchmarking tools.
+// Currently supports only some POSIX implementations. No-op otherwise.
 void InstallStackTraceHandler();
 
 // Prints stack, skips skip_first_frames frames

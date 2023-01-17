@@ -7,6 +7,8 @@
 
 #include <functional>
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 // Defers the execution of the provided function until the Defer
@@ -35,7 +37,8 @@ namespace ROCKSDB_NAMESPACE {
 //    but sometimes, this might lead to nested blocks of "if (s.ok()) {...}".
 //
 // With the help of Defer, you can centralize the cleanup logic inside the
-// lambda passed to Defer, and you can return immediately on failure when necessary.
+// lambda passed to Defer, and you can return immediately on failure when
+// necessary.
 class Defer final {
  public:
   explicit Defer(std::function<void()>&& fn) : fn_(std::move(fn)) {}

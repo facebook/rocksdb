@@ -14,6 +14,8 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * The function recovers options to a previous version. Only 4.6 or later
    * versions are supported.
    *
+   * @param majorVersion The major version to recover default values of options
+   * @param minorVersion The minor version to recover default values of options
    * @return the instance of the current object.
    */
   T oldDefaults(int majorVersion, int minorVersion);
@@ -30,8 +32,8 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * Some functions that make it easier to optimize RocksDB
    * Use this if your DB is very small (like under 1GB) and you don't want to
    * spend lots of memory for memtables.
-   * An optional cache object is passed in to be used as the block cache
    *
+   * @param cache An optional cache object is passed in to be used as the block cache
    * @return the instance of the current object.
    */
   T optimizeForSmallDb(Cache cache);

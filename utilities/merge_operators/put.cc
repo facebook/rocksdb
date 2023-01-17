@@ -4,13 +4,16 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <memory>
-#include "rocksdb/slice.h"
+
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/slice.h"
 #include "utilities/merge_operators.h"
 
-using namespace ROCKSDB_NAMESPACE;
+namespace {  // anonymous namespace
 
-namespace { // anonymous namespace
+using ROCKSDB_NAMESPACE::Logger;
+using ROCKSDB_NAMESPACE::MergeOperator;
+using ROCKSDB_NAMESPACE::Slice;
 
 // A merge operator that mimics Put semantics
 // Since this merge-operator will not be used in production,
@@ -75,7 +78,7 @@ class PutOperatorV2 : public PutOperator {
   const char* NickName() const override { return kNickName(); }
 };
 
-} // end of anonymous namespace
+}  // end of anonymous namespace
 
 namespace ROCKSDB_NAMESPACE {
 

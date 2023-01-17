@@ -19,6 +19,8 @@ int main() {
 #include <cmath>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "memory/arena.h"
 #include "port/jemalloc_helper.h"
 #include "rocksdb/filter_policy.h"
@@ -36,6 +38,14 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 DEFINE_int32(bits_per_key, 10, "");
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kClassName();
+const std::string kFastLocalBloom =
+    test::FastLocalBloomFilterPolicy::kClassName();
+const std::string kStandard128Ribbon =
+    test::Standard128RibbonFilterPolicy::kClassName();
+}  // namespace
 
 static const int kVerbose = 1;
 
@@ -59,208 +69,7 @@ static int NextLength(int length) {
   return length;
 }
 
-class BlockBasedBloomTest : public testing::Test {
- private:
-  std::unique_ptr<const FilterPolicy> policy_;
-  std::string filter_;
-  std::vector<std::string> keys_;
-
- public:
-  BlockBasedBloomTest() { ResetPolicy(); }
-
-  void Reset() {
-    keys_.clear();
-    filter_.clear();
-  }
-
-  void ResetPolicy(double bits_per_key) {
-    policy_.reset(new BloomFilterPolicy(bits_per_key,
-                                        BloomFilterPolicy::kDeprecatedBlock));
-    Reset();
-  }
-
-  void ResetPolicy() { ResetPolicy(FLAGS_bits_per_key); }
-
-  void Add(const Slice& s) {
-    keys_.push_back(s.ToString());
-  }
-
-  void Build() {
-    std::vector<Slice> key_slices;
-    for (size_t i = 0; i < keys_.size(); i++) {
-      key_slices.push_back(Slice(keys_[i]));
-    }
-    filter_.clear();
-    policy_->CreateFilter(&key_slices[0], static_cast<int>(key_slices.size()),
-                          &filter_);
-    keys_.clear();
-    if (kVerbose >= 2) DumpFilter();
-  }
-
-  size_t FilterSize() const {
-    return filter_.size();
-  }
-
-  Slice FilterData() const { return Slice(filter_); }
-
-  void DumpFilter() {
-    fprintf(stderr, "F(");
-    for (size_t i = 0; i+1 < filter_.size(); i++) {
-      const unsigned int c = static_cast<unsigned int>(filter_[i]);
-      for (int j = 0; j < 8; j++) {
-        fprintf(stderr, "%c", (c & (1 <<j)) ? '1' : '.');
-      }
-    }
-    fprintf(stderr, ")\n");
-  }
-
-  bool Matches(const Slice& s) {
-    if (!keys_.empty()) {
-      Build();
-    }
-    return policy_->KeyMayMatch(s, filter_);
-  }
-
-  double FalsePositiveRate() {
-    char buffer[sizeof(int)];
-    int result = 0;
-    for (int i = 0; i < 10000; i++) {
-      if (Matches(Key(i + 1000000000, buffer))) {
-        result++;
-      }
-    }
-    return result / 10000.0;
-  }
-};
-
-TEST_F(BlockBasedBloomTest, EmptyFilter) {
-  ASSERT_TRUE(! Matches("hello"));
-  ASSERT_TRUE(! Matches("world"));
-}
-
-TEST_F(BlockBasedBloomTest, Small) {
-  Add("hello");
-  Add("world");
-  ASSERT_TRUE(Matches("hello"));
-  ASSERT_TRUE(Matches("world"));
-  ASSERT_TRUE(! Matches("x"));
-  ASSERT_TRUE(! Matches("foo"));
-}
-
-TEST_F(BlockBasedBloomTest, VaryingLengths) {
-  char buffer[sizeof(int)];
-
-  // Count number of filters that significantly exceed the false positive rate
-  int mediocre_filters = 0;
-  int good_filters = 0;
-
-  for (int length = 1; length <= 10000; length = NextLength(length)) {
-    Reset();
-    for (int i = 0; i < length; i++) {
-      Add(Key(i, buffer));
-    }
-    Build();
-
-    ASSERT_LE(FilterSize(), (size_t)((length * FLAGS_bits_per_key / 8) + 40))
-        << length;
-
-    // All added keys must match
-    for (int i = 0; i < length; i++) {
-      ASSERT_TRUE(Matches(Key(i, buffer)))
-          << "Length " << length << "; key " << i;
-    }
-
-    // Check false positive rate
-    double rate = FalsePositiveRate();
-    if (kVerbose >= 1) {
-      fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
-              rate*100.0, length, static_cast<int>(FilterSize()));
-    }
-    if (FLAGS_bits_per_key == 10) {
-      ASSERT_LE(rate, 0.02);  // Must not be over 2%
-      if (rate > 0.0125) {
-        mediocre_filters++;  // Allowed, but not too often
-      } else {
-        good_filters++;
-      }
-    }
-  }
-  if (FLAGS_bits_per_key == 10 && kVerbose >= 1) {
-    fprintf(stderr, "Filters: %d good, %d mediocre\n",
-            good_filters, mediocre_filters);
-  }
-  ASSERT_LE(mediocre_filters, good_filters/5);
-}
-
-// Ensure the implementation doesn't accidentally change in an
-// incompatible way
-TEST_F(BlockBasedBloomTest, Schema) {
-  char buffer[sizeof(int)];
-
-  ResetPolicy(8);  // num_probes = 5
-  for (int key = 0; key < 87; key++) {
-    Add(Key(key, buffer));
-  }
-  Build();
-  ASSERT_EQ(BloomHash(FilterData()), 3589896109U);
-
-  ResetPolicy(9);  // num_probes = 6
-  for (int key = 0; key < 87; key++) {
-    Add(Key(key, buffer));
-  }
-  Build();
-  ASSERT_EQ(BloomHash(FilterData()), 969445585U);
-
-  ResetPolicy(11);  // num_probes = 7
-  for (int key = 0; key < 87; key++) {
-    Add(Key(key, buffer));
-  }
-  Build();
-  ASSERT_EQ(BloomHash(FilterData()), 1694458207U);
-
-  ResetPolicy(10);  // num_probes = 6
-  for (int key = 0; key < 87; key++) {
-    Add(Key(key, buffer));
-  }
-  Build();
-  ASSERT_EQ(BloomHash(FilterData()), 2373646410U);
-
-  ResetPolicy(10);
-  for (int key = /*CHANGED*/ 1; key < 87; key++) {
-    Add(Key(key, buffer));
-  }
-  Build();
-  ASSERT_EQ(BloomHash(FilterData()), 1908442116U);
-
-  ResetPolicy(10);
-  for (int key = 1; key < /*CHANGED*/ 88; key++) {
-    Add(Key(key, buffer));
-  }
-  Build();
-  ASSERT_EQ(BloomHash(FilterData()), 3057004015U);
-
-  // With new fractional bits_per_key, check that we are rounding to
-  // whole bits per key for old Bloom filters.
-  ResetPolicy(9.5);  // Treated as 10
-  for (int key = 1; key < 88; key++) {
-    Add(Key(key, buffer));
-  }
-  Build();
-  ASSERT_EQ(BloomHash(FilterData()), /*SAME*/ 3057004015U);
-
-  ResetPolicy(10.499);  // Treated as 10
-  for (int key = 1; key < 88; key++) {
-    Add(Key(key, buffer));
-  }
-  Build();
-  ASSERT_EQ(BloomHash(FilterData()), /*SAME*/ 3057004015U);
-
-  ResetPolicy();
-}
-
-// Different bits-per-byte
-
-class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
+class FullBloomTest : public testing::TestWithParam<std::string> {
  protected:
   BlockBasedTableOptions table_options_;
 
@@ -278,12 +87,12 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
 
   BuiltinFilterBitsBuilder* GetBuiltinFilterBitsBuilder() {
     // Throws on bad cast
-    return &dynamic_cast<BuiltinFilterBitsBuilder&>(*bits_builder_);
+    return dynamic_cast<BuiltinFilterBitsBuilder*>(bits_builder_.get());
   }
 
-  const BloomFilterPolicy* GetBloomFilterPolicy() {
+  const BloomLikeFilterPolicy* GetBloomLikeFilterPolicy() {
     // Throws on bad cast
-    return &dynamic_cast<const BloomFilterPolicy&>(*policy_);
+    return &dynamic_cast<const BloomLikeFilterPolicy&>(*policy_);
   }
 
   void Reset() {
@@ -295,15 +104,13 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
   }
 
   void ResetPolicy(double bits_per_key) {
-    policy_.reset(new BloomFilterPolicy(bits_per_key, GetParam()));
+    policy_ = BloomLikeFilterPolicy::Create(GetParam(), bits_per_key);
     Reset();
   }
 
   void ResetPolicy() { ResetPolicy(FLAGS_bits_per_key); }
 
-  void Add(const Slice& s) {
-    bits_builder_->AddKey(s);
-  }
+  void Add(const Slice& s) { bits_builder_->AddKey(s); }
 
   void OpenRaw(const Slice& s) {
     bits_reader_.reset(policy_->GetFilterBitsReader(s));
@@ -315,9 +122,7 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
     filter_size_ = filter.size();
   }
 
-  size_t FilterSize() const {
-    return filter_size_;
-  }
+  size_t FilterSize() const { return filter_size_; }
 
   Slice FilterData() { return Slice(buf_.get(), filter_size_); }
 
@@ -395,25 +200,28 @@ TEST_P(FullBloomTest, FilterSize) {
   // checking that denoted and computed doubles are interpreted as expected
   // as bits_per_key values.
   bool some_computed_less_than_denoted = false;
-  // Note: enforced minimum is 1 bit per key (1000 millibits), and enforced
-  // maximum is 100 bits per key (100000 millibits).
-  for (auto bpk :
-       std::vector<std::pair<double, int> >{{-HUGE_VAL, 1000},
-                                            {-INFINITY, 1000},
-                                            {0.0, 1000},
-                                            {1.234, 1234},
-                                            {3.456, 3456},
-                                            {9.5, 9500},
-                                            {10.0, 10000},
-                                            {10.499, 10499},
-                                            {21.345, 21345},
-                                            {99.999, 99999},
-                                            {1234.0, 100000},
-                                            {HUGE_VAL, 100000},
-                                            {INFINITY, 100000},
-                                            {NAN, 100000}}) {
+  // Note: to avoid unproductive configurations, bits_per_key < 0.5 is rounded
+  // down to 0 (no filter), and 0.5 <= bits_per_key < 1.0 is rounded up to 1
+  // bit per key (1000 millibits). Also, enforced maximum is 100 bits per key
+  // (100000 millibits).
+  for (auto bpk : std::vector<std::pair<double, int> >{{-HUGE_VAL, 0},
+                                                       {-INFINITY, 0},
+                                                       {0.0, 0},
+                                                       {0.499, 0},
+                                                       {0.5, 1000},
+                                                       {1.234, 1234},
+                                                       {3.456, 3456},
+                                                       {9.5, 9500},
+                                                       {10.0, 10000},
+                                                       {10.499, 10499},
+                                                       {21.345, 21345},
+                                                       {99.999, 99999},
+                                                       {1234.0, 100000},
+                                                       {HUGE_VAL, 100000},
+                                                       {INFINITY, 100000},
+                                                       {NAN, 100000}}) {
     ResetPolicy(bpk.first);
-    auto bfp = GetBloomFilterPolicy();
+    auto bfp = GetBloomLikeFilterPolicy();
     EXPECT_EQ(bpk.second, bfp->GetMillibitsPerKey());
     EXPECT_EQ((bpk.second + 500) / 1000, bfp->GetWholeBitsPerKey());
 
@@ -426,11 +234,15 @@ TEST_P(FullBloomTest, FilterSize) {
     computed -= 0.5;
     some_computed_less_than_denoted |= (computed < bpk.first);
     ResetPolicy(computed);
-    bfp = GetBloomFilterPolicy();
+    bfp = GetBloomLikeFilterPolicy();
     EXPECT_EQ(bpk.second, bfp->GetMillibitsPerKey());
     EXPECT_EQ((bpk.second + 500) / 1000, bfp->GetWholeBitsPerKey());
 
     auto bits_builder = GetBuiltinFilterBitsBuilder();
+    if (bpk.second == 0) {
+      ASSERT_EQ(bits_builder, nullptr);
+      continue;
+    }
 
     size_t n = 1;
     size_t space = 0;
@@ -440,7 +252,7 @@ TEST_P(FullBloomTest, FilterSize) {
       size_t n2 = bits_builder->ApproximateNumEntries(space);
       EXPECT_GE(n2, n);
       size_t space2 = bits_builder->CalculateSpace(n2);
-      if (n > 12000 && GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+      if (n > 12000 && GetParam() == kStandard128Ribbon) {
         // TODO(peterd): better approximation?
         EXPECT_GE(space2, space);
         EXPECT_LE(space2 * 0.998, space * 1.0);
@@ -503,7 +315,7 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     double rate = FalsePositiveRate();
     if (kVerbose >= 1) {
       fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
-              rate*100.0, length, static_cast<int>(FilterSize()));
+              rate * 100.0, length, static_cast<int>(FilterSize()));
     }
     if (FLAGS_bits_per_key == 10) {
       EXPECT_LE(rate, 0.02);  // Must not be over 2%
@@ -515,8 +327,8 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     }
   }
   if (kVerbose >= 1) {
-    fprintf(stderr, "Filters: %d good, %d mediocre\n",
-            good_filters, mediocre_filters);
+    fprintf(stderr, "Filters: %d good, %d mediocre\n", good_filters,
+            mediocre_filters);
   }
   EXPECT_LE(mediocre_filters, good_filters / 5);
 }
@@ -552,18 +364,19 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
     }
     if (FLAGS_bits_per_key == 10) {
       EXPECT_LE(total_fp_rate / double{nfilters}, 0.011);
-      EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
+      EXPECT_GE(total_fp_rate / double{nfilters},
+                CACHE_LINE_SIZE >= 256 ? 0.007 : 0.008);
     }
 
     int64_t ex_min_total_size = int64_t{FLAGS_bits_per_key} * total_keys / 8;
-    if (GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+    if (GetParam() == kStandard128Ribbon) {
       // ~ 30% savings vs. Bloom filter
       ex_min_total_size = 7 * ex_min_total_size / 10;
     }
     EXPECT_GE(static_cast<int64_t>(total_size), ex_min_total_size);
 
     int64_t blocked_bloom_overhead = nfilters * (CACHE_LINE_SIZE + 5);
-    if (GetParam() == BloomFilterPolicy::kLegacyBloom) {
+    if (GetParam() == kLegacyBloom) {
       // this config can add extra cache line to make odd number
       blocked_bloom_overhead += nfilters * CACHE_LINE_SIZE;
     }
@@ -571,7 +384,7 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
     EXPECT_GE(total_mem, total_size);
 
     // optimize_filters_for_memory not implemented with legacy Bloom
-    if (offm && GetParam() != BloomFilterPolicy::kLegacyBloom) {
+    if (offm && GetParam() != kLegacyBloom) {
       // This value can include a small extra penalty for kExtraPadding
       fprintf(stderr, "Internal fragmentation (optimized): %g%%\n",
               (total_mem - total_size) * 100.0 / total_size);
@@ -600,6 +413,76 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
   }
 }
 
+class ChargeFilterConstructionTest : public testing::Test {};
+TEST_F(ChargeFilterConstructionTest, RibbonFilterFallBackOnLargeBanding) {
+  constexpr std::size_t kCacheCapacity =
+      8 * CacheReservationManagerImpl<
+              CacheEntryRole::kFilterConstruction>::GetDummyEntrySize();
+  constexpr std::size_t num_entries_for_cache_full = kCacheCapacity / 8;
+
+  for (CacheEntryRoleOptions::Decision charge_filter_construction_mem :
+       {CacheEntryRoleOptions::Decision::kEnabled,
+        CacheEntryRoleOptions::Decision::kDisabled}) {
+    bool will_fall_back = charge_filter_construction_mem ==
+                          CacheEntryRoleOptions::Decision::kEnabled;
+
+    BlockBasedTableOptions table_options;
+    table_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kFilterConstruction,
+         {/*.charged = */ charge_filter_construction_mem}});
+    LRUCacheOptions lo;
+    lo.capacity = kCacheCapacity;
+    lo.num_shard_bits = 0;  // 2^0 shard
+    lo.strict_capacity_limit = true;
+    std::shared_ptr<Cache> cache(NewLRUCache(lo));
+    table_options.block_cache = cache;
+    table_options.filter_policy =
+        BloomLikeFilterPolicy::Create(kStandard128Ribbon, FLAGS_bits_per_key);
+    FilterBuildingContext ctx(table_options);
+    std::unique_ptr<FilterBitsBuilder> filter_bits_builder(
+        table_options.filter_policy->GetBuilderWithContext(ctx));
+
+    char key_buffer[sizeof(int)];
+    for (std::size_t i = 0; i < num_entries_for_cache_full; ++i) {
+      filter_bits_builder->AddKey(Key(static_cast<int>(i), key_buffer));
+    }
+
+    std::unique_ptr<const char[]> buf;
+    Slice filter = filter_bits_builder->Finish(&buf);
+
+    // To verify Ribbon Filter fallbacks to Bloom Filter properly
+    // based on cache charging result
+    // See BloomFilterPolicy::GetBloomBitsReader re: metadata
+    // -1 = Marker for newer Bloom implementations
+    // -2 = Marker for Standard128 Ribbon
+    if (will_fall_back) {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-1));
+    } else {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-2));
+    }
+
+    if (charge_filter_construction_mem ==
+        CacheEntryRoleOptions::Decision::kEnabled) {
+      const size_t dummy_entry_num = static_cast<std::size_t>(std::ceil(
+          filter.size() * 1.0 /
+          CacheReservationManagerImpl<
+              CacheEntryRole::kFilterConstruction>::GetDummyEntrySize()));
+      EXPECT_GE(
+          cache->GetPinnedUsage(),
+          dummy_entry_num *
+              CacheReservationManagerImpl<
+                  CacheEntryRole::kFilterConstruction>::GetDummyEntrySize());
+      EXPECT_LT(
+          cache->GetPinnedUsage(),
+          (dummy_entry_num + 1) *
+              CacheReservationManagerImpl<
+                  CacheEntryRole::kFilterConstruction>::GetDummyEntrySize());
+    } else {
+      EXPECT_EQ(cache->GetPinnedUsage(), 0);
+    }
+  }
+}
+
 namespace {
 inline uint32_t SelectByCacheLineSize(uint32_t for64, uint32_t for128,
                                       uint32_t for256) {
@@ -624,35 +507,35 @@ inline uint32_t SelectByCacheLineSize(uint32_t for64, uint32_t for128,
 // ability to read filters generated using other cache line sizes.
 // See RawSchema.
 TEST_P(FullBloomTest, Schema) {
-#define EXPECT_EQ_Bloom(a, b)                                  \
-  {                                                            \
-    if (GetParam() != BloomFilterPolicy::kStandard128Ribbon) { \
-      EXPECT_EQ(a, b);                                         \
-    }                                                          \
+#define EXPECT_EQ_Bloom(a, b)               \
+  {                                         \
+    if (GetParam() != kStandard128Ribbon) { \
+      EXPECT_EQ(a, b);                      \
+    }                                       \
   }
-#define EXPECT_EQ_Ribbon(a, b)                                 \
-  {                                                            \
-    if (GetParam() == BloomFilterPolicy::kStandard128Ribbon) { \
-      EXPECT_EQ(a, b);                                         \
-    }                                                          \
+#define EXPECT_EQ_Ribbon(a, b)              \
+  {                                         \
+    if (GetParam() == kStandard128Ribbon) { \
+      EXPECT_EQ(a, b);                      \
+    }                                       \
   }
-#define EXPECT_EQ_FastBloom(a, b)                           \
-  {                                                         \
-    if (GetParam() == BloomFilterPolicy::kFastLocalBloom) { \
-      EXPECT_EQ(a, b);                                      \
-    }                                                       \
+#define EXPECT_EQ_FastBloom(a, b)        \
+  {                                      \
+    if (GetParam() == kFastLocalBloom) { \
+      EXPECT_EQ(a, b);                   \
+    }                                    \
   }
-#define EXPECT_EQ_LegacyBloom(a, b)                      \
-  {                                                      \
-    if (GetParam() == BloomFilterPolicy::kLegacyBloom) { \
-      EXPECT_EQ(a, b);                                   \
-    }                                                    \
+#define EXPECT_EQ_LegacyBloom(a, b)   \
+  {                                   \
+    if (GetParam() == kLegacyBloom) { \
+      EXPECT_EQ(a, b);                \
+    }                                 \
   }
-#define EXPECT_EQ_NotLegacy(a, b)                        \
-  {                                                      \
-    if (GetParam() != BloomFilterPolicy::kLegacyBloom) { \
-      EXPECT_EQ(a, b);                                   \
-    }                                                    \
+#define EXPECT_EQ_NotLegacy(a, b)     \
+  {                                   \
+    if (GetParam() != kLegacyBloom) { \
+      EXPECT_EQ(a, b);                \
+    }                                 \
   }
 
   char buffer[sizeof(int)];
@@ -923,14 +806,14 @@ TEST_P(FullBloomTest, Schema) {
 struct RawFilterTester {
   // Buffer, from which we always return a tail Slice, so the
   // last five bytes are always the metadata bytes.
-  std::array<char, 3000> data_;
+  std::array<char, 3000> data_{};
   // Points five bytes from the end
   char* metadata_ptr_;
 
   RawFilterTester() : metadata_ptr_(&*(data_.end() - 5)) {}
 
   Slice ResetNoFill(uint32_t len_without_metadata, uint32_t num_lines,
-                     uint32_t num_probes) {
+                    uint32_t num_probes) {
     metadata_ptr_[0] = static_cast<char>(num_probes);
     EncodeFixed32(metadata_ptr_ + 1, num_lines);
     uint32_t len = len_without_metadata + /*metadata*/ 5;
@@ -939,13 +822,13 @@ struct RawFilterTester {
   }
 
   Slice Reset(uint32_t len_without_metadata, uint32_t num_lines,
-               uint32_t num_probes, bool fill_ones) {
+              uint32_t num_probes, bool fill_ones) {
     data_.fill(fill_ones ? 0xff : 0);
     return ResetNoFill(len_without_metadata, num_lines, num_probes);
   }
 
   Slice ResetWeirdFill(uint32_t len_without_metadata, uint32_t num_lines,
-                        uint32_t num_probes) {
+                       uint32_t num_probes) {
     for (uint32_t i = 0; i < data_.size(); ++i) {
       data_[i] = static_cast<char>(0x7b7b >> (i % 7));
     }
@@ -1175,7 +1058,7 @@ TEST_P(FullBloomTest, CorruptFilters) {
   ASSERT_TRUE(Matches("hello"));
   ASSERT_TRUE(Matches("world"));
   // Need many queries to find a "true negative"
-  for (int i = 0; Matches(ToString(i)); ++i) {
+  for (int i = 0; Matches(std::to_string(i)); ++i) {
     ASSERT_LT(i, 1000);
   }
 
@@ -1191,13 +1074,12 @@ TEST_P(FullBloomTest, CorruptFilters) {
 }
 
 INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
-                        testing::Values(BloomFilterPolicy::kLegacyBloom,
-                                        BloomFilterPolicy::kFastLocalBloom,
-                                        BloomFilterPolicy::kStandard128Ribbon));
+                        testing::Values(kLegacyBloom, kFastLocalBloom,
+                                        kStandard128Ribbon));
 
 static double GetEffectiveBitsPerKey(FilterBitsBuilder* builder) {
   union {
-    uint64_t key_value;
+    uint64_t key_value = 0;
     char key_bytes[8];
   };
 
@@ -1235,13 +1117,8 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
       std::vector<std::unique_ptr<const FilterPolicy> > policies;
       policies.emplace_back(NewRibbonFilterPolicy(10, bloom_before_level));
 
-      if (bloom_before_level == -1) {
-        // Also test old API
-        policies.emplace_back(NewExperimentalRibbonFilterPolicy(10));
-      }
-
       if (bloom_before_level == 0) {
-        // Also test old API and new API default
+        // Also test new API default
         policies.emplace_back(NewRibbonFilterPolicy(10));
       }
 
@@ -1288,6 +1165,7 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
 

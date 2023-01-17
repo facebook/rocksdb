@@ -9,18 +9,29 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
-class Version;
 
+class Version;
+class Slice;
+class FilePrefetchBuffer;
+class PinnableSlice;
+class BlobIndex;
+
+// A thin wrapper around the blob retrieval functionality of Version.
 class BlobFetcher {
  public:
-  BlobFetcher(Version* version, const ReadOptions& read_options)
+  BlobFetcher(const Version* version, const ReadOptions& read_options)
       : version_(version), read_options_(read_options) {}
 
-  Status FetchBlob(const Slice& user_key, const Slice& blob_index,
-                   PinnableSlice* blob_value);
+  Status FetchBlob(const Slice& user_key, const Slice& blob_index_slice,
+                   FilePrefetchBuffer* prefetch_buffer,
+                   PinnableSlice* blob_value, uint64_t* bytes_read) const;
+
+  Status FetchBlob(const Slice& user_key, const BlobIndex& blob_index,
+                   FilePrefetchBuffer* prefetch_buffer,
+                   PinnableSlice* blob_value, uint64_t* bytes_read) const;
 
  private:
-  Version* version_;
+  const Version* version_;
   ReadOptions read_options_;
 };
 }  // namespace ROCKSDB_NAMESPACE

@@ -18,15 +18,20 @@
 #include <stdexcept>
 #include <string>
 
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/log_reader.h"
+#include "db/version_util.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/experimental.h"
 #include "rocksdb/file_checksum.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/options_util.h"
@@ -40,6 +45,7 @@
 #include "util/file_checksum_helper.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
+#include "utilities/blob_db/blob_dump_tool.h"
 #include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
@@ -81,6 +87,26 @@ const std::string LDBCommand::ARG_WRITE_BUFFER_SIZE = "write_buffer_size";
 const std::string LDBCommand::ARG_FILE_SIZE = "file_size";
 const std::string LDBCommand::ARG_CREATE_IF_MISSING = "create_if_missing";
 const std::string LDBCommand::ARG_NO_VALUE = "no_value";
+const std::string LDBCommand::ARG_ENABLE_BLOB_FILES = "enable_blob_files";
+const std::string LDBCommand::ARG_MIN_BLOB_SIZE = "min_blob_size";
+const std::string LDBCommand::ARG_BLOB_FILE_SIZE = "blob_file_size";
+const std::string LDBCommand::ARG_BLOB_COMPRESSION_TYPE =
+    "blob_compression_type";
+const std::string LDBCommand::ARG_ENABLE_BLOB_GARBAGE_COLLECTION =
+    "enable_blob_garbage_collection";
+const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF =
+    "blob_garbage_collection_age_cutoff";
+const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
+    "blob_garbage_collection_force_threshold";
+const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
+    "blob_compaction_readahead_size";
+const std::string LDBCommand::ARG_BLOB_FILE_STARTING_LEVEL =
+    "blob_file_starting_level";
+const std::string LDBCommand::ARG_PREPOPULATE_BLOB_CACHE =
+    "prepopulate_blob_cache";
+const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
+const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
+    "dump_uncompressed_blobs";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -91,8 +117,12 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  LDBCommandExecuteResult* exec_state);
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties);
-};
+                 bool show_properties, bool decode_blob_index,
+                 std::string from_key = "", std::string to_key = "");
+
+void DumpBlobFile(const std::string& filename, bool is_key_hex,
+                  bool is_value_hex, bool dump_uncompressed_blobs);
+};  // namespace
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
     int argc, char const* const* argv, const Options& options,
@@ -135,7 +165,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
   const std::string OPTION_PREFIX = "--";
 
   for (const auto& arg : args) {
-    if (arg[0] == '-' && arg[1] == '-'){
+    if (arg[0] == '-' && arg[1] == '-') {
       std::vector<std::string> splits = StringSplit(arg, '=');
       // --option_name=option_value
       if (splits.size() == 2) {
@@ -189,6 +219,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   } else if (parsed_params.cmd == DeleteCommand::Name()) {
     return new DeleteCommand(parsed_params.cmd_params, parsed_params.option_map,
                              parsed_params.flags);
+  } else if (parsed_params.cmd == SingleDeleteCommand::Name()) {
+    return new SingleDeleteCommand(parsed_params.cmd_params,
+                                   parsed_params.option_map,
+                                   parsed_params.flags);
   } else if (parsed_params.cmd == DeleteRangeCommand::Name()) {
     return new DeleteRangeCommand(parsed_params.cmd_params,
                                   parsed_params.option_map,
@@ -261,8 +295,7 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
                                        parsed_params.flags);
   } else if (parsed_params.cmd == CheckPointCommand::Name()) {
     return new CheckPointCommand(parsed_params.cmd_params,
-                                 parsed_params.option_map,
-                                 parsed_params.flags);
+                                 parsed_params.option_map, parsed_params.flags);
   } else if (parsed_params.cmd == RepairCommand::Name()) {
     return new RepairCommand(parsed_params.cmd_params, parsed_params.option_map,
                              parsed_params.flags);
@@ -287,6 +320,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new UnsafeRemoveSstFileCommand(parsed_params.cmd_params,
                                           parsed_params.option_map,
                                           parsed_params.flags);
+  } else if (parsed_params.cmd == UpdateManifestCommand::Name()) {
+    return new UpdateManifestCommand(parsed_params.cmd_params,
+                                     parsed_params.option_map,
+                                     parsed_params.flags);
   }
   return nullptr;
 }
@@ -347,7 +384,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
       option_map_(options),
       flags_(flags),
       valid_cmd_line_options_(valid_cmd_line_options) {
-  std::map<std::string, std::string>::const_iterator itr = options.find(ARG_DB);
+  auto itr = options.find(ARG_DB);
   if (itr != options.end()) {
     db_path_ = itr->second;
   }
@@ -379,9 +416,12 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
-  try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
+  try_load_options_ = IsTryLoadOptions(options, flags);
   force_consistency_checks_ =
       !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
+  enable_blob_files_ = IsFlagPresent(flags, ARG_ENABLE_BLOB_FILES);
+  enable_blob_garbage_collection_ =
+      IsFlagPresent(flags, ARG_ENABLE_BLOB_GARBAGE_COLLECTION);
   config_options_.ignore_unknown_options =
       IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }
@@ -473,6 +513,8 @@ void LDBCommand::CloseDB() {
     for (auto& pair : cf_handles_) {
       delete pair.second;
     }
+    Status s = db_->Close();
+    s.PermitUncheckedError();
     delete db_;
     db_ = nullptr;
   }
@@ -507,10 +549,61 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_FIX_PREFIX_LEN,
                                   ARG_TRY_LOAD_OPTIONS,
                                   ARG_DISABLE_CONSISTENCY_CHECKS,
+                                  ARG_ENABLE_BLOB_FILES,
+                                  ARG_MIN_BLOB_SIZE,
+                                  ARG_BLOB_FILE_SIZE,
+                                  ARG_BLOB_COMPRESSION_TYPE,
+                                  ARG_ENABLE_BLOB_GARBAGE_COLLECTION,
+                                  ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF,
+                                  ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD,
+                                  ARG_BLOB_COMPACTION_READAHEAD_SIZE,
+                                  ARG_BLOB_FILE_STARTING_LEVEL,
+                                  ARG_PREPOPULATE_BLOB_CACHE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
   return ret;
+}
+
+/**
+ * Parses the specific double option and fills in the value.
+ * Returns true if the option is found.
+ * Returns false if the option is not found or if there is an error parsing the
+ * value.  If there is an error, the specified exec_state is also
+ * updated.
+ */
+bool LDBCommand::ParseDoubleOption(
+    const std::map<std::string, std::string>& /*options*/,
+    const std::string& option, double& value,
+    LDBCommandExecuteResult& exec_state) {
+  auto itr = option_map_.find(option);
+  if (itr != option_map_.end()) {
+#if defined(CYGWIN)
+    char* str_end = nullptr;
+    value = std::strtod(itr->second.c_str(), &str_end);
+    if (str_end == itr->second.c_str()) {
+      exec_state =
+          LDBCommandExecuteResult::Failed(option + " has an invalid value.");
+    } else if (errno == ERANGE) {
+      exec_state = LDBCommandExecuteResult::Failed(
+          option + " has a value out-of-range.");
+    } else {
+      return true;
+    }
+#else
+    try {
+      value = std::stod(itr->second);
+      return true;
+    } catch (const std::invalid_argument&) {
+      exec_state =
+          LDBCommandExecuteResult::Failed(option + " has an invalid value.");
+    } catch (const std::out_of_range&) {
+      exec_state = LDBCommandExecuteResult::Failed(
+          option + " has a value out-of-range.");
+    }
+#endif
+  }
+  return false;
 }
 
 /**
@@ -524,15 +617,23 @@ bool LDBCommand::ParseIntOption(
     const std::map<std::string, std::string>& /*options*/,
     const std::string& option, int& value,
     LDBCommandExecuteResult& exec_state) {
-  std::map<std::string, std::string>::const_iterator itr =
-      option_map_.find(option);
+  auto itr = option_map_.find(option);
   if (itr != option_map_.end()) {
-    try {
 #if defined(CYGWIN)
-      value = strtol(itr->second.c_str(), 0, 10);
+    char* str_end = nullptr;
+    value = strtol(itr->second.c_str(), &str_end, 10);
+    if (str_end == itr->second.c_str()) {
+      exec_state =
+          LDBCommandExecuteResult::Failed(option + " has an invalid value.");
+    } else if (errno == ERANGE) {
+      exec_state = LDBCommandExecuteResult::Failed(
+          option + " has a value out-of-range.");
+    } else {
+      return true;
+    }
 #else
+    try {
       value = std::stoi(itr->second);
-#endif
       return true;
     } catch (const std::invalid_argument&) {
       exec_state =
@@ -541,6 +642,7 @@ bool LDBCommand::ParseIntOption(
       exec_state = LDBCommandExecuteResult::Failed(
           option + " has a value out-of-range.");
     }
+#endif
   }
   return false;
 }
@@ -557,6 +659,51 @@ bool LDBCommand::ParseStringOption(
   if (itr != option_map_.end()) {
     *value = itr->second;
     return true;
+  }
+  return false;
+}
+
+/**
+ * Parses the specified compression type and fills in the value.
+ * Returns true if the compression type is found.
+ * Returns false otherwise.
+ */
+bool LDBCommand::ParseCompressionTypeOption(
+    const std::map<std::string, std::string>& /*options*/,
+    const std::string& option, CompressionType& value,
+    LDBCommandExecuteResult& exec_state) {
+  auto itr = option_map_.find(option);
+  if (itr != option_map_.end()) {
+    const std::string& comp = itr->second;
+    if (comp == "no") {
+      value = kNoCompression;
+      return true;
+    } else if (comp == "snappy") {
+      value = kSnappyCompression;
+      return true;
+    } else if (comp == "zlib") {
+      value = kZlibCompression;
+      return true;
+    } else if (comp == "bzip2") {
+      value = kBZip2Compression;
+      return true;
+    } else if (comp == "lz4") {
+      value = kLZ4Compression;
+      return true;
+    } else if (comp == "lz4hc") {
+      value = kLZ4HCCompression;
+      return true;
+    } else if (comp == "xpress") {
+      value = kXpressCompression;
+      return true;
+    } else if (comp == "zstd") {
+      value = kZSTD;
+      return true;
+    } else {
+      // Unknown compression.
+      exec_state = LDBCommandExecuteResult::Failed(
+          "Unknown compression algorithm: " + comp);
+    }
   }
   return false;
 }
@@ -613,35 +760,114 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
+  cf_opts->enable_blob_files = enable_blob_files_;
+
+  int min_blob_size;
+  if (ParseIntOption(option_map_, ARG_MIN_BLOB_SIZE, min_blob_size,
+                     exec_state_)) {
+    if (min_blob_size >= 0) {
+      cf_opts->min_blob_size = min_blob_size;
+    } else {
+      exec_state_ =
+          LDBCommandExecuteResult::Failed(ARG_MIN_BLOB_SIZE + " must be >= 0.");
+    }
+  }
+
+  int blob_file_size;
+  if (ParseIntOption(option_map_, ARG_BLOB_FILE_SIZE, blob_file_size,
+                     exec_state_)) {
+    if (blob_file_size > 0) {
+      cf_opts->blob_file_size = blob_file_size;
+    } else {
+      exec_state_ =
+          LDBCommandExecuteResult::Failed(ARG_BLOB_FILE_SIZE + " must be > 0.");
+    }
+  }
+
+  cf_opts->enable_blob_garbage_collection = enable_blob_garbage_collection_;
+
+  double blob_garbage_collection_age_cutoff;
+  if (ParseDoubleOption(option_map_, ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF,
+                        blob_garbage_collection_age_cutoff, exec_state_)) {
+    if (blob_garbage_collection_age_cutoff >= 0 &&
+        blob_garbage_collection_age_cutoff <= 1) {
+      cf_opts->blob_garbage_collection_age_cutoff =
+          blob_garbage_collection_age_cutoff;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF + " must be >= 0 and <= 1.");
+    }
+  }
+
+  double blob_garbage_collection_force_threshold;
+  if (ParseDoubleOption(option_map_,
+                        ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD,
+                        blob_garbage_collection_force_threshold, exec_state_)) {
+    if (blob_garbage_collection_force_threshold >= 0 &&
+        blob_garbage_collection_force_threshold <= 1) {
+      cf_opts->blob_garbage_collection_force_threshold =
+          blob_garbage_collection_force_threshold;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD +
+          " must be >= 0 and <= 1.");
+    }
+  }
+
+  int blob_compaction_readahead_size;
+  if (ParseIntOption(option_map_, ARG_BLOB_COMPACTION_READAHEAD_SIZE,
+                     blob_compaction_readahead_size, exec_state_)) {
+    if (blob_compaction_readahead_size > 0) {
+      cf_opts->blob_compaction_readahead_size = blob_compaction_readahead_size;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_COMPACTION_READAHEAD_SIZE + " must be > 0.");
+    }
+  }
+
+  int blob_file_starting_level;
+  if (ParseIntOption(option_map_, ARG_BLOB_FILE_STARTING_LEVEL,
+                     blob_file_starting_level, exec_state_)) {
+    if (blob_file_starting_level >= 0) {
+      cf_opts->blob_file_starting_level = blob_file_starting_level;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_FILE_STARTING_LEVEL + " must be >= 0.");
+    }
+  }
+
+  int prepopulate_blob_cache;
+  if (ParseIntOption(option_map_, ARG_PREPOPULATE_BLOB_CACHE,
+                     prepopulate_blob_cache, exec_state_)) {
+    switch (prepopulate_blob_cache) {
+      case 0:
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+        break;
+      case 1:
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+        break;
+      default:
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            ARG_PREPOPULATE_BLOB_CACHE +
+            " must be 0 (disable) or 1 (flush only).");
+    }
+  }
+
   auto itr = option_map_.find(ARG_AUTO_COMPACTION);
   if (itr != option_map_.end()) {
     cf_opts->disable_auto_compactions = !StringToBool(itr->second);
   }
 
-  itr = option_map_.find(ARG_COMPRESSION_TYPE);
-  if (itr != option_map_.end()) {
-    std::string comp = itr->second;
-    if (comp == "no") {
-      cf_opts->compression = kNoCompression;
-    } else if (comp == "snappy") {
-      cf_opts->compression = kSnappyCompression;
-    } else if (comp == "zlib") {
-      cf_opts->compression = kZlibCompression;
-    } else if (comp == "bzip2") {
-      cf_opts->compression = kBZip2Compression;
-    } else if (comp == "lz4") {
-      cf_opts->compression = kLZ4Compression;
-    } else if (comp == "lz4hc") {
-      cf_opts->compression = kLZ4HCCompression;
-    } else if (comp == "xpress") {
-      cf_opts->compression = kXpressCompression;
-    } else if (comp == "zstd") {
-      cf_opts->compression = kZSTD;
-    } else {
-      // Unknown compression.
-      exec_state_ =
-          LDBCommandExecuteResult::Failed("Unknown compression level: " + comp);
-    }
+  CompressionType compression_type;
+  if (ParseCompressionTypeOption(option_map_, ARG_COMPRESSION_TYPE,
+                                 compression_type, exec_state_)) {
+    cf_opts->compression = compression_type;
+  }
+
+  CompressionType blob_compression_type;
+  if (ParseCompressionTypeOption(option_map_, ARG_BLOB_COMPRESSION_TYPE,
+                                 blob_compression_type, exec_state_)) {
+    cf_opts->blob_compression_type = blob_compression_type;
   }
 
   int compression_max_dict_bytes;
@@ -657,7 +883,7 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
 
   int write_buffer_size;
   if (ParseIntOption(option_map_, ARG_WRITE_BUFFER_SIZE, write_buffer_size,
-        exec_state_)) {
+                     exec_state_)) {
     if (write_buffer_size > 0) {
       cf_opts->write_buffer_size = write_buffer_size;
     } else {
@@ -720,6 +946,10 @@ void LDBCommand::PrepareOptions() {
             MergeOperators::CreateStringAppendOperator(':');
       }
     }
+  }
+
+  if (options_.env == Env::Default()) {
+    options_.env = config_options_.env;
   }
 
   OverrideBaseOptions();
@@ -788,9 +1018,7 @@ bool LDBCommand::ParseKeyValue(const std::string& line, std::string* key,
  * appropriate error msg to stderr.
  */
 bool LDBCommand::ValidateCmdLineOptions() {
-  for (std::map<std::string, std::string>::const_iterator itr =
-           option_map_.begin();
-       itr != option_map_.end(); ++itr) {
+  for (auto itr = option_map_.begin(); itr != option_map_.end(); ++itr) {
     if (std::find(valid_cmd_line_options_.begin(),
                   valid_cmd_line_options_.end(),
                   itr->first) == valid_cmd_line_options_.end()) {
@@ -876,10 +1104,28 @@ bool LDBCommand::IsValueHex(const std::map<std::string, std::string>& options,
           ParseBooleanOption(options, ARG_VALUE_HEX, false));
 }
 
+bool LDBCommand::IsTryLoadOptions(
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags) {
+  if (IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS)) {
+    return true;
+  }
+  // if `DB` is specified and not explicitly to create a new db, default
+  // `try_load_options` to true. The user could still disable that by set
+  // `try_load_options=false`.
+  // Note: Opening as TTL DB doesn't support `try_load_options`, so it's default
+  // to false. TODO: TTL_DB may need to fix that, otherwise it's unable to open
+  // DB which has incompatible setting with default options.
+  bool default_val = (options.find(ARG_DB) != options.end()) &&
+                     !IsFlagPresent(flags, ARG_CREATE_IF_MISSING) &&
+                     !IsFlagPresent(flags, ARG_TTL);
+  return ParseBooleanOption(options, ARG_TRY_LOAD_OPTIONS, default_val);
+}
+
 bool LDBCommand::ParseBooleanOption(
     const std::map<std::string, std::string>& options,
     const std::string& option, bool default_val) {
-  std::map<std::string, std::string>::const_iterator itr = options.find(option);
+  auto itr = options.find(option);
   if (itr != options.end()) {
     std::string option_val = itr->second;
     return StringToBool(itr->second);
@@ -909,8 +1155,7 @@ CompactorCommand::CompactorCommand(
                                       ARG_VALUE_HEX, ARG_TTL})),
       null_from_(true),
       null_to_(true) {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_FROM);
+  auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     null_from_ = false;
     from_ = itr->second;
@@ -1038,7 +1283,7 @@ void DBLoaderCommand::DoCommand() {
     } else if (0 == line.find("Created bg thread 0x")) {
       // ignore this line
     } else {
-      bad_lines ++;
+      bad_lines++;
     }
   }
 
@@ -1081,7 +1326,7 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
+                      /*db_id*/ "", /*db_session_id*/ "");
   Status s = versions.DumpManifest(options, file, verbose, hex, json);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
@@ -1117,8 +1362,7 @@ ManifestDumpCommand::ManifestDumpCommand(
   verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
   json_ = IsFlagPresent(flags, ARG_JSON);
 
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_PATH);
+  auto itr = options.find(ARG_PATH);
   if (itr != options.end()) {
     path_ = itr->second;
     if (path_.empty()) {
@@ -1128,7 +1372,6 @@ ManifestDumpCommand::ManifestDumpCommand(
 }
 
 void ManifestDumpCommand::DoCommand() {
-
   std::string manifestfile;
 
   if (!path_.empty()) {
@@ -1186,7 +1429,7 @@ void ManifestDumpCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
       return;
     }
-    if (db_path_[db_path_.length() - 1] != '/') {
+    if (db_path_.back() != '/') {
       db_path_.append("/");
     }
     manifestfile = db_path_ + matched_file;
@@ -1206,9 +1449,9 @@ void ManifestDumpCommand::DoCommand() {
 // ----------------------------------------------------------------------------
 namespace {
 
-void GetLiveFilesChecksumInfoFromVersionSet(Options options,
-                                            const std::string& db_path,
-                                            FileChecksumList* checksum_list) {
+Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
+                                              const std::string& db_path,
+                                              FileChecksumList* checksum_list) {
   EnvOptions sopt;
   Status s;
   std::string dbname(db_path);
@@ -1224,7 +1467,7 @@ void GetLiveFilesChecksumInfoFromVersionSet(Options options,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
+                      /*db_id*/ "", /*db_session_id*/ "");
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
                                   immutable_db_options.fs.get());
@@ -1238,9 +1481,7 @@ void GetLiveFilesChecksumInfoFromVersionSet(Options options,
   if (s.ok()) {
     s = versions.GetLiveFilesChecksumInfo(checksum_list);
   }
-  if (!s.ok()) {
-    fprintf(stderr, "Error Status: %s", s.ToString().c_str());
-  }
+  return s;
 }
 
 }  // namespace
@@ -1261,8 +1502,7 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     : LDBCommand(options, flags, false,
                  BuildCmdLineOptions({ARG_PATH, ARG_HEX})),
       path_("") {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_PATH);
+  auto itr = options.find(ARG_PATH);
   if (itr != options.end()) {
     path_ = itr->second;
     if (path_.empty()) {
@@ -1279,14 +1519,14 @@ void FileChecksumDumpCommand::DoCommand() {
   //  ......
 
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-  GetLiveFilesChecksumInfoFromVersionSet(options_, db_path_,
-                                         checksum_list.get());
-  if (checksum_list != nullptr) {
+  Status s = GetLiveFilesChecksumInfoFromVersionSet(options_, db_path_,
+                                                    checksum_list.get());
+  if (s.ok() && checksum_list != nullptr) {
     std::vector<uint64_t> file_numbers;
     std::vector<std::string> checksums;
     std::vector<std::string> checksum_func_names;
-    Status s = checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
-                                                  &checksum_func_names);
+    s = checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
+                                           &checksum_func_names);
     if (s.ok()) {
       for (size_t i = 0; i < file_numbers.size(); i++) {
         assert(i < file_numbers.size());
@@ -1301,8 +1541,12 @@ void FileChecksumDumpCommand::DoCommand() {
         fprintf(stdout, "%" PRId64 ", %s, %s\n", file_numbers[i],
                 checksum_func_names[i].c_str(), checksum.c_str());
       }
+      fprintf(stdout, "Print SST file checksum information finished \n");
     }
-    fprintf(stdout, "Print SST file checksum information finished \n");
+  }
+
+  if (!s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
   }
 }
 
@@ -1484,7 +1728,7 @@ void IncBucketCounts(std::vector<uint64_t>& bucket_counts, int ttl_start,
   (void)num_buckets;
 #endif
   assert(time_range > 0 && timekv >= ttl_start && bucket_size > 0 &&
-    timekv < (ttl_start + time_range) && num_buckets > 1);
+         timekv < (ttl_start + time_range) && num_buckets > 1);
   int bucket = (timekv - ttl_start) / bucket_size;
   bucket_counts[bucket]++;
 }
@@ -1493,7 +1737,7 @@ void PrintBucketCounts(const std::vector<uint64_t>& bucket_counts,
                        int ttl_start, int ttl_end, int bucket_size,
                        int num_buckets) {
   int time_point = ttl_start;
-  for(int i = 0; i < num_buckets - 1; i++, time_point += bucket_size) {
+  for (int i = 0; i < num_buckets - 1; i++, time_point += bucket_size) {
     fprintf(stdout, "Keys in range %s to %s : %lu\n",
             TimeToHumanString(time_point).c_str(),
             TimeToHumanString(time_point + bucket_size).c_str(),
@@ -1516,11 +1760,11 @@ InternalDumpCommand::InternalDumpCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(
-          options, flags, true,
-          BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
-                               ARG_TO, ARG_MAX_KEYS, ARG_COUNT_ONLY,
-                               ARG_COUNT_DELIM, ARG_STATS, ARG_INPUT_KEY_HEX})),
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions(
+                     {ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+                      ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
+                      ARG_INPUT_KEY_HEX, ARG_DECODE_BLOB_INDEX})),
       has_from_(false),
       has_to_(false),
       max_keys_(-1),
@@ -1528,25 +1772,26 @@ InternalDumpCommand::InternalDumpCommand(
       count_only_(false),
       count_delim_(false),
       print_stats_(false),
-      is_input_key_hex_(false) {
+      is_input_key_hex_(false),
+      decode_blob_index_(false) {
   has_from_ = ParseStringOption(options, ARG_FROM, &from_);
   has_to_ = ParseStringOption(options, ARG_TO, &to_);
 
   ParseIntOption(options, ARG_MAX_KEYS, max_keys_, exec_state_);
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_COUNT_DELIM);
+  auto itr = options.find(ARG_COUNT_DELIM);
   if (itr != options.end()) {
     delim_ = itr->second;
     count_delim_ = true;
-   // fprintf(stdout,"delim = %c\n",delim_[0]);
+    // fprintf(stdout,"delim = %c\n",delim_[0]);
   } else {
     count_delim_ = IsFlagPresent(flags, ARG_COUNT_DELIM);
-    delim_=".";
+    delim_ = ".";
   }
 
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
   is_input_key_hex_ = IsFlagPresent(flags, ARG_INPUT_KEY_HEX);
+  decode_blob_index_ = IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX);
 
   if (is_input_key_hex_) {
     if (has_from_) {
@@ -1567,6 +1812,7 @@ void InternalDumpCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_COUNT_ONLY + "]");
   ret.append(" [--" + ARG_COUNT_DELIM + "=<char>]");
   ret.append(" [--" + ARG_STATS + "]");
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
   ret.append("\n");
 }
 
@@ -1593,13 +1839,13 @@ void InternalDumpCommand::DoCommand() {
   }
   std::string rtype1, rtype2, row, val;
   rtype2 = "";
-  uint64_t c=0;
-  uint64_t s1=0,s2=0;
+  uint64_t c = 0;
+  uint64_t s1 = 0, s2 = 0;
 
   long long count = 0;
   for (auto& key_version : key_versions) {
-    InternalKey ikey(key_version.user_key, key_version.sequence,
-                     static_cast<ValueType>(key_version.type));
+    ValueType value_type = static_cast<ValueType>(key_version.type);
+    InternalKey ikey(key_version.user_key, key_version.sequence, value_type);
     if (has_to_ && ikey.user_key() == to_) {
       // GetAllKeyVersions() includes keys with user key `to_`, but idump has
       // traditionally excluded such keys.
@@ -1609,38 +1855,50 @@ void InternalDumpCommand::DoCommand() {
     int k;
     if (count_delim_) {
       rtype1 = "";
-      s1=0;
+      s1 = 0;
       row = ikey.Encode().ToString();
       val = key_version.value;
-      for(k=0;row[k]!='\x01' && row[k]!='\0';k++)
-        s1++;
-      for(k=0;val[k]!='\x01' && val[k]!='\0';k++)
-        s1++;
-      for(int j=0;row[j]!=delim_[0] && row[j]!='\0' && row[j]!='\x01';j++)
-        rtype1+=row[j];
-      if(rtype2.compare("") && rtype2.compare(rtype1)!=0) {
+      for (k = 0; row[k] != '\x01' && row[k] != '\0'; k++) s1++;
+      for (k = 0; val[k] != '\x01' && val[k] != '\0'; k++) s1++;
+      for (int j = 0; row[j] != delim_[0] && row[j] != '\0' && row[j] != '\x01';
+           j++)
+        rtype1 += row[j];
+      if (rtype2.compare("") && rtype2.compare(rtype1) != 0) {
         fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
                 rtype2.c_str(), c, s2);
-        c=1;
-        s2=s1;
+        c = 1;
+        s2 = s1;
         rtype2 = rtype1;
       } else {
         c++;
-        s2+=s1;
-        rtype2=rtype1;
+        s2 += s1;
+        rtype2 = rtype1;
       }
     }
 
     if (!count_only_ && !count_delim_) {
       std::string key = ikey.DebugString(is_key_hex_);
-      std::string value = Slice(key_version.value).ToString(is_value_hex_);
-      std::cout << key << " => " << value << "\n";
+      Slice value(key_version.value);
+      if (!decode_blob_index_ || value_type != kTypeBlobIndex) {
+        fprintf(stdout, "%s => %s\n", key.c_str(),
+                value.ToString(is_value_hex_).c_str());
+      } else {
+        BlobIndex blob_index;
+
+        const Status s = blob_index.DecodeFrom(value);
+        if (!s.ok()) {
+          fprintf(stderr, "%s => error decoding blob index =>\n", key.c_str());
+        } else {
+          fprintf(stdout, "%s => %s\n", key.c_str(),
+                  blob_index.DebugString(is_value_hex_).c_str());
+        }
+      }
     }
 
     // Terminate if maximum number of keys have been dumped
     if (max_keys_ > 0 && count >= max_keys_) break;
   }
-  if(count_delim_) {
+  if (count_delim_) {
     fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
             rtype2.c_str(), c, s2);
   } else {
@@ -1657,20 +1915,21 @@ DBDumperCommand::DBDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
-                 BuildCmdLineOptions(
-                     {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
-                      ARG_TO, ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM,
-                      ARG_STATS, ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET,
-                      ARG_TIMESTAMP, ARG_PATH})),
+    : LDBCommand(
+          options, flags, true,
+          BuildCmdLineOptions(
+              {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+               ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
+               ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET, ARG_TIMESTAMP,
+               ARG_PATH, ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
       null_from_(true),
       null_to_(true),
       max_keys_(-1),
       count_only_(false),
       count_delim_(false),
-      print_stats_(false) {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_FROM);
+      print_stats_(false),
+      decode_blob_index_(false) {
+  auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     null_from_ = false;
     from_ = itr->second;
@@ -1704,11 +1963,13 @@ DBDumperCommand::DBDumperCommand(
     count_delim_ = true;
   } else {
     count_delim_ = IsFlagPresent(flags, ARG_COUNT_DELIM);
-    delim_=".";
+    delim_ = ".";
   }
 
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
+  decode_blob_index_ = IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX);
+  dump_uncompressed_blobs_ = IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS);
 
   if (is_key_hex_) {
     if (!null_from_) {
@@ -1742,6 +2003,8 @@ void DBDumperCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append(" [--" + ARG_PATH + "=<path_to_a_file>]");
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "]");
   ret.append("\n");
 }
 
@@ -1779,11 +2042,16 @@ void DBDumperCommand::DoCommand() {
                     &exec_state_);
         break;
       case kTableFile:
-        DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true);
+        DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true,
+                    decode_blob_index_, from_, to_);
         break;
       case kDescriptorFile:
         DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
                          /*  json_ */ false);
+        break;
+      case kBlobFile:
+        DumpBlobFile(path_, is_key_hex_, is_value_hex_,
+                     dump_uncompressed_blobs_);
         break;
       default:
         exec_state_ = LDBCommandExecuteResult::Failed(
@@ -1843,13 +2111,13 @@ void DBDumperCommand::DoDumpCommand() {
   int bucket_size;
   if (!ParseIntOption(option_map_, ARG_TTL_BUCKET, bucket_size, exec_state_) ||
       bucket_size <= 0) {
-    bucket_size = time_range; // Will have just 1 bucket by default
+    bucket_size = time_range;  // Will have just 1 bucket by default
   }
-  //cretaing variables for row count of each type
+  // cretaing variables for row count of each type
   std::string rtype1, rtype2, row, val;
   rtype2 = "";
-  uint64_t c=0;
-  uint64_t s1=0,s2=0;
+  uint64_t c = 0;
+  uint64_t s1 = 0, s2 = 0;
 
   // At this point, bucket_size=0 => time_range=0
   int num_buckets = (bucket_size >= time_range)
@@ -1867,11 +2135,9 @@ void DBDumperCommand::DoDumpCommand() {
   for (; iter->Valid(); iter->Next()) {
     int rawtime = 0;
     // If end marker was specified, we stop before it
-    if (!null_to_ && (iter->key().ToString() >= to_))
-      break;
+    if (!null_to_ && (iter->key().ToString() >= to_)) break;
     // Terminate if maximum number of keys have been dumped
-    if (max_keys == 0)
-      break;
+    if (max_keys == 0) break;
     if (is_db_ttl_) {
       TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(iter);
       rawtime = it_ttl->ttl_timestamp();
@@ -1891,21 +2157,20 @@ void DBDumperCommand::DoDumpCommand() {
       rtype1 = "";
       row = iter->key().ToString();
       val = iter->value().ToString();
-      s1 = row.size()+val.size();
-      for(int j=0;row[j]!=delim_[0] && row[j]!='\0';j++)
-        rtype1+=row[j];
-      if(rtype2.compare("") && rtype2.compare(rtype1)!=0) {
+      s1 = row.size() + val.size();
+      for (int j = 0; row[j] != delim_[0] && row[j] != '\0'; j++)
+        rtype1 += row[j];
+      if (rtype2.compare("") && rtype2.compare(rtype1) != 0) {
         fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
                 rtype2.c_str(), c, s2);
-        c=1;
-        s2=s1;
+        c = 1;
+        s2 = s1;
         rtype2 = rtype1;
       } else {
-          c++;
-          s2+=s1;
-          rtype2=rtype1;
+        c++;
+        s2 += s1;
+        rtype2 = rtype1;
       }
-
     }
 
     if (count_only_) {
@@ -1926,7 +2191,7 @@ void DBDumperCommand::DoDumpCommand() {
   if (num_buckets > 1 && is_db_ttl_) {
     PrintBucketCounts(bucket_counts, ttl_start, ttl_end, bucket_size,
                       num_buckets);
-  } else if(count_delim_) {
+  } else if (count_delim_) {
     fprintf(stdout, "%s => count:%" PRIu64 "\tsize:%" PRIu64 "\n",
             rtype2.c_str(), c, s2);
   } else {
@@ -1957,7 +2222,7 @@ ReduceDBLevelsCommand::ReduceDBLevelsCommand(
   ParseIntOption(option_map_, ARG_NEW_LEVELS, new_levels_, exec_state_);
   print_old_levels_ = IsFlagPresent(flags, ARG_PRINT_OLD_LEVELS);
 
-  if(new_levels_ <= 0) {
+  if (new_levels_ <= 0) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         " Use --" + ARG_NEW_LEVELS + " to specify a new level number\n");
   }
@@ -1968,9 +2233,8 @@ std::vector<std::string> ReduceDBLevelsCommand::PrepareArgs(
   std::vector<std::string> ret;
   ret.push_back("reduce_levels");
   ret.push_back("--" + ARG_DB + "=" + db_path);
-  ret.push_back("--" + ARG_NEW_LEVELS + "=" +
-                ROCKSDB_NAMESPACE::ToString(new_levels));
-  if(print_old_level) {
+  ret.push_back("--" + ARG_NEW_LEVELS + "=" + std::to_string(new_levels));
+  if (print_old_level) {
     ret.push_back("--" + ARG_PRINT_OLD_LEVELS);
   }
   return ret;
@@ -1995,8 +2259,7 @@ void ReduceDBLevelsCommand::OverrideBaseCFOptions(
   cf_opts->max_bytes_for_level_multiplier = 1;
 }
 
-Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
-    int* levels) {
+Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt, int* levels) {
   ImmutableDBOptions db_options(opt);
   EnvOptions soptions;
   std::shared_ptr<Cache> tc(
@@ -2006,7 +2269,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   WriteBufferManager wb(opt.db_write_buffer_size);
   VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
+                      /*db_id*/ "", /*db_session_id*/ "");
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));
@@ -2094,9 +2357,9 @@ ChangeCompactionStyleCommand::ChangeCompactionStyleCommand(
       old_compaction_style_(-1),
       new_compaction_style_(-1) {
   ParseIntOption(option_map_, ARG_OLD_COMPACTION_STYLE, old_compaction_style_,
-    exec_state_);
+                 exec_state_);
   if (old_compaction_style_ != kCompactionStyleLevel &&
-     old_compaction_style_ != kCompactionStyleUniversal) {
+      old_compaction_style_ != kCompactionStyleUniversal) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "Use --" + ARG_OLD_COMPACTION_STYLE + " to specify old compaction " +
         "style. Check ldb help for proper compaction style value.\n");
@@ -2104,9 +2367,9 @@ ChangeCompactionStyleCommand::ChangeCompactionStyleCommand(
   }
 
   ParseIntOption(option_map_, ARG_NEW_COMPACTION_STYLE, new_compaction_style_,
-    exec_state_);
+                 exec_state_);
   if (new_compaction_style_ != kCompactionStyleLevel &&
-     new_compaction_style_ != kCompactionStyleUniversal) {
+      new_compaction_style_ != kCompactionStyleUniversal) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "Use --" + ARG_NEW_COMPACTION_STYLE + " to specify new compaction " +
         "style. Check ldb help for proper compaction style value.\n");
@@ -2164,7 +2427,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   std::string files_per_level;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
     db_->GetProperty(GetCfHandle(),
-                     "rocksdb.num-files-at-level" + NumberToString(i),
+                     "rocksdb.num-files-at-level" + std::to_string(i),
                      &property);
 
     // format print string
@@ -2193,7 +2456,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   int num_files = 0;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
     db_->GetProperty(GetCfHandle(),
-                     "rocksdb.num-files-at-level" + NumberToString(i),
+                     "rocksdb.num-files-at-level" + std::to_string(i),
                      &property);
 
     // format print string
@@ -2208,7 +2471,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Number of db files at "
           "level 0 after compaction is " +
-          ToString(num_files) + ", not 1.\n");
+          std::to_string(num_files) + ", not 1.\n");
       return;
     }
     // other levels should have no file
@@ -2216,8 +2479,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Number of db files at "
           "level " +
-          ToString(i) + " after compaction is " + ToString(num_files) +
-          ", not 0.\n");
+          std::to_string(i) + " after compaction is " +
+          std::to_string(num_files) + ", not 0.\n");
       return;
     }
   }
@@ -2317,10 +2580,21 @@ class InMemoryHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 
+  Status MarkCommitWithTimestamp(const Slice& xid,
+                                 const Slice& commit_ts) override {
+    row_ << "COMMIT_WITH_TIMESTAMP(";
+    row_ << LDBCommand::StringToHex(xid.ToString()) << ", ";
+    row_ << LDBCommand::StringToHex(commit_ts.ToString()) << ") ";
+    return Status::OK();
+  }
+
   ~InMemoryHandler() override {}
 
  protected:
-  bool WriteAfterCommit() const override { return write_after_commit_; }
+  Handler::OptionState WriteAfterCommit() const override {
+    return write_after_commit_ ? Handler::OptionState::kEnabled
+                               : Handler::OptionState::kDisabled;
+  }
 
  private:
   std::stringstream& row_;
@@ -2334,8 +2608,9 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
   const auto& fs = options.env->GetFileSystem();
   FileOptions soptions(options);
   std::unique_ptr<SequentialFileReader> wal_file_reader;
-  Status status = SequentialFileReader::Create(fs, wal_file, soptions,
-                                               &wal_file_reader, nullptr);
+  Status status = SequentialFileReader::Create(
+      fs, wal_file, soptions, &wal_file_reader, nullptr /* dbg */,
+      nullptr /* rate_limiter */);
   if (!status.ok()) {
     if (exec_state) {
       *exec_state = LDBCommandExecuteResult::Failed("Failed to open WAL file " +
@@ -2429,12 +2704,10 @@ WALDumperCommand::WALDumperCommand(
       is_write_committed_(false) {
   wal_file_.clear();
 
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_WAL_FILE);
+  auto itr = options.find(ARG_WAL_FILE);
   if (itr != options.end()) {
     wal_file_ = itr->second;
   }
-
 
   print_header_ = IsFlagPresent(flags, ARG_PRINT_HEADER);
   print_values_ = IsFlagPresent(flags, ARG_PRINT_VALUE);
@@ -2498,7 +2771,7 @@ void GetCommand::DoCommand() {
   Status st = db_->Get(ReadOptions(), GetCfHandle(), key_, &value);
   if (st.ok()) {
     fprintf(stdout, "%s\n",
-              (is_value_hex_ ? StringToHex(value) : value).c_str());
+            (is_value_hex_ ? StringToHex(value) : value).c_str());
   } else {
     std::stringstream oss;
     oss << "Get failed: " << st.ToString();
@@ -2649,8 +2922,7 @@ ScanCommand::ScanCommand(const std::vector<std::string>& /*params*/,
       end_key_specified_(false),
       max_keys_scanned_(-1),
       no_value_(false) {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_FROM);
+  auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     start_key_ = itr->second;
     if (is_key_hex_) {
@@ -2737,9 +3009,9 @@ void ScanCommand::DoCommand() {
             TimeToHumanString(ttl_start).c_str(),
             TimeToHumanString(ttl_end).c_str());
   }
-  for ( ;
-        it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
-        it->Next()) {
+  for (;
+       it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
+       it->Next()) {
     if (is_db_ttl_) {
       TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(it);
       int rawtime = it_ttl->ttl_timestamp();
@@ -2818,6 +3090,42 @@ void DeleteCommand::DoCommand() {
     return;
   }
   Status st = db_->Delete(WriteOptions(), GetCfHandle(), key_);
+  if (st.ok()) {
+    fprintf(stdout, "OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  }
+}
+
+SingleDeleteCommand::SingleDeleteCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false,
+                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+  if (params.size() != 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "KEY must be specified for the single delete command");
+  } else {
+    key_ = params.at(0);
+    if (is_key_hex_) {
+      key_ = HexToString(key_);
+    }
+  }
+}
+
+void SingleDeleteCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(SingleDeleteCommand::Name() + " <key>");
+  ret.append("\n");
+}
+
+void SingleDeleteCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  Status st = db_->SingleDelete(WriteOptions(), GetCfHandle(), key_);
   if (st.ok()) {
     fprintf(stdout, "OK\n");
   } else {
@@ -2937,8 +3245,9 @@ void DBQuerierCommand::Help(std::string& ret) {
   ret.append(DBQuerierCommand::Name());
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
-  ret.append("    Starts a REPL shell.  Type help for list of available "
-             "commands.");
+  ret.append(
+      "    Starts a REPL shell.  Type help for list of available "
+      "commands.");
   ret.append("\n");
 }
 
@@ -2965,7 +3274,7 @@ void DBQuerierCommand::DoCommand() {
       if (pos2 == std::string::npos) {
         break;
       }
-      tokens.push_back(line.substr(pos, pos2-pos));
+      tokens.push_back(line.substr(pos, pos2 - pos));
       pos = pos2 + 1;
     }
     tokens.push_back(line.substr(pos));
@@ -2999,8 +3308,8 @@ void DBQuerierCommand::DoCommand() {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
       s = db_->Get(read_options, GetCfHandle(), Slice(key), &value);
       if (s.ok()) {
-        fprintf(stdout, "%s\n", PrintKeyValue(key, value,
-              is_key_hex_, is_value_hex_).c_str());
+        fprintf(stdout, "%s\n",
+                PrintKeyValue(key, value, is_key_hex_, is_value_hex_).c_str());
       } else {
         if (s.IsNotFound()) {
           fprintf(stdout, "Not found %s\n", tokens[1].c_str());
@@ -3115,13 +3424,14 @@ void RepairCommand::DoCommand() {
 
 // ----------------------------------------------------------------------------
 
-const std::string BackupableCommand::ARG_NUM_THREADS = "num_threads";
-const std::string BackupableCommand::ARG_BACKUP_ENV_URI = "backup_env_uri";
-const std::string BackupableCommand::ARG_BACKUP_FS_URI = "backup_fs_uri";
-const std::string BackupableCommand::ARG_BACKUP_DIR = "backup_dir";
-const std::string BackupableCommand::ARG_STDERR_LOG_LEVEL = "stderr_log_level";
+const std::string BackupEngineCommand::ARG_NUM_THREADS = "num_threads";
+const std::string BackupEngineCommand::ARG_BACKUP_ENV_URI = "backup_env_uri";
+const std::string BackupEngineCommand::ARG_BACKUP_FS_URI = "backup_fs_uri";
+const std::string BackupEngineCommand::ARG_BACKUP_DIR = "backup_dir";
+const std::string BackupEngineCommand::ARG_STDERR_LOG_LEVEL =
+    "stderr_log_level";
 
-BackupableCommand::BackupableCommand(
+BackupEngineCommand::BackupEngineCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
@@ -3170,7 +3480,7 @@ BackupableCommand::BackupableCommand(
   }
 }
 
-void BackupableCommand::Help(const std::string& name, std::string& ret) {
+void BackupEngineCommand::Help(const std::string& name, std::string& ret) {
   ret.append("  ");
   ret.append(name);
   ret.append(" [--" + ARG_BACKUP_ENV_URI + " | --" + ARG_BACKUP_FS_URI + "] ");
@@ -3185,10 +3495,10 @@ void BackupableCommand::Help(const std::string& name, std::string& ret) {
 BackupCommand::BackupCommand(const std::vector<std::string>& params,
                              const std::map<std::string, std::string>& options,
                              const std::vector<std::string>& flags)
-    : BackupableCommand(params, options, flags) {}
+    : BackupEngineCommand(params, options, flags) {}
 
 void BackupCommand::Help(std::string& ret) {
-  BackupableCommand::Help(Name(), ret);
+  BackupEngineCommand::Help(Name(), ret);
 }
 
 void BackupCommand::DoCommand() {
@@ -3212,8 +3522,8 @@ void BackupCommand::DoCommand() {
   }
   assert(custom_env != nullptr);
 
-  BackupableDBOptions backup_options =
-      BackupableDBOptions(backup_dir_, custom_env);
+  BackupEngineOptions backup_options =
+      BackupEngineOptions(backup_dir_, custom_env);
   backup_options.info_log = logger_.get();
   backup_options.max_background_operations = num_threads_;
   status = BackupEngine::Open(options_.env, backup_options, &backup_engine);
@@ -3238,10 +3548,10 @@ RestoreCommand::RestoreCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : BackupableCommand(params, options, flags) {}
+    : BackupEngineCommand(params, options, flags) {}
 
 void RestoreCommand::Help(std::string& ret) {
-  BackupableCommand::Help(Name(), ret);
+  BackupEngineCommand::Help(Name(), ret);
 }
 
 void RestoreCommand::DoCommand() {
@@ -3260,7 +3570,7 @@ void RestoreCommand::DoCommand() {
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;
   {
-    BackupableDBOptions opts(backup_dir_, custom_env);
+    BackupEngineOptions opts(backup_dir_, custom_env);
     opts.info_log = logger_.get();
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;
@@ -3286,24 +3596,21 @@ void RestoreCommand::DoCommand() {
 namespace {
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties) {
-  std::string from_key;
-  std::string to_key;
+                 bool show_properties, bool decode_blob_index,
+                 std::string from_key, std::string to_key) {
   if (filename.length() <= 4 ||
       filename.rfind(".sst") != filename.length() - 4) {
     std::cout << "Invalid sst file name." << std::endl;
     return;
   }
   // no verification
-  // TODO: add support for decoding blob indexes in ldb as well
   ROCKSDB_NAMESPACE::SstFileDumper dumper(
-      options, filename, 2 * 1024 * 1024 /* readahead_size */,
-      /* verify_checksum */ false, output_hex,
-      /* decode_blob_index */ false);
+      options, filename, Temperature::kUnknown,
+      2 * 1024 * 1024 /* readahead_size */,
+      /* verify_checksum */ false, output_hex, decode_blob_index);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
-                                    false,            // has_from
-                                    from_key, false,  // has_to
-                                    to_key);
+                                    !from_key.empty(), from_key,
+                                    !to_key.empty(), to_key);
   if (!st.ok()) {
     std::cerr << "Error in reading SST file " << filename << st.ToString()
               << std::endl;
@@ -3330,17 +3637,45 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   }
 }
 
+void DumpBlobFile(const std::string& filename, bool is_key_hex,
+                  bool is_value_hex, bool dump_uncompressed_blobs) {
+  using ROCKSDB_NAMESPACE::blob_db::BlobDumpTool;
+  BlobDumpTool tool;
+  BlobDumpTool::DisplayType blob_type = is_value_hex
+                                            ? BlobDumpTool::DisplayType::kHex
+                                            : BlobDumpTool::DisplayType::kRaw;
+  BlobDumpTool::DisplayType show_uncompressed_blob =
+      dump_uncompressed_blobs ? blob_type : BlobDumpTool::DisplayType::kNone;
+  BlobDumpTool::DisplayType show_blob =
+      dump_uncompressed_blobs ? BlobDumpTool::DisplayType::kNone : blob_type;
+
+  BlobDumpTool::DisplayType show_key = is_key_hex
+                                           ? BlobDumpTool::DisplayType::kHex
+                                           : BlobDumpTool::DisplayType::kRaw;
+  Status s = tool.Run(filename, show_key, show_blob, show_uncompressed_blob,
+                      /* show_summary */ true);
+  if (!s.ok()) {
+    fprintf(stderr, "Failed: %s\n", s.ToString().c_str());
+  }
+}
 }  // namespace
 
 DBFileDumperCommand::DBFileDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions(
+                     {ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
+      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)),
+      dump_uncompressed_blobs_(
+          IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS)) {}
 
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBFileDumperCommand::Name());
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "] ");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "] ");
   ret.append("\n");
 }
 
@@ -3351,6 +3686,8 @@ void DBFileDumperCommand::DoCommand() {
   }
   Status s;
 
+  // TODO: Use --hex, --key_hex, --value_hex flags consistently for
+  // dumping manifest file, sst files and blob files.
   std::cout << "Manifest File" << std::endl;
   std::cout << "==============================" << std::endl;
   std::string manifest_filename;
@@ -3373,20 +3710,42 @@ void DBFileDumperCommand::DoCommand() {
   DumpManifestFile(options_, manifest_filepath, false, false, false);
   std::cout << std::endl;
 
-  std::cout << "SST Files" << std::endl;
-  std::cout << "==============================" << std::endl;
-  std::vector<LiveFileMetaData> metadata;
-  db_->GetLiveFilesMetaData(&metadata);
-  for (auto& fileMetadata : metadata) {
-    std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
-    // Correct concatenation of filepath and filename:
-    // Check that there is no double slashes (or more!) when concatenation
-    // happens.
-    filename = NormalizePath(filename);
-    std::cout << filename << " level:" << fileMetadata.level << std::endl;
-    std::cout << "------------------------------" << std::endl;
-    DumpSstFile(options_, filename, false, true);
+  std::vector<ColumnFamilyMetaData> column_families;
+  db_->GetAllColumnFamilyMetaData(&column_families);
+  for (const auto& column_family : column_families) {
+    std::cout << "Column family name: " << column_family.name << std::endl;
+    std::cout << "==============================" << std::endl;
     std::cout << std::endl;
+    std::cout << "SST Files" << std::endl;
+    std::cout << "==============================" << std::endl;
+    for (const LevelMetaData& level : column_family.levels) {
+      for (const SstFileMetaData& sst_file : level.files) {
+        std::string filename = sst_file.db_path + "/" + sst_file.name;
+        // Correct concatenation of filepath and filename:
+        // Check that there is no double slashes (or more!) when concatenation
+        // happens.
+        filename = NormalizePath(filename);
+        std::cout << filename << " level:" << level.level << std::endl;
+        std::cout << "------------------------------" << std::endl;
+        DumpSstFile(options_, filename, false, true, decode_blob_index_);
+        std::cout << std::endl;
+      }
+    }
+    std::cout << "Blob Files" << std::endl;
+    std::cout << "==============================" << std::endl;
+    for (const BlobMetaData& blob_file : column_family.blob_files) {
+      std::string filename =
+          blob_file.blob_file_path + "/" + blob_file.blob_file_name;
+      // Correct concatenation of filepath and filename:
+      // Check that there is no double slashes (or more!) when concatenation
+      // happens.
+      filename = NormalizePath(filename);
+      std::cout << filename << std::endl;
+      std::cout << "------------------------------" << std::endl;
+      DumpBlobFile(filename, /* is_key_hex */ false, /* is_value_hex */ false,
+                   dump_uncompressed_blobs_);
+      std::cout << std::endl;
+    }
   }
   std::cout << std::endl;
 
@@ -3440,89 +3799,100 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
   }
   Status s;
 
-  std::cout << "Live SST Files:" << std::endl;
-  std::vector<LiveFileMetaData> metadata;
-  db_->GetLiveFilesMetaData(&metadata);
+  std::vector<ColumnFamilyMetaData> metadata;
+  db_->GetAllColumnFamilyMetaData(&metadata);
   if (sort_by_filename_) {
-    // Sort metadata vector by filename.
-    std::sort(metadata.begin(), metadata.end(),
-              [](const LiveFileMetaData& a, const LiveFileMetaData& b) -> bool {
-                std::string aName = a.db_path + a.name;
-                std::string bName = b.db_path + b.name;
-                return (aName.compare(bName) < 0);
-              });
-    for (auto& fileMetadata : metadata) {
-      // The fileMetada.name alwasy starts with "/",
-      // however fileMetada.db_path is the string provided by
-      // the user as an input. Therefore we check if we can
-      // concantenate the two string sdirectly or if we need to
-      // drop a possible extra "/" at the end of fileMetadata.db_path.
-      std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
-      // Drops any repeating '/' character that could happen during
-      // concatenation of db path and file name.
-      filename = NormalizePath(filename);
-      std::string cf = fileMetadata.column_family_name;
-      int level = fileMetadata.level;
-      std::cout << filename << " : level " << level << ", column family '" << cf
-                << "'" << std::endl;
+    std::cout << "Live SST and Blob Files:" << std::endl;
+    // tuple of <file path, level, column family name>
+    std::vector<std::tuple<std::string, int, std::string>> all_files;
+
+    for (const auto& column_metadata : metadata) {
+      // Iterate Levels
+      const auto& levels = column_metadata.levels;
+      const std::string& cf = column_metadata.name;
+      for (const auto& level_metadata : levels) {
+        // Iterate SST files
+        const auto& sst_files = level_metadata.files;
+        int level = level_metadata.level;
+        for (const auto& sst_metadata : sst_files) {
+          // The SstFileMetaData.name always starts with "/",
+          // however SstFileMetaData.db_path is the string provided by
+          // the user as an input. Therefore we check if we can
+          // concantenate the two strings directly or if we need to
+          // drop a possible extra "/" at the end of SstFileMetaData.db_path.
+          std::string filename =
+              NormalizePath(sst_metadata.db_path + "/" + sst_metadata.name);
+          all_files.emplace_back(filename, level, cf);
+        }  // End of for-loop over sst files
+      }    // End of for-loop over levels
+
+      const auto& blob_files = column_metadata.blob_files;
+      for (const auto& blob_metadata : blob_files) {
+        // The BlobMetaData.blob_file_name always starts with "/",
+        // however BlobMetaData.blob_file_path is the string provided by
+        // the user as an input. Therefore we check if we can
+        // concantenate the two strings directly or if we need to
+        // drop a possible extra "/" at the end of BlobMetaData.blob_file_path.
+        std::string filename = NormalizePath(
+            blob_metadata.blob_file_path + "/" + blob_metadata.blob_file_name);
+        // Level for blob files is encoded as -1
+        all_files.emplace_back(filename, -1, cf);
+      }  // End of for-loop over blob files
+    }    // End of for-loop over column metadata
+
+    // Sort by filename (i.e. first entry in tuple)
+    std::sort(all_files.begin(), all_files.end());
+
+    for (const auto& item : all_files) {
+      const std::string& filename = std::get<0>(item);
+      int level = std::get<1>(item);
+      const std::string& cf = std::get<2>(item);
+      if (level == -1) {  // Blob File
+        std::cout << filename << ", column family '" << cf << "'" << std::endl;
+      } else {  // SST file
+        std::cout << filename << " : level " << level << ", column family '"
+                  << cf << "'" << std::endl;
+      }
     }
   } else {
-    std::map<std::string, std::map<int, std::vector<std::string>>>
-        filesPerLevelPerCf;
-    // Collect live files metadata.
-    // Store filenames into a 2D map, that will automatically
-    // sort by column family (first key) and by level (second key).
-    for (auto& fileMetadata : metadata) {
-      std::string cf = fileMetadata.column_family_name;
-      int level = fileMetadata.level;
-      if (filesPerLevelPerCf.find(cf) == filesPerLevelPerCf.end()) {
-        filesPerLevelPerCf.emplace(cf,
-                                   std::map<int, std::vector<std::string>>());
-      }
-      if (filesPerLevelPerCf[cf].find(level) == filesPerLevelPerCf[cf].end()) {
-        filesPerLevelPerCf[cf].emplace(level, std::vector<std::string>());
-      }
-
-      // The fileMetada.name alwasy starts with "/",
-      // however fileMetada.db_path is the string provided by
-      // the user as an input. Therefore we check if we can
-      // concantenate the two string sdirectly or if we need to
-      // drop a possible extra "/" at the end of fileMetadata.db_path.
-      std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
-      // Drops any repeating '/' character that could happen during
-      // concatenation of db path and file name.
-      filename = NormalizePath(filename);
-      filesPerLevelPerCf[cf][level].push_back(filename);
-    }
-    // For each column family,
-    // iterate through the levels and print out the live SST file names.
-    for (auto it = filesPerLevelPerCf.begin(); it != filesPerLevelPerCf.end();
-         it++) {
-      // it->first: Column Family name (string)
-      // it->second: map[level]={SST files...}.
-      std::cout << "===== Column Family: " << it->first
+    for (const auto& column_metadata : metadata) {
+      std::cout << "===== Column Family: " << column_metadata.name
                 << " =====" << std::endl;
 
-      // For simplicity, create reference to the inner map (level={live SST
-      // files}).
-      std::map<int, std::vector<std::string>>& filesPerLevel = it->second;
-      int maxLevel = filesPerLevel.rbegin()->first;
+      std::cout << "Live SST Files:" << std::endl;
+      // Iterate levels
+      const auto& levels = column_metadata.levels;
+      for (const auto& level_metadata : levels) {
+        std::cout << "---------- level " << level_metadata.level
+                  << " ----------" << std::endl;
+        // Iterate SST files
+        const auto& sst_files = level_metadata.files;
+        for (const auto& sst_metadata : sst_files) {
+          // The SstFileMetaData.name always starts with "/",
+          // however SstFileMetaData.db_path is the string provided by
+          // the user as an input. Therefore we check if we can
+          // concantenate the two strings directly or if we need to
+          // drop a possible extra "/" at the end of SstFileMetaData.db_path.
+          std::string filename =
+              NormalizePath(sst_metadata.db_path + "/" + sst_metadata.name);
+          std::cout << filename << std::endl;
+        }  // End of for-loop over sst files
+      }    // End of for-loop over levels
 
-      // Even if the first few levels are empty, they are printed out.
-      for (int level = 0; level <= maxLevel; level++) {
-        std::cout << "---------- level " << level << " ----------" << std::endl;
-        if (filesPerLevel.find(level) != filesPerLevel.end()) {
-          std::vector<std::string>& fileList = filesPerLevel[level];
-
-          // Locally sort by filename for better information display.
-          std::sort(fileList.begin(), fileList.end());
-          for (const std::string& filename : fileList) {
-            std::cout << filename << std::endl;
-          }
-        }
-      }  // End of for-loop over levels.
-    }    // End of for-loop over filesPerLevelPerCf.
-  }      // End of else ("not sort_by_filename").
+      std::cout << "Live Blob Files:" << std::endl;
+      const auto& blob_files = column_metadata.blob_files;
+      for (const auto& blob_metadata : blob_files) {
+        // The BlobMetaData.blob_file_name always starts with "/",
+        // however BlobMetaData.blob_file_path is the string provided by
+        // the user as an input. Therefore we check if we can
+        // concantenate the two strings directly or if we need to
+        // drop a possible extra "/" at the end of BlobMetaData.blob_file_path.
+        std::string filename = NormalizePath(
+            blob_metadata.blob_file_path + "/" + blob_metadata.blob_file_name);
+        std::cout << filename << std::endl;
+      }  // End of for-loop over blob files
+    }    // End of for-loop over column metadata
+  }      // End of else ("not sort_by_filename")
   std::cout << "------------------------------" << std::endl;
 }
 
@@ -3726,8 +4096,7 @@ ListFileRangeDeletesCommand::ListFileRangeDeletesCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true, BuildCmdLineOptions({ARG_MAX_KEYS})) {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_MAX_KEYS);
+  auto itr = options.find(ARG_MAX_KEYS);
   if (itr != options.end()) {
     try {
 #if defined(CYGWIN)
@@ -3800,49 +4169,32 @@ UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
 }
 
 void UnsafeRemoveSstFileCommand::DoCommand() {
-  // Instead of opening a `DB` and calling `DeleteFile()`, this implementation
-  // uses the underlying `VersionSet` API to read and modify the MANIFEST. This
-  // allows us to use the user's real options, while not having to worry about
-  // the DB persisting new SST files via flush/compaction or attempting to read/
-  // compact files which may fail, particularly for the file we intend to remove
-  // (the user may want to remove an already deleted file from MANIFEST).
   PrepareOptions();
 
-  if (options_.db_paths.empty()) {
-    // `VersionSet` expects options that have been through `SanitizeOptions()`,
-    // which would sanitize an empty `db_paths`.
-    options_.db_paths.emplace_back(db_path_, 0 /* target_size */);
+  OfflineManifestWriter w(options_, db_path_);
+  if (column_families_.empty()) {
+    column_families_.emplace_back(kDefaultColumnFamilyName, options_);
   }
-
-  WriteController wc(options_.delayed_write_rate);
-  WriteBufferManager wb(options_.db_write_buffer_size);
-  ImmutableDBOptions immutable_db_options(options_);
-  std::shared_ptr<Cache> tc(
-      NewLRUCache(1 << 20 /* capacity */, options_.table_cache_numshardbits));
-  EnvOptions sopt;
-  VersionSet versions(db_path_, &immutable_db_options, sopt, tc.get(), &wb, &wc,
-                      /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
-  Status s = versions.Recover(column_families_);
+  Status s = w.Recover(column_families_);
 
   ColumnFamilyData* cfd = nullptr;
   int level = -1;
   if (s.ok()) {
     FileMetaData* metadata = nullptr;
-    s = versions.GetMetadataForFile(sst_file_number_, &level, &metadata, &cfd);
+    s = w.Versions().GetMetadataForFile(sst_file_number_, &level, &metadata,
+                                        &cfd);
   }
 
   if (s.ok()) {
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
     edit.DeleteFile(level, sst_file_number_);
-    // Use `mutex` to imitate a locked DB mutex when calling `LogAndApply()`.
-    InstrumentedMutex mutex;
-    mutex.Lock();
-    s = versions.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
-                             &mutex, nullptr /* db_directory */,
-                             false /* new_descriptor_log */);
-    mutex.Unlock();
+    std::unique_ptr<FSDirectory> db_dir;
+    s = options_.env->GetFileSystem()->NewDirectory(db_path_, IOOptions(),
+                                                    &db_dir, nullptr);
+    if (s.ok()) {
+      s = w.LogAndApply(cfd, &edit, db_dir.get());
+    }
   }
 
   if (!s.ok()) {
@@ -3850,6 +4202,60 @@ void UnsafeRemoveSstFileCommand::DoCommand() {
         "failed to unsafely remove SST file: " + s.ToString());
   } else {
     exec_state_ = LDBCommandExecuteResult::Succeed("unsafely removed SST file");
+  }
+}
+
+const std::string UpdateManifestCommand::ARG_VERBOSE = "verbose";
+const std::string UpdateManifestCommand::ARG_UPDATE_TEMPERATURES =
+    "update_temperatures";
+
+void UpdateManifestCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(UpdateManifestCommand::Name());
+  ret.append(" [--update_temperatures]");
+  ret.append("  ");
+  ret.append("    MUST NOT be used on a live DB.");
+  ret.append("\n");
+}
+
+UpdateManifestCommand::UpdateManifestCommand(
+    const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false /* is_read_only */,
+                 BuildCmdLineOptions({ARG_VERBOSE, ARG_UPDATE_TEMPERATURES})) {
+  verbose_ = IsFlagPresent(flags, ARG_VERBOSE) ||
+             ParseBooleanOption(options, ARG_VERBOSE, false);
+  update_temperatures_ =
+      IsFlagPresent(flags, ARG_UPDATE_TEMPERATURES) ||
+      ParseBooleanOption(options, ARG_UPDATE_TEMPERATURES, false);
+
+  if (!update_temperatures_) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "No action like --update_temperatures specified for update_manifest");
+  }
+}
+
+void UpdateManifestCommand::DoCommand() {
+  PrepareOptions();
+
+  auto level = verbose_ ? InfoLogLevel::INFO_LEVEL : InfoLogLevel::WARN_LEVEL;
+  options_.info_log.reset(new StderrLogger(level));
+
+  experimental::UpdateManifestForFilesStateOptions opts;
+  opts.update_temperatures = update_temperatures_;
+  if (column_families_.empty()) {
+    column_families_.emplace_back(kDefaultColumnFamilyName, options_);
+  }
+  Status s = experimental::UpdateManifestForFilesState(options_, db_path_,
+                                                       column_families_);
+
+  if (!s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "failed to update manifest: " + s.ToString());
+  } else {
+    exec_state_ =
+        LDBCommandExecuteResult::Succeed("Manifest updates successful");
   }
 }
 

@@ -20,21 +20,21 @@ static void RegisterTableFactories(const std::string& /*arg*/) {
   static std::once_flag loaded;
   std::call_once(loaded, []() {
     auto library = ObjectLibrary::Default();
-    library->Register<TableFactory>(
+    library->AddFactory<TableFactory>(
         TableFactory::kBlockBasedTableName(),
         [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
            std::string* /* errmsg */) {
           guard->reset(new BlockBasedTableFactory());
           return guard->get();
         });
-    library->Register<TableFactory>(
+    library->AddFactory<TableFactory>(
         TableFactory::kPlainTableName(),
         [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
            std::string* /* errmsg */) {
           guard->reset(new PlainTableFactory());
           return guard->get();
         });
-    library->Register<TableFactory>(
+    library->AddFactory<TableFactory>(
         TableFactory::kCuckooTableName(),
         [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
            std::string* /* errmsg */) {

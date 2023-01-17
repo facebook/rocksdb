@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <string>
+
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
 #include "table/plain/plain_table_factory.h"
@@ -212,9 +213,11 @@ bool PlainTableFileReader::ReadNonMmap(uint32_t file_offset, uint32_t len,
     new_buffer->buf_len = 0;
   }
   Slice read_result;
+  // TODO: rate limit plain table reads.
   Status s =
       file_info_->file->Read(IOOptions(), file_offset, size_to_read,
-                             &read_result, new_buffer->buf.get(), nullptr);
+                             &read_result, new_buffer->buf.get(), nullptr,
+                             Env::IO_TOTAL /* rate_limiter_priority */);
   if (!s.ok()) {
     status_ = s;
     return false;

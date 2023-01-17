@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_db_impl.h"
+
 #include <algorithm>
 #include <cinttypes>
 #include <iomanip>
@@ -177,7 +178,8 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
                     "Failed to create blob_dir %s, status: %s",
                     blob_dir_.c_str(), s.ToString().c_str());
   }
-  s = env_->NewDirectory(blob_dir_, &dir_ent_);
+  s = env_->GetFileSystem()->NewDirectory(blob_dir_, IOOptions(), &dir_ent_,
+                                          nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to open blob_dir %s, status: %s", blob_dir_.c_str(),
@@ -1022,9 +1024,8 @@ Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
   return PutUntil(options, key, value, kNoExpiration);
 }
 
-Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
-                              const Slice& key, const Slice& value,
-                              uint64_t ttl) {
+Status BlobDBImpl::PutWithTTL(const WriteOptions& options, const Slice& key,
+                              const Slice& value, uint64_t ttl) {
   uint64_t now = EpochNow();
   uint64_t expiration = kNoExpiration - now > ttl ? now + ttl : kNoExpiration;
   return PutUntil(options, key, value, expiration);
@@ -1164,7 +1165,7 @@ Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
     UncompressionContext context(compression_type);
     UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
                            compression_type);
-    Status s = UncompressBlockContentsForCompressionType(
+    Status s = UncompressBlockData(
         info, compressed_value.data(), compressed_value.size(), &contents,
         kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
     if (!s.ok()) {
@@ -1384,9 +1385,9 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
   return s;
 }
 
-std::vector<Status> BlobDBImpl::MultiGet(
-    const ReadOptions& read_options,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+std::vector<Status> BlobDBImpl::MultiGet(const ReadOptions& read_options,
+                                         const std::vector<Slice>& keys,
+                                         std::vector<std::string>* values) {
   StopWatch multiget_sw(clock_, statistics_, BLOB_DB_MULTIGET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_MULTIGET);
   // Get a snapshot to avoid blob file get deleted between we
@@ -1540,15 +1541,16 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
 
   {
     StopWatch read_sw(clock_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
+    // TODO: rate limit old blob DB file reads.
     if (reader->use_direct_io()) {
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, nullptr,
-                       &aligned_buf);
+                       &aligned_buf, Env::IO_TOTAL /* rate_limiter_priority */);
     } else {
       buf.reserve(static_cast<size_t>(record_size));
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, &buf[0],
-                       nullptr);
+                       nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
     }
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }
@@ -1913,7 +1915,7 @@ Status BlobDBImpl::SyncBlobFiles() {
     }
   }
 
-  s = dir_ent_->Fsync();
+  s = dir_ent_->FsyncWithDirOptions(IOOptions(), nullptr, DirFsyncOptions());
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to sync blob directory, status: %s",
@@ -2005,7 +2007,9 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
 
   // directory change. Fsync
   if (file_deleted) {
-    Status s = dir_ent_->Fsync();
+    Status s = dir_ent_->FsyncWithDirOptions(
+        IOOptions(), nullptr,
+        DirFsyncOptions(DirFsyncOptions::FsyncReason::kFileDeleted));
     if (!s.ok()) {
       ROCKS_LOG_ERROR(db_options_.info_log, "Failed to sync dir %s: %s",
                       blob_dir_.c_str(), s.ToString().c_str());

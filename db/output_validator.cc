@@ -5,6 +5,9 @@
 //
 #include "db/output_validator.h"
 
+#include "test_util/sync_point.h"
+#include "util/hash.h"
+
 namespace ROCKSDB_NAMESPACE {
 Status OutputValidator::Add(const Slice& key, const Slice& value) {
   if (enable_hash_) {

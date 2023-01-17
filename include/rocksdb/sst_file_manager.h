@@ -21,7 +21,8 @@ class Logger;
 
 // SstFileManager is used to track SST and blob files in the DB and control
 // their deletion rate. All SstFileManager public functions are thread-safe.
-// SstFileManager is not extensible.
+// SstFileManager is NOT an extensible interface but a public interface for
+// result of NewSstFileManager. Any derived classes must be RocksDB internal.
 class SstFileManager {
  public:
   virtual ~SstFileManager() {}

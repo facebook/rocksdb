@@ -85,8 +85,7 @@ class TestWritableFile : public WritableFile {
   virtual Status Flush() override;
   virtual Status Sync() override;
   virtual bool IsSyncThreadSafe() const override { return true; }
-  virtual Status PositionedAppend(const Slice& data,
-                                  uint64_t offset) override {
+  virtual Status PositionedAppend(const Slice& data, uint64_t offset) override {
     return target_->PositionedAppend(data, offset);
   }
   virtual Status PositionedAppend(
@@ -138,6 +137,7 @@ class TestDirectory : public Directory {
   ~TestDirectory() {}
 
   virtual Status Fsync() override;
+  virtual Status Close() override;
 
  private:
   FaultInjectionTestEnv* env_;
@@ -150,6 +150,9 @@ class FaultInjectionTestEnv : public EnvWrapper {
   explicit FaultInjectionTestEnv(Env* base)
       : EnvWrapper(base), filesystem_active_(true) {}
   virtual ~FaultInjectionTestEnv() { error_.PermitUncheckedError(); }
+
+  static const char* kClassName() { return "FaultInjectionTestEnv"; }
+  const char* Name() const override { return kClassName(); }
 
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override;
@@ -174,6 +177,8 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   virtual Status RenameFile(const std::string& s,
                             const std::string& t) override;
+
+  virtual Status LinkFile(const std::string& s, const std::string& t) override;
 
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace
@@ -221,8 +226,8 @@ class FaultInjectionTestEnv : public EnvWrapper {
     MutexLock l(&mutex_);
     return filesystem_active_;
   }
-  void SetFilesystemActiveNoLock(bool active,
-      Status error = Status::Corruption("Not active")) {
+  void SetFilesystemActiveNoLock(
+      bool active, Status error = Status::Corruption("Not active")) {
     error.PermitUncheckedError();
     filesystem_active_ = active;
     if (!active) {
@@ -231,19 +236,19 @@ class FaultInjectionTestEnv : public EnvWrapper {
     error.PermitUncheckedError();
   }
   void SetFilesystemActive(bool active,
-      Status error = Status::Corruption("Not active")) {
+                           Status error = Status::Corruption("Not active")) {
     error.PermitUncheckedError();
     MutexLock l(&mutex_);
     SetFilesystemActiveNoLock(active, error);
     error.PermitUncheckedError();
   }
-  void AssertNoOpenFile() { assert(open_files_.empty()); }
+  void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
   Status GetError() { return error_; }
 
  private:
   port::Mutex mutex_;
   std::map<std::string, FileState> db_file_state_;
-  std::set<std::string> open_files_;
+  std::set<std::string> open_managed_files_;
   std::unordered_map<std::string, std::set<std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes

@@ -1,3 +1,9 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 #include <fuzzer/FuzzedDataProvider.h>
 
 #include "rocksdb/db.h"
@@ -153,6 +159,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         delete iter;
         break;
       }
+      case OP_COUNT:
+        break;
     }
   }
 

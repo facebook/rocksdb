@@ -16,12 +16,11 @@
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
 
+ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
-#ifndef NDEBUG
 // If non-null, injects read error at a rate specified by the
 // read_fault_one_in or write_fault_one_in flag
 std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
-#endif // NDEBUG
 enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
 enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
@@ -225,7 +224,7 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
       ((rand % kRandomValueMaxFactor) + 1) * FLAGS_value_size_mult;
   assert(value_sz <= max_sz && value_sz >= sizeof(uint32_t));
   (void)max_sz;
-  *((uint32_t*)v) = rand;
+  PutUnaligned(reinterpret_cast<uint32_t*>(v), rand);
   for (size_t i = sizeof(uint32_t); i < value_sz; i++) {
     v[i] = (char)(rand ^ i);
   }
@@ -233,14 +232,58 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
   return value_sz;  // the size of the value set.
 }
 
-std::string NowNanosStr() {
+uint32_t GetValueBase(Slice s) {
+  assert(s.size() >= sizeof(uint32_t));
+  uint32_t res;
+  GetUnaligned(reinterpret_cast<const uint32_t*>(s.data()), &res);
+  return res;
+}
+
+WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice) {
+  WideColumns columns;
+
+  constexpr size_t max_columns = 4;
+  const size_t num_columns = (value_base % max_columns) + 1;
+
+  columns.reserve(num_columns);
+
+  assert(slice.size() >= num_columns);
+
+  columns.emplace_back(kDefaultWideColumnName, slice);
+
+  for (size_t i = 1; i < num_columns; ++i) {
+    const Slice name(slice.data(), i);
+    const Slice value(slice.data() + i, slice.size() - i);
+
+    columns.emplace_back(name, value);
+  }
+
+  return columns;
+}
+
+WideColumns GenerateExpectedWideColumns(uint32_t value_base,
+                                        const Slice& slice) {
+  if (FLAGS_use_put_entity_one_in == 0 ||
+      (value_base % FLAGS_use_put_entity_one_in) != 0) {
+    return WideColumns{{kDefaultWideColumnName, slice}};
+  }
+
+  WideColumns columns = GenerateWideColumns(value_base, slice);
+
+  std::sort(columns.begin(), columns.end(),
+            [](const WideColumn& lhs, const WideColumn& rhs) {
+              return lhs.name().compare(rhs.name()) < 0;
+            });
+
+  return columns;
+}
+
+std::string GetNowNanos() {
   uint64_t t = db_stress_env->NowNanos();
   std::string ret;
   PutFixed64(&ret, t);
   return ret;
 }
-
-std::string GenerateTimestampForRead() { return NowNanosStr(); }
 
 namespace {
 
@@ -340,6 +383,77 @@ std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     return nullptr;
   }
   return std::make_shared<DbStressChecksumGenFactory>(internal_name);
+}
+
+Status DeleteFilesInDirectory(const std::string& dirname) {
+  std::vector<std::string> filenames;
+  Status s = Env::Default()->GetChildren(dirname, &filenames);
+  for (size_t i = 0; s.ok() && i < filenames.size(); ++i) {
+    s = Env::Default()->DeleteFile(dirname + "/" + filenames[i]);
+  }
+  return s;
+}
+
+Status SaveFilesInDirectory(const std::string& src_dirname,
+                            const std::string& dst_dirname) {
+  std::vector<std::string> filenames;
+  Status s = Env::Default()->GetChildren(src_dirname, &filenames);
+  for (size_t i = 0; s.ok() && i < filenames.size(); ++i) {
+    bool is_dir = false;
+    s = Env::Default()->IsDirectory(src_dirname + "/" + filenames[i], &is_dir);
+    if (s.ok()) {
+      if (is_dir) {
+        continue;
+      }
+      s = Env::Default()->LinkFile(src_dirname + "/" + filenames[i],
+                                   dst_dirname + "/" + filenames[i]);
+    }
+  }
+  return s;
+}
+
+Status InitUnverifiedSubdir(const std::string& dirname) {
+  Status s = Env::Default()->FileExists(dirname);
+  if (s.IsNotFound()) {
+    return Status::OK();
+  }
+
+  const std::string kUnverifiedDirname = dirname + "/unverified";
+  if (s.ok()) {
+    s = Env::Default()->CreateDirIfMissing(kUnverifiedDirname);
+  }
+  if (s.ok()) {
+    // It might already exist with some stale contents. Delete any such
+    // contents.
+    s = DeleteFilesInDirectory(kUnverifiedDirname);
+  }
+  if (s.ok()) {
+    s = SaveFilesInDirectory(dirname, kUnverifiedDirname);
+  }
+  return s;
+}
+
+Status DestroyUnverifiedSubdir(const std::string& dirname) {
+  Status s = Env::Default()->FileExists(dirname);
+  if (s.IsNotFound()) {
+    return Status::OK();
+  }
+
+  const std::string kUnverifiedDirname = dirname + "/unverified";
+  if (s.ok()) {
+    s = Env::Default()->FileExists(kUnverifiedDirname);
+  }
+  if (s.IsNotFound()) {
+    return Status::OK();
+  }
+
+  if (s.ok()) {
+    s = DeleteFilesInDirectory(kUnverifiedDirname);
+  }
+  if (s.ok()) {
+    s = Env::Default()->DeleteDir(kUnverifiedDirname);
+  }
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

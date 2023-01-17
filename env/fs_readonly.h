@@ -26,6 +26,9 @@ class ReadOnlyFileSystem : public FileSystemWrapper {
   explicit ReadOnlyFileSystem(const std::shared_ptr<FileSystem>& base)
       : FileSystemWrapper(base) {}
 
+  static const char* kClassName() { return "ReadOnlyFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
   IOStatus NewWritableFile(const std::string& /*fname*/,
                            const FileOptions& /*options*/,
                            std::unique_ptr<FSWritableFile>* /*result*/,

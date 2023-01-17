@@ -9,9 +9,9 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_OptimisticTransactionOptions.h"
-
 #include "rocksdb/comparator.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 
 /*
  * Class:     org_rocksdb_OptimisticTransactionOptions
@@ -22,7 +22,7 @@ jlong Java_org_rocksdb_OptimisticTransactionOptions_newOptimisticTransactionOpti
     JNIEnv* /*env*/, jclass /*jcls*/) {
   ROCKSDB_NAMESPACE::OptimisticTransactionOptions* opts =
       new ROCKSDB_NAMESPACE::OptimisticTransactionOptions();
-  return reinterpret_cast<jlong>(opts);
+  return GET_CPLUSPLUS_POINTER(opts);
 }
 
 /*

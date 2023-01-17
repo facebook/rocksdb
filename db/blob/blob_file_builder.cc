@@ -7,11 +7,14 @@
 
 #include <cassert>
 
+#include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/blob/blob_source.h"
+#include "db/event_helpers.h"
 #include "db/version_set.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -31,28 +34,31 @@ BlobFileBuilder::BlobFileBuilder(
     VersionSet* versions, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    int job_id, uint32_t column_family_id,
-    const std::string& column_family_name, Env::IOPriority io_priority,
-    Env::WriteLifeTimeHint write_hint,
+    std::string db_id, std::string db_session_id, int job_id,
+    uint32_t column_family_id, const std::string& column_family_name,
+    Env::IOPriority io_priority, Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
+    BlobFileCreationReason creation_reason,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
                       immutable_options, mutable_cf_options, file_options,
-                      job_id, column_family_id, column_family_name, io_priority,
-                      write_hint, io_tracer, blob_callback, blob_file_paths,
+                      db_id, db_session_id, job_id, column_family_id,
+                      column_family_name, io_priority, write_hint, io_tracer,
+                      blob_callback, creation_reason, blob_file_paths,
                       blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    int job_id, uint32_t column_family_id,
-    const std::string& column_family_name, Env::IOPriority io_priority,
-    Env::WriteLifeTimeHint write_hint,
+    std::string db_id, std::string db_session_id, int job_id,
+    uint32_t column_family_id, const std::string& column_family_name,
+    Env::IOPriority io_priority, Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
+    BlobFileCreationReason creation_reason,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
@@ -61,7 +67,10 @@ BlobFileBuilder::BlobFileBuilder(
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
       blob_compression_type_(mutable_cf_options->blob_compression_type),
+      prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
       file_options_(file_options),
+      db_id_(std::move(db_id)),
+      db_session_id_(std::move(db_session_id)),
       job_id_(job_id),
       column_family_id_(column_family_id),
       column_family_name_(column_family_name),
@@ -69,6 +78,7 @@ BlobFileBuilder::BlobFileBuilder(
       write_hint_(write_hint),
       io_tracer_(io_tracer),
       blob_callback_(blob_callback),
+      creation_reason_(creation_reason),
       blob_file_paths_(blob_file_paths),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
@@ -129,6 +139,16 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     }
   }
 
+  {
+    const Status s =
+        PutBlobIntoCacheIfNeeded(value, blob_file_number, blob_offset);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_options_->info_log,
+                     "Failed to pre-populate the blob into blob cache: %s",
+                     s.ToString().c_str());
+    }
+  }
+
   BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset, blob.size(),
                         blob_compression_type_);
 
@@ -160,6 +180,11 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   assert(!immutable_options_->cf_paths.empty());
   std::string blob_file_path =
       BlobFileName(immutable_options_->cf_paths.front().path, blob_file_number);
+
+  if (blob_callback_) {
+    blob_callback_->OnBlobFileCreationStarted(
+        blob_file_path, column_family_name_, job_id_, creation_reason_);
+  }
 
   std::unique_ptr<FSWritableFile> file;
 
@@ -305,6 +330,13 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   const uint64_t blob_file_number = writer_->get_log_number();
 
+  if (blob_callback_) {
+    s = blob_callback_->OnBlobFileCompleted(
+        blob_file_paths_->back(), column_family_name_, job_id_,
+        blob_file_number, creation_reason_, s, checksum_value, checksum_method,
+        blob_count_, blob_bytes_);
+  }
+
   assert(blob_file_additions_);
   blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
                                      std::move(checksum_method),
@@ -316,9 +348,6 @@ Status BlobFileBuilder::CloseBlobFile() {
                  " total blobs, %" PRIu64 " total bytes",
                  column_family_name_.c_str(), job_id_, blob_file_number,
                  blob_count_, blob_bytes_);
-  if (blob_callback_) {
-    s = blob_callback_->OnBlobFileCompleted(blob_file_paths_->back());
-  }
 
   writer_.reset();
   blob_count_ = 0;
@@ -340,15 +369,18 @@ Status BlobFileBuilder::CloseBlobFileIfNeeded() {
   return CloseBlobFile();
 }
 
-void BlobFileBuilder::Abandon() {
+void BlobFileBuilder::Abandon(const Status& s) {
   if (!IsBlobFileOpen()) {
     return;
   }
-
   if (blob_callback_) {
     // BlobFileBuilder::Abandon() is called because of error while writing to
     // Blob files. So we can ignore the below error.
-    blob_callback_->OnBlobFileCompleted(blob_file_paths_->back())
+    blob_callback_
+        ->OnBlobFileCompleted(blob_file_paths_->back(), column_family_name_,
+                              job_id_, writer_->get_log_number(),
+                              creation_reason_, s, "", "", blob_count_,
+                              blob_bytes_)
         .PermitUncheckedError();
   }
 
@@ -356,4 +388,38 @@ void BlobFileBuilder::Abandon() {
   blob_count_ = 0;
   blob_bytes_ = 0;
 }
+
+Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
+                                                 uint64_t blob_file_number,
+                                                 uint64_t blob_offset) const {
+  Status s = Status::OK();
+
+  BlobSource::SharedCacheInterface blob_cache{immutable_options_->blob_cache};
+  auto statistics = immutable_options_->statistics.get();
+  bool warm_cache =
+      prepopulate_blob_cache_ == PrepopulateBlobCache::kFlushOnly &&
+      creation_reason_ == BlobFileCreationReason::kFlush;
+
+  if (blob_cache && warm_cache) {
+    const OffsetableCacheKey base_cache_key(db_id_, db_session_id_,
+                                            blob_file_number);
+    const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
+    const Slice key = cache_key.AsSlice();
+
+    const Cache::Priority priority = Cache::Priority::BOTTOM;
+
+    s = blob_cache.InsertSaved(key, blob, nullptr /*context*/, priority,
+                               immutable_options_->lowest_used_cache_tier);
+
+    if (s.ok()) {
+      RecordTick(statistics, BLOB_DB_CACHE_ADD);
+      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, blob.size());
+    } else {
+      RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);
+    }
+  }
+
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -79,6 +79,9 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 ## TiKV
 [TiKV](https://github.com/pingcap/tikv) is a GEO-replicated, high-performance, distributed, transactional key-value database. TiKV is powered by Rust and Raft. TiKV uses RocksDB as its persistence layer.
 
+## Apache Spark
+[Spark Structured Streaming](https://docs.databricks.com/structured-streaming/rocksdb-state-store.html) uses RocksDB as the local state store.
+
 ## Apache Flink
 [Apache Flink](https://flink.apache.org/news/2016/03/08/release-1.0.0.html) uses RocksDB to store state locally on a machine.
 
@@ -113,5 +116,16 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 [YugabyteDB](https://www.yugabyte.com/) is an open source, high performance, distributed SQL database that uses RocksDB as its storage layer. For more information, please see https://github.com/yugabyte/yugabyte-db/.
 
 ## ArangoDB
-[ArangoDB](https://www.arangodb.com/) is a native multi-model database with flexible data models for documents, graphs, and key-values, for building high performance applications using a convenient SQL-like query language or JavaScript extensions. It uses RocksDB as its sotrage engine.
+[ArangoDB](https://www.arangodb.com/) is a native multi-model database with flexible data models for documents, graphs, and key-values, for building high performance applications using a convenient SQL-like query language or JavaScript extensions. It uses RocksDB as its storage engine.
 
+## Milvus
+[Milvus](https://milvus.io/) is an open source vector database for unstructured data. It uses RocksDB not only as one of the supported kv storage engines, but also as a message queue.
+
+## Kafka
+[Kafka](https://kafka.apache.org/) is an open-source distributed event streaming platform, it uses RocksDB to store state in Kafka Streams: https://www.confluent.io/blog/how-to-tune-rocksdb-kafka-streams-state-stores-performance/.
+
+## Solana Labs
+[Solana](https://github.com/solana-labs/solana) is a fast, secure, scalable, and decentralized blockchain.  It uses RocksDB as the underlying storage for its ledger store.
+
+## Others
+More databases using RocksDB can be found at [dbdb.io](https://dbdb.io/browse?embeds=rocksdb).

@@ -4,24 +4,22 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #ifndef ROCKSDB_LITE
-#include "rocksdb/memtablerep.h"
-
-#include <unordered_set>
-#include <set>
-#include <memory>
 #include <algorithm>
+#include <memory>
+#include <set>
 #include <type_traits>
+#include <unordered_set>
 
 #include "db/memtable.h"
 #include "memory/arena.h"
 #include "memtable/stl_wrappers.h"
 #include "port/port.h"
+#include "rocksdb/memtablerep.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-
-using namespace stl_wrappers;
 
 class VectorRep : public MemTableRep {
  public:
@@ -50,13 +48,14 @@ class VectorRep : public MemTableRep {
     std::shared_ptr<std::vector<const char*>> bucket_;
     std::vector<const char*>::const_iterator mutable cit_;
     const KeyComparator& compare_;
-    std::string tmp_;       // For passing to EncodeKey
+    std::string tmp_;  // For passing to EncodeKey
     bool mutable sorted_;
     void DoSort() const;
+
    public:
     explicit Iterator(class VectorRep* vrep,
-      std::shared_ptr<std::vector<const char*>> bucket,
-      const KeyComparator& compare);
+                      std::shared_ptr<std::vector<const char*>> bucket,
+                      const KeyComparator& compare);
 
     // Initialize an iterator over the specified collection.
     // The returned iterator is not valid.
@@ -98,7 +97,7 @@ class VectorRep : public MemTableRep {
 
  private:
   friend class Iterator;
-  typedef std::vector<const char*> Bucket;
+  using Bucket = std::vector<const char*>;
   std::shared_ptr<Bucket> bucket_;
   mutable port::RWMutex rwlock_;
   bool immutable_;
@@ -125,12 +124,10 @@ void VectorRep::MarkReadOnly() {
 }
 
 size_t VectorRep::ApproximateMemoryUsage() {
-  return
-    sizeof(bucket_) + sizeof(*bucket_) +
-    bucket_->size() *
-    sizeof(
-      std::remove_reference<decltype(*bucket_)>::type::value_type
-    );
+  return sizeof(bucket_) + sizeof(*bucket_) +
+         bucket_->size() *
+             sizeof(
+                 std::remove_reference<decltype(*bucket_)>::type::value_type);
 }
 
 VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
@@ -144,27 +141,29 @@ VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
 }
 
 VectorRep::Iterator::Iterator(class VectorRep* vrep,
-                   std::shared_ptr<std::vector<const char*>> bucket,
-                   const KeyComparator& compare)
-: vrep_(vrep),
-  bucket_(bucket),
-  cit_(bucket_->end()),
-  compare_(compare),
-  sorted_(false) { }
+                              std::shared_ptr<std::vector<const char*>> bucket,
+                              const KeyComparator& compare)
+    : vrep_(vrep),
+      bucket_(bucket),
+      cit_(bucket_->end()),
+      compare_(compare),
+      sorted_(false) {}
 
 void VectorRep::Iterator::DoSort() const {
   // vrep is non-null means that we are working on an immutable memtable
   if (!sorted_ && vrep_ != nullptr) {
     WriteLock l(&vrep_->rwlock_);
     if (!vrep_->sorted_) {
-      std::sort(bucket_->begin(), bucket_->end(), Compare(compare_));
+      std::sort(bucket_->begin(), bucket_->end(),
+                stl_wrappers::Compare(compare_));
       cit_ = bucket_->begin();
       vrep_->sorted_ = true;
     }
     sorted_ = true;
   }
   if (!sorted_) {
-    std::sort(bucket_->begin(), bucket_->end(), Compare(compare_));
+    std::sort(bucket_->begin(), bucket_->end(),
+              stl_wrappers::Compare(compare_));
     cit_ = bucket_->begin();
     sorted_ = true;
   }
@@ -216,12 +215,11 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
   // Do binary search to find first value not less than the target
   const char* encoded_key =
       (memtable_key != nullptr) ? memtable_key : EncodeKey(&tmp_, user_key);
-  cit_ = std::equal_range(bucket_->begin(),
-                          bucket_->end(),
-                          encoded_key,
-                          [this] (const char* a, const char* b) {
+  cit_ = std::equal_range(bucket_->begin(), bucket_->end(), encoded_key,
+                          [this](const char* a, const char* b) {
                             return compare_(a, b) < 0;
-                          }).first;
+                          })
+             .first;
 }
 
 // Advance to the first entry with a key <= target
@@ -282,7 +280,7 @@ MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
     }
   } else {
     std::shared_ptr<Bucket> tmp;
-    tmp.reset(new Bucket(*bucket_)); // make a copy
+    tmp.reset(new Bucket(*bucket_));  // make a copy
     if (arena == nullptr) {
       return new Iterator(nullptr, tmp, compare_);
     } else {
@@ -290,7 +288,17 @@ MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
     }
   }
 }
-} // anon namespace
+}  // namespace
+
+static std::unordered_map<std::string, OptionTypeInfo> vector_rep_table_info = {
+    {"count",
+     {0, OptionType::kSizeT, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+};
+
+VectorRepFactory::VectorRepFactory(size_t count) : count_(count) {
+  RegisterOptions("VectorRepFactoryOptions", &count_, &vector_rep_table_info);
+}
 
 MemTableRep* VectorRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,

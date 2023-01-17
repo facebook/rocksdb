@@ -9,9 +9,11 @@
 
 #pragma once
 #include <assert.h>
+
 #include <atomic>
 #include <mutex>
 #include <thread>
+
 #include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -28,9 +30,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class MutexLock {
  public:
-  explicit MutexLock(port::Mutex *mu) : mu_(mu) {
-    this->mu_->Lock();
-  }
+  explicit MutexLock(port::Mutex *mu) : mu_(mu) { this->mu_->Lock(); }
   // No copying allowed
   MutexLock(const MutexLock &) = delete;
   void operator=(const MutexLock &) = delete;
@@ -43,14 +43,12 @@ class MutexLock {
 
 //
 // Acquire a ReadLock on the specified RWMutex.
-// The Lock will be automatically released then the
+// The Lock will be automatically released when the
 // object goes out of scope.
 //
 class ReadLock {
  public:
-  explicit ReadLock(port::RWMutex *mu) : mu_(mu) {
-    this->mu_->ReadLock();
-  }
+  explicit ReadLock(port::RWMutex *mu) : mu_(mu) { this->mu_->ReadLock(); }
   // No copying allowed
   ReadLock(const ReadLock &) = delete;
   void operator=(const ReadLock &) = delete;
@@ -84,9 +82,7 @@ class ReadUnlock {
 //
 class WriteLock {
  public:
-  explicit WriteLock(port::RWMutex *mu) : mu_(mu) {
-    this->mu_->WriteLock();
-  }
+  explicit WriteLock(port::RWMutex *mu) : mu_(mu) { this->mu_->WriteLock(); }
   // No copying allowed
   WriteLock(const WriteLock &) = delete;
   void operator=(const WriteLock &) = delete;
@@ -152,13 +148,11 @@ class Striped {
  public:
   Striped(size_t stripes, std::function<uint64_t(const P &)> hash)
       : stripes_(stripes), hash_(hash) {
-
     locks_ = reinterpret_cast<LockData<T> *>(
         port::cacheline_aligned_alloc(sizeof(LockData<T>) * stripes));
     for (size_t i = 0; i < stripes; i++) {
       new (&locks_[i]) LockData<T>();
     }
-
   }
 
   virtual ~Striped() {

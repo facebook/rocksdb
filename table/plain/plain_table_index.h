@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "memory/arena.h"
 #include "monitoring/histogram.h"
 #include "options/cf_options.h"
@@ -189,8 +188,8 @@ class PlainTableIndexBuilder {
              num_records_in_current_group_;
     }
     IndexRecord* At(size_t index) {
-      return &(groups_[index / kNumRecordsPerGroup]
-                      [index % kNumRecordsPerGroup]);
+      return &(
+          groups_[index / kNumRecordsPerGroup][index % kNumRecordsPerGroup]);
     }
 
    private:
@@ -244,6 +243,6 @@ class PlainTableIndexBuilder {
   static const size_t kRecordsPerGroup = 256;
 };
 
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

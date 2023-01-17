@@ -11,14 +11,15 @@
 #include <vector>
 
 #include "db/dbformat.h"
-
+#include "memory/arena.h"
+#include "monitoring/histogram.h"
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
-
 #include "table/block_based/block.h"
 #include "table/block_based/filter_block.h"
 #include "table/format.h"
@@ -29,10 +30,6 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_key_coding.h"
 #include "table/two_level_iterator.h"
-
-#include "memory/arena.h"
-#include "monitoring/histogram.h"
-#include "monitoring/perf_context_imp.h"
 #include "util/coding.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
@@ -129,11 +126,9 @@ Status PlainTableReader::Open(
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
 
-  TableProperties* props_ptr = nullptr;
+  std::unique_ptr<TableProperties> props;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions, &props_ptr,
-                               true /* compression_type_missing */);
-  std::shared_ptr<TableProperties> props(props_ptr);
+                               ioptions, &props);
   if (!s.ok()) {
     return s;
   }
@@ -149,8 +144,7 @@ Status PlainTableReader::Open(
       return Status::InvalidArgument(
           "Prefix extractor is missing when opening a PlainTable built "
           "using a prefix extractor");
-    } else if (prefix_extractor_in_file.compare(prefix_extractor->Name()) !=
-               0) {
+    } else if (prefix_extractor_in_file != prefix_extractor->AsString()) {
       return Status::InvalidArgument(
           "Prefix extractor given doesn't match the one used to build "
           "PlainTable");
@@ -187,7 +181,7 @@ Status PlainTableReader::Open(
     new_reader->full_scan_mode_ = true;
   }
   // PopulateIndex can add to the props, so don't store them until now
-  new_reader->table_properties_ = props;
+  new_reader->table_properties_ = std::move(props);
 
   if (immortal_table && new_reader->file_info_.is_mmap_mode) {
     new_reader->dummy_cleanable_.reset(new Cleanable());
@@ -197,14 +191,12 @@ Status PlainTableReader::Open(
   return s;
 }
 
-void PlainTableReader::SetupForCompaction() {
-}
+void PlainTableReader::SetupForCompaction() {}
 
 InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
     Arena* arena, bool /*skip_filters*/, TableReaderCaller /*caller*/,
-    size_t /*compaction_readahead_size*/,
-    bool /* allow_unprepared_value */) {
+    size_t /*compaction_readahead_size*/, bool /* allow_unprepared_value */) {
   // Not necessarily used here, but make sure this has been initialized
   assert(table_properties_);
 
@@ -291,9 +283,9 @@ void PlainTableReader::FillBloom(const std::vector<uint32_t>& prefix_hashes) {
 Status PlainTableReader::MmapDataIfNeeded() {
   if (file_info_.is_mmap_mode) {
     // Get mmapped memory.
-    return file_info_.file->Read(IOOptions(), 0,
-                                 static_cast<size_t>(file_size_),
-                                 &file_info_.file_data, nullptr, nullptr);
+    return file_info_.file->Read(
+        IOOptions(), 0, static_cast<size_t>(file_size_), &file_info_.file_data,
+        nullptr, nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
   }
   return Status::OK();
 }
@@ -309,8 +301,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                            file_size_, kPlainTableMagicNumber, ioptions_,
                            PlainTableIndexBuilder::kPlainTableIndexBlock,
-                           BlockType::kIndex, &index_block_contents,
-                           true /* compression_type_missing */);
+                           BlockType::kIndex, &index_block_contents);
 
   bool index_in_file = s.ok();
 
@@ -321,8 +312,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                       file_size_, kPlainTableMagicNumber, ioptions_,
                       BloomBlockBuilder::kBloomBlock, BlockType::kFilter,
-                      &bloom_block_contents,
-                      true /* compression_type_missing */);
+                      &bloom_block_contents);
     bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
   }
 
@@ -421,14 +411,14 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   // Fill two table properties.
   if (!index_in_file) {
     props->user_collected_properties["plain_table_hash_table_size"] =
-        ToString(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
+        std::to_string(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
     props->user_collected_properties["plain_table_sub_index_size"] =
-        ToString(index_.GetSubIndexSize());
+        std::to_string(index_.GetSubIndexSize());
   } else {
     props->user_collected_properties["plain_table_hash_table_size"] =
-        ToString(0);
+        std::to_string(0);
     props->user_collected_properties["plain_table_sub_index_size"] =
-        ToString(0);
+        std::to_string(0);
   }
 
   return Status::OK();
@@ -568,7 +558,7 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
           Status::InvalidArgument("Get() is not allowed in full scan mode.");
     }
     // Match whole user key for bloom filter check.
-    if (!MatchBloom(GetSliceHash(GetUserKey(target)))) {
+    if (!MatchBloom(GetSliceHash(ExtractUserKey(target)))) {
       return Status::OK();
     }
     // in total order mode, there is only one bucket 0, and we always use empty
@@ -645,8 +635,7 @@ PlainTableIterator::PlainTableIterator(PlainTableReader* table,
   next_offset_ = offset_ = table_->file_info_.data_end_offset;
 }
 
-PlainTableIterator::~PlainTableIterator() {
-}
+PlainTableIterator::~PlainTableIterator() {}
 
 bool PlainTableIterator::Valid() const {
   return offset_ < table_->file_info_.data_end_offset &&
@@ -676,9 +665,8 @@ void PlainTableIterator::Seek(const Slice& target) {
     // it. This is needed for compaction: it creates iterator with
     // total_order_seek = true but usually never does Seek() on it,
     // only SeekToFirst().
-    status_ =
-        Status::InvalidArgument(
-          "total_order_seek not implemented for PlainTable.");
+    status_ = Status::InvalidArgument(
+        "total_order_seek not implemented for PlainTable.");
     offset_ = next_offset_ = table_->file_info_.data_end_offset;
     return;
   }
@@ -759,9 +747,7 @@ void PlainTableIterator::Next() {
   }
 }
 
-void PlainTableIterator::Prev() {
-  assert(false);
-}
+void PlainTableIterator::Prev() { assert(false); }
 
 Slice PlainTableIterator::key() const {
   assert(Valid());
@@ -773,9 +759,7 @@ Slice PlainTableIterator::value() const {
   return value_;
 }
 
-Status PlainTableIterator::status() const {
-  return status_;
-}
+Status PlainTableIterator::status() const { return status_; }
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

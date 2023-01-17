@@ -77,7 +77,7 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   options.compression = kNoCompression;
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   assert(s.ok());
   assert(db);
@@ -91,8 +91,8 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   // create couple files
   // Background compaction starts and waits in BackgroundCallCompaction:0
   for (int i = 0; i < kLevel0Trigger * 4; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i), ""));
-    ASSERT_OK(db->Put(WriteOptions(), ToString(100 - i), ""));
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i), ""));
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(100 - i), ""));
     ASSERT_OK(db->Flush(FlushOptions()));
   }
 
@@ -128,7 +128,7 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
   ASSERT_NE(db, nullptr);
@@ -136,17 +136,20 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   // create couple files in L0, L3, L4 and L5
   for (int i = 5; i > 2; --i) {
     collector->ClearFlushedFiles();
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i), ""));
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i), ""));
     ASSERT_OK(db->Flush(FlushOptions()));
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForBackgroundWork());
     auto l0_files = collector->GetFlushedFiles();
     ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, i));
 
     std::string prop;
-    ASSERT_TRUE(
-        db->GetProperty("rocksdb.num-files-at-level" + ToString(i), &prop));
+    ASSERT_TRUE(db->GetProperty(
+        "rocksdb.num-files-at-level" + std::to_string(i), &prop));
     ASSERT_EQ("1", prop);
   }
-  ASSERT_OK(db->Put(WriteOptions(), ToString(0), ""));
+  ASSERT_OK(db->Put(WriteOptions(), std::to_string(0), ""));
   ASSERT_OK(db->Flush(FlushOptions()));
 
   ColumnFamilyMetaData meta;
@@ -208,14 +211,14 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
   ASSERT_NE(db, nullptr);
 
   // create couple files
   for (int i = 1000; i < 2000; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i),
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i),
                       std::string(kWriteBufferSize / 10, 'a' + (i % 26))));
   }
 
@@ -247,21 +250,21 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   assert(s.ok());
   assert(db);
 
   // create couple files
   for (int i = 0; i < 500; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i),
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i),
                       std::string(1000, 'a' + (i % 26))));
   }
   ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable());
   auto l0_files_1 = collector->GetFlushedFiles();
   collector->ClearFlushedFiles();
   for (int i = 0; i < 500; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i),
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i),
                       std::string(1000, 'a' + (i % 26))));
   }
   ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable());
@@ -285,17 +288,20 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
   assert(db);
 
   // Create 5 files.
   for (int i = 0; i < 5; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), "key" + ToString(i), "value"));
+    ASSERT_OK(db->Put(WriteOptions(), "key" + std::to_string(i), "value"));
     ASSERT_OK(db->Flush(FlushOptions()));
   }
 
+  // Ensure background work is fully finished including listener callbacks
+  // before accessing listener state.
+  ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForBackgroundWork());
   auto l0_files = collector->GetFlushedFiles();
   EXPECT_EQ(5, l0_files.size());
 
@@ -342,16 +348,13 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
       return true;
     }
 
-    void SetDB(DB* db) {
-      db_ = db;
-    }
+    void SetDB(DB* db) { db_ = db; }
 
     const char* Name() const override { return "FilterWithGet"; }
 
    private:
     DB* db_;
   };
-
 
   std::shared_ptr<FilterWithGet> cf(new FilterWithGet());
 
@@ -360,7 +363,7 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   options.compaction_filter = cf.get();
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
 
@@ -379,7 +382,6 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
         db->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(), {fname}, 0));
   }
 
-
   delete db;
 }
 
@@ -394,11 +396,10 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
   }
   // Check that passing `CompressionType::kDisableCompressionOption` to
   // `CompactFiles` causes it to use the column family compression options.
-  for (auto compaction_style :
-       {CompactionStyle::kCompactionStyleLevel,
-        CompactionStyle::kCompactionStyleUniversal,
-        CompactionStyle::kCompactionStyleNone}) {
-    DestroyDB(db_name_, Options());
+  for (auto compaction_style : {CompactionStyle::kCompactionStyleLevel,
+                                CompactionStyle::kCompactionStyleUniversal,
+                                CompactionStyle::kCompactionStyleNone}) {
+    ASSERT_OK(DestroyDB(db_name_, Options()));
     Options options;
     options.compaction_style = compaction_style;
     // L0: Snappy, L1: ZSTD, L2: Snappy
@@ -414,6 +415,9 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
     ASSERT_OK(db->Put(WriteOptions(), "key", "val"));
     ASSERT_OK(db->Flush(FlushOptions()));
 
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForBackgroundWork());
     auto l0_files = collector->GetFlushedFiles();
     ASSERT_EQ(1, l0_files.size());
 
@@ -449,14 +453,14 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
   assert(db);
 
   // create couple files
   for (int i = 0; i < 500; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i),
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i),
                       std::string(1000, 'a' + (i % 26))));
   }
   ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable());
@@ -481,6 +485,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

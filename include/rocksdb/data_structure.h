@@ -7,7 +7,9 @@
 
 #include <assert.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -45,4 +47,5 @@ class SmallEnumSet {
  private:
   uint64_t state_;
 };
+
 }  // namespace ROCKSDB_NAMESPACE

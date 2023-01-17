@@ -4,8 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include <memory>
+
 #include "rocksdb/filter_policy.h"
-#include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 
@@ -29,11 +30,16 @@ class MockBlockBasedTableTester {
   InternalKeyComparator icomp_;
   std::unique_ptr<BlockBasedTable> table_;
 
-  MockBlockBasedTableTester(const FilterPolicy *filter_policy)
+  explicit MockBlockBasedTableTester(const FilterPolicy* filter_policy)
+      : MockBlockBasedTableTester(
+            std::shared_ptr<const FilterPolicy>(filter_policy)){};
+
+  explicit MockBlockBasedTableTester(
+      std::shared_ptr<const FilterPolicy> filter_policy)
       : ioptions_(options_),
         env_options_(options_),
         icomp_(options_.comparator) {
-    table_options_.filter_policy.reset(filter_policy);
+    table_options_.filter_policy = std::move(filter_policy);
 
     constexpr bool skip_filters = false;
     constexpr bool immortal_table = false;

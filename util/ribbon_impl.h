@@ -677,6 +677,16 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
     return false;
   }
 
+  static std::size_t EstimateMemoryUsage(uint32_t num_slots) {
+    std::size_t bytes_coeff_rows = num_slots * sizeof(CoeffRow);
+    std::size_t bytes_result_rows = num_slots * sizeof(ResultRow);
+    std::size_t bytes_backtrack = 0;
+    std::size_t bytes_banding =
+        bytes_coeff_rows + bytes_result_rows + bytes_backtrack;
+
+    return bytes_banding;
+  }
+
  protected:
   // TODO: explore combining in a struct
   std::unique_ptr<CoeffRow[]> coeff_rows_;

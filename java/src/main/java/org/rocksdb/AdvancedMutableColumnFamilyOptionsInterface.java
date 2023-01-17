@@ -60,9 +60,10 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * write_buffer_size * memtable_prefix_bloom_size_ratio.
    * If it is larger than 0.25, it is santinized to 0.25.
    *
-   * Default: 0 (disable)
+   * Default: 0 (disabled)
    *
-   * @param memtablePrefixBloomSizeRatio The ratio
+   * @param memtablePrefixBloomSizeRatio the ratio of memtable used by the
+   *     bloom filter, 0 means no bloom filter
    * @return the reference to the current options.
    */
   T setMemtablePrefixBloomSizeRatio(
@@ -74,11 +75,55 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * write_buffer_size * memtable_prefix_bloom_size_ratio.
    * If it is larger than 0.25, it is santinized to 0.25.
    *
-   * Default: 0 (disable)
+   * Default: 0 (disabled)
    *
-   * @return the ratio
+   * @return the ratio of memtable used by the bloom filter
    */
   double memtablePrefixBloomSizeRatio();
+
+  /**
+   * Threshold used in the MemPurge (memtable garbage collection)
+   * feature. A value of 0.0 corresponds to no MemPurge,
+   * a value of 1.0 will trigger a MemPurge as often as possible.
+   *
+   * Default: 0.0 (disabled)
+   *
+   * @param experimentalMempurgeThreshold the threshold used by
+   *     the MemPurge decider.
+   * @return the reference to the current options.
+   */
+  T setExperimentalMempurgeThreshold(double experimentalMempurgeThreshold);
+
+  /**
+   * Threshold used in the MemPurge (memtable garbage collection)
+   * feature. A value of 0.0 corresponds to no MemPurge,
+   * a value of 1.0 will trigger a MemPurge as often as possible.
+   *
+   * Default: 0 (disabled)
+   *
+   * @return the threshold used by the MemPurge decider
+   */
+  double experimentalMempurgeThreshold();
+
+  /**
+   * Enable whole key bloom filter in memtable. Note this will only take effect
+   * if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
+   * can potentially reduce CPU usage for point-look-ups.
+   *
+   * Default: false (disabled)
+   *
+   * @param memtableWholeKeyFiltering true if whole key bloom filter is enabled
+   *     in memtable
+   * @return the reference to the current options.
+   */
+  T setMemtableWholeKeyFiltering(boolean memtableWholeKeyFiltering);
+
+  /**
+   * Returns whether whole key bloom filter is enabled in memtable
+   *
+   * @return true if whole key bloom filter is enabled in memtable
+   */
+  boolean memtableWholeKeyFiltering();
 
   /**
    * Page size for huge page TLB for bloom in memtable. If &le; 0, not allocate
@@ -509,4 +554,277 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * @return the periodic compaction in seconds.
    */
   long periodicCompactionSeconds();
+
+  //
+  // BEGIN options for blobs (integrated BlobDB)
+  //
+
+  /**
+   * When set, large values (blobs) are written to separate blob files, and only
+   * pointers to them are stored in SST files. This can reduce write amplification
+   * for large-value use cases at the cost of introducing a level of indirection
+   * for reads. See also the options min_blob_size, blob_file_size,
+   * blob_compression_type, enable_blob_garbage_collection, and
+   * blob_garbage_collection_age_cutoff below.
+   *
+   * Default: false
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param enableBlobFiles true iff blob files should be enabled
+   *
+   * @return the reference to the current options.
+   */
+  T setEnableBlobFiles(final boolean enableBlobFiles);
+
+  /**
+   * When set, large values (blobs) are written to separate blob files, and only
+   * pointers to them are stored in SST files. This can reduce write amplification
+   * for large-value use cases at the cost of introducing a level of indirection
+   * for reads. See also the options min_blob_size, blob_file_size,
+   * blob_compression_type, enable_blob_garbage_collection, and
+   * blob_garbage_collection_age_cutoff below.
+   *
+   * Default: false
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @return true if blob files are enabled
+   */
+  boolean enableBlobFiles();
+
+  /**
+   * Set the size of the smallest value to be stored separately in a blob file. Values
+   * which have an uncompressed size smaller than this threshold are stored
+   * alongside the keys in SST files in the usual fashion. A value of zero for
+   * this option means that all values are stored in blob files. Note that
+   * enable_blob_files has to be set in order for this option to have any effect.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param minBlobSize the size of the smallest value to be stored separately in a blob file
+   * @return the reference to the current options.
+   */
+  T setMinBlobSize(final long minBlobSize);
+
+  /**
+   * Get the size of the smallest value to be stored separately in a blob file. Values
+   * which have an uncompressed size smaller than this threshold are stored
+   * alongside the keys in SST files in the usual fashion. A value of zero for
+   * this option means that all values are stored in blob files. Note that
+   * enable_blob_files has to be set in order for this option to have any effect.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @return the current minimum size of value which is stored separately in a blob
+   */
+  long minBlobSize();
+
+  /**
+   * Set the size limit for blob files. When writing blob files, a new file is opened
+   * once this limit is reached. Note that enable_blob_files has to be set in
+   * order for this option to have any effect.
+   *
+   * Default: 256 MB
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param blobFileSize the size limit for blob files
+   *
+   * @return the reference to the current options.
+   */
+  T setBlobFileSize(final long blobFileSize);
+
+  /**
+   * The size limit for blob files. When writing blob files, a new file is opened
+   * once this limit is reached.
+   *
+   * @return the current size limit for blob files
+   */
+  long blobFileSize();
+
+  /**
+   * Set the compression algorithm to use for large values stored in blob files. Note
+   * that enable_blob_files has to be set in order for this option to have any
+   * effect.
+   *
+   * Default: no compression
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param compressionType the compression algorithm to use.
+   *
+   * @return the reference to the current options.
+   */
+  T setBlobCompressionType(CompressionType compressionType);
+
+  /**
+   * Get the compression algorithm in use for large values stored in blob files.
+   * Note that enable_blob_files has to be set in order for this option to have any
+   * effect.
+   *
+   * @return the current compression algorithm
+   */
+  CompressionType blobCompressionType();
+
+  /**
+   * Enable/disable garbage collection of blobs. Blob GC is performed as part of
+   * compaction. Valid blobs residing in blob files older than a cutoff get
+   * relocated to new files as they are encountered during compaction, which makes
+   * it possible to clean up blob files once they contain nothing but
+   * obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
+   *
+   * Default: false
+   *
+   * @param enableBlobGarbageCollection the new enabled/disabled state of blob garbage collection
+   *
+   * @return the reference to the current options.
+   */
+  T setEnableBlobGarbageCollection(final boolean enableBlobGarbageCollection);
+
+  /**
+   * Query whether garbage collection of blobs is enabled.Blob GC is performed as part of
+   * compaction. Valid blobs residing in blob files older than a cutoff get
+   * relocated to new files as they are encountered during compaction, which makes
+   * it possible to clean up blob files once they contain nothing but
+   * obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
+   *
+   * Default: false
+   *
+   * @return true if blob garbage collection is currently enabled.
+   */
+  boolean enableBlobGarbageCollection();
+
+  /**
+   * Set cutoff in terms of blob file age for garbage collection. Blobs in the
+   * oldest N blob files will be relocated when encountered during compaction,
+   * where N = garbage_collection_cutoff * number_of_blob_files. Note that
+   * enable_blob_garbage_collection has to be set in order for this option to have
+   * any effect.
+   *
+   * Default: 0.25
+   *
+   * @param blobGarbageCollectionAgeCutoff the new age cutoff
+   *
+   * @return the reference to the current options.
+   */
+  T setBlobGarbageCollectionAgeCutoff(double blobGarbageCollectionAgeCutoff);
+  /**
+   * Get cutoff in terms of blob file age for garbage collection. Blobs in the
+   * oldest N blob files will be relocated when encountered during compaction,
+   * where N = garbage_collection_cutoff * number_of_blob_files. Note that
+   * enable_blob_garbage_collection has to be set in order for this option to have
+   * any effect.
+   *
+   * Default: 0.25
+   *
+   * @return the current age cutoff for garbage collection
+   */
+  double blobGarbageCollectionAgeCutoff();
+
+  /**
+   *  If the ratio of garbage in the oldest blob files exceeds this threshold,
+   *  targeted compactions are scheduled in order to force garbage collecting
+   *  the blob files in question, assuming they are all eligible based on the
+   *  value of {@link #blobGarbageCollectionAgeCutoff} above. This option is
+   *  currently only supported with leveled compactions.
+   *
+   *  Note that {@link #enableBlobGarbageCollection} has to be set in order for this
+   *  option to have any effect.
+   *
+   *  Default: 1.0
+   *
+   * Dynamically changeable through the SetOptions() API
+   *
+   * @param blobGarbageCollectionForceThreshold new value for the threshold
+   * @return the reference to the current options
+   */
+  T setBlobGarbageCollectionForceThreshold(double blobGarbageCollectionForceThreshold);
+
+  /**
+   * Get the current value for the {@link #blobGarbageCollectionForceThreshold}
+   * @return the current threshold at which garbage collection of blobs is forced
+   */
+  double blobGarbageCollectionForceThreshold();
+
+  /**
+   * Set compaction readahead for blob files.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param blobCompactionReadaheadSize the compaction readahead for blob files
+   *
+   * @return the reference to the current options.
+   */
+  T setBlobCompactionReadaheadSize(final long blobCompactionReadaheadSize);
+
+  /**
+   * Get compaction readahead for blob files.
+   *
+   * @return the current compaction readahead for blob files
+   */
+  long blobCompactionReadaheadSize();
+
+  /**
+   * Set a certain LSM tree level to enable blob files.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param blobFileStartingLevel the starting level to enable blob files
+   *
+   * @return the reference to the current options.
+   */
+  T setBlobFileStartingLevel(final int blobFileStartingLevel);
+
+  /**
+   * Get the starting LSM tree level to enable blob files.
+   *
+   * Default: 0
+   *
+   * @return the current LSM tree level to enable blob files.
+   */
+  int blobFileStartingLevel();
+
+  /**
+   * Set a certain prepopulate blob cache option.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param prepopulateBlobCache the prepopulate blob cache option
+   *
+   * @return the reference to the current options.
+   */
+  T setPrepopulateBlobCache(final PrepopulateBlobCache prepopulateBlobCache);
+
+  /**
+   * Get the prepopulate blob cache option.
+   *
+   * Default: 0
+   *
+   * @return the current prepopulate blob cache option.
+   */
+  PrepopulateBlobCache prepopulateBlobCache();
+
+  //
+  // END options for blobs (integrated BlobDB)
+  //
 }

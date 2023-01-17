@@ -5,14 +5,18 @@
 
 /* BEGIN RocksDB customizations */
 #ifndef XXH_STATIC_LINKING_ONLY
-#define XXH_STATIC_LINKING_ONLY 1 /* using xxhash.cc */
-#endif // !defined(XXH_STATIC_LINKING_ONLY)
+// Using compiled xxhash.cc
+#define XXH_STATIC_LINKING_ONLY 1
+#endif  // !defined(XXH_STATIC_LINKING_ONLY)
 #ifndef XXH_NAMESPACE
 #define XXH_NAMESPACE ROCKSDB_
-#endif // !defined(XXH_NAMESPACE)
-#include "port/lang.h" // for FALLTHROUGH_INTENDED, inserted as appropriate
+#endif  // !defined(XXH_NAMESPACE)
+
+// for FALLTHROUGH_INTENDED, inserted as appropriate
+#include "port/lang.h"
 /* END RocksDB customizations */
 
+// clang-format off
 /*
  * xxHash - Extremely Fast Hash algorithm
  * Header File
@@ -1283,7 +1287,8 @@ XXH_PUBLIC_API XXH128_hash_t XXH128(const void* data, size_t len, XXH64_hash_t s
 
 #ifndef XXH_FORCE_ALIGN_CHECK  /* can be defined externally */
 #  if defined(__i386)  || defined(__x86_64__) || defined(__aarch64__) \
-   || defined(_M_IX86) || defined(_M_X64)     || defined(_M_ARM64) /* visual */
+   || defined(_M_IX86) || defined(_M_X64)     || defined(_M_ARM64) \
+   || defined(__loongarch64) /* visual */
 #    define XXH_FORCE_ALIGN_CHECK 0
 #  else
 #    define XXH_FORCE_ALIGN_CHECK 1
@@ -3673,7 +3678,7 @@ XXH3_initCustomSecret_avx512(void* XXH_RESTRICT customSecret, xxh_u64 seed64)
         int i;
         for (i=0; i < nbRounds; ++i) {
             /* GCC has a bug, _mm512_stream_load_si512 accepts 'void*', not 'void const*',
-             * this will warn "discards ‘const’ qualifier". */
+             * this will warn "discards 'const' qualifier". */
             union {
                 XXH_ALIGN(64) const __m512i* cp;
                 XXH_ALIGN(64) void* p;

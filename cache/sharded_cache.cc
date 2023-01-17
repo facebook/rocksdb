@@ -19,183 +19,49 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-inline uint32_t HashSlice(const Slice& s) {
-  return Lower32of64(GetSliceNPHash64(s));
-}
-
-}  // namespace
-
-ShardedCache::ShardedCache(size_t capacity, int num_shard_bits,
-                           bool strict_capacity_limit,
-                           std::shared_ptr<MemoryAllocator> allocator)
+ShardedCacheBase::ShardedCacheBase(size_t capacity, int num_shard_bits,
+                                   bool strict_capacity_limit,
+                                   std::shared_ptr<MemoryAllocator> allocator)
     : Cache(std::move(allocator)),
+      last_id_(1),
       shard_mask_((uint32_t{1} << num_shard_bits) - 1),
-      capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
-      last_id_(1) {}
+      capacity_(capacity) {}
 
-void ShardedCache::SetCapacity(size_t capacity) {
+size_t ShardedCacheBase::ComputePerShardCapacity(size_t capacity) const {
   uint32_t num_shards = GetNumShards();
-  const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
-  MutexLock l(&capacity_mutex_);
-  for (uint32_t s = 0; s < num_shards; s++) {
-    GetShard(s)->SetCapacity(per_shard);
-  }
-  capacity_ = capacity;
+  return (capacity + (num_shards - 1)) / num_shards;
 }
 
-void ShardedCache::SetStrictCapacityLimit(bool strict_capacity_limit) {
-  uint32_t num_shards = GetNumShards();
-  MutexLock l(&capacity_mutex_);
-  for (uint32_t s = 0; s < num_shards; s++) {
-    GetShard(s)->SetStrictCapacityLimit(strict_capacity_limit);
-  }
-  strict_capacity_limit_ = strict_capacity_limit;
+size_t ShardedCacheBase::GetPerShardCapacity() const {
+  return ComputePerShardCapacity(GetCapacity());
 }
 
-Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
-                            DeleterFn deleter, Handle** handle,
-                            Priority priority) {
-  uint32_t hash = HashSlice(key);
-  return GetShard(Shard(hash))
-      ->Insert(key, hash, value, charge, deleter, handle, priority);
-}
-
-Status ShardedCache::Insert(const Slice& key, void* value,
-                            const CacheItemHelper* helper, size_t charge,
-                            Handle** handle, Priority priority) {
-  uint32_t hash = HashSlice(key);
-  if (!helper) {
-    return Status::InvalidArgument();
-  }
-  return GetShard(Shard(hash))
-      ->Insert(key, hash, value, helper, charge, handle, priority);
-}
-
-Cache::Handle* ShardedCache::Lookup(const Slice& key, Statistics* /*stats*/) {
-  uint32_t hash = HashSlice(key);
-  return GetShard(Shard(hash))->Lookup(key, hash);
-}
-
-Cache::Handle* ShardedCache::Lookup(const Slice& key,
-                                    const CacheItemHelper* helper,
-                                    const CreateCallback& create_cb,
-                                    Priority priority, bool wait,
-                                    Statistics* stats) {
-  uint32_t hash = HashSlice(key);
-  return GetShard(Shard(hash))
-      ->Lookup(key, hash, helper, create_cb, priority, wait, stats);
-}
-
-bool ShardedCache::IsReady(Handle* handle) {
-  uint32_t hash = GetHash(handle);
-  return GetShard(Shard(hash))->IsReady(handle);
-}
-
-void ShardedCache::Wait(Handle* handle) {
-  uint32_t hash = GetHash(handle);
-  GetShard(Shard(hash))->Wait(handle);
-}
-
-bool ShardedCache::Ref(Handle* handle) {
-  uint32_t hash = GetHash(handle);
-  return GetShard(Shard(hash))->Ref(handle);
-}
-
-bool ShardedCache::Release(Handle* handle, bool force_erase) {
-  uint32_t hash = GetHash(handle);
-  return GetShard(Shard(hash))->Release(handle, force_erase);
-}
-
-bool ShardedCache::Release(Handle* handle, bool useful, bool force_erase) {
-  uint32_t hash = GetHash(handle);
-  return GetShard(Shard(hash))->Release(handle, useful, force_erase);
-}
-
-void ShardedCache::Erase(const Slice& key) {
-  uint32_t hash = HashSlice(key);
-  GetShard(Shard(hash))->Erase(key, hash);
-}
-
-uint64_t ShardedCache::NewId() {
+uint64_t ShardedCacheBase::NewId() {
   return last_id_.fetch_add(1, std::memory_order_relaxed);
 }
 
-size_t ShardedCache::GetCapacity() const {
-  MutexLock l(&capacity_mutex_);
+size_t ShardedCacheBase::GetCapacity() const {
+  MutexLock l(&config_mutex_);
   return capacity_;
 }
 
-bool ShardedCache::HasStrictCapacityLimit() const {
-  MutexLock l(&capacity_mutex_);
+bool ShardedCacheBase::HasStrictCapacityLimit() const {
+  MutexLock l(&config_mutex_);
   return strict_capacity_limit_;
 }
 
-size_t ShardedCache::GetUsage() const {
-  // We will not lock the cache when getting the usage from shards.
-  uint32_t num_shards = GetNumShards();
-  size_t usage = 0;
-  for (uint32_t s = 0; s < num_shards; s++) {
-    usage += GetShard(s)->GetUsage();
-  }
-  return usage;
-}
-
-size_t ShardedCache::GetUsage(Handle* handle) const {
+size_t ShardedCacheBase::GetUsage(Handle* handle) const {
   return GetCharge(handle);
 }
 
-size_t ShardedCache::GetPinnedUsage() const {
-  // We will not lock the cache when getting the usage from shards.
-  uint32_t num_shards = GetNumShards();
-  size_t usage = 0;
-  for (uint32_t s = 0; s < num_shards; s++) {
-    usage += GetShard(s)->GetPinnedUsage();
-  }
-  return usage;
-}
-
-void ShardedCache::ApplyToAllEntries(
-    const std::function<void(const Slice& key, void* value, size_t charge,
-                             DeleterFn deleter)>& callback,
-    const ApplyToAllEntriesOptions& opts) {
-  uint32_t num_shards = GetNumShards();
-  // Iterate over part of each shard, rotating between shards, to
-  // minimize impact on latency of concurrent operations.
-  std::unique_ptr<uint32_t[]> states(new uint32_t[num_shards]{});
-
-  uint32_t aepl_in_32 = static_cast<uint32_t>(
-      std::min(size_t{UINT32_MAX}, opts.average_entries_per_lock));
-  aepl_in_32 = std::min(aepl_in_32, uint32_t{1});
-
-  bool remaining_work;
-  do {
-    remaining_work = false;
-    for (uint32_t s = 0; s < num_shards; s++) {
-      if (states[s] != UINT32_MAX) {
-        GetShard(s)->ApplyToSomeEntries(callback, aepl_in_32, &states[s]);
-        remaining_work |= states[s] != UINT32_MAX;
-      }
-    }
-  } while (remaining_work);
-}
-
-void ShardedCache::EraseUnRefEntries() {
-  uint32_t num_shards = GetNumShards();
-  for (uint32_t s = 0; s < num_shards; s++) {
-    GetShard(s)->EraseUnRefEntries();
-  }
-}
-
-std::string ShardedCache::GetPrintableOptions() const {
+std::string ShardedCacheBase::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(20000);
   const int kBufferSize = 200;
   char buffer[kBufferSize];
   {
-    MutexLock l(&capacity_mutex_);
+    MutexLock l(&config_mutex_);
     snprintf(buffer, kBufferSize, "    capacity : %" ROCKSDB_PRIszt "\n",
              capacity_);
     ret.append(buffer);
@@ -209,12 +75,12 @@ std::string ShardedCache::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize, "    memory_allocator : %s\n",
            memory_allocator() ? memory_allocator()->Name() : "None");
   ret.append(buffer);
-  ret.append(GetShard(0)->GetPrintableOptions());
+  AppendPrintableOptions(ret);
   return ret;
 }
-int GetDefaultCacheShardBits(size_t capacity) {
+
+int GetDefaultCacheShardBits(size_t capacity, size_t min_shard_size) {
   int num_shard_bits = 0;
-  size_t min_shard_size = 512L * 1024L;  // Every shard is at least 512KB.
   size_t num_shards = capacity / min_shard_size;
   while (num_shards >>= 1) {
     if (++num_shard_bits >= 6) {
@@ -225,8 +91,10 @@ int GetDefaultCacheShardBits(size_t capacity) {
   return num_shard_bits;
 }
 
-int ShardedCache::GetNumShardBits() const { return BitsSetToOne(shard_mask_); }
+int ShardedCacheBase::GetNumShardBits() const {
+  return BitsSetToOne(shard_mask_);
+}
 
-uint32_t ShardedCache::GetNumShards() const { return shard_mask_ + 1; }
+uint32_t ShardedCacheBase::GetNumShards() const { return shard_mask_ + 1; }
 
 }  // namespace ROCKSDB_NAMESPACE

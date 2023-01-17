@@ -48,36 +48,38 @@ class Timer {
   ~Timer() { Shutdown(); }
 
   // Add a new function to run.
-  // fn_name has to be identical, otherwise, the new one overrides the existing
-  // one, regardless if the function is pending removed (invalid) or not.
+  // fn_name has to be identical, otherwise it will fail to add and return false
   // start_after_us is the initial delay.
   // repeat_every_us is the interval between ending time of the last call and
   // starting time of the next call. For example, repeat_every_us = 2000 and
   // the function takes 1000us to run. If it starts at time [now]us, then it
   // finishes at [now]+1000us, 2nd run starting time will be at [now]+3000us.
   // repeat_every_us == 0 means do not repeat.
-  void Add(std::function<void()> fn,
-           const std::string& fn_name,
-           uint64_t start_after_us,
-           uint64_t repeat_every_us) {
-    std::unique_ptr<FunctionInfo> fn_info(new FunctionInfo(
-        std::move(fn), fn_name, clock_->NowMicros() + start_after_us,
-        repeat_every_us));
-    {
-      InstrumentedMutexLock l(&mutex_);
-      auto it = map_.find(fn_name);
-      if (it == map_.end()) {
-        heap_.push(fn_info.get());
-        map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
-      } else {
-        // If it already exists, overriding it.
-        it->second->fn = std::move(fn_info->fn);
-        it->second->valid = true;
-        it->second->next_run_time_us = clock_->NowMicros() + start_after_us;
-        it->second->repeat_every_us = repeat_every_us;
-      }
+  bool Add(std::function<void()> fn, const std::string& fn_name,
+           uint64_t start_after_us, uint64_t repeat_every_us) {
+    auto fn_info = std::make_unique<FunctionInfo>(std::move(fn), fn_name, 0,
+                                                  repeat_every_us);
+    InstrumentedMutexLock l(&mutex_);
+    // Assign time within mutex to make sure the next_run_time is larger than
+    // the current running one
+    fn_info->next_run_time_us = clock_->NowMicros() + start_after_us;
+    // the new task start time should never before the current task executing
+    // time, as the executing task can only be running if it's next_run_time_us
+    // is due (<= clock_->NowMicros()).
+    if (executing_task_ &&
+        fn_info->next_run_time_us < heap_.top()->next_run_time_us) {
+      return false;
+    }
+    auto it = map_.find(fn_name);
+    if (it == map_.end()) {
+      heap_.push(fn_info.get());
+      map_.try_emplace(fn_name, std::move(fn_info));
+    } else {
+      // timer doesn't support duplicated function name
+      return false;
     }
     cond_var_.SignalAll();
+    return true;
   }
 
   void Cancel(const std::string& fn_name) {
@@ -116,7 +118,7 @@ class Timer {
     }
 
     running_ = true;
-    thread_.reset(new port::Thread(&Timer::Run, this));
+    thread_ = std::make_unique<port::Thread>(&Timer::Run, this);
     return true;
   }
 
@@ -140,8 +142,8 @@ class Timer {
 
   bool HasPendingTask() const {
     InstrumentedMutexLock l(&mutex_);
-    for (auto it = map_.begin(); it != map_.end(); it++) {
-      if (it->second->IsValid()) {
+    for (const auto& fn_info : map_) {
+      if (fn_info.second->IsValid()) {
         return true;
       }
     }
@@ -155,7 +157,7 @@ class Timer {
   // here to bump current time and trigger Timer. See timer_test for example.
   //
   // Note: only support one caller of this method.
-  void TEST_WaitForRun(std::function<void()> callback = nullptr) {
+  void TEST_WaitForRun(const std::function<void()>& callback = nullptr) {
     InstrumentedMutexLock l(&mutex_);
     // It act as a spin lock
     while (executing_task_ ||
@@ -177,17 +179,21 @@ class Timer {
   size_t TEST_GetPendingTaskNum() const {
     InstrumentedMutexLock l(&mutex_);
     size_t ret = 0;
-    for (auto it = map_.begin(); it != map_.end(); it++) {
-      if (it->second->IsValid()) {
+    for (const auto& fn_info : map_) {
+      if (fn_info.second->IsValid()) {
         ret++;
       }
     }
     return ret;
   }
+
+  void TEST_OverrideTimer(SystemClock* clock) {
+    InstrumentedMutexLock l(&mutex_);
+    clock_ = clock;
+  }
 #endif  // NDEBUG
 
  private:
-
   void Run() {
     InstrumentedMutexLock l(&mutex_);
 
@@ -220,10 +226,13 @@ class Timer {
         executing_task_ = false;
         cond_var_.SignalAll();
 
-        // Remove the work from the heap once it is done executing.
+        // Remove the work from the heap once it is done executing, make sure
+        // it's the same function after executing the work while mutex is
+        // released.
         // Note that we are just removing the pointer from the heap. Its
         // memory is still managed in the map (as it holds a unique ptr).
         // So current_fn is still a valid ptr.
+        assert(heap_.top() == current_fn);
         heap_.pop();
 
         // current_fn may be cancelled already.
@@ -234,6 +243,10 @@ class Timer {
 
           // Schedule new work into the heap with new time.
           heap_.push(current_fn);
+        } else {
+          // if current_fn is cancelled or no need to repeat, remove it from the
+          // map to avoid leak.
+          map_.erase(current_fn->name);
         }
       } else {
         cond_var_.TimedWait(current_fn->next_run_time_us);
@@ -280,17 +293,15 @@ class Timer {
     // calls `Cancel()`.
     bool valid;
 
-    FunctionInfo(std::function<void()>&& _fn, const std::string& _name,
+    FunctionInfo(std::function<void()>&& _fn, std::string _name,
                  const uint64_t _next_run_time_us, uint64_t _repeat_every_us)
         : fn(std::move(_fn)),
-          name(_name),
+          name(std::move(_name)),
           next_run_time_us(_next_run_time_us),
           repeat_every_us(_repeat_every_us),
           valid(true) {}
 
-    void Cancel() {
-      valid = false;
-    }
+    void Cancel() { valid = false; }
 
     bool IsValid() const { return valid; }
   };
@@ -304,8 +315,7 @@ class Timer {
   }
 
   struct RunTimeOrder {
-    bool operator()(const FunctionInfo* f1,
-                    const FunctionInfo* f2) {
+    bool operator()(const FunctionInfo* f1, const FunctionInfo* f2) {
       return f1->next_run_time_us > f2->next_run_time_us;
     }
   };
@@ -319,9 +329,8 @@ class Timer {
   bool running_;
   bool executing_task_;
 
-  std::priority_queue<FunctionInfo*,
-                      std::vector<FunctionInfo*>,
-                      RunTimeOrder> heap_;
+  std::priority_queue<FunctionInfo*, std::vector<FunctionInfo*>, RunTimeOrder>
+      heap_;
 
   // In addition to providing a mapping from a function name to a function,
   // it is also responsible for memory management.

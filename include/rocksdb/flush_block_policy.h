@@ -18,7 +18,11 @@ struct ConfigOptions;
 struct Options;
 
 // FlushBlockPolicy provides a configurable way to determine when to flush a
-// block in the block based tables,
+// block in the block based tables.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FlushBlockPolicy {
  public:
   // Keep track of the key/value sequences and return the boolean value to

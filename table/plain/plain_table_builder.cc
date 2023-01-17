@@ -8,12 +8,13 @@
 
 #include <assert.h>
 
-#include <string>
 #include <limits>
 #include <map>
+#include <string>
 
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
+#include "logging/logging.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -59,12 +60,12 @@ extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 PlainTableBuilder::PlainTableBuilder(
     const ImmutableOptions& ioptions, const MutableCFOptions& moptions,
     const IntTblPropCollectorFactories* int_tbl_prop_collector_factories,
-    uint32_t column_family_id, WritableFileWriter* file, uint32_t user_key_len,
-    EncodingType encoding_type, size_t index_sparseness,
+    uint32_t column_family_id, int level_at_creation, WritableFileWriter* file,
+    uint32_t user_key_len, EncodingType encoding_type, size_t index_sparseness,
     uint32_t bloom_bits_per_key, const std::string& column_family_name,
     uint32_t num_probes, size_t huge_page_tlb_size, double hash_table_ratio,
     bool store_index_in_file, const std::string& db_id,
-    const std::string& db_session_id)
+    const std::string& db_session_id, uint64_t file_number)
     : ioptions_(ioptions),
       moptions_(moptions),
       bloom_block_(num_probes),
@@ -81,8 +82,9 @@ PlainTableBuilder::PlainTableBuilder(
     index_builder_.reset(new PlainTableIndexBuilder(
         &arena_, ioptions, moptions.prefix_extractor.get(), index_sparseness,
         hash_table_ratio, huge_page_tlb_size_));
-    properties_.user_collected_properties
-        [PlainTablePropertyNames::kBloomVersion] = "1";  // For future use
+    properties_
+        .user_collected_properties[PlainTablePropertyNames::kBloomVersion] =
+        "1";  // For future use
   }
 
   properties_.fixed_key_len = user_key_len;
@@ -103,21 +105,24 @@ PlainTableBuilder::PlainTableBuilder(
   if (!ReifyDbHostIdProperty(ioptions_.env, &properties_.db_host_id).ok()) {
     ROCKS_LOG_INFO(ioptions_.logger, "db_host_id property will not be set");
   }
-  properties_.prefix_extractor_name = moptions_.prefix_extractor != nullptr
-                                          ? moptions_.prefix_extractor->Name()
-                                          : "nullptr";
+  properties_.orig_file_number = file_number;
+  properties_.prefix_extractor_name =
+      moptions_.prefix_extractor != nullptr
+          ? moptions_.prefix_extractor->AsString()
+          : "nullptr";
 
   std::string val;
   PutFixed32(&val, static_cast<uint32_t>(encoder_.GetEncodingType()));
-  properties_.user_collected_properties
-      [PlainTablePropertyNames::kEncodingType] = val;
+  properties_
+      .user_collected_properties[PlainTablePropertyNames::kEncodingType] = val;
 
   assert(int_tbl_prop_collector_factories);
   for (auto& factory : *int_tbl_prop_collector_factories) {
     assert(factory);
 
     table_properties_collectors_.emplace_back(
-        factory->CreateIntTblPropCollector(column_family_id));
+        factory->CreateIntTblPropCollector(column_family_id,
+                                           level_at_creation));
   }
 }
 
@@ -273,9 +278,9 @@ Status PlainTableBuilder::Finish() {
   IOStatus s = WriteBlock(property_block_builder.Finish(), file_, &offset_,
                           &property_block_handle);
   if (!s.ok()) {
-    return std::move(s);
+    return static_cast<Status>(s);
   }
-  meta_index_builer.Add(kPropertiesBlock, property_block_handle);
+  meta_index_builer.Add(kPropertiesBlockName, property_block_handle);
 
   // -- write metaindex block
   BlockHandle metaindex_block_handle;
@@ -288,30 +293,24 @@ Status PlainTableBuilder::Finish() {
 
   // Write Footer
   // no need to write out new footer if we're using default checksum
-  Footer footer(kLegacyPlainTableMagicNumber, 0);
-  footer.set_metaindex_handle(metaindex_block_handle);
-  footer.set_index_handle(BlockHandle::NullBlockHandle());
-  std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding);
-  io_status_ = file_->Append(footer_encoding);
+  FooterBuilder footer;
+  footer.Build(kPlainTableMagicNumber, /* format_version */ 0, offset_,
+               kNoChecksum, metaindex_block_handle);
+  io_status_ = file_->Append(footer.GetSlice());
   if (io_status_.ok()) {
-    offset_ += footer_encoding.size();
+    offset_ += footer.GetSlice().size();
   }
   status_ = io_status_;
   return status_;
 }
 
-void PlainTableBuilder::Abandon() {
-  closed_ = true;
-}
+void PlainTableBuilder::Abandon() { closed_ = true; }
 
 uint64_t PlainTableBuilder::NumEntries() const {
   return properties_.num_entries;
 }
 
-uint64_t PlainTableBuilder::FileSize() const {
-  return offset_;
-}
+uint64_t PlainTableBuilder::FileSize() const { return offset_; }
 
 std::string PlainTableBuilder::GetFileChecksum() const {
   if (file_ != nullptr) {
@@ -327,6 +326,11 @@ const char* PlainTableBuilder::GetFileChecksumFuncName() const {
   } else {
     return kUnknownFileChecksumFuncName;
   }
+}
+void PlainTableBuilder::SetSeqnoTimeTableProperties(const std::string& string,
+                                                    uint64_t uint_64) {
+  // TODO: storing seqno to time mapping is not yet support for plain table.
+  TableBuilder::SetSeqnoTimeTableProperties(string, uint_64);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

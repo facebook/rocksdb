@@ -124,10 +124,10 @@ class BlobDBImpl : public BlobDB {
 
   using BlobDB::MultiGet;
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& read_options,
-      const std::vector<Slice>& keys,
+      const ReadOptions& read_options, const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
 
+  using BlobDB::Write;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
   virtual Status Close() override;
@@ -419,7 +419,7 @@ class BlobDBImpl : public BlobDB {
   std::string blob_dir_;
 
   // pointer to directory
-  std::unique_ptr<Directory> dir_ent_;
+  std::unique_ptr<FSDirectory> dir_ent_;
 
   // Read Write Mutex, which protects all the data structures
   // HEAVILY TRAFFICKED
