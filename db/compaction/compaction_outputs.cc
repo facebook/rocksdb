@@ -668,36 +668,43 @@ Status CompactionOutputs::AddRangeDels(
     //   According to how UpdateBoundariesForRange() is implemented, it blindly
     //   updates meta.smallest and meta.largest to smallest_candidate and
     //   largest_candidate the first time it is called. Subsequently, it
-    //   compares input parameter with meta.smallest and meta.largest. So we
-    //   only need to show smallest_candidate <= largest_candidate the first
-    //   time UpdateBoundariesForRange() is called. We assume
-    //   comp_start_user_key < comp_end_user_key, if provided. We assume that
-    //   tombstone_start < tombstone_end. This assumption is based on that each
-    //   fragment in FragmentedTombstoneList has start_key < end_key (user_key)
-    //   and that FragmentedTombstoneIterator::Tombstone() returns the pair
+    //   compares input parameter with meta.smallest and meta.largest and only
+    //   updates them when input is smaller/larger. So we only need to show
+    //   smallest_candidate <= largest_candidate the first time
+    //   UpdateBoundariesForRange() is called. Here we show something stronger
+    //   that smallest_candidate.user_key < largest_candidate.user_key always
+    //   hold for Case 1.
+    //   We assume comp_start_user_key < comp_end_user_key, if provided. We
+    //   assume that tombstone_start < tombstone_end. This assumption is based
+    //   on that each fragment in FragmentedTombstoneList has
+    //   start_key < end_key (user_key) and that
+    //   FragmentedTombstoneIterator::Tombstone() returns the pair
     //   (start_key@tombstone_seqno with op_type kTypeRangeDeletion, end_key).
     //   The logic in this loop sets smallest_candidate to
     //   max(tombstone_start.user_key, comp_start_user_key)@tombstone.seq_ with
     //   op_type kTypeRangeDeletion, largest_candidate to
     //   min(tombstone_end.user_key, comp_end_user_key)@kMaxSequenceNumber with
     //   op_type kTypeRangeDeletion. When a bound is null, there is no
-    //   truncation on that end. To show that smallest_candidate <=
-    //   largest_candidate, it suffices to show tombstone_start.user_key <
-    //   comp_end_user_key (if not null) AND comp_start_user_key (if not null) <
-    //   tombstone_end.user_key. Since the file has no point key,
-    //   `has_overlapping_endpoints` is false. In the first sanity check of this
-    //   for-loop, we compare tombstone_start.user_key against upper_bound =
-    //   comp_end_user_key, and only proceed if tombstone_start.user_key <
-    //   comp_end_user_key. We assume FragmentedTombstoneIterator::Seek(k) lands
+    //   truncation on that end. To show that smallest_candidate.user_key <
+    //   largest_candidate.user_key, it suffices to show
+    //   tombstone_start.user_key < comp_end_user_key (if not null) AND
+    //   comp_start_user_key (if not null) < tombstone_end.user_key.
+    //   Since the file has no point key, `has_overlapping_endpoints` is false.
+    //   In the first sanity check of this for-loop, we compare
+    //   tombstone_start.user_key against upper_bound = comp_end_user_key,
+    //   and only proceed if tombstone_start.user_key < comp_end_user_key.
+    //   We assume FragmentedTombstoneIterator::Seek(k) lands
     //   on a tombstone with end_key > k. So the call it->Seek(*lower_bound)
     //   above implies compact_start_user_key < tombstone_end.user_key.
     //
     //   To show (2) [tombstone_start, tombstone_end] and [meta.smallest,
     //   meta.largest] overlaps (after the call to UpdateBoundariesForRange()):
-    //   We show that [smallest_candidate, largest_candidate] overlaps with
-    //   [meta.smallest, meta.largest], and since tombstone_start <=
-    //   smallest_candidate <= largest_candidate <= tombstone_end, (2) holds
-    //   too. Given meta.smallest <= meta.largest shown above, we need to show
+    //   In the proof for (1) we have shown that
+    //   smallest_candidate <= largest_candidate. Since tombstone_start <=
+    //   smallest_candidate <= largest_candidate <= tombstone_end, for (2) to
+    //   hold, it suffices to show that [smallest_candidate, largest_candidate]
+    //   overlaps with [meta.smallest, meta.largest]. too.
+    //   Given meta.smallest <= meta.largest shown above, we need to show
     //   that it is impossible to have largest_candidate < meta.smallest or
     //   meta.largest < smallest_candidate. If the above
     //   meta.UpdateBoundariesForRange(smallest_candidate, largest_candidate)
