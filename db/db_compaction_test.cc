@@ -4263,12 +4263,14 @@ TEST_F(DBCompactionTest, LevelTtlCompactionOutputCuttingIteractingWithOther) {
   // 36 hours so that the file in L2 is eligible for TTL
   env_->MockSleepForSeconds(36 * 60 * 60);
 
-  CompactRangeOptions co;
+  CompactRangeOptions compact_range_opts;
 
   ASSERT_OK(dbfull()->RunManualCompaction(
       static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
           ->cfd(),
-      1, 2, co, nullptr, nullptr, true, true /* disallow_trivial_move */,
+      1 /* input_level */, 2 /* output_level */, compact_range_opts,
+      nullptr /* begin */, nullptr /* end */, true /* exclusive */,
+      true /* disallow_trivial_move */,
       std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
       "" /*trim_ts*/));
 

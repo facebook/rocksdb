@@ -76,6 +76,47 @@ IOStatus CompactionOutputs::WriterSyncClose(const Status& input_status,
   return io_s;
 }
 
+bool CompactionOutputs::UpdateFilesToCutForTTLStates(
+    const Slice& internal_key) {
+  // TTL state should be updated for each key
+  if (!files_to_cut_for_ttl_.empty()) {
+    const InternalKeyComparator* icmp =
+        &compaction_->column_family_data()->internal_comparator();
+    if (cur_files_to_cut_for_ttl_ != -1) {
+      // Previous key is inside the range of a file
+      if (icmp->Compare(internal_key,
+                        files_to_cut_for_ttl_[cur_files_to_cut_for_ttl_]
+                            ->largest.Encode()) > 0) {
+        next_files_to_cut_for_ttl_ = cur_files_to_cut_for_ttl_ + 1;
+        cur_files_to_cut_for_ttl_ = -1;
+        return true;
+      }
+    } else {
+      // Look for the key position
+      while (next_files_to_cut_for_ttl_ <
+             static_cast<int>(files_to_cut_for_ttl_.size())) {
+        if (icmp->Compare(internal_key,
+                          files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
+                              ->smallest.Encode()) >= 0) {
+          if (icmp->Compare(internal_key,
+                            files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
+                                ->largest.Encode()) <= 0) {
+            // With in the current file
+            cur_files_to_cut_for_ttl_ = next_files_to_cut_for_ttl_;
+            return true;
+          }
+          // Beyond the current file
+          next_files_to_cut_for_ttl_++;
+        } else {
+          // Still fall into the gap
+          break;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 size_t CompactionOutputs::UpdateGrandparentBoundaryInfo(
     const Slice& internal_key) {
   size_t curr_key_boundary_switched_num = 0;
@@ -199,41 +240,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   if (compaction_->output_level() > 0) {
     num_grandparent_boundaries_crossed =
         UpdateGrandparentBoundaryInfo(internal_key);
-    // TTL state should be updated for each key
-    if (!files_to_cut_for_ttl_.empty()) {
-      if (cur_files_to_cut_for_ttl_ != -1) {
-        // Previous key is inside the range of a file
-        if (icmp->Compare(internal_key,
-                          files_to_cut_for_ttl_[cur_files_to_cut_for_ttl_]
-                              ->largest.Encode()) > 0) {
-          next_files_to_cut_for_ttl_ = cur_files_to_cut_for_ttl_ + 1;
-          cur_files_to_cut_for_ttl_ = -1;
-          should_stop_for_ttl = true;
-        }
-      } else {
-        // Look for the key position
-        while (next_files_to_cut_for_ttl_ <
-               static_cast<int>(files_to_cut_for_ttl_.size())) {
-          if (icmp->Compare(internal_key,
-                            files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
-                                ->smallest.Encode()) >= 0) {
-            if (icmp->Compare(internal_key,
-                              files_to_cut_for_ttl_[next_files_to_cut_for_ttl_]
-                                  ->largest.Encode()) <= 0) {
-              // With in the current file
-              cur_files_to_cut_for_ttl_ = next_files_to_cut_for_ttl_;
-              should_stop_for_ttl = true;
-              break;
-            }
-            // Beyond the current file
-            next_files_to_cut_for_ttl_++;
-          } else {
-            // Still fall into the gap
-            break;
-          }
-        }
-      }
-    }
+    should_stop_for_ttl = UpdateFilesToCutForTTLStates(internal_key);
   }
 
   if (!HasBuilder()) {
