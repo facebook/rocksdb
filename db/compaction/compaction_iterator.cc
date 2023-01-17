@@ -300,10 +300,11 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       }
     }
     if (CompactionFilter::Decision::kUndetermined == filter) {
-      filter = compaction_filter_->FilterV2(
+      filter = compaction_filter_->FilterV3(
           level_, filter_key, value_type,
-          blob_value_.empty() ? value_ : blob_value_, &compaction_filter_value_,
-          compaction_filter_skip_until_.rep());
+          blob_value_.empty() ? &value_ : &blob_value_,
+          /* existing_entity */ nullptr, &compaction_filter_value_,
+          /* new_entity */ nullptr, compaction_filter_skip_until_.rep());
     }
     iter_stats_.total_filter_time +=
         env_ != nullptr && report_detailed_time_ ? timer.ElapsedNanos() : 0;

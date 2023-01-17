@@ -16,6 +16,7 @@
 #include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/types.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -34,6 +35,7 @@ class CompactionFilter : public Customizable {
     kValue,
     kMergeOperand,
     kBlobIndex,  // used internally by BlobDB.
+    kWideColumnEntity,
   };
 
   enum class Decision {
@@ -44,6 +46,7 @@ class CompactionFilter : public Customizable {
     kChangeBlobIndex,  // used internally by BlobDB.
     kIOError,          // used internally by BlobDB.
     kPurge,            // used for keys that can only be SingleDelete'ed
+    kChangeWideColumnEntity,
     kUndetermined,
   };
 
@@ -176,14 +179,36 @@ class CompactionFilter : public Customizable {
         }
         return value_changed ? Decision::kChangeValue : Decision::kKeep;
       }
+
       case ValueType::kMergeOperand: {
         bool rv = FilterMergeOperand(level, key, existing_value);
         return rv ? Decision::kRemove : Decision::kKeep;
       }
+
       case ValueType::kBlobIndex:
         return Decision::kKeep;
+
+      default:
+        assert(false);
+        return Decision::kKeep;
     }
-    assert(false);
+  }
+
+  virtual Decision FilterV3(int level, const Slice& key, ValueType value_type,
+                            const Slice* existing_value,
+                            const WideColumns* existing_entity,
+                            std::string* new_value, WideColumns* /*new_entity*/,
+                            std::string* skip_until) const {
+    assert(!existing_value || !existing_entity);
+    assert(value_type == ValueType::kWideColumnEntity || existing_value);
+    assert(value_type != ValueType::kWideColumnEntity || existing_entity);
+
+    if (value_type != ValueType::kWideColumnEntity) {
+      return FilterV2(level, key, value_type, *existing_value, new_value,
+                      skip_until);
+    }
+
+    // TODO
     return Decision::kKeep;
   }
 
