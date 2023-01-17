@@ -6,6 +6,12 @@ import java.lang.foreign.SegmentAllocator;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * This allocator is not production-level robust;
+ * if memory is held too long, for some definition of too long,
+ * its session may get closed under it. It is designed to work well enough
+ * for the {@code jmh/GetBenchmark.java} tests.
+ */
 public class FFIAllocator implements SegmentAllocator {
 
   record SessionArena(MemorySession memorySession, SegmentAllocator segmentAllocator, int index) {}
@@ -33,11 +39,9 @@ public class FFIAllocator implements SegmentAllocator {
     final MemorySession memorySession = MemorySession.openConfined();
     final SegmentAllocator arena = SegmentAllocator.newNativeArena(SIZE, SIZE, memorySession);
     final var newest = new SessionArena(memorySession, arena, ++index);
-    System.err.println("Add ARENA " + newest.index);
     nativeArenas.add(newest);
     while (nativeArenas.size() > 2) {
       final var oldest = nativeArenas.remove(0);
-      System.err.println("Remove ARENA " + oldest.index);
       oldest.memorySession.close();
     }
   }
