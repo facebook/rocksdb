@@ -78,7 +78,6 @@ IOStatus CompactionOutputs::WriterSyncClose(const Status& input_status,
 
 bool CompactionOutputs::UpdateFilesToCutForTTLStates(
     const Slice& internal_key) {
-  // TTL state should be updated for each key
   if (!files_to_cut_for_ttl_.empty()) {
     const InternalKeyComparator* icmp =
         &compaction_->column_family_data()->internal_comparator();
@@ -226,17 +225,16 @@ uint64_t CompactionOutputs::GetCurrentKeyGrandparentOverlappedBytes(
 
 bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   assert(c_iter.Valid());
-
-  // always update grandparent information like overlapped file number, size
-  // etc.
   const Slice& internal_key = c_iter.key();
   const uint64_t previous_overlapped_bytes = grandparent_overlapped_bytes_;
   const InternalKeyComparator* icmp =
       &compaction_->column_family_data()->internal_comparator();
-  // if compaction_->output_level() == 0, there is no need to update grandparent
-  // info, and that `grandparent` should be empty.
   size_t num_grandparent_boundaries_crossed = 0;
   bool should_stop_for_ttl = false;
+  // Always update grandparent information like overlapped file number, size
+  // etc., and TTL states.
+  // If compaction_->output_level() == 0, there is no need to update grandparent
+  // info, and that `grandparent` should be empty.
   if (compaction_->output_level() > 0) {
     num_grandparent_boundaries_crossed =
         UpdateGrandparentBoundaryInfo(internal_key);
