@@ -8,8 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memtable/inlineskiplist.h"
+
 #include <set>
 #include <unordered_set>
+
 #include "memory/concurrent_arena.h"
 #include "rocksdb/env.h"
 #include "test_util/testharness.h"
@@ -19,7 +21,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Our test skip list stores 8-byte unsigned integers
-typedef uint64_t Key;
+using Key = uint64_t;
 
 static const char* Encode(const uint64_t* key) {
   return reinterpret_cast<const char*>(key);
@@ -32,11 +34,9 @@ static Key Decode(const char* key) {
 }
 
 struct TestComparator {
-  typedef Key DecodedType;
+  using DecodedType = Key;
 
-  static DecodedType decode_key(const char* b) {
-    return Decode(b);
-  }
+  static DecodedType decode_key(const char* b) { return Decode(b); }
 
   int operator()(const char* a, const char* b) const {
     if (Decode(a) < Decode(b)) {
@@ -59,7 +59,7 @@ struct TestComparator {
   }
 };
 
-typedef InlineSkipList<TestComparator> TestInlineSkipList;
+using TestInlineSkipList = InlineSkipList<TestComparator>;
 
 class InlineSkipTest : public testing::Test {
  public:
@@ -658,6 +658,7 @@ TEST_F(InlineSkipTest, ConcurrentInsertWithHint3) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

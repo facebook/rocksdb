@@ -7,8 +7,10 @@
 
 #ifndef ROCKSDB_LITE
 #include <stdint.h>
+
 #include <string>
 #include <vector>
+
 #include "db/version_edit.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -29,7 +31,7 @@ class TableBuilder;
 // The builder class of PlainTable. For description of PlainTable format
 // See comments of class PlainTableFactory, where instances of
 // PlainTableReader are created.
-class PlainTableBuilder: public TableBuilder {
+class PlainTableBuilder : public TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
@@ -39,13 +41,14 @@ class PlainTableBuilder: public TableBuilder {
   PlainTableBuilder(
       const ImmutableOptions& ioptions, const MutableCFOptions& moptions,
       const IntTblPropCollectorFactories* int_tbl_prop_collector_factories,
-      uint32_t column_family_id, WritableFileWriter* file,
-      uint32_t user_key_size, EncodingType encoding_type,
-      size_t index_sparseness, uint32_t bloom_bits_per_key,
-      const std::string& column_family_name, uint32_t num_probes = 6,
-      size_t huge_page_tlb_size = 0, double hash_table_ratio = 0,
-      bool store_index_in_file = false, const std::string& db_id = "",
-      const std::string& db_session_id = "");
+      uint32_t column_family_id, int level_at_creation,
+      WritableFileWriter* file, uint32_t user_key_size,
+      EncodingType encoding_type, size_t index_sparseness,
+      uint32_t bloom_bits_per_key, const std::string& column_family_name,
+      uint32_t num_probes = 6, size_t huge_page_tlb_size = 0,
+      double hash_table_ratio = 0, bool store_index_in_file = false,
+      const std::string& db_id = "", const std::string& db_session_id = "",
+      uint64_t file_number = 0);
   // No copying allowed
   PlainTableBuilder(const PlainTableBuilder&) = delete;
   void operator=(const PlainTableBuilder&) = delete;
@@ -93,6 +96,9 @@ class PlainTableBuilder: public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
+  void SetSeqnoTimeTableProperties(const std::string& string,
+                                   uint64_t uint_64) override;
+
  private:
   Arena arena_;
   const ImmutableOptions& ioptions_;
@@ -121,15 +127,11 @@ class PlainTableBuilder: public TableBuilder {
 
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key
-    return GetPrefixFromUserKey(GetUserKey(target));
+    return GetPrefixFromUserKey(ExtractUserKey(target));
   }
 
   Slice GetPrefix(const ParsedInternalKey& target) const {
     return GetPrefixFromUserKey(target.user_key);
-  }
-
-  Slice GetUserKey(const Slice& key) const {
-    return Slice(key.data(), key.size() - 8);
   }
 
   Slice GetPrefixFromUserKey(const Slice& user_key) const {

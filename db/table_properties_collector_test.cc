@@ -40,6 +40,7 @@ class TablePropertiesTest : public testing::Test,
 namespace {
 static const uint32_t kTestColumnFamilyId = 66;
 static const std::string kTestColumnFamilyName = "test_column_fam";
+static const int kTestLevel = 1;
 
 void MakeBuilder(
     const Options& options, const ImmutableOptions& ioptions,
@@ -51,40 +52,39 @@ void MakeBuilder(
   std::unique_ptr<FSWritableFile> wf(new test::StringSink);
   writable->reset(
       new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
-  int unknown_level = -1;
   TableBuilderOptions tboptions(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
       options.compression, options.compression_opts, kTestColumnFamilyId,
-      kTestColumnFamilyName, unknown_level);
+      kTestColumnFamilyName, kTestLevel);
   builder->reset(NewTableBuilder(tboptions, writable->get()));
 }
 }  // namespace
 
 // Collects keys that starts with "A" in a table.
-class RegularKeysStartWithA: public TablePropertiesCollector {
+class RegularKeysStartWithA : public TablePropertiesCollector {
  public:
   const char* Name() const override { return "RegularKeysStartWithA"; }
 
   Status Finish(UserCollectedProperties* properties) override {
-     std::string encoded;
-     std::string encoded_num_puts;
-     std::string encoded_num_deletes;
-     std::string encoded_num_single_deletes;
-     std::string encoded_num_size_changes;
-     PutVarint32(&encoded, count_);
-     PutVarint32(&encoded_num_puts, num_puts_);
-     PutVarint32(&encoded_num_deletes, num_deletes_);
-     PutVarint32(&encoded_num_single_deletes, num_single_deletes_);
-     PutVarint32(&encoded_num_size_changes, num_size_changes_);
-     *properties = UserCollectedProperties{
-         {"TablePropertiesTest", message_},
-         {"Count", encoded},
-         {"NumPuts", encoded_num_puts},
-         {"NumDeletes", encoded_num_deletes},
-         {"NumSingleDeletes", encoded_num_single_deletes},
-         {"NumSizeChanges", encoded_num_size_changes},
-     };
-     return Status::OK();
+    std::string encoded;
+    std::string encoded_num_puts;
+    std::string encoded_num_deletes;
+    std::string encoded_num_single_deletes;
+    std::string encoded_num_size_changes;
+    PutVarint32(&encoded, count_);
+    PutVarint32(&encoded_num_puts, num_puts_);
+    PutVarint32(&encoded_num_deletes, num_deletes_);
+    PutVarint32(&encoded_num_single_deletes, num_single_deletes_);
+    PutVarint32(&encoded_num_size_changes, num_size_changes_);
+    *properties = UserCollectedProperties{
+        {"TablePropertiesTest", message_},
+        {"Count", encoded},
+        {"NumPuts", encoded_num_puts},
+        {"NumDeletes", encoded_num_deletes},
+        {"NumSingleDeletes", encoded_num_single_deletes},
+        {"NumSizeChanges", encoded_num_size_changes},
+    };
+    return Status::OK();
   }
 
   Status AddUserKey(const Slice& user_key, const Slice& /*value*/,
@@ -176,7 +176,7 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
     return Status::OK();
   }
 
-  void BlockAdd(uint64_t /* block_raw_bytes */,
+  void BlockAdd(uint64_t /* block_uncomp_bytes */,
                 uint64_t /* block_compressed_bytes_fast */,
                 uint64_t /* block_compressed_bytes_slow */) override {
     // Nothing to do.
@@ -199,6 +199,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
   TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) override {
     EXPECT_EQ(kTestColumnFamilyId, context.column_family_id);
+    EXPECT_EQ(kTestLevel, context.level_at_creation);
     if (!backward_mode_) {
       return new RegularKeysStartWithA();
     } else {
@@ -206,7 +207,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
     }
   }
   IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t /*column_family_id*/) override {
+      uint32_t /*column_family_id*/, int /* level_at_creation */) override {
     return new RegularKeysStartWithAInternal();
   }
   const char* Name() const override { return "RegularKeysStartWithA"; }
@@ -280,7 +281,7 @@ void TestCustomizedTablePropertiesCollector(
     builder->Add(ikey.Encode(), kv.second);
   }
   ASSERT_OK(builder->Finish());
-  writer->Flush();
+  ASSERT_OK(writer->Flush());
 
   // -- Step 2: Read properties
   test::StringSink* fwf =
@@ -290,11 +291,9 @@ void TestCustomizedTablePropertiesCollector(
   std::unique_ptr<RandomAccessFileReader> fake_file_reader(
       new RandomAccessFileReader(std::move(source), "test"));
 
-  TableProperties* props;
+  std::unique_ptr<TableProperties> props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, ioptions, &props,
-                                 true /* compression_type_missing */);
-  std::unique_ptr<TableProperties> props_guard(props);
+                                 magic_number, ioptions, &props);
   ASSERT_OK(s);
 
   auto user_collected = props->user_collected_properties;
@@ -339,7 +338,7 @@ void TestCustomizedTablePropertiesCollector(
 TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   // Test properties collectors with internal keys or regular keys
   // for block based table
-  for (bool encode_as_internal : { true, false }) {
+  for (bool encode_as_internal : {true, false}) {
     Options options;
     BlockBasedTableOptions table_options;
     table_options.flush_block_policy_factory =
@@ -405,7 +404,7 @@ void TestInternalKeyPropertiesCollector(
     // HACK: Set options.info_log to avoid writing log in
     // SanitizeOptions().
     options.info_log = std::make_shared<test::NullLogger>();
-    options = SanitizeOptions("db",            // just a place holder
+    options = SanitizeOptions("db",  // just a place holder
                               options);
     ImmutableOptions ioptions(options);
     GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
@@ -422,7 +421,7 @@ void TestInternalKeyPropertiesCollector(
     }
 
     ASSERT_OK(builder->Finish());
-    writable->Flush();
+    ASSERT_OK(writable->Flush());
 
     test::StringSink* fwf =
         static_cast<test::StringSink*>(writable->writable_file());
@@ -431,13 +430,11 @@ void TestInternalKeyPropertiesCollector(
     std::unique_ptr<RandomAccessFileReader> reader(
         new RandomAccessFileReader(std::move(source), "test"));
 
-    TableProperties* props;
-    Status s =
-        ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
-                            ioptions, &props, true /* compression_type_missing */);
+    std::unique_ptr<TableProperties> props;
+    Status s = ReadTableProperties(reader.get(), fwf->contents().size(),
+                                   magic_number, ioptions, &props);
     ASSERT_OK(s);
 
-    std::unique_ptr<TableProperties> props_guard(props);
     auto user_collected = props->user_collected_properties;
     uint64_t deleted = GetDeletedKeys(user_collected);
     ASSERT_EQ(5u, deleted);  // deletes + single-deletes
@@ -510,6 +507,7 @@ INSTANTIATE_TEST_CASE_P(CustomizedTablePropertiesCollector, TablePropertiesTest,
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

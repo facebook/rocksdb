@@ -12,9 +12,12 @@
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
-using namespace ROCKSDB_NAMESPACE;
+namespace {  // anonymous namespace
 
-namespace { // anonymous namespace
+using ROCKSDB_NAMESPACE::AssociativeMergeOperator;
+using ROCKSDB_NAMESPACE::InfoLogLevel;
+using ROCKSDB_NAMESPACE::Logger;
+using ROCKSDB_NAMESPACE::Slice;
 
 // A 'model' merge operator with uint64 addition semantics
 // Implemented as an AssociativeMergeOperator for simplicity and example.
@@ -24,14 +27,14 @@ class UInt64AddOperator : public AssociativeMergeOperator {
              const Slice& value, std::string* new_value,
              Logger* logger) const override {
     uint64_t orig_value = 0;
-    if (existing_value){
+    if (existing_value) {
       orig_value = DecodeInteger(*existing_value, logger);
     }
     uint64_t operand = DecodeInteger(value, logger);
 
     assert(new_value);
     new_value->clear();
-    PutFixed64(new_value, orig_value + operand);
+    ROCKSDB_NAMESPACE::PutFixed64(new_value, orig_value + operand);
 
     return true;  // Return true always since corruption will be treated as 0
   }
@@ -48,20 +51,20 @@ class UInt64AddOperator : public AssociativeMergeOperator {
     uint64_t result = 0;
 
     if (value.size() == sizeof(uint64_t)) {
-      result = DecodeFixed64(value.data());
+      result = ROCKSDB_NAMESPACE::DecodeFixed64(value.data());
     } else if (logger != nullptr) {
       // If value is corrupted, treat it as 0
-      ROCKS_LOG_ERROR(logger, "uint64 value corruption, size: %" ROCKSDB_PRIszt
-                              " > %" ROCKSDB_PRIszt,
+      ROCKS_LOG_ERROR(logger,
+                      "uint64 value corruption, size: %" ROCKSDB_PRIszt
+                      " > %" ROCKSDB_PRIszt,
                       value.size(), sizeof(uint64_t));
     }
 
     return result;
   }
-
 };
 
-}
+}  // anonymous namespace
 
 namespace ROCKSDB_NAMESPACE {
 

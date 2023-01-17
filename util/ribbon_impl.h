@@ -148,7 +148,7 @@ struct AddInputSelector<Key, ResultRow, true /*IsFilter*/> {
 // they are provided to TypesAndSettings::HashFn in case that function does
 // not provide sufficiently independent hashes when iterating merely
 // sequentially on seeds. (This for example works around a problem with the
-// preview version 0.7.2 of XXH3 used in RocksDB, a.k.a. XXH3p or Hash64, and
+// preview version 0.7.2 of XXH3 used in RocksDB, a.k.a. XXPH3 or Hash64, and
 // MurmurHash1 used in RocksDB, a.k.a. Hash.) We say this pre-mixing step
 // translates "ordinal seeds," which we iterate sequentially to find a
 // solution, into "raw seeds," with many more bits changing for each
@@ -675,6 +675,16 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
     } while (cur_ordinal_seed != starting_ordinal_seed);
     // Reached limit by circling around
     return false;
+  }
+
+  static std::size_t EstimateMemoryUsage(uint32_t num_slots) {
+    std::size_t bytes_coeff_rows = num_slots * sizeof(CoeffRow);
+    std::size_t bytes_result_rows = num_slots * sizeof(ResultRow);
+    std::size_t bytes_backtrack = 0;
+    std::size_t bytes_banding =
+        bytes_coeff_rows + bytes_result_rows + bytes_backtrack;
+
+    return bytes_banding;
   }
 
  protected:

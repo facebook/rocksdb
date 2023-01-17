@@ -3,6 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/cleanable.h"
+
+#include <gtest/gtest.h>
+
 #include <functional>
 
 #include "port/port.h"
@@ -266,6 +270,115 @@ TEST_F(CleanableTest, PinnableSlice) {
     str.assign(value.data(), value.size());
     ASSERT_EQ(const_str, str);
   }
+}
+
+static void Decrement(void* intptr, void*) { --*static_cast<int*>(intptr); }
+
+// Allow unit testing moved-from data
+template <class T>
+void MarkInitializedForClangAnalyze(T& t) {
+  // No net effect, but confuse analyzer. (Published advice doesn't work.)
+  char* p = reinterpret_cast<char*>(&t);
+  std::swap(*p, *p);
+}
+
+TEST_F(CleanableTest, SharedWrapCleanables) {
+  int val = 5;
+  Cleanable c1, c2;
+  c1.RegisterCleanup(&Decrement, &val, nullptr);
+  c1.RegisterCleanup(&Decrement, &val, nullptr);
+  ASSERT_TRUE(c1.HasCleanups());
+  ASSERT_FALSE(c2.HasCleanups());
+
+  SharedCleanablePtr scp1;
+  ASSERT_EQ(scp1.get(), nullptr);
+
+  // No-ops
+  scp1.RegisterCopyWith(&c2);
+  scp1.MoveAsCleanupTo(&c2);
+
+  ASSERT_FALSE(c2.HasCleanups());
+  c2.RegisterCleanup(&Decrement, &val, nullptr);
+  c2.RegisterCleanup(&Decrement, &val, nullptr);
+  c2.RegisterCleanup(&Decrement, &val, nullptr);
+
+  scp1.Allocate();
+  ASSERT_NE(scp1.get(), nullptr);
+  ASSERT_FALSE(scp1->HasCleanups());
+
+  // Copy ctor (alias scp2 = scp1)
+  SharedCleanablePtr scp2{scp1};
+  ASSERT_EQ(scp1.get(), scp2.get());
+
+  c1.DelegateCleanupsTo(&*scp1);
+  ASSERT_TRUE(scp1->HasCleanups());
+  ASSERT_TRUE(scp2->HasCleanups());
+  ASSERT_FALSE(c1.HasCleanups());
+
+  SharedCleanablePtr scp3;
+  ASSERT_EQ(scp3.get(), nullptr);
+
+  // Copy operator (alias scp3 = scp2 = scp1)
+  scp3 = scp2;
+
+  // Make scp2 point elsewhere
+  scp2.Allocate();
+  c2.DelegateCleanupsTo(&*scp2);
+
+  ASSERT_EQ(val, 5);
+  // Move operator, invoke old c2 cleanups
+  scp2 = std::move(scp1);
+  ASSERT_EQ(val, 2);
+  MarkInitializedForClangAnalyze(scp1);
+  ASSERT_EQ(scp1.get(), nullptr);
+
+  // Move ctor
+  {
+    SharedCleanablePtr scp4{std::move(scp3)};
+    MarkInitializedForClangAnalyze(scp3);
+    ASSERT_EQ(scp3.get(), nullptr);
+    ASSERT_EQ(scp4.get(), scp2.get());
+
+    scp2.Reset();
+    ASSERT_EQ(val, 2);
+    // invoke old c1 cleanups
+  }
+  ASSERT_EQ(val, 0);
+}
+
+TEST_F(CleanableTest, CleanableWrapShared) {
+  int val = 5;
+  SharedCleanablePtr scp1, scp2;
+  scp1.Allocate();
+  scp1->RegisterCleanup(&Decrement, &val, nullptr);
+  scp1->RegisterCleanup(&Decrement, &val, nullptr);
+
+  scp2.Allocate();
+  scp2->RegisterCleanup(&Decrement, &val, nullptr);
+  scp2->RegisterCleanup(&Decrement, &val, nullptr);
+  scp2->RegisterCleanup(&Decrement, &val, nullptr);
+
+  {
+    Cleanable c1;
+    {
+      Cleanable c2, c3;
+      scp1.RegisterCopyWith(&c1);
+      scp1.MoveAsCleanupTo(&c2);
+      ASSERT_TRUE(c1.HasCleanups());
+      ASSERT_TRUE(c2.HasCleanups());
+      ASSERT_EQ(scp1.get(), nullptr);
+      scp2.MoveAsCleanupTo(&c3);
+      ASSERT_TRUE(c3.HasCleanups());
+      ASSERT_EQ(scp2.get(), nullptr);
+      c2.Reset();
+      ASSERT_FALSE(c2.HasCleanups());
+      ASSERT_EQ(val, 5);
+      // invoke cleanups from scp2
+    }
+    ASSERT_EQ(val, 2);
+    // invoke cleanups from scp1
+  }
+  ASSERT_EQ(val, 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

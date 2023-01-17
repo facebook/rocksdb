@@ -19,9 +19,7 @@ class MockEnvTest : public testing::Test {
   MockEnv* env_;
   const EnvOptions soptions_;
 
-  MockEnvTest()
-      : env_(new MockEnv(Env::Default())) {
-  }
+  MockEnvTest() : env_(MockEnv::Create(Env::Default())) {}
   ~MockEnvTest() override { delete env_; }
 };
 
@@ -53,14 +51,14 @@ TEST_F(MockEnvTest, Corrupt) {
   ASSERT_OK(writable_file->Append(kCorrupted));
   ASSERT_TRUE(writable_file->GetFileSize() == kGood.size() + kCorrupted.size());
   result.clear();
-  ASSERT_OK(rand_file->Read(kGood.size(), kCorrupted.size(),
-            &result, &(scratch[0])));
+  ASSERT_OK(
+      rand_file->Read(kGood.size(), kCorrupted.size(), &result, &(scratch[0])));
   ASSERT_EQ(result.compare(kCorrupted), 0);
   // Corrupted
   ASSERT_OK(dynamic_cast<MockEnv*>(env_)->CorruptBuffer(kFileName));
   result.clear();
-  ASSERT_OK(rand_file->Read(kGood.size(), kCorrupted.size(),
-            &result, &(scratch[0])));
+  ASSERT_OK(
+      rand_file->Read(kGood.size(), kCorrupted.size(), &result, &(scratch[0])));
   ASSERT_NE(result.compare(kCorrupted), 0);
 }
 
@@ -68,7 +66,7 @@ TEST_F(MockEnvTest, FakeSleeping) {
   int64_t now = 0;
   auto s = env_->GetCurrentTime(&now);
   ASSERT_OK(s);
-  env_->FakeSleepForMicroseconds(3 * 1000 * 1000);
+  env_->SleepForMicroseconds(3 * 1000 * 1000);
   int64_t after_sleep = 0;
   s = env_->GetCurrentTime(&after_sleep);
   ASSERT_OK(s);
@@ -80,6 +78,7 @@ TEST_F(MockEnvTest, FakeSleeping) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

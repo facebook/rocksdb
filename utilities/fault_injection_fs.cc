@@ -16,6 +16,7 @@
 
 #include "utilities/fault_injection_fs.h"
 
+#include <algorithm>
 #include <functional>
 #include <utility>
 
@@ -25,7 +26,9 @@
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/string_util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -98,6 +101,37 @@ IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
   }
   fs_->SyncDir(dirname_);
   IOStatus s = dir_->Fsync(options, dbg);
+  {
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+  return s;
+}
+
+IOStatus TestFSDirectory::Close(const IOOptions& options, IODebugContext* dbg) {
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  IOStatus s = dir_->Close(options, dbg);
+  return s;
+}
+
+IOStatus TestFSDirectory::FsyncWithDirOptions(
+    const IOOptions& options, IODebugContext* dbg,
+    const DirFsyncOptions& dir_fsync_options) {
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  {
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+  fs_->SyncDir(dirname_);
+  IOStatus s = dir_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
   {
     IOStatus in_s = fs_->InjectMetadataWriteError();
     if (!in_s.ok()) {
@@ -207,6 +241,7 @@ IOStatus TestFSWritableFile::PositionedAppend(
 
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
                                    IODebugContext* dbg) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -238,6 +273,7 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
 }
 
 IOStatus TestFSWritableFile::Flush(const IOOptions&, IODebugContext*) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -249,6 +285,7 @@ IOStatus TestFSWritableFile::Flush(const IOOptions&, IODebugContext*) {
 
 IOStatus TestFSWritableFile::Sync(const IOOptions& options,
                                   IODebugContext* dbg) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -262,6 +299,34 @@ IOStatus TestFSWritableFile::Sync(const IOOptions& options,
   // Ignore sync errors
   target_->Sync(options, dbg).PermitUncheckedError();
   state_.pos_at_last_sync_ = state_.pos_;
+  fs_->WritableFileSynced(state_);
+  return io_s;
+}
+
+IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
+                                       const IOOptions& options,
+                                       IODebugContext* dbg) {
+  MutexLock l(&mutex_);
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  // Assumes caller passes consecutive byte ranges.
+  uint64_t sync_limit = offset + nbytes;
+  uint64_t buf_begin =
+      state_.pos_at_last_sync_ < 0 ? 0 : state_.pos_at_last_sync_;
+
+  IOStatus io_s;
+  if (sync_limit < buf_begin) {
+    return io_s;
+  }
+  uint64_t num_to_sync = std::min(static_cast<uint64_t>(state_.buffer_.size()),
+                                  sync_limit - buf_begin);
+  Slice buf_to_sync(state_.buffer_.data(), num_to_sync);
+  io_s = target_->Append(buf_to_sync, options, dbg);
+  state_.buffer_ = state_.buffer_.substr(num_to_sync);
+  // Ignore sync errors
+  target_->RangeSync(offset, nbytes, options, dbg).PermitUncheckedError();
+  state_.pos_at_last_sync_ = offset + num_to_sync;
   fs_->WritableFileSynced(state_);
   return io_s;
 }
@@ -322,16 +387,17 @@ IOStatus TestFSRandomRWFile::Sync(const IOOptions& options,
   return target_->Sync(options, dbg);
 }
 
-TestFSRandomAccessFile::TestFSRandomAccessFile(const std::string& /*fname*/,
-                                       std::unique_ptr<FSRandomAccessFile>&& f,
-                                       FaultInjectionTestFS* fs)
+TestFSRandomAccessFile::TestFSRandomAccessFile(
+    const std::string& /*fname*/, std::unique_ptr<FSRandomAccessFile>&& f,
+    FaultInjectionTestFS* fs)
     : target_(std::move(f)), fs_(fs) {
   assert(target_ != nullptr);
 }
 
 IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
-                                  const IOOptions& options, Slice* result,
-                                  char* scratch, IODebugContext* dbg) const {
+                                      const IOOptions& options, Slice* result,
+                                      char* scratch,
+                                      IODebugContext* dbg) const {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -339,7 +405,69 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
   if (s.ok()) {
     s = fs_->InjectThreadSpecificReadError(
         FaultInjectionTestFS::ErrorOperation::kRead, result, use_direct_io(),
-        scratch);
+        scratch, /*need_count_increase=*/true, /*fault_injected=*/nullptr);
+  }
+  if (s.ok() && fs_->ShouldInjectRandomReadError()) {
+    return IOStatus::IOError("Injected read error");
+  }
+  return s;
+}
+
+IOStatus TestFSRandomAccessFile::ReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
+  IOStatus ret;
+  IOStatus s;
+  FSReadRequest res;
+  if (!fs_->IsFilesystemActive()) {
+    ret = fs_->GetError();
+  } else {
+    ret = fs_->InjectThreadSpecificReadError(
+        FaultInjectionTestFS::ErrorOperation::kRead, &res.result,
+        use_direct_io(), req.scratch, /*need_count_increase=*/true,
+        /*fault_injected=*/nullptr);
+  }
+  if (ret.ok()) {
+    if (fs_->ShouldInjectRandomReadError()) {
+      ret = IOStatus::IOError("Injected read error");
+    } else {
+      s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
+    }
+  }
+  if (!ret.ok()) {
+    res.status = ret;
+    cb(res, cb_arg);
+  }
+  return s;
+}
+
+IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                                           const IOOptions& options,
+                                           IODebugContext* dbg) {
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  IOStatus s = target_->MultiRead(reqs, num_reqs, options, dbg);
+  bool injected_error = false;
+  for (size_t i = 0; i < num_reqs; i++) {
+    if (!reqs[i].status.ok()) {
+      // Already seeing an error.
+      break;
+    }
+    bool this_injected_error;
+    reqs[i].status = fs_->InjectThreadSpecificReadError(
+        FaultInjectionTestFS::ErrorOperation::kMultiReadSingleReq,
+        &(reqs[i].result), use_direct_io(), reqs[i].scratch,
+        /*need_count_increase=*/true,
+        /*fault_injected=*/&this_injected_error);
+    injected_error |= this_injected_error;
+  }
+  if (s.ok()) {
+    s = fs_->InjectThreadSpecificReadError(
+        FaultInjectionTestFS::ErrorOperation::kMultiRead, nullptr,
+        use_direct_io(), nullptr, /*need_count_increase=*/!injected_error,
+        /*fault_injected=*/nullptr);
   }
   if (s.ok() && fs_->ShouldInjectRandomReadError()) {
     return IOStatus::IOError("Injected read error");
@@ -415,7 +543,7 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     UntrackFile(fname);
     {
       MutexLock l(&mutex_);
-      open_files_.insert(fname);
+      open_managed_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
       // The new file could overwrite an old one. Here we simplify
@@ -448,19 +576,50 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
       return in_s;
     }
   }
-  IOStatus io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
+
+  bool exists;
+  IOStatus io_s,
+      exists_s = target()->FileExists(fname, IOOptions(), nullptr /* dbg */);
+  if (exists_s.IsNotFound()) {
+    exists = false;
+  } else if (exists_s.ok()) {
+    exists = true;
+  } else {
+    io_s = exists_s;
+    exists = false;
+  }
+
   if (io_s.ok()) {
-    result->reset(
-        new TestFSWritableFile(fname, file_opts, std::move(*result), this));
-    // WritableFileWriter* file is opened
-    // again then it will be truncated - so forget our saved state.
-    UntrackFile(fname);
+    io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
+  }
+
+  // Only track files we created. Files created outside of this
+  // `FaultInjectionTestFS` are not eligible for tracking/data dropping
+  // (for example, they may contain data a previous db_stress run expects to
+  // be recovered). This could be extended to track/drop data appended once
+  // the file is under `FaultInjectionTestFS`'s control.
+  if (io_s.ok()) {
+    bool should_track;
     {
       MutexLock l(&mutex_);
-      open_files_.insert(fname);
-      auto dir_and_name = TestFSGetDirAndName(fname);
-      auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-      list[dir_and_name.second] = kNewFileNoOverwrite;
+      if (db_file_state_.find(fname) != db_file_state_.end()) {
+        // It was written by this `FileSystem` earlier.
+        assert(exists);
+        should_track = true;
+      } else if (!exists) {
+        // It was created by this `FileSystem` just now.
+        should_track = true;
+        open_managed_files_.insert(fname);
+        auto dir_and_name = TestFSGetDirAndName(fname);
+        auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+        list[dir_and_name.second] = kNewFileNoOverwrite;
+      } else {
+        should_track = false;
+      }
+    }
+    if (should_track) {
+      result->reset(
+          new TestFSWritableFile(fname, file_opts, std::move(*result), this));
     }
     {
       IOStatus in_s = InjectMetadataWriteError();
@@ -495,7 +654,7 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
     UntrackFile(fname);
     {
       MutexLock l(&mutex_);
-      open_files_.insert(fname);
+      open_managed_files_.insert(fname);
       auto dir_and_name = TestFSGetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
       // It could be overwriting an old file, but we simplify the
@@ -522,7 +681,9 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
     return IOStatus::IOError("Injected error when open random access file");
   }
   IOStatus io_s = InjectThreadSpecificReadError(ErrorOperation::kOpen, nullptr,
-                                                false, nullptr);
+                                                false, nullptr,
+                                                /*need_count_increase=*/true,
+                                                /*fault_injected=*/nullptr);
   if (io_s.ok()) {
     io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
   }
@@ -544,7 +705,7 @@ IOStatus FaultInjectionTestFS::NewSequentialFile(
   }
   IOStatus io_s = target()->NewSequentialFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
-    result->reset(new TestFSSequentialFile(result->release(), this));
+    result->reset(new TestFSSequentialFile(std::move(*result), this));
   }
   return io_s;
 }
@@ -627,17 +788,71 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
   return io_s;
 }
 
+IOStatus FaultInjectionTestFS::LinkFile(const std::string& s,
+                                        const std::string& t,
+                                        const IOOptions& options,
+                                        IODebugContext* dbg) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+
+  // Using the value in `dir_to_new_files_since_last_sync_` for the source file
+  // may be a more reasonable choice.
+  std::string previous_contents = kNewFileNoOverwrite;
+
+  IOStatus io_s = FileSystemWrapper::LinkFile(s, t, options, dbg);
+
+  if (io_s.ok()) {
+    {
+      MutexLock l(&mutex_);
+      if (db_file_state_.find(s) != db_file_state_.end()) {
+        db_file_state_[t] = db_file_state_[s];
+      }
+
+      auto sdn = TestFSGetDirAndName(s);
+      auto tdn = TestFSGetDirAndName(t);
+      if (dir_to_new_files_since_last_sync_[sdn.first].find(sdn.second) !=
+          dir_to_new_files_since_last_sync_[sdn.first].end()) {
+        auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
+        assert(tlist.find(tdn.second) == tlist.end());
+        tlist[tdn.second] = previous_contents;
+      }
+    }
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::Poll(std::vector<void*>& io_handles,
+                                    size_t min_completions) {
+  return target()->Poll(io_handles, min_completions);
+}
+
+IOStatus FaultInjectionTestFS::AbortIO(std::vector<void*>& io_handles) {
+  return target()->AbortIO(io_handles);
+}
+
 void FaultInjectionTestFS::WritableFileClosed(const FSFileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     db_file_state_[state.filename_] = state;
-    open_files_.erase(state.filename_);
+    open_managed_files_.erase(state.filename_);
   }
 }
 
 void FaultInjectionTestFS::WritableFileSynced(const FSFileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -648,7 +863,7 @@ void FaultInjectionTestFS::WritableFileSynced(const FSFileState& state) {
 
 void FaultInjectionTestFS::WritableFileAppended(const FSFileState& state) {
   MutexLock l(&mutex_);
-  if (open_files_.find(state.filename_) != open_files_.end()) {
+  if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {
     if (db_file_state_.find(state.filename_) == db_file_state_.end()) {
       db_file_state_.insert(std::make_pair(state.filename_, state));
     } else {
@@ -727,25 +942,66 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
   dir_to_new_files_since_last_sync_[dir_and_name.first].erase(
       dir_and_name.second);
   db_file_state_.erase(f);
-  open_files_.erase(f);
+  open_managed_files_.erase(f);
 }
 
 IOStatus FaultInjectionTestFS::InjectThreadSpecificReadError(
-    ErrorOperation /*op*/, Slice* /*result*/, bool /*direct_io*/,
-    char* /*scratch*/) {
-  ErrorContext* ctx =
-        static_cast<ErrorContext*>(thread_local_error_->Get());
+    ErrorOperation op, Slice* result, bool direct_io, char* scratch,
+    bool need_count_increase, bool* fault_injected) {
+  bool dummy_bool;
+  bool& ret_fault_injected = fault_injected ? *fault_injected : dummy_bool;
+  ret_fault_injected = false;
+  ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
     return IOStatus::OK();
   }
 
   if (ctx->rand.OneIn(ctx->one_in)) {
-    ctx->count++;
+    if (ctx->count == 0) {
+      ctx->message = "";
+    }
+    if (need_count_increase) {
+      ctx->count++;
+    }
     if (ctx->callstack) {
       free(ctx->callstack);
     }
     ctx->callstack = port::SaveStack(&ctx->frames);
-    return IOStatus::IOError();
+
+    if (op != ErrorOperation::kMultiReadSingleReq) {
+      // Likely non-per read status code for MultiRead
+      ctx->message += "error; ";
+      ret_fault_injected = true;
+      return IOStatus::IOError();
+    } else if (Random::GetTLSInstance()->OneIn(8)) {
+      assert(result);
+      // For a small chance, set the failure to status but turn the
+      // result to be empty, which is supposed to be caught for a check.
+      *result = Slice();
+      ctx->message += "inject empty result; ";
+      ret_fault_injected = true;
+    } else if (!direct_io && Random::GetTLSInstance()->OneIn(7) &&
+               scratch != nullptr && result->data() == scratch) {
+      assert(result);
+      // With direct I/O, many extra bytes might be read so corrupting
+      // one byte might not cause checksum mismatch. Skip checksum
+      // corruption injection.
+      // We only corrupt data if the result is filled to `scratch`. For other
+      // cases, the data might not be able to be modified (e.g mmaped files)
+      // or has unintended side effects.
+      // For a small chance, set the failure to status but corrupt the
+      // result in a way that checksum checking is supposed to fail.
+      // Corrupt the last byte, which is supposed to be a checksum byte
+      // It would work for CRC. Not 100% sure for xxhash and will adjust
+      // if it is not the case.
+      const_cast<char*>(result->data())[result->size() - 1]++;
+      ctx->message += "corrupt last byte; ";
+      ret_fault_injected = true;
+    } else {
+      ctx->message += "error result multiget single; ";
+      ret_fault_injected = true;
+      return IOStatus::IOError();
+    }
   }
   return IOStatus::OK();
 }
@@ -801,12 +1057,12 @@ IOStatus FaultInjectionTestFS::InjectMetadataWriteError() {
 
 void FaultInjectionTestFS::PrintFaultBacktrace() {
 #if defined(OS_LINUX)
-  ErrorContext* ctx =
-        static_cast<ErrorContext*>(thread_local_error_->Get());
+  ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr) {
     return;
   }
   fprintf(stderr, "Injected error type = %d\n", ctx->type);
+  fprintf(stderr, "Message: %s\n", ctx->message.c_str());
   port::PrintAndFreeStack(ctx->callstack, ctx->frames);
   ctx->callstack = nullptr;
 #endif

@@ -8,15 +8,15 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memory/concurrent_arena.h"
+
 #include <thread>
+
 #include "port/port.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-__thread size_t ConcurrentArena::tls_cpuid = 0;
-#endif
+thread_local size_t ConcurrentArena::tls_cpuid = 0;
 
 namespace {
 // If the shard block size is too large, in the worst case, every core
@@ -36,11 +36,9 @@ ConcurrentArena::ConcurrentArena(size_t block_size, AllocTracker* tracker,
 
 ConcurrentArena::Shard* ConcurrentArena::Repick() {
   auto shard_and_index = shards_.AccessElementAndIndex();
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
   // even if we are cpu 0, use a non-zero tls_cpuid so we can tell we
   // have repicked
   tls_cpuid = shard_and_index.second | shards_.Size();
-#endif
   return shard_and_index.first;
 }
 

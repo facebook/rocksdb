@@ -44,9 +44,7 @@ EventLoggerStream::~EventLoggerStream() {
   }
 }
 
-void EventLogger::Log(const JSONWriter& jwriter) {
-  Log(logger_, jwriter);
-}
+void EventLogger::Log(const JSONWriter& jwriter) { Log(logger_, jwriter); }
 
 void EventLogger::Log(Logger* logger, const JSONWriter& jwriter) {
 #ifdef ROCKSDB_PRINT_EVENTS_TO_STDOUT

@@ -15,6 +15,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
@@ -437,10 +438,8 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       ASSERT_TRUE(wp_db->old_commit_map_empty_);
       ROCKSDB_NAMESPACE::port::Thread t1(
           [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
-      ROCKSDB_NAMESPACE::port::Thread t2(
-          [&]() { wp_db->CheckAgainstSnapshots(entry); });
+      wp_db->CheckAgainstSnapshots(entry);
       t1.join();
-      t2.join();
       ASSERT_FALSE(wp_db->old_commit_map_empty_);
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -466,10 +465,8 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       ASSERT_TRUE(wp_db->old_commit_map_empty_);
       ROCKSDB_NAMESPACE::port::Thread t1(
           [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
-      ROCKSDB_NAMESPACE::port::Thread t2(
-          [&]() { wp_db->CheckAgainstSnapshots(entry); });
+      wp_db->CheckAgainstSnapshots(entry);
       t1.join();
-      t2.join();
       ASSERT_FALSE(wp_db->old_commit_map_empty_);
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -1169,8 +1166,6 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshots) {
   }
 }
 
-// This test is too slow for travis
-#ifndef TRAVIS
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
@@ -1252,7 +1247,6 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
   printf("\n");
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
-#endif  // TRAVIS
 
 // This test clarifies the contract of AdvanceMaxEvictedSeq method
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasic) {
@@ -1599,9 +1593,9 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
   const int cnt = 100;
   for (int i = 0; i < cnt; i++) {
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
-    ASSERT_OK(txn->SetName("xid" + ToString(i)));
-    auto key = "key1" + ToString(i);
-    auto value = "value1" + ToString(i);
+    ASSERT_OK(txn->SetName("xid" + std::to_string(i)));
+    auto key = "key1" + std::to_string(i);
+    auto value = "value1" + std::to_string(i);
     ASSERT_OK(txn->Put(Slice(key), Slice(value)));
     ASSERT_OK(txn->Prepare());
     txns.push_back(txn);
@@ -1690,22 +1684,23 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     expected_commits = 0;
     std::vector<port::Thread> threads;
 
-    linked = 0;
+    linked.store(0, std::memory_order_release);
     std::atomic<bool> batch_formed(false);
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::EnterAsBatchGroupLeader:End",
         [&](void* /*arg*/) { batch_formed = true; });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::JoinBatchGroup:Wait", [&](void* /*arg*/) {
-          linked++;
-          if (linked == 1) {
+          size_t orig_linked = linked.fetch_add(1, std::memory_order_acq_rel);
+          if (orig_linked == 0) {
             // Wait until the others are linked too.
-            while (linked < first_group_size) {
+            while (linked.load(std::memory_order_acquire) < first_group_size) {
             }
-          } else if (linked == 1 + first_group_size) {
+          } else if (orig_linked == first_group_size) {
             // Make the 2nd batch of the rest of writes plus any followup
             // commits from the first batch
-            while (linked < txn_cnt + commit_writes) {
+            while (linked.load(std::memory_order_acquire) <
+                   txn_cnt + commit_writes) {
             }
           }
           // Then we will have one or more batches consisting of follow-up
@@ -1719,32 +1714,33 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
       size_t d = (n % base[bi + 1]) / base[bi];
       switch (d) {
         case 0:
-          threads.emplace_back(txn_t0, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn0, this, bi);
           break;
         case 1:
-          threads.emplace_back(txn_t1, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn1, this, bi);
           break;
         case 2:
-          threads.emplace_back(txn_t2, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn2, this, bi);
           break;
         case 3:
-          threads.emplace_back(txn_t3, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn3, this, bi);
           break;
         case 4:
-          threads.emplace_back(txn_t3, bi);
+          threads.emplace_back(&TransactionTestBase::TestTxn3, this, bi);
           break;
         default:
           FAIL();
       }
       // wait to be linked
-      while (linked.load() <= bi) {
+      while (linked.load(std::memory_order_acquire) <= bi) {
       }
       // after a queue of size first_group_size
       if (bi + 1 == first_group_size) {
         while (!batch_formed) {
         }
         // to make it more deterministic, wait until the commits are linked
-        while (linked.load() <= bi + expected_commits) {
+        while (linked.load(std::memory_order_acquire) <=
+               bi + expected_commits) {
         }
       }
     }
@@ -1798,7 +1794,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(ReOpen());
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
 
-  txn_t0(0);
+  TestTxn0(0);
 
   TransactionOptions txn_options;
   WriteOptions write_options;
@@ -1813,7 +1809,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(s);
   auto prep_seq_0 = txn0->GetId();
 
-  txn_t1(0);
+  TestTxn1(0);
 
   index++;
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
@@ -1826,7 +1822,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(s);
   auto prep_seq_1 = txn1->GetId();
 
-  txn_t2(0);
+  TestTxn2(0);
 
   ReadOptions ropt;
   PinnableSlice pinnable_val;
@@ -1862,7 +1858,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_TRUE(s.IsNotFound());
   pinnable_val.Reset();
 
-  txn_t3(0);
+  TestTxn3(0);
 
   // Test that a recovered txns will be properly marked committed for the next
   // recovery
@@ -2126,7 +2122,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshot) {
           seq++;
           cur_txn = seq;
           wp_db->AddPrepared(cur_txn);
-        } else {                                     // else commit it
+        } else {  // else commit it
           seq++;
           wp_db->AddCommitted(cur_txn, seq);
           wp_db->RemovePrepared(cur_txn);
@@ -2232,7 +2228,7 @@ TEST_P(WritePreparedTransactionTest, Rollback) {
       for (bool crash : {false, true}) {
         ASSERT_OK(ReOpen());
         WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-        std::string key_str = "key" + ToString(ikey);
+        std::string key_str = "key" + std::to_string(ikey);
         switch (ivalue) {
           case 0:
             break;
@@ -2338,7 +2334,7 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecovery) {
   std::vector<KeyVersion> versions;
   uint64_t seq = 0;
   for (uint64_t i = 1; i <= 1024; i++) {
-    std::string v = "bar" + ToString(i);
+    std::string v = "bar" + std::to_string(i);
     ASSERT_OK(db->Put(WriteOptions(), "foo", v));
     VerifyKeys({{"foo", v}});
     seq++;  // one for the key/value
@@ -2996,6 +2992,287 @@ TEST_P(WritePreparedTransactionTest,
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(WritePreparedTransactionTest,
+       ReleaseEarliestWriteConflictSnapshot_SingleDelete) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "a", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "c", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+  }
+
+  std::unique_ptr<Transaction> txn;
+  txn.reset(db->BeginTransaction(WriteOptions(), TransactionOptions(),
+                                 /*old_txn=*/nullptr));
+  ASSERT_OK(txn->SetName("txn1"));
+  ASSERT_OK(txn->SingleDelete("b"));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+
+  auto* snapshot1 = db->GetSnapshot();
+
+  // Bump seq of the db by performing writes so that
+  // earliest_snapshot_ < earliest_write_conflict_snapshot_ in
+  // CompactionIterator.
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dontcare"));
+
+  // Create another snapshot for write conflict checking
+  std::unique_ptr<Transaction> txn2;
+  {
+    TransactionOptions txn_opts;
+    txn_opts.set_snapshot = true;
+    txn2.reset(
+        db->BeginTransaction(WriteOptions(), txn_opts, /*old_txn=*/nullptr));
+  }
+
+  // Bump seq so that the subsequent bg flush won't create a snapshot with the
+  // same seq as the previous snapshot for conflict checking.
+  ASSERT_OK(db->Put(WriteOptions(), "y", "dont"));
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:1", [&](void* /*arg*/) {
+        // Rolling back txn2 should release its snapshot(for ww checking).
+        ASSERT_OK(txn2->Rollback());
+        txn2.reset();
+        // Advance max_evicted_seq
+        ASSERT_OK(db->Put(WriteOptions(), "x", "value"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  db->ReleaseSnapshot(snapshot1);
+}
+
+TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  ASSERT_OK(db->Put(WriteOptions(), "a", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "c", "value"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+  }
+
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "b"));
+
+  // Take a snapshot so that the SD won't be dropped during flush.
+  auto* tmp_snapshot = db->GetSnapshot();
+
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value2"));
+  auto* snapshot = db->GetSnapshot();
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  db->ReleaseSnapshot(tmp_snapshot);
+
+  // Bump the sequence so that the below bg compaction job's snapshot will be
+  // different from snapshot's sequence.
+  ASSERT_OK(db->Put(WriteOptions(), "z", "foo"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
+        const auto* const ikey =
+            reinterpret_cast<const ParsedInternalKey*>(arg);
+        assert(ikey);
+        if (ikey->user_key == "b") {
+          assert(ikey->type == kTypeValue);
+          db->ReleaseSnapshot(snapshot);
+
+          // Bump max_evicted_seq.
+          ASSERT_OK(db->Put(WriteOptions(), "z", "dontcare"));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing2) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  // Generate an L0 with only SD for one key "b".
+  ASSERT_OK(db->Put(WriteOptions(), "a", "value"));
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value"));
+  // Take a snapshot so that subsequent flush outputs the SD for "b".
+  auto* tmp_snapshot = db->GetSnapshot();
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "b"));
+  ASSERT_OK(db->Put(WriteOptions(), "c", "value"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:3", [&](void* arg) {
+        if (!arg) {
+          db->ReleaseSnapshot(tmp_snapshot);
+          // Bump max_evicted_seq
+          ASSERT_OK(db->Put(WriteOptions(), "x", "dontcare"));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // Finish generating L0 with only SD for "b".
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Move the L0 to L2.
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+  }
+
+  ASSERT_OK(db->Put(WriteOptions(), "b", "value1"));
+
+  auto* snapshot = db->GetSnapshot();
+
+  // Bump seq so that a subsequent flush/compaction job's snapshot is larger
+  // than the above snapshot's seq.
+  ASSERT_OK(db->Put(WriteOptions(), "x", "dontcare"));
+
+  // Generate a second L0.
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput:ZeroingSeq", [&](void* arg) {
+        const auto* const ikey =
+            reinterpret_cast<const ParsedInternalKey*>(arg);
+        assert(ikey);
+        if (ikey->user_key == "b") {
+          assert(ikey->type == kTypeValue);
+          db->ReleaseSnapshot(snapshot);
+
+          // Bump max_evicted_seq.
+          ASSERT_OK(db->Put(WriteOptions(), "z", "dontcare"));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                             /*end=*/nullptr));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Although the user-contract indicates that a SD can only be issued for a key
+// that exists and has not been overwritten, it is still possible for a Delete
+// to be present when write-prepared transaction is rolled back.
+TEST_P(WritePreparedTransactionTest, SingleDeleteAfterRollback) {
+  constexpr size_t kSnapshotCacheBits = 7;  // same as default
+  constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  txn_db_options.rollback_deletion_type_callback =
+      [](TransactionDB*, ColumnFamilyHandle*, const Slice&) { return true; };
+  UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(ReOpen());
+
+  // Get a write conflict snapshot by creating a transaction with
+  // set_snapshot=true.
+  TransactionOptions txn_opts;
+  txn_opts.set_snapshot = true;
+  std::unique_ptr<Transaction> dummy_txn(
+      db->BeginTransaction(WriteOptions(), txn_opts));
+
+  std::unique_ptr<Transaction> txn0(
+      db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  ASSERT_OK(txn0->Put("foo", "value"));
+  ASSERT_OK(txn0->SetName("xid0"));
+  ASSERT_OK(txn0->Prepare());
+
+  // Create an SST with only {"foo": "value"}.
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  // Insert a Delete to cancel out the prior Put by txn0.
+  ASSERT_OK(txn0->Rollback());
+  txn0.reset();
+
+  // Create a second SST.
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "value1"));
+
+  auto* snapshot = db->GetSnapshot();
+
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "foo"));
+
+  int count = 0;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::NextFromInput:SingleDelete:1", [&](void* arg) {
+        const auto* const c = reinterpret_cast<const Compaction*>(arg);
+        assert(!c);
+        // Trigger once only for SingleDelete during flush.
+        if (0 == count) {
+          ++count;
+          db->ReleaseSnapshot(snapshot);
+          // Bump max_evicted_seq
+          ASSERT_OK(db->Put(WriteOptions(), "x", "dontcare"));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Create a third SST containing a SD without its matching PUT.
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  DBImpl* dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  assert(dbimpl);
+  ASSERT_OK(dbimpl->TEST_CompactRange(
+      /*level=*/0, /*begin=*/nullptr, /*end=*/nullptr,
+      /*column_family=*/nullptr, /*disallow_trivial_mode=*/true));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Release the conflict-checking snapshot.
+  ASSERT_OK(dummy_txn->Rollback());
+}
+
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,
@@ -3014,7 +3291,7 @@ TEST_P(WritePreparedTransactionTest,
   ASSERT_OK(ReOpen());
 
   for (size_t i = 0; i < kNumTransactions; i++) {
-    std::string key = "key" + ToString(i);
+    std::string key = "key" + std::to_string(i);
     std::string value = "value0";
     ASSERT_OK(db->Put(WriteOptions(), key, value));
     current_data[key] = value;
@@ -3024,16 +3301,16 @@ TEST_P(WritePreparedTransactionTest,
   for (size_t iter = 0; iter < kNumIterations; iter++) {
     auto r = rnd.Next() % (kNumTransactions + 1);
     if (r < kNumTransactions) {
-      std::string key = "key" + ToString(r);
+      std::string key = "key" + std::to_string(r);
       if (transactions[r] == nullptr) {
-        std::string value = "value" + ToString(versions[r] + 1);
+        std::string value = "value" + std::to_string(versions[r] + 1);
         auto* txn = db->BeginTransaction(WriteOptions());
-        ASSERT_OK(txn->SetName("txn" + ToString(r)));
+        ASSERT_OK(txn->SetName("txn" + std::to_string(r)));
         ASSERT_OK(txn->Put(key, value));
         ASSERT_OK(txn->Prepare());
         transactions[r] = txn;
       } else {
-        std::string value = "value" + ToString(++versions[r]);
+        std::string value = "value" + std::to_string(++versions[r]);
         ASSERT_OK(transactions[r]->Commit());
         delete transactions[r];
         transactions[r] = nullptr;
@@ -3170,9 +3447,8 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
     auto* txn = db->BeginTransaction(WriteOptions());
 
     for (int i = 0; i < 2; i++) {
-      Iterator* iter = (i == 0)
-          ? db->NewIterator(ReadOptions())
-          : txn->GetIterator(ReadOptions());
+      Iterator* iter = (i == 0) ? db->NewIterator(ReadOptions())
+                                : txn->GetIterator(ReadOptions());
       // Seek
       iter->Seek("foo");
       verify_state(iter, "foo", expected_val);
@@ -3610,7 +3886,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           Transaction* txn =
               db->BeginTransaction(WriteOptions(), TransactionOptions());
           ASSERT_OK(txn->SetName("xid"));
-          std::string val_str = "value" + ToString(i);
+          std::string val_str = "value" + std::to_string(i);
           for (size_t b = 0; b < sub_batch_cnt; b++) {
             ASSERT_OK(txn->Put(Slice("key2"), val_str));
           }
@@ -3694,6 +3970,62 @@ TEST_P(WritePreparedTransactionTest, AtomicCommit) {
   }
 }
 
+TEST_P(WritePreparedTransactionTest, BasicRollbackDeletionTypeCb) {
+  options.level0_file_num_compaction_trigger = 2;
+  // Always use SingleDelete to rollback Put.
+  txn_db_options.rollback_deletion_type_callback =
+      [](TransactionDB*, ColumnFamilyHandle*, const Slice&) { return true; };
+
+  const auto write_to_db = [&]() {
+    assert(db);
+    std::unique_ptr<Transaction> txn0(
+        db->BeginTransaction(WriteOptions(), TransactionOptions()));
+    ASSERT_OK(txn0->SetName("txn0"));
+    ASSERT_OK(txn0->Put("a", "v0"));
+    ASSERT_OK(txn0->Prepare());
+
+    // Generate sst1: [PUT('a')]
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    {
+      CompactRangeOptions cro;
+      cro.change_level = true;
+      cro.target_level = options.num_levels - 1;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+    }
+
+    ASSERT_OK(txn0->Rollback());
+    txn0.reset();
+
+    ASSERT_OK(db->Put(WriteOptions(), "a", "v1"));
+
+    ASSERT_OK(db->SingleDelete(WriteOptions(), "a"));
+    // Generate another SST with a SD to cover the oldest PUT('a')
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    auto* dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    assert(dbimpl);
+    ASSERT_OK(dbimpl->TEST_WaitForCompact());
+
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+    }
+
+    {
+      std::string value;
+      const Status s = db->Get(ReadOptions(), "a", &value);
+      ASSERT_TRUE(s.IsNotFound());
+    }
+  };
+
+  // Destroy and reopen
+  ASSERT_OK(ReOpen());
+  write_to_db();
+}
+
 // Test that we can change write policy from WriteCommitted to WritePrepared
 // after a clean shutdown (which would empty the WAL)
 TEST_P(WritePreparedTransactionTest, WP_WC_DBBackwardCompatibility) {
@@ -3725,7 +4057,12 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  if (getenv("CIRCLECI")) {
+    // Looking for backtrace on "Resource temporarily unavailable" exceptions
+    ::testing::FLAGS_gtest_catch_exceptions = false;
+  }
   return RUN_ALL_TESTS();
 }
 

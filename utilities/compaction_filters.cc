@@ -16,7 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinCompactionFilters(ObjectLibrary& library,
                                             const std::string& /*arg*/) {
-  library.Register<CompactionFilter>(
+  library.AddFactory<CompactionFilter>(
       RemoveEmptyValueCompactionFilter::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<CompactionFilter>* /*guard*/,

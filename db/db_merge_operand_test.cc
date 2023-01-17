@@ -39,13 +39,88 @@ class LimitedStringAppendMergeOp : public StringAppendTESTOperator {
  private:
   size_t limit_ = 0;
 };
-}  // namespace
+}  // anonymous namespace
 
 class DBMergeOperandTest : public DBTestBase {
  public:
   DBMergeOperandTest()
       : DBTestBase("db_merge_operand_test", /*env_do_fsync=*/true) {}
 };
+
+TEST_F(DBMergeOperandTest, CacheEvictedMergeOperandReadAfterFreeBug) {
+  // There was a bug of reading merge operands after they are mistakely freed
+  // in DB::GetMergeOperands, which is surfaced by cache full.
+  // See PR#9507 for more.
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.env = env_;
+  BlockBasedTableOptions table_options;
+
+  // Small cache to simulate cache full
+  table_options.block_cache = NewLRUCache(1);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Reopen(options);
+  int num_records = 4;
+  int number_of_operands = 0;
+  std::vector<PinnableSlice> values(num_records);
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = num_records;
+
+  ASSERT_OK(Merge("k1", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k1", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k1", "v3"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k1", "v4"));
+
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k1", values.data(), &merge_operands_info,
+                                  &number_of_operands));
+  ASSERT_EQ(number_of_operands, 4);
+  ASSERT_EQ(values[0].ToString(), "v1");
+  ASSERT_EQ(values[1].ToString(), "v2");
+  ASSERT_EQ(values[2].ToString(), "v3");
+  ASSERT_EQ(values[3].ToString(), "v4");
+}
+
+TEST_F(DBMergeOperandTest, FlushedMergeOperandReadAfterFreeBug) {
+  // Repro for a bug where a memtable containing a merge operand could be
+  // deleted before the merge operand was saved to the result.
+  auto options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  ASSERT_OK(Merge("key", "value"));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::GetImpl:PostMemTableGet:0",
+        "DBMergeOperandTest::FlushedMergeOperandReadAfterFreeBug:PreFlush"},
+       {"DBMergeOperandTest::FlushedMergeOperandReadAfterFreeBug:PostFlush",
+        "DBImpl::GetImpl:PostMemTableGet:1"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  auto flush_thread = port::Thread([&]() {
+    TEST_SYNC_POINT(
+        "DBMergeOperandTest::FlushedMergeOperandReadAfterFreeBug:PreFlush");
+    ASSERT_OK(Flush());
+    TEST_SYNC_POINT(
+        "DBMergeOperandTest::FlushedMergeOperandReadAfterFreeBug:PostFlush");
+  });
+
+  PinnableSlice value;
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = 1;
+  int number_of_operands;
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "key", &value, &merge_operands_info,
+                                  &number_of_operands));
+  ASSERT_EQ(1, number_of_operands);
+
+  flush_thread.join();
+}
 
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   Options options;
@@ -320,6 +395,48 @@ TEST_F(DBMergeOperandTest, BlobDBGetMergeOperandsBasic) {
   ASSERT_EQ(values[1], "cb");
   ASSERT_EQ(values[2], "dc");
   ASSERT_EQ(values[3], "ed");
+}
+
+TEST_F(DBMergeOperandTest, GetMergeOperandsLargeResultOptimization) {
+  // These constants are chosen to trigger the large result optimization
+  // (pinning a bundle of `DBImpl` resources).
+  const int kNumOperands = 1024;
+  const int kOperandLen = 1024;
+
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  std::vector<std::string> expected_merge_operands;
+  expected_merge_operands.reserve(kNumOperands);
+  for (int i = 0; i < kNumOperands; ++i) {
+    expected_merge_operands.emplace_back(rnd.RandomString(kOperandLen));
+    ASSERT_OK(Merge("key", expected_merge_operands.back()));
+  }
+
+  std::vector<PinnableSlice> merge_operands(kNumOperands);
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = kNumOperands;
+  int num_merge_operands = 0;
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "key", merge_operands.data(),
+                                  &merge_operands_info, &num_merge_operands));
+  ASSERT_EQ(num_merge_operands, kNumOperands);
+
+  // Ensures the large result optimization was used.
+  for (int i = 0; i < kNumOperands; ++i) {
+    ASSERT_TRUE(merge_operands[i].IsPinned());
+  }
+
+  // Add a Flush() to change the `SuperVersion` to challenge the resource
+  // pinning.
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < kNumOperands; ++i) {
+    ASSERT_EQ(expected_merge_operands[i], merge_operands[i]);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

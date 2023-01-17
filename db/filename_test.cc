@@ -69,35 +69,33 @@ TEST_F(FileNameTest, Parse) {
   }
 
   // Errors
-  static const char* errors[] = {
-    "",
-    "foo",
-    "foo-dx-100.log",
-    ".log",
-    "",
-    "manifest",
-    "CURREN",
-    "CURRENTX",
-    "MANIFES",
-    "MANIFEST",
-    "MANIFEST-",
-    "XMANIFEST-3",
-    "MANIFEST-3x",
-    "META",
-    "METADB",
-    "METADB-",
-    "XMETADB-3",
-    "METADB-3x",
-    "LOC",
-    "LOCKx",
-    "LO",
-    "LOGx",
-    "18446744073709551616.log",
-    "184467440737095516150.log",
-    "100",
-    "100.",
-    "100.lop"
-  };
+  static const char* errors[] = {"",
+                                 "foo",
+                                 "foo-dx-100.log",
+                                 ".log",
+                                 "",
+                                 "manifest",
+                                 "CURREN",
+                                 "CURRENTX",
+                                 "MANIFES",
+                                 "MANIFEST",
+                                 "MANIFEST-",
+                                 "XMANIFEST-3",
+                                 "MANIFEST-3x",
+                                 "META",
+                                 "METADB",
+                                 "METADB-",
+                                 "XMETADB-3",
+                                 "METADB-3x",
+                                 "LOC",
+                                 "LOCKx",
+                                 "LO",
+                                 "LOGx",
+                                 "18446744073709551616.log",
+                                 "184467440737095516150.log",
+                                 "100",
+                                 "100.",
+                                 "100.lop"};
   for (unsigned int i = 0; i < sizeof(errors) / sizeof(errors[0]); i++) {
     std::string f = errors[i];
     ASSERT_TRUE(!ParseFileName(f, &number, &type)) << f;
@@ -171,9 +169,73 @@ TEST_F(FileNameTest, Construction) {
   ASSERT_EQ(kMetaDatabase, type);
 }
 
+TEST_F(FileNameTest, NormalizePath) {
+  // No leading slash
+  const std::string sep = std::string(1, kFilePathSeparator);
+
+  std::string expected = "FOLDER" + sep + "filename.ext";
+  std::string given = "FOLDER" + sep + "filename.ext";
+
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // Two chars /a
+
+  expected = sep + "a";
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // Two chars a/
+  expected = "a" + sep;
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // Server only
+  expected = sep + sep + "a";
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // Two slashes after character
+  expected = "a" + sep;
+  given = "a" + sep + sep;
+
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // slash only   /
+  expected = sep;
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // UNC only   //
+  expected = sep;
+  given = sep + sep;
+
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // 3 slashesy   //
+  expected = sep + sep;
+  given = sep + sep + sep;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // 3 slashes   //
+  expected = sep + sep + "a" + sep;
+  given = sep + sep + sep + "a" + sep;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // 2 separators in the middle
+  expected = "a" + sep + "b";
+  given = "a" + sep + sep + "b";
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // UNC with duplicate slashes
+  expected = sep + sep + "SERVER" + sep + "a" + sep + "b" + sep + "c";
+  given = sep + sep + "SERVER" + sep + "a" + sep + sep + "b" + sep + "c";
+  ASSERT_EQ(expected, NormalizePath(given));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

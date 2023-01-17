@@ -84,17 +84,18 @@ void WriteBlobFile(uint32_t column_family_id,
 
 class BlobFileCacheTest : public testing::Test {
  protected:
-  BlobFileCacheTest() : mock_env_(Env::Default()) {}
+  BlobFileCacheTest() { mock_env_.reset(MockEnv::Create(Env::Default())); }
 
-  MockEnv mock_env_;
+  std::unique_ptr<Env> mock_env_;
 };
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.statistics = CreateDBStatistics();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_, "BlobFileCacheTest_GetBlobFileReader"),
+      test::PerThreadDBPath(mock_env_.get(),
+                            "BlobFileCacheTest_GetBlobFileReader"),
       0);
   options.enable_blob_files = true;
 
@@ -135,10 +136,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.statistics = CreateDBStatistics();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileCacheTest_GetBlobFileReader_Race"),
       0);
   options.enable_blob_files = true;
@@ -187,10 +188,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.statistics = CreateDBStatistics();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileCacheTest_GetBlobFileReader_IOError"),
       0);
   options.enable_blob_files = true;
@@ -221,10 +222,10 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   Options options;
-  options.env = &mock_env_;
+  options.env = mock_env_.get();
   options.statistics = CreateDBStatistics();
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&mock_env_,
+      test::PerThreadDBPath(mock_env_.get(),
                             "BlobFileCacheTest_GetBlobFileReader_CacheFull"),
       0);
   options.enable_blob_files = true;
@@ -253,7 +254,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   CacheHandleGuard<BlobFileReader> reader;
 
   ASSERT_TRUE(blob_file_cache.GetBlobFileReader(blob_file_number, &reader)
-                  .IsIncomplete());
+                  .IsMemoryLimit());
   ASSERT_EQ(reader.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
@@ -262,6 +263,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

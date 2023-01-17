@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/arena_wrapped_db_iter.h"
+
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -23,7 +24,7 @@ Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
   if (prop_name == "rocksdb.iterator.super-version-number") {
     // First try to pass the value returned from inner iterator.
     if (!db_iter_->GetProperty(prop_name, prop).ok()) {
-      *prop = ToString(sv_number_);
+      *prop = std::to_string(sv_number_);
     }
     return Status::OK();
   }
@@ -45,6 +46,7 @@ void ArenaWrappedDBIter::Init(
   sv_number_ = version_number;
   read_options_ = read_options;
   allow_refresh_ = allow_refresh;
+  memtable_range_tombstone_iter_ = nullptr;
 }
 
 Status ArenaWrappedDBIter::Refresh() {
@@ -58,7 +60,7 @@ Status ArenaWrappedDBIter::Refresh() {
   uint64_t cur_sv_number = cfd_->GetSuperVersionNumber();
   TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:1");
   TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:2");
-  if (sv_number_ != cur_sv_number) {
+  auto reinit_internal_iter = [&]() {
     Env* env = db_iter_->env();
     db_iter_->~DBIter();
     arena_.~Arena();
@@ -76,12 +78,64 @@ Status ArenaWrappedDBIter::Refresh() {
          allow_refresh_);
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
-        read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator(),
-        latest_seq, /* allow_unprepared_value */ true);
+        read_options_, cfd_, sv, &arena_, latest_seq,
+        /* allow_unprepared_value */ true, /* db_iter */ this);
     SetIterUnderDBIter(internal_iter);
-  } else {
-    db_iter_->set_sequence(db_impl_->GetLatestSequenceNumber());
-    db_iter_->set_valid(false);
+  };
+  while (true) {
+    if (sv_number_ != cur_sv_number) {
+      reinit_internal_iter();
+      break;
+    } else {
+      SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
+      // Refresh range-tombstones in MemTable
+      if (!read_options_.ignore_range_deletions) {
+        SuperVersion* sv = cfd_->GetThreadLocalSuperVersion(db_impl_);
+        TEST_SYNC_POINT_CALLBACK("ArenaWrappedDBIter::Refresh:SV", nullptr);
+        auto t = sv->mem->NewRangeTombstoneIterator(
+            read_options_, latest_seq, false /* immutable_memtable */);
+        if (!t || t->empty()) {
+          // If memtable_range_tombstone_iter_ points to a non-empty tombstone
+          // iterator, then it means sv->mem is not the memtable that
+          // memtable_range_tombstone_iter_ points to, so SV must have changed
+          // after the sv_number_ != cur_sv_number check above. We will fall
+          // back to re-init the InternalIterator, and the tombstone iterator
+          // will be freed during db_iter destruction there.
+          if (memtable_range_tombstone_iter_) {
+            assert(!*memtable_range_tombstone_iter_ ||
+                   sv_number_ != cfd_->GetSuperVersionNumber());
+          }
+          delete t;
+        } else {  // current mutable memtable has range tombstones
+          if (!memtable_range_tombstone_iter_) {
+            delete t;
+            db_impl_->ReturnAndCleanupSuperVersion(cfd_, sv);
+            // The memtable under DBIter did not have range tombstone before
+            // refresh.
+            reinit_internal_iter();
+            break;
+          } else {
+            delete *memtable_range_tombstone_iter_;
+            *memtable_range_tombstone_iter_ = new TruncatedRangeDelIterator(
+                std::unique_ptr<FragmentedRangeTombstoneIterator>(t),
+                &cfd_->internal_comparator(), nullptr, nullptr);
+          }
+        }
+        db_impl_->ReturnAndCleanupSuperVersion(cfd_, sv);
+      }
+      // Refresh latest sequence number
+      db_iter_->set_sequence(latest_seq);
+      db_iter_->set_valid(false);
+      // Check again if the latest super version number is changed
+      uint64_t latest_sv_number = cfd_->GetSuperVersionNumber();
+      if (latest_sv_number != cur_sv_number) {
+        // If the super version number is changed after refreshing,
+        // fallback to Re-Init the InternalIterator
+        cur_sv_number = latest_sv_number;
+        continue;
+      }
+      break;
+    }
   }
   return Status::OK();
 }

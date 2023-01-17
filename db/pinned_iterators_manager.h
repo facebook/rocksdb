@@ -25,6 +25,11 @@ class PinnedIteratorsManager : public Cleanable {
     }
   }
 
+  // Move constructor and move assignment is allowed.
+  PinnedIteratorsManager(PinnedIteratorsManager&& other) noexcept = default;
+  PinnedIteratorsManager& operator=(PinnedIteratorsManager&& other) noexcept =
+      default;
+
   // Enable Iterators pinning
   void StartPinning() {
     assert(pinning_enabled == false);
@@ -43,7 +48,7 @@ class PinnedIteratorsManager : public Cleanable {
     }
   }
 
-  typedef void (*ReleaseFunction)(void* arg1);
+  using ReleaseFunction = void (*)(void* arg1);
   void PinPtr(void* ptr, ReleaseFunction release_func) {
     assert(pinning_enabled);
     if (ptr == nullptr) {

@@ -9,13 +9,14 @@
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/range_del_aggregator.h"
 #include "db/snapshot_checker.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/wide_columns.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -26,6 +27,9 @@ class Logger;
 class MergeOperator;
 class Statistics;
 class SystemClock;
+class BlobFetcher;
+class PrefetchBufferCollection;
+struct CompactionIterationStats;
 
 class MergeHelper {
  public:
@@ -50,10 +54,15 @@ class MergeHelper {
                                const std::vector<Slice>& operands,
                                std::string* result, Logger* logger,
                                Statistics* statistics, SystemClock* clock,
-                               Slice* result_operand = nullptr,
-                               bool update_num_ops_stats = false);
+                               Slice* result_operand,
+                               bool update_num_ops_stats);
 
-  // Merge entries until we hit
+  static Status TimedFullMergeWithEntity(
+      const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
+      const std::vector<Slice>& operands, std::string* result, Logger* logger,
+      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats);
+
+  // During compaction, merge entries until we hit
   //     - a corrupted key
   //     - a Put/Delete,
   //     - a different user key,
@@ -69,6 +78,10 @@ class MergeHelper {
   //                   we could reach the start of the history of this user key.
   // allow_data_in_errors: (IN) if true, data details will be displayed in
   //                   error/log messages.
+  // blob_fetcher: (IN) blob fetcher object for the compaction's input version.
+  // prefetch_buffers: (IN/OUT) a collection of blob file prefetch buffers
+  //                            used for compaction readahead.
+  // c_iter_stats: (OUT) compaction iteration statistics.
   //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
@@ -81,16 +94,19 @@ class MergeHelper {
   //
   // REQUIRED: The first key in the input is not corrupted.
   Status MergeUntil(InternalIterator* iter,
-                    CompactionRangeDelAggregator* range_del_agg = nullptr,
-                    const SequenceNumber stop_before = 0,
-                    const bool at_bottom = false,
-                    const bool allow_data_in_errors = false,
-                    Version* version = nullptr);
+                    CompactionRangeDelAggregator* range_del_agg,
+                    const SequenceNumber stop_before, const bool at_bottom,
+                    const bool allow_data_in_errors,
+                    const BlobFetcher* blob_fetcher,
+                    const std::string* const full_history_ts_low,
+                    PrefetchBufferCollection* prefetch_buffers,
+                    CompactionIterationStats* c_iter_stats);
 
   // Filters a merge operand using the compaction filter specified
   // in the constructor. Returns the decision that the filter made.
   // Uses compaction_filter_value_ and compaction_filter_skip_until_ for the
   // optional outputs of compaction filter.
+  // user_key includes timestamp if user-defined timestamp is enabled.
   CompactionFilter::Decision FilterMerge(const Slice& user_key,
                                          const Slice& value_slice);
 
@@ -148,7 +164,7 @@ class MergeHelper {
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
   Logger* logger_;
-  bool assert_valid_internal_key_; // enforce no internal key corruption?
+  bool assert_valid_internal_key_;  // enforce no internal key corruption?
   bool allow_single_operand_;
   SequenceNumber latest_snapshot_;
   const SnapshotChecker* const snapshot_checker_;

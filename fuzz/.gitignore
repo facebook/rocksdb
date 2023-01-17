@@ -1,0 +1,5 @@
+db_fuzzer
+db_map_fuzzer
+sst_file_writer_fuzzer
+
+proto/gen/*

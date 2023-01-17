@@ -44,7 +44,7 @@ class SimCacheTest : public DBTestBase {
   void InitTable(const Options& /*options*/) {
     std::string value(kValueSize, 'a');
     for (size_t i = 0; i < kNumBlocks * 2; i++) {
-      ASSERT_OK(Put(ToString(i), value.c_str()));
+      ASSERT_OK(Put(std::to_string(i), value.c_str()));
     }
   }
 
@@ -98,7 +98,7 @@ TEST_F(SimCacheTest, SimCache) {
   // Load blocks into cache.
   for (size_t i = 0; i < kNumBlocks; i++) {
     iter = db_->NewIterator(read_options);
-    iter->Seek(ToString(i));
+    iter->Seek(std::to_string(i));
     ASSERT_OK(iter->status());
     CheckCacheCounters(options, 1, 0, 1, 0);
     iterators[i].reset(iter);
@@ -115,8 +115,8 @@ TEST_F(SimCacheTest, SimCache) {
   // Test with strict capacity limit.
   simCache->SetStrictCapacityLimit(true);
   iter = db_->NewIterator(read_options);
-  iter->Seek(ToString(kNumBlocks * 2 - 1));
-  ASSERT_TRUE(iter->status().IsIncomplete());
+  iter->Seek(std::to_string(kNumBlocks * 2 - 1));
+  ASSERT_TRUE(iter->status().IsMemoryLimit());
   CheckCacheCounters(options, 1, 0, 0, 1);
   delete iter;
   iter = nullptr;
@@ -129,14 +129,14 @@ TEST_F(SimCacheTest, SimCache) {
   // Add kNumBlocks again
   for (size_t i = 0; i < kNumBlocks; i++) {
     std::unique_ptr<Iterator> it(db_->NewIterator(read_options));
-    it->Seek(ToString(i));
+    it->Seek(std::to_string(i));
     ASSERT_OK(it->status());
     CheckCacheCounters(options, 0, 1, 0, 0);
   }
   ASSERT_EQ(5, simCache->get_hit_counter());
   for (size_t i = kNumBlocks; i < kNumBlocks * 2; i++) {
     std::unique_ptr<Iterator> it(db_->NewIterator(read_options));
-    it->Seek(ToString(i));
+    it->Seek(std::to_string(i));
     ASSERT_OK(it->status());
     CheckCacheCounters(options, 1, 0, 1, 0);
   }
@@ -177,23 +177,21 @@ TEST_F(SimCacheTest, SimCacheLogging) {
 
   std::string file_contents = "";
   ASSERT_OK(ReadFileToString(env_, log_file, &file_contents));
+  std::istringstream contents(file_contents);
 
   int lookup_num = 0;
   int add_num = 0;
-  std::string::size_type pos;
 
-  // count number of lookups
-  pos = 0;
-  while ((pos = file_contents.find("LOOKUP -", pos)) != std::string::npos) {
-    ++lookup_num;
-    pos += 1;
-  }
-
-  // count number of additions
-  pos = 0;
-  while ((pos = file_contents.find("ADD -", pos)) != std::string::npos) {
-    ++add_num;
-    pos += 1;
+  std::string line;
+  // count number of lookups and additions
+  while (std::getline(contents, line)) {
+    // check if the line starts with LOOKUP or ADD
+    if (line.rfind("LOOKUP -", 0) == 0) {
+      ++lookup_num;
+    }
+    if (line.rfind("ADD -", 0) == 0) {
+      ++add_num;
+    }
   }
 
   // We asked for every block twice

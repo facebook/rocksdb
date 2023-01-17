@@ -40,8 +40,8 @@ CompactionFilter::Decision CassandraCompactionFilter::FilterV2(
     const Slice& existing_value, std::string* new_value,
     std::string* /*skip_until*/) const {
   bool value_changed = false;
-  RowValue row_value = RowValue::Deserialize(
-    existing_value.data(), existing_value.size());
+  RowValue row_value =
+      RowValue::Deserialize(existing_value.data(), existing_value.size());
   RowValue compacted =
       options_.purge_ttl_on_expiration
           ? row_value.RemoveExpiredColumns(&value_changed)
@@ -51,7 +51,7 @@ CompactionFilter::Decision CassandraCompactionFilter::FilterV2(
     compacted = compacted.RemoveTombstones(options_.gc_grace_period_in_seconds);
   }
 
-  if(compacted.Empty()) {
+  if (compacted.Empty()) {
     return Decision::kRemove;
   }
 
@@ -80,21 +80,21 @@ CassandraCompactionFilterFactory::CreateCompactionFilter(
 #ifndef ROCKSDB_LITE
 int RegisterCassandraObjects(ObjectLibrary& library,
                              const std::string& /*arg*/) {
-  library.Register<MergeOperator>(
+  library.AddFactory<MergeOperator>(
       CassandraValueMergeOperator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /* errmsg */) {
         guard->reset(new CassandraValueMergeOperator(0));
         return guard->get();
       });
-  library.Register<CompactionFilter>(
+  library.AddFactory<CompactionFilter>(
       CassandraCompactionFilter::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<CompactionFilter>* /*guard */,
          std::string* /* errmsg */) {
         return new CassandraCompactionFilter(false, 0);
       });
-  library.Register<CompactionFilterFactory>(
+  library.AddFactory<CompactionFilterFactory>(
       CassandraCompactionFilterFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<CompactionFilterFactory>* guard,

@@ -60,9 +60,7 @@ class RandomAccessFileReaderTest : public testing::Test {
   std::shared_ptr<FileSystem> fs_;
   std::string test_dir_;
 
-  std::string Path(const std::string& fname) {
-    return test_dir_ + "/" + fname;
-  }
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 };
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
@@ -85,9 +83,9 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   size_t len = page_size / 3;
   Slice result;
   AlignedBuf buf;
-  for (bool for_compaction : {true, false}) {
+  for (Env::IOPriority rate_limiter_priority : {Env::IO_LOW, Env::IO_TOTAL}) {
     ASSERT_OK(r->Read(IOOptions(), offset, len, &result, nullptr, &buf,
-                      for_compaction));
+                      rate_limiter_priority));
     ASSERT_EQ(result.ToString(), content.substr(offset, len));
   }
 }
@@ -138,8 +136,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuf aligned_buf;
-    ASSERT_OK(
-        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
+                           Env::IO_TOTAL /* rate_limiter_priority */));
 
     AssertResult(content, reqs);
 
@@ -183,8 +181,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuf aligned_buf;
-    ASSERT_OK(
-        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
+                           Env::IO_TOTAL /* rate_limiter_priority */));
 
     AssertResult(content, reqs);
 
@@ -228,8 +226,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuf aligned_buf;
-    ASSERT_OK(
-        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
+                           Env::IO_TOTAL /* rate_limiter_priority */));
 
     AssertResult(content, reqs);
 
@@ -265,8 +263,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuf aligned_buf;
-    ASSERT_OK(
-        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
+                           Env::IO_TOTAL /* rate_limiter_priority */));
 
     AssertResult(content, reqs);
 

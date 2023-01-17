@@ -34,8 +34,6 @@ public class DBOptionsTest {
     DBOptions copyOpts = new DBOptions(origOpts);
     assertThat(origOpts.createIfMissing()).isEqualTo(copyOpts.createIfMissing());
     assertThat(origOpts.allow2pc()).isEqualTo(copyOpts.allow2pc());
-    assertThat(origOpts.baseBackgroundCompactions()).isEqualTo(
-            copyOpts.baseBackgroundCompactions());
   }
 
   @Test
@@ -215,17 +213,6 @@ public class DBOptionsTest {
       final long longValue = rand.nextLong();
       opt.setDeleteObsoleteFilesPeriodMicros(longValue);
       assertThat(opt.deleteObsoleteFilesPeriodMicros()).isEqualTo(longValue);
-    }
-  }
-
-  @SuppressWarnings("deprecated")
-  @Test
-  public void baseBackgroundCompactions() {
-    try (final DBOptions opt = new DBOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setBaseBackgroundCompactions(intValue);
-      assertThat(opt.baseBackgroundCompactions()).
-          isEqualTo(intValue);
     }
   }
 
@@ -474,15 +461,6 @@ public class DBOptionsTest {
       final AccessHint accessHint = AccessHint.SEQUENTIAL;
       opt.setAccessHintOnCompactionStart(accessHint);
       assertThat(opt.accessHintOnCompactionStart()).isEqualTo(accessHint);
-    }
-  }
-
-  @Test
-  public void newTableReaderForCompactionInputs() {
-    try(final DBOptions opt = new DBOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setNewTableReaderForCompactionInputs(boolValue);
-      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
     }
   }
 
@@ -740,15 +718,6 @@ public class DBOptionsTest {
       assertThat(opt.allowIngestBehind()).isFalse();
       opt.setAllowIngestBehind(true);
       assertThat(opt.allowIngestBehind()).isTrue();
-    }
-  }
-
-  @Test
-  public void preserveDeletes() {
-    try (final DBOptions opt = new DBOptions()) {
-      assertThat(opt.preserveDeletes()).isFalse();
-      opt.setPreserveDeletes(true);
-      assertThat(opt.preserveDeletes()).isTrue();
     }
   }
 

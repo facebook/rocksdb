@@ -204,7 +204,7 @@ struct DefaultTypesAndSettings {
   static constexpr bool kUseSmash = false;
   static constexpr bool kAllowZeroStarts = false;
   static Hash HashFn(const Key& key, uint64_t raw_seed) {
-    // This version 0.7.2 preview of XXH3 (a.k.a. XXH3p) function does
+    // This version 0.7.2 preview of XXH3 (a.k.a. XXPH3) function does
     // not pass SmallKeyGen tests below without some seed premixing from
     // StandardHasher. See https://github.com/Cyan4973/xxHash/issues/469
     return ROCKSDB_NAMESPACE::Hash64(key.data(), key.size(), raw_seed);
@@ -836,9 +836,10 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
       double single_failure_rate = 1.0 * total_single_failures / total_singles;
       fprintf(stderr, "Add'l single, failure rate: %g\n", single_failure_rate);
       // A rough bound (one sided) based on nothing in particular
-      double expected_single_failures =
-          1.0 * total_singles /
-          (sizeof(CoeffRow) == 16 ? 128 : TypeParam::kUseSmash ? 64 : 32);
+      double expected_single_failures = 1.0 * total_singles /
+                                        (sizeof(CoeffRow) == 16 ? 128
+                                         : TypeParam::kUseSmash ? 64
+                                                                : 32);
       EXPECT_LE(total_single_failures,
                 InfrequentPoissonUpperBound(expected_single_failures));
     }
@@ -1128,8 +1129,7 @@ TYPED_TEST(RibbonTypeParamTest, FindOccupancy) {
     return;
   }
 
-  KeyGen cur(ROCKSDB_NAMESPACE::ToString(
-                 testing::UnitTest::GetInstance()->random_seed()),
+  KeyGen cur(std::to_string(testing::UnitTest::GetInstance()->random_seed()),
              0);
 
   Banding banding;
@@ -1247,8 +1247,7 @@ TYPED_TEST(RibbonTypeParamTest, OptimizeHomogAtScale) {
     return;
   }
 
-  KeyGen cur(ROCKSDB_NAMESPACE::ToString(
-                 testing::UnitTest::GetInstance()->random_seed()),
+  KeyGen cur(std::to_string(testing::UnitTest::GetInstance()->random_seed()),
              0);
 
   Banding banding;
@@ -1300,6 +1299,7 @@ TYPED_TEST(RibbonTypeParamTest, OptimizeHomogAtScale) {
 }
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);

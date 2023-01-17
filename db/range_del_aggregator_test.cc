@@ -13,6 +13,7 @@
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "test_util/testutil.h"
+#include "util/vector_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -30,8 +31,8 @@ std::unique_ptr<InternalIterator> MakeRangeDelIter(
     keys.push_back(key_and_value.first.Encode().ToString());
     values.push_back(key_and_value.second.ToString());
   }
-  return std::unique_ptr<test::VectorIterator>(
-      new test::VectorIterator(keys, values));
+  return std::unique_ptr<VectorIterator>(
+      new VectorIterator(keys, values, &bytewise_icmp));
 }
 
 std::vector<std::unique_ptr<FragmentedRangeTombstoneList>>
@@ -75,8 +76,9 @@ ParsedInternalKey UncutEndpoint(const Slice& s) {
   return ParsedInternalKey(s, kMaxSequenceNumber, kTypeRangeDeletion);
 }
 
-ParsedInternalKey InternalValue(const Slice& key, SequenceNumber seq) {
-  return ParsedInternalKey(key, seq, kTypeValue);
+ParsedInternalKey InternalValue(const Slice& key, SequenceNumber seq,
+                                ValueType type = kTypeValue) {
+  return ParsedInternalKey(key, seq, type);
 }
 
 void VerifyIterator(
@@ -190,7 +192,7 @@ void VerifyFragmentedRangeDels(
   EXPECT_FALSE(iter->Valid());
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(RangeDelAggregatorTest, EmptyTruncatedIter) {
   auto range_del_iter = MakeRangeDelIter({});
@@ -291,16 +293,18 @@ TEST_F(RangeDelAggregatorTest, TruncatedIterPartiallyCutTombstones) {
   TruncatedRangeDelIterator iter(std::move(input_iter), &bytewise_icmp,
                                  &smallest, &largest);
 
-  VerifyIterator(&iter, bytewise_icmp,
-                 {{InternalValue("d", 7), UncutEndpoint("e"), 10},
-                  {UncutEndpoint("e"), UncutEndpoint("g"), 8},
-                  {UncutEndpoint("j"), InternalValue("m", 8), 4}});
+  VerifyIterator(
+      &iter, bytewise_icmp,
+      {{InternalValue("d", 7), UncutEndpoint("e"), 10},
+       {UncutEndpoint("e"), UncutEndpoint("g"), 8},
+       {UncutEndpoint("j"), InternalValue("m", 8, kValueTypeForSeek), 4}});
 
   VerifySeek(
       &iter, bytewise_icmp,
       {{"d", InternalValue("d", 7), UncutEndpoint("e"), 10},
        {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"ia", UncutEndpoint("j"), InternalValue("m", 8), 4},
+       {"ia", UncutEndpoint("j"), InternalValue("m", 8, kValueTypeForSeek), 4,
+        false /* invalid */},
        {"n", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */},
        {"", InternalValue("d", 7), UncutEndpoint("e"), 10}});
 
@@ -309,7 +313,8 @@ TEST_F(RangeDelAggregatorTest, TruncatedIterPartiallyCutTombstones) {
       {{"d", InternalValue("d", 7), UncutEndpoint("e"), 10},
        {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
        {"ia", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"n", UncutEndpoint("j"), InternalValue("m", 8), 4},
+       {"n", UncutEndpoint("j"), InternalValue("m", 8, kValueTypeForSeek), 4,
+        false /* invalid */},
        {"", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */}});
 }
 
@@ -704,6 +709,7 @@ TEST_F(RangeDelAggregatorTest,
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

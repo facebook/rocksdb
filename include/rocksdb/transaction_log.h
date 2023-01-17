@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <vector>
+
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
@@ -14,7 +15,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class LogFile;
-typedef std::vector<std::unique_ptr<LogFile>> VectorLogPtr;
+using VectorLogPtr = std::vector<std::unique_ptr<LogFile>>;
 
 enum WalFileType {
   /* Indicates that WAL file is in archive directory. WAL files are moved from

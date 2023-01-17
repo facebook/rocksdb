@@ -21,9 +21,10 @@
 #include "rocksdb/cache.h"
 
 namespace ROCKSDB_NAMESPACE {
+class CacheReservationManager;
 
-// Interface to block and signal DB instances.
-// Each DB instance contains ptr to StallInterface.
+// Interface to block and signal DB instances, intended for RocksDB
+// internal use only. Each DB instance contains ptr to StallInterface.
 class StallInterface {
  public:
   virtual ~StallInterface() {}
@@ -33,7 +34,7 @@ class StallInterface {
   virtual void Signal() = 0;
 };
 
-class WriteBufferManager {
+class WriteBufferManager final {
  public:
   // Parameters:
   // _buffer_size: _buffer_size = 0 indicates no limit. Memory won't be capped.
@@ -60,7 +61,7 @@ class WriteBufferManager {
   bool enabled() const { return buffer_size() > 0; }
 
   // Returns true if pointer to cache is passed.
-  bool cost_to_cache() const { return cache_rep_ != nullptr; }
+  bool cost_to_cache() const { return cache_res_mgr_ != nullptr; }
 
   // Returns the total memory used by memtables.
   // Only valid if enabled()
@@ -73,9 +74,7 @@ class WriteBufferManager {
     return memory_active_.load(std::memory_order_relaxed);
   }
 
-  size_t dummy_entries_in_cache_usage() const {
-    return dummy_size_.load(std::memory_order_relaxed);
-  }
+  size_t dummy_entries_in_cache_usage() const;
 
   // Returns the buffer_size.
   size_t buffer_size() const {
@@ -86,9 +85,7 @@ class WriteBufferManager {
     buffer_size_.store(new_size, std::memory_order_relaxed);
     mutable_limit_.store(new_size * 7 / 8, std::memory_order_relaxed);
     // Check if stall is active and can be ended.
-    if (allow_stall_) {
-      EndWriteStall();
-    }
+    MaybeEndWriteStall();
   }
 
   // Below functions should be called by RocksDB internally.
@@ -119,17 +116,12 @@ class WriteBufferManager {
   // pass allow_stall = true during WriteBufferManager instance creation.
   //
   // Should only be called by RocksDB internally .
-  bool ShouldStall() {
-    if (allow_stall_ && enabled()) {
-      if (IsStallActive()) {
-        return true;
-      }
-      if (IsStallThresholdExceeded()) {
-        stall_active_.store(true, std::memory_order_relaxed);
-        return true;
-      }
+  bool ShouldStall() const {
+    if (!allow_stall_ || !enabled()) {
+      return false;
     }
-    return false;
+
+    return IsStallActive() || IsStallThresholdExceeded();
   }
 
   // Returns true if stall is active.
@@ -138,7 +130,9 @@ class WriteBufferManager {
   }
 
   // Returns true if stalling condition is met.
-  bool IsStallThresholdExceeded() { return memory_usage() >= buffer_size_; }
+  bool IsStallThresholdExceeded() const {
+    return memory_usage() >= buffer_size_;
+  }
 
   void ReserveMem(size_t mem);
 
@@ -152,8 +146,9 @@ class WriteBufferManager {
   // Should only be called by RocksDB internally.
   void BeginWriteStall(StallInterface* wbm_stall);
 
-  // Remove DB instances from queue and signal them to continue.
-  void EndWriteStall();
+  // If stall conditions have resolved, remove DB instances from queue and
+  // signal them to continue.
+  void MaybeEndWriteStall();
 
   void RemoveDBFromQueue(StallInterface* wbm_stall);
 
@@ -163,13 +158,16 @@ class WriteBufferManager {
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
-  std::atomic<size_t> dummy_size_;
-  struct CacheRep;
-  std::unique_ptr<CacheRep> cache_rep_;
+  std::shared_ptr<CacheReservationManager> cache_res_mgr_;
+  // Protects cache_res_mgr_
+  std::mutex cache_res_mgr_mu_;
+
   std::list<StallInterface*> queue_;
-  // Protects the queue_
+  // Protects the queue_ and stall_active_.
   std::mutex mu_;
   bool allow_stall_;
+  // Value should only be changed by BeginWriteStall() and MaybeEndWriteStall()
+  // while holding mu_, but it can be read without a lock.
   std::atomic<bool> stall_active_;
 
   void ReserveMemWithCache(size_t mem);

@@ -11,9 +11,15 @@
 #elif defined(__GNUC__) && __GNUC__ >= 7
 #define FALLTHROUGH_INTENDED [[gnu::fallthrough]]
 #else
-#define FALLTHROUGH_INTENDED do {} while (0)
+#define FALLTHROUGH_INTENDED \
+  do {                       \
+  } while (0)
 #endif
 #endif
+
+#define DECLARE_DEFAULT_MOVES(Name) \
+  Name(Name&&) noexcept = default;  \
+  Name& operator=(Name&&) = default
 
 // ASAN (Address sanitizer)
 
@@ -42,8 +48,10 @@
 //   STATIC_AVOID_DESTRUCTION(Foo, foo)(arg1, arg2);
 #ifdef MUST_FREE_HEAP_ALLOCATIONS
 #define STATIC_AVOID_DESTRUCTION(Type, name) static Type name
+constexpr bool kMustFreeHeapAllocations = true;
 #else
 #define STATIC_AVOID_DESTRUCTION(Type, name) static Type& name = *new Type
+constexpr bool kMustFreeHeapAllocations = false;
 #endif
 
 // TSAN (Thread sanitizer)

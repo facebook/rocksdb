@@ -8,9 +8,11 @@
 #include <cinttypes>
 #include <memory>
 
+#include "db/blob/blob_read_request.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -20,7 +22,8 @@ struct FileOptions;
 class HistogramImpl;
 struct ReadOptions;
 class Slice;
-class PinnableSlice;
+class FilePrefetchBuffer;
+class BlobContents;
 class Statistics;
 
 class BlobFileReader {
@@ -40,8 +43,22 @@ class BlobFileReader {
 
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  uint64_t offset, uint64_t value_size,
-                 CompressionType compression_type, PinnableSlice* value,
+                 CompressionType compression_type,
+                 FilePrefetchBuffer* prefetch_buffer,
+                 MemoryAllocator* allocator,
+                 std::unique_ptr<BlobContents>* result,
                  uint64_t* bytes_read) const;
+
+  // offsets must be sorted in ascending order by caller.
+  void MultiGetBlob(
+      const ReadOptions& read_options, MemoryAllocator* allocator,
+      autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>&
+          blob_reqs,
+      uint64_t* bytes_read) const;
+
+  CompressionType GetCompressionType() const { return compression_type_; }
+
+  uint64_t GetFileSize() const { return file_size_; }
 
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
@@ -68,18 +85,18 @@ class BlobFileReader {
   static Status ReadFromFile(const RandomAccessFileReader* file_reader,
                              uint64_t read_offset, size_t read_size,
                              Statistics* statistics, Slice* slice, Buffer* buf,
-                             AlignedBuf* aligned_buf);
+                             AlignedBuf* aligned_buf,
+                             Env::IOPriority rate_limiter_priority);
 
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
                            uint64_t value_size);
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,
+                                       MemoryAllocator* allocator,
                                        SystemClock* clock,
                                        Statistics* statistics,
-                                       PinnableSlice* value);
-
-  static void SaveValue(const Slice& src, PinnableSlice* dst);
+                                       std::unique_ptr<BlobContents>* result);
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;

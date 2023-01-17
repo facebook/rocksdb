@@ -1,3 +1,22 @@
+//  Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+/* BEGIN RocksDB customizations */
+#ifndef XXH_STATIC_LINKING_ONLY
+// Using compiled xxhash.cc
+#define XXH_STATIC_LINKING_ONLY 1
+#endif  // !defined(XXH_STATIC_LINKING_ONLY)
+#ifndef XXH_NAMESPACE
+#define XXH_NAMESPACE ROCKSDB_
+#endif  // !defined(XXH_NAMESPACE)
+
+// for FALLTHROUGH_INTENDED, inserted as appropriate
+#include "port/lang.h"
+/* END RocksDB customizations */
+
+// clang-format off
 /*
  * xxHash - Extremely Fast Hash algorithm
  * Header File
@@ -1679,7 +1698,8 @@ XXH3_128bits_reset_withSecretandSeed(XXH_NOESCAPE XXH3_state_t* statePtr,
    /* don't check on sizeopt, x86, aarch64, or arm when unaligned access is available */
 #  if XXH_SIZE_OPT >= 1 || \
       defined(__i386)  || defined(__x86_64__) || defined(__aarch64__) || defined(__ARM_FEATURE_UNALIGNED) \
-   || defined(_M_IX86) || defined(_M_X64)     || defined(_M_ARM64)    || defined(_M_ARM) /* visual */
+   || defined(_M_IX86) || defined(_M_X64)     || defined(_M_ARM64)    || defined(_M_ARM) \
+   || defined(__loongarch64) /* visual */
 #    define XXH_FORCE_ALIGN_CHECK 0
 #  else
 #    define XXH_FORCE_ALIGN_CHECK 1

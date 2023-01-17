@@ -143,8 +143,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(raf), file_name));
     s = opts.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
-                           env_options, ikc),
+        TableReaderOptions(ioptions, moptions.prefix_extractor, env_options,
+                           ikc),
         std::move(file_reader), file_size, &table_reader);
     if (!s.ok()) {
       fprintf(stderr, "Open Table Error: %s\n", s.ToString().c_str());
@@ -177,8 +177,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             GetContext get_context(
                 ioptions.user_comparator, ioptions.merge_operator.get(),
                 ioptions.logger, ioptions.stats, GetContext::kNotFound,
-                Slice(key), &value, nullptr, &merge_context, true,
-                &max_covering_tombstone_seq, clock);
+                Slice(key), &value, /*columns=*/nullptr, /*timestamp=*/nullptr,
+                &merge_context, true, &max_covering_tombstone_seq, clock);
             s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);
@@ -224,9 +224,10 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             }
           }
           if (count != r2_len) {
-            fprintf(
-                stderr, "Iterator cannot iterate expected number of entries. "
-                "Expected %d but got %d\n", r2_len, count);
+            fprintf(stderr,
+                    "Iterator cannot iterate expected number of entries. "
+                    "Expected %d but got %d\n",
+                    r2_len, count);
             assert(false);
           }
           delete iter;
@@ -261,16 +262,16 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
 }  // namespace
 }  // namespace ROCKSDB_NAMESPACE
 
-DEFINE_bool(query_empty, false, "query non-existing keys instead of existing "
-            "ones.");
+DEFINE_bool(query_empty, false,
+            "query non-existing keys instead of existing ones.");
 DEFINE_int32(num_keys1, 4096, "number of distinguish prefix of keys");
 DEFINE_int32(num_keys2, 512, "number of distinguish keys for each prefix");
 DEFINE_int32(iter, 3, "query non-existing keys instead of existing ones");
 DEFINE_int32(prefix_len, 16, "Prefix length used for iterators and indexes");
 DEFINE_bool(iterator, false, "For test iterator");
-DEFINE_bool(through_db, false, "If enable, a DB instance will be created and "
-            "the query will be against DB. Otherwise, will be directly against "
-            "a table reader.");
+DEFINE_bool(through_db, false,
+            "If enable, a DB instance will be created and the query will be "
+            "against DB. Otherwise, will be directly against a table reader.");
 DEFINE_bool(mmap_read, true, "Whether use mmap read");
 DEFINE_string(table_factory, "block_based",
               "Table factory to use: `block_based` (default), `plain_table` or "

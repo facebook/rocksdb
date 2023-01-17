@@ -5,6 +5,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <string>
 
 #include "rocksdb/perf_level.h"
@@ -13,6 +14,32 @@
 // Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
 
 namespace ROCKSDB_NAMESPACE {
+
+// EXPERIMENTAL: the IO statistics for tiered storage. It matches with each
+// item in Temperature class.
+struct FileIOByTemperature {
+  // the number of bytes read to Temperature::kHot file
+  uint64_t hot_file_bytes_read;
+  // the number of bytes read to Temperature::kWarm file
+  uint64_t warm_file_bytes_read;
+  // the number of bytes read to Temperature::kCold file
+  uint64_t cold_file_bytes_read;
+  // total number of reads to Temperature::kHot file
+  uint64_t hot_file_read_count;
+  // total number of reads to Temperature::kWarm file
+  uint64_t warm_file_read_count;
+  // total number of reads to Temperature::kCold file
+  uint64_t cold_file_read_count;
+  // reset all the statistics to 0.
+  void Reset() {
+    hot_file_bytes_read = 0;
+    warm_file_bytes_read = 0;
+    cold_file_bytes_read = 0;
+    hot_file_read_count = 0;
+    warm_file_read_count = 0;
+    cold_file_read_count = 0;
+  }
+};
 
 struct IOStatsContext {
   // reset all io-stats counter to zero
@@ -48,15 +75,22 @@ struct IOStatsContext {
   uint64_t cpu_write_nanos;
   // CPU time spent in read() and pread()
   uint64_t cpu_read_nanos;
+
+  FileIOByTemperature file_io_stats_by_temperature;
+
+  // It is not consistent that whether iostats follows PerfLevel.Timer counters
+  // follows it but BackupEngine relies on counter metrics to always be there.
+  // Here we create a backdoor option to disable some counters, so that some
+  // existing stats are not polluted by file operations, such as logging, by
+  // turning this off.
+  bool disable_iostats = false;
 };
 
 // If RocksDB is compiled with -DNIOSTATS_CONTEXT, then a pointer to a global,
 // non-thread-local IOStatsContext object will be returned. Attempts to update
 // this object will be ignored, and reading from it will also be no-op.
-// Otherwise,
-// a) if thread-local is supported on the platform, then a pointer to
-//    a thread-local IOStatsContext object will be returned.
-// b) if thread-local is NOT supported, then compilation will fail.
+// Otherwise, a pointer to a thread-local IOStatsContext object will be
+// returned.
 //
 // This function never returns nullptr.
 IOStatsContext* get_iostats_context();

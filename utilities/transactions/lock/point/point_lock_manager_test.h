@@ -1,3 +1,8 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "file/file_util.h"
 #include "port/port.h"
@@ -78,7 +83,7 @@ class PointLockManagerTest : public testing::Test {
   TransactionDB* db_;
 };
 
-typedef void (*init_func_t)(PointLockManagerTest*);
+using init_func_t = void (*)(PointLockManagerTest*);
 
 class AnyLockManagerTest : public PointLockManagerTest,
                            public testing::WithParamInterface<init_func_t> {

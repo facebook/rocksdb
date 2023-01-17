@@ -243,7 +243,7 @@ public class WriteBatch extends AbstractWriteBatch {
   @Override final native void singleDelete(final long handle, final byte[] key,
       final int keyLen, final long cfHandle) throws RocksDBException;
   @Override
-  final native void removeDirect(final long handle, final ByteBuffer key, final int keyOffset,
+  final native void deleteDirect(final long handle, final ByteBuffer key, final int keyOffset,
       final int keyLength, final long cfHandle) throws RocksDBException;
   @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
@@ -320,6 +320,8 @@ public class WriteBatch extends AbstractWriteBatch {
     public abstract void markRollback(final byte[] xid)
         throws RocksDBException;
     public abstract void markCommit(final byte[] xid)
+        throws RocksDBException;
+    public abstract void markCommitWithTimestamp(final byte[] xid, final byte[] ts)
         throws RocksDBException;
 
     /**
