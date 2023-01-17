@@ -176,10 +176,10 @@ Status BuildTable(
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
 
+    auto ucmp = tboptions.internal_comparator.user_comparator();
     MergeHelper merge(
-        env, tboptions.internal_comparator.user_comparator(),
-        ioptions.merge_operator.get(), compaction_filter.get(), ioptions.logger,
-        true /* internal key corruption is not ok */,
+        env, ucmp, ioptions.merge_operator.get(), compaction_filter.get(),
+        ioptions.logger, true /* internal key corruption is not ok */,
         snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
@@ -197,9 +197,8 @@ Status BuildTable(
 
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
-        iter, tboptions.internal_comparator.user_comparator(), &merge,
-        kMaxSequenceNumber, &snapshots, earliest_write_conflict_snapshot,
-        job_snapshot, snapshot_checker, env,
+        iter, ucmp, &merge, kMaxSequenceNumber, &snapshots,
+        earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
@@ -242,6 +241,7 @@ Status BuildTable(
 
     if (s.ok()) {
       auto range_del_it = range_del_agg->NewIterator();
+      Slice last_tombstone_start_user_key{};
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
            range_del_it->Next()) {
         auto tombstone = range_del_it->Tombstone();
@@ -251,12 +251,17 @@ Status BuildTable(
         meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,
                                        tboptions.internal_comparator);
         if (version) {
-          SizeApproximationOptions approx_opts;
-          approx_opts.files_size_error_margin = 0.1;
-          meta->compensated_range_deletion_size += versions->ApproximateSize(
-              approx_opts, version, kv.first.Encode(), tombstone_end.Encode(),
-              0 /* start_level */, -1 /* end_level */,
-              TableReaderCaller::kFlush);
+          if (last_tombstone_start_user_key.empty() ||
+              ucmp->CompareWithoutTimestamp(last_tombstone_start_user_key,
+                                            tombstone.start_key_) < 0) {
+            SizeApproximationOptions approx_opts;
+            approx_opts.files_size_error_margin = 0.1;
+            meta->compensated_range_deletion_size += versions->ApproximateSize(
+                approx_opts, version, kv.first.Encode(), tombstone_end.Encode(),
+                0 /* start_level */, -1 /* end_level */,
+                TableReaderCaller::kFlush);
+          }
+          last_tombstone_start_user_key = tombstone.start_key_;
         }
       }
     }
