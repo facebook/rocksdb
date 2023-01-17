@@ -1,3 +1,18 @@
+//  Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+/* BEGIN RocksDB customizations */
+#ifndef XXH_STATIC_LINKING_ONLY
+#define XXH_STATIC_LINKING_ONLY 1 /* using xxhash.cc */
+#endif // !defined(XXH_STATIC_LINKING_ONLY)
+#ifndef XXH_NAMESPACE
+#define XXH_NAMESPACE ROCKSDB_
+#endif // !defined(XXH_NAMESPACE)
+#include "port/lang.h" // for FALLTHROUGH_INTENDED, inserted as appropriate
+/* END RocksDB customizations */
+
 /*
  * xxHash - Extremely Fast Hash algorithm
  * Header File
@@ -1534,8 +1549,6 @@ static xxh_u32 XXH_read32(const void* memPtr)
 
 
 /* ***   Endianness   *** */
-typedef enum { XXH_bigEndian=0, XXH_littleEndian=1 } XXH_endianess;
-
 /*!
  * @ingroup tuning
  * @def XXH_CPU_LITTLE_ENDIAN
@@ -1859,41 +1872,41 @@ XXH32_finalize(xxh_u32 h32, const xxh_u8* ptr, size_t len, XXH_alignment align)
     } else {
          switch(len&15) /* or switch(bEnd - p) */ {
            case 12:      XXH_PROCESS4;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 8:       XXH_PROCESS4;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 4:       XXH_PROCESS4;
                          return XXH32_avalanche(h32);
 
            case 13:      XXH_PROCESS4;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 9:       XXH_PROCESS4;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 5:       XXH_PROCESS4;
                          XXH_PROCESS1;
                          return XXH32_avalanche(h32);
 
            case 14:      XXH_PROCESS4;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 10:      XXH_PROCESS4;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 6:       XXH_PROCESS4;
                          XXH_PROCESS1;
                          XXH_PROCESS1;
                          return XXH32_avalanche(h32);
 
            case 15:      XXH_PROCESS4;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 11:      XXH_PROCESS4;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 7:       XXH_PROCESS4;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 3:       XXH_PROCESS1;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 2:       XXH_PROCESS1;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 1:       XXH_PROCESS1;
-                         /* fallthrough */
+                         FALLTHROUGH_INTENDED;
            case 0:       return XXH32_avalanche(h32);
         }
         XXH_ASSERT(0);
@@ -2047,8 +2060,10 @@ XXH32_update(XXH32_state_t* state, const void* input, size_t len)
             state->memsize = 0;
         }
 
-        if (p <= bEnd-16) {
-            const xxh_u8* const limit = bEnd - 16;
+        /* uintptr_t casts avoid UB or compiler warning on out-of-bounds
+         * pointer arithmetic */
+        if ((uintptr_t)p <= (uintptr_t)bEnd - 16) {
+            const uintptr_t limit = (uintptr_t)bEnd - 16;
             xxh_u32 v1 = state->v1;
             xxh_u32 v2 = state->v2;
             xxh_u32 v3 = state->v3;
@@ -2059,7 +2074,7 @@ XXH32_update(XXH32_state_t* state, const void* input, size_t len)
                 v2 = XXH32_round(v2, XXH_readLE32(p)); p+=4;
                 v3 = XXH32_round(v3, XXH_readLE32(p)); p+=4;
                 v4 = XXH32_round(v4, XXH_readLE32(p)); p+=4;
-            } while (p<=limit);
+            } while ((uintptr_t)p<=limit);
 
             state->v1 = v1;
             state->v2 = v2;
@@ -2474,8 +2489,10 @@ XXH64_update (XXH64_state_t* state, const void* input, size_t len)
             state->memsize = 0;
         }
 
-        if (p+32 <= bEnd) {
-            const xxh_u8* const limit = bEnd - 32;
+        /* uintptr_t casts avoid UB or compiler warning on out-of-bounds
+         * pointer arithmetic */
+        if ((uintptr_t)p + 32 <= (uintptr_t)bEnd) {
+            const uintptr_t limit = (uintptr_t)bEnd - 32;
             xxh_u64 v1 = state->v1;
             xxh_u64 v2 = state->v2;
             xxh_u64 v3 = state->v3;
@@ -2486,7 +2503,7 @@ XXH64_update (XXH64_state_t* state, const void* input, size_t len)
                 v2 = XXH64_round(v2, XXH_readLE64(p)); p+=8;
                 v3 = XXH64_round(v3, XXH_readLE64(p)); p+=8;
                 v4 = XXH64_round(v4, XXH_readLE64(p)); p+=8;
-            } while (p<=limit);
+            } while ((uintptr_t)p<=limit);
 
             state->v1 = v1;
             state->v2 = v2;
@@ -3649,7 +3666,7 @@ XXH3_initCustomSecret_avx512(void* XXH_RESTRICT customSecret, xxh_u64 seed64)
     XXH_ASSERT(((size_t)customSecret & 63) == 0);
     (void)(&XXH_writeLE64);
     {   int const nbRounds = XXH_SECRET_DEFAULT_SIZE / sizeof(__m512i);
-        __m512i const seed = _mm512_mask_set1_epi64(_mm512_set1_epi64((xxh_i64)seed64), 0xAA, -(xxh_i64)seed64);
+        __m512i const seed = _mm512_mask_set1_epi64(_mm512_set1_epi64((xxh_i64)seed64), 0xAA, (xxh_i64)(0U - seed64));
 
         XXH_ALIGN(64) const __m512i* const src  = (const __m512i*) XXH3_kSecret;
         XXH_ALIGN(64)       __m512i* const dest = (      __m512i*) customSecret;
@@ -3745,7 +3762,7 @@ XXH_FORCE_INLINE XXH_TARGET_AVX2 void XXH3_initCustomSecret_avx2(void* XXH_RESTR
     XXH_STATIC_ASSERT(XXH_SEC_ALIGN <= 64);
     (void)(&XXH_writeLE64);
     XXH_PREFETCH(customSecret);
-    {   __m256i const seed = _mm256_set_epi64x(-(xxh_i64)seed64, (xxh_i64)seed64, -(xxh_i64)seed64, (xxh_i64)seed64);
+    {   __m256i const seed = _mm256_set_epi64x((xxh_i64)(0U - seed64), (xxh_i64)seed64, (xxh_i64)(0U - seed64), (xxh_i64)seed64);
 
         XXH_ALIGN(64) const __m256i* const src  = (const __m256i*) XXH3_kSecret;
         XXH_ALIGN(64)       __m256i*       dest = (      __m256i*) customSecret;
@@ -3850,10 +3867,10 @@ XXH_FORCE_INLINE XXH_TARGET_SSE2 void XXH3_initCustomSecret_sse2(void* XXH_RESTR
 
 #       if defined(_MSC_VER) && defined(_M_IX86) && _MSC_VER < 1900
         // MSVC 32bit mode does not support _mm_set_epi64x before 2015
-        XXH_ALIGN(16) const xxh_i64 seed64x2[2] = { (xxh_i64)seed64, -(xxh_i64)seed64 };
+        XXH_ALIGN(16) const xxh_i64 seed64x2[2] = { (xxh_i64)seed64, (xxh_i64)(0U - seed64) };
         __m128i const seed = _mm_load_si128((__m128i const*)seed64x2);
 #       else
-        __m128i const seed = _mm_set_epi64x(-(xxh_i64)seed64, (xxh_i64)seed64);
+        __m128i const seed = _mm_set_epi64x((xxh_i64)(0U - seed64), (xxh_i64)seed64);
 #       endif
         int i;
 

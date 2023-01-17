@@ -204,7 +204,7 @@ struct DefaultTypesAndSettings {
   static constexpr bool kUseSmash = false;
   static constexpr bool kAllowZeroStarts = false;
   static Hash HashFn(const Key& key, uint64_t raw_seed) {
-    // This version 0.7.2 preview of XXH3 (a.k.a. XXH3p) function does
+    // This version 0.7.2 preview of XXH3 (a.k.a. XXPH3) function does
     // not pass SmallKeyGen tests below without some seed premixing from
     // StandardHasher. See https://github.com/Cyan4973/xxHash/issues/469
     return ROCKSDB_NAMESPACE::Hash64(key.data(), key.size(), raw_seed);
