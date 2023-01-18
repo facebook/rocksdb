@@ -203,13 +203,12 @@ class CompactionFilter : public Customizable {
     assert(value_type == ValueType::kWideColumnEntity || existing_value);
     assert(value_type != ValueType::kWideColumnEntity || existing_entity);
 
-    if (value_type != ValueType::kWideColumnEntity) {
-      return FilterV2(level, key, value_type, *existing_value, new_value,
-                      skip_until);
+    if (value_type == ValueType::kWideColumnEntity) {
+      return Decision::kKeep;
     }
 
-    // TODO
-    return Decision::kKeep;
+    return FilterV2(level, key, value_type, *existing_value, new_value,
+                    skip_until);
   }
 
   // Internal (BlobDB) use only. Do not override in application code.
