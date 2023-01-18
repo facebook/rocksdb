@@ -586,7 +586,7 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
     if (user_comparator_->Compare(*compaction_filter_skip_until_.rep(),
                                   user_key) <= 0) {
       // Invalid skip_until returned from compaction filter.
-      // Keep the key as per FilterV2 documentation.
+      // Keep the key as per FilterV2/FilterV3 documentation.
       ret = CompactionFilter::Decision::kKeep;
     } else {
       compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
