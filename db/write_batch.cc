@@ -2503,7 +2503,8 @@ class MemTableInserter : public WriteBatch::Handler {
             merge_operator, key, &get_value_slice, {value}, &new_value,
             moptions->info_log, moptions->statistics,
             SystemClock::Default().get(), /* result_operand */ nullptr,
-            /* update_num_ops_stats */ false);
+            /* update_num_ops_stats */ false,
+            /* op_failure_scope */ nullptr);
 
         if (!merge_status.ok()) {
           // Failed to merge!

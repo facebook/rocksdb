@@ -2364,9 +2364,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ", user_key);
         return;
-      case GetContext::kMergeFailed:
-        *status = get_context.merge_status();
-        return;
       case GetContext::kUnexpectedBlobIndex:
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
         *status = Status::NotSupported(
@@ -2396,7 +2393,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, merge_context->GetOperands(),
           &result, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
+          /* op_failure_scope */ nullptr);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
           *(value->GetSelf()) = std::move(result);
@@ -2644,7 +2642,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
           str_value, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
+          /* op_failure_scope */ nullptr);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());

@@ -48,19 +48,22 @@ class MergeHelper {
   // the latency is sensitive.
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
-  // - Corruption: Merge operator reported unsuccessful merge.
+  // - Corruption: Merge operator reported unsuccessful merge. The scope of the
+  //   damage will be stored in `*op_failure_scope` when `op_failure_scope` is
+  //   not nullptr
   static Status TimedFullMerge(const MergeOperator* merge_operator,
                                const Slice& key, const Slice* value,
                                const std::vector<Slice>& operands,
                                std::string* result, Logger* logger,
                                Statistics* statistics, SystemClock* clock,
-                               Slice* result_operand,
-                               bool update_num_ops_stats);
+                               Slice* result_operand, bool update_num_ops_stats,
+                               MergeOperator::OpFailureScope* op_failure_scope);
 
   static Status TimedFullMergeWithEntity(
       const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
       const std::vector<Slice>& operands, std::string* result, Logger* logger,
-      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats);
+      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+      MergeOperator::OpFailureScope* op_failure_scope);
 
   // During compaction, merge entries until we hit
   //     - a corrupted key

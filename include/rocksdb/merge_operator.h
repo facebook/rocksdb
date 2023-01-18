@@ -104,6 +104,13 @@ class MergeOperator : public Customizable {
     Logger* logger;
   };
 
+  enum class OpFailureScope {
+    kDefault,
+    kTryMerge,
+    kMustMerge,
+    kOpFailureScopeMax,
+  };
+
   struct MergeOperationOutput {
     explicit MergeOperationOutput(std::string& _new_value,
                                   Slice& _existing_operand)
@@ -115,18 +122,20 @@ class MergeOperator : public Customizable {
     // client can set this field to the operand (or existing_value) instead of
     // using new_value.
     Slice& existing_operand;
-    // Indicates a specific failure reason. It is only meaningful to provide a
-    // failure reason when returning `false` from the API populating the
-    // `MergeOperationOutput`. Currently RocksDB operations handle these
-    // `Status` values as follows:
+    // Indicates the blast radius of the failure. It is only meaningful to
+    // provide a failure scope when returning `false` from the API populating
+    // the `MergeOperationOutput`. Currently RocksDB operations handle these
+    // values as follows:
     //
-    // - `Status::OK()`: fallback to default (`Status::Corruption()`)
-    // - `Status::Corruption()`: any op fails with `Status::Corruption()`
-    // - `Status::Aborted()`:
-    //   - Background ops (flush/compaction) copy the original input operands to
-    //     the output file without any merging
-    //   - User read ops fail with `Status::Aborted()`
-    Status status;
+    // - `OpFailureScope::kDefault`: fallback to default
+    //   (`OpFailureScope::kTryMerge`)
+    // - `OpFailureScope::kTryMerge`: operations that try to merge that key will
+    //   fail. This includes flush and compaction, which puts the DB in
+    //   read-only mode.
+    // - `OpFailureScope::kMustMerge`: operations that must merge that key will
+    //   fail (e.g., `Get()`, `MultiGet()`, iteration). Flushes/compactions can
+    //   still proceed by copying the original input operands to the output.
+    OpFailureScope op_failure_scope = OpFailureScope::kDefault;
   };
 
   // This function applies a stack of merge operands in chronological order

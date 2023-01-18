@@ -204,7 +204,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
 
 #ifndef ROCKSDB_LITE
 
-TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
+TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
   const int kNumOperands = 3;
   Options options;
   options.merge_operator.reset(new TestPutOperator());
@@ -214,14 +214,14 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   auto check_query = [&](Slice key) {
     {
       std::string value;
-      ASSERT_TRUE(db_->Get(ReadOptions(), key, &value).IsAborted());
+      ASSERT_TRUE(db_->Get(ReadOptions(), key, &value).IsCorruption());
     }
 
     {
       std::unique_ptr<Iterator> iter;
       iter.reset(db_->NewIterator(ReadOptions()));
       iter->SeekToFirst();
-      ASSERT_TRUE(iter->status().IsAborted());
+      ASSERT_TRUE(iter->status().IsCorruption());
     }
 
     std::vector<PinnableSlice> values(kNumOperands);
@@ -234,17 +234,17 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
     ASSERT_EQ(kNumOperands, num_operands_found);
     for (int i = 0; i < num_operands_found; ++i) {
       if (i == 0) {
-        ASSERT_EQ(values[i], "aborted_with_status");
+        ASSERT_EQ(values[i], "corrupted_must_merge");
       } else {
         ASSERT_EQ(values[i], "ok");
       }
     }
   };
 
-  // Case 1: Pure `Merge()`
+  // Case 1: Mixed good/bad `Merge()`s
   for (int i = 0; i < kNumOperands; ++i) {
     if (i == 0) {
-      ASSERT_OK(Merge("k1", "aborted_with_status"));
+      ASSERT_OK(Merge("k1", "corrupted_must_merge"));
     } else {
       ASSERT_OK(Merge("k1", "ok"));
     }
@@ -260,10 +260,10 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   }
   check_query("k1");
 
-  // Case 2: `Merge()`s on top of a `Status::Aborted()`-triggering `Put()`
+  // Case 2: Good `Merge()`s on top of a bad `Put()`
   for (int i = 0; i < kNumOperands; ++i) {
     if (i == 0) {
-      ASSERT_OK(Put("k2", "aborted_with_status"));
+      ASSERT_OK(Put("k2", "corrupted_must_merge"));
     } else {
       ASSERT_OK(Merge("k2", "ok"));
     }
@@ -279,11 +279,11 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithStatusAborted) {
   }
   check_query("k2");
 
-  // Case 3: `Status::Aborted()`-triggering `Merge()`s on top of a `Delete()`
+  // Case 3: Mixed good/bad `Merge()`s on top of a `Delete()`
   ASSERT_OK(Delete("k1"));
   for (int i = 0; i < kNumOperands; ++i) {
     if (i == 0) {
-      ASSERT_OK(Merge("k1", "aborted_with_status"));
+      ASSERT_OK(Merge("k1", "corrupted_must_merge"));
     } else {
       ASSERT_OK(Merge("k1", "ok"));
     }

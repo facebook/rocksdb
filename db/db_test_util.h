@@ -873,31 +873,34 @@ class FlushCounterListener : public EventListener {
 #endif
 
 // A test merge operator mimics put but also fails if one of merge operands is
-// "corrupted", "corrupted_with_status", or "aborted_with_status".
+// "corrupted", "corrupted_try_merge", or "corrupted_must_merge".
 class TestPutOperator : public MergeOperator {
  public:
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const override {
-    static const std::map<std::string, Status::Code>
-        bad_operand_to_status_code = {
-            {"corrupted", Status::Code::kOk},
-            {"corrupted_with_status", Status::Code::kCorruption},
-            {"aborted_with_status", Status::Code::kAborted}};
-    auto check_operand = [](Slice operand_val, Status* status) -> bool {
-      auto iter = bad_operand_to_status_code.find(operand_val.ToString());
-      if (iter != bad_operand_to_status_code.end()) {
-        *status = Status(iter->second, Status::SubCode::kNone,
-                         Status::Severity::kNoError, "" /* msg */);
+    static const std::map<std::string, MergeOperator::OpFailureScope>
+        bad_operand_to_op_failure_scope = {
+            {"corrupted", MergeOperator::OpFailureScope::kDefault},
+            {"corrupted_try_merge", MergeOperator::OpFailureScope::kTryMerge},
+            {"corrupted_must_merge",
+             MergeOperator::OpFailureScope::kMustMerge}};
+    auto check_operand =
+        [](Slice operand_val,
+           MergeOperator::OpFailureScope* op_failure_scope) -> bool {
+      auto iter = bad_operand_to_op_failure_scope.find(operand_val.ToString());
+      if (iter != bad_operand_to_op_failure_scope.end()) {
+        *op_failure_scope = iter->second;
         return false;
       }
       return true;
     };
     if (merge_in.existing_value != nullptr &&
-        !check_operand(*merge_in.existing_value, &merge_out->status)) {
+        !check_operand(*merge_in.existing_value,
+                       &merge_out->op_failure_scope)) {
       return false;
     }
     for (auto value : merge_in.operand_list) {
-      if (!check_operand(value, &merge_out->status)) {
+      if (!check_operand(value, &merge_out->op_failure_scope)) {
         return false;
       }
     }

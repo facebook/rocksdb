@@ -134,10 +134,6 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
             Status::Corruption("corrupted key for ", iter->lkey->user_key());
         file_range.MarkKeyDone(iter);
         continue;
-      case GetContext::kMergeFailed:
-        *status = get_context.merge_status();
-        file_range.MarkKeyDone(iter);
-        continue;
       case GetContext::kUnexpectedBlobIndex:
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
         *status = Status::NotSupported(

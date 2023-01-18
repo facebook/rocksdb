@@ -1250,7 +1250,8 @@ bool DBIter::Merge(const Slice* val, const Slice& user_key) {
   Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, val, merge_context_.GetOperands(),
       &saved_value_, logger_, statistics_, clock_, &pinned_value_,
-      /* update_num_ops_stats */ true);
+      /* update_num_ops_stats */ true,
+      /* op_failure_scope */ nullptr);
   if (!s.ok()) {
     valid_ = false;
     status_ = s;
@@ -1268,7 +1269,8 @@ bool DBIter::MergeEntity(const Slice& entity, const Slice& user_key) {
   Status s = MergeHelper::TimedFullMergeWithEntity(
       merge_operator_, user_key, entity, merge_context_.GetOperands(),
       &saved_value_, logger_, statistics_, clock_,
-      /* update_num_ops_stats */ true);
+      /* update_num_ops_stats */ true,
+      /* op_failure_scope */ nullptr);
   if (!s.ok()) {
     valid_ = false;
     status_ = s;

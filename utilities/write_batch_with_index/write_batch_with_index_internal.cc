@@ -667,7 +667,8 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, context.GetOperands(), result, logger,
           statistics, clock, /* result_operand */ nullptr,
-          /* update_num_ops_stats */ false);
+          /* update_num_ops_stats */ false,
+          /* op_failure_scope */ nullptr);
     } else if (db_options_ != nullptr) {
       Statistics* statistics = db_options_->statistics.get();
       Env* env = db_options_->env;
@@ -676,13 +677,15 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, context.GetOperands(), result, logger,
           statistics, clock, /* result_operand */ nullptr,
-          /* update_num_ops_stats */ false);
+          /* update_num_ops_stats */ false,
+          /* op_failure_scope */ nullptr);
     } else {
       const auto cf_opts = cfh->cfd()->ioptions();
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, context.GetOperands(), result,
           cf_opts->logger, cf_opts->stats, cf_opts->clock,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ false);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ false,
+          /* op_failure_scope */ nullptr);
     }
   } else {
     return Status::InvalidArgument("Must provide a column_family");

@@ -73,8 +73,7 @@ class GetContext {
     kFound,
     kDeleted,
     kCorrupt,
-    kMerge,        // saver contains the current merge result (the operands)
-    kMergeFailed,  // `merge_status_` contains the non-OK status
+    kMerge,  // saver contains the current merge result (the operands)
     kUnexpectedBlobIndex,
   };
   GetContextStats get_context_stats_;
@@ -122,14 +121,6 @@ class GetContext {
 
   GetContext() = delete;
 
-  ~GetContext() {
-    // The default `merge_status_` does not need to be checked since it is
-    // overwritten as soon as merge operator is used. This might be better off
-    // in the constructor but that currently has challenges when GetContext is
-    // used in a vector and the vector has underlying movements
-    merge_status_.PermitUncheckedError();
-  }
-
   // This can be called to indicate that a key may be present, but cannot be
   // confirmed due to IO not allowed
   void MarkKeyMayExist();
@@ -162,8 +153,6 @@ class GetContext {
     timestamp_->assign(timestamp.data(), timestamp.size());
     ts_from_rangetombstone_ = true;
   }
-
-  Status merge_status() { return merge_status_; }
 
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
@@ -211,7 +200,6 @@ class GetContext {
   bool ts_from_rangetombstone_{false};
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
-  Status merge_status_;
   SequenceNumber* max_covering_tombstone_seq_;
   SystemClock* clock_;
   // If a key is found, seq_ will be set to the SequenceNumber of most recent
