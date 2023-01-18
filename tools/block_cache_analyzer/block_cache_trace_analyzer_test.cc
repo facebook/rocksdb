@@ -769,12 +769,12 @@ TEST_F(BlockCacheTracerTest, MultiGetWithNullReferenceKey) {
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(
         trace_file_path_,
-        /*output_miss_ratio_curve_path=*/"",
+        /*output_dir=*/"",
         /*human_readable_trace_file_path=*/human_readable_trace_file_path,
         /*compute_reuse_distance=*/true,
         /*mrc_only=*/false,
-        /*is_block_cache_human_readable_trace=*/false,
-        /*simulator=*/nullptr);
+        /*is_human_readable_trace_file=*/false,
+        /*cache_simulator=*/nullptr);
     // The analyzer ends when it detects an incomplete access record.
     ASSERT_EQ(Status::Incomplete(""), analyzer.Analyze());
 
