@@ -1797,7 +1797,8 @@ TEST_F(DBBlobWithTimestampTest, GetBlob) {
 
   ASSERT_OK(Flush());
 
-  Slice read_ts_slice(ts);
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
   ReadOptions read_opts;
   read_opts.timestamp = &read_ts_slice;
   std::string value;
@@ -1849,7 +1850,8 @@ TEST_F(DBBlobWithTimestampTest, MultiGetBlobs) {
   ASSERT_OK(Flush());
 
   ReadOptions read_options;
-  Slice read_ts_slice(ts);
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
   read_options.timestamp = &read_ts_slice;
   std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
 
