@@ -605,7 +605,7 @@ Status DBImpl::CloseHelper() {
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
     for (const auto& iter : flush_req) {
-      iter.first->UnrefAndTryDelete();
+      std::get<0>(iter)->UnrefAndTryDelete();
     }
   }
 

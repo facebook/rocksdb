@@ -7808,6 +7808,56 @@ TEST_F(DBTest2, BestEffortsRecoveryWithSstUniqueIdVerification) {
   }
 }
 
+TEST_F(DBTest2, RaceOnCFFlushReason) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+  for (int idx = 0; idx < 1; ++idx) {
+    ASSERT_OK(Put(0, Key(idx), std::string(1, 'v')));
+    ASSERT_OK(Put(1, Key(idx), std::string(1, 'v')));
+  }
+  // Assertion `cfd->GetFlushReason() == cfds[0]->GetFlushReason()' is checked
+  // in the path of background flush job. Therefore we need to stop the bg flush
+  // thread here in order to trigger that (i.e, assertion check) at a specific
+  // point
+  std::shared_ptr<test::SleepingBackgroundTask> sleeping_task(
+      new test::SleepingBackgroundTask());
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  // Flush in the middle of GetLiveFiles() to change flush reason of just one CF
+  // (the default)
+  int count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush2", [&](void* /* arg */) {
+        // Just a hack to ensure this callback only take effect in the path of
+        // GetLiveFiles()
+        if (count > 0) {
+          return;
+        }
+        count++;
+        FlushOptions fo;
+        fo.wait = false;
+        fo.allow_write_stall = true;
+        // To change the flush reason of default CF
+        ASSERT_OK(dbfull()->Flush(fo));
+        sleeping_task->WakeUp();
+        sleeping_task->WaitUntilDone();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+
+  // Before the fix, assertion `cfd->GetFlushReason() ==
+  // cfds[0]->GetFlushReason()' failed (kGetLiveFiles vs kManualFlush)
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   Destroy(last_options_);
