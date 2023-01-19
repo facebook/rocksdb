@@ -3273,6 +3273,7 @@ int main(int argc, char** argv) {
                                        &conflict_err);
     // get-for-update conflict
     CheckCondition(conflict_err != NULL);
+    Free(&conflict_err);
 
     // commit
     rocksdb_transaction_commit(txn, &err);
@@ -3325,6 +3326,7 @@ int main(int argc, char** argv) {
     rocksdb_transaction_get_for_update_cf(txn2, roptions, cfh, "cf_foo", 6,
                                           &val_len_cf, true, &conflict_err_cf);
     CheckCondition(conflict_err_cf != NULL);
+    Free(&conflict_err_cf);
 
     rocksdb_transaction_commit(txn, &err);
     CheckNoError(err);
