@@ -664,6 +664,8 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
       Statistics* statistics = immutable_db_options.statistics.get();
       Logger* logger = immutable_db_options.info_log.get();
       SystemClock* clock = immutable_db_options.clock;
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, context.GetOperands(), result, logger,
           statistics, clock, /* result_operand */ nullptr,
@@ -674,6 +676,8 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
       Env* env = db_options_->env;
       Logger* logger = db_options_->info_log.get();
       SystemClock* clock = env->GetSystemClock().get();
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, context.GetOperands(), result, logger,
           statistics, clock, /* result_operand */ nullptr,
@@ -681,6 +685,8 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
           /* op_failure_scope */ nullptr);
     } else {
       const auto cf_opts = cfh->cfd()->ioptions();
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, context.GetOperands(), result,
           cf_opts->logger, cf_opts->stats, cf_opts->clock,

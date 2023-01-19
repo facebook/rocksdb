@@ -1247,6 +1247,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 }
 
 bool DBIter::Merge(const Slice* val, const Slice& user_key) {
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
   Status s = MergeHelper::TimedFullMerge(
       merge_operator_, user_key, val, merge_context_.GetOperands(),
       &saved_value_, logger_, statistics_, clock_, &pinned_value_,
@@ -1266,6 +1268,8 @@ bool DBIter::Merge(const Slice* val, const Slice& user_key) {
 }
 
 bool DBIter::MergeEntity(const Slice& entity, const Slice& user_key) {
+  // `op_failure_scope` (an output parameter) is not provided (set to nullptr)
+  // since a failure must be propagated regardless of its value.
   Status s = MergeHelper::TimedFullMergeWithEntity(
       merge_operator_, user_key, entity, merge_context_.GetOperands(),
       &saved_value_, logger_, statistics_, clock_,

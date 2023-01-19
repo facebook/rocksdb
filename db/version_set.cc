@@ -2390,6 +2390,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     // do a final merge of nullptr and operands;
     if (value || columns) {
       std::string result;
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, merge_context->GetOperands(),
           &result, info_log_, db_statistics_, clock_,
@@ -2639,6 +2641,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       // do a final merge of nullptr and operands;
       std::string* str_value =
           iter->value != nullptr ? iter->value->GetSelf() : nullptr;
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
           str_value, info_log_, db_statistics_, clock_,
