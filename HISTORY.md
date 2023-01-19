@@ -22,6 +22,7 @@
 
 ### Public API Changes
 * Substantial changes have been made to the Cache class to support internal development goals. Direct use of Cache class members is discouraged and further breaking modifications are expected in the future. SecondaryCache has some related changes and implementations will need to be updated. (Unlike Cache, SecondaryCache is still intended to support user implementations, and disruptive changes will be avoided.) (#10975)
+* Add `multi_get_for_update` to C API.
 
 ## 7.9.0 (11/21/2022)
 ### Performance Improvements
