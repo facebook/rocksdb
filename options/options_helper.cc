@@ -403,6 +403,7 @@ std::vector<ChecksumType> GetSupportedChecksums() {
 }
 
 #ifndef ROCKSDB_LITE
+namespace {
 static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
                               const std::string& value) {
   switch (opt_type) {
@@ -568,6 +569,74 @@ bool SerializeSingleOptionHelper(const void* opt_address,
 }
 
 template <typename T>
+bool IsOptionEqual(const void* offset1, const void* offset2) {
+  return (*static_cast<const T*>(offset1) == *static_cast<const T*>(offset2));
+}
+
+static bool AreEqualDoubles(const double a, const double b) {
+  return (fabs(a - b) < 0.00001);
+}
+
+static bool AreOptionsEqual(OptionType type, const void* this_offset,
+                            const void* that_offset) {
+  switch (type) {
+    case OptionType::kBoolean:
+      return IsOptionEqual<bool>(this_offset, that_offset);
+    case OptionType::kInt:
+      return IsOptionEqual<int>(this_offset, that_offset);
+    case OptionType::kUInt:
+      return IsOptionEqual<unsigned int>(this_offset, that_offset);
+    case OptionType::kInt32T:
+      return IsOptionEqual<int32_t>(this_offset, that_offset);
+    case OptionType::kInt64T: {
+      int64_t v1, v2;
+      GetUnaligned(static_cast<const int64_t*>(this_offset), &v1);
+      GetUnaligned(static_cast<const int64_t*>(that_offset), &v2);
+      return (v1 == v2);
+    }
+    case OptionType::kUInt8T:
+      return IsOptionEqual<uint8_t>(this_offset, that_offset);
+    case OptionType::kUInt32T:
+      return IsOptionEqual<uint32_t>(this_offset, that_offset);
+    case OptionType::kUInt64T: {
+      uint64_t v1, v2;
+      GetUnaligned(static_cast<const uint64_t*>(this_offset), &v1);
+      GetUnaligned(static_cast<const uint64_t*>(that_offset), &v2);
+      return (v1 == v2);
+    }
+    case OptionType::kSizeT: {
+      size_t v1, v2;
+      GetUnaligned(static_cast<const size_t*>(this_offset), &v1);
+      GetUnaligned(static_cast<const size_t*>(that_offset), &v2);
+      return (v1 == v2);
+    }
+    case OptionType::kString:
+      return IsOptionEqual<std::string>(this_offset, that_offset);
+    case OptionType::kDouble:
+      return AreEqualDoubles(*static_cast<const double*>(this_offset),
+                             *static_cast<const double*>(that_offset));
+    case OptionType::kCompactionStyle:
+      return IsOptionEqual<CompactionStyle>(this_offset, that_offset);
+    case OptionType::kCompactionStopStyle:
+      return IsOptionEqual<CompactionStopStyle>(this_offset, that_offset);
+    case OptionType::kCompactionPri:
+      return IsOptionEqual<CompactionPri>(this_offset, that_offset);
+    case OptionType::kCompressionType:
+      return IsOptionEqual<CompressionType>(this_offset, that_offset);
+    case OptionType::kChecksumType:
+      return IsOptionEqual<ChecksumType>(this_offset, that_offset);
+    case OptionType::kEncodingType:
+      return IsOptionEqual<EncodingType>(this_offset, that_offset);
+    case OptionType::kEncodedString:
+      return IsOptionEqual<std::string>(this_offset, that_offset);
+    case OptionType::kTemperature:
+      return IsOptionEqual<Temperature>(this_offset, that_offset);
+    default:
+      return false;
+  }  // End switch
+}
+
+template <typename T>
 Status ConfigureFromMap(
     const ConfigOptions& config_options,
     const std::unordered_map<std::string, std::string>& opt_map,
@@ -578,7 +647,7 @@ Status ConfigureFromMap(
   }
   return s;
 }
-
+}  // end namespace
 
 Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map) {
@@ -683,6 +752,18 @@ Status GetColumnFamilyOptionsFromMap(
 
 Status GetColumnFamilyOptionsFromMap(
     const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    ColumnFamilyOptions* new_options) {
+  ConfigOptions copy = config_options;
+  copy.only_changed_options = true;
+  copy.restore_on_error = false;
+
+  return GetColumnFamilyOptionsFromMap(copy, ColumnFamilyOptions(), opts_map,
+                                       new_options);
+}
+
+Status GetColumnFamilyOptionsFromMap(
+    const ConfigOptions& config_options,
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options) {
@@ -727,6 +808,17 @@ Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
                                        new_options);
 }
 
+Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
+                                        const std::string& opts_str,
+                                        ColumnFamilyOptions* new_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (s.ok()) {
+    s = GetColumnFamilyOptionsFromMap(config_options, opts_map, new_options);
+  }
+  return s;
+}
+
 Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
@@ -737,6 +829,16 @@ Status GetDBOptionsFromMap(
   config_options.ignore_unknown_options = ignore_unknown_options;
   return GetDBOptionsFromMap(config_options, base_options, opts_map,
                              new_options);
+}
+
+Status GetDBOptionsFromMap(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    DBOptions* new_options) {
+  ConfigOptions copy = config_options;
+  copy.only_changed_options = true;
+  copy.restore_on_error = false;
+  return GetDBOptionsFromMap(copy, DBOptions(), opts_map, new_options);
 }
 
 Status GetDBOptionsFromMap(
@@ -782,6 +884,17 @@ Status GetDBOptionsFromString(const ConfigOptions& config_options,
                              new_options);
 }
 
+Status GetDBOptionsFromString(const ConfigOptions& config_options,
+                              const std::string& opts_str,
+                              DBOptions* new_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (s.ok()) {
+    s = GetDBOptionsFromMap(config_options, opts_map, new_options);
+  }
+  return s;
+}
+
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options) {
   ConfigOptions config_options(base_options);
@@ -790,6 +903,13 @@ Status GetOptionsFromString(const Options& base_options,
 
   return GetOptionsFromString(config_options, base_options, opts_str,
                               new_options);
+}
+
+Status GetOptionsFromString(const ConfigOptions& config_options,
+                            const std::string& opts_str, Options* new_options) {
+  ConfigOptions copy = config_options;
+  copy.only_changed_options = true;
+  return GetOptionsFromString(copy, Options(), opts_str, new_options);
 }
 
 Status GetOptionsFromString(const ConfigOptions& config_options,
@@ -1087,7 +1207,7 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
           value.find("=") != std::string::npos) {
         *opt_value = value;
       } else {
-        *opt_value = "";
+        opt_value->clear();
       }
     }
     return Status::OK();
@@ -1100,6 +1220,10 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     }
     return Status::OK();
   } else if (config_options.mutable_options_only && !IsMutable()) {
+    return Status::OK();
+  } else if (config_options.only_changed_options && default_value_ != nullptr &&
+             AreOptionsEqual(type_, GetOffset(opt_ptr), default_value_)) {
+    opt_value->clear();
     return Status::OK();
   } else if (SerializeSingleOptionHelper(GetOffset(opt_ptr), type_,
                                          opt_value)) {
@@ -1172,74 +1296,6 @@ Status OptionTypeInfo::SerializeStruct(
     }
   }
   return status;
-}
-
-template <typename T>
-bool IsOptionEqual(const void* offset1, const void* offset2) {
-  return (*static_cast<const T*>(offset1) == *static_cast<const T*>(offset2));
-}
-
-static bool AreEqualDoubles(const double a, const double b) {
-  return (fabs(a - b) < 0.00001);
-}
-
-static bool AreOptionsEqual(OptionType type, const void* this_offset,
-                            const void* that_offset) {
-  switch (type) {
-    case OptionType::kBoolean:
-      return IsOptionEqual<bool>(this_offset, that_offset);
-    case OptionType::kInt:
-      return IsOptionEqual<int>(this_offset, that_offset);
-    case OptionType::kUInt:
-      return IsOptionEqual<unsigned int>(this_offset, that_offset);
-    case OptionType::kInt32T:
-      return IsOptionEqual<int32_t>(this_offset, that_offset);
-    case OptionType::kInt64T: {
-      int64_t v1, v2;
-      GetUnaligned(static_cast<const int64_t*>(this_offset), &v1);
-      GetUnaligned(static_cast<const int64_t*>(that_offset), &v2);
-      return (v1 == v2);
-    }
-    case OptionType::kUInt8T:
-      return IsOptionEqual<uint8_t>(this_offset, that_offset);
-    case OptionType::kUInt32T:
-      return IsOptionEqual<uint32_t>(this_offset, that_offset);
-    case OptionType::kUInt64T: {
-      uint64_t v1, v2;
-      GetUnaligned(static_cast<const uint64_t*>(this_offset), &v1);
-      GetUnaligned(static_cast<const uint64_t*>(that_offset), &v2);
-      return (v1 == v2);
-    }
-    case OptionType::kSizeT: {
-      size_t v1, v2;
-      GetUnaligned(static_cast<const size_t*>(this_offset), &v1);
-      GetUnaligned(static_cast<const size_t*>(that_offset), &v2);
-      return (v1 == v2);
-    }
-    case OptionType::kString:
-      return IsOptionEqual<std::string>(this_offset, that_offset);
-    case OptionType::kDouble:
-      return AreEqualDoubles(*static_cast<const double*>(this_offset),
-                             *static_cast<const double*>(that_offset));
-    case OptionType::kCompactionStyle:
-      return IsOptionEqual<CompactionStyle>(this_offset, that_offset);
-    case OptionType::kCompactionStopStyle:
-      return IsOptionEqual<CompactionStopStyle>(this_offset, that_offset);
-    case OptionType::kCompactionPri:
-      return IsOptionEqual<CompactionPri>(this_offset, that_offset);
-    case OptionType::kCompressionType:
-      return IsOptionEqual<CompressionType>(this_offset, that_offset);
-    case OptionType::kChecksumType:
-      return IsOptionEqual<ChecksumType>(this_offset, that_offset);
-    case OptionType::kEncodingType:
-      return IsOptionEqual<EncodingType>(this_offset, that_offset);
-    case OptionType::kEncodedString:
-      return IsOptionEqual<std::string>(this_offset, that_offset);
-    case OptionType::kTemperature:
-      return IsOptionEqual<Temperature>(this_offset, that_offset);
-    default:
-      return false;
-  }  // End switch
 }
 
 bool OptionTypeInfo::AreEqual(const ConfigOptions& config_options,

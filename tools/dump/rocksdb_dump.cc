@@ -45,8 +45,11 @@ int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::Options db_options;
   if (FLAGS_db_options != "") {
     ROCKSDB_NAMESPACE::Options parsed_options;
+    ROCKSDB_NAMESPACE::ConfigOptions config_options;
+    config_options.ignore_unknown_options = false;
+    config_options.ignore_unsupported_options = false;
     ROCKSDB_NAMESPACE::Status s = ROCKSDB_NAMESPACE::GetOptionsFromString(
-        db_options, FLAGS_db_options, &parsed_options);
+        config_options, FLAGS_db_options, &parsed_options);
     if (!s.ok()) {
       fprintf(stderr, "Cannot parse provided db_options\n");
       return 1;
