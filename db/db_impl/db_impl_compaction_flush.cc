@@ -2135,14 +2135,15 @@ Status DBImpl::RunManualCompaction(
 void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                                   FlushReason flush_reason, FlushRequest* req) {
   assert(req != nullptr);
-  req->reserve(cfds.size());
+  req->flush_reason = flush_reason;
+  req->cfd_to_max_mem_id_to_persist.reserve(cfds.size());
   for (const auto cfd : cfds) {
     if (nullptr == cfd) {
       // cfd may be null, see DBImpl::ScheduleFlushes
       continue;
     }
     uint64_t max_memtable_id = cfd->imm()->GetLatestMemTableID();
-    req->emplace_back(cfd, max_memtable_id, flush_reason);
+    req->cfd_to_max_mem_id_to_persist.emplace(cfd, max_memtable_id);
   }
 }
 
@@ -2200,7 +2201,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
-        FlushRequest req{{cfd, flush_memtable_id, flush_reason}};
+        FlushRequest req{flush_reason, {{cfd, flush_memtable_id}}};
         flush_reqs.emplace_back(std::move(req));
         memtable_ids_to_wait.emplace_back(cfd->imm()->GetLatestMemTableID());
       }
@@ -2228,7 +2229,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                            "to avoid holding old logs",
                            cfd->GetName().c_str());
             s = SwitchMemtable(cfd_stats, &context);
-            FlushRequest req{{cfd_stats, flush_memtable_id, flush_reason}};
+            FlushRequest req{flush_reason, {{cfd_stats, flush_memtable_id}}};
             flush_reqs.emplace_back(std::move(req));
             memtable_ids_to_wait.emplace_back(
                 cfd_stats->imm()->GetLatestMemTableID());
@@ -2239,8 +2240,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     if (s.ok() && !flush_reqs.empty()) {
       for (const auto& req : flush_reqs) {
-        assert(req.size() == 1);
-        ColumnFamilyData* loop_cfd = std::get<0>(req[0]);
+        assert(req.cfd_to_max_mem_id_to_persist.size() == 1);
+        ColumnFamilyData* loop_cfd =
+            req.cfd_to_max_mem_id_to_persist.begin()->first;
         loop_cfd->imm()->FlushRequested();
       }
       // If the caller wants to wait for this flush to complete, it indicates
@@ -2249,8 +2251,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       // Therefore, we increase the cfd's ref count.
       if (flush_options.wait) {
         for (const auto& req : flush_reqs) {
-          assert(req.size() == 1);
-          ColumnFamilyData* loop_cfd = std::get<0>(req[0]);
+          assert(req.cfd_to_max_mem_id_to_persist.size() == 1);
+          ColumnFamilyData* loop_cfd =
+              req.cfd_to_max_mem_id_to_persist.begin()->first;
           loop_cfd->Ref();
         }
       }
@@ -2274,8 +2277,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     autovector<const uint64_t*> flush_memtable_ids;
     assert(flush_reqs.size() == memtable_ids_to_wait.size());
     for (size_t i = 0; i < flush_reqs.size(); ++i) {
-      assert(flush_reqs[i].size() == 1);
-      cfds.push_back(std::get<0>(flush_reqs[i][0]));
+      assert(flush_reqs[i].cfd_to_max_mem_id_to_persist.size() == 1);
+      cfds.push_back(flush_reqs[i].cfd_to_max_mem_id_to_persist.begin()->first);
       flush_memtable_ids.push_back(&(memtable_ids_to_wait[i]));
     }
     s = WaitForFlushMemTables(
@@ -2390,8 +2393,8 @@ Status DBImpl::AtomicFlushMemTables(
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
     autovector<const uint64_t*> flush_memtable_ids;
-    for (auto& iter : flush_req) {
-      flush_memtable_ids.push_back(&(std::get<1>(iter)));
+    for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
+      flush_memtable_ids.push_back(&(iter.second));
     }
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
@@ -2737,17 +2740,16 @@ DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   FlushRequest flush_req = flush_queue_.front();
   flush_queue_.pop_front();
   if (!immutable_db_options_.atomic_flush) {
-    assert(flush_req.size() == 1);
+    assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
   }
-  for (const auto& elem : flush_req) {
+  for (const auto& elem : flush_req.cfd_to_max_mem_id_to_persist) {
     if (!immutable_db_options_.atomic_flush) {
-      ColumnFamilyData* cfd = std::get<0>(elem);
+      ColumnFamilyData* cfd = elem.first;
       assert(cfd);
       assert(cfd->queued_for_flush());
       cfd->set_queued_for_flush(false);
     }
   }
-  // TODO: need to unset flush reason?
   return flush_req;
 }
 
@@ -2779,14 +2781,15 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
 
 void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
   mutex_.AssertHeld();
-  if (flush_req.empty()) {
+  if (flush_req.cfd_to_max_mem_id_to_persist.empty()) {
     return;
   }
   if (!immutable_db_options_.atomic_flush) {
     // For the non-atomic flush case, we never schedule multiple column
     // families in the same flush request.
-    assert(flush_req.size() == 1);
-    ColumnFamilyData* cfd = std::get<0>(flush_req[0]);
+    assert(flush_req.cfd_to_max_mem_id_to_persist.size() == 1);
+    ColumnFamilyData* cfd =
+        flush_req.cfd_to_max_mem_id_to_persist.begin()->first;
     assert(cfd);
 
     if (!cfd->queued_for_flush() && cfd->imm()->IsFlushPending()) {
@@ -2796,8 +2799,8 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req) {
       flush_queue_.push_back(flush_req);
     }
   } else {
-    for (auto& iter : flush_req) {
-      ColumnFamilyData* cfd = std::get<0>(iter);
+    for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
+      ColumnFamilyData* cfd = iter.first;
       cfd->Ref();
     }
     ++unscheduled_flushes_;
@@ -2930,12 +2933,13 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
-    FlushReason flush_reason = std::get<2>(flush_req[0]);
+    FlushReason flush_reason = flush_req.flush_reason;
     superversion_contexts.clear();
-    superversion_contexts.reserve(flush_req.size());
+    superversion_contexts.reserve(
+        flush_req.cfd_to_max_mem_id_to_persist.size());
 
-    for (const auto& iter : flush_req) {
-      ColumnFamilyData* cfd = std::get<0>(iter);
+    for (const auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
+      ColumnFamilyData* cfd = iter.first;
       if (cfd->GetMempurgeUsed()) {
         // If imm() contains silent memtables (e.g.: because
         // MemPurge was activated), requesting a flush will
@@ -2949,7 +2953,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         continue;
       }
       superversion_contexts.emplace_back(SuperVersionContext(true));
-      bg_flush_args.emplace_back(cfd, std::get<1>(iter),
+      bg_flush_args.emplace_back(cfd, iter.second,
                                  &(superversion_contexts.back()), flush_reason);
     }
     if (!bg_flush_args.empty()) {

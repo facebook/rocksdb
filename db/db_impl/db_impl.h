@@ -16,6 +16,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -2035,15 +2036,17 @@ class DBImpl : public DB {
 
   void MaybeScheduleFlushOrCompaction();
 
-  // A flush request specifies the column families to flush, the
-  // largest memtable id to persist for each column family and the reason to
-  // flush. Once all the memtables whose IDs are smaller than or equal to this
-  // per-column-family specified value, this flush request is considered to have
-  // completed its work of flushing this column family. After completing the
-  // work for all column families in this request, this flush is considered
-  // complete.
-  using FlushRequest =
-      std::vector<std::tuple<ColumnFamilyData*, uint64_t, FlushReason>>;
+  struct FlushRequest {
+    FlushReason flush_reason;
+    // A map from column family to flush to largest memtable id to persist for
+    // each column family. Once all the memtables whose IDs are smaller than or
+    // equal to this per-column-family specified value, this flush request is
+    // considered to have completed its work of flushing this column family.
+    // After completing the work for all column families in this request, this
+    // flush is considered complete.
+    std::unordered_map<ColumnFamilyData*, uint64_t>
+        cfd_to_max_mem_id_to_persist;
+  };
 
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushReason flush_reason, FlushRequest* req);
