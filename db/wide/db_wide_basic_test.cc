@@ -598,14 +598,17 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
 
+  // Wide-column entity with default column
   constexpr char first_key[] = "first";
   WideColumns first_columns{{kDefaultWideColumnName, "a"},
                             {"attr_name1", "foo"},
                             {"attr_name2", "bar"}};
 
+  // Wide-column entity without default column
   constexpr char second_key[] = "second";
   WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
 
+  // Plain old key-value
   constexpr char last_key[] = "last";
   constexpr char last_value[] = "baz";
 
@@ -625,6 +628,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
                                 /* end */ nullptr));
   };
 
+  // Test a compaction filter that keeps all entries
   {
     class KeepFilter : public CompactionFilter {
      public:
@@ -662,14 +666,19 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
       ASSERT_EQ(result.columns(), second_columns);
     }
 
+    // Note: GetEntity should return an entity with a single default column,
+    // since last_key is a plain key-value
     {
-      PinnableSlice result;
-      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), last_key,
-                         &result));
-      ASSERT_EQ(result, last_value);
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               last_key, &result));
+
+      WideColumns expected_columns{{kDefaultWideColumnName, last_value}};
+      ASSERT_EQ(result.columns(), expected_columns);
     }
   }
 
+  // Test a compaction filter that removes all entries
   {
     class RemoveFilter : public CompactionFilter {
      public:
@@ -708,13 +717,17 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
     }
 
     {
-      PinnableSlice result;
-      ASSERT_TRUE(
-          db_->Get(ReadOptions(), db_->DefaultColumnFamily(), last_key, &result)
-              .IsNotFound());
+      PinnableWideColumns result;
+      ASSERT_TRUE(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                                 last_key, &result)
+                      .IsNotFound());
     }
   }
 
+  // Test a compaction filter that changes the values of entries. If the
+  // existing entry is a plain old key-value, its value is simply converted to
+  // uppercase. If it is a wide-column entity, it is turned into a plain
+  // key-value where the value is the uppercased value of the first column.
   {
     class ChangeValueFilter : public CompactionFilter {
      public:
@@ -756,6 +769,8 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
 
     write();
 
+    // Note: GetEntity should return entities with a single default column,
+    // since all entries are now plain key-values
     {
       PinnableWideColumns result;
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
@@ -775,10 +790,12 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
     }
 
     {
-      PinnableSlice result;
-      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), last_key,
-                         &result));
-      ASSERT_EQ(result, "BAZ");
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               last_key, &result));
+
+      WideColumns expected_columns{{kDefaultWideColumnName, "BAZ"}};
+      ASSERT_EQ(result.columns(), expected_columns);
     }
   }
 }
