@@ -145,12 +145,10 @@ Status MergeHelper::TimedFullMergeWithEntity(
   std::string merge_result;
 
   {
-    constexpr Slice* result_operand = nullptr;
-
-    const Status s =
-        TimedFullMerge(merge_operator, key, &value_of_default, operands,
-                       &merge_result, logger, statistics, clock, result_operand,
-                       update_num_ops_stats, op_failure_scope);
+    const Status s = TimedFullMerge(merge_operator, key, &value_of_default,
+                                    operands, &merge_result, logger, statistics,
+                                    clock, nullptr /* result_operand */,
+                                    update_num_ops_stats, op_failure_scope);
     if (!s.ok()) {
       return s;
     }
