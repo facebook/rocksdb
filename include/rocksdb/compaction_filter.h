@@ -197,7 +197,8 @@ class CompactionFilter : public Customizable {
   virtual Decision FilterV3(int level, const Slice& key, ValueType value_type,
                             const Slice* existing_value,
                             const WideColumns* existing_entity,
-                            std::string* new_value, WideColumns* /*new_entity*/,
+                            std::string* new_value,
+                            WideColumns* /* new_entity */,
                             std::string* skip_until) const {
     assert(!existing_value || !existing_entity);
     assert(value_type == ValueType::kWideColumnEntity || existing_value);
