@@ -444,9 +444,10 @@ Status CompactionOutputs::AddRangeDels(
     // TODO: make sure subcompaction boundary has `kMaxTs`
     if (comp_start_user_key) {
       // To exclude range overlap with range tombstones that ends at kMaxSeqno
-      // This seqno will be overwritten in smallest_candidate below, so it will not
-      // be used as any meta.smallest.
-      lower_bound_buf.Set(*comp_start_user_key, kMaxSequenceNumber,
+      // when comparing end keys to this lower bound.
+      // This seqno will be overwritten in smallest_candidate below, so it will
+      // not affect meta.smallest.
+      lower_bound_buf.Set(*comp_start_user_key, kMaxSequenceNumber - 1,
                           kTypeRangeDeletion);
       lower_bound_guard = lower_bound_buf.Encode();
       lower_bound = &lower_bound_guard;
