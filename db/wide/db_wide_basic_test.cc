@@ -594,67 +594,79 @@ TEST_F(DBWideBasicTest, MergeEntity) {
 }
 
 TEST_F(DBWideBasicTest, CompactionFilter) {
-  class KeepFilter : public CompactionFilter {
-   public:
-    Decision FilterV3(int /* level */, const Slice& /* key */,
-                      ValueType /* value_type */,
-                      const Slice* /* existing_value */,
-                      const WideColumns* /* existing_entity */,
-                      std::string* /* new_value */,
-                      WideColumns* /* new_entity */,
-                      std::string* /* skip_until */) const override {
-      return Decision::kKeep;
-    }
-
-    const char* Name() const override { return "KeepFilter"; }
-  };
-
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
-
-  KeepFilter filter;
-  options.compaction_filter = &filter;
-
-  Reopen(options);
 
   constexpr char first_key[] = "first";
   WideColumns first_columns{{kDefaultWideColumnName, "a"},
                             {"attr_name1", "foo"},
                             {"attr_name2", "bar"}};
 
-  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
-                           first_key, first_columns));
-
   constexpr char second_key[] = "second";
   WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
-
-  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
-                           second_key, second_columns));
-
-  ASSERT_OK(Flush());
 
   constexpr char last_key[] = "last";
   constexpr char last_value[] = "baz";
 
-  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), last_key,
-                     last_value));
+  auto write = [&] {
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                             first_key, first_columns));
+    ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                             second_key, second_columns));
 
-  ASSERT_OK(Flush());
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /* begin */ nullptr,
-                              /* end */ nullptr));
+    ASSERT_OK(Flush());
+
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), last_key,
+                       last_value));
+
+    ASSERT_OK(Flush());
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /* begin */ nullptr,
+                                /* end */ nullptr));
+  };
 
   {
-    PinnableWideColumns result;
-    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
-                             first_key, &result));
-    ASSERT_EQ(result.columns(), first_columns);
-  }
+    class KeepFilter : public CompactionFilter {
+     public:
+      Decision FilterV3(int /* level */, const Slice& /* key */,
+                        ValueType /* value_type */,
+                        const Slice* /* existing_value */,
+                        const WideColumns* /* existing_entity */,
+                        std::string* /* new_value */,
+                        WideColumns* /* new_entity */,
+                        std::string* /* skip_until */) const override {
+        return Decision::kKeep;
+      }
 
-  {
-    PinnableWideColumns result;
-    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
-                             second_key, &result));
-    ASSERT_EQ(result.columns(), second_columns);
+      const char* Name() const override { return "KeepFilter"; }
+    };
+
+    KeepFilter filter;
+    options.compaction_filter = &filter;
+
+    DestroyAndReopen(options);
+
+    write();
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               first_key, &result));
+      ASSERT_EQ(result.columns(), first_columns);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               second_key, &result));
+      ASSERT_EQ(result.columns(), second_columns);
+    }
+
+    {
+      PinnableSlice result;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), last_key,
+                         &result));
+      ASSERT_EQ(result, last_value);
+    }
   }
 }
 
