@@ -253,7 +253,7 @@ Status BuildTable(
         if (version) {
           if (last_tombstone_start_user_key.empty() ||
               ucmp->CompareWithoutTimestamp(last_tombstone_start_user_key,
-                                            tombstone.start_key_) < 0) {
+                                            range_del_it->start_key()) < 0) {
             SizeApproximationOptions approx_opts;
             approx_opts.files_size_error_margin = 0.1;
             meta->compensated_range_deletion_size += versions->ApproximateSize(
@@ -261,7 +261,7 @@ Status BuildTable(
                 0 /* start_level */, -1 /* end_level */,
                 TableReaderCaller::kFlush);
           }
-          last_tombstone_start_user_key = tombstone.start_key_;
+          last_tombstone_start_user_key = range_del_it->start_key();
         }
       }
     }
