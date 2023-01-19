@@ -616,8 +616,8 @@ Status CompactionOutputs::AddRangeDels(
       bool start_user_key_changed =
           last_tombstone_start_user_key.empty() ||
           ucmp->CompareWithoutTimestamp(last_tombstone_start_user_key,
-                                        tombstone.start_key_) < 0;
-      last_tombstone_start_user_key = tombstone.start_key_;
+                                        it->start_key()) < 0;
+      last_tombstone_start_user_key = it->start_key();
       // Range tombstones are truncated at file boundaries
       if (icmp.Compare(tombstone_start, meta.smallest) < 0) {
         tombstone_start = meta.smallest;
