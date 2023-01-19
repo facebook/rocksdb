@@ -668,6 +668,51 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
       ASSERT_EQ(result, last_value);
     }
   }
+
+  {
+    class RemoveFilter : public CompactionFilter {
+     public:
+      Decision FilterV3(int /* level */, const Slice& /* key */,
+                        ValueType /* value_type */,
+                        const Slice* /* existing_value */,
+                        const WideColumns* /* existing_entity */,
+                        std::string* /* new_value */,
+                        WideColumns* /* new_entity */,
+                        std::string* /* skip_until */) const override {
+        return Decision::kRemove;
+      }
+
+      const char* Name() const override { return "RemoveFilter"; }
+    };
+
+    RemoveFilter filter;
+    options.compaction_filter = &filter;
+
+    DestroyAndReopen(options);
+
+    write();
+
+    {
+      PinnableWideColumns result;
+      ASSERT_TRUE(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                                 first_key, &result)
+                      .IsNotFound());
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_TRUE(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                                 second_key, &result)
+                      .IsNotFound());
+    }
+
+    {
+      PinnableSlice result;
+      ASSERT_TRUE(
+          db_->Get(ReadOptions(), db_->DefaultColumnFamily(), last_key, &result)
+              .IsNotFound());
+    }
+  }
 }
 
 TEST_F(DBWideBasicTest, PutEntityTimestampError) {
