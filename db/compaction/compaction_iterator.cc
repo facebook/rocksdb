@@ -312,8 +312,9 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     if (decision == CompactionFilter::Decision::kUndetermined) {
       WideColumns existing_entity;
       if (ikey_.type == kTypeWideColumnEntity) {
+        Slice value_copy = value_;
         const Status s =
-            WideColumnSerialization::Deserialize(value_, existing_entity);
+            WideColumnSerialization::Deserialize(value_copy, existing_entity);
 
         if (!s.ok()) {
           status_ = s;
