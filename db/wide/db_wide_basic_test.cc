@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <array>
+#include <cctype>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -711,6 +712,73 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
       ASSERT_TRUE(
           db_->Get(ReadOptions(), db_->DefaultColumnFamily(), last_key, &result)
               .IsNotFound());
+    }
+  }
+
+  {
+    class ChangeValueFilter : public CompactionFilter {
+     public:
+      Decision FilterV3(int /* level */, const Slice& /* key */,
+                        ValueType value_type, const Slice* existing_value,
+                        const WideColumns* existing_entity,
+                        std::string* new_value, WideColumns* /* new_entity */,
+                        std::string* /* skip_until */) const override {
+        assert(new_value);
+
+        if (value_type == ValueType::kWideColumnEntity) {
+          assert(existing_entity);
+
+          if (existing_entity->empty()) {
+            *new_value = "empty";
+          } else {
+            *new_value = (*existing_entity)[0].value().ToString();
+          }
+        } else {
+          assert(existing_value);
+
+          *new_value = existing_value->ToString();
+        }
+
+        for (char& c : *new_value) {
+          c = std::toupper(static_cast<unsigned char>(c));
+        }
+
+        return Decision::kChangeValue;
+      }
+
+      const char* Name() const override { return "ChangeValueFilter"; }
+    };
+
+    ChangeValueFilter filter;
+    options.compaction_filter = &filter;
+
+    DestroyAndReopen(options);
+
+    write();
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               first_key, &result));
+
+      WideColumns expected_columns{{kDefaultWideColumnName, "A"}};
+      ASSERT_EQ(result.columns(), expected_columns);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               second_key, &result));
+
+      WideColumns expected_columns{{kDefaultWideColumnName, "TWO"}};
+      ASSERT_EQ(result.columns(), expected_columns);
+    }
+
+    {
+      PinnableSlice result;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), last_key,
+                         &result));
+      ASSERT_EQ(result, "BAZ");
     }
   }
 }
