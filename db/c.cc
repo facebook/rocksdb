@@ -5801,7 +5801,7 @@ void rocksdb_transaction_multi_get_for_update(
       values_list[i] = nullptr;
       values_list_sizes[i] = 0;
       if (!statuses[i].IsNotFound()) {
-        SaveError(&errs[i], statuses[i]);
+        errs[i] = strdup(statuses[i].ToString().c_str());
       } else {
         errs[i] = nullptr;
       }
@@ -5865,7 +5865,7 @@ void rocksdb_transaction_multi_get_for_update_cf(
       values_list[i] = nullptr;
       values_list_sizes[i] = 0;
       if (!statuses[i].IsNotFound()) {
-        SaveError(&errs[i], statuses[i]);
+        errs[i] = strdup(statuses[i].ToString().c_str());
       } else {
         errs[i] = nullptr;
       }
