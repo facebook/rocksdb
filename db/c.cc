@@ -85,6 +85,7 @@ using ROCKSDB_NAMESPACE::LevelMetaData;
 using ROCKSDB_NAMESPACE::LiveFileMetaData;
 using ROCKSDB_NAMESPACE::Logger;
 using ROCKSDB_NAMESPACE::LRUCacheOptions;
+using ROCKSDB_NAMESPACE::HyperClockCacheOptions;
 using ROCKSDB_NAMESPACE::MemoryAllocator;
 using ROCKSDB_NAMESPACE::MemoryUtil;
 using ROCKSDB_NAMESPACE::MergeOperator;
@@ -207,6 +208,9 @@ struct rocksdb_logger_t {
 };
 struct rocksdb_lru_cache_options_t {
   LRUCacheOptions rep;
+};
+struct rocksdb_clock_cache_options_t {
+  HyperClockCacheOptions rep;
 };
 struct rocksdb_memory_allocator_t {
   std::shared_ptr<MemoryAllocator> rep;
@@ -4674,6 +4678,52 @@ rocksdb_cache_t* rocksdb_cache_create_lru_opts(
   c->rep = NewLRUCache(opt->rep);
   return c;
 }
+
+rocksdb_clock_cache_options_t* rocksdb_clock_cache_options_create() {
+  return new rocksdb_clock_cache_options_t;
+}
+
+void rocksdb_clock_cache_options_destroy(rocksdb_clock_cache_options_t* opt) {
+  delete opt;
+}
+
+void rocksdb_clock_cache_options_set_capacity(
+    rocksdb_clock_cache_options_t* opts,
+    size_t capacity) {
+  opts->rep.capacity = capacity;
+}
+
+void rocksdb_clock_cache_options_set_estimated_entry_charge(
+    rocksdb_clock_cache_options_t* opts,
+    size_t estimated_entry_charge) {
+  opts->rep.estimated_entry_charge = estimated_entry_charge;
+}
+
+void rocksdb_clock_cache_options_set_num_shard_bits(
+    rocksdb_clock_cache_options_t* opts,
+    int num_shard_bits) {
+  opts->rep.num_shard_bits = num_shard_bits;
+}
+
+void rocksdb_clock_cache_options_set_memory_allocator(
+    rocksdb_clock_cache_options_t* opts,
+    rocksdb_memory_allocator_t* memory_allocator) {
+  opts->rep.memory_allocator = memory_allocator->rep;
+}
+
+rocksdb_cache_t* rocksdb_cache_create_clock(size_t capacity, size_t estimated_entry_charge) {
+    HyperClockCacheOptions opts(capacity, estimated_entry_charge);
+  rocksdb_cache_t* c = new rocksdb_cache_t;
+  c->rep = opts.MakeSharedCache();
+  return c;
+}
+
+rocksdb_cache_t* rocksdb_cache_create_clock_opts(rocksdb_clock_cache_options_t* opts) {
+  rocksdb_cache_t* c = new rocksdb_cache_t;
+  c->rep = opts->rep.MakeSharedCache();
+  return c;
+}
+
 
 void rocksdb_cache_destroy(rocksdb_cache_t* cache) { delete cache; }
 
