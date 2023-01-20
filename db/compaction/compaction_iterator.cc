@@ -182,9 +182,17 @@ void CompactionIterator::Next() {
       validity_info_.SetValid(ValidContext::kMerge1);
     } else {
       if (merge_until_status_.IsMergeInProgress()) {
-        // only merge operands were produced. reset the user key, since the
-        // batch produced by the merge operator should not shadow any keys
-        // coming after the merges
+        // `Status::MergeInProgress()` tells us that the previous `MergeUntil()`
+        // produced only merge operands. Those merge operands were accessed and
+        // written out using `merge_out_iter_`. Since `merge_out_iter_` is
+        // exhausted at this point, all merge operands have been written out.
+        //
+        // Still, there may be a base value (PUT, DELETE, SINGLEDEL, etc.) that
+        // needs to be written out. Normally, `CompactionIterator` would skip it
+        // on the basis that it has already output something in the same
+        // snapshot stripe. To prevent this, we reset `has_current_user_key_` to
+        // trick the future iteration from finding out the snapshot stripe is
+        // unchanged.
         has_current_user_key_ = false;
       }
       // We consumed all pinned merge operands, release pinned iterators

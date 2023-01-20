@@ -72,6 +72,12 @@ class MergeHelper {
   //     - a specific sequence number (snapshot boundary),
   //     - REMOVE_AND_SKIP_UNTIL returned from compaction filter,
   //  or - the end of iteration
+  //
+  // The result(s) of the merge can be accessed in `MergeHelper::keys()` and
+  // `MergeHelper::values()`, which are invalidated the next time `MergeUntil()`
+  // is called. `MergeOutputIterator` is specially designed to iterate the
+  // results of a `MergeHelper`'s most recent `MergeUntil()`.
+  //
   // iter: (IN)  points to the first merge type entry
   //       (OUT) points to the first entry not included in the merge process
   // range_del_agg: (IN) filters merge operands covered by range tombstones.
