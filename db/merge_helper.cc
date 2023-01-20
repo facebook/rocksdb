@@ -224,10 +224,6 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       s = Status::ShutdownInProgress();
       return s;
     }
-    // Skip range tombstones emitted by the compaction iterator.
-    if (iter->IsDeleteRangeSentinelKey()) {
-      continue;
-    }
 
     ParsedInternalKey ikey;
     assert(keys_.size() == merge_context_.GetNumOperands());
