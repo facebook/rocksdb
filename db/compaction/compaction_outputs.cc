@@ -226,6 +226,15 @@ uint64_t CompactionOutputs::GetCurrentKeyGrandparentOverlappedBytes(
 bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
   assert(c_iter.Valid());
   const Slice& internal_key = c_iter.key();
+#ifndef NDEBUG
+  bool should_stop = false;
+  std::pair<bool*, const Slice> p{&should_stop, internal_key};
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionOutputs::ShouldStopBefore::manual_decision", (void*)&p);
+  if (should_stop) {
+    return true;
+  }
+#endif  // NDEBUG
   const uint64_t previous_overlapped_bytes = grandparent_overlapped_bytes_;
   const InternalKeyComparator* icmp =
       &compaction_->column_family_data()->internal_comparator();
@@ -538,7 +547,7 @@ Status CompactionOutputs::AddRangeDels(
         // upper_bound
         //  This is only true if meta.largest is never updated.
         upper_bound_guard = meta.largest.Encode();
-    } else if (lower_bound && ucmp->CompareWithoutTimestamp(
+    } else if (lower_bound && ucmp->EqualWithoutTimestamp(
                                   ExtractUserKey(*lower_bound),
                                   next_table_min_key_parsed.user_key)) {
       // There are no in-bounds user keys preceding `next_table_min_key`, and no
