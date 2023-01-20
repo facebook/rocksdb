@@ -44,9 +44,9 @@ Status ToPinnableWideColumns(const WideColumns& columns,
 }
 
 Status PinnableWideColumns::CreateIndexForWideColumns() {
-  Slice value_copy = value_;
+  Slice buf_copy = buf_;
 
-  return WideColumnSerialization::Deserialize(value_copy, columns_);
+  return WideColumnSerialization::Deserialize(buf_copy, columns_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

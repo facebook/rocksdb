@@ -92,8 +92,11 @@ extern const WideColumns kNoWideColumns;
 // wide-column queries.
 class PinnableWideColumns {
  public:
+  PinnableWideColumns() = default;
+  explicit PinnableWideColumns(std::string* buf) : buf_(buf) {}
+
   const WideColumns& columns() const { return columns_; }
-  size_t serialized_size() const { return value_.size(); }
+  size_t serialized_size() const { return buf_.size(); }
 
   void SetPlainValue(const Slice& value);
   void SetPlainValue(const Slice& value, Cleanable* cleanable);
@@ -109,7 +112,7 @@ class PinnableWideColumns {
   void CreateIndexForPlainValue();
   Status CreateIndexForWideColumns();
 
-  PinnableSlice value_;
+  PinnableSlice buf_;
   WideColumns columns_;
 };
 
@@ -117,7 +120,7 @@ Status ToPinnableWideColumns(const WideColumns& columns,
                              PinnableWideColumns& pinnable_columns);
 
 inline void PinnableWideColumns::CopyValue(const Slice& value) {
-  value_.PinSelf(value);
+  buf_.PinSelf(value);
 }
 
 inline void PinnableWideColumns::PinOrCopyValue(const Slice& value,
@@ -127,11 +130,11 @@ inline void PinnableWideColumns::PinOrCopyValue(const Slice& value,
     return;
   }
 
-  value_.PinSlice(value, cleanable);
+  buf_.PinSlice(value, cleanable);
 }
 
 inline void PinnableWideColumns::CreateIndexForPlainValue() {
-  columns_ = WideColumns{{kDefaultWideColumnName, value_}};
+  columns_ = WideColumns{{kDefaultWideColumnName, buf_}};
 }
 
 inline void PinnableWideColumns::SetPlainValue(const Slice& value) {
@@ -157,7 +160,7 @@ inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value,
 }
 
 inline void PinnableWideColumns::Reset() {
-  value_.Reset();
+  buf_.Reset();
   columns_.clear();
 }
 
