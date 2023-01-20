@@ -92,10 +92,9 @@ extern const WideColumns kNoWideColumns;
 // wide-column queries.
 class PinnableWideColumns {
  public:
-  PinnableWideColumns() = default;
-  explicit PinnableWideColumns(std::string* buf) : buf_(buf) {}
-
   const WideColumns& columns() const { return columns_; }
+
+  std::string* serialized_data() { return buf_.GetSelf(); }
   size_t serialized_size() const { return buf_.size(); }
 
   void SetPlainValue(const Slice& value);
