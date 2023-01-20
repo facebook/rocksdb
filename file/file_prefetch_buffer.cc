@@ -109,6 +109,7 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
                                      RandomAccessFileReader* reader,
                                      uint64_t read_len,
                                      uint64_t rounddown_start, uint32_t index) {
+  TEST_SYNC_POINT("FilePrefetchBuffer::ReadAsync");
   // callback for async read request.
   auto fp = std::bind(&FilePrefetchBuffer::PrefetchAsyncCallback, this,
                       std::placeholders::_1, std::placeholders::_2);
