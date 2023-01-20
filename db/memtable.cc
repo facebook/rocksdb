@@ -1067,11 +1067,15 @@ static bool SaveValue(void* arg, const char* entry) {
 
           if (s->value || s->columns) {
             std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
                 s->clock, /* result_operand */ nullptr,
-                /* update_num_ops_stats */ true);
+                /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
 
             if (s->status->ok()) {
               if (s->value) {
@@ -1130,18 +1134,26 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
                 v, value_of_default);
             if (s->status->ok()) {
+              // `op_failure_scope` (an output parameter) is not provided (set
+              // to nullptr) since a failure must be propagated regardless of
+              // its value.
               *(s->status) = MergeHelper::TimedFullMerge(
                   merge_operator, s->key->user_key(), &value_of_default,
                   merge_context->GetOperands(), s->value, s->logger,
                   s->statistics, s->clock, /* result_operand */ nullptr,
-                  /* update_num_ops_stats */ true);
+                  /* update_num_ops_stats */ true,
+                  /* op_failure_scope */ nullptr);
             }
           } else if (s->columns) {
             std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
             *(s->status) = MergeHelper::TimedFullMergeWithEntity(
                 merge_operator, s->key->user_key(), v,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true);
+                s->clock, /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
 
             if (s->status->ok()) {
               *(s->status) = s->columns->SetWideColumnValue(result);
@@ -1177,11 +1189,15 @@ static bool SaveValue(void* arg, const char* entry) {
         if (*(s->merge_in_progress)) {
           if (s->value || s->columns) {
             std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
                 s->clock, /* result_operand */ nullptr,
-                /* update_num_ops_stats */ true);
+                /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
 
             if (s->status->ok()) {
               if (s->value) {
@@ -1217,11 +1233,15 @@ static bool SaveValue(void* arg, const char* entry) {
                                merge_context->GetOperandsDirectionBackward())) {
           if (s->value || s->columns) {
             std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
                 s->clock, /* result_operand */ nullptr,
-                /* update_num_ops_stats */ true);
+                /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
 
             if (s->status->ok()) {
               if (s->value) {
