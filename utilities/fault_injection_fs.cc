@@ -342,27 +342,6 @@ IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
   return io_s;
 }
 
-TestFSRandomRWFile::TestFSRandomRWFile(const std::string& /*fname*/,
-                                       std::unique_ptr<FSRandomRWFile>&& f,
-                                       FaultInjectionTestFS* fs)
-    : target_(std::move(f)), file_opened_(true), fs_(fs) {
-  assert(target_ != nullptr);
-}
-
-TestFSRandomRWFile::~TestFSRandomRWFile() {
-  if (file_opened_) {
-    Close(IOOptions(), nullptr).PermitUncheckedError();
-  }
-}
-
-IOStatus TestFSRandomRWFile::Sync(const IOOptions& options,
-                                  IODebugContext* dbg) {
-  if (!fs_->IsFilesystemActive()) {
-    return fs_->GetError();
-  }
-  return target_->Sync(options, dbg);
-}
-
 IOStatus FaultInjectionTestFS::DoRead(FSRandomRWFile* file, uint64_t offset,
                                       size_t n, const IOOptions& options,
                                       Slice* result, char* scratch,
@@ -423,26 +402,26 @@ IOStatus FaultInjectionTestFS::DoRead(FSRandomAccessFile* file, uint64_t offset,
   return s;
 }
 
-IOStatus TestFSRandomAccessFile::ReadAsync(
-    FSReadRequest& req, const IOOptions& opts,
+IOStatus FaultInjectionTestFS::DoReadAsync(
+    FSRandomAccessFile* file, FSReadRequest& req, const IOOptions& opts,
     std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
-    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
   IOStatus ret;
   IOStatus s;
   FSReadRequest res;
-  if (!fs_->IsFilesystemActive()) {
-    ret = fs_->GetError();
+  if (!IsFilesystemActive()) {
+    ret = GetError();
   } else {
-    ret = fs_->InjectThreadSpecificReadError(
+    ret = InjectThreadSpecificReadError(
         FaultInjectionTestFS::ErrorOperation::kRead, &res.result,
-        use_direct_io(), req.scratch, /*need_count_increase=*/true,
+        file->use_direct_io(), req.scratch, /*need_count_increase=*/true,
         /*fault_injected=*/nullptr);
   }
   if (ret.ok()) {
-    if (fs_->ShouldInjectRandomReadError()) {
+    if (ShouldInjectRandomReadError()) {
       ret = IOStatus::IOError("Injected read error");
     } else {
-      s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
+      s = file->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
     }
   }
   if (!ret.ok()) {

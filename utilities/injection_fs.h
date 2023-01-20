@@ -94,6 +94,13 @@ class InjectionFileSystem : public FileSystemWrapper {
     return file->MultiRead(reqs, num_reqs, options, dbg);
   }
 
+  virtual IOStatus DoReadAsync(
+      FSRandomAccessFile* file, FSReadRequest& req, const IOOptions& opts,
+      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+      void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) {
+    return file->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
+  }
+
   virtual size_t DoGetUniqueId(FSRandomAccessFile* file, char* id,
                                size_t max_size) {
     return file->GetUniqueId(id, max_size);

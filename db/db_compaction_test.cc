@@ -77,7 +77,7 @@ class CompactionStatsCollector : public EventListener {
 class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
-      : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_compaction_test", /*env_do_fsync=*/false) {}
 
  protected:
   /*

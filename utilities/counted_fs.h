@@ -359,6 +359,7 @@ class CountedFileSystem : public InjectionFileSystem {
   void DoClose(FSDirectory* dir) override {
     InjectionFileSystem::DoClose(dir);
     counters_.closes++;
+    counters_.dir_closes++;
   }
 };
 }  // namespace ROCKSDB_NAMESPACE

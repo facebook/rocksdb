@@ -106,33 +106,6 @@ class TestFSWritableFile : public FSWritableFile {
   port::Mutex mutex_;
 };
 
-// A wrapper around WritableFileWriter* file
-// is written to or sync'ed.
-class TestFSRandomRWFile : public FSRandomRWFile {
- public:
-  explicit TestFSRandomRWFile(const std::string& fname,
-                              std::unique_ptr<FSRandomRWFile>&& f,
-                              FaultInjectionTestFS* fs);
-  virtual ~TestFSRandomRWFile();
-  IOStatus Write(uint64_t offset, const Slice& data, const IOOptions& options,
-                 IODebugContext* dbg) override;
-  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
-                Slice* result, char* scratch,
-                IODebugContext* dbg) const override;
-  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override;
-  IOStatus Flush(const IOOptions& options, IODebugContext* dbg) override;
-  IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
-  size_t GetRequiredBufferAlignment() const override {
-    return target_->GetRequiredBufferAlignment();
-  }
-  bool use_direct_io() const override { return target_->use_direct_io(); };
-
- private:
-  std::unique_ptr<FSRandomRWFile> target_;
-  bool file_opened_;
-  FaultInjectionTestFS* fs_;
-};
-
 class TestFSDirectory : public FSDirectory {
  public:
   explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,
@@ -495,6 +468,11 @@ class FaultInjectionTestFS : public InjectionFileSystem {
   IOStatus DoRead(FSRandomAccessFile* file, uint64_t offset, size_t n,
                   const IOOptions& options, Slice* result, char* scratch,
                   IODebugContext* dbg) override;
+  IOStatus DoReadAsync(FSRandomAccessFile* file, FSReadRequest& req,
+                       const IOOptions& opts,
+                       std::function<void(const FSReadRequest&, void*)> cb,
+                       void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                       IODebugContext* dbg) override;
   IOStatus DoMultiRead(FSRandomAccessFile* file, FSReadRequest* reqs,
                        size_t num_reqs, const IOOptions& options,
                        IODebugContext* dbg) override;
