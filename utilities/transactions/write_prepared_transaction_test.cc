@@ -288,6 +288,7 @@ TEST(WriteBatchWithIndex, SubBatchCnt) {
 
   delete cf_handle;
   delete db;
+  ASSERT_OK(DestroyDB(dbname, options));
 }
 
 TEST(CommitEntry64b, BasicTest) {

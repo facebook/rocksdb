@@ -1864,6 +1864,13 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
 #endif  // !ROCKSDB_LITE
 
   Close();
+#ifndef ROCKSDB_LITE
+  // Delete the external files
+  for (const auto& e : external) {
+    Status s = options.env->DeleteFile(e);
+    ASSERT_TRUE(s.IsNotFound() || s.ok());
+  }
+#endif  // ROCKSDB_LITE
   Destroy(options);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }

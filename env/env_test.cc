@@ -2031,7 +2031,9 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
     ASSERT_OK(env_->GetFileSize(path, &size));
     ASSERT_EQ(size, 4096 * i);
     ASSERT_EQ(size, file_attrs_iter->size_bytes);
+    ASSERT_OK(env_->DeleteFile(path));
   }
+  ASSERT_OK(env_->DeleteDir(test_base_dir));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
 
@@ -2620,6 +2622,7 @@ TEST_F(EnvTest, IsDirectory) {
   }
   ASSERT_OK(Env::Default()->IsDirectory(test_file_path, &is_dir));
   ASSERT_FALSE(is_dir);
+  ASSERT_OK(DestroyDir(Env::Default(), test_directory_));
 }
 
 TEST_F(EnvTest, EnvWriteVerificationTest) {
@@ -2642,6 +2645,7 @@ TEST_F(EnvTest, EnvWriteVerificationTest) {
   v_info.checksum = Slice(checksum);
   s = file->Append(Slice(test_data), v_info);
   ASSERT_OK(s);
+  ASSERT_OK(DestroyDir(Env::Default(), test_directory_));
 }
 
 class CreateEnvTest : public testing::Test {

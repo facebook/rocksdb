@@ -66,10 +66,14 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
   return std::shared_ptr<DB>(db);
 }
 
-class PerfContextTest : public testing::Test {};
+class PerfContextTest : public testing::Test {
+ public:
+  PerfContextTest() { EXPECT_OK(DestroyDB(kDbName, Options())); }
+
+  ~PerfContextTest() { EXPECT_OK(DestroyDB(kDbName, Options())); }
+};
 
 TEST_F(PerfContextTest, SeekIntoDeletion) {
-  ASSERT_OK(DestroyDB(kDbName, Options()));
   auto db = OpenDb();
   WriteOptions write_options;
   ReadOptions read_options;
@@ -524,7 +528,6 @@ TEST_F(PerfContextTest, KeyComparisonCount) {
 // starts to become linear to the input size.
 
 TEST_F(PerfContextTest, SeekKeyComparison) {
-  ASSERT_OK(DestroyDB(kDbName, Options()));
   auto db = OpenDb();
   WriteOptions write_options;
   ReadOptions read_options;
@@ -660,7 +663,6 @@ TEST_F(PerfContextTest, ToString) {
 }
 
 TEST_F(PerfContextTest, MergeOperatorTime) {
-  ASSERT_OK(DestroyDB(kDbName, Options()));
   DB* db;
   Options options;
   options.create_if_missing = true;
@@ -845,7 +847,6 @@ TEST_F(PerfContextTest, CPUTimer) {
     return;
   }
 
-  ASSERT_OK(DestroyDB(kDbName, Options()));
   auto db = OpenDb();
   WriteOptions write_options;
   ReadOptions read_options;

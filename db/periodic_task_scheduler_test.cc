@@ -189,6 +189,9 @@ TEST_F(PeriodicTaskSchedulerTest, MultiInstances) {
     ASSERT_OK(dbs[i]->Close());
     delete dbs[i];
   }
+  for (int i = 0; i < kInstanceNum; i++) {
+    ASSERT_OK(DestroyDB(test::PerThreadDBPath(std::to_string(i)), options));
+  }
 }
 
 TEST_F(PeriodicTaskSchedulerTest, MultiEnv) {
@@ -218,6 +221,7 @@ TEST_F(PeriodicTaskSchedulerTest, MultiEnv) {
   ASSERT_OK(db->Close());
   delete db;
   Close();
+  ASSERT_OK(DestroyDB(dbname, options2));
 }
 
 #endif  // !ROCKSDB_LITE

@@ -757,6 +757,7 @@ TEST_F(OptionsUtilTest, WalDirInOptins) {
   delete db;
   ASSERT_OK(LoadLatestOptions(dbname_, options.env, &db_opts, &cf_descs));
   ASSERT_EQ(db_opts.wal_dir, "");
+  ASSERT_OK(DestroyDB(dbname_, options));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

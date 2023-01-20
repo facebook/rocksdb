@@ -80,6 +80,7 @@ class ColumnFamilyTestBase : public testing::Test {
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     Destroy(column_families);
+    EXPECT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_)));
     delete env_;
   }
 
@@ -940,6 +941,7 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
       }
     }
   }
+  ASSERT_OK(DestroyDir(env_, backup_logs));
 }
 
 #ifndef ROCKSDB_LITE  // TEST functions used are not supported

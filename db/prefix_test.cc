@@ -54,10 +54,6 @@ DEFINE_int32(memtable_huge_page_size, 2 * 1024 * 1024, "");
 DEFINE_int32(value_size, 40, "");
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 
-// Path to the database on file system
-const std::string kDbName =
-    ROCKSDB_NAMESPACE::test::PerThreadDBPath("prefix_test");
-
 namespace ROCKSDB_NAMESPACE {
 
 struct TestKey {
@@ -217,27 +213,29 @@ class SamePrefixTransform : public SliceTransform {
 
 class PrefixTest : public testing::Test {
  public:
+  // Path to the database on file system
+
   std::shared_ptr<DB> OpenDb() {
     DB* db;
 
-    options.create_if_missing = true;
-    options.write_buffer_size = FLAGS_write_buffer_size;
-    options.max_write_buffer_number = FLAGS_max_write_buffer_number;
-    options.min_write_buffer_number_to_merge =
+    options_.create_if_missing = true;
+    options_.write_buffer_size = FLAGS_write_buffer_size;
+    options_.max_write_buffer_number = FLAGS_max_write_buffer_number;
+    options_.min_write_buffer_number_to_merge =
         FLAGS_min_write_buffer_number_to_merge;
 
-    options.memtable_prefix_bloom_size_ratio =
+    options_.memtable_prefix_bloom_size_ratio =
         FLAGS_memtable_prefix_bloom_size_ratio;
-    options.memtable_huge_page_size = FLAGS_memtable_huge_page_size;
+    options_.memtable_huge_page_size = FLAGS_memtable_huge_page_size;
 
-    options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+    options_.prefix_extractor.reset(NewFixedPrefixTransform(8));
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
     bbto.whole_key_filtering = false;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    options.allow_concurrent_memtable_write = false;
+    options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    options_.allow_concurrent_memtable_write = false;
 
-    Status s = DB::Open(options, kDbName, &db);
+    Status s = DB::Open(options_, dbname_, &db);
     EXPECT_OK(s);
     return std::shared_ptr<DB>(db);
   }
@@ -248,22 +246,22 @@ class PrefixTest : public testing::Test {
     // skip some options
     option_config_++;
     if (option_config_ < kEnd) {
-      options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+      options_.prefix_extractor.reset(NewFixedPrefixTransform(8));
       switch (option_config_) {
         case kHashSkipList:
-          options.memtable_factory.reset(
+          options_.memtable_factory.reset(
               NewHashSkipListRepFactory(bucket_count, FLAGS_skiplist_height));
           return true;
         case kHashLinkList:
-          options.memtable_factory.reset(
+          options_.memtable_factory.reset(
               NewHashLinkListRepFactory(bucket_count));
           return true;
         case kHashLinkListHugePageTlb:
-          options.memtable_factory.reset(
+          options_.memtable_factory.reset(
               NewHashLinkListRepFactory(bucket_count, 2 * 1024 * 1024));
           return true;
         case kHashLinkListTriggerSkipList:
-          options.memtable_factory.reset(
+          options_.memtable_factory.reset(
               NewHashLinkListRepFactory(bucket_count, 0, 3));
           return true;
         default:
@@ -274,9 +272,16 @@ class PrefixTest : public testing::Test {
   }
 
   PrefixTest() : option_config_(kBegin) {
-    options.comparator = new TestKeyComparator();
+    options_.comparator = new TestKeyComparator();
+    dbname_ = ROCKSDB_NAMESPACE::test::PerThreadDBPath("prefix_test");
+    EXPECT_OK(DestroyDB(dbname_, options_));
   }
-  ~PrefixTest() override { delete options.comparator; }
+  ~PrefixTest() override {
+    EXPECT_OK(DestroyDB(dbname_, options_));
+    delete options_.comparator;
+  }
+
+  std::string dbname_;
 
  protected:
   enum OptionConfig {
@@ -288,10 +293,10 @@ class PrefixTest : public testing::Test {
     kEnd
   };
   int option_config_;
-  Options options;
+  Options options_;
 };
 
-TEST(SamePrefixTest, InDomainTest) {
+TEST_F(PrefixTest, InDomainTest) {
   DB* db;
   Options options;
   options.create_if_missing = true;
@@ -303,8 +308,8 @@ TEST(SamePrefixTest, InDomainTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   {
-    ASSERT_OK(DestroyDB(kDbName, Options()));
-    ASSERT_OK(DB::Open(options, kDbName, &db));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
+    ASSERT_OK(DB::Open(options, dbname_, &db));
     ASSERT_OK(db->Put(write_options, "HHKB pro2", "Mar 24, 2006"));
     ASSERT_OK(db->Put(write_options, "HHKB pro2 Type-S", "June 29, 2011"));
     ASSERT_OK(db->Put(write_options, "Realforce 87u", "idk"));
@@ -320,11 +325,11 @@ TEST(SamePrefixTest, InDomainTest) {
 
     delete db_iter;
     delete db;
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
   }
 
   {
-    ASSERT_OK(DB::Open(options, kDbName, &db));
+    ASSERT_OK(DB::Open(options, dbname_, &db));
     ASSERT_OK(db->Put(write_options, "pikachu", "1"));
     ASSERT_OK(db->Put(write_options, "Meowth", "1"));
     ASSERT_OK(db->Put(write_options, "Mewtwo", "idk"));
@@ -337,7 +342,7 @@ TEST(SamePrefixTest, InDomainTest) {
     ASSERT_OK(db_iter->status());
     delete db_iter;
     delete db;
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
   }
 }
 
@@ -345,9 +350,9 @@ TEST_F(PrefixTest, TestResult) {
   for (int num_buckets = 1; num_buckets <= 2; num_buckets++) {
     FirstOption();
     while (NextOptions(num_buckets)) {
-      std::cout << "*** Mem table: " << options.memtable_factory->Name()
+      std::cout << "*** Mem table: " << options_.memtable_factory->Name()
                 << " number of buckets: " << num_buckets << std::endl;
-      ASSERT_OK(DestroyDB(kDbName, Options()));
+      ASSERT_OK(DestroyDB(dbname_, Options()));
       auto db = OpenDb();
       WriteOptions write_options;
       ReadOptions read_options;
@@ -522,9 +527,9 @@ TEST_F(PrefixTest, PrefixValid) {
   for (int num_buckets = 1; num_buckets <= 2; num_buckets++) {
     FirstOption();
     while (NextOptions(num_buckets)) {
-      std::cout << "*** Mem table: " << options.memtable_factory->Name()
+      std::cout << "*** Mem table: " << options_.memtable_factory->Name()
                 << " number of buckets: " << num_buckets << std::endl;
-      ASSERT_OK(DestroyDB(kDbName, Options()));
+      ASSERT_OK(DestroyDB(dbname_, Options()));
       auto db = OpenDb();
       WriteOptions write_options;
       ReadOptions read_options;
@@ -575,9 +580,9 @@ TEST_F(PrefixTest, PrefixValid) {
 
 TEST_F(PrefixTest, DynamicPrefixIterator) {
   while (NextOptions(FLAGS_bucket_count)) {
-    std::cout << "*** Mem table: " << options.memtable_factory->Name()
+    std::cout << "*** Mem table: " << options_.memtable_factory->Name()
               << std::endl;
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
@@ -628,7 +633,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
 
       get_perf_context()->Reset();
       StopWatchNano timer(SystemClock::Default().get(), true);
-      auto key_prefix = options.prefix_extractor->Transform(key);
+      auto key_prefix = options_.prefix_extractor->Transform(key);
       uint64_t total_keys = 0;
       for (iter->Seek(key);
            iter->Valid() && iter->key().starts_with(key_prefix); iter->Next()) {
@@ -677,14 +682,14 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
 
 TEST_F(PrefixTest, PrefixSeekModePrev) {
   // Only for SkipListFactory
-  options.memtable_factory.reset(new SkipListFactory);
-  options.merge_operator = MergeOperators::CreatePutOperator();
-  options.write_buffer_size = 1024 * 1024;
+  options_.memtable_factory.reset(new SkipListFactory);
+  options_.merge_operator = MergeOperators::CreatePutOperator();
+  options_.write_buffer_size = 1024 * 1024;
   Random rnd(1);
   for (size_t m = 1; m < 100; m++) {
     std::cout << "[" + std::to_string(m) + "]" + "*** Mem table: "
-              << options.memtable_factory->Name() << std::endl;
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+              << options_.memtable_factory->Name() << std::endl;
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
@@ -798,10 +803,10 @@ TEST_F(PrefixTest, PrefixSeekModePrev2) {
   // after seek(15), iter1 will be at 21 and iter2 will be 33.
   // Then if call Prev() in prefix mode where SeekForPrev(21) gets called,
   // iter2 should turn to invalid state because of bloom filter.
-  options.memtable_factory.reset(new SkipListFactory);
-  options.write_buffer_size = 1024 * 1024;
+  options_.memtable_factory.reset(new SkipListFactory);
+  options_.write_buffer_size = 1024 * 1024;
   std::string v13("v13");
-  ASSERT_OK(DestroyDB(kDbName, Options()));
+  ASSERT_OK(DestroyDB(dbname_, Options()));
   auto db = OpenDb();
   WriteOptions write_options;
   ReadOptions read_options;
@@ -829,15 +834,15 @@ TEST_F(PrefixTest, PrefixSeekModePrev2) {
 TEST_F(PrefixTest, PrefixSeekModePrev3) {
   // Only for SkipListFactory
   // test SeekToLast() with iterate_upper_bound_ in prefix_seek_mode
-  options.memtable_factory.reset(new SkipListFactory);
-  options.write_buffer_size = 1024 * 1024;
+  options_.memtable_factory.reset(new SkipListFactory);
+  options_.write_buffer_size = 1024 * 1024;
   std::string v14("v14");
   TestKey upper_bound_key = TestKey(1, 5);
   std::string s;
   Slice upper_bound = TestKeyToSlice(s, upper_bound_key);
 
   {
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
@@ -859,7 +864,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
     ASSERT_EQ(iter->value(), v14);
   }
   {
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;

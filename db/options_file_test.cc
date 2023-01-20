@@ -78,6 +78,7 @@ TEST_F(OptionsFileTest, NumberOfOptionsFiles) {
     VerifyOptionsFileName(db, filename_history);
     delete db;
   }
+  ASSERT_OK(DestroyDB(dbname_, opt));
 }
 
 TEST_F(OptionsFileTest, OptionsFileName) {

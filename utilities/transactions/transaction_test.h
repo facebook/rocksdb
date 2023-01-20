@@ -61,6 +61,7 @@ class TransactionTestBase : public ::testing::Test {
     options.write_buffer_size = 4 * 1024;
     options.unordered_write = write_ordering == kUnorderedWrite;
     options.level0_file_num_compaction_trigger = 2;
+    options.info_log_level = INFO_LEVEL;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     special_env.skip_fsync_ = true;
     env = new FaultInjectionTestEnv(&special_env);

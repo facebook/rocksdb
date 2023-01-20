@@ -740,6 +740,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   delete snapshotDB;
   snapshotDB = nullptr;
   delete txdb;
+  ASSERT_OK(DestroyDB(dbname, CurrentOptions()));
 }
 
 TEST_F(CheckpointTest, CheckpointInvalidDirectoryName) {

@@ -233,6 +233,12 @@ class CompactionJobTestBase : public testing::Test {
     mutable_cf_options_.max_compaction_bytes = 10 * 1024 * 1024;
   }
 
+  ~CompactionJobTestBase() {
+    Options options(BuildDBOptions(db_options_, mutable_db_options_),
+                    ColumnFamilyOptions());
+    EXPECT_OK(DestroyDB(dbname_, options));
+  }
+
   void SetUp() override {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.env = env_;
