@@ -428,27 +428,25 @@ Status CompactionOutputs::AddToOutput(
 }
 
 namespace {
-    void SetMaxSeqAndTs(InternalKey &internal_key, const Slice &user_key, const size_t ts_sz) {
-      // next_table_min_key as upper bound
-        if (ts_sz) {
-          // TODO: unit test for this case
-          static constexpr char kTsMax[] =
-              "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
-          if (ts_sz <= strlen(kTsMax)) {
-            internal_key = InternalKey(
-                user_key, kMaxSequenceNumber,
-                kTypeRangeDeletion, Slice(kTsMax, ts_sz));
-          } else {
-            internal_key = InternalKey(
-                user_key, kMaxSequenceNumber,
-                kTypeRangeDeletion, std::string(ts_sz, '\xff'));
-          }
-        } else {
-          internal_key.Set(user_key, kMaxSequenceNumber, kTypeRangeDeletion);
-        }
+void SetMaxSeqAndTs(InternalKey& internal_key, const Slice& user_key,
+                    const size_t ts_sz) {
+  // next_table_min_key as upper bound
+  if (ts_sz) {
+    // TODO: unit test for this case
+    static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+    if (ts_sz <= strlen(kTsMax)) {
+      internal_key = InternalKey(user_key, kMaxSequenceNumber,
+                                 kTypeRangeDeletion, Slice(kTsMax, ts_sz));
+    } else {
+      internal_key =
+          InternalKey(user_key, kMaxSequenceNumber, kTypeRangeDeletion,
+                      std::string(ts_sz, '\xff'));
     }
+  } else {
+    internal_key.Set(user_key, kMaxSequenceNumber, kTypeRangeDeletion);
+  }
 }
-
+}  // namespace
 
 Status CompactionOutputs::AddRangeDels(
     const Slice* comp_start_user_key, const Slice* comp_end_user_key,
@@ -526,7 +524,8 @@ Status CompactionOutputs::AddRangeDels(
   if (next_table_min_key.empty()) {
     // Last file of the subcompaction.
     if (comp_end_user_key) {
-      upper_bound_buf.Set(*comp_end_user_key, kMaxSequenceNumber, kTypeRangeDeletion);
+      upper_bound_buf.Set(*comp_end_user_key, kMaxSequenceNumber,
+                          kTypeRangeDeletion);
       upper_bound_guard = upper_bound_buf.Encode();
       upper_bound = &upper_bound_guard;
     } else {
@@ -538,15 +537,19 @@ Status CompactionOutputs::AddRangeDels(
     // coverage through its own keys (through `meta.largest`) and through user
     // keys preceding `next_table_min_key`'s user key.
     ParsedInternalKey next_table_min_key_parsed;
-    ParseInternalKey(next_table_min_key, &next_table_min_key_parsed, false /* log_err_key */).PermitUncheckedError();
+    ParseInternalKey(next_table_min_key, &next_table_min_key_parsed,
+                     false /* log_err_key */)
+        .PermitUncheckedError();
     assert(next_table_min_key_parsed.sequence < kMaxSequenceNumber);
-    assert(meta.largest.size() == 0 || icmp.Compare(meta.largest.Encode(), next_table_min_key) < 0);
-    if (meta.largest.size() > 0 && ucmp->EqualWithoutTimestamp(meta.largest.user_key(),
-                                      next_table_min_key_parsed.user_key)) {
-        // TODO: this assumes meta.largest.Encode() lives longer than
-        // upper_bound
-        //  This is only true if meta.largest is never updated.
-        upper_bound_guard = meta.largest.Encode();
+    assert(meta.largest.size() == 0 ||
+           icmp.Compare(meta.largest.Encode(), next_table_min_key) < 0);
+    if (meta.largest.size() > 0 &&
+        ucmp->EqualWithoutTimestamp(meta.largest.user_key(),
+                                    next_table_min_key_parsed.user_key)) {
+      // TODO: this assumes meta.largest.Encode() lives longer than
+      // upper_bound
+      //  This is only true if meta.largest is never updated.
+      upper_bound_guard = meta.largest.Encode();
     } else if (lower_bound && ucmp->EqualWithoutTimestamp(
                                   ExtractUserKey(*lower_bound),
                                   next_table_min_key_parsed.user_key)) {
@@ -554,11 +557,13 @@ Status CompactionOutputs::AddRangeDels(
       // point keys in this file either. Leave the file empty.
       return Status::OK();
     } else {
-      // meta.largest.size() > 0 and meta.largest.user_key < next_table_min_key.user_key, OR
-      // meta.largest.size() == 0 and (!lower_bound or lower_bound.user_key < next_table_min_key.user_key)
+      // meta.largest.size() > 0 and meta.largest.user_key <
+      // next_table_min_key.user_key, OR meta.largest.size() == 0 and
+      // (!lower_bound or lower_bound.user_key < next_table_min_key.user_key)
       //
       // TODO: unit test for this case, with/without timestamp
-      SetMaxSeqAndTs(upper_bound_buf, next_table_min_key_parsed.user_key, ts_sz);
+      SetMaxSeqAndTs(upper_bound_buf, next_table_min_key_parsed.user_key,
+                     ts_sz);
       upper_bound_guard = upper_bound_buf.Encode();
     }
     upper_bound = &upper_bound_guard;
@@ -569,7 +574,8 @@ Status CompactionOutputs::AddRangeDels(
   // it means that this file is the last file in the compaction. So there
   // will be no overlapping between this file and others.
   assert(comp_end_user_key == nullptr || upper_bound == nullptr ||
-         ucmp->CompareWithoutTimestamp(ExtractUserKey(*upper_bound), *comp_end_user_key) <= 0);
+         ucmp->CompareWithoutTimestamp(ExtractUserKey(*upper_bound),
+                                       *comp_end_user_key) <= 0);
   auto it = range_del_agg_->NewIterator(lower_bound, upper_bound);
   Slice last_tombstone_start_user_key{};
   bool reached_lower_bound = false;
@@ -578,7 +584,8 @@ Status CompactionOutputs::AddRangeDels(
     auto kv = tombstone.Serialize();
     InternalKey tombstone_end = tombstone.SerializeEndKey();
     // TODO: the underlying iterator should support clamping the bounds.
-    if (!reached_lower_bound && lower_bound && icmp.Compare(tombstone_end.Encode(), *lower_bound) < 0) {
+    if (!reached_lower_bound && lower_bound &&
+        icmp.Compare(tombstone_end.Encode(), *lower_bound) < 0) {
       continue;
     }
     reached_lower_bound = true;
@@ -602,9 +609,12 @@ Status CompactionOutputs::AddRangeDels(
     }
 
     assert(lower_bound == nullptr ||
-           ucmp->CompareWithoutTimestamp(ExtractUserKey(*lower_bound), kv.second) < 0);
+           ucmp->CompareWithoutTimestamp(ExtractUserKey(*lower_bound),
+                                         kv.second) < 0);
     InternalKey tombstone_start = kv.first;
-    if (lower_bound && ucmp->CompareWithoutTimestamp(tombstone_start.user_key(), ExtractUserKey(*lower_bound)) < 0) {
+    if (lower_bound &&
+        ucmp->CompareWithoutTimestamp(tombstone_start.user_key(),
+                                      ExtractUserKey(*lower_bound)) < 0) {
       // This just updates the non-timestamp portion of `tombstone_start`'s user
       // key. Ideally there would be a simpler API usage
       ParsedInternalKey tombstone_start_parsed;
@@ -615,7 +625,8 @@ Status CompactionOutputs::AddRangeDels(
       if (ts_sz) {
         // timestamp should from where sequence number is from, which is from
         // tombstone
-        tombstone_start_parsed.SetTimestamp(tombstone_start_parsed.GetTimestamp(ucmp->timestamp_size()));
+        tombstone_start_parsed.SetTimestamp(
+            tombstone_start_parsed.GetTimestamp(ucmp->timestamp_size()));
       }
       tombstone_start.SetFrom(tombstone_start_parsed);
     }
@@ -625,7 +636,8 @@ Status CompactionOutputs::AddRangeDels(
     }
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
-    if (lower_bound && icmp.Compare(tombstone_start.Encode(), *lower_bound) < 0) {
+    if (lower_bound &&
+        icmp.Compare(tombstone_start.Encode(), *lower_bound) < 0) {
       tombstone_start.DecodeFrom(*lower_bound);
     }
     if (upper_bound && icmp.Compare(*upper_bound, tombstone_end.Encode()) < 0) {
