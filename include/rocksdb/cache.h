@@ -327,6 +327,7 @@ struct HyperClockCacheOptions : public ShardedCacheOptions {
   // to estimate toward the lower side than the higher side.
   size_t estimated_entry_charge;
 
+  HyperClockCacheOptions() {}
   HyperClockCacheOptions(
       size_t _capacity, size_t _estimated_entry_charge,
       int _num_shard_bits = -1, bool _strict_capacity_limit = false,
