@@ -356,10 +356,14 @@ class CountedFileSystem : public InjectionFileSystem {
     return rv;
   }
 
-  void DoClose(FSDirectory* dir) override {
-    InjectionFileSystem::DoClose(dir);
-    counters_.closes++;
-    counters_.dir_closes++;
+  IOStatus DoClose(FSDirectory* dir, const IOOptions& options,
+                   IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoClose(dir, options, dbg);
+    if (rv.ok()) {
+      counters_.closes++;
+      counters_.dir_closes++;
+    }
+    return rv;
   }
 };
 }  // namespace ROCKSDB_NAMESPACE

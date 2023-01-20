@@ -212,7 +212,10 @@ class InjectionFileSystem : public FileSystemWrapper {
     return dir->GetUniqueId(id, max_size);
   }
 
-  virtual void DoClose(FSDirectory* /*dir*/) {}
+  virtual IOStatus DoClose(FSDirectory* dir, const IOOptions& options,
+                           IODebugContext* dbg) {
+    return dir->Close(options, dbg);
+  }
 };
 
 class InjectionSequentialFile : public FSSequentialFileOwnerWrapper {
@@ -362,12 +365,18 @@ class InjectionRandomRWFile : public FSRandomRWFileOwnerWrapper {
 class InjectionDirectory : public FSDirectoryWrapper {
  private:
   mutable InjectionFileSystem* fs_;
+  bool closed_ = false;
 
  public:
   InjectionDirectory(std::unique_ptr<FSDirectory>&& f, InjectionFileSystem* fs)
       : FSDirectoryWrapper(std::move(f)), fs_(fs) {}
 
-  ~InjectionDirectory() override { fs_->DoClose(target_); }
+  ~InjectionDirectory() override {
+    if (!closed_) {
+      // TODO: fix DB+CF code to use explicit Close, not rely on destructor
+      fs_->DoClose(target_, IOOptions(), nullptr).PermitUncheckedError();
+    }
+  }
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     return fs_->DoFsync(target_, options, dbg);
@@ -376,6 +385,15 @@ class InjectionDirectory : public FSDirectoryWrapper {
   IOStatus FsyncWithDirOptions(const IOOptions& options, IODebugContext* dbg,
                                const DirFsyncOptions& dir_options) override {
     return fs_->DoFsyncWithDirOptions(target_, options, dbg, dir_options);
+  }
+
+  // Close directory
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    auto io_s = fs_->DoClose(target_, options, dbg);
+    if (io_s.ok()) {
+      closed_ = true;
+    }
+    return io_s;
   }
 
   size_t GetUniqueId(char* id, size_t max_size) const override {
