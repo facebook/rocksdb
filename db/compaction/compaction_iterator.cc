@@ -251,8 +251,6 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
 
-  WideColumns new_entity;
-
   {
     StopWatchNano timer(clock_, report_detailed_time_);
 
@@ -329,7 +327,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
               ? (blob_value_.empty() ? &value_ : &blob_value_)
               : nullptr,
           ikey_.type == kTypeWideColumnEntity ? &existing_entity : nullptr,
-          &compaction_filter_value_, &new_entity,
+          &compaction_filter_value_, nullptr,
           compaction_filter_skip_until_.rep());
     }
 
@@ -413,13 +411,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     validity_info_.Invalidate();
     return false;
   } else if (decision == CompactionFilter::Decision::kChangeWideColumnEntity) {
-    std::sort(new_entity.begin(), new_entity.end(),
-              [](const WideColumn& lhs, const WideColumn& rhs) {
-                return lhs.name().compare(rhs.name()) < 0;
-              });
-
-    const Status s = WideColumnSerialization::Serialize(
-        new_entity, compaction_filter_value_);
+    const Status s = Status::OK();  // TODO
     if (!s.ok()) {
       status_ = s;
       validity_info_.Invalidate();

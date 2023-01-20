@@ -637,7 +637,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
                         const Slice* /* existing_value */,
                         const WideColumns* /* existing_entity */,
                         std::string* /* new_value */,
-                        WideColumns* /* new_entity */,
+                        PinnableWideColumns* /* new_entity */,
                         std::string* /* skip_until */) const override {
         return Decision::kKeep;
       }
@@ -687,7 +687,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
                         const Slice* /* existing_value */,
                         const WideColumns* /* existing_entity */,
                         std::string* /* new_value */,
-                        WideColumns* /* new_entity */,
+                        PinnableWideColumns* /* new_entity */,
                         std::string* /* skip_until */) const override {
         return Decision::kRemove;
       }
@@ -734,7 +734,8 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
       Decision FilterV3(int /* level */, const Slice& /* key */,
                         ValueType value_type, const Slice* existing_value,
                         const WideColumns* existing_entity,
-                        std::string* new_value, WideColumns* /* new_entity */,
+                        std::string* new_value,
+                        PinnableWideColumns* /* new_entity */,
                         std::string* /* skip_until */) const override {
         assert(new_value);
 
