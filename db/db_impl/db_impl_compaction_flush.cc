@@ -648,22 +648,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       return std::make_pair(Status::OK(), !ready);
     };
 
-    // hack (all cfds)
-    bool all_bg_flush_args_reason_error_recovery = true;
-    bool all_bg_flush_args_reason_error_recovery_retry = true;
-    for (size_t i = 0; i != cfds.size(); ++i) {
-      BGFlushArg arg = bg_flush_args[i];
-      if (arg.flush_reason_ != FlushReason::kErrorRecovery) {
-        all_bg_flush_args_reason_error_recovery = false;
-      }
-      if (arg.flush_reason_ != FlushReason::kErrorRecoveryRetryFlush) {
-        all_bg_flush_args_reason_error_recovery_retry = false;
-      }
-    }
-
-    bool resuming_from_bg_err = error_handler_.IsDBStopped() ||
-                                (all_bg_flush_args_reason_error_recovery ||
-                                 all_bg_flush_args_reason_error_recovery_retry);
+    bool resuming_from_bg_err =
+        error_handler_.IsDBStopped() ||
+        (bg_flush_args[0].flush_reason_ == FlushReason::kErrorRecovery ||
+         bg_flush_args[0].flush_reason_ ==
+             FlushReason::kErrorRecoveryRetryFlush);
     while ((!resuming_from_bg_err || error_handler_.GetRecoveryError().ok())) {
       std::pair<Status, bool> res = wait_to_install_func();
 
@@ -678,21 +667,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
       atomic_flush_install_cv_.Wait();
 
-      all_bg_flush_args_reason_error_recovery = true;
-      all_bg_flush_args_reason_error_recovery_retry = true;
-      for (size_t i = 0; i != cfds.size(); ++i) {
-        BGFlushArg arg = bg_flush_args[i];
-        if (arg.flush_reason_ != FlushReason::kErrorRecovery) {
-          all_bg_flush_args_reason_error_recovery = false;
-        }
-        if (arg.flush_reason_ != FlushReason::kErrorRecoveryRetryFlush) {
-          all_bg_flush_args_reason_error_recovery_retry = false;
-        }
-      }
-
-      resuming_from_bg_err = error_handler_.IsDBStopped() ||
-                             (all_bg_flush_args_reason_error_recovery ||
-                              all_bg_flush_args_reason_error_recovery_retry);
+      resuming_from_bg_err =
+          error_handler_.IsDBStopped() ||
+          (bg_flush_args[0].flush_reason_ == FlushReason::kErrorRecovery ||
+           bg_flush_args[0].flush_reason_ ==
+               FlushReason::kErrorRecoveryRetryFlush);
     }
 
     if (!resuming_from_bg_err) {
@@ -893,6 +872,7 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
   (void)file_meta;
   (void)mutable_cf_options;
   (void)job_id;
+  (void)flush_reason;
 #endif  // ROCKSDB_LITE
 }
 
@@ -2978,11 +2958,13 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     status = FlushMemTablesToOutputFiles(bg_flush_args, made_progress,
                                          job_context, log_buffer, thread_pri);
     TEST_SYNC_POINT("DBImpl::BackgroundFlush:BeforeFlush");
-    // All the CFDs in the FlushReq must have the same flush reason, so just
-    // grab the first one
+// All the CFD/bg_flush_arg in the FlushReq must have the same flush reason, so
+// just grab the first one
+#ifndef NDEBUG
     for (const auto bg_flush_arg : bg_flush_args) {
       assert(bg_flush_arg.flush_reason_ == bg_flush_args[0].flush_reason_);
     }
+#endif /* !NDEBUG */
     *reason = bg_flush_args[0].flush_reason_;
     for (auto& arg : bg_flush_args) {
       ColumnFamilyData* cfd = arg.cfd_;

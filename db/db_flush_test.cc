@@ -746,6 +746,65 @@ class TestFlushListener : public EventListener {
 };
 #endif  // !ROCKSDB_LITE
 
+// RocksDB lite does not support GetLiveFiles()
+#ifndef ROCKSDB_LITE
+TEST_F(DBFlushTest,
+       FixFlushReasonRaceFromConcurrentGetLiveFilesFlushAndOtherFlush) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  for (int idx = 0; idx < 1; ++idx) {
+    ASSERT_OK(Put(0, Key(idx), std::string(1, 'v')));
+    ASSERT_OK(Put(1, Key(idx), std::string(1, 'v')));
+  }
+
+  // To coerce a manual flush happenning in the middle of GetLiveFiles's flush,
+  // we need to pause background flush thread and enable it later.
+  std::shared_ptr<test::SleepingBackgroundTask> sleeping_task(
+      new test::SleepingBackgroundTask());
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task.get(), Env::Priority::HIGH);
+  sleeping_task->WaitUntilSleeping();
+
+  // Coerce a manual flush happenning in the middle of GetLiveFiles's flush
+  bool get_live_files_paused_at_sync_point = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush2", [&](void* /* arg */) {
+        if (get_live_files_paused_at_sync_point) {
+          // To prevent non-GetLiveFiles() flush from pausing at this sync point
+          return;
+        }
+        get_live_files_paused_at_sync_point = true;
+
+        FlushOptions fo;
+        fo.wait = false;
+        fo.allow_write_stall = true;
+        ASSERT_OK(dbfull()->Flush(fo));
+
+        // Resume background flush thread so GetLiveFiles() can finish
+        sleeping_task->WakeUp();
+        sleeping_task->WaitUntilDone();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  // Before the fix, a race condition on default cf's flush reason due to
+  // concurrent GetLiveFiles's flush and manual flush will fail
+  // an internal assertion.
+  // After the fix, such race condition is fixed and there is no assertion
+  // failure.
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  ASSERT_TRUE(get_live_files_paused_at_sync_point);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+#endif  // !ROCKSDB_LITE
+
 TEST_F(DBFlushTest, MemPurgeBasic) {
   Options options = CurrentOptions();
 
