@@ -313,7 +313,7 @@ IOStatus FaultInjectionTestFS::DoWrite(FSRandomRWFile* file, uint64_t offset,
     return file->Write(offset, data, options, dbg);
   }
 }
-  
+
 IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
                                        const IOOptions& options,
                                        IODebugContext* dbg) {
