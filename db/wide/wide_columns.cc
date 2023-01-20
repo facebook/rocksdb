@@ -5,6 +5,8 @@
 
 #include "rocksdb/wide_columns.h"
 
+#include <algorithm>
+
 #include "db/wide/wide_column_serialization.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -12,6 +14,21 @@ namespace ROCKSDB_NAMESPACE {
 const Slice kDefaultWideColumnName;
 
 const WideColumns kNoWideColumns;
+
+Status PinnableWideColumns::SetFromWideColumns(WideColumns columns) {
+  std::sort(columns.begin(), columns.end(),
+            [](const WideColumn& lhs, const WideColumn& rhs) {
+              return lhs.name().compare(rhs.name()) < 0;
+            });
+
+  const Status s =
+      WideColumnSerialization::Serialize(columns, *value_.GetSelf());
+  if (!s.ok()) {
+    return s;
+  }
+
+  return CreateIndexForWideColumns();
+}
 
 Status PinnableWideColumns::CreateIndexForWideColumns() {
   Slice value_copy = value_;
