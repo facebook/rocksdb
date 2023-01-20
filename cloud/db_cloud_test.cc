@@ -157,14 +157,13 @@ class CloudTest : public testing::Test {
   void CreateCloudEnv() {
     CloudFileSystem* cfs;
     cloud_fs_options_.use_aws_transfer_manager = true;
+    // To catch any possible file deletion bugs, we set file deletion delay to
+    // smallest possible
+    cloud_fs_options_.cloud_file_deletion_delay =
+        std::chrono::seconds(0);
     ASSERT_OK(CloudFileSystem::NewAwsFileSystem(base_env_->GetFileSystem(),
                                                 cloud_fs_options_,
                                                 options_.info_log, &cfs));
-    // To catch any possible file deletion bugs, we set file deletion delay to
-    // smallest possible
-    auto* cimpl = dynamic_cast<CloudFileSystemImpl*>(cfs);
-    ASSERT_TRUE(cimpl);
-    cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     std::shared_ptr<FileSystem> fs(cfs);
     aenv_ = CloudFileSystem::NewCompositeEnv(base_env_, std::move(fs));
   }
@@ -3101,8 +3100,8 @@ TEST_F(CloudTest, CloudFileDeletionNotTriggeredIfDestBucketNotSet) {
 
 TEST_F(CloudTest, ScheduleFileDeletionTest) {
   auto scheduler = CloudScheduler::Get();
-  auto deletion_scheduler = CloudFileDeletionScheduler::Create(scheduler);
-  deletion_scheduler->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
+  auto deletion_scheduler =
+      CloudFileDeletionScheduler::Create(scheduler, std::chrono::seconds(0));
 
   std::atomic_int counter{0};
   int num_file_deletions = 10;
@@ -3121,8 +3120,8 @@ TEST_F(CloudTest, ScheduleFileDeletionTest) {
 
 TEST_F(CloudTest, SameFileDeletedMultipleTimesTest) {
   auto scheduler = CloudScheduler::Get();
-  auto deletion_scheduler = CloudFileDeletionScheduler::Create(scheduler);
-  deletion_scheduler->TEST_SetFileDeletionDelay(std::chrono::hours(1));
+  auto deletion_scheduler =
+      CloudFileDeletionScheduler::Create(scheduler, std::chrono::hours(1));
   ASSERT_OK(deletion_scheduler->ScheduleFileDeletion("filename", []() {}));
   ASSERT_OK(deletion_scheduler->ScheduleFileDeletion("filename", []() {}));
   EXPECT_EQ(deletion_scheduler->TEST_FilesToDelete().size(), 1);
@@ -3130,8 +3129,8 @@ TEST_F(CloudTest, SameFileDeletedMultipleTimesTest) {
 
 TEST_F(CloudTest, UnscheduleFileDeletionTest) {
   auto scheduler = CloudScheduler::Get();
-  auto deletion_scheduler = CloudFileDeletionScheduler::Create(scheduler);
-  deletion_scheduler->TEST_SetFileDeletionDelay(std::chrono::hours(1));
+  auto deletion_scheduler =
+      CloudFileDeletionScheduler::Create(scheduler, std::chrono::hours(1));
 
   std::atomic_int counter{0};
   int num_file_deletions = 10;
@@ -3156,8 +3155,8 @@ TEST_F(CloudTest, UnscheduleFileDeletionTest) {
 
 TEST_F(CloudTest, UnscheduleUnknownFileTest) {
   auto scheduler = CloudScheduler::Get();
-  auto deletion_scheduler = CloudFileDeletionScheduler::Create(scheduler);
-  deletion_scheduler->TEST_SetFileDeletionDelay(std::chrono::hours(1));
+  auto deletion_scheduler =
+      CloudFileDeletionScheduler::Create(scheduler, std::chrono::hours(1));
   deletion_scheduler->UnscheduleFileDeletion("unknown file");
 }
 

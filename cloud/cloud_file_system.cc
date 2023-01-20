@@ -78,6 +78,10 @@ void CloudFileSystemOptions::Dump(Logger* log) const {
          cookie_on_open.c_str());
   Header(log, "                 COptions.new_cookie_on_open: %s",
          new_cookie_on_open.c_str());
+  Header(log, "COptions.delete_cloud_invisible_files_on_open: %d",
+         delete_cloud_invisible_files_on_open);
+  Header(log, "          COptions.cloud_file_deletion_delay: %ld",
+         cloud_file_deletion_delay.count());
   if (sst_file_cache != nullptr) {
     Header(log, "           COptions.sst_file_cache size: %ld bytes",
            sst_file_cache->GetCapacity());

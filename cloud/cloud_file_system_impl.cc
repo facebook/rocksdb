@@ -35,7 +35,7 @@ CloudFileSystemImpl::CloudFileSystemImpl(
     : CloudFileSystem(opts, base, l), purger_is_running_(true) {
   scheduler_ = CloudScheduler::Get();
   cloud_file_deletion_scheduler_ =
-      CloudFileDeletionScheduler::Create(scheduler_);
+      CloudFileDeletionScheduler::Create(scheduler_, opts.cloud_file_deletion_delay);
 }
 
 CloudFileSystemImpl::~CloudFileSystemImpl() {

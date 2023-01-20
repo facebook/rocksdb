@@ -1,6 +1,7 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 
 #pragma once
+#include <chrono>
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -13,11 +14,13 @@ class CloudFileDeletionScheduler
 
  public:
   static std::shared_ptr<CloudFileDeletionScheduler> Create(
-      const std::shared_ptr<CloudScheduler>& scheduler);
+      const std::shared_ptr<CloudScheduler>& scheduler,
+      std::chrono::seconds file_deletion_delay);
 
   explicit CloudFileDeletionScheduler(
-      PrivateTag, const std::shared_ptr<CloudScheduler>& scheduler)
-      : scheduler_(scheduler) {}
+      PrivateTag, const std::shared_ptr<CloudScheduler>& scheduler,
+      std::chrono::seconds file_deletion_delay)
+      : scheduler_(scheduler), file_deletion_delay_(file_deletion_delay) {}
 
   ~CloudFileDeletionScheduler();
 
@@ -51,7 +54,7 @@ class CloudFileDeletionScheduler
 
   mutable std::mutex files_to_delete_mutex_;
   std::unordered_map<std::string, int> files_to_delete_;
-  std::chrono::seconds file_deletion_delay_ = std::chrono::hours(1);
+  std::chrono::seconds file_deletion_delay_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -8,8 +8,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 std::shared_ptr<CloudFileDeletionScheduler> CloudFileDeletionScheduler::Create(
-     const std::shared_ptr<CloudScheduler>& scheduler) {
-  return std::make_shared<CloudFileDeletionScheduler>(PrivateTag(), scheduler);
+     const std::shared_ptr<CloudScheduler>& scheduler,
+     std::chrono::seconds file_deletion_delay) {
+  return std::make_shared<CloudFileDeletionScheduler>(PrivateTag(), scheduler,
+                                                      file_deletion_delay);
 }
 
 CloudFileDeletionScheduler::~CloudFileDeletionScheduler() {
