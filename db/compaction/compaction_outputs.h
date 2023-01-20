@@ -167,9 +167,15 @@ class CompactionOutputs {
     current_output_file_size_ = 0;
   }
 
-  // Add range-dels from the aggregator to the current output file
+  // Add range deletions from the range_del_agg_ to the current output file.
+  // Input parameters, `range_tombstone_lower_bound_` and current output's
+  // metadata determine the bounds on range deletions to add. Updates output
+  // file metadata boundary if extended by range tombstones.
+  //
   // @param comp_start_user_key and comp_end_user_key include timestamp if
-  // user-defined timestamp is enabled.
+  // user-defined timestamp is enabled. Their timestamp should be kMaxTS.
+  // @param next_table_min_key internal key lower bound for the next compaction
+  // output.
   // @param full_history_ts_low used for range tombstone garbage collection.
   Status AddRangeDels(const Slice* comp_start_user_key,
                       const Slice* comp_end_user_key,

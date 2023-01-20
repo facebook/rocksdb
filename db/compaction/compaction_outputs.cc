@@ -453,14 +453,6 @@ Status CompactionOutputs::AddRangeDels(
     CompactionIterationStats& range_del_out_stats, bool bottommost_level,
     const InternalKeyComparator& icmp, SequenceNumber earliest_snapshot,
     const Slice& next_table_min_key, const std::string& full_history_ts_low) {
-  assert(HasRangeDel());
-  FileMetaData& meta = current_output().meta;
-  const Comparator* ucmp = icmp.user_comparator();
-  InternalKey lower_bound_buf, upper_bound_buf;
-  Slice lower_bound_guard, upper_bound_guard;
-  std::string smallest_user_key;
-  const Slice *lower_bound, *upper_bound;
-
   // The following example does not happen since
   // CompactionOutput::ShouldStopBefore() always return false for the first
   // point key. But we should consider removing this dependency. Suppose for the
@@ -472,6 +464,20 @@ Status CompactionOutputs::AddRangeDels(
   // Then meta.smallest will be set to comp_start_user_key@seqno
   // and meta.largest will be set to comp_start_user_key@kMaxSequenceNumber
   // which violates the assumption that meta.smallest should be <= meta.largest.
+  assert(HasRangeDel());
+  FileMetaData& meta = current_output().meta;
+  const Comparator* ucmp = icmp.user_comparator();
+  InternalKey lower_bound_buf, upper_bound_buf;
+  Slice lower_bound_guard, upper_bound_guard;
+  std::string smallest_user_key;
+  const Slice *lower_bound, *upper_bound;
+
+  // To add all and only necessary range tombstones to the current output file,
+  // we need to first determine the internal key lower_bound and upper_bound for
+  // this output file. All and only range tombstones that overlap with
+  // [lower_bound, upper_bound] should be added to this file. File
+  // boundaries (meta.smallest/largest) should be updated accordingly when
+  // extended by range tombstones.
   size_t output_size = outputs_.size();
   if (output_size == 1) {
     // This is the first file in the subcompaction.
@@ -489,7 +495,6 @@ Status CompactionOutputs::AddRangeDels(
     // not processed the range tombstones yet, so permit any version. Same story
     // applies to timestamp, and a non-nullptr `comp_start_user_key` should have
     // `kMaxTs` here, which similarly permits any timestamp.
-    // TODO: make sure subcompaction boundary has `kMaxTs`
     if (comp_start_user_key) {
       // To exclude range overlap with range tombstones that ends at kMaxSeqno
       // when comparing end keys to this lower bound.
@@ -506,9 +511,6 @@ Status CompactionOutputs::AddRangeDels(
     // For subsequent output tables, only include range tombstones from min
     // key onwards since the previous file was extended to contain range
     // tombstones falling before min key.
-    //
-    // If this compaction output is range tombstone only, then output size
-    // should be 1, and it would not enter this else branch.
     if (range_tombstone_lower_bound_.size() > 0) {
       assert(meta.smallest.size() == 0 ||
              icmp.Compare(range_tombstone_lower_bound_, meta.smallest) < 0);
@@ -543,24 +545,16 @@ Status CompactionOutputs::AddRangeDels(
     assert(next_table_min_key_parsed.sequence < kMaxSequenceNumber);
     assert(meta.largest.size() == 0 ||
            icmp.Compare(meta.largest.Encode(), next_table_min_key) < 0);
+    assert(!lower_bound || icmp.Compare(*lower_bound, next_table_min_key) <= 0);
     if (meta.largest.size() > 0 &&
         ucmp->EqualWithoutTimestamp(meta.largest.user_key(),
                                     next_table_min_key_parsed.user_key)) {
-      // TODO: this assumes meta.largest.Encode() lives longer than
-      // upper_bound
-      //  This is only true if meta.largest is never updated.
+      // Caution: this assumes meta.largest.Encode() lives longer than
+      // upper_bound, which is only true if meta.largest is never updated.
+      // This just happens to be the case here since meta.largest serves
+      // as the upper_bound.
       upper_bound_guard = meta.largest.Encode();
-    } else if (lower_bound && ucmp->EqualWithoutTimestamp(
-                                  ExtractUserKey(*lower_bound),
-                                  next_table_min_key_parsed.user_key)) {
-      // There are no in-bounds user keys preceding `next_table_min_key`, and no
-      // point keys in this file either. Leave the file empty.
-      return Status::OK();
     } else {
-      // meta.largest.size() > 0 and meta.largest.user_key <
-      // next_table_min_key.user_key, OR meta.largest.size() == 0 and
-      // (!lower_bound or lower_bound.user_key < next_table_min_key.user_key)
-      //
       // TODO: unit test for this case, with/without timestamp
       SetMaxSeqAndTs(upper_bound_buf, next_table_min_key_parsed.user_key,
                      ts_sz);
@@ -568,7 +562,16 @@ Status CompactionOutputs::AddRangeDels(
     }
     upper_bound = &upper_bound_guard;
   }
-
+  if (lower_bound && upper_bound &&
+      icmp.Compare(*lower_bound, *upper_bound) > 0) {
+    assert(meta.smallest.size() == 0 &&
+           ucmp->EqualWithoutTimestamp(ExtractUserKey(*lower_bound),
+                                       ExtractUserKey(*upper_bound)));
+    // This can only happen when lower_bound have the same user key as
+    // next_table_min_key and that there is no point key in the current
+    // compaction output file.
+    return Status::OK();
+  }
   // The end key of the subcompaction must be bigger or equal to the upper
   // bound. If the end of subcompaction is null or the upper bound is null,
   // it means that this file is the last file in the compaction. So there
@@ -588,6 +591,8 @@ Status CompactionOutputs::AddRangeDels(
         icmp.Compare(tombstone_end.Encode(), *lower_bound) < 0) {
       continue;
     }
+    assert(!lower_bound ||
+           icmp.Compare(*lower_bound, tombstone_end.Encode()) <= 0);
     reached_lower_bound = true;
 
     // Garbage collection for range tombstones.
@@ -623,8 +628,8 @@ Status CompactionOutputs::AddRangeDels(
           .PermitUncheckedError();
       tombstone_start_parsed.user_key = ExtractUserKey(*lower_bound);
       if (ts_sz) {
-        // timestamp should from where sequence number is from, which is from
-        // tombstone
+        // timestamp should be from where sequence number is from, which is from
+        // tombstone in this case
         tombstone_start_parsed.SetTimestamp(
             tombstone_start_parsed.GetTimestamp(ucmp->timestamp_size()));
       }
@@ -634,6 +639,51 @@ Status CompactionOutputs::AddRangeDels(
         icmp.Compare(*upper_bound, tombstone_start.Encode()) < 0) {
       break;
     }
+    // Here we show that *only* range tombstones that overlap with
+    // [lower_bound, upper_bound] are added to the current file, and
+    // sanity checking invariants that should hold:
+    // - [tombstone_start, tombstone_end] overlaps with [lower_bound,
+    // upper_bound]
+    // - meta.smallest <= meta.largest
+    // Corresponding assertions are made, the proof is broken is any of them
+    // fails.
+    // TODO: show that *all* range tombstones that overlap with
+    //  [lower_bound, upper_bound] are added.
+    // TODO: some invariant about boundaries are correctly updated.
+    //
+    // Note that `tombstone_start` is updated in the if condition above, we use
+    // tombstone_start to refer to its initial value, i.e.,
+    // it->Tombstone().first, and use tombstone_start* to refer to its value
+    // after the update.
+    //
+    // To show [lower_bound, upper_bound] overlaps with [tombstone_start,
+    // tombstone_end]:
+    // lower_bound <= upper_bound from the if condition right after all
+    // bounds are initialized. We assume each tombstone fragment has
+    // start_key.user_key < end_key.user_key, so
+    // tombstone_start < tombstone_end by
+    // FragmentedTombstoneIterator::Tombstone(). So these two ranges are both
+    // non-emtpy. The flag `reached_lower_bound` and the if logic before it
+    // ensures lower_bound <= tombstone_end. tombstone_start is only updated
+    // if it has a smaller user_key than lower_bound user_key, so
+    // tombstone_start <= tombstone_start*. The above if condition implies
+    // tombstone_start* <= upper_bound. So we have
+    // tombstone_start <= upper_bound and lower_bound <= tombstone_end
+    // and the two ranges overlap.
+    //
+    // To show meta.smallest <= meta.largest:
+    // From the implementation of UpdateBoundariesForRange(), it suffices to
+    // prove that when it is first called in this function, its parameters
+    // satisfy `start < end`, where start = max(tombstone_start*, lower_bound)
+    // and end = min(tombstone_end, upper_bound). Note that
+    // tombstone_start*.user_key = max(tombstone_start.user_key,
+    // lower_bound.user_key). Assuming tombstone_end always has
+    // kMaxSequenceNumber and lower_bound.seqno < kMaxSequenceNumber.
+    // Since lower_bound <= tombstone_end, and
+    // lower_bound.user_key < tombstone_end.user_key. So tombstone_start* <
+    // tombstone_end. Since tombstone_start* <= upper_bound and lower_bound <=
+    // tombstone_end, the two ranges overlap. So `start <= end`.
+
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);
     if (lower_bound &&
@@ -671,138 +721,6 @@ Status CompactionOutputs::AddRangeDels(
         }
       }
     }
-    // TODO: show invariants that ensure all necessary range tombstones are
-    // added
-    //  and that file boundaries ensure no coverage is lost.
-    // Each range tombstone with internal key range [tombstone_start,
-    // tombstone_end] is being added to the current compaction output file here.
-    // The range tombstone is going to be truncated at range [meta.smallest,
-    // meta.largest] during reading/scanning. We should maintain invariants
-    // (1) meta.smallest <= meta.largest and,
-    // (2) [tombstone_start, tombstone_end] and [meta.smallest, meta.largest]
-    // overlaps, as there is no point adding range tombstone with a range
-    // outside the file's range.
-    // Since `tombstone_end` is always some user_key@kMaxSeqno, it is okay to
-    // use either open or closed range. Using closed range here to make
-    // reasoning easier, and it is more consistent with an ongoing work that
-    // tries to simplify this method.
-    //
-    // There are two cases:
-    // Case 1. Output file has no point key:
-    //   First we show this case only happens when the entire compaction output
-    //   is range tombstone only. This is true if CompactionIterator does not
-    //   emit any point key. Suppose CompactionIterator emits some point key.
-    //   Based on the assumption that CompactionOutputs::ShouldStopBefore()
-    //   always return false for the first point key, the first compaction
-    //   output file always contains a point key. Each new compaction output
-    //   file is created if there is a point key for which ShouldStopBefore()
-    //   returns true, and the point key would be added to the new compaction
-    //   output file. So each new compaction file always contains a point key.
-    //   So Case 1 only happens when CompactionIterator does not emit any
-    //   point key.
-    //
-    //   To show (1) meta.smallest <= meta.largest:
-    //   Since the compaction output is range tombstone only, `lower_bound` and
-    //   `upper_bound` are either null or comp_start/end_user_key respectively.
-    //   According to how UpdateBoundariesForRange() is implemented, it blindly
-    //   updates meta.smallest and meta.largest to smallest_candidate and
-    //   largest_candidate the first time it is called. Subsequently, it
-    //   compares input parameter with meta.smallest and meta.largest and only
-    //   updates them when input is smaller/larger. So we only need to show
-    //   smallest_candidate <= largest_candidate the first time
-    //   UpdateBoundariesForRange() is called. Here we show something stronger
-    //   that smallest_candidate.user_key < largest_candidate.user_key always
-    //   hold for Case 1.
-    //   We assume comp_start_user_key < comp_end_user_key, if provided. We
-    //   assume that tombstone_start < tombstone_end. This assumption is based
-    //   on that each fragment in FragmentedTombstoneList has
-    //   start_key < end_key (user_key) and that
-    //   FragmentedTombstoneIterator::Tombstone() returns the pair
-    //   (start_key@tombstone_seqno with op_type kTypeRangeDeletion, end_key).
-    //   The logic in this loop sets smallest_candidate to
-    //   max(tombstone_start.user_key, comp_start_user_key)@tombstone.seq_ with
-    //   op_type kTypeRangeDeletion, largest_candidate to
-    //   min(tombstone_end.user_key, comp_end_user_key)@kMaxSequenceNumber with
-    //   op_type kTypeRangeDeletion. When a bound is null, there is no
-    //   truncation on that end. To show that smallest_candidate.user_key <
-    //   largest_candidate.user_key, it suffices to show
-    //   tombstone_start.user_key < comp_end_user_key (if not null) AND
-    //   comp_start_user_key (if not null) < tombstone_end.user_key.
-    //   Since the file has no point key, `has_overlapping_endpoints` is false.
-    //   In the first sanity check of this for-loop, we compare
-    //   tombstone_start.user_key against upper_bound = comp_end_user_key,
-    //   and only proceed if tombstone_start.user_key < comp_end_user_key.
-    //   We assume FragmentedTombstoneIterator::Seek(k) lands
-    //   on a tombstone with end_key > k. So the call it->Seek(*lower_bound)
-    //   above implies compact_start_user_key < tombstone_end.user_key.
-    //
-    //   To show (2) [tombstone_start, tombstone_end] and [meta.smallest,
-    //   meta.largest] overlaps (after the call to UpdateBoundariesForRange()):
-    //   In the proof for (1) we have shown that
-    //   smallest_candidate <= largest_candidate. Since tombstone_start <=
-    //   smallest_candidate <= largest_candidate <= tombstone_end, for (2) to
-    //   hold, it suffices to show that [smallest_candidate, largest_candidate]
-    //   overlaps with [meta.smallest, meta.largest]. too.
-    //   Given meta.smallest <= meta.largest shown above, we need to show
-    //   that it is impossible to have largest_candidate < meta.smallest or
-    //   meta.largest < smallest_candidate. If the above
-    //   meta.UpdateBoundariesForRange(smallest_candidate, largest_candidate)
-    //   updates meta.largest or meta.smallest, then the two ranges overlap.
-    //   So we assume meta.UpdateBoundariesForRange(smallest_candidate,
-    //   largest_candidate) did not update meta.smallest nor meta.largest, which
-    //   means meta.smallest < smallest_candidate and largest_candidate <
-    //   meta.largest.
-    //
-    // Case 2. Output file has >= 1 point key. This means meta.smallest and
-    // meta.largest are not empty when AddRangeDels() is called.
-    //   To show (1) meta.smallest <= meta.largest:
-    //   Assume meta.smallest <= meta.largest when AddRangeDels() is called,
-    //   this follow from how UpdateBoundariesForRange() is implemented where it
-    //   takes min or max to update meta.smallest or meta.largest.
-    //
-    //   To show (2) [tombstone_start, tombstone_end] and [meta.smallest,
-    //   meta.largest] overlaps (after the call to UpdateBoundariesForRange()):
-    //   When smallest_candidate <= largest_candidate, the proof in Case 1
-    //   applies, so we only need to show (2) holds when smallest_candidate >
-    //   largest_candidate. When both bounds are either null or from
-    //   subcompaction boundary, the proof in Case 1 applies, so we only need to
-    //   show (2) holds when at least one bound is from a point key (either
-    //   meta.smallest for lower bound or next_table_min_key for upper bound).
-    //
-    //   Suppose lower bound is meta.smallest.user_key. The call
-    //   it->Seek(*lower_bound) implies tombstone_end.user_key >
-    //   meta.smallest.user_key. We have smallest_candidate.user_key =
-    //   max(tombstone_start.user_key, meta.smallest.user_key). For
-    //   smallest_candidate to be > largest_candidate, we need
-    //   largest_candidate.user_key = upper_bound = smallest_candidate.user_key,
-    //   where tombstone_end is truncated to largest_candidate.
-    //   Subcase 1:
-    //   Suppose largest_candidate.user_key = comp_end_user_key (there is no
-    //   next point key). Subcompaction ensures any point key from this
-    //   subcompaction has a user_key < comp_end_user_key, so 1)
-    //   meta.smallest.user_key < comp_end_user_key, 2)
-    //   `has_overlapping_endpoints` is false, and the first if condition in
-    //   this for-loop ensures tombstone_start.user_key < comp_end_user_key. So
-    //   smallest_candidate.user_key < largest_candidate.user_key. This case
-    //   cannot happen when smallest > largest_candidate.
-    //   Subcase 2:
-    //   Suppose largest_candidate.user_key = next_table_min_key.user_key.
-    //   The first if condition in this for-loop together with
-    //   smallest_candidate.user_key = next_table_min_key.user_key =
-    //   upper_bound implies `has_overlapping_endpoints` is true (so meta
-    //   largest.user_key = upper_bound) and
-    //   tombstone.seq_ < meta.largest.seqno. So
-    //   tombstone_start < meta.largest < tombstone_end.
-    //
-    //   Suppose lower bound is comp_start_user_key and upper_bound is
-    //   next_table_min_key. The call it->Seek(*lower_bound) implies we have
-    //   tombstone_end_key.user_key > comp_start_user_key. So
-    //   tombstone_end_key.user_key > smallest_candidate.user_key. For
-    //   smallest_candidate to be > largest_candidate, we need
-    //   tombstone_start.user_key = largest_candidate.user_key = upper_bound =
-    //   next_table_min_key.user_key. This means `has_overlapping_endpoints` is
-    //   true (so meta.largest.user_key = upper_bound) and tombstone.seq_ <
-    //   meta.largest.seqno. So tombstone_start < meta.largest < tombstone_end.
   }
   return Status::OK();
 }
