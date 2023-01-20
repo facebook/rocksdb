@@ -250,6 +250,10 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
         ASSERT_EQ("k2", iter->key());
         iter->Prev();
         ASSERT_TRUE(iter->status().IsCorruption());
+
+        iter->Seek("k2");
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("k2", iter->key());
       }
 
       std::vector<PinnableSlice> values(kNumOperands);
