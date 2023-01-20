@@ -15,19 +15,32 @@ const Slice kDefaultWideColumnName;
 
 const WideColumns kNoWideColumns;
 
-Status PinnableWideColumns::SetFromWideColumns(WideColumns columns) {
-  std::sort(columns.begin(), columns.end(),
+Status ToPinnableWideColumns(const WideColumns& columns,
+                             PinnableWideColumns& pinnable_columns) {
+  WideColumns sorted_columns(columns);
+  std::sort(sorted_columns.begin(), sorted_columns.end(),
             [](const WideColumn& lhs, const WideColumn& rhs) {
               return lhs.name().compare(rhs.name()) < 0;
             });
 
-  const Status s =
-      WideColumnSerialization::Serialize(columns, *value_.GetSelf());
-  if (!s.ok()) {
-    return s;
+  std::string serialized_columns;
+
+  {
+    const Status s =
+        WideColumnSerialization::Serialize(sorted_columns, serialized_columns);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
-  return CreateIndexForWideColumns();
+  {
+    const Status s = pinnable_columns.SetWideColumnValue(serialized_columns);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  return Status::OK();
 }
 
 Status PinnableWideColumns::CreateIndexForWideColumns() {

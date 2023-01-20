@@ -95,8 +95,6 @@ class PinnableWideColumns {
   const WideColumns& columns() const { return columns_; }
   size_t serialized_size() const { return value_.size(); }
 
-  Status SetFromWideColumns(WideColumns columns);
-
   void SetPlainValue(const Slice& value);
   void SetPlainValue(const Slice& value, Cleanable* cleanable);
 
@@ -114,6 +112,9 @@ class PinnableWideColumns {
   PinnableSlice value_;
   WideColumns columns_;
 };
+
+Status ToPinnableWideColumns(const WideColumns& columns,
+                             PinnableWideColumns& pinnable_columns);
 
 inline void PinnableWideColumns::CopyValue(const Slice& value) {
   value_.PinSelf(value);
