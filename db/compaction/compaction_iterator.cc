@@ -251,6 +251,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
 
+  PinnableWideColumns new_entity;
+
   {
     StopWatchNano timer(clock_, report_detailed_time_);
 
@@ -327,7 +329,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
               ? (blob_value_.empty() ? &value_ : &blob_value_)
               : nullptr,
           ikey_.type == kTypeWideColumnEntity ? &existing_entity : nullptr,
-          &compaction_filter_value_, nullptr,
+          &compaction_filter_value_, &new_entity,
           compaction_filter_skip_until_.rep());
     }
 
@@ -411,17 +413,13 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     validity_info_.Invalidate();
     return false;
   } else if (decision == CompactionFilter::Decision::kChangeWideColumnEntity) {
-    const Status s = Status::OK();  // TODO
-    if (!s.ok()) {
-      status_ = s;
-      validity_info_.Invalidate();
-      return false;
-    }
-
     if (ikey_.type != kTypeWideColumnEntity) {
       ikey_.type = kTypeWideColumnEntity;
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
     }
+
+    assert(new_entity.serialized_data());
+    compaction_filter_value_ = std::move(*new_entity.serialized_data());
 
     value_ = compaction_filter_value_;
   }

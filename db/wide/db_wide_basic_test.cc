@@ -603,14 +603,20 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   WideColumns first_columns{{kDefaultWideColumnName, "a"},
                             {"attr_name1", "foo"},
                             {"attr_name2", "bar"}};
+  WideColumns first_columns_uppercase{{kDefaultWideColumnName, "A"},
+                                      {"attr_name1", "FOO"},
+                                      {"attr_name2", "BAR"}};
 
   // Wide-column entity without default column
   constexpr char second_key[] = "second";
   WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
+  WideColumns second_columns_uppercase{{"attr_one", "TWO"},
+                                       {"attr_three", "FOUR"}};
 
   // Plain old key-value
   constexpr char last_key[] = "last";
   constexpr char last_value[] = "baz";
+  constexpr char last_value_uppercase[] = "BAZ";
 
   auto write = [&] {
     ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
@@ -724,10 +730,9 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
     }
   }
 
-  // Test a compaction filter that changes the values of entries. If the
-  // existing entry is a plain old key-value, its value is simply converted to
-  // uppercase. If it is a wide-column entity, it is turned into a plain
-  // key-value where the value is the uppercased value of the first column.
+  // Test a compaction filter that changes the values of entries to uppercase.
+  // The new entry is always a plain key-value; if the existing entry is a
+  // wide-column entity, only the value of its first column is kept.
   {
     class ChangeValueFilter : public CompactionFilter {
      public:
@@ -739,22 +744,26 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
                         std::string* /* skip_until */) const override {
         assert(new_value);
 
+        auto upper = [](const std::string& str) {
+          std::string result(str);
+
+          for (char& c : result) {
+            c = std::toupper(static_cast<unsigned char>(c));
+          }
+
+          return result;
+        };
+
         if (value_type == ValueType::kWideColumnEntity) {
           assert(existing_entity);
 
-          if (existing_entity->empty()) {
-            *new_value = "empty";
-          } else {
-            *new_value = (*existing_entity)[0].value().ToString();
+          if (!existing_entity->empty()) {
+            *new_value = upper(existing_entity->front().value().ToString());
           }
         } else {
           assert(existing_value);
 
-          *new_value = existing_value->ToString();
-        }
-
-        for (char& c : *new_value) {
-          c = std::toupper(static_cast<unsigned char>(c));
+          *new_value = upper(existing_value->ToString());
         }
 
         return Decision::kChangeValue;
@@ -777,7 +786,8 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                first_key, &result));
 
-      WideColumns expected_columns{{kDefaultWideColumnName, "A"}};
+      WideColumns expected_columns{
+          {kDefaultWideColumnName, first_columns_uppercase[0].value()}};
       ASSERT_EQ(result.columns(), expected_columns);
     }
 
@@ -786,7 +796,8 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                second_key, &result));
 
-      WideColumns expected_columns{{kDefaultWideColumnName, "TWO"}};
+      WideColumns expected_columns{
+          {kDefaultWideColumnName, second_columns_uppercase[0].value()}};
       ASSERT_EQ(result.columns(), expected_columns);
     }
 
@@ -795,7 +806,99 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                last_key, &result));
 
-      WideColumns expected_columns{{kDefaultWideColumnName, "BAZ"}};
+      WideColumns expected_columns{
+          {kDefaultWideColumnName, last_value_uppercase}};
+      ASSERT_EQ(result.columns(), expected_columns);
+    }
+  }
+
+  // Test a compaction filter that changes the column names/values of entries to
+  // uppercase. The new entry is always a wide-column entity; if the existing
+  // entry is a plain key-value, it is converted to a wide-column entity with a
+  // single default column.
+  {
+    class ChangeEntityFilter : public CompactionFilter {
+     public:
+      Decision FilterV3(int /* level */, const Slice& /* key */,
+                        ValueType value_type, const Slice* existing_value,
+                        const WideColumns* existing_entity,
+                        std::string* /* new_value */,
+                        PinnableWideColumns* new_entity,
+                        std::string* /* skip_until */) const override {
+        assert(new_entity);
+
+        auto upper = [](const std::string& str) {
+          std::string result(str);
+
+          for (char& c : result) {
+            c = std::toupper(static_cast<unsigned char>(c));
+          }
+
+          return result;
+        };
+
+        if (value_type == ValueType::kWideColumnEntity) {
+          assert(existing_entity);
+
+          std::vector<std::string> new_values;
+          new_values.reserve(existing_entity->size());
+
+          WideColumns new_columns;
+          new_columns.reserve(existing_entity->size());
+
+          for (const auto& column : *existing_entity) {
+            new_values.emplace_back(upper(column.value().ToString()));
+            new_columns.emplace_back(column.name(), new_values.back());
+          }
+
+          [[maybe_unused]] const Status s =
+              ToPinnableWideColumns(new_columns, *new_entity);
+          assert(s.ok());
+        } else {
+          assert(existing_value);
+
+          const std::string new_value = upper(existing_value->ToString());
+          WideColumns new_columns{{kDefaultWideColumnName, new_value}};
+
+          [[maybe_unused]] const Status s =
+              ToPinnableWideColumns(new_columns, *new_entity);
+          assert(s.ok());
+        }
+
+        return Decision::kChangeWideColumnEntity;
+      }
+
+      const char* Name() const override { return "ChangeEntityFilter"; }
+    };
+
+    ChangeEntityFilter filter;
+    options.compaction_filter = &filter;
+
+    DestroyAndReopen(options);
+
+    write();
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               first_key, &result));
+      ASSERT_EQ(result.columns(), first_columns_uppercase);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               second_key, &result));
+      ASSERT_EQ(result.columns(), second_columns_uppercase);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               last_key, &result));
+
+      WideColumns expected_columns{
+          {kDefaultWideColumnName, last_value_uppercase}};
       ASSERT_EQ(result.columns(), expected_columns);
     }
   }
