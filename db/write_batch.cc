@@ -2499,11 +2499,14 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(merge_operator);
 
         std::string new_value;
+        // `op_failure_scope` (an output parameter) is not provided (set to
+        // nullptr) since a failure must be propagated regardless of its value.
         Status merge_status = MergeHelper::TimedFullMerge(
             merge_operator, key, &get_value_slice, {value}, &new_value,
             moptions->info_log, moptions->statistics,
             SystemClock::Default().get(), /* result_operand */ nullptr,
-            /* update_num_ops_stats */ false);
+            /* update_num_ops_stats */ false,
+            /* op_failure_scope */ nullptr);
 
         if (!merge_status.ok()) {
           // Failed to merge!
