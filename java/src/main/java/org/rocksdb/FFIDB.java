@@ -121,7 +121,7 @@ public class FFIDB implements AutoCloseable {
     final var pinnable = getPinnableSlice(readOptions, columnFamilyHandle, key);
     byte[] value = null;
     if (pinnable.code == Status.Code.Ok) {
-      var pinnableSlice = pinnable.pinnableSlice().get();
+      final var pinnableSlice = pinnable.pinnableSlice().get();
       value = new byte[(int) pinnableSlice.data().byteSize()];
     }
     return GetBytes.fromPinnable(pinnable, value);
@@ -150,11 +150,13 @@ public class FFIDB implements AutoCloseable {
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key) throws RocksDBException {
     final MemorySegment keySegment = segmentAllocator.allocate(key.length);
     copy(keySegment, key);
-    final MemorySegment inputSlice = segmentAllocator.allocate(FFILayout.InputSlice.Layout);
+
+    final MemorySegment getSegment = segmentAllocator.allocate(FFILayout.GetSegment.Layout);
+    final MemorySegment inputSlice = getSegment.asSlice(FFILayout.GetSegment.InputStructOffset, FFILayout.InputSlice.Layout.byteSize());
     FFILayout.InputSlice.Data.set(inputSlice, keySegment.address());
     FFILayout.InputSlice.Size.set(inputSlice, keySegment.byteSize());
 
-    final MemorySegment outputPinnable = segmentAllocator.allocate(FFILayout.PinnableSlice.Layout);
+    final MemorySegment outputPinnable = getSegment.asSlice(FFILayout.GetSegment.PinnableStructOffset, FFILayout.PinnableSlice.Layout.byteSize());
 
     final Object result;
     try {
