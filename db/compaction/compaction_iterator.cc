@@ -354,6 +354,13 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     decision = CompactionFilter::Decision::kKeep;
   }
 
+  auto update_type = [&](ValueType type) {
+    if (ikey_.type != type) {
+      ikey_.type = type;
+      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+    }
+  };
+
   if (decision == CompactionFilter::Decision::kRemove) {
     // convert the current key to a delete; key_ is pointing into
     // current_key_ at this point, so updating current_key_ updates key()
@@ -371,10 +378,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     value_.clear();
     iter_stats_.num_record_drop_user++;
   } else if (decision == CompactionFilter::Decision::kChangeValue) {
-    if (ikey_.type != kTypeValue) {
-      ikey_.type = kTypeValue;
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-    }
+    update_type(kTypeValue);
 
     value_ = compaction_filter_value_;
   } else if (decision == CompactionFilter::Decision::kRemoveAndSkipUntil) {
@@ -395,10 +399,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       return false;
     }
 
-    if (ikey_.type != kTypeBlobIndex) {
-      ikey_.type = kTypeBlobIndex;
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-    }
+    update_type(kTypeBlobIndex);
 
     value_ = compaction_filter_value_;
   } else if (decision == CompactionFilter::Decision::kIOError) {
@@ -413,10 +414,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     validity_info_.Invalidate();
     return false;
   } else if (decision == CompactionFilter::Decision::kChangeWideColumnEntity) {
-    if (ikey_.type != kTypeWideColumnEntity) {
-      ikey_.type = kTypeWideColumnEntity;
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-    }
+    update_type(kTypeWideColumnEntity);
 
     compaction_filter_value_ = new_entity.serialized_data();
 
