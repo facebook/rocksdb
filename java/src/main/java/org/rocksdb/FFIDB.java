@@ -152,8 +152,7 @@ public class FFIDB implements AutoCloseable {
     copy(keySegment, key);
     final MemorySegment inputSlice = segmentAllocator.allocate(FFILayout.InputSlice.Layout);
     FFILayout.InputSlice.Data.set(inputSlice, keySegment.address());
-    FFILayout.InputSlice.Size.set(
-        inputSlice, keySegment.byteSize());
+    FFILayout.InputSlice.Size.set(inputSlice, keySegment.byteSize());
 
     final MemorySegment outputPinnable = segmentAllocator.allocate(FFILayout.PinnableSlice.Layout);
 

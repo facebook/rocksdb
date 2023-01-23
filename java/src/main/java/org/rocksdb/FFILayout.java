@@ -55,16 +55,16 @@ public class FFILayout {
   };
 
   public static class OutputSlice {
-
-    static final GroupLayout Layout = MemoryLayout
-        .structLayout(ValueLayout.ADDRESS.withName("data"),
-            ValueLayout.JAVA_LONG.withName("capacity"),
-            ValueLayout.JAVA_LONG.withName("size"))
-        .withName("output_slice");
+    static final GroupLayout Layout =
+        MemoryLayout
+            .structLayout(ValueLayout.ADDRESS.withName("data"),
+                ValueLayout.JAVA_LONG.withName("capacity"), ValueLayout.JAVA_LONG.withName("size"))
+            .withName("output_slice");
 
     static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data"));
 
-    static final VarHandle Capacity = Layout.varHandle(MemoryLayout.PathElement.groupElement("capacity"));
+    static final VarHandle Capacity =
+        Layout.varHandle(MemoryLayout.PathElement.groupElement("capacity"));
 
     static final VarHandle Size = Layout.varHandle(MemoryLayout.PathElement.groupElement("size"));
   }

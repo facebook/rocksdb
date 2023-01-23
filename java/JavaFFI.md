@@ -37,7 +37,7 @@ The called `C++` is invoked entirely natively. It does not have to access any Ja
 
 ### Our Approach
 
-While we could in principle avoid writing any C++, it is truly mind-boggling to think about how to lay out C++ structures in `Java`, so to begin with it is easier to write some very simple stubs in C++ which can immediately call into the object-oriented core of RocksDB. We define structures with which to pass parameters to and receive results from the `C`-like method(s) we implement.
+While we could in principle avoid writing any C++, C++ objects and classes are not easily supported, so to begin with it is easier to write some very simple `C`-like methods/stubs in C++ which can immediately call into the object-oriented core of RocksDB. We define structures with which to pass parameters to and receive results from the `C`-like method(s) we implement.
 
 #### `C++` Side
 
@@ -66,19 +66,26 @@ typedef struct rocksdb_output_slice {
 
 #### `Java` Side
 
- - An `FFIMethod` class to advertise a `java.lang.invoke.MethodHandle` for each of our helper stubs
+ We implement an `FFIMethod` class to advertise a `java.lang.invoke.MethodHandle` for each of our helper stubs
 
  ```java
-  public static MethodHandle Get; // handle which refers to the rocksdb_ffi_get method in C++
-  public static MethodHandle ResetOutput; // handle which refers to the rocksdb_ffi_reset_output method in C++
+  public static MethodHandle GetPinnable; // handle which refers to the rocksdb_ffi_get_pinnable method in C++
+  public static MethodHandle ResetPinnable; // handle which refers to the rocksdb_ffi_reset_pinnable method in C++
 ```
- - An `FFILayout` class to describe each of the passed structures (`rocksdb_input_slice` and `rocksdb_output_slice`) in `Java` terms
+We also implement an `FFILayout` class to describe each of the passed structures (`rocksdb_input_slice` , `rocksdb_pinnable_slice` and `rocksdb_output_slice`) in `Java` terms
 
  ```java
  public static class InputSlice {
   static final GroupLayout Layout = ...
   static final VarHandle Data = ...
   static final VarHandle Size =  ...
+ };
+
+ public static class PinnableSlice {
+  static final GroupLayout Layout = ...
+  static final VarHandle Data = ...
+  static final VarHandle Size =  ...
+  static final VarHandle IsPinned =  ...
  };
 
  public static class OutputSlice {
@@ -101,7 +108,7 @@ The flow of any RocksDB FFI API method becomes:
  3. Invoke the native method using the `MethodHandle` from `FFIMethod` and addresses of instantiated `MemorySegment`s, or value types, as parameters
  4. Read the call result and the output parameter(s), again using `VarHandle`s from `FFILayout` to perform the mapping.
 
-For the `getPinnableSlice()` method, on successful return from an invocation of `rocksdb_ffi_get()`, the `OutputSlice` will contain the `data` and `size` fields of a pinnable slice (see below) containing the requested value. A `MemorySegment` referring to the native memory of the pinnable slice can then be constructed, and used to retrieve the value in whatever fashion we choose.
+For the `getPinnableSlice()` method, on successful return from an invocation of `rocksdb_ffi_get()`, the `PinnableSlice` will contain the `data` and `size` fields of a pinnable slice (see below) containing the requested value. A `MemorySegment` referring to the native memory of the pinnable slice can then be constructed, and used to retrieve the value in whatever fashion we choose.
 
 ### Pinnable Slices
 
@@ -123,77 +130,53 @@ public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] ke
 
 ## Benchmark Results
 
-Full benchmark on Ubuntu, with some new benchmarks.
-  - Random key order of `get()`
-  - black holes for all the data, to make sure nothing is optimized away
+We extended existing RocksDB Java JNI benchmarks with new benchmarks based on FFI. Full benchmark run on Ubuntu, including new benchmarks.
+
 ```bash
-java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,32768,130072 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks
+java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks
+```
+[Results](./jmh/plot/jmh-result-clean.csv)
+![Plot](./jmh/plot/benchmarks.png)
+
+### Discussion
+
+We have plotted the performance (more operations is better) of a selection of benchmarks,
+```bash
+q "select Benchmark,Score,Error from ./plot/jmh-result-edit.csv where keyCount=100000 and valueSize=65536" -d, -H
 ```
 
-GetBenchmarks.ffiGetOutputSlice                      no_column_family      100000        128         4096  thrpt   25   64291.419 ±  1151.756  ops/s
-GetBenchmarks.ffiGetOutputSlice                      no_column_family      100000        128        32768  thrpt   25   35393.140 ±   384.554  ops/s
-GetBenchmarks.ffiGetOutputSlice                      no_column_family      100000        128       130072  thrpt   25   16530.851 ±    99.670  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128         4096  thrpt   12  313545.690 ± 16898.814  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128        32768  thrpt   25   41810.122 ±   724.093  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family        1000        128       130072  thrpt   25   17750.190 ±   108.777  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128         4096  thrpt   25   69277.791 ±  1210.060  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128        32768  thrpt   25   39351.842 ±   620.683  ops/s
-GetBenchmarks.ffiGetPinnableSlice                    no_column_family      100000        128       130072  thrpt   25   18732.541 ±    92.323  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family        1000        128         4096  thrpt   25  205367.451 ±  5164.557  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family        1000        128        32768  thrpt   25   34612.870 ±   234.713  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family        1000        128       130072  thrpt   25   12751.282 ±   109.208  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family      100000        128         4096  thrpt   25   56741.818 ±  1300.424  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family      100000        128        32768  thrpt   25   27485.112 ±   171.642  ops/s
-GetBenchmarks.ffiGetRandom                           no_column_family      100000        128       130072  thrpt   25   12381.439 ±    98.442  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128         4096  thrpt   18  271751.737 ±  9780.256  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128        32768  thrpt   25   35637.209 ±   405.370  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family        1000        128       130072  thrpt   25   15145.986 ±    98.809  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128         4096  thrpt   25   63117.034 ±  1215.064  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128        32768  thrpt   25   34275.593 ±   374.325  ops/s
-GetBenchmarks.ffiPreallocatedGet                     no_column_family      100000        128       130072  thrpt   25   15990.968 ±   104.256  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128         4096  thrpt   20  258443.188 ± 14367.215  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128        32768  thrpt   25   43861.215 ±   630.738  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family        1000        128       130072  thrpt   25   15898.718 ±   102.746  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128         4096  thrpt   25   60738.330 ±   751.122  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128        32768  thrpt   25   32985.292 ±   392.325  ops/s
-GetBenchmarks.ffiPreallocatedGetRandom               no_column_family      100000        128       130072  thrpt   25   15216.205 ±   110.312  ops/s
-GetBenchmarks.get                                    no_column_family        1000        128         4096  thrpt   25  431788.444 ±  3634.249  ops/s
-GetBenchmarks.get                                    no_column_family        1000        128        32768  thrpt   25   33664.813 ±   201.615  ops/s
-GetBenchmarks.get                                    no_column_family        1000        128       130072  thrpt   25   12799.269 ±    48.901  ops/s
-GetBenchmarks.get                                    no_column_family      100000        128         4096  thrpt   25   79331.711 ±  1183.335  ops/s
-GetBenchmarks.get                                    no_column_family      100000        128        32768  thrpt   25   32350.676 ±   373.255  ops/s
-GetBenchmarks.get                                    no_column_family      100000        128       130072  thrpt   25   13387.083 ±    52.474  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128         4096  thrpt   25  630485.342 ±  5278.869  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128        32768  thrpt   25   44259.667 ±   391.591  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family        1000        128       130072  thrpt   25   16633.185 ±    90.660  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128         4096  thrpt   25   87879.488 ±  1339.351  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128        32768  thrpt   25   41779.097 ±   294.259  ops/s
-GetBenchmarks.preallocatedByteBufferGet              no_column_family      100000        128       130072  thrpt   25   17471.879 ±    61.928  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128         4096  thrpt   25  595411.259 ±  9503.950  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128        32768  thrpt   25   54021.417 ±   572.407  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family        1000        128       130072  thrpt   25   17630.588 ±    72.573  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128         4096  thrpt   25   82298.320 ±   615.037  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128        32768  thrpt   25   39524.029 ±   355.461  ops/s
-GetBenchmarks.preallocatedByteBufferGetRandom        no_column_family      100000        128       130072  thrpt   25   16740.203 ±    83.641  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family        1000        128         4096  thrpt   25  634987.901 ±  8801.232  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family        1000        128        32768  thrpt   25   44281.741 ±   218.671  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family        1000        128       130072  thrpt   25   16624.144 ±   100.715  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family      100000        128         4096  thrpt   25   90174.327 ±  1027.447  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family      100000        128        32768  thrpt   25   41856.085 ±   581.119  ops/s
-GetBenchmarks.preallocatedGet                        no_column_family      100000        128       130072  thrpt   25   17399.334 ±   100.069  ops/s
+ - benchmarks with `ffi` in their name are implemented using the FFI mechanisms
+ - other benchmarks are previously implemented JNI-based benchmarks
 
-Try again, with all together and profiling
-```bash
-java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks -prof stack
-```
+ If we compare like with like, for basic `get()`
+ - `ffiGet` vs `get`
+ - The JNI version is faster
+
+ For preallocated `get()` where the result buffer is supplied to the method, avoiding an allocation of a fresh result buffer on each call (and the test recycles its result buffers), then the same small difference persists
+ - `ffiPreallocatedGet` vs `preallocatedGet`
+ - `preallocatedGet` is faster
+
+ We implemented some methods where the key for the `get()` is randomized, so that any ordering effects can be accounted for. The same differences persisted.
+
+ The FFI interface gives us a natural way to expose RocksDB's [pinnable slice](http://rocksdb.org/blog/2017/08/24/pinnableslice.html) mechanism. When we provide a benchmark which accesses the raw `PinnableSlice` API, as expected this is the fastest method of any; however we are not comparing like with like:
+ - `ffiGetPinnableSlice` returns a handle to the RocksDB memory containing the slice, and presents that as an FFI `MemorySegment`. No copying of the memory in the segment occurs.
+
+ In fact, we implement the new FFI-based `get()` method using the new FFI-based `getPinnableSlice()` method, and copying out the result. So the `ffiGet` and `ffiPreallocatedGet` benchmarks use this mechanism underneath.
+
+ In an effort to discover whether using the Java APIs to copy from the pinnable slice backed `MemorySegment` was a problem, we implemented a separate `ffiGetOutputSlice` benchmark which copies the result into a (Java allocated native memory) segment at the C++ side.
+ - `ffiGetOutputSlice` while faster than `ffiPreallocatedGet` is still slower than `preallocatedGet`.
+
+ It's reasonable to expect that the extra FFI call to C++ to release the pinned slice has some cost, but a null FFI method call is extremely fast. And as `ffiGetOutputSlice` is still not as fast, we remain unclear where the performance is going.
 
 ## Appendix
 ### Processing
 
 Use [`q`](http://harelba.github.io/q/) to select the csv output for analysis and graphing.
 
+ - Note that we edited the column headings for easier processing
+
 ```bash
-q "select Benchmark,Score from jmhrun.csv where keyCount=1000 and valueSize=4096" -d, -H -C readwrite
+q "select Benchmark,Score,Error from ./plot/jmh-result-edit.csv where keyCount=100000 and valueSize=65536" -d, -H -C readwrite
 ```
 
 ### Java 19 installation

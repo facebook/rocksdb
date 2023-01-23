@@ -18,7 +18,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Param;
@@ -313,14 +312,16 @@ public class GetBenchmarks {
 
   @Benchmark
   public void ffiGetPinnableSlice(Blackhole blackhole) throws RocksDBException {
-    final GetPinnableSlice result = dbFFI.getPinnableSlice(readOptions, getColumnFamily(), getKeyArr());
+    final GetPinnableSlice result =
+        dbFFI.getPinnableSlice(readOptions, getColumnFamily(), getKeyArr());
     blackhole.consume(result);
     result.pinnableSlice().get().reset();
   }
 
   @Benchmark
   public void ffiGetOutputSlice(Blackhole blackhole) throws RocksDBException {
-    final GetOutputSlice result = dbFFI.getOutputSlice(readOptions, getColumnFamily(), outputSlice, getKeyArr());
+    final GetOutputSlice result =
+        dbFFI.getOutputSlice(readOptions, getColumnFamily(), outputSlice, getKeyArr());
     blackhole.consume(result);
     blackhole.consume(outputSlice);
   }

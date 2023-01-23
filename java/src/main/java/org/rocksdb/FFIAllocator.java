@@ -13,7 +13,6 @@ import java.util.List;
  * for the {@code jmh/GetBenchmark.java} tests.
  */
 public class FFIAllocator implements SegmentAllocator {
-
   record SessionArena(MemorySession memorySession, SegmentAllocator segmentAllocator, int index) {}
   private static final long SIZE = 1L << 20;
 
@@ -46,8 +45,8 @@ public class FFIAllocator implements SegmentAllocator {
     }
   }
 
-  @Override public MemorySegment allocate(final long bytesSize,
-                                          final long bytesAlignment) {
+  @Override
+  public MemorySegment allocate(final long bytesSize, final long bytesAlignment) {
     synchronized (this) {
       while (true) {
         final var newest = nativeArenas.get(nativeArenas.size() - 1);
