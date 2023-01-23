@@ -168,7 +168,7 @@ class CorruptionTest : public testing::Test {
     Check(min_expected, max_expected, ReadOptions(false, true));
   }
 
-  void Check(int min_expected, int max_expected, ReadOptions readOptions) {
+  void Check(int min_expected, int max_expected, ReadOptions read_options) {
     uint64_t next_expected = 0;
     uint64_t missed = 0;
     int bad_keys = 0;
@@ -180,7 +180,7 @@ class CorruptionTest : public testing::Test {
     // Instead, we want the reads to be successful and this test
     // will detect whether the appropriate corruptions have
     // occurred.
-    Iterator* iter = db_->NewIterator(readOptions);
+    Iterator* iter = db_->NewIterator(read_options);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_OK(iter->status());
       uint64_t key;
