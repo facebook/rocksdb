@@ -418,8 +418,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
     }
 
-    assert(new_entity.serialized_data());
-    compaction_filter_value_ = *new_entity.serialized_data();
+    compaction_filter_value_ = new_entity.serialized_data();
 
     value_ = compaction_filter_value_;
   }
