@@ -8,6 +8,7 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.rocksdb.util.FFIUtil.usingFFI;
 
+import java.lang.foreign.MemorySegment;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -61,7 +62,8 @@ public class FFIDBBulkTest {
         for (final ColumnFamilyHandle columnFamilyHandle : dbFFI.getColumnFamilies()) {
           for (int i = keyCount - 1; i >= 0; i--) {
             final byte[] key = keysArray.get(i);
-            dbFFI.get(columnFamilyHandle, key, value);
+            dbFFI.get(columnFamilyHandle, dbFFI.copy(key),
+                dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout), value);
             assertThat(value).isEqualTo(valuesArray.get(i));
           }
         }

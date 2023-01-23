@@ -21,7 +21,7 @@ import java.lang.invoke.VarHandle;
  */
 public class FFILayout {
   public static class InputSlice {
-    static final GroupLayout Layout =
+    public static final GroupLayout Layout =
         MemoryLayout
             .structLayout(
                 ValueLayout.ADDRESS.withName("data"), ValueLayout.JAVA_LONG.withName("size"),
@@ -36,12 +36,12 @@ public class FFILayout {
   };
 
   public static class PinnableSlice {
-    static final GroupLayout Layout = MemoryLayout
-                                          .structLayout(ValueLayout.ADDRESS.withName("data"),
-                                              ValueLayout.JAVA_LONG.withName("size"),
-                                              ValueLayout.ADDRESS.withName("pinnable_slice"),
-                                              ValueLayout.JAVA_BOOLEAN.withName("is_pinned"))
-                                          .withName("pinnable_slice");
+    public static final GroupLayout Layout = MemoryLayout
+                                                 .structLayout(ValueLayout.ADDRESS.withName("data"),
+                                                     ValueLayout.JAVA_LONG.withName("size"),
+                                                     ValueLayout.ADDRESS.withName("pinnable_slice"),
+                                                     ValueLayout.JAVA_BOOLEAN.withName("is_pinned"))
+                                                 .withName("pinnable_slice");
 
     static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data"));
 
@@ -54,17 +54,17 @@ public class FFILayout {
         Layout.varHandle(MemoryLayout.PathElement.groupElement("is_pinned"));
   };
 
-  public static class GetSegment {
-    static final GroupLayout Layout = MemoryLayout.structLayout(
-        InputSlice.Layout.withName("input_struct"),
-        PinnableSlice.Layout.withName("pinnable_struct"));
+  public static class GetParamsSegment {
+    public static final GroupLayout Layout =
+        MemoryLayout.structLayout(InputSlice.Layout.withName("input_struct"),
+            PinnableSlice.Layout.withName("pinnable_struct"));
 
     static final long InputStructOffset = Layout.byteOffset(MemoryLayout.PathElement.groupElement("input_struct"));
     static final long PinnableStructOffset = Layout.byteOffset(MemoryLayout.PathElement.groupElement("pinnable_struct"));
   }
 
   public static class OutputSlice {
-    static final GroupLayout Layout =
+    public static final GroupLayout Layout =
         MemoryLayout
             .structLayout(ValueLayout.ADDRESS.withName("data"),
                 ValueLayout.JAVA_LONG.withName("capacity"), ValueLayout.JAVA_LONG.withName("size"))

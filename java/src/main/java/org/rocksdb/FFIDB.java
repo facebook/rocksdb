@@ -58,6 +58,10 @@ public class FFIDB implements AutoCloseable {
     return segmentAllocator.allocate(size);
   }
 
+  public MemorySegment allocateSegment(final MemoryLayout layout) {
+    return segmentAllocator.allocate(layout);
+  }
+
   public List<ColumnFamilyHandle> getColumnFamilies() {
     return this.columnFamilyHandleList;
   }
@@ -71,9 +75,14 @@ public class FFIDB implements AutoCloseable {
     System.err.println("DB pinned count: " + pinnedCount + ", unpinned count: " + unpinnedCount);
   }
 
-  public static void copy(final MemorySegment addr, final byte[] bytes) {
-    final var heapSegment = MemorySegment.ofArray(bytes);
-    addr.copyFrom(heapSegment);
+  public MemorySegment copy(final String s) {
+    return copy(s.getBytes());
+  }
+
+  public MemorySegment copy(final byte[] array) {
+    final MemorySegment segment = segmentAllocator.allocate(array.length);
+    segment.copyFrom(MemorySegment.ofArray(array));
+    return segment;
   }
 
   public record GetBytes(Status.Code code, byte[] value, long size) {
@@ -105,20 +114,22 @@ public class FFIDB implements AutoCloseable {
   /**
    *
    * @param columnFamilyHandle
-   * @param key
+   * @param keySegment
    * @param value the first {@code value.length} bytes of the value at the key will be copied into
    *     here
    * @return
    * @throws RocksDBException
    */
-  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final byte[] value) throws RocksDBException {
-    return GetBytes.fromPinnable(getPinnableSlice(readOptions, columnFamilyHandle, key), value);
+  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final MemorySegment keySegment,
+      final MemorySegment getParamsSegment, final byte[] value) throws RocksDBException {
+    return GetBytes.fromPinnable(
+        getPinnableSlice(readOptions, columnFamilyHandle, keySegment, getParamsSegment), value);
   }
 
-  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
-      throws RocksDBException {
-    final var pinnable = getPinnableSlice(readOptions, columnFamilyHandle, key);
+  public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final MemorySegment keySegment,
+      final MemorySegment getParamsSegment) throws RocksDBException {
+    final var pinnable =
+        getPinnableSlice(readOptions, columnFamilyHandle, keySegment, getParamsSegment);
     byte[] value = null;
     if (pinnable.code == Status.Code.Ok) {
       final var pinnableSlice = pinnable.pinnableSlice().get();
@@ -127,36 +138,38 @@ public class FFIDB implements AutoCloseable {
     return GetBytes.fromPinnable(pinnable, value);
   }
 
-  public GetBytes get(final byte[] key) throws RocksDBException {
-    return get(rocksDB.getDefaultColumnFamily(), key);
+  public GetBytes get(final MemorySegment keySegment, final MemorySegment getParamsSegment)
+      throws RocksDBException {
+    return get(rocksDB.getDefaultColumnFamily(), keySegment, getParamsSegment);
   }
 
   public record GetPinnableSlice(Status.Code code, Optional<FFIPinnableSlice> pinnableSlice) {}
 
-  public GetPinnableSlice getPinnableSlice(final byte[] key) throws RocksDBException {
-    return getPinnableSlice(readOptions, rocksDB.getDefaultColumnFamily(), key);
+  public GetPinnableSlice getPinnableSlice(final MemorySegment keySegment,
+      final MemorySegment getParamsSegment) throws RocksDBException {
+    return getPinnableSlice(
+        readOptions, rocksDB.getDefaultColumnFamily(), keySegment, getParamsSegment);
   }
 
   /**
    * Get the value of the supplied key in the indicated column family from RocksDB
    *
    * @param columnFamilyHandle column family containing the value to read
-   * @param key of the value to read
+   * @param keySegment of the value to read
    * @return an object wrapping status and (if the status is ok) a pinnable slice referring to the
    *     value of the key
    * @throws RocksDBException
    */
   public GetPinnableSlice getPinnableSlice(final ReadOptions readOptions,
-      final ColumnFamilyHandle columnFamilyHandle, final byte[] key) throws RocksDBException {
-    final MemorySegment keySegment = segmentAllocator.allocate(key.length);
-    copy(keySegment, key);
-
-    final MemorySegment getSegment = segmentAllocator.allocate(FFILayout.GetSegment.Layout);
-    final MemorySegment inputSlice = getSegment.asSlice(FFILayout.GetSegment.InputStructOffset, FFILayout.InputSlice.Layout.byteSize());
+      final ColumnFamilyHandle columnFamilyHandle, final MemorySegment keySegment,
+      final MemorySegment getParamsSegment) throws RocksDBException {
+    final MemorySegment inputSlice = getParamsSegment.asSlice(
+        FFILayout.GetParamsSegment.InputStructOffset, FFILayout.InputSlice.Layout.byteSize());
     FFILayout.InputSlice.Data.set(inputSlice, keySegment.address());
     FFILayout.InputSlice.Size.set(inputSlice, keySegment.byteSize());
 
-    final MemorySegment outputPinnable = getSegment.asSlice(FFILayout.GetSegment.PinnableStructOffset, FFILayout.PinnableSlice.Layout.byteSize());
+    final MemorySegment outputPinnable = getParamsSegment.asSlice(
+        FFILayout.GetParamsSegment.PinnableStructOffset, FFILayout.PinnableSlice.Layout.byteSize());
 
     final Object result;
     try {
@@ -197,16 +210,14 @@ public class FFIDB implements AutoCloseable {
   public record OutputSlice(long outputSize, MemorySegment outputSegment) {}
   public record GetOutputSlice(Status.Code code, Optional<OutputSlice> outputSlice) {}
 
-  public GetOutputSlice getOutputSlice(final MemorySegment outputSegment, final byte[] key) throws RocksDBException {
-    return getOutputSlice(readOptions, rocksDB.getDefaultColumnFamily(), outputSegment, key);
+  public GetOutputSlice getOutputSlice(final MemorySegment outputSegment, final MemorySegment keySegment) throws RocksDBException {
+    return getOutputSlice(readOptions, rocksDB.getDefaultColumnFamily(), outputSegment, keySegment);
   }
 
   public GetOutputSlice getOutputSlice(
       final ReadOptions readOptions,
-      final ColumnFamilyHandle columnFamilyHandle, final MemorySegment outputSegment, final byte[] key) throws RocksDBException {
+      final ColumnFamilyHandle columnFamilyHandle, final MemorySegment outputSegment, final MemorySegment keySegment) throws RocksDBException {
 
-    final MemorySegment keySegment = segmentAllocator.allocate(key.length);
-    copy(keySegment, key);
     final MemorySegment inputSlice = segmentAllocator.allocate(FFILayout.InputSlice.Layout);
     FFILayout.InputSlice.Data.set(inputSlice, keySegment.address());
     FFILayout.InputSlice.Size.set(

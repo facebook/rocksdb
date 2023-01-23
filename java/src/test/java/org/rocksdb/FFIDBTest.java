@@ -32,9 +32,11 @@ public class FFIDBTest {
       try {
         final RocksDB db = dbFFI.getRocksDB();
         db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
-        var getPinnableSlice = dbFFI.getPinnableSlice("key2".getBytes());
+        var getPinnableSlice = dbFFI.getPinnableSlice(
+            dbFFI.copy("key2"), dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
         assertThat(getPinnableSlice.code()).isEqualTo(Status.Code.NotFound);
-        getPinnableSlice = dbFFI.getPinnableSlice("key1".getBytes());
+        getPinnableSlice = dbFFI.getPinnableSlice(
+            dbFFI.copy("key1"), dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
         assertThat(getPinnableSlice.code()).isEqualTo(Status.Code.Ok);
         assertThat(getPinnableSlice.pinnableSlice().get().data()).isNotNull();
         final byte[] bytes = getPinnableSlice.pinnableSlice().get().data().toArray(JAVA_BYTE);
@@ -53,9 +55,11 @@ public class FFIDBTest {
       final RocksDB db = dbFFI.getRocksDB();
       try {
         db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
-        var getBytes = dbFFI.get("key2".getBytes());
+        var getBytes =
+            dbFFI.get(dbFFI.copy("key2"), dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
         assertThat(getBytes.code()).isEqualTo(Status.Code.NotFound);
-        getBytes = dbFFI.get("key1".getBytes());
+        getBytes =
+            dbFFI.get(dbFFI.copy("key1"), dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
         assertThat(getBytes.code()).isEqualTo(Status.Code.Ok);
         assertThat(new String(getBytes.value(), UTF_8)).isEqualTo("value1");
       } catch (final RocksDBException e) {
@@ -74,11 +78,11 @@ public class FFIDBTest {
         db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
         final MemorySegment outputSegment = dbFFI.allocateSegment(32);
 
-        var getOutputSlice = dbFFI.getOutputSlice(outputSegment, "key2".getBytes());
+        var getOutputSlice = dbFFI.getOutputSlice(outputSegment, dbFFI.copy("key2"));
         assertThat(getOutputSlice.code()).isEqualTo(Status.Code.NotFound);
         assertThat(getOutputSlice.outputSlice().isPresent()).isFalse();
 
-        getOutputSlice = dbFFI.getOutputSlice(outputSegment, "key1".getBytes());
+        getOutputSlice = dbFFI.getOutputSlice(outputSegment, dbFFI.copy("key1"));
         assertThat(getOutputSlice.code()).isEqualTo(Status.Code.Ok);
         assertThat(getOutputSlice.outputSlice().isPresent()).isTrue();
         var outputSlice = getOutputSlice.outputSlice().get();
@@ -87,7 +91,7 @@ public class FFIDBTest {
         assertThat(value).startsWith("value1".getBytes(UTF_8));
 
         final MemorySegment shortOutputSegment = dbFFI.allocateSegment(5);
-        getOutputSlice = dbFFI.getOutputSlice(shortOutputSegment, "key1".getBytes());
+        getOutputSlice = dbFFI.getOutputSlice(shortOutputSegment, dbFFI.copy("key1"));
         assertThat(getOutputSlice.code()).isEqualTo(Status.Code.Ok);
         assertThat(getOutputSlice.outputSlice().isPresent()).isTrue();
         outputSlice = getOutputSlice.outputSlice().get();
