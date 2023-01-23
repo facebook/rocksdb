@@ -576,8 +576,8 @@ Status BlockBasedTable::Open(
   Footer footer;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
-  // From read_options, retain deadline, io_timeout, and rate_limiter_priority.
-  // In future, we may retain more options.
+  // From read_options, retain deadline, io_timeout, rate_limiter_priority, and
+  // verify_checksums. In future, we may retain more options.
   ReadOptions ro;
   ro.deadline = read_options.deadline;
   ro.io_timeout = read_options.io_timeout;
