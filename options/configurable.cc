@@ -38,8 +38,6 @@ void Configurable::RegisterOptions(
 //*************************************************************************
 
 Status Configurable::PrepareOptions(const ConfigOptions& opts) {
-  // We ignore the invoke_prepare_options here intentionally,
-  // as if you are here, you must have called PrepareOptions explicitly.
   Status status = Status::OK();
 #ifndef ROCKSDB_LITE
   for (auto opt_iter : options_) {
@@ -149,13 +147,12 @@ Status Configurable::ConfigureOptions(
     std::unordered_map<std::string, std::string>* unused) {
   std::string curr_opts;
   Status s;
+  ConfigOptions copy = config_options;
   if (!opts_map.empty()) {
     // There are options in the map.
     // Save the current configuration in curr_opts and then configure the
     // options, but do not prepare them now.  We will do all the prepare when
     // the configuration is complete.
-    ConfigOptions copy = config_options;
-    copy.invoke_prepare_options = false;
 #ifndef ROCKSDB_LITE
     if (!config_options.ignore_unknown_options) {
       // If we are not ignoring unused, get the defaults in case we need to
@@ -165,11 +162,11 @@ Status Configurable::ConfigureOptions(
       GetOptionString(copy, &curr_opts).PermitUncheckedError();
     }
 #endif  // ROCKSDB_LITE
-
     s = ConfigurableHelper::ConfigureOptions(copy, *this, opts_map, unused);
   }
   if (config_options.invoke_prepare_options && s.ok()) {
-    s = PrepareOptions(config_options);
+    copy.invoke_prepare_options = false;
+    s = PrepareOptions(copy);
   }
 #ifndef ROCKSDB_LITE
   if (!s.ok() && !curr_opts.empty()) {
@@ -205,13 +202,17 @@ Status Configurable::ConfigureFromString(const ConfigOptions& config_options,
 #endif  // ROCKSDB_LITE
       s = ParseStringOptions(config_options, opts_str);
       if (s.ok() && config_options.invoke_prepare_options) {
-        s = PrepareOptions(config_options);
+        ConfigOptions copy = config_options;
+        copy.invoke_prepare_options = false;
+        s = PrepareOptions(copy);
       }
 #ifndef ROCKSDB_LITE
     }
 #endif  // ROCKSDB_LITE
   } else if (config_options.invoke_prepare_options) {
-    s = PrepareOptions(config_options);
+    ConfigOptions copy = config_options;
+    copy.invoke_prepare_options = false;
+    s = PrepareOptions(copy);
   } else {
     s = Status::OK();
   }
@@ -344,6 +345,9 @@ Status ConfigurableHelper::ConfigureSomeOptions(
           it = options->erase(it);
           if (!s.ok()) {
             result = s;
+          } else if (opt_name != elem_name && opt_info->ShouldPrepare() &&
+                     config_options.invoke_prepare_options) {
+            result = opt_info->Prepare(config_options, elem_name, opt_ptr);
           }
         }
       }
@@ -358,10 +362,16 @@ Status ConfigurableHelper::ConfigureSomeOptions(
     }
   }
   if (config_options.ignore_unknown_options) {
-    if (!result.ok()) result.PermitUncheckedError();
-    if (!notsup.ok()) notsup.PermitUncheckedError();
-    return Status::OK();
-  } else if (!result.ok()) {
+    if (config_options.invoke_prepare_options) {
+      // Invoke PrepareOptions for this level only
+      ConfigOptions dont_prepare = config_options;
+      dont_prepare.invoke_prepare_options = false;
+      result = configurable.PrepareOptions(dont_prepare);
+    } else {
+      result = Status::OK();
+    }
+  }
+  if (!result.ok()) {
     if (!notsup.ok()) notsup.PermitUncheckedError();
     return result;
   } else if (config_options.ignore_unsupported_options) {
@@ -458,6 +468,7 @@ Status ConfigurableHelper::ConfigureCustomizableOption(
     } else {
       // Attempting to configure one of the properties of the customizable
       // Let it through
+      copy.invoke_prepare_options = false;
       return custom->ConfigureOption(copy, name, value);
     }
   }

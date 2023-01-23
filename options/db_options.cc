@@ -641,7 +641,6 @@ class DBOptionsConfigurable : public MutableDBConfigurable {
     Status s = Configurable::ConfigureOptions(config_options, opts_map, unused);
     if (s.ok()) {
       db_options_ = BuildDBOptions(immutable_, mutable_);
-      s = PrepareOptions(config_options);
     }
     return s;
   }

@@ -929,11 +929,15 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
                                        ? UnescapeOptionString(value)
                                        : value;
 
+    ConfigOptions copy = config_options;
+    copy.ignore_unknown_options = false;
+    if (!ShouldPrepare()) {
+      // If this option should not be prepared, turn off prepare options
+      copy.invoke_prepare_options = false;
+    }
     if (opt_ptr == nullptr) {
       return Status::NotFound("Could not find option", opt_name);
     } else if (parse_func_ != nullptr) {
-      ConfigOptions copy = config_options;
-      copy.invoke_prepare_options = false;
       void* opt_addr = GetOffset(opt_ptr);
       return parse_func_(copy, opt_name, opt_value, opt_addr);
     } else if (ParseOptionHelper(GetOffset(opt_ptr), type_, opt_value)) {
@@ -946,9 +950,6 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
       } else if (config == nullptr) {
         return Status::NotFound("Could not find configurable: ", opt_name);
       } else {
-        ConfigOptions copy = config_options;
-        copy.ignore_unknown_options = false;
-        copy.invoke_prepare_options = false;
         if (opt_value.find("=") != std::string::npos) {
           return config->ConfigureFromString(copy, opt_value);
         } else {
@@ -1420,7 +1421,10 @@ Status OptionTypeInfo::Prepare(const ConfigOptions& config_options,
     } else if (IsConfigurable()) {
       Configurable* config = AsRawPointer<Configurable>(opt_ptr);
       if (config != nullptr) {
-        return config->PrepareOptions(config_options);
+        // If invoke_prepare_options=true, then recurse to the inner config
+        if (config_options.invoke_prepare_options) {
+          return config->PrepareOptions(config_options);
+        }
       } else if (!CanBeNull()) {
         return Status::NotFound("Missing configurable object", name);
       }
