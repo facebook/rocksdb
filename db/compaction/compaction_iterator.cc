@@ -419,7 +419,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     }
 
     assert(new_entity.serialized_data());
-    compaction_filter_value_ = std::move(*new_entity.serialized_data());
+    compaction_filter_value_ = *new_entity.serialized_data();
 
     value_ = compaction_filter_value_;
   }
