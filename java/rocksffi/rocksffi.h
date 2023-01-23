@@ -35,14 +35,16 @@ typedef struct rocksdb_pinnable_slice {
   bool is_pinned;
 } rocksdb_pinnable_slice_t;
 
-extern "C" int rocksdb_ffi_get_pinnable(ROCKSDB_NAMESPACE::DB* db,
-                               ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
-                               rocksdb_input_slice_t* key,
-                               rocksdb_pinnable_slice_t* value);
+extern "C" int rocksdb_ffi_get_pinnable(
+    ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ReadOptions* read_options,
+    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf, rocksdb_input_slice_t* key,
+    rocksdb_pinnable_slice_t* value);
 
 extern "C" int rocksdb_ffi_reset_pinnable(rocksdb_pinnable_slice_t* value);
 
-extern "C" int rocksdb_ffi_get_output(ROCKSDB_NAMESPACE::DB* db,
-                                    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
-                                    rocksdb_input_slice_t* key,
-                                    rocksdb_output_slice_t* value);
+extern "C" int rocksdb_ffi_get_output(
+    ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ReadOptions* read_options,
+    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf, rocksdb_input_slice_t* key,
+    rocksdb_output_slice_t* value);
+
+extern "C" int rocksdb_ffi_identity(int input);

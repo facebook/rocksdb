@@ -313,15 +313,21 @@ public class GetBenchmarks {
 
   @Benchmark
   public void ffiGetPinnableSlice(Blackhole blackhole) throws RocksDBException {
-    final GetPinnableSlice result = dbFFI.getPinnableSlice(getColumnFamily(), getKeyArr());
+    final GetPinnableSlice result = dbFFI.getPinnableSlice(readOptions, getColumnFamily(), getKeyArr());
     blackhole.consume(result);
     result.pinnableSlice().get().reset();
   }
 
   @Benchmark
   public void ffiGetOutputSlice(Blackhole blackhole) throws RocksDBException {
-    final GetOutputSlice result = dbFFI.getOutputSlice(getColumnFamily(), outputSlice, getKeyArr());
+    final GetOutputSlice result = dbFFI.getOutputSlice(readOptions, getColumnFamily(), outputSlice, getKeyArr());
     blackhole.consume(result);
     blackhole.consume(outputSlice);
+  }
+
+  @Benchmark
+  public void ffiIdentity(Blackhole blackhole) throws RocksDBException {
+    final int result = dbFFI.identity((int) (Math.random() * 256));
+    blackhole.consume(result);
   }
 }

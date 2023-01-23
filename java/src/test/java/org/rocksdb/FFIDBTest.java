@@ -102,4 +102,17 @@ public class FFIDBTest {
       return null;
     });
   }
+
+  @Test
+  public void identity() throws RocksDBException {
+    usingFFI(dbFolder, dbFFI -> {
+      try {
+        final int seven = dbFFI.identity(7);
+        assertThat(seven).isEqualTo(8);
+      } catch (final RocksDBException e) {
+        throw new RuntimeException(e);
+      }
+      return null;
+    });
+  }
 }

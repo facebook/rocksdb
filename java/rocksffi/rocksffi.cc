@@ -17,15 +17,14 @@
  * @brief get the value at the key, returning a (possibly pinned) slice
  *
  */
-extern "C" int rocksdb_ffi_get_pinnable(ROCKSDB_NAMESPACE::DB* db,
-                               ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
-                               rocksdb_input_slice_t* key,
-                               rocksdb_pinnable_slice_t* value) {
-  ROCKSDB_NAMESPACE::ReadOptions read_options;
+extern "C" int rocksdb_ffi_get_pinnable(
+    ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ReadOptions* read_options,
+    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf, rocksdb_input_slice_t* key,
+    rocksdb_pinnable_slice_t* value) {
   ROCKSDB_NAMESPACE::Slice key_slice(key->data, key->size);
   ROCKSDB_NAMESPACE::PinnableSlice* value_slice =
       new ROCKSDB_NAMESPACE::PinnableSlice();
-  auto status = db->Get(read_options, cf, key_slice, value_slice);
+  auto status = db->Get(*read_options, cf, key_slice, value_slice);
   if (status.ok()) {
     value->data = value_slice->data();
     value->size = value_slice->size();
@@ -50,14 +49,13 @@ extern "C" int rocksdb_ffi_reset_pinnable(rocksdb_pinnable_slice_t* value) {
  * this may be more efficient than the pinnable slice version for small value
  * sizes.
  */
-extern "C" int rocksdb_ffi_get_output(ROCKSDB_NAMESPACE::DB* db,
-                                    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf,
-                                    rocksdb_input_slice_t* key,
-                                    rocksdb_output_slice_t* value) {
-  ROCKSDB_NAMESPACE::ReadOptions read_options;
+extern "C" int rocksdb_ffi_get_output(
+    ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ReadOptions* read_options,
+    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf, rocksdb_input_slice_t* key,
+    rocksdb_output_slice_t* value) {
   ROCKSDB_NAMESPACE::Slice key_slice(key->data, key->size);
   ROCKSDB_NAMESPACE::PinnableSlice value_slice;
-  auto status = db->Get(read_options, cf, key_slice, &value_slice);
+  auto status = db->Get(*read_options, cf, key_slice, &value_slice);
   if (status.ok()) {
     auto copy_size = std::min(value_slice.size(), value->capacity);
     std::memcpy(value->data, value_slice.data(), copy_size);
@@ -65,3 +63,5 @@ extern "C" int rocksdb_ffi_get_output(ROCKSDB_NAMESPACE::DB* db,
   }
   return status.code();
 }
+
+extern "C" int rocksdb_ffi_identity(int input) { return input + 1; }

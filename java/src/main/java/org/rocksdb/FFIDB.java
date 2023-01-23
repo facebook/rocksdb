@@ -23,6 +23,8 @@ public class FFIDB implements AutoCloseable {
   private final RocksDB rocksDB;
   private final List<ColumnFamilyHandle> columnFamilyHandleList;
 
+  private final ReadOptions readOptions = new ReadOptions();
+
   private final FFIAllocator segmentAllocator;
 
   private int pinnedCount = 0;
@@ -111,12 +113,12 @@ public class FFIDB implements AutoCloseable {
    */
   public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value) throws RocksDBException {
-    return GetBytes.fromPinnable(getPinnableSlice(columnFamilyHandle, key), value);
+    return GetBytes.fromPinnable(getPinnableSlice(readOptions, columnFamilyHandle, key), value);
   }
 
   public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
       throws RocksDBException {
-    final var pinnable = getPinnableSlice(columnFamilyHandle, key);
+    final var pinnable = getPinnableSlice(readOptions, columnFamilyHandle, key);
     byte[] value = null;
     if (pinnable.code == Status.Code.Ok) {
       var pinnableSlice = pinnable.pinnableSlice().get();
@@ -132,7 +134,7 @@ public class FFIDB implements AutoCloseable {
   public record GetPinnableSlice(Status.Code code, Optional<FFIPinnableSlice> pinnableSlice) {}
 
   public GetPinnableSlice getPinnableSlice(final byte[] key) throws RocksDBException {
-    return getPinnableSlice(rocksDB.getDefaultColumnFamily(), key);
+    return getPinnableSlice(readOptions, rocksDB.getDefaultColumnFamily(), key);
   }
 
   /**
@@ -144,7 +146,7 @@ public class FFIDB implements AutoCloseable {
    *     value of the key
    * @throws RocksDBException
    */
-  public GetPinnableSlice getPinnableSlice(
+  public GetPinnableSlice getPinnableSlice(final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key) throws RocksDBException {
     final MemorySegment keySegment = segmentAllocator.allocate(key.length);
     copy(keySegment, key);
@@ -158,6 +160,7 @@ public class FFIDB implements AutoCloseable {
     final Object result;
     try {
       result = FFIMethod.GetPinnable.invoke(MemoryAddress.ofLong(rocksDB.nativeHandle_),
+          MemoryAddress.ofLong(readOptions.nativeHandle_),
           MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_), inputSlice.address(),
           outputPinnable.address());
     } catch (final Throwable methodException) {
@@ -194,10 +197,11 @@ public class FFIDB implements AutoCloseable {
   public record GetOutputSlice(Status.Code code, Optional<OutputSlice> outputSlice) {}
 
   public GetOutputSlice getOutputSlice(final MemorySegment outputSegment, final byte[] key) throws RocksDBException {
-    return getOutputSlice(rocksDB.getDefaultColumnFamily(), outputSegment, key);
+    return getOutputSlice(readOptions, rocksDB.getDefaultColumnFamily(), outputSegment, key);
   }
 
   public GetOutputSlice getOutputSlice(
+      final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final MemorySegment outputSegment, final byte[] key) throws RocksDBException {
 
     final MemorySegment keySegment = segmentAllocator.allocate(key.length);
@@ -215,6 +219,7 @@ public class FFIDB implements AutoCloseable {
     final Object result;
     try {
       result = FFIMethod.GetOutput.invoke(MemoryAddress.ofLong(rocksDB.nativeHandle_),
+          MemoryAddress.ofLong(readOptions.nativeHandle_),
           MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_), inputSlice.address(),
           outputSlice.address());
     } catch (final Throwable methodException) {
@@ -232,6 +237,15 @@ public class FFIDB implements AutoCloseable {
         return new GetOutputSlice(code, Optional.of(new OutputSlice(size, outputSegment)));
       }
       default -> throw new RocksDBException(new Status(code, Status.SubCode.None, "[Rocks FFI - no detailed reason provided]"));
+    }
+  }
+
+  public int identity(final int input) throws RocksDBException {
+    try {
+      return (int) FFIMethod.Identity.invoke(input);
+    } catch (final Throwable methodException) {
+      throw new RocksDBException("Internal error invoking FFI (Java to C++) function call: "
+          + methodException.getMessage());
     }
   }
 }

@@ -31,12 +31,14 @@ public class FFIMethod {
     try {
       GetPinnable = Lookup("rocksdb_ffi_get_pinnable",
           FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS,
-              ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+              ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
       ResetPinnable = Lookup("rocksdb_ffi_reset_pinnable",
           FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
       GetOutput = Lookup("rocksdb_ffi_get_output",
           FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS,
-              ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+              ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+      Identity = Lookup("rocksdb_ffi_identity",
+          FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
     } catch (final RocksDBException e) {
       throw new RuntimeException(e);
     }
@@ -46,4 +48,6 @@ public class FFIMethod {
   public static MethodHandle ResetPinnable;
 
   public static MethodHandle GetOutput;
+
+  public static MethodHandle Identity;
 }
