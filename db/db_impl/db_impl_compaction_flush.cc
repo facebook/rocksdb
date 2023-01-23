@@ -2368,8 +2368,6 @@ Status DBImpl::AtomicFlushMemTables(
     }
   }
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:AfterScheduleFlush");
-  TEST_SYNC_POINT_CALLBACK("DBImpl::AtomicFlushMemTables:AfterScheduleFlush2",
-                           nullptr);
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
     autovector<const uint64_t*> flush_memtable_ids;

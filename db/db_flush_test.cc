@@ -748,8 +748,7 @@ class TestFlushListener : public EventListener {
 
 // RocksDB lite does not support GetLiveFiles()
 #ifndef ROCKSDB_LITE
-TEST_F(DBFlushTest,
-       FixFlushReasonRaceFromConcurrentGetLiveFilesFlushAndOtherFlush) {
+TEST_F(DBFlushTest, FixFlushReasonRaceFromConcurrentFlushes) {
   Options options = CurrentOptions();
   options.atomic_flush = true;
   options.disable_auto_compactions = true;
@@ -772,7 +771,7 @@ TEST_F(DBFlushTest,
   // Coerce a manual flush happenning in the middle of GetLiveFiles's flush
   bool get_live_files_paused_at_sync_point = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush2", [&](void* /* arg */) {
+      "DBImpl::AtomicFlushMemTables:AfterScheduleFlush", [&](void* /* arg */) {
         if (get_live_files_paused_at_sync_point) {
           // To prevent non-GetLiveFiles() flush from pausing at this sync point
           return;
@@ -2580,7 +2579,6 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   ASSERT_TRUE(db_impl->allow_2pc());
   ASSERT_NE(db_impl->MinLogNumberToKeep(), 0);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
@@ -2618,6 +2616,7 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
     ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
   }
 }
+#endif  // ROCKSDB_LITE
 
 TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
   Options options = CurrentOptions();
