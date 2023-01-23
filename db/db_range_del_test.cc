@@ -2909,6 +2909,121 @@ TEST_F(DBRangeDelTest, RangetombesoneCompensateFilesizePersistDuringReopen) {
   ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, l2_size);
 }
 
+TEST_F(DBRangeDelTest, SingleKeyFile) {
+  // Test for a bug fix where a range tombstone could be added
+  // to an SST file while is not within the file's key range.
+  // Create 3 files in L0 and then L1 where all keys have the same user key
+  // `Key(2)`. The middle file will contain Key(2)@6 and Key(2)@5. Before fix,
+  // the range tombstone [Key(2), Key(5))@2 would be added to this file during
+  // compaction, but it is not in this file's key range.
+  Options opts = CurrentOptions();
+  opts.disable_auto_compactions = true;
+  opts.target_file_size_base = 1 << 10;
+  opts.level_compaction_dynamic_file_size = false;
+  DestroyAndReopen(opts);
+
+  // prevent range tombstone drop
+  std::vector<const Snapshot*> snapshots;
+  snapshots.push_back(db_->GetSnapshot());
+
+  // write a key to bottommost file so the compactions below
+  // are not bottommost compactions and will calculate
+  // compensated range tombstone size. Before bug fix, an assert would fail
+  // during this process.
+  Random rnd(301);
+  ASSERT_OK(Put(Key(2), rnd.RandomString(8 << 10)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(2),
+                             Key(5)));
+  snapshots.push_back(db_->GetSnapshot());
+  std::vector<std::string> values;
+
+  values.push_back(rnd.RandomString(8 << 10));
+  ASSERT_OK(Put(Key(2), rnd.RandomString(8 << 10)));
+  snapshots.push_back(db_->GetSnapshot());
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(2), rnd.RandomString(8 << 10)));
+  snapshots.push_back(db_->GetSnapshot());
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(2), rnd.RandomString(8 << 10)));
+  snapshots.push_back(db_->GetSnapshot());
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+  CompactRangeOptions co;
+  co.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+  ASSERT_OK(dbfull()->RunManualCompaction(
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd(),
+      0, 1, co, nullptr, nullptr, true, true,
+      std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
+      "" /*trim_ts*/));
+
+  for (const auto s : snapshots) {
+    db_->ReleaseSnapshot(s);
+  }
+}
+
+TEST_F(DBRangeDelTest, DoubleCountRangeTombstoneCompensatedSize) {
+  // Test for a bug fix if a file has multiple range tombstones
+  // with same start and end key but with different sequence numbers,
+  // we should only calculate compensated range tombstone size
+  // for one of them.
+  Options opts = CurrentOptions();
+  opts.disable_auto_compactions = true;
+  DestroyAndReopen(opts);
+
+  std::vector<std::string> values;
+  Random rnd(301);
+  // file in L2
+  ASSERT_OK(Put(Key(1), rnd.RandomString(1 << 10)));
+  ASSERT_OK(Put(Key(2), rnd.RandomString(1 << 10)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  uint64_t l2_size = 0;
+  ASSERT_OK(Size(Key(1), Key(3), 0 /* cf */, &l2_size));
+  ASSERT_GT(l2_size, 0);
+
+  // file in L1
+  ASSERT_OK(Put(Key(3), rnd.RandomString(1 << 10)));
+  ASSERT_OK(Put(Key(4), rnd.RandomString(1 << 10)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  uint64_t l1_size = 0;
+  ASSERT_OK(Size(Key(3), Key(5), 0 /* cf */, &l1_size));
+  ASSERT_GT(l1_size, 0);
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(1),
+                             Key(5)));
+  // so that the range tombstone above is not dropped
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(1),
+                             Key(5)));
+  ASSERT_OK(Flush());
+  // Range deletion compensated size computed during flush time
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_EQ(level_to_files[0].size(), 1);
+  // instead of 2 * (l1_size + l2_size)
+  ASSERT_EQ(level_to_files[0][0].compensated_range_deletion_size,
+            l1_size + l2_size);
+
+  // Range deletion compensated size computed during compaction time
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                                        true /* disallow_trivial_move */));
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_EQ(level_to_files[1].size(), 1);
+  ASSERT_EQ(level_to_files[1][0].compensated_range_deletion_size, l2_size);
+  db_->ReleaseSnapshot(snapshot);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

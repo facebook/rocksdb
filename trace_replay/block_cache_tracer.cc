@@ -8,6 +8,7 @@
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -79,6 +80,10 @@ uint64_t BlockCacheTraceHelper::GetTableId(
 uint64_t BlockCacheTraceHelper::GetSequenceNumber(
     const BlockCacheTraceRecord& access) {
   if (!IsGetOrMultiGet(access.caller)) {
+    return 0;
+  }
+  if (access.caller == TableReaderCaller::kUserMultiGet &&
+      access.referenced_key.size() < 4) {
     return 0;
   }
   return access.get_from_user_specified_snapshot
