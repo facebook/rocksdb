@@ -1212,7 +1212,10 @@ struct DBOptions {
   // Setting this option to true will affect 2 things:
   // 1) Disable some internal optimizations around SST file compression
   // 2) Reserve bottom-most level for ingested files only.
-  // 3) Note that num_levels should be >= 3 if this option is turned on.
+  // Note that only universal compaction supports reserving last level
+  // for file ingestion only.
+  // `num_levels` should be >= 3 if this option is turned on.
+  //
   //
   // DEFAULT: false
   // Immutable.
