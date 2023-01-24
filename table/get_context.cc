@@ -300,6 +300,10 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (kNotFound == state_) {
           state_ = kFound;
           if (do_merge_) {
+            if (is_blob_index_) {
+              ukey_to_get_blob_value_copy_ = parsed_key.user_key.ToString();
+              ukey_to_get_blob_value_ = ukey_to_get_blob_value_copy_;
+            }
             if (LIKELY(pinnable_val_ != nullptr)) {
               Slice value_to_use = value;
 
@@ -339,7 +343,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // merge_context_->operand_list
             if (type == kTypeBlobIndex) {
               PinnableSlice pin_val;
-              if (GetBlobValue(value, &pin_val) == false) {
+              if (GetBlobValue(parsed_key.user_key, value, &pin_val) == false) {
                 return false;
               }
               Slice blob_value(pin_val);
@@ -365,7 +369,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           assert(merge_operator_ != nullptr);
           if (type == kTypeBlobIndex) {
             PinnableSlice pin_val;
-            if (GetBlobValue(value, &pin_val) == false) {
+            if (GetBlobValue(parsed_key.user_key, value, &pin_val) == false) {
               return false;
             }
             Slice blob_value(pin_val);
@@ -545,13 +549,13 @@ void GetContext::MergeWithEntity(Slice entity) {
   }
 }
 
-bool GetContext::GetBlobValue(const Slice& blob_index,
+bool GetContext::GetBlobValue(const Slice& user_key, const Slice& blob_index,
                               PinnableSlice* blob_value) {
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
   Status status = blob_fetcher_->FetchBlob(
-      user_key_, blob_index, prefetch_buffer, blob_value, bytes_read);
+      user_key, blob_index, prefetch_buffer, blob_value, bytes_read);
   if (!status.ok()) {
     if (status.IsIncomplete()) {
       // FIXME: this code is not covered by unit tests

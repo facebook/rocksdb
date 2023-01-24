@@ -10,7 +10,6 @@
 
 #include "db/blob/blob_contents.h"
 #include "db/blob/blob_log_format.h"
-#include "db/dbformat.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/filename.h"
 #include "monitoring/statistics.h"
@@ -287,7 +286,7 @@ BlobFileReader::~BlobFileReader() = default;
 
 Status BlobFileReader::GetBlob(
     const ReadOptions& read_options, const Slice& user_key, uint64_t offset,
-    uint64_t value_size, size_t ts_sz, CompressionType compression_type,
+    uint64_t value_size, CompressionType compression_type,
     FilePrefetchBuffer* prefetch_buffer, MemoryAllocator* allocator,
     std::unique_ptr<BlobContents>* result, uint64_t* bytes_read) const {
   assert(result);
@@ -352,7 +351,7 @@ Status BlobFileReader::GetBlob(
                            &record_slice);
 
   if (read_options.verify_checksums) {
-    const Status s = VerifyBlob(record_slice, user_key, value_size, ts_sz);
+    const Status s = VerifyBlob(record_slice, user_key, value_size);
     if (!s.ok()) {
       return s;
     }
@@ -376,7 +375,7 @@ Status BlobFileReader::GetBlob(
 }
 
 void BlobFileReader::MultiGetBlob(
-    const ReadOptions& read_options, size_t ts_sz, MemoryAllocator* allocator,
+    const ReadOptions& read_options, MemoryAllocator* allocator,
     autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>&
         blob_reqs,
     uint64_t* bytes_read) const {
@@ -498,7 +497,7 @@ void BlobFileReader::MultiGetBlob(
 
     // Verify checksums if enabled
     if (read_options.verify_checksums) {
-      *req->status = VerifyBlob(record_slice, *req->user_key, req->len, ts_sz);
+      *req->status = VerifyBlob(record_slice, *req->user_key, req->len);
       if (!req->status->ok()) {
         continue;
       }
@@ -520,8 +519,7 @@ void BlobFileReader::MultiGetBlob(
 }
 
 Status BlobFileReader::VerifyBlob(const Slice& record_slice,
-                                  const Slice& user_key, uint64_t value_size,
-                                  size_t ts_sz) {
+                                  const Slice& user_key, uint64_t value_size) {
   PERF_TIMER_GUARD(blob_checksum_time);
 
   BlobLogRecord record;
@@ -545,8 +543,7 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
 
   record.key =
       Slice(record_slice.data() + BlobLogRecord::kHeaderSize, record.key_size);
-  if (StripTimestampFromUserKey(record.key, ts_sz) !=
-      StripTimestampFromUserKey(user_key, ts_sz)) {
+  if (record.key != user_key) {
     return Status::Corruption("Key mismatch when reading blob");
   }
 

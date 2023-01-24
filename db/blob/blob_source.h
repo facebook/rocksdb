@@ -51,8 +51,7 @@ class BlobSource {
   // record.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  uint64_t file_number, uint64_t offset, uint64_t file_size,
-                 uint64_t value_size, size_t ts_sz,
-                 CompressionType compression_type,
+                 uint64_t value_size, CompressionType compression_type,
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
 
@@ -70,7 +69,7 @@ class BlobSource {
   //  - For consistency, whether the blob is found in the cache or on disk, sets
   //  "*bytes_read" to the total size of on-disk (possibly compressed) blob
   //  records.
-  void MultiGetBlob(const ReadOptions& read_options, size_t ts_sz,
+  void MultiGetBlob(const ReadOptions& read_options,
                     autovector<BlobFileReadRequests>& blob_reqs,
                     uint64_t* bytes_read);
 
@@ -92,7 +91,6 @@ class BlobSource {
   //  records.
   void MultiGetBlobFromOneFile(const ReadOptions& read_options,
                                uint64_t file_number, uint64_t file_size,
-                               size_t ts_sz,
                                autovector<BlobReadRequest>& blob_reqs,
                                uint64_t* bytes_read);
 

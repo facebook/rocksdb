@@ -1873,6 +1873,89 @@ TEST_F(DBBlobWithTimestampTest, MultiGetBlobs) {
   }
 }
 
+TEST_F(DBBlobWithTimestampTest, GetMergeBlobWithPut) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+  ASSERT_OK(db_->Put(write_opts, "Key1", ts, "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key1", ts, "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key1", ts, "v3"));
+  ASSERT_OK(Flush());
+
+  std::string value;
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+  ASSERT_OK(db_->Get(read_opts, "Key1", &value));
+  ASSERT_EQ(value, "v1,v2,v3");
+}
+
+TEST_F(DBBlobWithTimestampTest, MultiGetMergeBlobWithPut) {
+  constexpr size_t num_keys = 3;
+
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+
+  ASSERT_OK(db_->Put(write_opts, "Key0", ts, "v0_0"));
+  ASSERT_OK(db_->Put(write_opts, "Key1", ts, "v1_0"));
+  ASSERT_OK(db_->Put(write_opts, "Key2", ts, "v2_0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key0", ts, "v0_1"));
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key1", ts, "v1_1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key0", ts, "v0_2"));
+  ASSERT_OK(Flush());
+
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+  std::array<Slice, num_keys> keys{{"Key0", "Key1", "Key2"}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+
+  db_->MultiGet(read_opts, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                &values[0], &statuses[0]);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "v0_0,v0_1,v0_2");
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1], "v1_0,v1_1");
+
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], "v2_0");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -157,7 +157,7 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
 Status BlobSource::GetBlob(const ReadOptions& read_options,
                            const Slice& user_key, uint64_t file_number,
                            uint64_t offset, uint64_t file_size,
-                           uint64_t value_size, size_t ts_sz,
+                           uint64_t value_size,
                            CompressionType compression_type,
                            FilePrefetchBuffer* prefetch_buffer,
                            PinnableSlice* value, uint64_t* bytes_read) {
@@ -227,7 +227,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
     uint64_t read_size = 0;
     s = blob_file_reader.GetValue()->GetBlob(
-        read_options, user_key, offset, value_size, ts_sz, compression_type,
+        read_options, user_key, offset, value_size, compression_type,
         prefetch_buffer, allocator, &blob_contents, &read_size);
     if (!s.ok()) {
       return s;
@@ -255,7 +255,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   return s;
 }
 
-void BlobSource::MultiGetBlob(const ReadOptions& read_options, size_t ts_sz,
+void BlobSource::MultiGetBlob(const ReadOptions& read_options,
                               autovector<BlobFileReadRequests>& blob_reqs,
                               uint64_t* bytes_read) {
   assert(blob_reqs.size() > 0);
@@ -271,7 +271,7 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options, size_t ts_sz,
           return lhs.offset < rhs.offset;
         });
 
-    MultiGetBlobFromOneFile(read_options, file_number, file_size, ts_sz,
+    MultiGetBlobFromOneFile(read_options, file_number, file_size,
                             blob_reqs_in_file, &bytes_read_in_file);
 
     total_bytes_read += bytes_read_in_file;
@@ -284,7 +284,7 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options, size_t ts_sz,
 
 void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
                                          uint64_t file_number,
-                                         uint64_t /*file_size*/, size_t ts_sz,
+                                         uint64_t /*file_size*/,
                                          autovector<BlobReadRequest>& blob_reqs,
                                          uint64_t* bytes_read) {
   const size_t num_blobs = blob_reqs.size();
@@ -392,7 +392,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
             ? blob_cache_.get()->memory_allocator()
             : nullptr;
 
-    blob_file_reader.GetValue()->MultiGetBlob(read_options, ts_sz, allocator,
+    blob_file_reader.GetValue()->MultiGetBlob(read_options, allocator,
                                               _blob_reqs, &_bytes_read);
 
     if (blob_cache_ && read_options.fill_cache) {
