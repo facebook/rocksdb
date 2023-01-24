@@ -91,7 +91,7 @@ FlushJob::FlushJob(
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, JobContext* job_context,
-    LogBuffer* log_buffer, FSDirectory* db_directory,
+    FlushReason flush_reason, LogBuffer* log_buffer, FSDirectory* db_directory,
     FSDirectory* output_file_directory, CompressionType output_compression,
     Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
     const bool sync_output_directory, const bool write_manifest,
@@ -114,6 +114,7 @@ FlushJob::FlushJob(
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       job_context_(job_context),
+      flush_reason_(flush_reason),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
       output_file_directory_(output_file_directory),
@@ -245,9 +246,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   }
   Status mempurge_s = Status::NotFound("No MemPurge.");
   if ((mempurge_threshold > 0.0) &&
-      (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
-      (!mems_.empty()) && MemPurgeDecider(mempurge_threshold) &&
-      !(db_options_.atomic_flush)) {
+      (flush_reason_ == FlushReason::kWriteBufferFull) && (!mems_.empty()) &&
+      MemPurgeDecider(mempurge_threshold) && !(db_options_.atomic_flush)) {
     cfd_->SetMempurgeUsed();
     mempurge_s = MemPurge();
     if (!mempurge_s.ok()) {
@@ -878,7 +878,7 @@ Status FlushJob::WriteLevel0Table() {
                          << total_num_deletes << "total_data_size"
                          << total_data_size << "memory_usage"
                          << total_memory_usage << "flush_reason"
-                         << GetFlushReasonString(cfd_->GetFlushReason());
+                         << GetFlushReasonString(flush_reason_);
 
     {
       ScopedArenaIterator iter(
@@ -1076,7 +1076,7 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   info->smallest_seqno = meta_.fd.smallest_seqno;
   info->largest_seqno = meta_.fd.largest_seqno;
   info->table_properties = table_properties_;
-  info->flush_reason = cfd_->GetFlushReason();
+  info->flush_reason = flush_reason_;
   info->blob_compression_type = mutable_cf_options_.blob_compression_type;
 
   // Update BlobFilesInfo.
