@@ -413,21 +413,4 @@ public class BlockBasedTableConfigTest {
         isEqualTo(5);
   }
 
-  @Deprecated
-  @Test
-  public void blockCacheCompressedSize() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setBlockCacheCompressedSize(40);
-    assertThat(blockBasedTableConfig.blockCacheCompressedSize()).
-        isEqualTo(40);
-  }
-
-  @Deprecated
-  @Test
-  public void blockCacheCompressedNumShardBits() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setBlockCacheCompressedNumShardBits(4);
-    assertThat(blockBasedTableConfig.blockCacheCompressedNumShardBits()).
-        isEqualTo(4);
-  }
 }

@@ -25,7 +25,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     noBlockCache = false;
     blockCache = null;
     persistentCache = null;
-    blockCacheCompressed = null;
     blockSize = 4 * 1024;
     blockSizeDeviation = 10;
     blockRestartInterval = 16;
@@ -46,10 +45,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     // NOTE: ONLY used if blockCache == null
     blockCacheSize = 8 * 1024 * 1024;
     blockCacheNumShardBits = 0;
-
-    // NOTE: ONLY used if blockCacheCompressed == null
-    blockCacheCompressedSize = 0;
-    blockCacheCompressedNumShardBits = 0;
   }
 
   /**
@@ -292,31 +287,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   public BlockBasedTableConfig setPersistentCache(
       final PersistentCache persistentCache) {
     this.persistentCache = persistentCache;
-    return this;
-  }
-
-  /**
-   * Use the specified cache for compressed blocks.
-   *
-   * If {@code null}, RocksDB will not use a compressed block cache.
-   *
-   * Note: though it looks similar to {@link #setBlockCache(Cache)}, RocksDB
-   *     doesn't put the same type of object there.
-   *
-   * {@link org.rocksdb.Cache} should not be disposed before options instances
-   * using this cache is disposed.
-   *
-   * {@link org.rocksdb.Cache} instance can be re-used in multiple options
-   * instances.
-   *
-   * @param blockCacheCompressed {@link org.rocksdb.Cache} Cache java instance
-   *     (e.g. LRUCache).
-   *
-   * @return the reference to the current config.
-   */
-  public BlockBasedTableConfig setBlockCacheCompressed(
-      final Cache blockCacheCompressed) {
-    this.blockCacheCompressed = blockCacheCompressed;
     return this;
   }
 
@@ -919,23 +889,15 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       persistentCacheHandle = 0;
     }
 
-    final long blockCacheCompressedHandle;
-    if (blockCacheCompressed != null) {
-      blockCacheCompressedHandle = blockCacheCompressed.nativeHandle_;
-    } else {
-      blockCacheCompressedHandle = 0;
-    }
-
     return newTableFactoryHandle(cacheIndexAndFilterBlocks,
         cacheIndexAndFilterBlocksWithHighPriority, pinL0FilterAndIndexBlocksInCache,
         pinTopLevelIndexAndFilter, indexType.getValue(), dataBlockIndexType.getValue(),
         dataBlockHashTableUtilRatio, checksumType.getValue(), noBlockCache, blockCacheHandle,
-        persistentCacheHandle, blockCacheCompressedHandle, blockSize, blockSizeDeviation,
-        blockRestartInterval, indexBlockRestartInterval, metadataBlockSize, partitionFilters,
-        optimizeFiltersForMemory, useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering,
-        verifyCompression, readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
-        indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits,
-        blockCacheCompressedSize, blockCacheCompressedNumShardBits);
+        persistentCacheHandle, blockSize, blockSizeDeviation, blockRestartInterval,
+        indexBlockRestartInterval, metadataBlockSize, partitionFilters, optimizeFiltersForMemory,
+        useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering, verifyCompression,
+        readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
+        indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits);
   }
 
   private native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
@@ -944,18 +906,15 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final byte indexTypeValue, final byte dataBlockIndexTypeValue,
       final double dataBlockHashTableUtilRatio, final byte checksumTypeValue,
       final boolean noBlockCache, final long blockCacheHandle, final long persistentCacheHandle,
-      final long blockCacheCompressedHandle, final long blockSize, final int blockSizeDeviation,
-      final int blockRestartInterval, final int indexBlockRestartInterval,
-      final long metadataBlockSize, final boolean partitionFilters,
-      final boolean optimizeFiltersForMemory, final boolean useDeltaEncoding,
-      final long filterPolicyHandle, final boolean wholeKeyFiltering,
-      final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
-      final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
+      final long blockSize, final int blockSizeDeviation, final int blockRestartInterval,
+      final int indexBlockRestartInterval, final long metadataBlockSize,
+      final boolean partitionFilters, final boolean optimizeFiltersForMemory,
+      final boolean useDeltaEncoding, final long filterPolicyHandle,
+      final boolean wholeKeyFiltering, final boolean verifyCompression,
+      final int readAmpBytesPerBit, final int formatVersion, final boolean enableIndexCompression,
+      final boolean blockAlign, final byte indexShortening,
 
-      @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits,
-
-      @Deprecated final long blockCacheCompressedSize,
-      @Deprecated final int blockCacheCompressedNumShardBits);
+      @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits);
 
   //TODO(AR) flushBlockPolicyFactory
   private boolean cacheIndexAndFilterBlocks;
@@ -969,7 +928,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private boolean noBlockCache;
   private Cache blockCache;
   private PersistentCache persistentCache;
-  private Cache blockCacheCompressed;
   private long blockSize;
   private int blockSizeDeviation;
   private int blockRestartInterval;
@@ -990,8 +948,4 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   // NOTE: ONLY used if blockCache == null
   @Deprecated private long blockCacheSize;
   @Deprecated private int blockCacheNumShardBits;
-
-  // NOTE: ONLY used if blockCacheCompressed == null
-  @Deprecated private long blockCacheCompressedSize;
-  @Deprecated private int blockCacheCompressedNumShardBits;
 }
