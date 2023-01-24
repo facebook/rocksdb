@@ -114,6 +114,37 @@ public class FFIDB implements AutoCloseable {
     }
   }
 
+  public record GetParams(MemorySegment memorySegment) {
+    public static GetParams create(final FFIDB dbFFI) throws RocksDBException {
+      final GetParams getParams =
+          new GetParams(dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
+
+      try {
+        // Create a new pinnable slice which we want to use repeatedly
+        final Object result = FFIMethod.NewPinnable.invoke(getParams.outputPinnable().address());
+        final Status.Code code = Status.Code.values()[(Integer) result];
+        if (code == Status.Code.Ok) {
+          return getParams;
+        }
+        throw new RocksDBException(new Status(code, Status.SubCode.None,
+            "[Rocks FFI - could not create pinnable slice - no detailed reason provided]"));
+      } catch (final Throwable methodException) {
+        throw new RocksDBException("Internal error invoking FFI (Java to C++) function call: "
+            + methodException.getMessage());
+      }
+    }
+
+    MemorySegment inputSlice() {
+      return memorySegment.asSlice(
+          FFILayout.GetParamsSegment.InputStructOffset, FFILayout.InputSlice.Layout.byteSize());
+    }
+
+    MemorySegment outputPinnable() {
+      return memorySegment.asSlice(FFILayout.GetParamsSegment.PinnableStructOffset,
+          FFILayout.PinnableSlice.Layout.byteSize());
+    }
+  }
+
   /**
    *
    * @param columnFamilyHandle the column family in which to find the key
@@ -124,15 +155,14 @@ public class FFIDB implements AutoCloseable {
    * @throws RocksDBException if there is a problem during the get
    */
   public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final MemorySegment keySegment,
-      final MemorySegment getParamsSegment, final byte[] value) throws RocksDBException {
+      final GetParams getParams, final byte[] value) throws RocksDBException {
     return GetBytes.fromPinnable(
-        getPinnableSlice(readOptions, columnFamilyHandle, keySegment, getParamsSegment), value);
+        getPinnableSlice(readOptions, columnFamilyHandle, keySegment, getParams), value);
   }
 
   public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final MemorySegment keySegment,
-      final MemorySegment getParamsSegment) throws RocksDBException {
-    final var pinnable =
-        getPinnableSlice(readOptions, columnFamilyHandle, keySegment, getParamsSegment);
+      final GetParams getParams) throws RocksDBException {
+    final var pinnable = getPinnableSlice(readOptions, columnFamilyHandle, keySegment, getParams);
     byte[] value = null;
     if (pinnable.code == Status.Code.Ok) {
       final var pinnableSlice = pinnable.pinnableSlice().get();
@@ -141,17 +171,16 @@ public class FFIDB implements AutoCloseable {
     return GetBytes.fromPinnable(pinnable, value);
   }
 
-  public GetBytes get(final MemorySegment keySegment, final MemorySegment getParamsSegment)
+  public GetBytes get(final MemorySegment keySegment, final GetParams getParams)
       throws RocksDBException {
-    return get(rocksDB.getDefaultColumnFamily(), keySegment, getParamsSegment);
+    return get(rocksDB.getDefaultColumnFamily(), keySegment, getParams);
   }
 
   public record GetPinnableSlice(Status.Code code, Optional<FFIPinnableSlice> pinnableSlice) {}
 
-  public GetPinnableSlice getPinnableSlice(final MemorySegment keySegment,
-      final MemorySegment getParamsSegment) throws RocksDBException {
-    return getPinnableSlice(
-        readOptions, rocksDB.getDefaultColumnFamily(), keySegment, getParamsSegment);
+  public GetPinnableSlice getPinnableSlice(
+      final MemorySegment keySegment, final GetParams getParams) throws RocksDBException {
+    return getPinnableSlice(readOptions, rocksDB.getDefaultColumnFamily(), keySegment, getParams);
   }
 
   /**
@@ -165,18 +194,16 @@ public class FFIDB implements AutoCloseable {
    */
   public GetPinnableSlice getPinnableSlice(final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final MemorySegment keySegment,
-      final MemorySegment getParamsSegment) throws RocksDBException {
-    final MemorySegment inputSlice = getParamsSegment.asSlice(
-        FFILayout.GetParamsSegment.InputStructOffset, FFILayout.InputSlice.Layout.byteSize());
+      final GetParams getParams) throws RocksDBException {
+    final MemorySegment inputSlice = getParams.inputSlice();
     FFILayout.InputSlice.Data.set(inputSlice, keySegment.address());
     FFILayout.InputSlice.Size.set(inputSlice, keySegment.byteSize());
 
-    final MemorySegment outputPinnable = getParamsSegment.asSlice(
-        FFILayout.GetParamsSegment.PinnableStructOffset, FFILayout.PinnableSlice.Layout.byteSize());
+    final MemorySegment outputPinnable = getParams.outputPinnable();
 
     final Object result;
     try {
-      result = FFIMethod.GetPinnable.invoke(MemoryAddress.ofLong(rocksDB.nativeHandle_),
+      result = FFIMethod.GetIntoPinnable.invoke(MemoryAddress.ofLong(rocksDB.nativeHandle_),
           MemoryAddress.ofLong(readOptions.nativeHandle_),
           MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_), inputSlice.address(),
           outputPinnable.address());
@@ -193,18 +220,20 @@ public class FFIDB implements AutoCloseable {
       case Ok -> {
         final MemoryAddress data = (MemoryAddress) FFILayout.PinnableSlice.Data.get(outputPinnable);
         final Long size = (Long) FFILayout.PinnableSlice.Size.get(outputPinnable);
-        final Boolean isPinned = (Boolean) FFILayout.PinnableSlice.IsPinned.get(outputPinnable);
-        if (isPinned) {
-          pinnedCount++;
-        } else {
-          unpinnedCount++;
-        }
 
         //TODO (AP) Review whether this is the correct session to use
         //The "never closed" global() session may well be correct,
         //because the underlying pinnable slice should get explicitly cleared by us, not by the session
         final MemorySegment valueSegment = MemorySegment.ofAddress(data, size, MemorySession.global());
-        return new GetPinnableSlice(code, Optional.of(new FFIPinnableSlice(valueSegment, outputPinnable)));
+        final FFIPinnableSlice pinnableSlice = new FFIPinnableSlice(valueSegment, outputPinnable);
+
+        if (pinnableSlice.isPinned()) {
+          pinnedCount++;
+        } else {
+          unpinnedCount++;
+        }
+
+        return new GetPinnableSlice(code, Optional.of(pinnableSlice));
       }
       default -> throw new RocksDBException(new Status(code, Status.SubCode.None, "[Rocks FFI - no detailed reason provided]"));
     }

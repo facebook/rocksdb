@@ -32,11 +32,11 @@ public class FFIDBTest {
       try {
         final RocksDB db = dbFFI.getRocksDB();
         db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
-        var getPinnableSlice = dbFFI.getPinnableSlice(
-            dbFFI.copy("key2"), dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
+        var getPinnableSlice =
+            dbFFI.getPinnableSlice(dbFFI.copy("key2"), FFIDB.GetParams.create(dbFFI));
         assertThat(getPinnableSlice.code()).isEqualTo(Status.Code.NotFound);
-        getPinnableSlice = dbFFI.getPinnableSlice(
-            dbFFI.copy("key1"), dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
+        getPinnableSlice =
+            dbFFI.getPinnableSlice(dbFFI.copy("key1"), FFIDB.GetParams.create(dbFFI));
         assertThat(getPinnableSlice.code()).isEqualTo(Status.Code.Ok);
         assertThat(getPinnableSlice.pinnableSlice().get().data()).isNotNull();
         final byte[] bytes = getPinnableSlice.pinnableSlice().get().data().toArray(JAVA_BYTE);
@@ -55,11 +55,9 @@ public class FFIDBTest {
       final RocksDB db = dbFFI.getRocksDB();
       try {
         db.put(db.getDefaultColumnFamily(), "key1".getBytes(), "value1".getBytes());
-        var getBytes =
-            dbFFI.get(dbFFI.copy("key2"), dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
+        var getBytes = dbFFI.get(dbFFI.copy("key2"), FFIDB.GetParams.create(dbFFI));
         assertThat(getBytes.code()).isEqualTo(Status.Code.NotFound);
-        getBytes =
-            dbFFI.get(dbFFI.copy("key1"), dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
+        getBytes = dbFFI.get(dbFFI.copy("key1"), FFIDB.GetParams.create(dbFFI));
         assertThat(getBytes.code()).isEqualTo(Status.Code.Ok);
         assertThat(new String(getBytes.value(), UTF_8)).isEqualTo("value1");
       } catch (final RocksDBException e) {

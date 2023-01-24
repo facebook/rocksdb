@@ -30,6 +30,7 @@ import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.DBOptions;
 import org.rocksdb.FFIDB;
 import org.rocksdb.FFIDB.GetOutputSlice;
+import org.rocksdb.FFIDB.GetParams;
 import org.rocksdb.FFIDB.GetPinnableSlice;
 import org.rocksdb.FFILayout;
 import org.rocksdb.FlushOptions;
@@ -70,7 +71,7 @@ public class GetBenchmarks {
   private byte[] valueArr;
 
   private MemorySegment keySegment;
-  private MemorySegment getParamsSegment;
+  private GetParams getParams;
   private MemorySegment outputSlice;
 
   private MemorySegment valueSegment;
@@ -138,7 +139,7 @@ public class GetBenchmarks {
     valueBuf.flip();
 
     outputSlice = dbFFI.allocateSegment(valueSize);
-    getParamsSegment = dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout);
+    getParams = FFIDB.GetParams.create(dbFFI);
     keySegment = dbFFI.allocateSegment(keySize);
     valueSegment = dbFFI.allocateSegment(valueSize);
 
@@ -276,8 +277,8 @@ public class GetBenchmarks {
     return keySegment;
   }
 
-  private MemorySegment getGetParamsSegment() {
-    return getParamsSegment;
+  private GetParams getGetParams() {
+    return getParams;
   }
 
   private byte[] getValueArr() {
@@ -333,31 +334,31 @@ public class GetBenchmarks {
   @Benchmark
   public void ffiPreallocatedGet(Blackhole blackhole) throws RocksDBException {
     byte[] value = getValueArr();
-    dbFFI.get(getColumnFamily(), getKeySegment(), getGetParamsSegment(), value);
+    dbFFI.get(getColumnFamily(), getKeySegment(), getGetParams(), value);
     blackhole.consume(value);
   }
 
   @Benchmark
   public void ffiPreallocatedGetRandom(Blackhole blackhole) throws RocksDBException {
     byte[] value = getValueArr();
-    dbFFI.get(getColumnFamily(), getRandomKeySegment(), getGetParamsSegment(), value);
+    dbFFI.get(getColumnFamily(), getRandomKeySegment(), getGetParams(), value);
     blackhole.consume(value);
   }
 
   @Benchmark
   public void ffiGet(Blackhole blackhole) throws RocksDBException {
-    blackhole.consume(dbFFI.get(getColumnFamily(), getKeySegment(), getGetParamsSegment()));
+    blackhole.consume(dbFFI.get(getColumnFamily(), getKeySegment(), getGetParams()));
   }
 
   @Benchmark
   public void ffiGetRandom(Blackhole blackhole) throws RocksDBException {
-    blackhole.consume(dbFFI.get(getColumnFamily(), getRandomKeySegment(), getGetParamsSegment()));
+    blackhole.consume(dbFFI.get(getColumnFamily(), getRandomKeySegment(), getGetParams()));
   }
 
   @Benchmark
   public void ffiGetPinnableSlice(Blackhole blackhole) throws RocksDBException {
     final GetPinnableSlice result = dbFFI.getPinnableSlice(
-        readOptions, getColumnFamily(), getKeySegment(), getGetParamsSegment());
+        readOptions, getColumnFamily(), getKeySegment(), getGetParams());
     blackhole.consume(result);
     result.pinnableSlice().get().reset();
   }
@@ -373,6 +374,7 @@ public class GetBenchmarks {
   @Benchmark
   public void ffiIdentity(Blackhole blackhole) throws RocksDBException {
     final int result = dbFFI.identity((int) (Math.random() * 256));
+    
     blackhole.consume(result);
   }
 }

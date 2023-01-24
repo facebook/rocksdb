@@ -40,7 +40,9 @@ extern "C" int rocksdb_ffi_get_pinnable(
     ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf, rocksdb_input_slice_t* key,
     rocksdb_pinnable_slice_t* value);
 
+extern "C" int rocksdb_ffi_new_pinnable(rocksdb_pinnable_slice_t* value);
 extern "C" int rocksdb_ffi_reset_pinnable(rocksdb_pinnable_slice_t* value);
+extern "C" int rocksdb_ffi_delete_pinnable(rocksdb_pinnable_slice_t* value);
 
 extern "C" int rocksdb_ffi_get_output(
     ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ReadOptions* read_options,

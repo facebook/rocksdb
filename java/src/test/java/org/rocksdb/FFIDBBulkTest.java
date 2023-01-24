@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.rocksdb.util.FFIUtil.usingFFI;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.MemorySession;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -23,6 +24,7 @@ public class FFIDBBulkTest {
 
   @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
+  static final int repeatCount = 1000;
   static final int keyCount = 10000;
   static final int keySize = 128;
   static final int valueSize = 32768;
@@ -52,19 +54,29 @@ public class FFIDBBulkTest {
 
   @Test
   public void getBulk() throws RocksDBException {
-    final FFIUtil.ByteArray keysArray = new FFIUtil.ByteArray(keySize, "key");
+    final int SIGNIFICANT_KEY_BYTES = 12;
+    final FFIUtil.ByteArray keysArray = new FFIUtil.ByteArray(SIGNIFICANT_KEY_BYTES, "key");
     final FFIUtil.ByteArray valuesArray = new FFIUtil.ByteArray(valueSize, "value");
 
     final byte[] value = new byte[valueSize];
 
     usingFFI(dbFolder, dbFFI -> {
       try {
-        for (final ColumnFamilyHandle columnFamilyHandle : dbFFI.getColumnFamilies()) {
-          for (int i = keyCount - 1; i >= 0; i--) {
-            final byte[] key = keysArray.get(i);
-            dbFFI.get(columnFamilyHandle, dbFFI.copy(key),
-                dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout), value);
-            assertThat(value).isEqualTo(valuesArray.get(i));
+        final FFIDB.GetParams getParams = FFIDB.GetParams.create(dbFFI);
+        final MemorySegment keySegment = dbFFI.allocateSegment(keySize);
+        keySegment.fill((byte) 0x30);
+
+        for (int repeat = 0; repeat < repeatCount; repeat++) {
+          for (final ColumnFamilyHandle columnFamilyHandle : dbFFI.getColumnFamilies()) {
+            for (int keyIndex = keyCount - 1; keyIndex >= 0; keyIndex--) {
+              final byte[] key = keysArray.get(keyIndex);
+              keySegment.copyFrom(MemorySegment.ofArray(key));
+              dbFFI.get(columnFamilyHandle, keySegment, getParams, value);
+              assertThat(value[5]).isEqualTo(valuesArray.get(keyIndex)[5]);
+              assertThat(value[6]).isEqualTo(valuesArray.get(keyIndex)[6]);
+              final int result = dbFFI.identity((int) (Math.random() * 256));
+              assertThat(result).isLessThan(257);
+            }
           }
         }
       } catch (final RocksDBException e) {

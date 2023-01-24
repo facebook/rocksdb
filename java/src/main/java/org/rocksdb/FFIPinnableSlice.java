@@ -10,7 +10,10 @@ import java.lang.foreign.MemorySegment;
 public record FFIPinnableSlice(MemorySegment data, MemorySegment outputSlice) {
   public void reset() throws RocksDBException {
     try {
-      FFIMethod.ResetPinnable.invoke(outputSlice.address());
+      if (isPinned()) {
+        FFIMethod.ResetPinnable.invoke(outputSlice.address());
+        FFILayout.PinnableSlice.IsPinned.set(outputSlice, false);
+      }
     } catch (final Throwable methodException) {
       throw new RocksDBException("Internal error invoking FFI (Java to C++) function call: "
           + methodException.getMessage());

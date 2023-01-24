@@ -22,21 +22,31 @@ extern "C" int rocksdb_ffi_get_pinnable(
     ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf, rocksdb_input_slice_t* key,
     rocksdb_pinnable_slice_t* value) {
   ROCKSDB_NAMESPACE::Slice key_slice(key->data, key->size);
-  ROCKSDB_NAMESPACE::PinnableSlice* value_slice =
-      new ROCKSDB_NAMESPACE::PinnableSlice();
+  auto value_slice = value->pinnable_slice;
+  new ROCKSDB_NAMESPACE::PinnableSlice();
   auto status = db->Get(*read_options, cf, key_slice, value_slice);
   if (status.ok()) {
     value->data = value_slice->data();
     value->size = value_slice->size();
-    value->pinnable_slice = value_slice;
     value->is_pinned = value_slice->IsPinned();
-  } else {
-    delete value_slice;
   }
   return status.code();
 }
 
+extern "C" int rocksdb_ffi_new_pinnable(rocksdb_pinnable_slice_t* value) {
+  value->pinnable_slice = new ROCKSDB_NAMESPACE::PinnableSlice();
+  return ROCKSDB_NAMESPACE::Status::Code::kOk;
+}
+
 extern "C" int rocksdb_ffi_reset_pinnable(rocksdb_pinnable_slice_t* value) {
+  if (value->is_pinned) {
+    value->pinnable_slice->Reset();
+    value->is_pinned = false;
+  }
+  return ROCKSDB_NAMESPACE::Status::Code::kOk;
+}
+
+extern "C" int rocksdb_ffi_delete_pinnable(rocksdb_pinnable_slice_t* value) {
   auto* value_slice = value->pinnable_slice;
   delete value_slice;
   return ROCKSDB_NAMESPACE::Status::Code::kOk;
