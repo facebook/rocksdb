@@ -679,6 +679,27 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts) {
   } while (ChangeCompactOptions());
 }
 
+TEST_F(DBBasicTest, LockFileRecovery) {
+  Options options = CurrentOptions();
+  // Regardless of best_efforts_recovery
+  for (bool ber : {false, true}) {
+    options.best_efforts_recovery = ber;
+    DestroyAndReopen(options);
+    std::string id1, id2;
+    ASSERT_OK(db_->GetDbIdentity(id1));
+    Close();
+
+    // Should be OK to re-open DB after lock file deleted
+    std::string lockfilename = LockFileName(dbname_);
+    ASSERT_OK(env_->DeleteFile(lockfilename));
+    Reopen(options);
+
+    // Should be same DB as before
+    ASSERT_OK(db_->GetDbIdentity(id2));
+    ASSERT_EQ(id1, id2);
+  }
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, Snapshot) {
   env_->SetMockSleep();

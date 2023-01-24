@@ -1288,36 +1288,36 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 
-  // By default, RocksDB recovery fails if any table/blob file referenced in the
-  // final version reconstructed from the
-  // MANIFEST are missing after scanning the MANIFEST pointed to by the
-  // CURRENT file. It can also fail if verification of unique SST id fails.
-  // Best-efforts recovery is another recovery mode that does not necessarily
-  // fail when certain table/blob files are missing/corrupted or have mismatched
-  // unique id table property. Instead, best-efforts recovery recovers each
-  // column family to a point in the MANIFEST that corresponds to a version. In
-  // such a version, all valid table/blob files referenced have the expected
-  // file size. For table files, their unique id table property match the
-  // MANIFEST.
+  // By default, RocksDB will attempt to detect any data losses or corruptions
+  // in DB files and return an error to the user, either at DB::Open time or
+  // later during DB operation. The exception to this policy is the WAL file,
+  // whose recovery is controlled by the wal_recovery_mode option.
   //
-  // Best-efforts recovery does not need a valid CURRENT file, and tries to
-  // recover the database using one of the available MANIFEST files in the db
-  // directory.
-  // Best-efforts recovery tries the available MANIFEST files from high file
-  // numbers (newer) to low file numbers (older), and stops after finding the
-  // first MANIFEST file from which the db can be recovered to a state without
-  // invalid (missing/filesize-mismatch/unique-id-mismatch) table and blob
-  // files. It is possible that the database can be restored to an empty state
-  // with no table or blob files.
+  // Best-efforts recovery (this option set to true) signals a preference for
+  // opening the DB to any point-in-time valid state for each column family,
+  // including the empty/new state, versus the default of returning non-WAL
+  // data losses to the user as errors. In terms of RocksDB user data, this
+  // is like applying WALRecoveryMode::kPointInTimeRecovery to each column
+  // family rather than just the WAL.
   //
-  // Regardless of this option, the IDENTITY file
-  // is updated if needed during recovery to match the DB ID in the MANIFEST (if
-  // previously using write_dbid_to_manifest) or to be in some valid state
-  // (non-empty DB ID). Currently, not compatible with atomic flush.
-  // Furthermore, WAL files will not be used for recovery if
-  // best_efforts_recovery is true. Also requires either 1) LOCK file exists or
-  // 2) underlying env's LockFile() call returns ok even for non-existing LOCK
-  // file.
+  // Best-efforts recovery (BER) is specifically designed to recover a DB with
+  // files that are missing or truncated to some smaller size, such as the
+  // result of an incomplete DB "physical" (FileSystem) copy. BER can also
+  // detect when an SST file has been replaced with a different one of the
+  // same size (assuming SST unique IDs are tracked in DB manifest).
+  // BER is not yet designed to produce a usable DB from other corruptions to
+  // DB files (which should generally be detectable by DB::VerifyChecksum()),
+  // and BER does not yet attempt to recover any WAL files.
+  //
+  // For example, if an SST or blob file referenced by the MANIFEST is missing,
+  // BER might be able to find a set of files corresponding to an old "point in
+  // time" version of the column family, possibly from an older MANIFEST
+  // file. Some other kinds of DB files (e.g. CURRENT, LOCK, IDENTITY) are
+  // either ignored or replaced with BER, or quietly fixed regardless of BER
+  // setting. BER does require at least one valid MANIFEST to recover to a
+  // non-trivial DB state, unlike `ldb repair`.
+  //
+  // Currently, best_efforts_recovery=true is not compatible with atomic flush.
   //
   // Default: false
   bool best_efforts_recovery = false;
