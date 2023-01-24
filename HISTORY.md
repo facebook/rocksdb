@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
+
 ## 7.10.0 (01/23/2023)
 ### Behavior changes
 * Make best-efforts recovery verify SST unique ID before Version construction (#10962)
