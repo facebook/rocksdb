@@ -557,7 +557,6 @@ ColumnFamilyData::ColumnFamilyData(
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      flush_reason_(FlushReason::kOthers),
       column_family_set_(column_family_set),
       queued_for_flush_(false),
       queued_for_compaction_(false),

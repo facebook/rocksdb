@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
+
 ## 7.9.2 (12/21/2022)
 ### Bug Fixes
 * Fixed a heap use after free bug in async scan prefetching when the scan thread and another thread try to read and load the same seek block into cache.
