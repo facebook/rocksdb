@@ -535,7 +535,7 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
       auto v = static_cast<SentinelValue*>(bbto.block_cache->Value(handle));
       char c = v->c;
       bbto.block_cache->Release(handle);
-     if (c == kPersistentCacheMarker) {
+      if (c == kPersistentCacheMarker) {
         return Status::InvalidArgument(
             "block_cache and persistent_cache share the same key space, "
             "which is not supported");
