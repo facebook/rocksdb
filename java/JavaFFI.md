@@ -135,8 +135,9 @@ We extended existing RocksDB Java JNI benchmarks with new benchmarks based on FF
 ```bash
 java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks
 ```
-[Results](./jmh/plot/jmh-result-clean.csv)
-![Plot](./jmh/plot/benchmarks.png)
+
+[Results](./jmh/plot/jmh-result-nocopy.csv)
+![Plot](./jmh/plot/jmh-result-nocopy.png)
 
 ### Discussion
 

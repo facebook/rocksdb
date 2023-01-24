@@ -116,12 +116,12 @@ public class FFIDB implements AutoCloseable {
 
   /**
    *
-   * @param columnFamilyHandle
-   * @param keySegment
+   * @param columnFamilyHandle the column family in which to find the key
+   * @param keySegment a segment holding the key to fetch
    * @param value the first {@code value.length} bytes of the value at the key will be copied into
    *     here
-   * @return
-   * @throws RocksDBException
+   * @return status, including the value if the fetch was successful
+   * @throws RocksDBException if there is a problem during the get
    */
   public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final MemorySegment keySegment,
       final MemorySegment getParamsSegment, final byte[] value) throws RocksDBException {
@@ -161,7 +161,7 @@ public class FFIDB implements AutoCloseable {
    * @param keySegment of the value to read
    * @return an object wrapping status and (if the status is ok) a pinnable slice referring to the
    *     value of the key
-   * @throws RocksDBException
+   * @throws RocksDBException if there is a problem during the get
    */
   public GetPinnableSlice getPinnableSlice(final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final MemorySegment keySegment,
