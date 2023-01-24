@@ -1784,43 +1784,6 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   Destroy(options);
 }
 
-TEST_F(DBSecondaryCacheTest, TestSecondaryWithCompressedCache) {
-  if (!Snappy_Supported()) {
-    ROCKSDB_GTEST_SKIP("Compressed cache test requires snappy support");
-    return;
-  }
-  LRUCacheOptions opts(2000 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
-  std::shared_ptr<TestSecondaryCache> secondary_cache(
-      new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
-  BlockBasedTableOptions table_options;
-  table_options.block_cache_compressed = cache;
-  table_options.no_block_cache = true;
-  table_options.block_size = 1234;
-  Options options = GetDefaultOptions();
-  options.compression = kSnappyCompression;
-  options.create_if_missing = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  DestroyAndReopen(options);
-  Random rnd(301);
-  const int N = 6;
-  for (int i = 0; i < N; i++) {
-    // Partly compressible
-    std::string p_v = rnd.RandomString(507) + std::string(500, ' ');
-    ASSERT_OK(Put(Key(i), p_v));
-  }
-  ASSERT_OK(Flush());
-  for (int i = 0; i < 2 * N; i++) {
-    std::string v = Get(Key(i % N));
-    ASSERT_EQ(1007, v.size());
-  }
-}
-
 TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
   LRUCacheOptions opts(1024 /* capacity */, 2 /* num_shard_bits */,
                        false /* strict_capacity_limit */,

@@ -241,7 +241,6 @@ TEST_P(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   iterh = nullptr;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
-  table_options.block_cache_compressed = nullptr;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   read_options.read_tier = kBlockCacheTier;

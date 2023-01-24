@@ -244,9 +244,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       // heap buffer or there is no cache at all.
       CompressionType compression_type =
           GetBlockCompressionType(serialized_block);
-      if (use_shared_buffer && (compression_type == kNoCompression ||
-                                (compression_type != kNoCompression &&
-                                 rep_->table_options.block_cache_compressed))) {
+      if (use_shared_buffer && compression_type == kNoCompression) {
         Slice serialized =
             Slice(req.result.data() + req_offset, BlockSizeWithTrailer(handle));
         serialized_block = BlockContents(
@@ -523,7 +521,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         // 3. If blocks are compressed and no compressed block cache, use
         //    stack buf
         if (!rep_->file->use_direct_io() &&
-            rep_->table_options.block_cache_compressed == nullptr &&
             rep_->blocks_maybe_compressed) {
           if (total_len <= kMultiGetReadStackBufSize) {
             scratch = stack_buf;

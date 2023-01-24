@@ -298,7 +298,6 @@ extern bool InitializeOptionsFromFile(Options& options);
 // input arguments.
 extern void InitializeOptionsFromFlags(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<Cache>& block_cache_compressed,
     const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
 
 // Initialize `options` on which `InitializeOptionsFromFile()` and
@@ -324,7 +323,6 @@ extern void InitializeOptionsFromFlags(
 // from OPTIONS file.
 extern void InitializeOptionsGeneral(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<Cache>& block_cache_compressed,
     const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
 
 // If no OPTIONS file is specified, set up `options` so that we can test

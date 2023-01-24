@@ -44,10 +44,6 @@ class DBBlockCacheTest : public DBTestBase {
   size_t compression_dict_miss_count_ = 0;
   size_t compression_dict_hit_count_ = 0;
   size_t compression_dict_insert_count_ = 0;
-  size_t compressed_miss_count_ = 0;
-  size_t compressed_hit_count_ = 0;
-  size_t compressed_insert_count_ = 0;
-  size_t compressed_failure_count_ = 0;
 
  public:
   const size_t kNumBlocks = 10;
@@ -85,14 +81,6 @@ class DBBlockCacheTest : public DBTestBase {
     hit_count_ = TestGetTickerCount(options, BLOCK_CACHE_HIT);
     insert_count_ = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     failure_count_ = TestGetTickerCount(options, BLOCK_CACHE_ADD_FAILURES);
-    compressed_miss_count_ =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS);
-    compressed_hit_count_ =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT);
-    compressed_insert_count_ =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_ADD);
-    compressed_failure_count_ =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
   }
 
   void RecordCacheCountersForCompressionDict(const Options& options) {
@@ -142,29 +130,6 @@ class DBBlockCacheTest : public DBTestBase {
     compression_dict_miss_count_ = new_compression_dict_miss_count;
     compression_dict_hit_count_ = new_compression_dict_hit_count;
     compression_dict_insert_count_ = new_compression_dict_insert_count;
-  }
-
-  void CheckCompressedCacheCounters(const Options& options,
-                                    size_t expected_misses,
-                                    size_t expected_hits,
-                                    size_t expected_inserts,
-                                    size_t expected_failures) {
-    size_t new_miss_count =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS);
-    size_t new_hit_count =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT);
-    size_t new_insert_count =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_ADD);
-    size_t new_failure_count =
-        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
-    ASSERT_EQ(compressed_miss_count_ + expected_misses, new_miss_count);
-    ASSERT_EQ(compressed_hit_count_ + expected_hits, new_hit_count);
-    ASSERT_EQ(compressed_insert_count_ + expected_inserts, new_insert_count);
-    ASSERT_EQ(compressed_failure_count_ + expected_failures, new_failure_count);
-    compressed_miss_count_ = new_miss_count;
-    compressed_hit_count_ = new_hit_count;
-    compressed_insert_count_ = new_insert_count;
-    compressed_failure_count_ = new_failure_count;
   }
 
 #ifndef ROCKSDB_LITE
@@ -274,84 +239,6 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
 }
 
 #ifdef SNAPPY
-TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-
-  BlockBasedTableOptions table_options;
-  table_options.no_block_cache = true;
-  table_options.block_cache_compressed = nullptr;
-  table_options.block_size = 1;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  table_options.cache_index_and_filter_blocks = false;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  options.compression = CompressionType::kSnappyCompression;
-
-  DestroyAndReopen(options);
-
-  std::string value(kValueSize, 'a');
-  for (size_t i = 0; i < kNumBlocks; i++) {
-    ASSERT_OK(Put(std::to_string(i), value));
-    ASSERT_OK(Flush());
-  }
-
-  ReadOptions read_options;
-  std::shared_ptr<Cache> compressed_cache = NewLRUCache(1 << 25, 0, false);
-  LRUCacheOptions co;
-  co.capacity = 0;
-  co.num_shard_bits = 0;
-  co.strict_capacity_limit = false;
-  // Needed not to count entry stats collector
-  co.metadata_charge_policy = kDontChargeCacheMetadata;
-  std::shared_ptr<Cache> cache = NewLRUCache(co);
-  table_options.block_cache = cache;
-  table_options.no_block_cache = false;
-  table_options.block_cache_compressed = compressed_cache;
-  table_options.max_auto_readahead_size = 0;
-  table_options.cache_index_and_filter_blocks = false;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-  RecordCacheCounters(options);
-
-  // Load blocks into cache.
-  for (size_t i = 0; i < kNumBlocks - 1; i++) {
-    ASSERT_EQ(value, Get(std::to_string(i)));
-    CheckCacheCounters(options, 1, 0, 1, 0);
-    CheckCompressedCacheCounters(options, 1, 0, 1, 0);
-  }
-
-  size_t usage = cache->GetUsage();
-  ASSERT_EQ(0, usage);
-  ASSERT_EQ(usage, cache->GetPinnedUsage());
-  size_t compressed_usage = compressed_cache->GetUsage();
-  ASSERT_LT(0, compressed_usage);
-  // Compressed block cache cannot be pinned.
-  ASSERT_EQ(0, compressed_cache->GetPinnedUsage());
-
-  // Set strict capacity limit flag. Now block will only load into compressed
-  // block cache.
-  cache->SetCapacity(usage);
-  cache->SetStrictCapacityLimit(true);
-  ASSERT_EQ(usage, cache->GetPinnedUsage());
-
-  // Load last key block.
-  ASSERT_EQ(
-      "Operation aborted: Memory limit reached: Insert failed due to LRU cache "
-      "being full.",
-      Get(std::to_string(kNumBlocks - 1)));
-  // Failure will also record the miss counter.
-  CheckCacheCounters(options, 1, 0, 0, 1);
-  CheckCompressedCacheCounters(options, 1, 0, 1, 0);
-
-  // Clear strict capacity limit flag. This time we shall hit compressed block
-  // cache and load into block cache.
-  cache->SetStrictCapacityLimit(false);
-  // Load last key block.
-  ASSERT_EQ(value, Get(std::to_string(kNumBlocks - 1)));
-  CheckCacheCounters(options, 1, 0, 1, 0);
-  CheckCompressedCacheCounters(options, 0, 1, 0, 0);
-}
 
 namespace {
 class PersistentCacheFromCache : public PersistentCache {
@@ -413,80 +300,6 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
 };
 
 }  // anonymous namespace
-
-TEST_F(DBBlockCacheTest, TestWithSameCompressed) {
-  auto table_options = GetTableOptions();
-  auto options = GetOptions(table_options);
-  InitTable(options);
-
-  std::shared_ptr<Cache> rw_cache{NewLRUCache(1000000)};
-  std::shared_ptr<PersistentCacheFromCache> rw_pcache{
-      new PersistentCacheFromCache(rw_cache, /*read_only*/ false)};
-  // Exercise some obscure behavior with read-only wrappers
-  std::shared_ptr<Cache> ro_cache{new ReadOnlyCacheWrapper(rw_cache)};
-  std::shared_ptr<PersistentCacheFromCache> ro_pcache{
-      new PersistentCacheFromCache(rw_cache, /*read_only*/ true)};
-
-  // Simple same pointer
-  table_options.block_cache = rw_cache;
-  table_options.block_cache_compressed = rw_cache;
-  table_options.persistent_cache.reset();
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ASSERT_EQ(TryReopen(options).ToString(),
-            "Invalid argument: block_cache same as block_cache_compressed not "
-            "currently supported, and would be bad for performance anyway");
-
-  // Other cases
-  table_options.block_cache = ro_cache;
-  table_options.block_cache_compressed = rw_cache;
-  table_options.persistent_cache.reset();
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ASSERT_EQ(TryReopen(options).ToString(),
-            "Invalid argument: block_cache and block_cache_compressed share "
-            "the same key space, which is not supported");
-
-  table_options.block_cache = rw_cache;
-  table_options.block_cache_compressed = ro_cache;
-  table_options.persistent_cache.reset();
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ASSERT_EQ(TryReopen(options).ToString(),
-            "Invalid argument: block_cache_compressed and block_cache share "
-            "the same key space, which is not supported");
-
-  table_options.block_cache = ro_cache;
-  table_options.block_cache_compressed.reset();
-  table_options.persistent_cache = rw_pcache;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ASSERT_EQ(TryReopen(options).ToString(),
-            "Invalid argument: block_cache and persistent_cache share the same "
-            "key space, which is not supported");
-
-  table_options.block_cache = rw_cache;
-  table_options.block_cache_compressed.reset();
-  table_options.persistent_cache = ro_pcache;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ASSERT_EQ(TryReopen(options).ToString(),
-            "Invalid argument: persistent_cache and block_cache share the same "
-            "key space, which is not supported");
-
-  table_options.block_cache.reset();
-  table_options.no_block_cache = true;
-  table_options.block_cache_compressed = ro_cache;
-  table_options.persistent_cache = rw_pcache;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ASSERT_EQ(TryReopen(options).ToString(),
-            "Invalid argument: block_cache_compressed and persistent_cache "
-            "share the same key space, which is not supported");
-
-  table_options.block_cache.reset();
-  table_options.no_block_cache = true;
-  table_options.block_cache_compressed = rw_cache;
-  table_options.persistent_cache = ro_pcache;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ASSERT_EQ(TryReopen(options).ToString(),
-            "Invalid argument: persistent_cache and block_cache_compressed "
-            "share the same key space, which is not supported");
-}
 #endif  // SNAPPY
 
 #ifndef ROCKSDB_LITE
@@ -1086,124 +899,6 @@ TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
             TestGetTickerCount(options, BLOCK_CACHE_ADD));
 }
 
-TEST_F(DBBlockCacheTest, CompressedCache) {
-  if (!Snappy_Supported()) {
-    return;
-  }
-  int num_iter = 80;
-
-  // Run this test three iterations.
-  // Iteration 1: only a uncompressed block cache
-  // Iteration 2: only a compressed block cache
-  // Iteration 3: both block cache and compressed cache
-  // Iteration 4: both block cache and compressed cache, but DB is not
-  // compressed
-  for (int iter = 0; iter < 4; iter++) {
-    Options options = CurrentOptions();
-    options.write_buffer_size = 64 * 1024;  // small write buffer
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-
-    BlockBasedTableOptions table_options;
-    switch (iter) {
-      case 0:
-        // only uncompressed block cache
-        table_options.block_cache = NewLRUCache(8 * 1024);
-        table_options.block_cache_compressed = nullptr;
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-        break;
-      case 1:
-        // no block cache, only compressed cache
-        table_options.no_block_cache = true;
-        table_options.block_cache = nullptr;
-        table_options.block_cache_compressed = NewLRUCache(8 * 1024);
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-        break;
-      case 2:
-        // both compressed and uncompressed block cache
-        table_options.block_cache = NewLRUCache(1024);
-        table_options.block_cache_compressed = NewLRUCache(8 * 1024);
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-        break;
-      case 3:
-        // both block cache and compressed cache, but DB is not compressed
-        // also, make block cache sizes bigger, to trigger block cache hits
-        table_options.block_cache = NewLRUCache(1024 * 1024);
-        table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-        options.compression = kNoCompression;
-        break;
-      default:
-        FAIL();
-    }
-    CreateAndReopenWithCF({"pikachu"}, options);
-    // default column family doesn't have block cache
-    Options no_block_cache_opts;
-    no_block_cache_opts.statistics = options.statistics;
-    no_block_cache_opts = CurrentOptions(no_block_cache_opts);
-    BlockBasedTableOptions table_options_no_bc;
-    table_options_no_bc.no_block_cache = true;
-    no_block_cache_opts.table_factory.reset(
-        NewBlockBasedTableFactory(table_options_no_bc));
-    ReopenWithColumnFamilies(
-        {"default", "pikachu"},
-        std::vector<Options>({no_block_cache_opts, options}));
-
-    Random rnd(301);
-
-    // Write 8MB (80 values, each 100K)
-    ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
-    std::vector<std::string> values;
-    std::string str;
-    for (int i = 0; i < num_iter; i++) {
-      if (i % 4 == 0) {  // high compression ratio
-        str = rnd.RandomString(1000);
-      }
-      values.push_back(str);
-      ASSERT_OK(Put(1, Key(i), values[i]));
-    }
-
-    // flush all data from memtable so that reads are from block cache
-    ASSERT_OK(Flush(1));
-
-    for (int i = 0; i < num_iter; i++) {
-      ASSERT_EQ(Get(1, Key(i)), values[i]);
-    }
-
-    // check that we triggered the appropriate code paths in the cache
-    switch (iter) {
-      case 0:
-        // only uncompressed block cache
-        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
-        ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
-        break;
-      case 1:
-        // no block cache, only compressed cache
-        ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
-        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
-        break;
-      case 2:
-        // both compressed and uncompressed block cache
-        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
-        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
-        break;
-      case 3:
-        // both compressed and uncompressed block cache
-        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
-        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_HIT), 0);
-        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
-        // compressed doesn't have any hits since blocks are not compressed on
-        // storage
-        ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT), 0);
-        break;
-      default:
-        FAIL();
-    }
-
-    options.create_if_missing = true;
-    DestroyAndReopen(options);
-  }
-}
-
 TEST_F(DBBlockCacheTest, CacheCompressionDict) {
   const int kNumFiles = 4;
   const int kNumEntriesPerFile = 128;
@@ -1708,31 +1403,16 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   uint64_t expected_stat = 0;
 
   std::function<void()> verify_stats;
-  if (use_compressed_cache_) {
-    if (!Snappy_Supported()) {
-      ROCKSDB_GTEST_SKIP("Compressed cache test requires snappy support");
-      return;
-    }
-    options.compression = CompressionType::kSnappyCompression;
-    table_options.no_block_cache = true;
-    table_options.block_cache_compressed = NewLRUCache(1 << 25, 0, false);
-    verify_stats = [&options, &expected_stat] {
-      // One for ordinary SST file and one for external SST file
-      ASSERT_EQ(expected_stat,
-                options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_ADD));
-    };
-  } else {
-    table_options.cache_index_and_filter_blocks = true;
-    table_options.block_cache = NewLRUCache(1 << 25, 0, false);
-    verify_stats = [&options, &expected_stat] {
-      ASSERT_EQ(expected_stat,
-                options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
-      ASSERT_EQ(expected_stat,
-                options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD));
-      ASSERT_EQ(expected_stat,
-                options.statistics->getTickerCount(BLOCK_CACHE_FILTER_ADD));
-    };
-  }
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.block_cache = NewLRUCache(1 << 25, 0, false);
+  verify_stats = [&options, &expected_stat] {
+    ASSERT_EQ(expected_stat,
+              options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
+    ASSERT_EQ(expected_stat,
+              options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD));
+    ASSERT_EQ(expected_stat,
+              options.statistics->getTickerCount(BLOCK_CACHE_FILTER_ADD));
+  };
 
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1801,12 +1481,6 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
     ASSERT_OK(sst_file_writer.Finish(&external_info));
     IngestExternalFileOptions ingest_opts;
     ASSERT_OK(db_->IngestExternalFile(handles_[1], {f}, ingest_opts));
-  }
-
-  if (exclude_file_numbers_) {
-    // FIXME(peterd): figure out where these extra ADDs are coming from
-    options.statistics->recordTick(BLOCK_CACHE_COMPRESSED_ADD,
-                                   uint64_t{0} - uint64_t{2});
   }
 #endif
 

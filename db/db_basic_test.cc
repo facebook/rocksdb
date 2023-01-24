@@ -3364,17 +3364,13 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestTrackWal, DBBasicTestTrackWal,
 
 class DBBasicTestMultiGet : public DBTestBase {
  public:
-  DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,
+  DBBasicTestMultiGet(std::string test_dir, int num_cfs,
                       bool uncompressed_cache, bool _compression_enabled,
                       bool _fill_cache, uint32_t compression_parallel_threads)
       : DBTestBase(test_dir, /*env_do_fsync=*/false) {
     compression_enabled_ = _compression_enabled;
     fill_cache_ = _fill_cache;
 
-    if (compressed_cache) {
-      std::shared_ptr<Cache> cache = NewLRUCache(1048576);
-      compressed_cache_ = std::make_shared<MyBlockCache>(cache);
-    }
     if (uncompressed_cache) {
       std::shared_ptr<Cache> cache = NewLRUCache(1048576);
       uncompressed_cache_ = std::make_shared<MyBlockCache>(cache);
@@ -3418,7 +3414,6 @@ class DBBasicTestMultiGet : public DBTestBase {
     } else {
       table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     }
-    table_options.block_cache_compressed = compressed_cache_;
     table_options.flush_block_policy_factory.reset(
         new MyFlushBlockPolicyFactory());
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -3601,16 +3596,14 @@ class DBBasicTestMultiGet : public DBTestBase {
   std::vector<std::string> cf_names_;
 };
 
-class DBBasicTestWithParallelIO
-    : public DBBasicTestMultiGet,
-      public testing::WithParamInterface<
-          std::tuple<bool, bool, bool, bool, uint32_t>> {
+class DBBasicTestWithParallelIO : public DBBasicTestMultiGet,
+                                  public testing::WithParamInterface<
+                                      std::tuple<bool, bool, bool, uint32_t>> {
  public:
   DBBasicTestWithParallelIO()
       : DBBasicTestMultiGet("/db_basic_test_with_parallel_io", 1,
                             std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam()), std::get<3>(GetParam()),
-                            std::get<4>(GetParam())) {}
+                            std::get<2>(GetParam()), std::get<3>(GetParam())) {}
 };
 
 TEST_P(DBBasicTestWithParallelIO, MultiGet) {
@@ -3941,13 +3934,12 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
 
 INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
                         // Params are as follows -
-                        // Param 0 - Compressed cache enabled
-                        // Param 1 - Uncompressed cache enabled
-                        // Param 2 - Data compression enabled
-                        // Param 3 - ReadOptions::fill_cache
-                        // Param 4 - CompressionOptions::parallel_threads
+                        // Param 0 - Uncompressed cache enabled
+                        // Param 1 - Data compression enabled
+                        // Param 2 - ReadOptions::fill_cache
+                        // Param 3 - CompressionOptions::parallel_threads
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Bool(),
                                            ::testing::Values(1, 4)));
 
 // Forward declaration
@@ -4158,9 +4150,8 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet,
   DBBasicTestMultiGetDeadline()
       : DBBasicTestMultiGet(
             "db_basic_test_multiget_deadline" /*Test dir*/,
-            10 /*# of column families*/, false /*compressed cache enabled*/,
-            true /*uncompressed cache enabled*/, true /*compression enabled*/,
-            true /*ReadOptions.fill_cache*/,
+            10 /*# of column families*/, true /*uncompressed cache enabled*/,
+            true /*compression enabled*/, true /*ReadOptions.fill_cache*/,
             1 /*# of parallel compression threads*/) {}
 
   inline void CheckStatus(std::vector<Status>& statuses, size_t num_ok) {

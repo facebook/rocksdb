@@ -4922,14 +4922,6 @@ class TickerTypeJni {
         return 0x40;
       case ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS:
         return 0x41;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_MISS:
-        return 0x42;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_HIT:
-        return 0x43;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD:
-        return 0x44;
-      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD_FAILURES:
-        return 0x45;
       case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED:
         return 0x46;
       case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES:

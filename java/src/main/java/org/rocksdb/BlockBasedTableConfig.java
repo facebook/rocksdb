@@ -860,64 +860,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
-   * Size of compressed block cache. If 0, then block_cache_compressed is set
-   * to null.
-   *
-   * @return size of compressed block cache.
-   */
-  @Deprecated
-  public long blockCacheCompressedSize() {
-    return blockCacheCompressedSize;
-  }
-
-  /**
-   * Size of compressed block cache. If 0, then block_cache_compressed is set
-   * to null.
-   *
-   * @param blockCacheCompressedSize of compressed block cache.
-   * @return the reference to the current config.
-   *
-   * @deprecated Use {@link #setBlockCacheCompressed(Cache)}.
-   */
-  @Deprecated
-  public BlockBasedTableConfig setBlockCacheCompressedSize(
-      final long blockCacheCompressedSize) {
-    this.blockCacheCompressedSize = blockCacheCompressedSize;
-    return this;
-  }
-
-  /**
-   * Controls the number of shards for the block compressed cache.
-   * This is applied only if blockCompressedCacheSize is set to non-negative.
-   *
-   * @return numShardBits the number of shard bits.  The resulting
-   *     number of shards would be 2 ^ numShardBits.  Any negative
-   *     number means use default settings.
-   */
-  @Deprecated
-  public int blockCacheCompressedNumShardBits() {
-    return blockCacheCompressedNumShardBits;
-  }
-
-  /**
-   * Controls the number of shards for the block compressed cache.
-   * This is applied only if blockCompressedCacheSize is set to non-negative.
-   *
-   * @param blockCacheCompressedNumShardBits the number of shard bits.  The resulting
-   *     number of shards would be 2 ^ numShardBits.  Any negative
-   *     number means use default settings."
-   * @return the reference to the current option.
-   *
-   * @deprecated Use {@link #setBlockCacheCompressed(Cache)}.
-   */
-  @Deprecated
-  public BlockBasedTableConfig setBlockCacheCompressedNumShardBits(
-      final int blockCacheCompressedNumShardBits) {
-    this.blockCacheCompressedNumShardBits = blockCacheCompressedNumShardBits;
-    return this;
-  }
-
-  /**
    * Influence the behavior when kHashSearch is used.
    *  if false, stores a precise prefix to block range mapping
    *  if true, does not store prefix and allows prefix hash collision
