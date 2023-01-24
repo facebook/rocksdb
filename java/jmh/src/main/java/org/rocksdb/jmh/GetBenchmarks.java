@@ -10,7 +10,6 @@ import static org.rocksdb.util.KVUtils.ba;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout.OfByte;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -149,13 +148,26 @@ public class GetBenchmarks {
 
   @TearDown(Level.Trial)
   public void cleanup() throws IOException {
+    try {
     for (final ColumnFamilyHandle cfHandle : cfHandles) {
       cfHandle.close();
     }
     db.close();
     options.close();
     readOptions.close();
+  } catch (Exception e) {
+    System.err.println("Error closing DB: " + e);
+    throw e;
+  } finally {
+    System.err.println(">>> db delete");
+    try {
     FileUtils.delete(dbDir);
+    } catch (Exception e) {
+      System.err.println("Close Failed: " + e);
+      throw e;
+    }
+    System.err.println("<<< db delete");
+  }
   }
 
   private ColumnFamilyHandle getColumnFamily() {
