@@ -169,6 +169,14 @@ q "select Benchmark,Score,Error from ./plot/jmh-result-edit.csv where keyCount=1
  It's reasonable to expect that the extra FFI call to C++ to release the pinned slice has some cost, but a null FFI method call is extremely fast. And as `ffiGetOutputSlice` is still not as fast, we remain unclear where the performance is going.
 
 ## Appendix
+
+### Running
+
+Edit this to give you what you want...
+```bash
+java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=100000 -p keySize=128 -p valueSize=65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks -wi 1 -to 1m -i 1
+```
+
 ### Processing
 
 Use [`q`](http://harelba.github.io/q/) to select the csv output for analysis and graphing.

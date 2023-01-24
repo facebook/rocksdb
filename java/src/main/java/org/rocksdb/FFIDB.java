@@ -25,7 +25,8 @@ public class FFIDB implements AutoCloseable {
 
   private final ReadOptions readOptions = new ReadOptions();
 
-  private final FFIAllocator segmentAllocator;
+  private final MemorySession memorySession;
+  private final SegmentAllocator segmentAllocator;
 
   private int pinnedCount = 0;
   private int unpinnedCount = 0;
@@ -47,7 +48,9 @@ public class FFIDB implements AutoCloseable {
     // call frame. At present our {@link OutputSlice} has this lifetime, because it is returned as
     // part of the pinnable slice object in {@code getPinnable()} and passed again to {@link
     // FFIPinnableSlice#reset}. This could be fixed.
-    segmentAllocator = new FFIAllocator();
+    //segmentAllocator = new FFIAllocator();
+    memorySession = MemorySession.openConfined();
+    segmentAllocator = SegmentAllocator.newNativeArena(memorySession);
   }
 
   public RocksDB getRocksDB() {
@@ -71,7 +74,7 @@ public class FFIDB implements AutoCloseable {
    */
   @Override
   public void close() {
-    segmentAllocator.close();
+    memorySession.close();
     System.err.println("DB pinned count: " + pinnedCount + ", unpinned count: " + unpinnedCount);
   }
 
