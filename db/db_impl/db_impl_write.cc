@@ -1653,14 +1653,14 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       cfd->imm()->FlushRequested();
       if (!immutable_db_options_.atomic_flush) {
         FlushRequest flush_req;
-        GenerateFlushRequest({cfd}, &flush_req);
-        SchedulePendingFlush(flush_req, FlushReason::kWalFull);
+        GenerateFlushRequest({cfd}, FlushReason::kWalFull, &flush_req);
+        SchedulePendingFlush(flush_req);
       }
     }
     if (immutable_db_options_.atomic_flush) {
       FlushRequest flush_req;
-      GenerateFlushRequest(cfds, &flush_req);
-      SchedulePendingFlush(flush_req, FlushReason::kWalFull);
+      GenerateFlushRequest(cfds, FlushReason::kWalFull, &flush_req);
+      SchedulePendingFlush(flush_req);
     }
     MaybeScheduleFlushOrCompaction();
   }
@@ -1744,14 +1744,15 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
       cfd->imm()->FlushRequested();
       if (!immutable_db_options_.atomic_flush) {
         FlushRequest flush_req;
-        GenerateFlushRequest({cfd}, &flush_req);
-        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+        GenerateFlushRequest({cfd}, FlushReason::kWriteBufferManager,
+                             &flush_req);
+        SchedulePendingFlush(flush_req);
       }
     }
     if (immutable_db_options_.atomic_flush) {
       FlushRequest flush_req;
-      GenerateFlushRequest(cfds, &flush_req);
-      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+      GenerateFlushRequest(cfds, FlushReason::kWriteBufferManager, &flush_req);
+      SchedulePendingFlush(flush_req);
     }
     MaybeScheduleFlushOrCompaction();
   }
@@ -2008,13 +2009,13 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
       FlushRequest flush_req;
-      GenerateFlushRequest(cfds, &flush_req);
-      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+      GenerateFlushRequest(cfds, FlushReason::kWriteBufferFull, &flush_req);
+      SchedulePendingFlush(flush_req);
     } else {
       for (auto* cfd : cfds) {
         FlushRequest flush_req;
-        GenerateFlushRequest({cfd}, &flush_req);
-        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+        GenerateFlushRequest({cfd}, FlushReason::kWriteBufferFull, &flush_req);
+        SchedulePendingFlush(flush_req);
       }
     }
     MaybeScheduleFlushOrCompaction();

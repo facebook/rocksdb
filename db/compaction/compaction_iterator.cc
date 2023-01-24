@@ -124,6 +124,9 @@ CompactionIterator::CompactionIterator(
          timestamp_size_ == full_history_ts_low_->size());
 #endif
   input_.SetPinnedItersMgr(&pinned_iters_mgr_);
+  // The default `merge_until_status_` does not need to be checked since it is
+  // overwritten as soon as `MergeUntil()` is called
+  merge_until_status_.PermitUncheckedError();
   TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
 }
 
@@ -178,6 +181,20 @@ void CompactionIterator::Next() {
       ikey_.user_key = current_key_.GetUserKey();
       validity_info_.SetValid(ValidContext::kMerge1);
     } else {
+      if (merge_until_status_.IsMergeInProgress()) {
+        // `Status::MergeInProgress()` tells us that the previous `MergeUntil()`
+        // produced only merge operands. Those merge operands were accessed and
+        // written out using `merge_out_iter_`. Since `merge_out_iter_` is
+        // exhausted at this point, all merge operands have been written out.
+        //
+        // Still, there may be a base value (PUT, DELETE, SINGLEDEL, etc.) that
+        // needs to be written out. Normally, `CompactionIterator` would skip it
+        // on the basis that it has already output something in the same
+        // snapshot stripe. To prevent this, we reset `has_current_user_key_` to
+        // trick the future iteration from finding out the snapshot stripe is
+        // unchanged.
+        has_current_user_key_ = false;
+      }
       // We consumed all pinned merge operands, release pinned iterators
       pinned_iters_mgr_.ReleasePinnedData();
       // MergeHelper moves the iterator to the first record after the merged
@@ -377,7 +394,6 @@ void CompactionIterator::NextFromInput() {
     value_ = input_.value();
     blob_value_.Reset();
     iter_stats_.num_input_records++;
-    is_range_del_ = input_.IsDeleteRangeSentinelKey();
 
     Status pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
     if (!pik_status.ok()) {
@@ -397,10 +413,7 @@ void CompactionIterator::NextFromInput() {
       break;
     }
     TEST_SYNC_POINT_CALLBACK("CompactionIterator:ProcessKV", &ikey_);
-    if (is_range_del_) {
-      validity_info_.SetValid(kRangeDeletion);
-      break;
-    }
+
     // Update input statistics
     if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion ||
         ikey_.type == kTypeDeletionWithTimestamp) {
@@ -622,14 +635,6 @@ void CompactionIterator::NextFromInput() {
 
       ParsedInternalKey next_ikey;
       AdvanceInputIter();
-      while (input_.Valid() && input_.IsDeleteRangeSentinelKey() &&
-             ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
-                 .ok() &&
-             cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
-        // skip range tombstone start keys with the same user key
-        // since they are not "real" point keys.
-        AdvanceInputIter();
-      }
 
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
@@ -637,7 +642,6 @@ void CompactionIterator::NextFromInput() {
           ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
           cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
-        assert(!input_.IsDeleteRangeSentinelKey());
 #ifndef NDEBUG
         const Compaction* c =
             compaction_ ? compaction_->real_compaction() : nullptr;
@@ -862,14 +866,12 @@ void CompactionIterator::NextFromInput() {
       // Note that a deletion marker of type kTypeDeletionWithTimestamp will be
       // considered to have a different user key unless the timestamp is older
       // than *full_history_ts_low_.
-      //
-      // Range tombstone start keys are skipped as they are not "real" keys.
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
              input_.Valid() &&
              (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                   .ok()) &&
              cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
-             (prev_snapshot == 0 || input_.IsDeleteRangeSentinelKey() ||
+             (prev_snapshot == 0 ||
               DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot))) {
         AdvanceInputIter();
       }
@@ -895,14 +897,15 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s = merge_helper_->MergeUntil(
+      merge_until_status_ = merge_helper_->MergeUntil(
           &input_, range_del_agg_, prev_snapshot, bottommost_level_,
           allow_data_in_errors_, blob_fetcher_.get(), full_history_ts_low_,
           prefetch_buffers_.get(), &iter_stats_);
       merge_out_iter_.SeekToFirst();
 
-      if (!s.ok() && !s.IsMergeInProgress()) {
-        status_ = s;
+      if (!merge_until_status_.ok() &&
+          !merge_until_status_.IsMergeInProgress()) {
+        status_ = merge_until_status_;
         return;
       } else if (merge_out_iter_.Valid()) {
         // NOTE: key, value, and ikey_ refer to old entries.
@@ -1162,12 +1165,10 @@ void CompactionIterator::DecideOutputLevel() {
 
 void CompactionIterator::PrepareOutput() {
   if (Valid()) {
-    if (LIKELY(!is_range_del_)) {
-      if (ikey_.type == kTypeValue) {
-        ExtractLargeValueIfNeeded();
-      } else if (ikey_.type == kTypeBlobIndex) {
-        GarbageCollectBlobIfNeeded();
-      }
+    if (ikey_.type == kTypeValue) {
+      ExtractLargeValueIfNeeded();
+    } else if (ikey_.type == kTypeBlobIndex) {
+      GarbageCollectBlobIfNeeded();
     }
 
     if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
@@ -1190,7 +1191,7 @@ void CompactionIterator::PrepareOutput() {
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ &&
         !output_to_penultimate_level_ &&
-        ikey_.sequence < preserve_time_min_seqno_ && !is_range_del_) {
+        ikey_.sequence < preserve_time_min_seqno_) {
       if (ikey_.type == kTypeDeletion ||
           (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
         ROCKS_LOG_FATAL(

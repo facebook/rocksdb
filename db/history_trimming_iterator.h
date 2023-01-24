@@ -82,10 +82,6 @@ class HistoryTrimmingIterator : public InternalIterator {
 
   bool IsValuePinned() const override { return input_->IsValuePinned(); }
 
-  bool IsDeleteRangeSentinelKey() const override {
-    return input_->IsDeleteRangeSentinelKey();
-  }
-
  private:
   InternalIterator* input_;
   const std::string filter_ts_;

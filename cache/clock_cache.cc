@@ -50,12 +50,12 @@ inline uint64_t GetInitialCountdown(Cache::Priority priority) {
   }
 }
 
-inline void FreeDataMarkEmpty(ClockHandle& h) {
+inline void FreeDataMarkEmpty(ClockHandle& h, MemoryAllocator* allocator) {
   // NOTE: in theory there's more room for parallelism if we copy the handle
   // data and delay actions like this until after marking the entry as empty,
   // but performance tests only show a regression by copying the few words
   // of data.
-  h.FreeData();
+  h.FreeData(allocator);
 
 #ifndef NDEBUG
   // Mark slot as empty, with assertion
@@ -115,24 +115,23 @@ inline bool ClockUpdate(ClockHandle& h) {
 
 }  // namespace
 
-void ClockHandleBasicData::FreeData() const {
-  if (deleter) {
-    UniqueId64x2 unhashed;
-    (*deleter)(
-        ClockCacheShard<HyperClockTable>::ReverseHash(hashed_key, &unhashed),
-        value);
+void ClockHandleBasicData::FreeData(MemoryAllocator* allocator) const {
+  if (helper->del_cb) {
+    helper->del_cb(value, allocator);
   }
 }
 
 HyperClockTable::HyperClockTable(
     size_t capacity, bool /*strict_capacity_limit*/,
-    CacheMetadataChargePolicy metadata_charge_policy, const Opts& opts)
+    CacheMetadataChargePolicy metadata_charge_policy,
+    MemoryAllocator* allocator, const Opts& opts)
     : length_bits_(CalcHashBits(capacity, opts.estimated_value_size,
                                 metadata_charge_policy)),
       length_bits_mask_((size_t{1} << length_bits_) - 1),
       occupancy_limit_(static_cast<size_t>((uint64_t{1} << length_bits_) *
                                            kStrictLoadFactor)),
-      array_(new HandleImpl[size_t{1} << length_bits_]) {
+      array_(new HandleImpl[size_t{1} << length_bits_]),
+      allocator_(allocator) {
   if (metadata_charge_policy ==
       CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
     usage_ += size_t{GetTableSize()} * sizeof(HandleImpl);
@@ -154,7 +153,7 @@ HyperClockTable::~HyperClockTable() {
       case ClockHandle::kStateInvisible:  // rare but possible
       case ClockHandle::kStateVisible:
         assert(GetRefcount(h.meta) == 0);
-        h.FreeData();
+        h.FreeData(allocator_);
 #ifndef NDEBUG
         Rollback(h.hashed_key, &h);
         ReclaimEntryUsage(h.GetTotalCharge());
@@ -415,7 +414,7 @@ Status HyperClockTable::Insert(const ClockHandleBasicData& proto,
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry
         // inserted into cache and evicted immediately.
-        proto.FreeData();
+        proto.FreeData(allocator_);
         return Status::OK();
       } else {
         // Need to track usage of fallback detached insert
@@ -556,7 +555,7 @@ Status HyperClockTable::Insert(const ClockHandleBasicData& proto,
     if (handle == nullptr) {
       revert_usage_fn();
       // As if unrefed entry immdiately evicted
-      proto.FreeData();
+      proto.FreeData(allocator_);
       return Status::OK();
     }
   }
@@ -698,14 +697,14 @@ bool HyperClockTable::Release(HandleImpl* h, bool useful,
     // Took ownership
     size_t total_charge = h->GetTotalCharge();
     if (UNLIKELY(h->IsDetached())) {
-      h->FreeData();
+      h->FreeData(allocator_);
       // Delete detached handle
       delete h;
       detached_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
       usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     } else {
       Rollback(h->hashed_key, h);
-      FreeDataMarkEmpty(*h);
+      FreeDataMarkEmpty(*h, allocator_);
       ReclaimEntryUsage(total_charge);
     }
     return true;
@@ -790,7 +789,7 @@ void HyperClockTable::Erase(const UniqueId64x2& hashed_key) {
                 // Took ownership
                 assert(hashed_key == h->hashed_key);
                 size_t total_charge = h->GetTotalCharge();
-                FreeDataMarkEmpty(*h);
+                FreeDataMarkEmpty(*h, allocator_);
                 ReclaimEntryUsage(total_charge);
                 // We already have a copy of hashed_key in this case, so OK to
                 // delay Rollback until after releasing the entry
@@ -878,7 +877,7 @@ void HyperClockTable::EraseUnRefEntries() {
       // Took ownership
       size_t total_charge = h.GetTotalCharge();
       Rollback(h.hashed_key, &h);
-      FreeDataMarkEmpty(h);
+      FreeDataMarkEmpty(h, allocator_);
       ReclaimEntryUsage(total_charge);
     }
   }
@@ -968,7 +967,7 @@ inline void HyperClockTable::Evict(size_t requested_charge,
         Rollback(h.hashed_key, &h);
         *freed_charge += h.GetTotalCharge();
         *freed_count += 1;
-        FreeDataMarkEmpty(h);
+        FreeDataMarkEmpty(h, allocator_);
       }
     }
 
@@ -990,9 +989,10 @@ template <class Table>
 ClockCacheShard<Table>::ClockCacheShard(
     size_t capacity, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy,
-    const typename Table::Opts& opts)
+    MemoryAllocator* allocator, const typename Table::Opts& opts)
     : CacheShardBase(metadata_charge_policy),
-      table_(capacity, strict_capacity_limit, metadata_charge_policy, opts),
+      table_(capacity, strict_capacity_limit, metadata_charge_policy, allocator,
+             opts),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit) {
   // Initial charge metadata should not exceed capacity
@@ -1006,8 +1006,9 @@ void ClockCacheShard<Table>::EraseUnRefEntries() {
 
 template <class Table>
 void ClockCacheShard<Table>::ApplyToSomeEntries(
-    const std::function<void(const Slice& key, void* value, size_t charge,
-                             DeleterFn deleter)>& callback,
+    const std::function<void(const Slice& key, Cache::ObjectPtr value,
+                             size_t charge,
+                             const Cache::CacheItemHelper* helper)>& callback,
     size_t average_entries_per_lock, size_t* state) {
   // The state is essentially going to be the starting hash, which works
   // nicely even if we resize between calls because we use upper-most
@@ -1034,7 +1035,7 @@ void ClockCacheShard<Table>::ApplyToSomeEntries(
       [callback](const HandleImpl& h) {
         UniqueId64x2 unhashed;
         callback(ReverseHash(h.hashed_key, &unhashed), h.value,
-                 h.GetTotalCharge(), h.deleter);
+                 h.GetTotalCharge(), h.helper);
       },
       index_begin, index_end, false);
 }
@@ -1078,9 +1079,9 @@ void ClockCacheShard<Table>::SetStrictCapacityLimit(
 template <class Table>
 Status ClockCacheShard<Table>::Insert(const Slice& key,
                                       const UniqueId64x2& hashed_key,
-                                      void* value, size_t charge,
-                                      Cache::DeleterFn deleter,
-                                      HandleImpl** handle,
+                                      Cache::ObjectPtr value,
+                                      const Cache::CacheItemHelper* helper,
+                                      size_t charge, HandleImpl** handle,
                                       Cache::Priority priority) {
   if (UNLIKELY(key.size() != kCacheKeySize)) {
     return Status::NotSupported("ClockCache only supports key size " +
@@ -1089,7 +1090,7 @@ Status ClockCacheShard<Table>::Insert(const Slice& key,
   ClockHandleBasicData proto;
   proto.hashed_key = hashed_key;
   proto.value = value;
-  proto.deleter = deleter;
+  proto.helper = helper;
   proto.total_charge = charge;
   Status s = table_.Insert(
       proto, handle, priority, capacity_.load(std::memory_order_relaxed),
@@ -1223,15 +1224,16 @@ HyperClockCache::HyperClockCache(
   // TODO: should not need to go through two levels of pointer indirection to
   // get to table entries
   size_t per_shard = GetPerShardCapacity();
+  MemoryAllocator* alloc = this->memory_allocator();
   InitShards([=](Shard* cs) {
     HyperClockTable::Opts opts;
     opts.estimated_value_size = estimated_value_size;
-    new (cs)
-        Shard(per_shard, strict_capacity_limit, metadata_charge_policy, opts);
+    new (cs) Shard(per_shard, strict_capacity_limit, metadata_charge_policy,
+                   alloc, opts);
   });
 }
 
-void* HyperClockCache::Value(Handle* handle) {
+Cache::ObjectPtr HyperClockCache::Value(Handle* handle) {
   return reinterpret_cast<const HandleImpl*>(handle)->value;
 }
 
@@ -1239,9 +1241,10 @@ size_t HyperClockCache::GetCharge(Handle* handle) const {
   return reinterpret_cast<const HandleImpl*>(handle)->GetTotalCharge();
 }
 
-Cache::DeleterFn HyperClockCache::GetDeleter(Handle* handle) const {
+const Cache::CacheItemHelper* HyperClockCache::GetCacheItemHelper(
+    Handle* handle) const {
   auto h = reinterpret_cast<const HandleImpl*>(handle);
-  return h->deleter;
+  return h->helper;
 }
 
 namespace {

@@ -99,6 +99,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ForcedBlobGC";
     case CompactionReason::kRoundRobinTtl:
       return "RoundRobinTtl";
+    case CompactionReason::kRefitLevel:
+      return "RefitLevel";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -1286,6 +1288,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
+
     assert(!end.has_value() || cfd->user_comparator()->Compare(
                                    c_iter->user_key(), end.value()) < 0);
 

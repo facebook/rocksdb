@@ -525,20 +525,24 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
 
   // More complex test of shared key space, in case the instances are wrappers
   // for some shared underlying cache.
+  static Cache::CacheItemHelper kHelper{CacheEntryRole::kMisc};
   CacheKey sentinel_key = CacheKey::CreateUniqueForProcessLifetime();
-  static char kRegularBlockCacheMarker = 'b';
-  static char kCompressedBlockCacheMarker = 'c';
-  static char kPersistentCacheMarker = 'p';
+  struct SentinelValue {
+    explicit SentinelValue(char _c) : c(_c) {}
+    char c;
+  };
+  static SentinelValue kRegularBlockCacheMarker{'b'};
+  static SentinelValue kCompressedBlockCacheMarker{'c'};
+  static char kPersistentCacheMarker{'p'};
   if (bbto.block_cache) {
     bbto.block_cache
-        ->Insert(sentinel_key.AsSlice(), &kRegularBlockCacheMarker, 1,
-                 GetNoopDeleterForRole<CacheEntryRole::kMisc>())
+        ->Insert(sentinel_key.AsSlice(), &kRegularBlockCacheMarker, &kHelper, 1)
         .PermitUncheckedError();
   }
   if (bbto.block_cache_compressed) {
     bbto.block_cache_compressed
-        ->Insert(sentinel_key.AsSlice(), &kCompressedBlockCacheMarker, 1,
-                 GetNoopDeleterForRole<CacheEntryRole::kMisc>())
+        ->Insert(sentinel_key.AsSlice(), &kCompressedBlockCacheMarker, &kHelper,
+                 1)
         .PermitUncheckedError();
   }
   if (bbto.persistent_cache) {
@@ -552,8 +556,8 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
   if (bbto.block_cache) {
     auto handle = bbto.block_cache->Lookup(sentinel_key.AsSlice());
     if (handle) {
-      auto v = static_cast<char*>(bbto.block_cache->Value(handle));
-      char c = *v;
+      auto v = static_cast<SentinelValue*>(bbto.block_cache->Value(handle));
+      char c = v->c;
       bbto.block_cache->Release(handle);
       if (v == &kCompressedBlockCacheMarker) {
         return Status::InvalidArgument(
@@ -571,8 +575,9 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
   if (bbto.block_cache_compressed) {
     auto handle = bbto.block_cache_compressed->Lookup(sentinel_key.AsSlice());
     if (handle) {
-      auto v = static_cast<char*>(bbto.block_cache_compressed->Value(handle));
-      char c = *v;
+      auto v = static_cast<SentinelValue*>(
+          bbto.block_cache_compressed->Value(handle));
+      char c = v->c;
       bbto.block_cache_compressed->Release(handle);
       if (v == &kRegularBlockCacheMarker) {
         return Status::InvalidArgument(
@@ -595,11 +600,11 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
     bbto.persistent_cache->Lookup(sentinel_key.AsSlice(), &data, &size)
         .PermitUncheckedError();
     if (data && size > 0) {
-      if (data[0] == kRegularBlockCacheMarker) {
+      if (data[0] == kRegularBlockCacheMarker.c) {
         return Status::InvalidArgument(
             "persistent_cache and block_cache share the same key space, "
             "which is not supported");
-      } else if (data[0] == kCompressedBlockCacheMarker) {
+      } else if (data[0] == kCompressedBlockCacheMarker.c) {
         return Status::InvalidArgument(
             "persistent_cache and block_cache_compressed share the same key "
             "space, "

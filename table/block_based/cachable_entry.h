@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cassert>
+#include <type_traits>
 
 #include "port/likely.h"
 #include "rocksdb/cache.h"
@@ -191,6 +192,29 @@ class CachableEntry {
     return true;
   }
 
+  // Since this class is essentially an elaborate pointer, it's sometimes
+  // useful to be able to upcast or downcast the base type of the pointer,
+  // especially when interacting with typed_cache.h.
+  template <class TWrapper>
+  std::enable_if_t<sizeof(TWrapper) == sizeof(T) &&
+                       (std::is_base_of_v<TWrapper, T> ||
+                        std::is_base_of_v<T, TWrapper>),
+                   /* Actual return type */
+                   CachableEntry<TWrapper>&>
+  As() {
+    CachableEntry<TWrapper>* result_ptr =
+        reinterpret_cast<CachableEntry<TWrapper>*>(this);
+    // Ensure no weirdness in template instantiations
+    assert(static_cast<void*>(&this->value_) ==
+           static_cast<void*>(&result_ptr->value_));
+    assert(&this->cache_handle_ == &result_ptr->cache_handle_);
+    // This function depends on no arithmetic involved in the pointer
+    // conversion, which is not statically checkable.
+    assert(static_cast<void*>(this->value_) ==
+           static_cast<void*>(result_ptr->value_));
+    return *result_ptr;
+  }
+
  private:
   void ReleaseResource() noexcept {
     if (LIKELY(cache_handle_ != nullptr)) {
@@ -223,6 +247,10 @@ class CachableEntry {
   }
 
  private:
+  // Have to be your own best friend
+  template <class TT>
+  friend class CachableEntry;
+
   T* value_ = nullptr;
   Cache* cache_ = nullptr;
   Cache::Handle* cache_handle_ = nullptr;

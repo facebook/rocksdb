@@ -1723,12 +1723,13 @@ TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
       cache_charge_increments_sum_(0) {}
 
 template <CacheEntryRole R>
-Status TargetCacheChargeTrackingCache<R>::Insert(
-    const Slice& key, void* value, size_t charge,
-    void (*deleter)(const Slice& key, void* value), Handle** handle,
-    Priority priority) {
-  Status s = target_->Insert(key, value, charge, deleter, handle, priority);
-  if (deleter == kNoopDeleter) {
+Status TargetCacheChargeTrackingCache<R>::Insert(const Slice& key,
+                                                 ObjectPtr value,
+                                                 const CacheItemHelper* helper,
+                                                 size_t charge, Handle** handle,
+                                                 Priority priority) {
+  Status s = target_->Insert(key, value, helper, charge, handle, priority);
+  if (helper == kCrmHelper) {
     if (last_peak_tracked_) {
       cache_charge_peak_ = 0;
       cache_charge_increment_ = 0;
@@ -1747,8 +1748,8 @@ Status TargetCacheChargeTrackingCache<R>::Insert(
 template <CacheEntryRole R>
 bool TargetCacheChargeTrackingCache<R>::Release(Handle* handle,
                                                 bool erase_if_last_ref) {
-  auto deleter = GetDeleter(handle);
-  if (deleter == kNoopDeleter) {
+  auto helper = GetCacheItemHelper(handle);
+  if (helper == kCrmHelper) {
     if (!last_peak_tracked_) {
       cache_charge_peaks_.push_back(cache_charge_peak_);
       cache_charge_increments_sum_ += cache_charge_increment_;
@@ -1761,8 +1762,8 @@ bool TargetCacheChargeTrackingCache<R>::Release(Handle* handle,
 }
 
 template <CacheEntryRole R>
-const Cache::DeleterFn TargetCacheChargeTrackingCache<R>::kNoopDeleter =
-    CacheReservationManagerImpl<R>::TEST_GetNoopDeleterForRole();
+const Cache::CacheItemHelper* TargetCacheChargeTrackingCache<R>::kCrmHelper =
+    CacheReservationManagerImpl<R>::TEST_GetCacheItemHelperForRole();
 
 template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kFilterConstruction>;

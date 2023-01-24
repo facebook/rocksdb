@@ -986,6 +986,10 @@ rocksdb_block_based_options_set_partition_filters(
     rocksdb_block_based_table_options_t* options,
     unsigned char partition_filters);
 extern ROCKSDB_LIBRARY_API void
+rocksdb_block_based_options_set_optimize_filters_for_memory(
+    rocksdb_block_based_table_options_t* options,
+    unsigned char optimize_filters_for_memory);
+extern ROCKSDB_LIBRARY_API void
 rocksdb_block_based_options_set_use_delta_encoding(
     rocksdb_block_based_table_options_t* options,
     unsigned char use_delta_encoding);
@@ -1890,6 +1894,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_io_timeout(
     rocksdb_readoptions_t*, uint64_t microseconds);
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_async_io(
+    rocksdb_readoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_readoptions_get_async_io(
+    rocksdb_readoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_timestamp(
     rocksdb_readoptions_t*, const char* ts, size_t tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_iter_start_ts(

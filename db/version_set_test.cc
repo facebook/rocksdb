@@ -51,7 +51,7 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         largest_seq, /* marked_for_compact */ false, Temperature::kUnknown,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
     files_.push_back(f);
   }
 
@@ -143,16 +143,19 @@ class VersionStorageInfoTestBase : public testing::Test {
 
   void Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 0,
-           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber) {
+           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber,
+           uint64_t compensated_range_deletion_size = 0) {
     constexpr SequenceNumber dummy_seq = 0;
 
     Add(level, file_number, GetInternalKey(smallest, dummy_seq),
-        GetInternalKey(largest, dummy_seq), file_size, oldest_blob_file_number);
+        GetInternalKey(largest, dummy_seq), file_size, oldest_blob_file_number,
+        compensated_range_deletion_size);
   }
 
   void Add(int level, uint32_t file_number, const InternalKey& smallest,
            const InternalKey& largest, uint64_t file_size = 0,
-           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber) {
+           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber,
+           uint64_t compensated_range_deletion_size = 0) {
     assert(level < vstorage_.num_levels());
     FileMetaData* f = new FileMetaData(
         file_number, 0, file_size, smallest, largest, /* smallest_seq */ 0,
@@ -160,8 +163,7 @@ class VersionStorageInfoTestBase : public testing::Test {
         Temperature::kUnknown, oldest_blob_file_number,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kNullUniqueId64x2);
-    f->compensated_file_size = file_size;
+        kNullUniqueId64x2, compensated_range_deletion_size);
     vstorage_.AddFile(level, f);
   }
 
@@ -2136,6 +2138,17 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
   }
 }
 
+TEST_F(VersionStorageInfoTest, AddRangeDeletionCompensatedFileSize) {
+  // Tests that compensated range deletion size is added to compensated file
+  // size.
+  Add(4, 100U, "1", "2", 100U, kInvalidBlobFileNumber, 1000U);
+
+  UpdateVersionStorageInfo();
+
+  auto meta = vstorage_.GetFileMetaDataByNumber(100U);
+  ASSERT_EQ(meta->compensated_file_size, 100U + 1000U);
+}
+
 class VersionSetWithTimestampTest : public VersionSetTest {
  public:
   static const std::string kNewCfName;
@@ -3242,7 +3255,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
                                ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
                                0, info.epoch_number, kUnknownFileChecksum,
-                               kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+                               kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+                               0);
     }
   }
 
@@ -3299,7 +3313,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3360,7 +3374,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         file_num /* epoch_number */, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(

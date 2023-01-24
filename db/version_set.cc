@@ -39,8 +39,6 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit_handler.h"
-#include "table/compaction_merging_iterator.h"
-
 #if USE_COROUTINES
 #include "folly/experimental/coro/BlockingWait.h"
 #include "folly/experimental/coro/Collect.h"
@@ -2392,10 +2390,13 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     // do a final merge of nullptr and operands;
     if (value || columns) {
       std::string result;
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, merge_context->GetOperands(),
           &result, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
+          /* op_failure_scope */ nullptr);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
           *(value->GetSelf()) = std::move(result);
@@ -2511,7 +2512,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         std::vector<folly::coro::Task<Status>> mget_tasks;
         while (f != nullptr) {
           MultiGetRange file_range = fp.CurrentFileRange();
-          Cache::Handle* table_handle = nullptr;
+          TableCache::TypedHandle* table_handle = nullptr;
           bool skip_filters =
               IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                               fp.IsHitFileLastInLevel());
@@ -2640,10 +2641,13 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       // do a final merge of nullptr and operands;
       std::string* str_value =
           iter->value != nullptr ? iter->value->GetSelf() : nullptr;
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
           str_value, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
+          /* op_failure_scope */ nullptr);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
@@ -2693,7 +2697,7 @@ Status Version::ProcessBatch(
   }
   while (f) {
     MultiGetRange file_range = fp.CurrentFileRange();
-    Cache::Handle* table_handle = nullptr;
+    TableCache::TypedHandle* table_handle = nullptr;
     bool skip_filters = IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                                         fp.IsHitFileLastInLevel());
     bool skip_range_deletions = false;
@@ -2960,7 +2964,7 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   file_meta->num_deletions = tp->num_deletions;
   file_meta->raw_value_size = tp->raw_value_size;
   file_meta->raw_key_size = tp->raw_key_size;
-
+  file_meta->num_range_deletions = tp->num_range_deletions;
   return true;
 }
 
@@ -3062,11 +3066,15 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
         // size of deletion entries in a stable workload, the deletion
         // compensation logic might introduce unwanted effet which changes the
         // shape of LSM tree.
-        if (file_meta->num_deletions * 2 >= file_meta->num_entries) {
+        if ((file_meta->num_deletions - file_meta->num_range_deletions) * 2 >=
+            file_meta->num_entries) {
           file_meta->compensated_file_size +=
-              (file_meta->num_deletions * 2 - file_meta->num_entries) *
+              ((file_meta->num_deletions - file_meta->num_range_deletions) * 2 -
+               file_meta->num_entries) *
               average_value_size * kDeletionWeightOnCompaction;
         }
+        file_meta->compensated_file_size +=
+            file_meta->compensated_range_deletion_size;
       }
     }
   }
@@ -6215,7 +6223,8 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->marked_for_compaction, f->temperature,
                        f->oldest_blob_file_number, f->oldest_ancester_time,
                        f->file_creation_time, f->epoch_number, f->file_checksum,
-                       f->file_checksum_func_name, f->unique_id);
+                       f->file_checksum_func_name, f->unique_id,
+                       f->compensated_range_deletion_size);
         }
       }
 
@@ -6293,8 +6302,9 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
   const int num_non_empty_levels = vstorage->num_non_empty_levels();
   end_level = (end_level == -1) ? num_non_empty_levels
                                 : std::min(end_level, num_non_empty_levels);
-
-  assert(start_level <= end_level);
+  if (end_level <= start_level) {
+    return 0;
+  }
 
   // Outline of the optimization that uses options.files_size_error_margin.
   // When approximating the files total size that is used to store a keys range,
@@ -6586,14 +6596,6 @@ InternalIterator* VersionSet::MakeInputIterator(
                                               c->num_input_levels() - 1
                                         : c->num_input_levels());
   InternalIterator** list = new InternalIterator*[space];
-  // First item in the pair is a pointer to range tombstones.
-  // Second item is a pointer to a member of a LevelIterator,
-  // that will be initialized to where CompactionMergingIterator stores
-  // pointer to its range tombstones. This is used by LevelIterator
-  // to update pointer to range tombstones as it traverse different SST files.
-  std::vector<
-      std::pair<TruncatedRangeDelIterator*, TruncatedRangeDelIterator***>>
-      range_tombstones;
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
@@ -6614,7 +6616,7 @@ InternalIterator* VersionSet::MakeInputIterator(
                   end.value(), fmd.smallest.user_key()) < 0) {
             continue;
           }
-          TruncatedRangeDelIterator* range_tombstone_iter = nullptr;
+
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
               cfd->internal_comparator(), fmd, range_del_agg,
@@ -6627,13 +6629,10 @@ InternalIterator* VersionSet::MakeInputIterator(
               MaxFileSizeForL0MetaPin(*c->mutable_cf_options()),
               /*smallest_compaction_key=*/nullptr,
               /*largest_compaction_key=*/nullptr,
-              /*allow_unprepared_value=*/false,
-              /*range_del_iter=*/&range_tombstone_iter);
-          range_tombstones.emplace_back(range_tombstone_iter, nullptr);
+              /*allow_unprepared_value=*/false);
         }
       } else {
         // Create concatenating iterator for the files from this level
-        TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr;
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
@@ -6642,15 +6641,14 @@ InternalIterator* VersionSet::MakeInputIterator(
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
             /*level=*/static_cast<int>(c->level(which)), range_del_agg,
-            c->boundaries(which), false, &tombstone_iter_ptr);
-        range_tombstones.emplace_back(nullptr, tombstone_iter_ptr);
+            c->boundaries(which));
       }
     }
   }
   assert(num <= space);
-  InternalIterator* result = NewCompactionMergingIterator(
-      &c->column_family_data()->internal_comparator(), list,
-      static_cast<int>(num), range_tombstones);
+  InternalIterator* result =
+      NewMergingIterator(&c->column_family_data()->internal_comparator(), list,
+                         static_cast<int>(num));
   delete[] list;
   return result;
 }
@@ -6873,16 +6871,16 @@ Status VersionSet::VerifyFileMetadata(ColumnFamilyData* cfd,
 
     InternalStats* internal_stats = cfd->internal_stats();
 
+    TableCache::TypedHandle* handle = nullptr;
     FileMetaData meta_copy = meta;
     status = table_cache->FindTable(
-        ReadOptions(), file_opts, *icmp, meta_copy,
-        &(meta_copy.table_reader_handle), pe,
+        ReadOptions(), file_opts, *icmp, meta_copy, &handle, pe,
         /*no_io=*/false, /*record_read_stats=*/true,
         internal_stats->GetFileReadHist(level), false, level,
         /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
         meta_copy.temperature);
-    if (meta_copy.table_reader_handle) {
-      table_cache->ReleaseHandle(meta_copy.table_reader_handle);
+    if (handle) {
+      table_cache->get_cache().Release(handle);
     }
   }
   return status;
