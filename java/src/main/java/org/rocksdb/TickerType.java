@@ -364,73 +364,73 @@ public enum TickerType {
     /**
      * Number of times WAL sync is done.
      */
-    WAL_FILE_SYNCED((byte) 0x46),
+    WAL_FILE_SYNCED((byte) 0x42),
 
     /**
      * Number of bytes written to WAL.
      */
-    WAL_FILE_BYTES((byte) 0x47),
+    WAL_FILE_BYTES((byte) 0x43),
 
     /**
      * Writes can be processed by requesting thread or by the thread at the
      * head of the writers queue.
      */
-    WRITE_DONE_BY_SELF((byte) 0x48),
+    WRITE_DONE_BY_SELF((byte) 0x44),
 
     /**
      * Equivalent to writes done for others.
      */
-    WRITE_DONE_BY_OTHER((byte) 0x49),
+    WRITE_DONE_BY_OTHER((byte) 0x45),
 
     /**
      * Number of writes ending up with timed-out.
      */
-    WRITE_TIMEDOUT((byte) 0x4A),
+    WRITE_TIMEDOUT((byte) 0x46),
 
     /**
      * Number of Write calls that request WAL.
      */
-    WRITE_WITH_WAL((byte) 0x4B),
+    WRITE_WITH_WAL((byte) 0x47),
 
     /**
      * Bytes read during compaction.
      */
-    COMPACT_READ_BYTES((byte) 0x4C),
+    COMPACT_READ_BYTES((byte) 0x48),
 
     /**
      * Bytes written during compaction.
      */
-    COMPACT_WRITE_BYTES((byte) 0x4D),
+    COMPACT_WRITE_BYTES((byte) 0x49),
 
     /**
      * Bytes written during flush.
      */
-    FLUSH_WRITE_BYTES((byte) 0x4E),
+    FLUSH_WRITE_BYTES((byte) 0x4A),
 
     /**
      * Number of table's properties loaded directly from file, without creating
      * table reader object.
      */
-    NUMBER_DIRECT_LOAD_TABLE_PROPERTIES((byte) 0x4F),
-    NUMBER_SUPERVERSION_ACQUIRES((byte) 0x50),
-    NUMBER_SUPERVERSION_RELEASES((byte) 0x51),
-    NUMBER_SUPERVERSION_CLEANUPS((byte) 0x52),
+    NUMBER_DIRECT_LOAD_TABLE_PROPERTIES((byte) 0x4B),
+    NUMBER_SUPERVERSION_ACQUIRES((byte) 0x4C),
+    NUMBER_SUPERVERSION_RELEASES((byte) 0x4D),
+    NUMBER_SUPERVERSION_CLEANUPS((byte) 0x4E),
 
     /**
      * # of compressions/decompressions executed
      */
-    NUMBER_BLOCK_COMPRESSED((byte) 0x53),
-    NUMBER_BLOCK_DECOMPRESSED((byte) 0x54),
+    NUMBER_BLOCK_COMPRESSED((byte) 0x4F),
+    NUMBER_BLOCK_DECOMPRESSED((byte) 0x50),
 
-    NUMBER_BLOCK_NOT_COMPRESSED((byte) 0x55),
-    MERGE_OPERATION_TOTAL_TIME((byte) 0x56),
-    FILTER_OPERATION_TOTAL_TIME((byte) 0x57),
+    NUMBER_BLOCK_NOT_COMPRESSED((byte) 0x51),
+    MERGE_OPERATION_TOTAL_TIME((byte) 0x52),
+    FILTER_OPERATION_TOTAL_TIME((byte) 0x53),
 
     /**
      * Row cache.
      */
-    ROW_CACHE_HIT((byte) 0x58),
-    ROW_CACHE_MISS((byte) 0x59),
+    ROW_CACHE_HIT((byte) 0x54),
+    ROW_CACHE_MISS((byte) 0x55),
 
     /**
      * Read amplification statistics.
@@ -444,27 +444,27 @@ public enum TickerType {
     /**
      * Estimate of total bytes actually used.
      */
-    READ_AMP_ESTIMATE_USEFUL_BYTES((byte) 0x5A),
+    READ_AMP_ESTIMATE_USEFUL_BYTES((byte) 0x56),
 
     /**
      * Total size of loaded data blocks.
      */
-    READ_AMP_TOTAL_READ_BYTES((byte) 0x5B),
+    READ_AMP_TOTAL_READ_BYTES((byte) 0x57),
 
     /**
      * Number of refill intervals where rate limiter's bytes are fully consumed.
      */
-    NUMBER_RATE_LIMITER_DRAINS((byte) 0x5C),
+    NUMBER_RATE_LIMITER_DRAINS((byte) 0x58),
 
     /**
      * Number of internal skipped during iteration
      */
-    NUMBER_ITER_SKIP((byte) 0x5D),
+    NUMBER_ITER_SKIP((byte) 0x59),
 
     /**
      * Number of MultiGet keys found (vs number requested)
      */
-    NUMBER_MULTIGET_KEYS_FOUND((byte) 0x5E),
+    NUMBER_MULTIGET_KEYS_FOUND((byte) 0x5A),
 
     // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX
     /**
@@ -475,169 +475,169 @@ public enum TickerType {
     /**
      * Number of iterators deleted.
      */
-    NO_ITERATOR_DELETED((byte) 0x60),
+    NO_ITERATOR_DELETED((byte) 0x5B),
 
     /**
      * Deletions obsoleted before bottom level due to file gap optimization.
      */
-    COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE((byte) 0x61),
+    COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE((byte) 0x5D),
 
     /**
      * If a compaction was cancelled in sfm to prevent ENOSPC
      */
-    COMPACTION_CANCELLED((byte) 0x62),
+    COMPACTION_CANCELLED((byte) 0x5E),
 
     /**
      * # of times bloom FullFilter has not avoided the reads.
      */
-    BLOOM_FILTER_FULL_POSITIVE((byte) 0x63),
+    BLOOM_FILTER_FULL_POSITIVE((byte) 0x5F),
 
     /**
      * # of times bloom FullFilter has not avoided the reads and data actually
      * exist.
      */
-    BLOOM_FILTER_FULL_TRUE_POSITIVE((byte) 0x64),
+    BLOOM_FILTER_FULL_TRUE_POSITIVE((byte) 0x60),
 
     /**
      * BlobDB specific stats
      * # of Put/PutTTL/PutUntil to BlobDB.
      */
-    BLOB_DB_NUM_PUT((byte) 0x65),
+    BLOB_DB_NUM_PUT((byte) 0x61),
 
     /**
      * # of Write to BlobDB.
      */
-    BLOB_DB_NUM_WRITE((byte) 0x66),
+    BLOB_DB_NUM_WRITE((byte) 0x62),
 
     /**
      * # of Get to BlobDB.
      */
-    BLOB_DB_NUM_GET((byte) 0x67),
+    BLOB_DB_NUM_GET((byte) 0x63),
 
     /**
      * # of MultiGet to BlobDB.
      */
-    BLOB_DB_NUM_MULTIGET((byte) 0x68),
+    BLOB_DB_NUM_MULTIGET((byte) 0x64),
 
     /**
      * # of Seek/SeekToFirst/SeekToLast/SeekForPrev to BlobDB iterator.
      */
-    BLOB_DB_NUM_SEEK((byte) 0x69),
+    BLOB_DB_NUM_SEEK((byte) 0x65),
 
     /**
      * # of Next to BlobDB iterator.
      */
-    BLOB_DB_NUM_NEXT((byte) 0x6A),
+    BLOB_DB_NUM_NEXT((byte) 0x66),
 
     /**
      * # of Prev to BlobDB iterator.
      */
-    BLOB_DB_NUM_PREV((byte) 0x6B),
+    BLOB_DB_NUM_PREV((byte) 0x67),
 
     /**
      * # of keys written to BlobDB.
      */
-    BLOB_DB_NUM_KEYS_WRITTEN((byte) 0x6C),
+    BLOB_DB_NUM_KEYS_WRITTEN((byte) 0x68),
 
     /**
      * # of keys read from BlobDB.
      */
-    BLOB_DB_NUM_KEYS_READ((byte) 0x6D),
+    BLOB_DB_NUM_KEYS_READ((byte) 0x69),
 
     /**
      * # of bytes (key + value) written to BlobDB.
      */
-    BLOB_DB_BYTES_WRITTEN((byte) 0x6E),
+    BLOB_DB_BYTES_WRITTEN((byte) 0x6A),
 
     /**
      * # of bytes (keys + value) read from BlobDB.
      */
-    BLOB_DB_BYTES_READ((byte) 0x6F),
+    BLOB_DB_BYTES_READ((byte) 0x6B),
 
     /**
      * # of keys written by BlobDB as non-TTL inlined value.
      */
-    BLOB_DB_WRITE_INLINED((byte) 0x70),
+    BLOB_DB_WRITE_INLINED((byte) 0x6C),
 
     /**
      * # of keys written by BlobDB as TTL inlined value.
      */
-    BLOB_DB_WRITE_INLINED_TTL((byte) 0x71),
+    BLOB_DB_WRITE_INLINED_TTL((byte) 0x6D),
 
     /**
      * # of keys written by BlobDB as non-TTL blob value.
      */
-    BLOB_DB_WRITE_BLOB((byte) 0x72),
+    BLOB_DB_WRITE_BLOB((byte) 0x6E),
 
     /**
      * # of keys written by BlobDB as TTL blob value.
      */
-    BLOB_DB_WRITE_BLOB_TTL((byte) 0x73),
+    BLOB_DB_WRITE_BLOB_TTL((byte) 0x6F),
 
     /**
      * # of bytes written to blob file.
      */
-    BLOB_DB_BLOB_FILE_BYTES_WRITTEN((byte) 0x74),
+    BLOB_DB_BLOB_FILE_BYTES_WRITTEN((byte) 0x70),
 
     /**
      * # of bytes read from blob file.
      */
-    BLOB_DB_BLOB_FILE_BYTES_READ((byte) 0x75),
+    BLOB_DB_BLOB_FILE_BYTES_READ((byte) 0x71),
 
     /**
      * # of times a blob files being synced.
      */
-    BLOB_DB_BLOB_FILE_SYNCED((byte) 0x76),
+    BLOB_DB_BLOB_FILE_SYNCED((byte) 0x72),
 
     /**
      * # of blob index evicted from base DB by BlobDB compaction filter because
      * of expiration.
      */
-    BLOB_DB_BLOB_INDEX_EXPIRED_COUNT((byte) 0x77),
+    BLOB_DB_BLOB_INDEX_EXPIRED_COUNT((byte) 0x73),
 
     /**
      * Size of blob index evicted from base DB by BlobDB compaction filter
      * because of expiration.
      */
-    BLOB_DB_BLOB_INDEX_EXPIRED_SIZE((byte) 0x78),
+    BLOB_DB_BLOB_INDEX_EXPIRED_SIZE((byte) 0x74),
 
     /**
      * # of blob index evicted from base DB by BlobDB compaction filter because
      * of corresponding file deleted.
      */
-    BLOB_DB_BLOB_INDEX_EVICTED_COUNT((byte) 0x79),
+    BLOB_DB_BLOB_INDEX_EVICTED_COUNT((byte) 0x75),
 
     /**
      * Size of blob index evicted from base DB by BlobDB compaction filter
      * because of corresponding file deleted.
      */
-    BLOB_DB_BLOB_INDEX_EVICTED_SIZE((byte) 0x7A),
+    BLOB_DB_BLOB_INDEX_EVICTED_SIZE((byte) 0x76),
 
     /**
      * # of blob files being garbage collected.
      */
-    BLOB_DB_GC_NUM_FILES((byte) 0x7B),
+    BLOB_DB_GC_NUM_FILES((byte) 0x77),
 
     /**
      * # of blob files generated by garbage collection.
      */
-    BLOB_DB_GC_NUM_NEW_FILES((byte) 0x7C),
+    BLOB_DB_GC_NUM_NEW_FILES((byte) 0x78),
 
     /**
      * # of BlobDB garbage collection failures.
      */
-    BLOB_DB_GC_FAILURES((byte) 0x7D),
+    BLOB_DB_GC_FAILURES((byte) 0x79),
 
     /**
      * # of keys drop by BlobDB garbage collection because they had been
      * overwritten.
      */
-    BLOB_DB_GC_NUM_KEYS_OVERWRITTEN((byte) 0x7E),
+    BLOB_DB_GC_NUM_KEYS_OVERWRITTEN((byte) 0x7A),
 
     /**
      * # of keys drop by BlobDB garbage collection because of expiration.
      */
-    BLOB_DB_GC_NUM_KEYS_EXPIRED((byte) 0x7F),
+    BLOB_DB_GC_NUM_KEYS_EXPIRED((byte) 0x7B),
 
     /**
      * # of keys relocated to new blob file by garbage collection.
@@ -816,7 +816,7 @@ public enum TickerType {
      */
     BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
 
-    TICKER_ENUM_MAX((byte) 0x5F);
+    TICKER_ENUM_MAX((byte) 0x5C);
 
     private final byte value;
 

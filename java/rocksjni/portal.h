@@ -4923,122 +4923,122 @@ class TickerTypeJni {
       case ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS:
         return 0x41;
       case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED:
-        return 0x46;
+        return 0x42;
       case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES:
-        return 0x47;
+        return 0x43;
       case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF:
-        return 0x48;
+        return 0x44;
       case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER:
-        return 0x49;
+        return 0x45;
       case ROCKSDB_NAMESPACE::Tickers::WRITE_TIMEDOUT:
-        return 0x4A;
+        return 0x46;
       case ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL:
-        return 0x4B;
+        return 0x47;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES:
-        return 0x4C;
+        return 0x48;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES:
-        return 0x4D;
+        return 0x49;
       case ROCKSDB_NAMESPACE::Tickers::FLUSH_WRITE_BYTES:
-        return 0x4E;
+        return 0x4A;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES:
-        return 0x4F;
+        return 0x4B;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_ACQUIRES:
-        return 0x50;
+        return 0x4C;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_RELEASES:
-        return 0x51;
+        return 0x4D;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_CLEANUPS:
-        return 0x52;
+        return 0x4E;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSED:
-        return 0x53;
+        return 0x4F;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_DECOMPRESSED:
-        return 0x54;
+        return 0x50;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_NOT_COMPRESSED:
-        return 0x55;
+        return 0x51;
       case ROCKSDB_NAMESPACE::Tickers::MERGE_OPERATION_TOTAL_TIME:
-        return 0x56;
+        return 0x52;
       case ROCKSDB_NAMESPACE::Tickers::FILTER_OPERATION_TOTAL_TIME:
-        return 0x57;
+        return 0x53;
       case ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_HIT:
-        return 0x58;
+        return 0x54;
       case ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_MISS:
-        return 0x59;
+        return 0x55;
       case ROCKSDB_NAMESPACE::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES:
-        return 0x5A;
+        return 0x56;
       case ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES:
-        return 0x5B;
+        return 0x57;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS:
-        return 0x5C;
+        return 0x58;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_ITER_SKIP:
-        return 0x5D;
+        return 0x59;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
-        return 0x5E;
+        return 0x5A;
       case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED:
         // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
         return -0x01;
       case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED:
-        return 0x60;
+        return 0x5B;
       case ROCKSDB_NAMESPACE::Tickers::COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE:
-        return 0x61;
+        return 0x5D;
       case ROCKSDB_NAMESPACE::Tickers::COMPACTION_CANCELLED:
-        return 0x62;
+        return 0x5E;
       case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_POSITIVE:
-        return 0x63;
+        return 0x5F;
       case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE:
-        return 0x64;
+        return 0x60;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT:
-        return 0x65;
+        return 0x61;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE:
-        return 0x66;
+        return 0x62;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_GET:
-        return 0x67;
+        return 0x63;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_MULTIGET:
-        return 0x68;
+        return 0x64;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_SEEK:
-        return 0x69;
+        return 0x65;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_NEXT:
-        return 0x6A;
+        return 0x66;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PREV:
-        return 0x6B;
+        return 0x67;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_WRITTEN:
-        return 0x6C;
+        return 0x68;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_READ:
-        return 0x6D;
+        return 0x69;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_WRITTEN:
-        return 0x6E;
+        return 0x6A;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ:
-        return 0x6F;
+        return 0x6B;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED:
-        return 0x70;
+        return 0x6C;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL:
-        return 0x71;
+        return 0x6D;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB:
-        return 0x72;
+        return 0x6E;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB_TTL:
-        return 0x73;
+        return 0x6F;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN:
-        return 0x74;
+        return 0x70;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ:
-        return 0x75;
+        return 0x71;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_SYNCED:
-        return 0x76;
+        return 0x72;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT:
-        return 0x77;
+        return 0x73;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE:
-        return 0x78;
+        return 0x74;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT:
-        return 0x79;
+        return 0x75;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE:
-        return 0x7A;
+        return 0x76;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_FILES:
-        return 0x7B;
+        return 0x77;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES:
-        return 0x7C;
+        return 0x78;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES:
-        return 0x7D;
+        return 0x79;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN:
-        return 0x7E;
+        return 0x7A;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED:
-        return 0x7F;
+        return 0x7B;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED:
         return -0x02;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN:
@@ -5156,7 +5156,7 @@ class TickerTypeJni {
         // value since it's meant to be the number of tickers, not an actual
         // ticker value. But we aren't yet in a position to fix it since the
         // number of tickers doesn't fit in the Java representation (jbyte).
-        return 0x5F;
+        return 0x5C;
       default:
         // undefined/default
         return 0x0;
@@ -5299,123 +5299,123 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION;
       case 0x41:
         return ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS;
-      case 0x46:
+      case 0x42:
         return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED;
-      case 0x47:
+      case 0x43:
         return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES;
-      case 0x48:
+      case 0x44:
         return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF;
-      case 0x49:
+      case 0x45:
         return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER;
-      case 0x4A:
+      case 0x46:
         return ROCKSDB_NAMESPACE::Tickers::WRITE_TIMEDOUT;
-      case 0x4B:
+      case 0x47:
         return ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL;
-      case 0x4C:
+      case 0x48:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES;
-      case 0x4D:
+      case 0x49:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES;
-      case 0x4E:
+      case 0x4A:
         return ROCKSDB_NAMESPACE::Tickers::FLUSH_WRITE_BYTES;
-      case 0x4F:
+      case 0x4B:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES;
-      case 0x50:
+      case 0x4C:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_ACQUIRES;
-      case 0x51:
+      case 0x4D:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_RELEASES;
-      case 0x52:
+      case 0x4E:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_CLEANUPS;
-      case 0x53:
+      case 0x4F:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSED;
-      case 0x54:
+      case 0x50:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_DECOMPRESSED;
-      case 0x55:
+      case 0x51:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_NOT_COMPRESSED;
-      case 0x56:
+      case 0x52:
         return ROCKSDB_NAMESPACE::Tickers::MERGE_OPERATION_TOTAL_TIME;
-      case 0x57:
+      case 0x53:
         return ROCKSDB_NAMESPACE::Tickers::FILTER_OPERATION_TOTAL_TIME;
-      case 0x58:
+      case 0x54:
         return ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_HIT;
-      case 0x59:
+      case 0x55:
         return ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_MISS;
-      case 0x5A:
+      case 0x56:
         return ROCKSDB_NAMESPACE::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES;
-      case 0x5B:
+      case 0x57:
         return ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES;
-      case 0x5C:
+      case 0x58:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS;
-      case 0x5D:
+      case 0x59:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_ITER_SKIP;
-      case 0x5E:
+      case 0x5A:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
       case -0x01:
         // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
         return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED;
-      case 0x60:
+      case 0x5B:
         return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED;
-      case 0x61:
+      case 0x5D:
         return ROCKSDB_NAMESPACE::Tickers::
             COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE;
-      case 0x62:
+      case 0x5E:
         return ROCKSDB_NAMESPACE::Tickers::COMPACTION_CANCELLED;
-      case 0x63:
+      case 0x5F:
         return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_POSITIVE;
-      case 0x64:
+      case 0x60:
         return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE;
-      case 0x65:
+      case 0x61:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT;
-      case 0x66:
+      case 0x62:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE;
-      case 0x67:
+      case 0x63:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_GET;
-      case 0x68:
+      case 0x64:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_MULTIGET;
-      case 0x69:
+      case 0x65:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_SEEK;
-      case 0x6A:
+      case 0x66:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_NEXT;
-      case 0x6B:
+      case 0x67:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PREV;
-      case 0x6C:
+      case 0x68:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_WRITTEN;
-      case 0x6D:
+      case 0x69:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_READ;
-      case 0x6E:
+      case 0x6A:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_WRITTEN;
-      case 0x6F:
+      case 0x6B:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ;
-      case 0x70:
+      case 0x6C:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED;
-      case 0x71:
+      case 0x6D:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL;
-      case 0x72:
+      case 0x6E:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB;
-      case 0x73:
+      case 0x6F:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB_TTL;
-      case 0x74:
+      case 0x70:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN;
-      case 0x75:
+      case 0x71:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ;
-      case 0x76:
+      case 0x72:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_SYNCED;
-      case 0x77:
+      case 0x73:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT;
-      case 0x78:
+      case 0x74:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE;
-      case 0x79:
+      case 0x75:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT;
-      case 0x7A:
+      case 0x76:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE;
-      case 0x7B:
+      case 0x77:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_FILES;
-      case 0x7C:
+      case 0x78:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES;
-      case 0x7D:
+      case 0x79:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES;
-      case 0x7E:
+      case 0x7A:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN;
-      case 0x7F:
+      case 0x7B:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED;
       case -0x02:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED;
@@ -5526,7 +5526,7 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::READ_ASYNC_MICROS;
       case -0x36:
         return ROCKSDB_NAMESPACE::Tickers::ASYNC_READ_ERROR_COUNT;
-      case 0x5F:
+      case 0x5C:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
         // the value the same forever.
