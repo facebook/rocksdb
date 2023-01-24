@@ -1284,7 +1284,6 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   }
 
   {
-    Status s = Status::OK();
     bool warm_cache;
     switch (r->table_options.prepopulate_block_cache) {
       case BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly:
@@ -1299,8 +1298,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
         warm_cache = false;
     }
     if (warm_cache) {
-      s = InsertBlockInCacheHelper(*uncompressed_block_data, handle,
-                                   block_type);
+      Status s = InsertBlockInCacheHelper(*uncompressed_block_data, handle,
+                                          block_type);
       if (!s.ok()) {
         r->SetStatus(s);
         return;
