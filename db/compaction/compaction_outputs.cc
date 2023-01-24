@@ -430,9 +430,7 @@ Status CompactionOutputs::AddToOutput(
 namespace {
 void SetMaxSeqAndTs(InternalKey& internal_key, const Slice& user_key,
                     const size_t ts_sz) {
-  // next_table_min_key as upper bound
   if (ts_sz) {
-    // TODO: unit test for this case
     static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
     if (ts_sz <= strlen(kTsMax)) {
       internal_key = InternalKey(user_key, kMaxSequenceNumber,
@@ -472,8 +470,7 @@ Status CompactionOutputs::AddRangeDels(
   std::string smallest_user_key;
   const Slice *lower_bound, *upper_bound;
 
-  // To add all and only necessary range tombstones to the current output file,
-  // we need to first determine the internal key lower_bound and upper_bound for
+  // We first determine the internal key lower_bound and upper_bound for
   // this output file. All and only range tombstones that overlap with
   // [lower_bound, upper_bound] should be added to this file. File
   // boundaries (meta.smallest/largest) should be updated accordingly when
@@ -496,10 +493,10 @@ Status CompactionOutputs::AddRangeDels(
     // applies to timestamp, and a non-nullptr `comp_start_user_key` should have
     // `kMaxTs` here, which similarly permits any timestamp.
     if (comp_start_user_key) {
-      // To exclude range overlap with range tombstones that ends at kMaxSeqno
-      // when comparing end keys to this lower bound.
-      // This seqno will be overwritten in smallest_candidate below, so it will
-      // not affect meta.smallest.
+      // Use kMaxSequenceNumber - 1 to exclude range overlap with range
+      // tombstones that ends at kMaxSeqno when comparing end keys to this
+      // lower bound. This seqno will be overwritten in smallest_candidate
+      // below, so it will not affect meta.smallest.
       lower_bound_buf.Set(*comp_start_user_key, kMaxSequenceNumber - 1,
                           kTypeRangeDeletion);
       lower_bound_guard = lower_bound_buf.Encode();
@@ -626,14 +623,13 @@ Status CompactionOutputs::AddRangeDels(
       ParseInternalKey(tombstone_start.Encode(), &tombstone_start_parsed,
                        false /* log_err_key */)
           .PermitUncheckedError();
+      // timestamp should be from where sequence number is from, which is from
+      // tombstone in this case
+      std::string ts =
+          tombstone_start_parsed.GetTimestamp(ucmp->timestamp_size())
+              .ToString();
       tombstone_start_parsed.user_key = ExtractUserKey(*lower_bound);
-      if (ts_sz) {
-        // timestamp should be from where sequence number is from, which is from
-        // tombstone in this case
-        tombstone_start_parsed.SetTimestamp(
-            tombstone_start_parsed.GetTimestamp(ucmp->timestamp_size()));
-      }
-      tombstone_start.SetFrom(tombstone_start_parsed);
+      tombstone_start.SetFrom(tombstone_start_parsed, ts);
     }
     if (upper_bound != nullptr &&
         icmp.Compare(*upper_bound, tombstone_start.Encode()) < 0) {

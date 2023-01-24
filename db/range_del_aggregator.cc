@@ -398,8 +398,7 @@ namespace {
 // optionally specified. Range tombstones that ends before lower_bound or starts
 // after upper_bound are excluded.
 // If user-defined timestamp is enabled, lower_bound and upper_bound should
-// contain timestamp, but comparison is done ignoring timestamps.
-// TODO: since internal key, timestamp will be compared.
+// contain timestamp.
 class TruncatedRangeDelMergingIter : public InternalIterator {
  public:
   TruncatedRangeDelMergingIter(
@@ -434,7 +433,6 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
         // is an internal key, we may need to advance `child` farther for it to
         // be in bounds.
         while (child->Valid() && BeforeStartKey(child)) {
-          assert(false);
           child->InternalNext();
         }
       } else {
