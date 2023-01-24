@@ -143,6 +143,8 @@ function main {
       run_db_bench "seekrandom"
       run_db_bench "seekrandomwhilewriting"
       run_db_bench "multireadrandom"
+      run_db_bench "seekrandom_asyncio" $NUM_KEYS 1 0 0 true
+      run_db_bench "multireadrandom_asyncio" $NUM_KEYS 1 0 0 true
   fi
 
   cleanup_test_directory $TEST_ROOT_DIR
@@ -192,6 +194,7 @@ function init_arguments {
   NUM_LOW_PRI_THREADS=${NUM_LOW_PRI_THREADS:-16}
   DELETE_TEST_PATH=${DELETE_TEST_PATH:-0}
   SEEK_NEXTS=${SEEK_NEXTS:-10}
+  SEEK_NEXTS_ASYNCIO=${SEEK_NEXTS_ASYNC_IO:-10}
   SEED=${SEED:-$( date +%s )}
   MULTIREAD_BATCH_SIZE=${MULTIREAD_BATCH_SIZE:-128}
   MULTIREAD_STRIDE=${MULTIREAD_STRIDE:-12}
@@ -203,6 +206,7 @@ function init_arguments {
 # $3 --- number of threads.  Default $NUM_THREADS
 # $4 --- use_existing_db.  Default: 1
 # $5 --- update_report. Default: 1
+# $6 --- async_io. Default: False
 function run_db_bench {
   # Make sure no other db_bench is running. (Make sure command succeeds if pidof
   # command exists but finds nothing.)
@@ -234,6 +238,14 @@ function run_db_bench {
   threads=${3:-$NUM_THREADS}
   USE_EXISTING_DB=${4:-1}
   UPDATE_REPORT=${5:-1}
+  async_io=${6:-false}
+
+  seek_nexts=$SEEK_NEXTS
+  if [ "$async_io" == "true" ]; then
+    $seek_nexts=$SEEK_NEXTS_ASYNCIO
+  fi
+
+
   echo ""
   echo "======================================================================="
   echo "Benchmark $1"
@@ -242,9 +254,13 @@ function run_db_bench {
   db_bench_error=0
   options_file_arg=$(setup_options_file)
   echo "$options_file_arg"
+
+  # In case of async_io, benchmark is benchmark_asyncio
+  db_bench_type=${1%%_*}
+
   # use `which time` to avoid using bash's internal time command
   db_bench_cmd="\$(which time) -p $DB_BENCH_DIR/db_bench \
-      --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
+      --benchmarks=$db_bench_type --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
       --perf_level=$PERF_LEVEL \
       --disable_auto_compactions \
@@ -260,7 +276,7 @@ function run_db_bench {
       $options_file_arg \
       --compression_ratio=$COMPRESSION_RATIO \
       --histogram=$HISTOGRAM \
-      --seek_nexts=$SEEK_NEXTS \
+      --seek_nexts=$seek_nexts \
       --stats_per_interval=$STATS_PER_INTERVAL \
       --stats_interval_seconds=$STATS_INTERVAL_SECONDS \
       --max_background_flushes=$MAX_BACKGROUND_FLUSHES \
@@ -271,7 +287,8 @@ function run_db_bench {
       --seed=$SEED \
       --multiread_batched=true \
       --batch_size=$MULTIREAD_BATCH_SIZE \
-      --multiread_stride=$MULTIREAD_STRIDE 2>&1"
+      --multiread_stride=$MULTIREAD_STRIDE \
+      --async_io=$async_io 2>&1"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
     echo "Running benchmark remotely on $REMOTE_USER_AT_HOST"
     db_bench_cmd="$SSH $REMOTE_USER_AT_HOST '$db_bench_cmd'"
