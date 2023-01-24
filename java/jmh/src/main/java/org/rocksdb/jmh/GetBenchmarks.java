@@ -155,19 +155,9 @@ public class GetBenchmarks {
     db.close();
     options.close();
     readOptions.close();
-  } catch (Exception e) {
-    System.err.println("Error closing DB: " + e);
-    throw e;
-  } finally {
-    System.err.println(">>> db delete");
-    try {
+    } finally {
     FileUtils.delete(dbDir);
-    } catch (Exception e) {
-      System.err.println("Close Failed: " + e);
-      throw e;
     }
-    System.err.println("<<< db delete");
-  }
   }
 
   private ColumnFamilyHandle getColumnFamily() {
