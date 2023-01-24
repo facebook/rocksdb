@@ -761,8 +761,8 @@ TEST_F(DBFlushTest, FixFlushReasonRaceFromConcurrentFlushes) {
 
   // To coerce a manual flush happenning in the middle of GetLiveFiles's flush,
   // we need to pause background flush thread and enable it later.
-  std::shared_ptr<test::SleepingBackgroundTask> sleeping_task(
-      new test::SleepingBackgroundTask());
+  std::shared_ptr<test::SleepingBackgroundTask> sleeping_task =
+      std::make_shared<test::SleepingBackgroundTask>();
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
                  sleeping_task.get(), Env::Priority::HIGH);
