@@ -6601,7 +6601,7 @@ TEST_P(TransactionTest, StallTwoWriteQueues) {
   }
 
   // Stop writes
-  db->LockWAL();
+  ASSERT_OK(db->LockWAL());
 
   WriteOptions wopts;
   wopts.sync = true;
@@ -6631,7 +6631,7 @@ TEST_P(TransactionTest, StallTwoWriteQueues) {
   ASSERT_FALSE(t2_completed);
 
   // Resume writes
-  db->UnlockWAL();
+  ASSERT_OK(db->UnlockWAL());
 
   // Wait for writes to finish
   t1.join();
