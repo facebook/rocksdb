@@ -74,8 +74,6 @@ public class FFIDBBulkTest {
               dbFFI.get(columnFamilyHandle, keySegment, getParams, value);
               assertThat(value[5]).isEqualTo(valuesArray.get(keyIndex)[5]);
               assertThat(value[6]).isEqualTo(valuesArray.get(keyIndex)[6]);
-              final int result = dbFFI.identity((int) (Math.random() * 256));
-              assertThat(result).isLessThan(257);
             }
           }
         }
