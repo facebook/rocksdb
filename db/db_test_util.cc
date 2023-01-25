@@ -480,10 +480,6 @@ Options DBTestBase::GetOptions(
       options.compaction_style = kCompactionStyleUniversal;
       options.num_levels = 8;
       break;
-    case kCompressedBlockCache:
-      options.allow_mmap_writes = can_allow_mmap;
-      table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
-      break;
     case kInfiniteMaxOpenFiles:
       options.max_open_files = -1;
       break;
