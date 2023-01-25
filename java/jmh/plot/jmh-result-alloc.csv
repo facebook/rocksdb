@@ -1,5 +1,0 @@
-"Benchmark","Mode","Threads","Samples","Score","Score Error (99.9%)","Unit","Param: columnFamilyTestType","Param: keyCount","Param: keySize","Param: valueSize"
-"org.rocksdb.jmh.GetBenchmarks.ffiGetOutputSlice","thrpt",1,25,79168.236217,1523.710842,"ops/s",no_column_family,100000,128,4096
-"org.rocksdb.jmh.GetBenchmarks.ffiGetPinnableSlice","thrpt",1,25,79857.940087,2212.980443,"ops/s",no_column_family,100000,128,4096
-"org.rocksdb.jmh.GetBenchmarks.ffiPreallocatedGet","thrpt",1,25,77601.458595,1413.983076,"ops/s",no_column_family,100000,128,4096
-"org.rocksdb.jmh.GetBenchmarks.ffiPreallocatedGetRandom","thrpt",1,25,70625.781615,885.616671,"ops/s",no_column_family,100000,128,4096
