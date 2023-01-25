@@ -379,8 +379,7 @@ class BlockBasedTable : public TableReader {
       IndexBlockIter* input_iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) const;
 
-  // Read block cache from block caches (if set): block_cache and
-  // block_cache_compressed.
+  // Read block cache from block caches (if set): block_cache.
   // On success, Status::OK with be returned and @block will be populated with
   // pointer to the block as well as its block handle.
   // @param uncompression_dict Data for presetting the compression library's
@@ -388,9 +387,7 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> GetDataBlockFromCache(
       const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-      CompressedBlockCacheInterface block_cache_compressed,
-      const ReadOptions& read_options, CachableEntry<TBlocklike>* block,
-      const UncompressionDict& uncompression_dict, const bool wait,
+      CachableEntry<TBlocklike>* block, const bool wait,
       GetContext* get_context) const;
 
   // Put a maybe compressed block to the corresponding block caches.
@@ -406,7 +403,6 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> PutDataBlockToCache(
       const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-      CompressedBlockCacheInterface block_cache_compressed,
       CachableEntry<TBlocklike>* cached_block, BlockContents&& block_contents,
       CompressionType block_comp_type,
       const UncompressionDict& uncompression_dict,

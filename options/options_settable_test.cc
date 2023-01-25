@@ -126,8 +126,6 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct BlockBasedTableOptions, persistent_cache),
        sizeof(std::shared_ptr<PersistentCache>)},
-      {offsetof(struct BlockBasedTableOptions, block_cache_compressed),
-       sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct BlockBasedTableOptions, cache_usage_options),
        sizeof(CacheUsageOptions)},
       {offsetof(struct BlockBasedTableOptions, filter_policy),
@@ -207,7 +205,6 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
                           kBbtoExcluded));
 
   ASSERT_TRUE(new_bbto->block_cache.get() != nullptr);
-  ASSERT_TRUE(new_bbto->block_cache_compressed.get() != nullptr);
   ASSERT_TRUE(new_bbto->filter_policy.get() != nullptr);
 
   bbto->~BlockBasedTableOptions();

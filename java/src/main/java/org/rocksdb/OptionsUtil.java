@@ -29,7 +29,7 @@ public class OptionsUtil {
    * For table_factory, this function further supports deserializing
    * BlockBasedTableFactory and its BlockBasedTableOptions except the
    * pointer options of BlockBasedTableOptions (flush_block_policy_factory,
-   * block_cache, and block_cache_compressed), which will be initialized with
+   * and block_cache), which will be initialized with
    * default values.  Developers can further specify these three options by
    * casting the return value of TableFactoroy::GetOptions() to
    * BlockBasedTableOptions and making necessary changes.

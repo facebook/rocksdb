@@ -4370,7 +4370,6 @@ class Benchmark {
            {/*.charged = */ FLAGS_charge_blob_cache
                 ? CacheEntryRoleOptions::Decision::kEnabled
                 : CacheEntryRoleOptions::Decision::kDisabled}});
-      block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;
       block_based_options.index_block_restart_interval =

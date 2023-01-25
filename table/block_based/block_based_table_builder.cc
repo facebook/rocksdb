@@ -1284,7 +1284,6 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   }
 
   {
-    Status s = Status::OK();
     bool warm_cache;
     switch (r->table_options.prepopulate_block_cache) {
       case BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly:
@@ -1299,17 +1298,12 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
         warm_cache = false;
     }
     if (warm_cache) {
-      s = InsertBlockInCacheHelper(*uncompressed_block_data, handle,
-                                   block_type);
+      Status s = InsertBlockInCacheHelper(*uncompressed_block_data, handle,
+                                          block_type);
       if (!s.ok()) {
         r->SetStatus(s);
         return;
       }
-    }
-    s = InsertBlockInCompressedCache(block_contents, type, handle);
-    if (!s.ok()) {
-      r->SetStatus(s);
-      return;
     }
   }
 
@@ -1420,47 +1414,6 @@ Status BlockBasedTableBuilder::status() const { return rep_->GetStatus(); }
 
 IOStatus BlockBasedTableBuilder::io_status() const {
   return rep_->GetIOStatus();
-}
-
-//
-// Make a copy of the block contents and insert into compressed block cache
-//
-Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
-    const Slice& block_contents, const CompressionType type,
-    const BlockHandle* handle) {
-  Rep* r = rep_;
-  CompressedBlockCacheInterface block_cache_compressed{
-      r->table_options.block_cache_compressed.get()};
-  Status s;
-  if (type != kNoCompression && block_cache_compressed) {
-    size_t size = block_contents.size();
-
-    auto ubuf = AllocateBlock(size + 1,
-                              block_cache_compressed.get()->memory_allocator());
-    memcpy(ubuf.get(), block_contents.data(), size);
-    ubuf[size] = type;
-
-    BlockContents* block_contents_to_cache =
-        new BlockContents(std::move(ubuf), size);
-#ifndef NDEBUG
-    block_contents_to_cache->has_trailer = true;
-#endif  // NDEBUG
-
-    CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
-
-    s = block_cache_compressed.Insert(
-        key.AsSlice(), block_contents_to_cache,
-        block_contents_to_cache->ApproximateMemoryUsage());
-    if (s.ok()) {
-      RecordTick(rep_->ioptions.stats, BLOCK_CACHE_COMPRESSED_ADD);
-    } else {
-      RecordTick(rep_->ioptions.stats, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
-    }
-    // Invalidate OS cache.
-    r->file->InvalidateCache(static_cast<size_t>(r->get_offset()), size)
-        .PermitUncheckedError();
-  }
-  return s;
 }
 
 Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
