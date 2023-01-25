@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.lang.foreign.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +21,9 @@ public class FFIDB implements AutoCloseable {
   static {
     RocksDB.loadLibrary();
   }
+
+  static final String INVOCATION_ERROR =
+      "Internal error invoking FFI (Java to C++) function call: ";
 
   private final RocksDB rocksDB;
   private final List<ColumnFamilyHandle> columnFamilyHandleList;
@@ -37,7 +42,7 @@ public class FFIDB implements AutoCloseable {
     this.columnFamilyHandleList = new ArrayList<>(columnFamilyHandleList);
 
     // The allocator is "just the session". This should mean that allocated memory is cleaned using
-    // the built in {@link Cleaner} when GC gets to it.
+    // the built-in {@link Cleaner} when GC gets to it.
     //
     // We have experimented with a static SegmentAllocator.newNativeArena(memorySession)
     // but that runs out of memory - there's no cleanup, and no explicit free.
@@ -48,7 +53,7 @@ public class FFIDB implements AutoCloseable {
     // call frame. At present our {@link OutputSlice} has this lifetime, because it is returned as
     // part of the pinnable slice object in {@code getPinnable()} and passed again to {@link
     // FFIPinnableSlice#reset}. This could be fixed.
-    //segmentAllocator = new FFIAllocator();
+    // segmentAllocator = new FFIAllocator();
     memorySession = MemorySession.openConfined();
     segmentAllocator = SegmentAllocator.newNativeArena(memorySession);
   }
@@ -114,14 +119,19 @@ public class FFIDB implements AutoCloseable {
     }
   }
 
-  public record GetParams(MemorySegment memorySegment) {
+  public record GetParams(MemorySegment memorySegment, MemorySegment inputSlice,
+      MemorySegment outputPinnable) implements Closeable {
     public static GetParams create(final FFIDB dbFFI) throws RocksDBException {
-      final GetParams getParams =
-          new GetParams(dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout));
+      final var memorySegment = dbFFI.allocateSegment(FFILayout.GetParamsSegment.Layout);
+      final GetParams getParams = new GetParams(memorySegment,
+          memorySegment.asSlice(
+              FFILayout.GetParamsSegment.InputStructOffset, FFILayout.InputSlice.Layout.byteSize()),
+          memorySegment.asSlice(FFILayout.GetParamsSegment.PinnableStructOffset,
+              FFILayout.PinnableSlice.Layout.byteSize()));
 
       try {
         // Create a new pinnable slice which we want to use repeatedly
-        final Object result = FFIMethod.NewPinnable.invoke(getParams.outputPinnable().address());
+        final Object result = FFIMethod.NewPinnable.invoke(getParams.outputPinnable());
         final Status.Code code = Status.Code.values()[(Integer) result];
         if (code == Status.Code.Ok) {
           return getParams;
@@ -129,19 +139,18 @@ public class FFIDB implements AutoCloseable {
         throw new RocksDBException(new Status(code, Status.SubCode.None,
             "[Rocks FFI - could not create pinnable slice - no detailed reason provided]"));
       } catch (final Throwable methodException) {
-        throw new RocksDBException("Internal error invoking FFI (Java to C++) function call: "
-            + methodException.getMessage());
+        throw new RocksDBException(INVOCATION_ERROR + FFIMethod.NewPinnable, methodException);
       }
     }
 
-    MemorySegment inputSlice() {
-      return memorySegment.asSlice(
-          FFILayout.GetParamsSegment.InputStructOffset, FFILayout.InputSlice.Layout.byteSize());
-    }
-
-    MemorySegment outputPinnable() {
-      return memorySegment.asSlice(FFILayout.GetParamsSegment.PinnableStructOffset,
-          FFILayout.PinnableSlice.Layout.byteSize());
+    @Override
+    public void close() throws IOException {
+      try {
+        FFIMethod.DeletePinnable.invoke(outputPinnable);
+      } catch (final Throwable methodException) {
+        throw new IOException(
+            new RocksDBException(INVOCATION_ERROR + FFIMethod.DeletePinnable, methodException));
+      }
     }
   }
 
@@ -205,11 +214,9 @@ public class FFIDB implements AutoCloseable {
     try {
       result = FFIMethod.GetIntoPinnable.invoke(MemoryAddress.ofLong(rocksDB.nativeHandle_),
           MemoryAddress.ofLong(readOptions.nativeHandle_),
-          MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_), inputSlice.address(),
-          outputPinnable.address());
+          MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_), inputSlice, outputPinnable);
     } catch (final Throwable methodException) {
-      throw new RocksDBException("Internal error invoking FFI (Java to C++) function call: "
-          + methodException.getMessage());
+      throw new RocksDBException(INVOCATION_ERROR + FFIMethod.GetIntoPinnable, methodException);
     }
     if (!(result instanceof Integer)) {
       throw new RocksDBException("rocksdb_ffi_get.invokeExact returned: " + result);
@@ -267,8 +274,7 @@ public class FFIDB implements AutoCloseable {
           MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_), inputSlice.address(),
           outputSlice.address());
     } catch (final Throwable methodException) {
-      throw new RocksDBException("Internal error invoking FFI (Java to C++) function call: "
-          + methodException.getMessage());
+      throw new RocksDBException(INVOCATION_ERROR + FFIMethod.GetOutput, methodException);
     }
     if (!(result instanceof Integer)) {
       throw new RocksDBException("rocksdb_ffi_get.invokeExact returned: " + result);
@@ -288,8 +294,7 @@ public class FFIDB implements AutoCloseable {
     try {
       return (int) FFIMethod.Identity.invoke(input);
     } catch (final Throwable methodException) {
-      throw new RocksDBException("Internal error invoking FFI (Java to C++) function call: "
-          + methodException.getMessage());
+      throw new RocksDBException(INVOCATION_ERROR + FFIMethod.Identity, methodException);
     }
   }
 }

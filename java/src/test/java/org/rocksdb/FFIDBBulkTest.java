@@ -8,6 +8,7 @@ package org.rocksdb;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.rocksdb.util.FFIUtil.usingFFI;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.MemorySession;
 import org.junit.Before;
@@ -61,8 +62,7 @@ public class FFIDBBulkTest {
     final byte[] value = new byte[valueSize];
 
     usingFFI(dbFolder, dbFFI -> {
-      try {
-        final FFIDB.GetParams getParams = FFIDB.GetParams.create(dbFFI);
+      try (final FFIDB.GetParams getParams = FFIDB.GetParams.create(dbFFI)) {
         final MemorySegment keySegment = dbFFI.allocateSegment(keySize);
         keySegment.fill((byte) 0x30);
 
@@ -79,7 +79,7 @@ public class FFIDBBulkTest {
             }
           }
         }
-      } catch (final RocksDBException e) {
+      } catch (final RocksDBException | IOException e) {
         throw new RuntimeException(e);
       }
       return null;

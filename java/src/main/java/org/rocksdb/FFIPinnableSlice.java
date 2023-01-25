@@ -7,10 +7,10 @@ package org.rocksdb;
 
 import java.lang.foreign.MemorySegment;
 
-public record FFIPinnableSlice(MemorySegment data, MemorySegment outputSlice) {
+public record FFIPinnableSlice(MemorySegment data, MemorySegment outputPinnable) {
   public void reset() throws RocksDBException {
     try {
-      FFIMethod.ResetPinnable.invoke(outputSlice.address());
+      FFIMethod.ResetPinnable.invoke(outputPinnable);
     } catch (final Throwable methodException) {
       throw new RocksDBException("Internal error invoking FFI (Java to C++) function call: "
           + methodException.getMessage());
@@ -18,6 +18,6 @@ public record FFIPinnableSlice(MemorySegment data, MemorySegment outputSlice) {
   }
 
   public boolean isPinned() {
-    return (Boolean) FFILayout.PinnableSlice.IsPinned.get(outputSlice);
+    return (Boolean) FFILayout.PinnableSlice.IsPinned.get(outputPinnable);
   }
 }
