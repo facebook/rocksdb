@@ -422,11 +422,6 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   ASSERT_EQ(cache->GetUsage(), index_bytes_insert + filter_bytes_insert);
   // set the cache capacity to the current usage
   cache->SetCapacity(index_bytes_insert + filter_bytes_insert);
-  // The index and filter eviction statistics were broken by the refactoring
-  // that moved the readers out of the block cache. Disabling these until we can
-  // bring the stats back.
-  // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_INDEX_BYTES_EVICT), 0);
-  // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT), 0);
   // Note that the second key needs to be no longer than the first one.
   // Otherwise the second index block may not fit in cache.
   ASSERT_OK(Put(1, "key", "val"));
@@ -437,13 +432,6 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
             index_bytes_insert);
   ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_INSERT),
             filter_bytes_insert);
-  // The index and filter eviction statistics were broken by the refactoring
-  // that moved the readers out of the block cache. Disabling these until we can
-  // bring the stats back.
-  // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_INDEX_BYTES_EVICT),
-  //           index_bytes_insert);
-  // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT),
-  //           filter_bytes_insert);
 }
 
 #if (defined OS_LINUX || defined OS_WIN)

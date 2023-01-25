@@ -63,11 +63,6 @@ public enum TickerType {
     BLOCK_CACHE_INDEX_BYTES_INSERT((byte) 0x7),
 
     /**
-     * # of bytes of index block erased from cache
-     */
-    BLOCK_CACHE_INDEX_BYTES_EVICT((byte) 0x8),
-
-    /**
      * # of times cache miss when accessing filter block from block cache.
      */
     BLOCK_CACHE_FILTER_MISS((byte) 0x9),
@@ -86,11 +81,6 @@ public enum TickerType {
      * # of bytes of bloom filter blocks inserted into cache
      */
     BLOCK_CACHE_FILTER_BYTES_INSERT((byte) 0xC),
-
-    /**
-     * # of bytes of bloom filter block erased from cache
-     */
-    BLOCK_CACHE_FILTER_BYTES_EVICT((byte) 0xD),
 
     /**
      * # of times cache miss when accessing data block from block cache.
@@ -269,8 +259,6 @@ public enum TickerType {
      */
     ITER_BYTES_READ((byte) 0x2E),
 
-    NO_FILE_CLOSES((byte) 0x2F),
-
     NO_FILE_OPENS((byte) 0x30),
 
     NO_FILE_ERRORS((byte) 0x31),
@@ -287,8 +275,6 @@ public enum TickerType {
      */
     DB_MUTEX_WAIT_MICROS((byte) 0x36),
 
-    RATE_LIMIT_DELAY_MILLIS((byte) 0x37),
-
     /**
      * Number of MultiGet calls.
      */
@@ -304,11 +290,6 @@ public enum TickerType {
      */
     NUMBER_MULTIGET_BYTES_READ((byte) 0x3B),
 
-    /**
-     * Number of deletes records that were not required to be
-     * written to storage because key does not exist.
-     */
-    NUMBER_FILTERED_DELETES((byte) 0x3C),
     NUMBER_MERGE_FAILURES((byte) 0x3D),
 
     /**
@@ -371,11 +352,6 @@ public enum TickerType {
      * Equivalent to writes done for others.
      */
     WRITE_DONE_BY_OTHER((byte) 0x49),
-
-    /**
-     * Number of writes ending up with timed-out.
-     */
-    WRITE_TIMEDOUT((byte) 0x4A),
 
     /**
      * Number of Write calls that request WAL.
