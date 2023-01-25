@@ -103,10 +103,6 @@ struct BlockCreateContext : public Cache::CreateContext {
               BlockContents&& block);
 };
 
-// Convenient cache interface to use with block_cache_compressed
-using CompressedBlockCacheInterface =
-    BasicTypedCacheInterface<BlockContents, CacheEntryRole::kOtherBlock>;
-
 // Convenient cache interface to use for block_cache, with support for
 // SecondaryCache.
 template <typename TBlocklike>

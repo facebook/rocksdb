@@ -22,13 +22,6 @@ inline MemoryAllocator* GetMemoryAllocator(
              : nullptr;
 }
 
-inline MemoryAllocator* GetMemoryAllocatorForCompressedBlock(
-    const BlockBasedTableOptions& table_options) {
-  return table_options.block_cache_compressed.get()
-             ? table_options.block_cache_compressed->memory_allocator()
-             : nullptr;
-}
-
 // Assumes block has a trailer as in format.h. file_name and offset provided
 // for generating a diagnostic message in returned status.
 extern Status VerifyBlockChecksum(ChecksumType type, const char* data,
