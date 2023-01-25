@@ -19,13 +19,14 @@
 namespace ROCKSDB_NAMESPACE {
 
 /**
- * Keep adding tickers here.
- *  1. Any ticker should be added immediately before TICKER_ENUM_MAX, taking
- *     over its old value.
+ * Keep adding tickers here. Note that the C++ enum values, unlike the values in
+ * the Java bindings, are not guaranteed to be stable; also, the C++ and Java
+ * values for any given ticker are not guaranteed to match.
+ *  1. Add the new ticker before TICKER_ENUM_MAX.
  *  2. Add a readable string in TickersNameMap below for the newly added ticker.
- *  3. Add a corresponding enum value to TickerType.java in the java API
- *  4. Add the enum conversions from Java and C++ to portal.h's toJavaTickerType
- *     and toCppTickers
+ *  3. Add a corresponding enum value to TickerType.java in the Java API.
+ *  4. Add the enum conversions from/to Java/C++ to portal.h's toJavaTickerType
+ *     and toCppTickers.
  */
 enum Tickers : uint32_t {
   // total block cache misses
@@ -428,12 +429,15 @@ enum Tickers : uint32_t {
 extern const std::vector<std::pair<Tickers, std::string>> TickersNameMap;
 
 /**
- * Keep adding histogram's here.
- * Any histogram should have value less than HISTOGRAM_ENUM_MAX
- * Add a new Histogram by assigning it the current value of HISTOGRAM_ENUM_MAX
- * Add a string representation in HistogramsNameMap below
- * And increment HISTOGRAM_ENUM_MAX
- * Add a corresponding enum value to HistogramType.java in the java API
+ * Keep adding histograms here. Note that the C++ enum values, unlike the values
+ * in the Java bindings, are not guaranteed to be stable; also, the C++ and Java
+ * values for any given histogram are not guaranteed to match.
+ *  1. Add the new histogram before HISTOGRAM_ENUM_MAX.
+ *  2. Add a readable string in HistogramsNameMap below for the newly added
+ *     histogram.
+ *  3. Add a corresponding enum value to HistogramType.java in the Java API.
+ *  4. Add the enum conversions from/to Java/C++ to portal.h's
+ *     toJavaHistogramsType and toCppHistograms.
  */
 enum Histograms : uint32_t {
   DB_GET = 0,
