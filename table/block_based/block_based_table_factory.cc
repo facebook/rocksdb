@@ -232,6 +232,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
     block_based_table_type_info = {
 #ifndef ROCKSDB_LITE
         /* currently not supported
+          std::shared_ptr<Cache> block_cache = nullptr;
           CacheUsageOptions cache_usage_options;
          */
         {"flush_block_policy_factory",
