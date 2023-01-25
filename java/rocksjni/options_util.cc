@@ -53,7 +53,7 @@ void build_column_family_descriptor_list(
 
 /*
  * Class:     org_rocksdb_OptionsUtil
- * Method:    loadLatestOptions_1
+ * Method:    loadLatestOptions
  * Signature: (JLjava/lang/String;JLjava/util/List;)V
  */
 void Java_org_rocksdb_OptionsUtil_loadLatestOptions(
