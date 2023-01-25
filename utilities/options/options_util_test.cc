@@ -377,10 +377,6 @@ TEST_F(OptionsUtilTest, LatestOptionsNotFound) {
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_TRUE(s.IsPathNotFound());
 
-  //  s = LoadLatestOptions(dbname_, options.env, &options, &cf_descs);
-  //  ASSERT_TRUE(s.IsNotFound());
-  //  ASSERT_TRUE(s.IsPathNotFound());
-
   s = LoadLatestOptions(config_opts, dbname_, &options, &cf_descs);
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_TRUE(s.IsPathNotFound());
