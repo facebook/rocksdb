@@ -106,66 +106,6 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
   ASSERT_NOK(env_->FileExists(dbname));
 }
 
-class TestReadOnlyWithCompressedCache
-    : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<int, bool>> {
- public:
-  TestReadOnlyWithCompressedCache()
-      : DBTestBase("test_readonly_with_compressed_cache",
-                   /*env_do_fsync=*/true) {
-    max_open_files_ = std::get<0>(GetParam());
-    use_mmap_ = std::get<1>(GetParam());
-  }
-  int max_open_files_;
-  bool use_mmap_;
-};
-
-TEST_P(TestReadOnlyWithCompressedCache, ReadOnlyWithCompressedCache) {
-  if (use_mmap_ && !IsMemoryMappedAccessSupported()) {
-    ROCKSDB_GTEST_SKIP("Test requires MMAP support");
-    return;
-  }
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("foo2", "barbarbarbarbarbarbarbar"));
-  ASSERT_OK(Flush());
-
-  DB* db_ptr = nullptr;
-  Options options = CurrentOptions();
-  options.allow_mmap_reads = use_mmap_;
-  options.max_open_files = max_open_files_;
-  options.compression = kSnappyCompression;
-  BlockBasedTableOptions table_options;
-  table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
-  table_options.no_block_cache = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  options.statistics = CreateDBStatistics();
-
-  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db_ptr));
-
-  std::string v;
-  ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
-  ASSERT_EQ("bar", v);
-  ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
-  ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
-  ASSERT_EQ("bar", v);
-  if (Snappy_Supported()) {
-    if (use_mmap_) {
-      ASSERT_EQ(0,
-                options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
-    } else {
-      ASSERT_EQ(1,
-                options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
-    }
-  }
-
-  delete db_ptr;
-}
-
-INSTANTIATE_TEST_CASE_P(TestReadOnlyWithCompressedCache,
-                        TestReadOnlyWithCompressedCache,
-                        ::testing::Combine(::testing::Values(-1, 100),
-                                           ::testing::Bool()));
-
 class PartitionedIndexTestListener : public EventListener {
  public:
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
@@ -2625,7 +2565,6 @@ TEST_F(DBTest2, PersistentCache) {
           new MockPersistentCache(type, 10 * 1024));
       table_options.no_block_cache = true;
       table_options.block_cache = bsize ? NewLRUCache(bsize) : nullptr;
-      table_options.block_cache_compressed = nullptr;
       options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
       DestroyAndReopen(options);

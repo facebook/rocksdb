@@ -276,30 +276,6 @@ public enum TickerType {
     NO_FILE_ERRORS((byte) 0x31),
 
     /**
-     * Time system had to wait to do LO-L1 compactions.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_L0_SLOWDOWN_MICROS((byte) 0x32),
-
-    /**
-     * Time system had to wait to move memtable to L1.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_MEMTABLE_COMPACTION_MICROS((byte) 0x33),
-
-    /**
-     * write throttle because of too many files in L0.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_L0_NUM_FILES_MICROS((byte) 0x34),
-
-    /**
      * Writer has to wait for compaction or flush to finish.
      */
     STALL_MICROS((byte) 0x35),
@@ -312,12 +288,6 @@ public enum TickerType {
     DB_MUTEX_WAIT_MICROS((byte) 0x36),
 
     RATE_LIMIT_DELAY_MILLIS((byte) 0x37),
-
-    /**
-     * Number of iterators created.
-     *
-     */
-    NO_ITERATORS((byte) 0x38),
 
     /**
      * Number of MultiGet calls.
@@ -649,31 +619,9 @@ public enum TickerType {
     BLOB_DB_GC_FAILURES((byte) 0x7D),
 
     /**
-     * # of keys drop by BlobDB garbage collection because they had been
-     * overwritten.
-     */
-    BLOB_DB_GC_NUM_KEYS_OVERWRITTEN((byte) 0x7E),
-
-    /**
-     * # of keys drop by BlobDB garbage collection because of expiration.
-     */
-    BLOB_DB_GC_NUM_KEYS_EXPIRED((byte) 0x7F),
-
-    /**
      * # of keys relocated to new blob file by garbage collection.
      */
     BLOB_DB_GC_NUM_KEYS_RELOCATED((byte) -0x02),
-
-    /**
-     * # of bytes drop by BlobDB garbage collection because they had been
-     * overwritten.
-     */
-    BLOB_DB_GC_BYTES_OVERWRITTEN((byte) -0x03),
-
-    /**
-     * # of bytes drop by BlobDB garbage collection because of expiration.
-     */
-    BLOB_DB_GC_BYTES_EXPIRED((byte) -0x04),
 
     /**
      * # of bytes relocated to new blob file by garbage collection.

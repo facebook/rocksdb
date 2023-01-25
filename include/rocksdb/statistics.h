@@ -150,20 +150,12 @@ enum Tickers : uint32_t {
   NO_FILE_CLOSES,
   NO_FILE_OPENS,
   NO_FILE_ERRORS,
-  // DEPRECATED Time system had to wait to do LO-L1 compactions
-  STALL_L0_SLOWDOWN_MICROS,
-  // DEPRECATED Time system had to wait to move memtable to L1.
-  STALL_MEMTABLE_COMPACTION_MICROS,
-  // DEPRECATED write throttle because of too many files in L0
-  STALL_L0_NUM_FILES_MICROS,
   // Writer has to wait for compaction or flush to finish.
   STALL_MICROS,
   // The wait time for db mutex.
   // Disabled by default. To enable it set stats level to kAll
   DB_MUTEX_WAIT_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
-  // DEPRECATED number of iterators currently open
-  NO_ITERATORS,
 
   // Number of MultiGet calls, keys read, and bytes read
   NUMBER_MULTIGET_CALLS,
@@ -312,20 +304,8 @@ enum Tickers : uint32_t {
   BLOB_DB_GC_NUM_NEW_FILES,
   // # of BlobDB garbage collection failures. Only applicable to legacy BlobDB.
   BLOB_DB_GC_FAILURES,
-  // # of keys dropped by BlobDB garbage collection because they had been
-  // overwritten. DEPRECATED.
-  BLOB_DB_GC_NUM_KEYS_OVERWRITTEN,
-  // # of keys dropped by BlobDB garbage collection because of expiration.
-  // DEPRECATED.
-  BLOB_DB_GC_NUM_KEYS_EXPIRED,
   // # of keys relocated to new blob file by garbage collection.
   BLOB_DB_GC_NUM_KEYS_RELOCATED,
-  // # of bytes dropped by BlobDB garbage collection because they had been
-  // overwritten. DEPRECATED.
-  BLOB_DB_GC_BYTES_OVERWRITTEN,
-  // # of bytes dropped by BlobDB garbage collection because of expiration.
-  // DEPRECATED.
-  BLOB_DB_GC_BYTES_EXPIRED,
   // # of bytes relocated to new blob file by garbage collection.
   BLOB_DB_GC_BYTES_RELOCATED,
   // # of blob files evicted because of BlobDB is full. Only applicable to
@@ -535,8 +515,6 @@ enum Histograms : uint32_t {
   BLOB_DB_BLOB_FILE_READ_MICROS,
   // Blob file sync latency.
   BLOB_DB_BLOB_FILE_SYNC_MICROS,
-  // BlobDB garbage collection time. DEPRECATED.
-  BLOB_DB_GC_MICROS,
   // BlobDB compression time.
   BLOB_DB_COMPRESSION_MICROS,
   // BlobDB decompression time.
@@ -548,9 +526,6 @@ enum Histograms : uint32_t {
   // MultiGet stats logged per level
   // Num of index and filter blocks read from file system per level.
   NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-  // Num of data blocks read from file system per level.
-  // Obsolete
-  NUM_DATA_BLOCKS_READ_PER_LEVEL,
   // Num of sst files read from file system per level.
   NUM_SST_READ_PER_LEVEL,
 
@@ -573,7 +548,7 @@ enum Histograms : uint32_t {
   // Wait time for aborting async read in FilePrefetchBuffer destructor
   ASYNC_PREFETCH_ABORT_MICROS,
 
-  HISTOGRAM_ENUM_MAX,
+  HISTOGRAM_ENUM_MAX
 };
 
 extern const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap;

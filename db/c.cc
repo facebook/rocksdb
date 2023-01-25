@@ -2620,14 +2620,6 @@ void rocksdb_block_based_options_set_block_cache(
   }
 }
 
-void rocksdb_block_based_options_set_block_cache_compressed(
-    rocksdb_block_based_table_options_t* options,
-    rocksdb_cache_t* block_cache_compressed) {
-  if (block_cache_compressed) {
-    options->rep.block_cache_compressed = block_cache_compressed->rep;
-  }
-}
-
 void rocksdb_block_based_options_set_whole_key_filtering(
     rocksdb_block_based_table_options_t* options, unsigned char v) {
   options->rep.whole_key_filtering = v;
