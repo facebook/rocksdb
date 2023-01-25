@@ -313,26 +313,6 @@ public enum TickerType {
     GET_UPDATES_SINCE_CALLS((byte) 0x41),
 
     /**
-     * Miss in the compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_MISS((byte) 0x42),
-
-    /**
-     * Hit in the compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_HIT((byte) 0x43),
-
-    /**
-     * Number of blocks added to compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_ADD((byte) 0x44),
-
-    /**
-     * Number of failures when adding blocks to compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_ADD_FAILURES((byte) 0x45),
-
-    /**
      * Number of times WAL sync is done.
      */
     WAL_FILE_SYNCED((byte) 0x46),

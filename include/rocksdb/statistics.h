@@ -170,12 +170,6 @@ enum Tickers : uint32_t {
   // Record the number of calls to GetUpdatesSince. Useful to keep track of
   // transaction log iterator refreshes
   GET_UPDATES_SINCE_CALLS,
-  BLOCK_CACHE_COMPRESSED_MISS,  // miss in the compressed block cache
-  BLOCK_CACHE_COMPRESSED_HIT,   // hit in the compressed block cache
-  // Number of blocks added to compressed block cache
-  BLOCK_CACHE_COMPRESSED_ADD,
-  // Number of failures when adding blocks to compressed block cache
-  BLOCK_CACHE_COMPRESSED_ADD_FAILURES,
   WAL_FILE_SYNCED,  // Number of times WAL sync is done
   WAL_FILE_BYTES,   // Number of bytes written to WAL
 
