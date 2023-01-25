@@ -1872,7 +1872,8 @@ class DBImpl : public DB {
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
-  Status DelayWrite(uint64_t num_bytes, const WriteOptions& write_options);
+  Status DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
+                    const WriteOptions& write_options);
 
   // Begin stalling of writes when memory usage increases beyond a certain
   // threshold.
