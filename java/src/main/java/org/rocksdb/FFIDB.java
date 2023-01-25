@@ -131,8 +131,9 @@ public class FFIDB implements AutoCloseable {
 
       try {
         // Create a new pinnable slice which we want to use repeatedly
-        final Object result = FFIMethod.NewPinnable.invoke(getParams.outputPinnable());
-        final Status.Code code = Status.Code.values()[(Integer) result];
+        final int result =
+            (int) FFIMethod.NewPinnable.invokeExact((Addressable) getParams.outputPinnable());
+        final Status.Code code = Status.Code.values()[result];
         if (code == Status.Code.Ok) {
           return getParams;
         }
@@ -146,7 +147,7 @@ public class FFIDB implements AutoCloseable {
     @Override
     public void close() throws IOException {
       try {
-        FFIMethod.DeletePinnable.invoke(outputPinnable);
+        FFIMethod.DeletePinnable.invokeExact(outputPinnable);
       } catch (final Throwable methodException) {
         throw new IOException(
             new RocksDBException(INVOCATION_ERROR + FFIMethod.DeletePinnable, methodException));
@@ -210,16 +211,15 @@ public class FFIDB implements AutoCloseable {
 
     final MemorySegment outputPinnable = getParams.outputPinnable();
 
-    final Object result;
+    final int result;
     try {
-      result = FFIMethod.GetIntoPinnable.invoke(MemoryAddress.ofLong(rocksDB.nativeHandle_),
-          MemoryAddress.ofLong(readOptions.nativeHandle_),
-          MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_), inputSlice, outputPinnable);
+      result = (int) FFIMethod.GetIntoPinnable.invokeExact(
+          (Addressable) MemoryAddress.ofLong(rocksDB.nativeHandle_),
+          (Addressable) MemoryAddress.ofLong(readOptions.nativeHandle_),
+          (Addressable) MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_),
+          (Addressable) inputSlice, (Addressable) outputPinnable);
     } catch (final Throwable methodException) {
       throw new RocksDBException(INVOCATION_ERROR + FFIMethod.GetIntoPinnable, methodException);
-    }
-    if (!(result instanceof Integer)) {
-      throw new RocksDBException("rocksdb_ffi_get.invokeExact returned: " + result);
     }
     final Status.Code code = Status.Code.values()[(Integer) result];
     switch (code) {
@@ -271,17 +271,15 @@ public class FFIDB implements AutoCloseable {
     FFILayout.OutputSlice.Capacity.set(outputSlice, outputSegment.byteSize());
     FFILayout.OutputSlice.Size.set(outputSlice, 0);
 
-    final Object result;
+    final int result;
     try {
-      result = FFIMethod.GetOutput.invoke(MemoryAddress.ofLong(rocksDB.nativeHandle_),
-          MemoryAddress.ofLong(readOptions.nativeHandle_),
-          MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_), inputSlice.address(),
-          outputSlice.address());
+      result = (int)FFIMethod.GetOutput.invokeExact((Addressable)MemoryAddress.ofLong(rocksDB.nativeHandle_),
+          (Addressable)MemoryAddress.ofLong(readOptions.nativeHandle_),
+          (Addressable)MemoryAddress.ofLong(columnFamilyHandle.nativeHandle_),
+          (Addressable)inputSlice.address(),
+          (Addressable)outputSlice.address());
     } catch (final Throwable methodException) {
       throw new RocksDBException(INVOCATION_ERROR + FFIMethod.GetOutput, methodException);
-    }
-    if (!(result instanceof Integer)) {
-      throw new RocksDBException("rocksdb_ffi_get.invokeExact returned: " + result);
     }
     final Status.Code code = Status.Code.values()[(Integer) result];
     switch (code) {
@@ -296,7 +294,7 @@ public class FFIDB implements AutoCloseable {
 
   public int identity(final int input) throws RocksDBException {
     try {
-      return (int) FFIMethod.Identity.invoke(input);
+      return (int) FFIMethod.Identity.invokeExact(input);
     } catch (final Throwable methodException) {
       throw new RocksDBException(INVOCATION_ERROR + FFIMethod.Identity, methodException);
     }
