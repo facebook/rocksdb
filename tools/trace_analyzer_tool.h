@@ -35,7 +35,8 @@ enum TraceOperationType : int {
   kIteratorSeek = 6,
   kIteratorSeekForPrev = 7,
   kMultiGet = 8,
-  kTaTypeNum = 9
+  kPutEntity = 9,
+  kTaTypeNum = 10
 };
 
 struct TraceUnit {
@@ -200,6 +201,10 @@ class TraceAnalyzer : private TraceRecord::Handler,
   using WriteBatch::Handler::PutCF;
   Status PutCF(uint32_t column_family_id, const Slice& key,
                const Slice& value) override;
+
+  using WriteBatch::Handler::PutEntityCF;
+  Status PutEntityCF(uint32_t column_family_id, const Slice& key,
+                     const Slice& value) override;
 
   using WriteBatch::Handler::DeleteCF;
   Status DeleteCF(uint32_t column_family_id, const Slice& key) override;
