@@ -1389,7 +1389,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
   Env* newEnv = new_options.env;
-  ASSERT_OK(Env::LoadEnv(CustomEnv::kClassName(), &newEnv));
+  ASSERT_OK(Env::CreateFromString({}, CustomEnv::kClassName(), &newEnv));
   ASSERT_EQ(newEnv, new_options.env);
 
   config_options.ignore_unknown_options = false;
@@ -3092,7 +3092,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
   Env* newEnv = new_options.env;
-  ASSERT_OK(Env::LoadEnv("CustomEnvDefault", &newEnv));
+  ASSERT_OK(Env::CreateFromString({}, "CustomEnvDefault", &newEnv));
   ASSERT_EQ(newEnv, new_options.env);
 }
 
