@@ -257,6 +257,10 @@ public class FFIDB implements AutoCloseable {
       final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final MemorySegment outputSegment, final MemorySegment keySegment) throws RocksDBException {
 
+    //TODO (AP) - we could help performance by not allocating here in the inner loop, instead use a GetParams-like
+    //TODO (AP) - pattern of passing in the input slice and the output slice
+    //TODO (AP) - it pay not make a lot of difference in practice, as {@code segmentAllocator} is an efficient native arena
+    //TODO (AP) - and the performance we actually see, also suggests it doesn't generate much impact/overhead
     final MemorySegment inputSlice = segmentAllocator.allocate(FFILayout.InputSlice.Layout);
     FFILayout.InputSlice.Data.set(inputSlice, keySegment.address());
     FFILayout.InputSlice.Size.set(
