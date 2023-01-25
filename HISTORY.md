@@ -6,6 +6,9 @@
 ### Feature Removal
 * The feature block_cache_compressed is removed. Statistics related to it are removed too.
 
+### Public API Changes
+* Completely removed the following deprecated/obsolete statistics: `STALL_L0_SLOWDOWN_MICROS`, `STALL_MEMTABLE_COMPACTION_MICROS`, `STALL_L0_NUM_FILES_MICROS`, `NO_ITERATORS`, `BLOB_DB_GC_NUM_KEYS_OVERWRITTEN`, `BLOB_DB_GC_NUM_KEYS_EXPIRED`, `BLOB_DB_GC_BYTES_OVERWRITTEN`, `BLOB_DB_GC_BYTES_EXPIRED`, `BLOB_DB_GC_MICROS`, and `NUM_DATA_BLOCKS_READ_PER_LEVEL`.
+
 ## 7.10.0 (01/23/2023)
 ### Behavior changes
 * Make best-efforts recovery verify SST unique ID before Version construction (#10962)

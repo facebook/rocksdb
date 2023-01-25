@@ -4890,20 +4890,12 @@ class TickerTypeJni {
         return 0x30;
       case ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS:
         return 0x31;
-      case ROCKSDB_NAMESPACE::Tickers::STALL_L0_SLOWDOWN_MICROS:
-        return 0x32;
-      case ROCKSDB_NAMESPACE::Tickers::STALL_MEMTABLE_COMPACTION_MICROS:
-        return 0x33;
-      case ROCKSDB_NAMESPACE::Tickers::STALL_L0_NUM_FILES_MICROS:
-        return 0x34;
       case ROCKSDB_NAMESPACE::Tickers::STALL_MICROS:
         return 0x35;
       case ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS:
         return 0x36;
       case ROCKSDB_NAMESPACE::Tickers::RATE_LIMIT_DELAY_MILLIS:
         return 0x37;
-      case ROCKSDB_NAMESPACE::Tickers::NO_ITERATORS:
-        return 0x38;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS:
         return 0x39;
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_READ:
@@ -5043,16 +5035,8 @@ class TickerTypeJni {
         return 0x7C;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES:
         return 0x7D;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN:
-        return 0x7E;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED:
-        return 0x7F;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED:
         return -0x02;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN:
-        return -0x03;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_EXPIRED:
-        return -0x04;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED:
         return -0x05;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED:
@@ -5275,20 +5259,12 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::NO_FILE_OPENS;
       case 0x31:
         return ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS;
-      case 0x32:
-        return ROCKSDB_NAMESPACE::Tickers::STALL_L0_SLOWDOWN_MICROS;
-      case 0x33:
-        return ROCKSDB_NAMESPACE::Tickers::STALL_MEMTABLE_COMPACTION_MICROS;
-      case 0x34:
-        return ROCKSDB_NAMESPACE::Tickers::STALL_L0_NUM_FILES_MICROS;
       case 0x35:
         return ROCKSDB_NAMESPACE::Tickers::STALL_MICROS;
       case 0x36:
         return ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS;
       case 0x37:
         return ROCKSDB_NAMESPACE::Tickers::RATE_LIMIT_DELAY_MILLIS;
-      case 0x38:
-        return ROCKSDB_NAMESPACE::Tickers::NO_ITERATORS;
       case 0x39:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS;
       case 0x3A:
@@ -5429,16 +5405,8 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES;
       case 0x7D:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES;
-      case 0x7E:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN;
-      case 0x7F:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED;
       case -0x02:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED;
-      case -0x03:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN;
-      case -0x04:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_EXPIRED;
       case -0x05:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED;
       case -0x06:
@@ -5656,8 +5624,6 @@ class HistogramTypeJni {
         return 0x2A;
       case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS:
         return 0x2B;
-      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GC_MICROS:
-        return 0x2C;
       case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS:
         return 0x2D;
       case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
@@ -5665,8 +5631,6 @@ class HistogramTypeJni {
       case ROCKSDB_NAMESPACE::Histograms::
           NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL:
         return 0x2F;
-      case ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL:
-        return 0x30;
       case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
         return 0x31;
       case ROCKSDB_NAMESPACE::Histograms::ERROR_HANDLER_AUTORESUME_RETRY_COUNT:
@@ -5785,8 +5749,6 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS;
       case 0x2B:
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS;
-      case 0x2C:
-        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GC_MICROS;
       case 0x2D:
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS;
       case 0x2E:
@@ -5794,8 +5756,6 @@ class HistogramTypeJni {
       case 0x2F:
         return ROCKSDB_NAMESPACE::Histograms::
             NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL;
-      case 0x30:
-        return ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL;
       case 0x31:
         return ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL;
       case 0x32:
