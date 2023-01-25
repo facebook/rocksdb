@@ -493,11 +493,7 @@ Status CompactionOutputs::AddRangeDels(
     // applies to timestamp, and a non-nullptr `comp_start_user_key` should have
     // `kMaxTs` here, which similarly permits any timestamp.
     if (comp_start_user_key) {
-      // Use kMaxSequenceNumber - 1 to exclude range overlap with range
-      // tombstones that ends at kMaxSeqno when comparing end keys to this
-      // lower bound. This seqno will be overwritten in smallest_candidate
-      // below, so it will not affect meta.smallest.
-      lower_bound_buf.Set(*comp_start_user_key, kMaxSequenceNumber - 1,
+      lower_bound_buf.Set(*comp_start_user_key, kMaxSequenceNumber,
                           kTypeRangeDeletion);
       lower_bound_guard = lower_bound_buf.Encode();
       lower_bound = &lower_bound_guard;
@@ -584,8 +580,11 @@ Status CompactionOutputs::AddRangeDels(
     auto kv = tombstone.Serialize();
     InternalKey tombstone_end = tombstone.SerializeEndKey();
     // TODO: the underlying iterator should support clamping the bounds.
+    // tombstone_end.Encode is of form user_key@kMaxSeqno
+    // if it is equal to lower_bound, there is no need to include
+    // such range tombstone.
     if (!reached_lower_bound && lower_bound &&
-        icmp.Compare(tombstone_end.Encode(), *lower_bound) < 0) {
+        icmp.Compare(tombstone_end.Encode(), *lower_bound) <= 0) {
       continue;
     }
     assert(!lower_bound ||

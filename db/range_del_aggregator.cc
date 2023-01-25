@@ -491,7 +491,7 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
     if (lower_bound_ == nullptr) {
       return false;
     }
-    return icmp_->Compare(iter->end_key(), *lower_bound_) < 0;
+    return icmp_->Compare(iter->end_key(), *lower_bound_) <= 0;
   }
 
   bool AfterEndKey(const TruncatedRangeDelIterator* iter) const {

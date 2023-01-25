@@ -19,18 +19,14 @@ class CompactionHeapItemComparator {
       : comparator_(comparator) {}
   bool operator()(HeapItem* a, HeapItem* b) const {
     int r = comparator_->Compare(a->key(), b->key());
-    if (r > 0) {
-      return true;
-    } else if (r < 0) {
-      return false;
-    } else {
-      // When range tombstone and point key have the same internal key,
-      // range tombstone comes first. So that when range tombstone and
-      // file's largest key are the same, the file boundary sentinel key
-      // comes after.
-      return a->type == HeapItem::ITERATOR &&
-             b->type == HeapItem::DELETE_RANGE_START;
-    }
+    // For each file, we assume all range tombstone start keys come before
+    // its file boundary sentinel key (file's meta.largest key).
+    // In the case when meta.smallest = meta.largest and range tombstone start
+    // key is truncated at meta.smallest, the start key will have op_type =
+    // kMaxValid to make it smaller (see TruncatedRangeDelIterator constructor).
+    // The following assertion validates this assumption.
+    assert(a->type == b->type || r != 0);
+    return r > 0;
   }
 
  private:
@@ -81,7 +77,6 @@ class CompactionMergingIterator : public InternalIterator {
     for (auto& p : range_tombstones) {
       range_tombstone_iters_.push_back(p.first);
     }
-
     pinned_heap_item_.resize(n);
     for (int i = 0; i < n; ++i) {
       if (range_tombstones[i].second) {

@@ -1661,33 +1661,6 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   ASSERT_EQ(1, num_range_deletions);
 }
 
-// Test SST partitioner cut after every single key
-class SingleKeySstPartitioner : public SstPartitioner {
- public:
-  const char* Name() const override { return "SingleKeySstPartitioner"; }
-
-  PartitionerResult ShouldPartition(
-      const PartitionerRequest& /*request*/) override {
-    return kRequired;
-  }
-
-  bool CanDoTrivialMove(const Slice& /*smallest_user_key*/,
-                        const Slice& /*largest_user_key*/) override {
-    return false;
-  }
-};
-
-class SingleKeySstPartitionerFactory : public SstPartitionerFactory {
- public:
-  static const char* kClassName() { return "SingleKeySstPartitionerFactory"; }
-  const char* Name() const override { return kClassName(); }
-
-  std::unique_ptr<SstPartitioner> CreatePartitioner(
-      const SstPartitioner::Context& /* context */) const override {
-    return std::unique_ptr<SstPartitioner>(new SingleKeySstPartitioner());
-  }
-};
-
 TEST_F(DBRangeDelTest, LevelCompactOutputCutAtRangeTombstoneForTtlFiles) {
   Options options = CurrentOptions();
   options.compression = kNoCompression;
@@ -1732,6 +1705,33 @@ TEST_F(DBRangeDelTest, LevelCompactOutputCutAtRangeTombstoneForTtlFiles) {
   ASSERT_EQ("0,3,0,1", FilesPerLevel());
 }
 
+// Test SST partitioner cut after every single key
+class SingleKeySstPartitioner : public SstPartitioner {
+ public:
+  const char* Name() const override { return "SingleKeySstPartitioner"; }
+
+  PartitionerResult ShouldPartition(
+      const PartitionerRequest& /*request*/) override {
+    return kRequired;
+  }
+
+  bool CanDoTrivialMove(const Slice& /*smallest_user_key*/,
+                        const Slice& /*largest_user_key*/) override {
+    return false;
+  }
+};
+
+class SingleKeySstPartitionerFactory : public SstPartitionerFactory {
+ public:
+  static const char* kClassName() { return "SingleKeySstPartitionerFactory"; }
+  const char* Name() const override { return kClassName(); }
+
+  std::unique_ptr<SstPartitioner> CreatePartitioner(
+      const SstPartitioner::Context& /* context */) const override {
+    return std::unique_ptr<SstPartitioner>(new SingleKeySstPartitioner());
+  }
+};
+
 TEST_F(DBRangeDelTest, CompactionEmitRangeTombstoneToSSTPartitioner) {
   Options options = CurrentOptions();
   auto factory = std::make_shared<SingleKeySstPartitionerFactory>();
@@ -1754,17 +1754,21 @@ TEST_F(DBRangeDelTest, CompactionEmitRangeTombstoneToSSTPartitioner) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
   MoveFilesToLevel(1);
   // SSTPartitioner decides to cut when range tombstone start key is passed to
-  // it Note that the range tombstone [2, 5) itself span multiple keys but we
-  // are not able to partition in between yet.
+  // it. Note that the range tombstone [2, 5) itself span multiple keys, but we
+  // are not able to partition within its range yet.
   ASSERT_EQ(2, NumTableFilesAtLevel(1));
 }
 
 TEST_F(DBRangeDelTest, OversizeCompactionGapBetweenPointKeyAndTombstone) {
-  // L2 has two files
-  // L2_0: 0, 1, 2, 3, 4. L2_1: 5, 6, 7
-  // L0 has 0, [5, 6), 8
+  // L2 has 2 files
+  // L2_0: 0, 1, 2, 3, 4
+  // L2_1: 5, 6, 7
+  // L0 has 1 file
+  // L0: 0, [5, 6), 8
   // max_compaction_bytes is less than the size of L2_0 and L2_1.
-  // When compacting L0 into L1, it should split into 3 files.
+  // When compacting L0 into L1, it should split into 3 files:
+  // compaction output should cut before key 5 and key 8 to
+  // limit future compaction size.
   const int kNumPerFile = 4, kNumFiles = 2;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -3225,10 +3229,9 @@ TEST_F(DBRangeDelTest, DoubleCountRangeTombstoneCompensatedSize) {
 
 TEST_F(DBRangeDelTest, AddRangeDelsSameLowerAndUpperBound) {
   // Test for an edge case where CompactionOutputs::AddRangeDels()
-  // is called with an empty range: `lower_bound_from_range_tombstone = true`
-  // and `range_tombstone_lower_bound_ = next_table_min_key`. This used to
-  // happen when CompactionOutputs::ShouldStopBefore() had bugs.
-  // This could cause a file's smallest and largest key to be incorrectly set
+  // is called with an empty range: `range_tombstone_lower_bound_` is not empty
+  // and have the same user_key and sequence number as `next_table_min_key.
+  // This used to cause file's smallest and largest key to be incorrectly set
   // such that smallest > largest, and fail some assertions in iterator and/or
   // assertion in VersionSet::ApproximateSize().
   Options opts = CurrentOptions();
@@ -3264,12 +3267,12 @@ TEST_F(DBRangeDelTest, AddRangeDelsSameLowerAndUpperBound) {
   // File 2: Key(3)@4, Key(4)@7, DeleteRange start from Key(3)@4
   ASSERT_EQ(NumTableFilesAtLevel(1), 2);
 
-  // For compaction output file cutting decisions
+  // Manually update compaction output file cutting decisions
+  // to cut before range tombstone sentinel Key(3)@4
+  // and the point key Key(3)@4 itself
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionOutputs::ShouldStopBefore::manual_decision", [opts](void* p) {
         auto* pair = (std::pair<bool*, const Slice>*)p;
-        // Cut at Key(3)s from file 2. There should be two such keys: Key(3)@4
-        // as range tombstone sentinel, and the point key Key(3)@4 itself.
         if ((opts.comparator->Compare(ExtractUserKey(pair->second), Key(3)) ==
              0) &&
             (GetInternalKeySeqno(pair->second) <= 4)) {

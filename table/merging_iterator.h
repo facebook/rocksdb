@@ -135,13 +135,6 @@ struct HeapItem {
     }
     return range_tombstone_key;
   }
-
-  bool IsDeleteRangeSentinelKey() const {
-    if (LIKELY(type == ITERATOR)) {
-      return iter.IsDeleteRangeSentinelKey();
-    }
-    return false;
-  }
 };
 
 class MinHeapItemComparator {

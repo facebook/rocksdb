@@ -20,6 +20,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+const uint64_t kRangeTombstoneSentinel =
+    PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
+
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
                       const InternalKey& b) {
   auto c = user_cmp->CompareWithoutTimestamp(a.user_key(), b.user_key());

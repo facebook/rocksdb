@@ -1223,21 +1223,27 @@ void MergingIterator::InitMaxHeap() {
 // key's level, then the current child iterator is simply advanced to its next
 // key without reseeking.
 inline void MergingIterator::FindNextVisibleKey() {
-  // When active_ is empty, we know heap top cannot be a range tombstone end
-  // key. It cannot be a range tombstone start key per PopDeleteRangeStart().
   PopDeleteRangeStart();
-  while (!minHeap_.empty() &&
-         (!active_.empty() || minHeap_.top()->IsDeleteRangeSentinelKey()) &&
-         SkipNextDeleted()) {
+  // PopDeleteRangeStart() implies heap top is not DELETE_RANGE_START
+  // active_ being empty implies no DELETE_RANGE_END in heap.
+  // So minHeap_->top() must be of type ITERATOR.
+  while (
+      !minHeap_.empty() &&
+      (!active_.empty() || minHeap_.top()->iter.IsDeleteRangeSentinelKey()) &&
+      SkipNextDeleted()) {
     PopDeleteRangeStart();
   }
 }
 
 inline void MergingIterator::FindPrevVisibleKey() {
   PopDeleteRangeEnd();
-  while (!maxHeap_->empty() &&
-         (!active_.empty() || maxHeap_->top()->IsDeleteRangeSentinelKey()) &&
-         SkipPrevDeleted()) {
+  // PopDeleteRangeEnd() implies heap top is not DELETE_RANGE_END
+  // active_ being empty implies no DELETE_RANGE_START in heap.
+  // So maxHeap_->top() must be of type ITERATOR.
+  while (
+      !maxHeap_->empty() &&
+      (!active_.empty() || maxHeap_->top()->iter.IsDeleteRangeSentinelKey()) &&
+      SkipPrevDeleted()) {
     PopDeleteRangeEnd();
   }
 }

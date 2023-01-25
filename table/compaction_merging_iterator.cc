@@ -90,15 +90,19 @@ void CompactionMergingIterator::Next() {
 }
 
 void CompactionMergingIterator::FindNextVisibleKey() {
-  // IsDeleteRangeSentinelKey() here means file boundary sentinel keys.
-  while (!minHeap_.empty() && minHeap_.top()->IsDeleteRangeSentinelKey()) {
+  while (!minHeap_.empty()) {
     HeapItem* current = minHeap_.top();
+    // IsDeleteRangeSentinelKey() here means file boundary sentinel keys.
+    if (current->type != HeapItem::ITERATOR ||
+        !current->iter.IsDeleteRangeSentinelKey()) {
+      return;
+    }
     // range tombstone start keys from the same SSTable should have been
     // exhausted
     assert(!range_tombstone_iters_[current->level] ||
            !range_tombstone_iters_[current->level]->Valid());
-    // iter is a LevelIterator, and it enters a new SST file in the Next()
-    // call here.
+    // current->iter is a LevelIterator, and it enters a new SST file in the
+    // Next() call here.
     current->iter.Next();
     if (current->iter.Valid()) {
       assert(current->iter.status().ok());
@@ -111,6 +115,7 @@ void CompactionMergingIterator::FindNextVisibleKey() {
     }
   }
 }
+
 void CompactionMergingIterator::AddToMinHeapOrCheckStatus(HeapItem* child) {
   if (child->iter.Valid()) {
     assert(child->iter.status().ok());
@@ -130,11 +135,13 @@ InternalIterator* NewCompactionMergingIterator(
     return NewEmptyInternalIterator<Slice>(arena);
   } else {
     if (arena == nullptr) {
-      return new CompactionMergingIterator(comparator, children, n, false,
+      return new CompactionMergingIterator(comparator, children, n,
+                                           false /* is_arena_mode */,
                                            range_tombstone_iters);
     } else {
       auto mem = arena->AllocateAligned(sizeof(CompactionMergingIterator));
-      return new (mem) CompactionMergingIterator(comparator, children, n, true,
+      return new (mem) CompactionMergingIterator(comparator, children, n,
+                                                 true /* is_arena_mode */,
                                                  range_tombstone_iters);
     }
   }
