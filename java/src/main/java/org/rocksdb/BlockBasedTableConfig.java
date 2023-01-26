@@ -291,30 +291,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
-   * Use the specified cache for compressed blocks.
-   * <p>
-   * If {@code null}, RocksDB will not use a compressed block cache.
-   * <p>
-   * Note: though it looks similar to {@link #setBlockCache(Cache)}, RocksDB
-   *     doesn't put the same type of object there.
-   * <p>
-   * {@link org.rocksdb.Cache} should not be disposed before options instances
-   * using this cache is disposed.
-   * <p>
-   * {@link org.rocksdb.Cache} instance can be re-used in multiple options
-   * instances.
-   *
-   * @param blockCacheCompressed {@link org.rocksdb.Cache} Cache java instance
-   *     (e.g. LRUCache).
-   *
-   * @return the reference to the current config.
-   */
-  public BlockBasedTableConfig setBlockCacheCompressed(final Cache blockCacheCompressed) {
-    this.blockCacheCompressed = blockCacheCompressed;
-    return this;
-  }
-
-  /**
    * Get the approximate size of user data packed per block.
    *
    * @return block size in bytes
