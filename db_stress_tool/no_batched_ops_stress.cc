@@ -106,7 +106,6 @@ class NonBatchedOpsStressTest : public StressTest {
                 VerificationAbort(shared, static_cast<int>(cf), i,
                                   iter->value(), iter->columns(),
                                   expected_columns);
-                break;
               }
 
               from_db = iter->value().ToString();
@@ -177,7 +176,6 @@ class NonBatchedOpsStressTest : public StressTest {
             if (columns_from_db != expected_columns) {
               VerificationAbort(shared, static_cast<int>(cf), i, from_db,
                                 columns_from_db, expected_columns);
-              break;
             }
           }
 
