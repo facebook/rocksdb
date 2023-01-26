@@ -669,6 +669,7 @@ TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
   ASSERT_OK(db_->LockWAL());  // 1 -> 2
   // Read-only ops are OK
   ASSERT_EQ(Get("k1"), "val");
+#ifndef ROCKSDB_LITE
   {
     std::vector<LiveFileStorageInfo> files;
     LiveFilesStorageInfoOptions lf_opts;
@@ -676,6 +677,7 @@ TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
     lf_opts.wal_size_for_flush = UINT64_MAX;
     ASSERT_OK(db_->GetLiveFilesStorageInfo({lf_opts}, &files));
   }
+#endif  // !ROCKSDB_LITE
 
   port::Thread t2{[&]() {
     ASSERT_OK(db_->LockWAL());  // 2 -> 3 or 1 -> 2
