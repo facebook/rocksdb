@@ -36,16 +36,6 @@ public enum HistogramType {
 
   WRITE_RAW_BLOCK_MICROS((byte) 0xC),
 
-  STALL_L0_SLOWDOWN_COUNT((byte) 0xD),
-
-  STALL_MEMTABLE_COMPACTION_COUNT((byte) 0xE),
-
-  STALL_L0_NUM_FILES_COUNT((byte) 0xF),
-
-  HARD_RATE_LIMIT_DELAY_COUNT((byte) 0x10),
-
-  SOFT_RATE_LIMIT_DELAY_COUNT((byte) 0x11),
-
   NUM_FILES_IN_SINGLE_COMPACTION((byte) 0x12),
 
   DB_SEEK((byte) 0x13),

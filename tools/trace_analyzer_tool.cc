@@ -1582,6 +1582,12 @@ Status TraceAnalyzer::PutCF(uint32_t column_family_id, const Slice& key,
                               column_family_id, key, value.size());
 }
 
+Status TraceAnalyzer::PutEntityCF(uint32_t column_family_id, const Slice& key,
+                                  const Slice& value) {
+  return OutputAnalysisResult(TraceOperationType::kPutEntity, write_batch_ts_,
+                              column_family_id, key, value.size());
+}
+
 // Handle the Delete request in the write batch of the trace
 Status TraceAnalyzer::DeleteCF(uint32_t column_family_id, const Slice& key) {
   return OutputAnalysisResult(TraceOperationType::kDelete, write_batch_ts_,
