@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
+* Fixed some atypical behaviors for `LockWAL()` such as allowing concurrent/recursive use and not expecting `UnlockWAL()` after non-OK result. See API comments.
 
 ### Feature Removal
 * The feature block_cache_compressed is removed. Statistics related to it are removed too.
