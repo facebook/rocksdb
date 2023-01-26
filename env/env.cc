@@ -640,10 +640,6 @@ Status Env::NewLogger(const std::string& fname,
   return NewEnvLogger(fname, this, result);
 }
 
-Status Env::LoadEnv(const std::string& value, Env** result) {
-  return CreateFromString(ConfigOptions(), value, result);
-}
-
 Status Env::CreateFromString(const ConfigOptions& config_options,
                              const std::string& value, Env** result) {
   Env* base = Env::Default();
@@ -659,11 +655,6 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
     }
     return s;
   }
-}
-
-Status Env::LoadEnv(const std::string& value, Env** result,
-                    std::shared_ptr<Env>* guard) {
-  return CreateFromString(ConfigOptions(), value, result, guard);
 }
 
 Status Env::CreateFromString(const ConfigOptions& config_options,

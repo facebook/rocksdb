@@ -1001,10 +1001,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_no_block_cache(
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_block_cache(
     rocksdb_block_based_table_options_t* options, rocksdb_cache_t* block_cache);
 extern ROCKSDB_LIBRARY_API void
-rocksdb_block_based_options_set_block_cache_compressed(
-    rocksdb_block_based_table_options_t* options,
-    rocksdb_cache_t* block_cache_compressed);
-extern ROCKSDB_LIBRARY_API void
 rocksdb_block_based_options_set_whole_key_filtering(
     rocksdb_block_based_table_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_format_version(
