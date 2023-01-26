@@ -48,19 +48,22 @@ class MergeHelper {
   // the latency is sensitive.
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
-  // - Corruption: Merge operator reported unsuccessful merge.
+  // - Corruption: Merge operator reported unsuccessful merge. The scope of the
+  //   damage will be stored in `*op_failure_scope` when `op_failure_scope` is
+  //   not nullptr
   static Status TimedFullMerge(const MergeOperator* merge_operator,
                                const Slice& key, const Slice* value,
                                const std::vector<Slice>& operands,
                                std::string* result, Logger* logger,
                                Statistics* statistics, SystemClock* clock,
-                               Slice* result_operand,
-                               bool update_num_ops_stats);
+                               Slice* result_operand, bool update_num_ops_stats,
+                               MergeOperator::OpFailureScope* op_failure_scope);
 
   static Status TimedFullMergeWithEntity(
       const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
       const std::vector<Slice>& operands, std::string* result, Logger* logger,
-      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats);
+      Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+      MergeOperator::OpFailureScope* op_failure_scope);
 
   // During compaction, merge entries until we hit
   //     - a corrupted key
@@ -69,6 +72,12 @@ class MergeHelper {
   //     - a specific sequence number (snapshot boundary),
   //     - REMOVE_AND_SKIP_UNTIL returned from compaction filter,
   //  or - the end of iteration
+  //
+  // The result(s) of the merge can be accessed in `MergeHelper::keys()` and
+  // `MergeHelper::values()`, which are invalidated the next time `MergeUntil()`
+  // is called. `MergeOutputIterator` is specially designed to iterate the
+  // results of a `MergeHelper`'s most recent `MergeUntil()`.
+  //
   // iter: (IN)  points to the first merge type entry
   //       (OUT) points to the first entry not included in the merge process
   // range_del_agg: (IN) filters merge operands covered by range tombstones.
@@ -85,8 +94,7 @@ class MergeHelper {
   //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
-  // - MergeInProgress: Put/Delete not encountered, and didn't reach the start
-  //   of key's history. Output consists of merge operands only.
+  // - MergeInProgress: Output consists of merge operands only.
   // - Corruption: Merge operator reported unsuccessful merge or a corrupted
   //   key has been encountered and not expected (applies only when compiling
   //   with asserts removed).

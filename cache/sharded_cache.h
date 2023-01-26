@@ -49,16 +49,12 @@ class CacheShardBase {
     HashCref GetHash() const;
     ...
   };
-  Status Insert(const Slice& key, HashCref hash, void* value, size_t charge,
-                DeleterFn deleter, HandleImpl** handle,
-                Cache::Priority priority) = 0;
-  Status Insert(const Slice& key, HashCref hash, void* value,
+  Status Insert(const Slice& key, HashCref hash, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper, size_t charge,
                 HandleImpl** handle, Cache::Priority priority) = 0;
-  HandleImpl* Lookup(const Slice& key, HashCref hash) = 0;
   HandleImpl* Lookup(const Slice& key, HashCref hash,
                         const Cache::CacheItemHelper* helper,
-                        const Cache::CreateCallback& create_cb,
+                        Cache::CreateContext* create_context,
                         Cache::Priority priority, bool wait,
                         Statistics* stats) = 0;
   bool Release(HandleImpl* handle, bool useful, bool erase_if_last_ref) = 0;
@@ -77,8 +73,9 @@ class CacheShardBase {
   // *state == 0 and implementation sets *state = SIZE_MAX to indicate
   // completion.
   void ApplyToSomeEntries(
-      const std::function<void(const Slice& key, void* value, size_t charge,
-                               DeleterFn deleter)>& callback,
+      const std::function<void(const Slice& key, ObjectPtr value,
+                               size_t charge,
+                               const Cache::CacheItemHelper* helper)>& callback,
       size_t average_entries_per_lock, size_t* state) = 0;
   void EraseUnRefEntries() = 0;
   */
@@ -172,36 +169,24 @@ class ShardedCache : public ShardedCacheBase {
         [s_c_l](CacheShard* cs) { cs->SetStrictCapacityLimit(s_c_l); });
   }
 
-  Status Insert(const Slice& key, void* value, size_t charge, DeleterFn deleter,
-                Handle** handle, Priority priority) override {
-    HashVal hash = CacheShard::ComputeHash(key);
-    auto h_out = reinterpret_cast<HandleImpl**>(handle);
-    return GetShard(hash).Insert(key, hash, value, charge, deleter, h_out,
-                                 priority);
-  }
-  Status Insert(const Slice& key, void* value, const CacheItemHelper* helper,
-                size_t charge, Handle** handle = nullptr,
+  Status Insert(const Slice& key, ObjectPtr value,
+                const CacheItemHelper* helper, size_t charge,
+                Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
-    if (!helper) {
-      return Status::InvalidArgument();
-    }
+    assert(helper);
     HashVal hash = CacheShard::ComputeHash(key);
     auto h_out = reinterpret_cast<HandleImpl**>(handle);
     return GetShard(hash).Insert(key, hash, value, helper, charge, h_out,
                                  priority);
   }
 
-  Handle* Lookup(const Slice& key, Statistics* /*stats*/) override {
-    HashVal hash = CacheShard::ComputeHash(key);
-    HandleImpl* result = GetShard(hash).Lookup(key, hash);
-    return reinterpret_cast<Handle*>(result);
-  }
-  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
-                 const CreateCallback& create_cb, Priority priority, bool wait,
+  Handle* Lookup(const Slice& key, const CacheItemHelper* helper = nullptr,
+                 CreateContext* create_context = nullptr,
+                 Priority priority = Priority::LOW, bool wait = true,
                  Statistics* stats = nullptr) override {
     HashVal hash = CacheShard::ComputeHash(key);
-    HandleImpl* result = GetShard(hash).Lookup(key, hash, helper, create_cb,
-                                               priority, wait, stats);
+    HandleImpl* result = GetShard(hash).Lookup(
+        key, hash, helper, create_context, priority, wait, stats);
     return reinterpret_cast<Handle*>(result);
   }
 
@@ -244,8 +229,8 @@ class ShardedCache : public ShardedCacheBase {
     return SumOverShards2(&CacheShard::GetTableAddressCount);
   }
   void ApplyToAllEntries(
-      const std::function<void(const Slice& key, void* value, size_t charge,
-                               DeleterFn deleter)>& callback,
+      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
+                               const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) override {
     uint32_t num_shards = GetNumShards();
     // Iterate over part of each shard, rotating between shards, to

@@ -305,8 +305,8 @@ constexpr double kLoadFactor = 0.7;
 constexpr double kStrictLoadFactor = 0.84;
 
 struct ClockHandleBasicData {
-  void* value = nullptr;
-  Cache::DeleterFn deleter = nullptr;
+  Cache::ObjectPtr value = nullptr;
+  const Cache::CacheItemHelper* helper = nullptr;
   // A lossless, reversible hash of the fixed-size (16 byte) cache key. This
   // eliminates the need to store a hash separately.
   UniqueId64x2 hashed_key = kNullUniqueId64x2;
@@ -321,7 +321,7 @@ struct ClockHandleBasicData {
   inline size_t GetTotalCharge() const { return total_charge; }
 
   // Calls deleter (if non-null) on cache key and value
-  void FreeData() const;
+  void FreeData(MemoryAllocator* allocator) const;
 
   // Required by concept HandleImpl
   const UniqueId64x2& GetHash() const { return hashed_key; }
@@ -411,7 +411,7 @@ class HyperClockTable {
 
   HyperClockTable(size_t capacity, bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy,
-                  const Opts& opts);
+                  MemoryAllocator* allocator, const Opts& opts);
   ~HyperClockTable();
 
   Status Insert(const ClockHandleBasicData& proto, HandleImpl** handle,
@@ -519,6 +519,8 @@ class HyperClockTable {
   // Updates `detached_usage_` but not `usage_` nor `occupancy_`.
   inline HandleImpl* DetachedInsert(const ClockHandleBasicData& proto);
 
+  MemoryAllocator* GetAllocator() const { return allocator_; }
+
   // Returns the number of bits used to hash an element in the hash
   // table.
   static int CalcHashBits(size_t capacity, size_t estimated_value_size,
@@ -537,6 +539,9 @@ class HyperClockTable {
 
   // Array of slots comprising the hash table.
   const std::unique_ptr<HandleImpl[]> array_;
+
+  // From Cache, for deleter
+  MemoryAllocator* const allocator_;
 
   // We partition the following members into different cache lines
   // to avoid false sharing among Lookup, Release, Erase and Insert
@@ -563,7 +568,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
  public:
   ClockCacheShard(size_t capacity, bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy,
-                  const typename Table::Opts& opts);
+                  MemoryAllocator* allocator, const typename Table::Opts& opts);
 
   // For CacheShard concept
   using HandleImpl = typename Table::HandleImpl;
@@ -600,9 +605,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
 
   void SetStrictCapacityLimit(bool strict_capacity_limit);
 
-  Status Insert(const Slice& key, const UniqueId64x2& hashed_key, void* value,
-                size_t charge, Cache::DeleterFn deleter, HandleImpl** handle,
-                Cache::Priority priority);
+  Status Insert(const Slice& key, const UniqueId64x2& hashed_key,
+                Cache::ObjectPtr value, const Cache::CacheItemHelper* helper,
+                size_t charge, HandleImpl** handle, Cache::Priority priority);
 
   HandleImpl* Lookup(const Slice& key, const UniqueId64x2& hashed_key);
 
@@ -629,25 +634,18 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   size_t GetTableAddressCount() const;
 
   void ApplyToSomeEntries(
-      const std::function<void(const Slice& key, void* value, size_t charge,
-                               DeleterFn deleter)>& callback,
+      const std::function<void(const Slice& key, Cache::ObjectPtr obj,
+                               size_t charge,
+                               const Cache::CacheItemHelper* helper)>& callback,
       size_t average_entries_per_lock, size_t* state);
 
   void EraseUnRefEntries();
 
   std::string GetPrintableOptions() const { return std::string{}; }
 
-  // SecondaryCache not yet supported
-  Status Insert(const Slice& key, const UniqueId64x2& hashed_key, void* value,
-                const Cache::CacheItemHelper* helper, size_t charge,
-                HandleImpl** handle, Cache::Priority priority) {
-    return Insert(key, hashed_key, value, charge, helper->del_cb, handle,
-                  priority);
-  }
-
   HandleImpl* Lookup(const Slice& key, const UniqueId64x2& hashed_key,
                      const Cache::CacheItemHelper* /*helper*/,
-                     const Cache::CreateCallback& /*create_cb*/,
+                     Cache::CreateContext* /*create_context*/,
                      Cache::Priority /*priority*/, bool /*wait*/,
                      Statistics* /*stats*/) {
     return Lookup(key, hashed_key);
@@ -686,11 +684,11 @@ class HyperClockCache
 
   const char* Name() const override { return "HyperClockCache"; }
 
-  void* Value(Handle* handle) override;
+  Cache::ObjectPtr Value(Handle* handle) override;
 
   size_t GetCharge(Handle* handle) const override;
 
-  DeleterFn GetDeleter(Handle* handle) const override;
+  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
 
   void ReportProblems(
       const std::shared_ptr<Logger>& /*info_log*/) const override;

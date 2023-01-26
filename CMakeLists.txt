@@ -245,6 +245,14 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
   endif(HAS_S390X_MARCH_NATIVE)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
+  CHECK_C_COMPILER_FLAG("-march=loongarch64" HAS_LOONGARCH64)
+  if(HAS_LOONGARCH64)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=loongarch64 -mtune=loongarch64")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=loongarch64 -mtune=loongarch64")
+  endif(HAS_LOONGARCH64)
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "loongarch64")
+
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
 option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
@@ -274,6 +282,9 @@ if(PORTABLE)
     endif()
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
+    endif()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^loongarch64")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=loongarch64")
     endif()
   endif()
 else()
@@ -649,6 +660,7 @@ set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
         cache/cache_key.cc
+        cache/cache_helpers.cc
         cache/cache_reservation_manager.cc
         cache/charged_cache.cc
         cache/clock_cache.cc
@@ -806,6 +818,7 @@ set(SOURCES
         table/block_based/block_based_table_iterator.cc
         table/block_based/block_based_table_reader.cc
         table/block_based/block_builder.cc
+        table/block_based/block_cache.cc
         table/block_based/block_prefetcher.cc
         table/block_based/block_prefix_index.cc
         table/block_based/data_block_hash_index.cc
@@ -831,7 +844,6 @@ set(SOURCES
         table/get_context.cc
         table/iterator.cc
         table/merging_iterator.cc
-        table/compaction_merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
         table/plain/plain_table_bloom.cc

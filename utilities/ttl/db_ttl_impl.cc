@@ -68,6 +68,7 @@ bool TtlMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
                             merge_in.logger),
         &user_merge_out);
   }
+  merge_out->op_failure_scope = user_merge_out.op_failure_scope;
 
   // Return false if the user merge operator returned false
   if (!good) {

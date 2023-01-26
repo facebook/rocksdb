@@ -4219,6 +4219,78 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBCompactionTest, LevelTtlCompactionOutputCuttingIteractingWithOther) {
+  // This test is for a bug fix in CompactionOutputs::ShouldStopBefore() where
+  // TTL states were not being updated for keys that ShouldStopBefore() would
+  // return true for reasons other than TTL.
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.ttl = 24 * 60 * 60;  // 24 hours
+  options.max_open_files = -1;
+  options.compaction_pri = kMinOverlappingRatio;
+  env_->SetMockSleep();
+  options.env = env_;
+  options.target_file_size_base = 4 << 10;
+  options.disable_auto_compactions = true;
+  options.level_compaction_dynamic_file_size = false;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // This makes sure the manual compaction below
+  // is not a bottommost compaction as TTL is only
+  // for non-bottommost compactions.
+  ASSERT_OK(Put(Key(3), rnd.RandomString(1 << 10)));
+  ASSERT_OK(Put(Key(0), rnd.RandomString(1 << 10)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  // L2:
+  ASSERT_OK(Put(Key(2), rnd.RandomString(4 << 10)));
+  ASSERT_OK(Put(Key(3), rnd.RandomString(4 << 10)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  // L1, overlaps in range with the file in L2 so
+  // that they compact together.
+  ASSERT_OK(Put(Key(0), rnd.RandomString(4 << 10)));
+  ASSERT_OK(Put(Key(1), rnd.RandomString(4 << 10)));
+  ASSERT_OK(Put(Key(3), rnd.RandomString(4 << 10)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  ASSERT_EQ("0,1,1,0,0,0,1", FilesPerLevel());
+  // 36 hours so that the file in L2 is eligible for TTL
+  env_->MockSleepForSeconds(36 * 60 * 60);
+
+  CompactRangeOptions compact_range_opts;
+
+  ASSERT_OK(dbfull()->RunManualCompaction(
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd(),
+      1 /* input_level */, 2 /* output_level */, compact_range_opts,
+      nullptr /* begin */, nullptr /* end */, true /* exclusive */,
+      true /* disallow_trivial_move */,
+      std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
+      "" /*trim_ts*/));
+
+  // L2 should have 2 files:
+  // file 1: Key(0), Key(1)
+  // ShouldStopBefore(Key(2)) return true due to TTL or output file size
+  // file 2: Key(2), Key(3)
+  //
+  // Before the fix in this PR, L2 would have 3 files:
+  // file 1: Key(0), Key(1)
+  // CompactionOutputs::ShouldStopBefore(Key(2)) returns true due to output file
+  // size.
+  // file 2: Key(2)
+  // CompactionOutput::ShouldStopBefore(Key(3)) returns true
+  // due to TTL cutting and that TTL states were not updated
+  // for Key(2).
+  // file 3: Key(3)
+  ASSERT_EQ("0,0,2,0,0,0,1", FilesPerLevel());
+}
+
 TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
   env_->SetMockSleep();
   const int kValueSize = 100;

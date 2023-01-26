@@ -188,11 +188,6 @@ class ClippingIterator : public InternalIterator {
     return iter_->GetProperty(prop_name, prop);
   }
 
-  bool IsDeleteRangeSentinelKey() const override {
-    assert(valid_);
-    return iter_->IsDeleteRangeSentinelKey();
-  }
-
  private:
   void UpdateValid() {
     assert(!iter_->Valid() || iter_->status().ok());

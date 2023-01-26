@@ -54,7 +54,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
       (*statuses)[idx_in_batch] =
           RetrieveBlock(nullptr, options, handle, uncompression_dict,
-                        &(*results)[idx_in_batch], BlockType::kData,
+                        &(*results)[idx_in_batch].As<Block_kData>(),
                         mget_iter->get_context, &lookup_data_block_context,
                         /* for_compaction */ false, /* use_cache */ true,
                         /* wait_for_cache */ true, /* async_read */ false);
@@ -244,9 +244,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       // heap buffer or there is no cache at all.
       CompressionType compression_type =
           GetBlockCompressionType(serialized_block);
-      if (use_shared_buffer && (compression_type == kNoCompression ||
-                                (compression_type != kNoCompression &&
-                                 rep_->table_options.block_cache_compressed))) {
+      if (use_shared_buffer && compression_type == kNoCompression) {
         Slice serialized =
             Slice(req.result.data() + req_offset, BlockSizeWithTrailer(handle));
         serialized_block = BlockContents(
@@ -269,7 +267,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // will avoid looking up the block cache
         s = MaybeReadBlockAndLoadToCache(
             nullptr, options, handle, uncompression_dict, /*wait=*/true,
-            /*for_compaction=*/false, block_entry, BlockType::kData,
+            /*for_compaction=*/false, &block_entry->As<Block_kData>(),
             mget_iter->get_context, &lookup_data_block_context,
             &serialized_block, /*async_read=*/false);
 
@@ -441,7 +439,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
                                             ? *uncompression_dict.GetValue()
                                             : UncompressionDict::GetEmptyDict();
         Status s = RetrieveBlock(
-            nullptr, ro, handle, dict, &(results.back()), BlockType::kData,
+            nullptr, ro, handle, dict, &(results.back()).As<Block_kData>(),
             miter->get_context, &lookup_data_block_context,
             /* for_compaction */ false, /* use_cache */ true,
             /* wait_for_cache */ false, /* async_read */ false);
@@ -523,7 +521,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         // 3. If blocks are compressed and no compressed block cache, use
         //    stack buf
         if (!rep_->file->use_direct_io() &&
-            rep_->table_options.block_cache_compressed == nullptr &&
             rep_->blocks_maybe_compressed) {
           if (total_len <= kMultiGetReadStackBufSize) {
             scratch = stack_buf;

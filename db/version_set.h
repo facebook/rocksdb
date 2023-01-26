@@ -1022,7 +1022,7 @@ class Version {
       int hit_file_level, bool skip_filters, bool skip_range_deletions,
       FdWithKeyRange* f,
       std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
-      Cache::Handle* table_handle, uint64_t& num_filter_read,
+      TableCache::TypedHandle* table_handle, uint64_t& num_filter_read,
       uint64_t& num_index_read, uint64_t& num_sst_read);
 
 #ifdef USE_COROUTINES
@@ -1431,7 +1431,7 @@ class VersionSet {
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
     assert(table_cache_);
 
-    table_cache_->Erase(GetSlice(&blob_file_number));
+    table_cache_->Erase(GetSliceForKey(&blob_file_number));
 
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }

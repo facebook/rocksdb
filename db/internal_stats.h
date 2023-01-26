@@ -472,7 +472,8 @@ class InternalStats {
     }
 
     void BeginCollection(Cache*, SystemClock*, uint64_t start_time_micros);
-    std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
+    std::function<void(const Slice& key, Cache::ObjectPtr value, size_t charge,
+                       const Cache::CacheItemHelper* helper)>
     GetEntryCallback();
     void EndCollection(Cache*, SystemClock*, uint64_t end_time_micros);
     void SkippedCollection();
@@ -482,7 +483,6 @@ class InternalStats {
                SystemClock* clock) const;
 
    private:
-    UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
     uint64_t GetLastDurationMicros() const;
   };
 
