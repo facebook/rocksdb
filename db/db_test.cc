@@ -3340,6 +3340,7 @@ class ModelDB : public DB {
     return Status::NotSupported("Not supported in Model DB");
   }
 
+  using DB::GetColumnFamilyMetaData;
   void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                ColumnFamilyMetaData* /*metadata*/) override {}
 

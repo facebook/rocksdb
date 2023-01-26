@@ -243,31 +243,30 @@ class StackableDB : public DB {
     return db_->ReleaseSnapshot(snapshot);
   }
 
-  using DB::GetMapProperty;
-  using DB::GetProperty;
+  using DBMetadataInterface::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override {
     return db_->GetProperty(column_family, property, value);
   }
+  using DBMetadataInterface::GetMapProperty;
   virtual bool GetMapProperty(
       ColumnFamilyHandle* column_family, const Slice& property,
       std::map<std::string, std::string>* value) override {
     return db_->GetMapProperty(column_family, property, value);
   }
 
-  using DB::GetIntProperty;
+  using DBMetadataInterface::GetIntProperty;
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) override {
     return db_->GetIntProperty(column_family, property, value);
   }
 
-  using DB::GetAggregatedIntProperty;
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* value) override {
     return db_->GetAggregatedIntProperty(property, value);
   }
 
-  using DB::GetApproximateSizes;
+  using DBDataInterface::GetApproximateSizes;
   virtual Status GetApproximateSizes(const SizeApproximationOptions& options,
                                      ColumnFamilyHandle* column_family,
                                      const Range* r, int n,
@@ -401,6 +400,7 @@ class StackableDB : public DB {
     return db_->GetLiveFilesStorageInfo(opts, files);
   }
 
+  using DBMetadataInterface::GetColumnFamilyMetaData;
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
