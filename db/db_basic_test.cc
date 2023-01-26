@@ -1170,7 +1170,7 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
-  std::shared_ptr<TestFS> fs(new TestFS(env_->GetFileSystem()));
+  std::shared_ptr<TestFS> fs = std::make_shared<TestFS>(env_->GetFileSystem());
   std::unique_ptr<Env> local_env_guard = NewCompositeEnv(fs);
   options.create_if_missing = true;
   options.env = local_env_guard.get();
@@ -3720,11 +3720,10 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
 #ifndef ROCKSDB_LITE
 TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   class FakeDirectIOFS : public FileSystemWrapper {
-    class FakeDirectIOSequentialFile;
     class FakeDirectIORandomAccessFile;
 
    public:
-    FakeDirectIOFS(const std::shared_ptr<FileSystem>& fs)
+    explicit FakeDirectIOFS(const std::shared_ptr<FileSystem>& fs)
         : FileSystemWrapper(fs) {}
     static const char* kClassName() { return "FakeDirectIOFS"; }
     const char* Name() const override { return kClassName(); }
@@ -3746,19 +3745,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
     }
 
    private:
-    class FakeDirectIOSequentialFile : public FSSequentialFileWrapper {
-     public:
-      FakeDirectIOSequentialFile(std::unique_ptr<FSSequentialFile>&& file)
-          : FSSequentialFileWrapper(file.get()), file_(std::move(file)) {}
-      ~FakeDirectIOSequentialFile() {}
-
-      bool use_direct_io() const override { return true; }
-      size_t GetRequiredBufferAlignment() const override { return 1; }
-
-     private:
-      std::unique_ptr<FSSequentialFile> file_;
-    };
-
     class FakeDirectIORandomAccessFile : public FSRandomAccessFileWrapper {
      public:
       FakeDirectIORandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file)
