@@ -133,11 +133,11 @@ public GetBytes get(final ColumnFamilyHandle columnFamilyHandle, final byte[] ke
 We extended existing RocksDB Java JNI benchmarks with new benchmarks based on FFI. Full benchmark run on Ubuntu, including new benchmarks.
 
 ```bash
-java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=1000,100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks
+java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks
 ```
 
-[Results](./jmh/plot/jmh-result-nocopy.csv)
-![Plot](./jmh/plot/jmh-result-nocopy.png)
+[Results](./jmh/plot/jmh-result.csv)
+![Plot](./jmh/plot/jmh-result-select.png)
 
 ### Discussion
 
@@ -175,7 +175,7 @@ q "select Benchmark,Score,Error from ./plot/jmh-result-edit.csv where keyCount=1
 
 Edit this to give you what you want...
 ```bash
-java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=100000 -p keySize=128 -p valueSize=65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks -wi 1 -to 1m -i 1
+java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks -wi 1 -to 1m -i 1
 ```
 
 ### Processing
@@ -185,7 +185,7 @@ Use [`q`](http://harelba.github.io/q/) to select the csv output for analysis and
  - Note that we edited the column headings for easier processing
 
 ```bash
-q "select Benchmark,Score,Error from ./plot/jmh-result-edit.csv where keyCount=100000 and valueSize=65536" -d, -H -C readwrite
+q "select Benchmark,Score,Error from ./plot/jmh-result.csv where keyCount=100000 and valueSize=65536" -d, -H -C readwrite
 ```
 
 ### Java 19 installation
