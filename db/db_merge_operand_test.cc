@@ -448,6 +448,9 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBaseDeletionInImmMem) {
   opts.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
   Reopen(opts);
 
+  ASSERT_OK(Put("k1", "val"));
+  ASSERT_OK(Flush());
+
   ASSERT_OK(Put("k0", "val"));
   ASSERT_OK(Delete("k1"));
   ASSERT_OK(Put("k2", "val"));
@@ -469,6 +472,12 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBaseDeletionInImmMem) {
     ASSERT_EQ(1, number_of_operands);
     from_db = values[0].ToString();
     ASSERT_EQ("val", from_db);
+  }
+
+  {
+    std::string val;
+    ASSERT_OK(db_->Get(ReadOptions(), "k1", &val));
+    ASSERT_EQ("val", val);
   }
 }
 
