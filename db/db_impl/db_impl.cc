@@ -248,7 +248,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_, &event_logger_,
                      immutable_db_options_.listeners, dbname_),
-      lock_wal_extra_outstanding_(0) {
+      lock_wal_count_(0) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -1568,8 +1568,9 @@ Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
 Status DBImpl::LockWAL() {
   {
     InstrumentedMutexLock lock(&mutex_);
-    if (lock_wal_write_token_) {
-      ++lock_wal_extra_outstanding_;
+    if (lock_wal_count_ > 0) {
+      assert(lock_wal_write_token_);
+      ++lock_wal_count_;
     } else {
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
@@ -1578,7 +1579,13 @@ Status DBImpl::LockWAL() {
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
       }
 
-      lock_wal_write_token_ = write_controller_.GetStopToken();
+      // NOTE: releasing mutex in EnterUnbatched might mean we are actually
+      // now lock_wal_count > 0
+      if (lock_wal_count_ == 0) {
+        assert(!lock_wal_write_token_);
+        lock_wal_write_token_ = write_controller_.GetStopToken();
+      }
+      ++lock_wal_count_;
 
       if (two_write_queues_) {
         nonmem_write_thread_.ExitUnbatched(&nonmem_w);
@@ -1596,19 +1603,22 @@ Status DBImpl::LockWAL() {
 }
 
 Status DBImpl::UnlockWAL() {
+  bool signal = false;
   {
     InstrumentedMutexLock lock(&mutex_);
-    if (!lock_wal_write_token_) {
+    if (lock_wal_count_ == 0) {
       return Status::Aborted("No LockWAL() in effect");
     }
-    if (lock_wal_extra_outstanding_ > 0) {
-      --lock_wal_extra_outstanding_;
-      return Status::OK();
-    } else {
+    --lock_wal_count_;
+    if (lock_wal_count_ == 0) {
       lock_wal_write_token_.reset();
+      signal = true;
     }
   }
-  bg_cv_.SignalAll();
+  if (signal) {
+    // SignalAll outside of mutex for efficiency
+    bg_cv_.SignalAll();
+  }
   return Status::OK();
 }
 

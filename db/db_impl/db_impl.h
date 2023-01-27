@@ -2687,13 +2687,12 @@ class DBImpl : public DB {
 
   // Stop write token that is acquired when first LockWAL() is called.
   // Destroyed when last UnlockWAL() is called. Controlled by DB mutex.
-  // See lock_wal_extra_outstanding_
+  // See lock_wal_count_
   std::unique_ptr<WriteControllerToken> lock_wal_write_token_;
 
-  // If there is more than 1 call to LockWAL without matching UnlockWAL call,
-  // this is the number minus 1, otherwise 0. Controlled by DB mutex.
-  // See lock_wal_write_token_
-  uint32_t lock_wal_extra_outstanding_;
+  // The number of LockWAL called without matching UnlockWAL call.
+  // See also lock_wal_write_token_
+  uint32_t lock_wal_count_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {
