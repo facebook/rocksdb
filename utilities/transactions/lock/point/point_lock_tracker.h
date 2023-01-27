@@ -4,7 +4,6 @@
 // (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <memory>
 #include <string>
@@ -96,4 +95,3 @@ class PointLockTrackerFactory : public LockTrackerFactory {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

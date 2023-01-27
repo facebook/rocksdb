@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/options.h"
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <string>
@@ -21,7 +20,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 class RepairTest : public DBTestBase {
  public:
   RepairTest() : DBTestBase("repair_test", /*env_do_fsync=*/true) {}
@@ -476,7 +474,6 @@ TEST_F(RepairTest, DbNameContainsTrailingSlash) {
   ReopenWithSstIdVerify();
   ASSERT_EQ(Get("key"), "val");
 }
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
@@ -485,12 +482,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as RepairDB is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

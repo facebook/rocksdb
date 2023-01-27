@@ -5,7 +5,6 @@
 //
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -315,4 +314,3 @@ class LDBCommandRunner {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

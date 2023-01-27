@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "db/forward_iterator.h"
 
 #include <limits>
@@ -1059,4 +1058,3 @@ void ForwardIterator::DeleteIterator(InternalIterator* iter, bool is_arena) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

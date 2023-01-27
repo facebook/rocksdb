@@ -8,9 +8,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_builder.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include "rocksdb/merge_operator.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"

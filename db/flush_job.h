@@ -89,11 +89,9 @@ class FlushJob {
   void Cancel();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
-#ifndef ROCKSDB_LITE
   std::list<std::unique_ptr<FlushJobInfo>>* GetCommittedFlushJobsInfo() {
     return &committed_flush_jobs_info_;
   }
-#endif  // !ROCKSDB_LITE
 
  private:
   friend class FlushJobTest_GetRateLimiterPriorityForWrite_Test;
@@ -127,9 +125,7 @@ class FlushJob {
   bool MemPurgeDecider(double threshold);
   // The rate limiter priority (io_priority) is determined dynamically here.
   Env::IOPriority GetRateLimiterPriorityForWrite();
-#ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
-#endif  // !ROCKSDB_LITE
 
   const std::string& dbname_;
   const std::string db_id_;

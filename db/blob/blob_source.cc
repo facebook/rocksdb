@@ -30,7 +30,6 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
       blob_file_cache_(blob_file_cache),
       blob_cache_(immutable_options->blob_cache),
       lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {
-#ifndef ROCKSDB_LITE
   auto bbto =
       immutable_options->table_factory->GetOptions<BlockBasedTableOptions>();
   if (bbto &&
@@ -39,7 +38,6 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
     blob_cache_ = SharedCacheInterface{std::make_shared<ChargedCache>(
         immutable_options->blob_cache, bbto->block_cache)};
   }
-#endif  // ROCKSDB_LITE
 }
 
 BlobSource::~BlobSource() = default;

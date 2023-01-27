@@ -59,7 +59,6 @@
 #include "utilities/merge_operators.h"
 
 #if !defined(IOS_CROSS_COMPILE)
-#ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {
 
 static std::string RandomString(Random* rnd, int len, double ratio) {
@@ -959,15 +958,6 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED, not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE
 
 #else
 

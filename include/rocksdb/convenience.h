@@ -90,10 +90,8 @@ struct ConfigOptions {
   // The environment to use for this option
   Env* env = Env::Default();
 
-#ifndef ROCKSDB_LITE
   // The object registry to use for this options
   std::shared_ptr<ObjectRegistry> registry;
-#endif
 
   bool IsShallow() const { return depth == Depth::kDepthShallow; }
   bool IsDetailed() const { return depth == Depth::kDepthDetailed; }
@@ -107,7 +105,6 @@ struct ConfigOptions {
   }
 };
 
-#ifndef ROCKSDB_LITE
 
 // The following set of functions provide a way to construct RocksDB Options
 // from a string or a string-to-string map.  Here is the general rule of
@@ -520,6 +517,5 @@ Status VerifySstFileChecksum(const Options& options,
                              const ReadOptions& read_options,
                              const std::string& file_path,
                              const SequenceNumber& largest_seqno = 0);
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

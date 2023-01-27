@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction/compaction_picker_fifo.h"
-#ifndef ROCKSDB_LITE
 
 #include <cinttypes>
 #include <string>
@@ -443,4 +442,3 @@ Compaction* FIFOCompactionPicker::CompactRange(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

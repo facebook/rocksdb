@@ -130,7 +130,6 @@ TEST_F(DBTest, MockEnvTest) {
   delete iterator;
 
 // TEST_FlushMemTable() is not supported in ROCKSDB_LITE
-#ifndef ROCKSDB_LITE
   DBImpl* dbi = static_cast_with_check<DBImpl>(db);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
@@ -139,14 +138,12 @@ TEST_F(DBTest, MockEnvTest) {
     ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
     ASSERT_TRUE(res == vals[i]);
   }
-#endif  // ROCKSDB_LITE
 
   delete db;
 }
 
 // NewMemEnv returns nullptr in ROCKSDB_LITE since class InMemoryEnv isn't
 // defined.
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, MemEnvTest) {
   std::unique_ptr<Env> env{NewMemEnv(Env::Default())};
   Options options;
@@ -199,7 +196,6 @@ TEST_F(DBTest, MemEnvTest) {
   }
   delete db;
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, WriteEmptyBatch) {
   Options options = CurrentOptions();
@@ -458,7 +454,6 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
   wo.no_slowdown = true;
   ASSERT_OK(dbfull()->Put(wo, "foo3", "bar"));
 }
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBTest, LevelLimitReopen) {
   Options options = CurrentOptions();
@@ -481,9 +476,7 @@ TEST_F(DBTest, LevelLimitReopen) {
   options.max_bytes_for_level_multiplier_additional.resize(10, 1);
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, LevelReopenWithFIFO) {
   const int kLevelCount = 4;
   const int kKeyCount = 5;
@@ -610,7 +603,6 @@ TEST_F(DBTest, LevelReopenWithFIFO) {
     ASSERT_EQ(expected_files_per_level_after_fifo[i], FilesPerLevel(kCF));
   }
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBTest, PutSingleDeleteGet) {
   do {
@@ -857,9 +849,7 @@ TEST_F(DBTest, DISABLED_VeryLargeValue) {
   ASSERT_OK(Put(key2, raw));
   dbfull()->TEST_WaitForFlushMemTable();
 
-#ifndef ROCKSDB_LITE
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
-#endif  // !ROCKSDB_LITE
 
   std::string value;
   Status s = db_->Get(ReadOptions(), key1, &value);
@@ -936,7 +926,6 @@ TEST_F(DBTest, WrongLevel0Config) {
   ASSERT_OK(DB::Open(options, dbname_, &db_));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, GetOrderedByLevels) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
@@ -1007,7 +996,6 @@ TEST_F(DBTest, GetEncountersEmptyLevel) {
     ASSERT_EQ(NumTableFilesAtLevel(0, 1), 1);  // XXX
   } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction));
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, FlushMultipleMemtable) {
   do {
@@ -1027,7 +1015,6 @@ TEST_F(DBTest, FlushMultipleMemtable) {
     ASSERT_OK(Flush(1));
   } while (ChangeCompactOptions());
 }
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, FlushSchedule) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -1072,7 +1059,6 @@ TEST_F(DBTest, FlushSchedule) {
   ASSERT_LE(pikachu_tables, static_cast<uint64_t>(10));
   ASSERT_GT(pikachu_tables, static_cast<uint64_t>(0));
 }
-#endif  // ROCKSDB_LITE
 
 namespace {
 class KeepFilter : public CompactionFilter {
@@ -1137,14 +1123,12 @@ class DelayFilterFactory : public CompactionFilterFactory {
 };
 }  // anonymous namespace
 
-#ifndef ROCKSDB_LITE
 
 static std::string CompressibleString(Random* rnd, int len) {
   std::string r;
   test::CompressibleString(rnd, 0.8, len, &r);
   return r;
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, FailMoreDbPaths) {
   Options options = CurrentOptions();
@@ -1266,7 +1250,6 @@ void CheckLiveFilesMeta(
   }
 }
 
-#ifndef ROCKSDB_LITE
 void AddBlobFile(const ColumnFamilyHandle* cfh, uint64_t blob_file_number,
                  uint64_t total_blob_count, uint64_t total_blob_bytes,
                  const std::string& checksum_method,
@@ -1558,9 +1541,7 @@ TEST_F(DBTest, DISABLED_RepeatedWritesToSameKey) {
     }
   } while (ChangeCompactOptions());
 }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
   bool result = (val >= low) && (val <= high);
   if (!result) {
@@ -1957,9 +1938,7 @@ TEST_F(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
     // ApproximateOffsetOf() is not yet implemented in plain table format.
   } while (ChangeOptions(kSkipPlainTable));
 }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, Snapshot) {
   env_->SetMockSleep();
   anon::OptionsOverride options_override;
@@ -2081,7 +2060,6 @@ TEST_F(DBTest, HiddenValuesAreRemoved) {
   } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction |
                          kSkipPlainTable));
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, UnremovableSingleDelete) {
   // If we compact:
@@ -2132,7 +2110,6 @@ TEST_F(DBTest, UnremovableSingleDelete) {
                          kSkipMergePut));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, DeletionMarkers1) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -2252,7 +2229,6 @@ TEST_F(DBTest, OverlapInLevel0) {
     ASSERT_EQ("NOT_FOUND", Get(1, "600"));
   } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction));
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, ComparatorCheck) {
   class NewComparator : public Comparator {
@@ -2440,7 +2416,6 @@ TEST_F(DBTest, DestroyDBMetaDatabase) {
   ASSERT_TRUE(!(DB::Open(options, metametadbname, &db)).ok());
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, SnapshotFiles) {
   do {
     Options options = CurrentOptions();
@@ -2667,7 +2642,6 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   ASSERT_EQ(cfmd.blob_file_count, 1U);
   ASSERT_EQ(cfmd.blob_file_size, bmd.blob_file_size);
 }
-#endif
 
 TEST_F(DBTest, PurgeInfoLogs) {
   Options options = CurrentOptions();
@@ -2715,7 +2689,6 @@ TEST_F(DBTest, PurgeInfoLogs) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 // Multi-threaded test:
 namespace {
 
@@ -2902,7 +2875,6 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(
         ::testing::ValuesIn(MultiThreadedDBTest::GenerateOptionConfigs()),
         ::testing::Bool()));
-#endif  // ROCKSDB_LITE
 
 // Group commit test:
 #if !defined(OS_WIN)
@@ -3109,7 +3081,6 @@ class ModelDB : public DB {
     return s;
   }
 
-#ifndef ROCKSDB_LITE
   using DB::IngestExternalFile;
   Status IngestExternalFile(
       ColumnFamilyHandle* /*column_family*/,
@@ -3151,7 +3122,6 @@ class ModelDB : public DB {
       std::size_t /*n*/, TablePropertiesCollection* /*props*/) override {
     return Status();
   }
-#endif  // ROCKSDB_LITE
 
   using DB::KeyMayExist;
   bool KeyMayExist(const ReadOptions& /*options*/,
@@ -3332,7 +3302,6 @@ class ModelDB : public DB {
   Status DisableFileDeletions() override { return Status::OK(); }
 
   Status EnableFileDeletions(bool /*force*/) override { return Status::OK(); }
-#ifndef ROCKSDB_LITE
 
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* /*size*/,
                       bool /*flush_memtable*/ = true) override {
@@ -3376,7 +3345,6 @@ class ModelDB : public DB {
 
   void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                ColumnFamilyMetaData* /*metadata*/) override {}
-#endif  // ROCKSDB_LITE
 
   Status GetDbIdentity(std::string& /*identity*/) const override {
     return Status::OK();
@@ -3625,12 +3593,10 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
 
-#ifndef ROCKSDB_LITE
   // Back to original
   ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:1"}}));
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
-#endif  // !ROCKSDB_LITE
 
   // Same if there's a problem initally loading prefix transform
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -3642,12 +3608,10 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
 
-#ifndef ROCKSDB_LITE
   // Change again
   ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
-#endif  // !ROCKSDB_LITE
   SyncPoint::GetInstance()->DisableProcessing();
 
   // Reopen with no prefix extractor, make sure everything still works.
@@ -3769,7 +3733,6 @@ TEST_F(DBTest, ChecksumTest) {
   ASSERT_EQ("h", Get("g"));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_P(DBTestWithParam, FIFOCompactionTest) {
   for (int iter = 0; iter < 2; ++iter) {
     // first iteration -- auto compaction
@@ -4141,9 +4104,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
               options.compaction_options_fifo.max_table_files_size);
   }
 }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 /*
  * This test is not reliable enough as it heavily depends on disk behavior.
  * Disable as it is flaky.
@@ -4324,7 +4285,6 @@ TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   ASSERT_NOK(db_->CreateColumnFamily(cf_options, "name", &handle));
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, SanitizeNumThreads) {
   for (int attempt = 0; attempt < 2; attempt++) {
@@ -4478,7 +4438,6 @@ TEST_F(DBTest, ManualFlushWalAndWriteRace) {
   ASSERT_EQ("value2", Get("foo2"));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k64KB = 1 << 16;
   const uint64_t k128KB = 1 << 17;
@@ -4632,7 +4591,6 @@ TEST_F(DBTest, DynamicMemtableOptions) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif  // ROCKSDB_LITE
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
 namespace {
@@ -5082,7 +5040,6 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
 
 #endif  // ROCKSDB_USING_THREAD_STATUS
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, FlushOnDestroy) {
   WriteOptions wo;
   wo.disableWAL = true;
@@ -5635,7 +5592,6 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
       dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
       false);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, FileCreationRandomFailure) {
   Options options;
@@ -5698,7 +5654,6 @@ TEST_F(DBTest, FileCreationRandomFailure) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBTest, DynamicMiscOptions) {
   // Test max_sequential_skip_in_iterations
@@ -5793,7 +5748,6 @@ TEST_F(DBTest, DynamicMiscOptions) {
                                                      &mutable_cf_options));
   ASSERT_FALSE(mutable_cf_options.check_flush_compaction_key_order);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, L0L1L2AndUpHitCounter) {
   const int kNumLevels = 3;
@@ -6012,7 +5966,6 @@ TEST_F(DBTest, MergeTestTime) {
 #endif  // ROCKSDB_USING_THREAD_STATUS
 }
 
-#ifndef ROCKSDB_LITE
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetPerfLevel(kEnableTime);
   Options options = CurrentOptions();
@@ -6075,7 +6028,6 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
             TestGetTickerCount(options, FILTER_OPERATION_TOTAL_TIME));
   delete itr;
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, TestLogCleanup) {
   Options options = CurrentOptions();
@@ -6092,7 +6044,6 @@ TEST_F(DBTest, TestLogCleanup) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, EmptyCompactedDB) {
   Options options = CurrentOptions();
   options.max_open_files = -1;
@@ -6102,9 +6053,7 @@ TEST_F(DBTest, EmptyCompactedDB) {
   ASSERT_TRUE(s.IsNotSupported());
   Close();
 }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, SuggestCompactRangeTest) {
   class CompactionFilterFactoryGetContext : public CompactionFilterFactory {
    public:
@@ -6333,7 +6282,6 @@ TEST_F(DBTest, CompactRangeWithEmptyBottomLevel) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1), kNumL0Files);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
   const int kNumL0Files = 50;
@@ -6391,7 +6339,6 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   Options options = CurrentOptions();
   options.max_background_compactions = 1;
@@ -6451,7 +6398,6 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   ASSERT_LE(cf_meta_data.levels[0].files.size(),
             options.level0_file_num_compaction_trigger);
 }
-#endif  // ROCKSDB_LITE
 
 // Github issue #595
 // Large write batch with column families
@@ -6941,7 +6887,6 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
   delete handle;
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, RowCache) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -7073,7 +7018,6 @@ TEST_F(DBTest, ReusePinnableSlice) {
       1);
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, DeletingOldWalAfterDrop) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
@@ -7199,7 +7143,6 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
 
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBTest, CreationTimeOfOldestFile) {
   const int kNumKeysPerFile = 32;
@@ -7388,7 +7331,6 @@ TEST_F(DBTest, ShuttingDownNotBlockStalledWrites) {
 
   thd.join();
 }
-#endif
 
 }  // namespace ROCKSDB_NAMESPACE
 

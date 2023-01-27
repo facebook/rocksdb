@@ -10,9 +10,6 @@ int main() {
 #ifndef GFLAGS
   fprintf(stderr, "Please install gflags to run rocksdb tools\n");
 #endif
-#ifdef ROCKSDB_LITE
-  fprintf(stderr, "DbUndumpTool is not supported in ROCKSDB_LITE\n");
-#endif
   return 1;
 }
 

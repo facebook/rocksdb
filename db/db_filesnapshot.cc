@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <cstdint>
@@ -439,4 +438,3 @@ Status DBImpl::GetLiveFilesStorageInfo(
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
