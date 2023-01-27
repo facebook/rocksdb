@@ -75,6 +75,7 @@
 #include "util/string_util.h"
 #include "utilities/memory_allocators.h"
 #include "utilities/merge_operators.h"
+#include "utilities/nosync_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -571,6 +572,8 @@ class DBConstructor : public Constructor {
   explicit DBConstructor(const Comparator* cmp)
       : Constructor(cmp), comparator_(cmp) {
     db_ = nullptr;
+    std::shared_ptr<FileSystem> fs(new NoSyncFileSystem(FileSystem::Default()));
+    env_ = NewCompositeEnv(fs);
     NewDB();
   }
   ~DBConstructor() override { delete db_; }
@@ -604,6 +607,7 @@ class DBConstructor : public Constructor {
 
     Options options;
     options.comparator = comparator_;
+    options.env = env_.get();
     Status status = DestroyDB(name, options);
     ASSERT_TRUE(status.ok()) << status.ToString();
 
@@ -614,6 +618,7 @@ class DBConstructor : public Constructor {
     ASSERT_TRUE(status.ok()) << status.ToString();
   }
 
+  std::unique_ptr<Env> env_;
   const Comparator* comparator_;
   DB* db_;
 };

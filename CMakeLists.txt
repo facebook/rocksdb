@@ -922,6 +922,7 @@ set(SOURCES
         utilities/fault_injection_env.cc
         utilities/fault_injection_fs.cc
         utilities/fault_injection_secondary_cache.cc
+        utilities/injection_fs.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
         utilities/merge_operators.cc
@@ -932,6 +933,7 @@ set(SOURCES
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/uint64add.cc
+        utilities/nosync_fs.cc
         utilities/object_registry.cc
         utilities/option_change_migration/option_change_migration.cc
         utilities/options/options_util.cc
