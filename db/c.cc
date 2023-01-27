@@ -69,6 +69,7 @@ using ROCKSDB_NAMESPACE::CompactionOptionsFIFO;
 using ROCKSDB_NAMESPACE::CompactRangeOptions;
 using ROCKSDB_NAMESPACE::Comparator;
 using ROCKSDB_NAMESPACE::CompressionType;
+using ROCKSDB_NAMESPACE::ConfigOptions;
 using ROCKSDB_NAMESPACE::CuckooTableOptions;
 using ROCKSDB_NAMESPACE::DB;
 using ROCKSDB_NAMESPACE::DBOptions;
@@ -2498,8 +2499,12 @@ void rocksdb_load_latest_options(
     rocksdb_options_t*** list_column_family_options, char** errptr) {
   DBOptions db_opt;
   std::vector<ColumnFamilyDescriptor> cf_descs;
-  Status s = LoadLatestOptions(std::string(db_path), env->rep, &db_opt,
-                               &cf_descs, ignore_unknown_options, &cache->rep);
+  ConfigOptions config_opts;
+  config_opts.ignore_unknown_options = ignore_unknown_options;
+  config_opts.input_strings_escaped = true;
+  config_opts.env = env->rep;
+  Status s = LoadLatestOptions(config_opts, std::string(db_path), &db_opt,
+                               &cf_descs, &cache->rep);
   if (s.ok()) {
     char** cf_names = (char**)malloc(cf_descs.size() * sizeof(char*));
     rocksdb_options_t** cf_options = (rocksdb_options_t**)malloc(

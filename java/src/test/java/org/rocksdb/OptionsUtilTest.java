@@ -77,13 +77,16 @@ public class OptionsUtilTest {
 
     // Read the options back and verify
     DBOptions dbOptions = new DBOptions();
+    ConfigOptions configOptions =
+        new ConfigOptions().setIgnoreUnknownOptions(false).setInputStringsEscaped(true).setEnv(
+            Env.getDefault());
     final List<ColumnFamilyDescriptor> cfDescs = new ArrayList<>();
     String path = dbPath;
     if (apiType == TestAPI.LOAD_LATEST_OPTIONS) {
-      OptionsUtil.loadLatestOptions(path, Env.getDefault(), dbOptions, cfDescs, false);
+      OptionsUtil.loadLatestOptions(configOptions, path, dbOptions, cfDescs);
     } else if (apiType == TestAPI.LOAD_OPTIONS_FROM_FILE) {
       path = dbPath + "/" + OptionsUtil.getLatestOptionsFileName(dbPath, Env.getDefault());
-      OptionsUtil.loadOptionsFromFile(path, Env.getDefault(), dbOptions, cfDescs, false);
+      OptionsUtil.loadOptionsFromFile(configOptions, path, dbOptions, cfDescs);
     }
 
     assertThat(dbOptions.createIfMissing()).isEqualTo(options.createIfMissing());

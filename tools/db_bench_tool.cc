@@ -4095,7 +4095,11 @@ class Benchmark {
     DBOptions db_opts;
     std::vector<ColumnFamilyDescriptor> cf_descs;
     if (FLAGS_options_file != "") {
-      auto s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env, &db_opts,
+      ConfigOptions config_opts;
+      config_opts.ignore_unknown_options = false;
+      config_opts.input_strings_escaped = true;
+      config_opts.env = FLAGS_env;
+      auto s = LoadOptionsFromFile(config_opts, FLAGS_options_file, &db_opts,
                                    &cf_descs);
       db_opts.env = FLAGS_env;
       if (s.ok()) {

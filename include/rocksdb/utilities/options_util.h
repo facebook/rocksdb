@@ -50,15 +50,12 @@ struct ConfigOptions;
 // casting the return value of TableFactory::GetOptions() to
 // BlockBasedTableOptions and making necessary changes.
 //
-// ignore_unknown_options can be set to true if you want to ignore options
-// that are from a newer version of the db, essentially for forward
-// compatibility.
-//
 // config_options contains a set of options that controls the processing
-// of the options.  The LoadLatestOptions(ConfigOptions...) should be preferred;
-// the alternative signature may be deprecated in a future release. The
-// equivalent functionality can be achieved by setting the corresponding options
-// in the ConfigOptions parameter.
+// of the options.
+//
+// config_options.ignore_unknown_options can be set to true if you want to
+// ignore options that are from a newer version of the db, essentially for
+// forward compatibility.
 //
 // examples/options_file_example.cc demonstrates how to use this function
 // to open a RocksDB instance.
@@ -70,11 +67,6 @@ struct ConfigOptions;
 //     to the options file itself.
 //
 // @see LoadOptionsFromFile
-Status LoadLatestOptions(const std::string& dbpath, Env* env,
-                         DBOptions* db_options,
-                         std::vector<ColumnFamilyDescriptor>* cf_descs,
-                         bool ignore_unknown_options = false,
-                         std::shared_ptr<Cache>* cache = {});
 Status LoadLatestOptions(const ConfigOptions& config_options,
                          const std::string& dbpath, DBOptions* db_options,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
@@ -83,17 +75,7 @@ Status LoadLatestOptions(const ConfigOptions& config_options,
 // Similar to LoadLatestOptions, this function constructs the DBOptions
 // and ColumnFamilyDescriptors based on the specified RocksDB Options file.
 //
-// The LoadOptionsFile(ConfigOptions...) should be preferred;
-// the alternative signature may be deprecated in a future release. The
-// equivalent functionality can be achieved by setting the corresponding
-// options in the ConfigOptions parameter.
-//
 // @see LoadLatestOptions
-Status LoadOptionsFromFile(const std::string& options_file_name, Env* env,
-                           DBOptions* db_options,
-                           std::vector<ColumnFamilyDescriptor>* cf_descs,
-                           bool ignore_unknown_options = false,
-                           std::shared_ptr<Cache>* cache = {});
 Status LoadOptionsFromFile(const ConfigOptions& config_options,
                            const std::string& options_file_name,
                            DBOptions* db_options,
@@ -115,10 +97,6 @@ Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
 // * prefix_extractor
 // * table_factory
 // * merge_operator
-Status CheckOptionsCompatibility(
-    const std::string& dbpath, Env* env, const DBOptions& db_options,
-    const std::vector<ColumnFamilyDescriptor>& cf_descs,
-    bool ignore_unknown_options = false);
 Status CheckOptionsCompatibility(
     const ConfigOptions& config_options, const std::string& dbpath,
     const DBOptions& db_options,
