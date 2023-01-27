@@ -178,7 +178,11 @@ class GetContext {
   bool has_callback() const { return callback_ != nullptr; }
 
   const Slice& ukey_to_get_blob_value() const {
-    return ukey_to_get_blob_value_;
+    if (!ukey_with_ts_found_.empty()) {
+      return ukey_with_ts_found_;
+    } else {
+      return user_key_;
+    }
   }
 
   uint64_t get_tracing_get_id() const { return tracing_get_id_; }
@@ -199,9 +203,10 @@ class GetContext {
 
   GetState state_;
   Slice user_key_;
-  // When a blob index is found, this copies the corresponding user key on
-  // record in the sst file and is later used for blob verification.
-  PinnableSlice ukey_to_get_blob_value_;
+  // When a blob index is found with the user key containing timestamp,
+  // this copies the corresponding user key on record in the sst file
+  // and is later used for blob verification.
+  PinnableSlice ukey_with_ts_found_;
   PinnableSlice* pinnable_val_;
   PinnableWideColumns* columns_;
   std::string* timestamp_;
