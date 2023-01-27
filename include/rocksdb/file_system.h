@@ -273,12 +273,6 @@ class FileSystem : public Customizable {
   static const char* kDefaultName() { return "DefaultFileSystem"; }
 
   // Loads the FileSystem specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status Load(const std::string& value,
-                     std::shared_ptr<FileSystem>* result);
-
-  // Loads the FileSystem specified by the input value into the result
   // @see Customizable for a more detailed description of the parameters and
   // return codes
   // @param config_options Controls how the FileSystem is loaded

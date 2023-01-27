@@ -26,11 +26,6 @@ FileSystem::FileSystem() {}
 
 FileSystem::~FileSystem() {}
 
-Status FileSystem::Load(const std::string& value,
-                        std::shared_ptr<FileSystem>* result) {
-  return CreateFromString(ConfigOptions(), value, result);
-}
-
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinFileSystems(ObjectLibrary& library,
                                       const std::string& /*arg*/) {

@@ -123,7 +123,8 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            s, /* strict */ true);
+                            /* msg_prefix */ "Iterator verification", s,
+                            /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -142,7 +143,8 @@ class NonBatchedOpsStressTest : public StressTest {
           Status s = db_->Get(options, column_families_[cf], key, &from_db);
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            s, /* strict */ true);
+                            /* msg_prefix */ "Get verification", s,
+                            /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -176,7 +178,8 @@ class NonBatchedOpsStressTest : public StressTest {
             const std::string from_db = values[j].ToString();
 
             VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
-                              from_db, statuses[j], /* strict */ true);
+                              from_db, /* msg_prefix */ "MultiGet verification",
+                              statuses[j], /* strict */ true);
 
             if (!from_db.empty()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
@@ -228,7 +231,8 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            s, /* strict */ true);
+                            /* msg_prefix */ "GetMergeOperands verification", s,
+                            /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -803,6 +807,7 @@ class NonBatchedOpsStressTest : public StressTest {
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
       if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
+                             /* msg_prefix */ "Pre-Put Get verification",
                              from_db, s, /* strict */ true)) {
         return s;
       }
@@ -1441,7 +1446,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                          SharedState* shared, const std::string& value_from_db,
-                         const Status& s, bool strict = false) const {
+                         std::string msg_prefix, const Status& s,
+                         bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
@@ -1466,27 +1472,30 @@ class NonBatchedOpsStressTest : public StressTest {
     if (s.ok()) {
       char value[kValueMaxLen];
       if (value_base == SharedState::DELETION_SENTINEL) {
-        VerificationAbort(shared, "Unexpected value found", cf, key,
-                          value_from_db, "");
+        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
+                          key, value_from_db, "");
         return false;
       }
       size_t sz = GenerateValue(value_base, value, sizeof(value));
       if (value_from_db.length() != sz) {
-        VerificationAbort(shared, "Length of value read is not equal", cf, key,
-                          value_from_db, Slice(value, sz));
+        VerificationAbort(shared,
+                          msg_prefix + ": Length of value read is not equal",
+                          cf, key, value_from_db, Slice(value, sz));
         return false;
       }
       if (memcmp(value_from_db.data(), value, sz) != 0) {
-        VerificationAbort(shared, "Contents of value read don't match", cf, key,
-                          value_from_db, Slice(value, sz));
+        VerificationAbort(shared,
+                          msg_prefix + ": Contents of value read don't match",
+                          cf, key, value_from_db, Slice(value, sz));
         return false;
       }
     } else {
       if (value_base != SharedState::DELETION_SENTINEL) {
         char value[kValueMaxLen];
         size_t sz = GenerateValue(value_base, value, sizeof(value));
-        VerificationAbort(shared, "Value not found: " + s.ToString(), cf, key,
-                          "", Slice(value, sz));
+        VerificationAbort(shared,
+                          msg_prefix + ": Value not found: " + s.ToString(), cf,
+                          key, "", Slice(value, sz));
         return false;
       }
     }
