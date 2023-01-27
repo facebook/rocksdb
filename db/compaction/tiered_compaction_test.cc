@@ -17,7 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#if !defined(ROCKSDB_LITE)
 
 class TieredCompactionTest : public DBTestBase,
                              public testing::WithParamInterface<bool> {
@@ -2139,18 +2138,11 @@ TEST_F(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   Close();
 }
 
-#endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-#if !defined(ROCKSDB_LITE)
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  (void)argc;
-  (void)argv;
-  return 0;
-#endif
 }

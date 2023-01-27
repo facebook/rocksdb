@@ -14,7 +14,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifdef GFLAGS
-#ifndef ROCKSDB_LITE
 
 // TODO: consider using expected_values_dir instead, but this is more
 // convenient for now.
@@ -185,7 +184,6 @@ void DbStressListener::VerifyTableFileUniqueId(
   unique_ids_.Verify(id);
 }
 
-#endif  // !ROCKSDB_LITE
 #endif  // GFLAGS
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -695,7 +695,6 @@ class SpecialEnv : public EnvWrapper {
   bool no_slowdown_;
 };
 
-#ifndef ROCKSDB_LITE
 class FileTemperatureTestFS : public FileSystemWrapper {
  public:
   explicit FileTemperatureTestFS(const std::shared_ptr<FileSystem>& fs)
@@ -870,7 +869,6 @@ class FlushCounterListener : public EventListener {
     ASSERT_EQ(expected_flush_reason.load(), flush_job_info.flush_reason);
   }
 };
-#endif
 
 // A test merge operator mimics put but also fails if one of merge operands is
 // "corrupted", "corrupted_try_merge", or "corrupted_must_merge".
@@ -1260,7 +1258,6 @@ class DBTestBase : public testing::Test {
                                      const std::vector<std::string>& cfs,
                                      const Options& options);
 
-#ifndef ROCKSDB_LITE
   int NumSortedRuns(int cf = 0);
 
   uint64_t TotalSize(int cf = 0);
@@ -1276,7 +1273,6 @@ class DBTestBase : public testing::Test {
   double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
-#endif  // ROCKSDB_LITE
 
   std::vector<uint64_t> GetBlobFileNumbers();
 
@@ -1312,9 +1308,7 @@ class DBTestBase : public testing::Test {
 
   void MoveFilesToLevel(int level, int cf = 0);
 
-#ifndef ROCKSDB_LITE
   void DumpFileCounts(const char* label);
-#endif  // ROCKSDB_LITE
 
   std::string DumpSSTableList();
 
@@ -1383,12 +1377,10 @@ class DBTestBase : public testing::Test {
   void VerifyDBInternal(
       std::vector<std::pair<std::string, std::string>> true_data);
 
-#ifndef ROCKSDB_LITE
   uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
                                               std::string column_family_name);
 
   uint64_t GetSstSizeHelper(Temperature temperature);
-#endif  // ROCKSDB_LITE
 
   uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
     return options.statistics->getTickerCount(ticker_type);

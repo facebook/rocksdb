@@ -132,7 +132,6 @@ class DBBlockCacheTest : public DBTestBase {
     compression_dict_insert_count_ = new_compression_dict_insert_count;
   }
 
-#ifndef ROCKSDB_LITE
   const std::array<size_t, kNumCacheEntryRoles> GetCacheEntryRoleCountsBg() {
     // Verify in cache entry role stats
     std::array<size_t, kNumCacheEntryRoles> cache_entry_role_counts;
@@ -146,7 +145,6 @@ class DBBlockCacheTest : public DBTestBase {
     }
     return cache_entry_role_counts;
   }
-#endif  // ROCKSDB_LITE
 };
 
 TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
@@ -302,7 +300,6 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
 }  // anonymous namespace
 #endif  // SNAPPY
 
-#ifndef ROCKSDB_LITE
 
 // Make sure that when options.block_cache is set, after a new table is
 // created its index/filter blocks are added to block cache.
@@ -1335,7 +1332,6 @@ TEST_F(DBBlockCacheTest, HyperClockCacheReportProblems) {
   EXPECT_EQ(logger->PopCounts(), (std::array<int, 3>{{0, 1, 0}}));
 }
 
-#endif  // ROCKSDB_LITE
 
 class DBBlockCacheKeyTest
     : public DBTestBase,
@@ -1442,7 +1438,6 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
     ++key_count;
   }
 
-#ifndef ROCKSDB_LITE
   // Save an export of those ordinary SST files for later
   std::string export_files_dir = dbname_ + "/exported";
   ExportImportFilesMetaData* metadata_ptr_ = nullptr;
@@ -1470,7 +1465,6 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
     IngestExternalFileOptions ingest_opts;
     ASSERT_OK(db_->IngestExternalFile(handles_[1], {f}, ingest_opts));
   }
-#endif
 
   perform_gets();
   verify_stats();
@@ -1484,7 +1478,6 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   // Make sure we can cache hit even on a full copy of the DB. Using
   // StableCacheKeyTestFS, Checkpoint will resort to full copy not hard link.
   // (Checkpoint  not available in LITE mode to test this.)
-#ifndef ROCKSDB_LITE
   auto db_copy_name = dbname_ + "-copy";
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(db_copy_name));
@@ -1523,7 +1516,6 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
 
   perform_gets();
   verify_stats();
-#endif  // !ROCKSDB_LITE
 
   Close();
   Destroy(options);

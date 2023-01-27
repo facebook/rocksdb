@@ -207,7 +207,6 @@ TEST_P(PrefetchTest, Basic) {
   Close();
 }
 
-#ifndef ROCKSDB_LITE
 // This test verifies BlockBasedTableOptions.max_auto_readahead_size is
 // configured dynamically.
 TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
@@ -559,7 +558,6 @@ TEST_P(PrefetchTest, ConfigureNumFilesReadsForReadaheadSize) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 // This test verifies the basic functionality of implicit autoreadahead:
 // - Enable implicit autoreadahead and prefetch only if sequential blocks are
@@ -949,7 +947,6 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
   Close();
 }
 
-#ifndef ROCKSDB_LITE
 // This test verifies the functionality of ReadOptions.adaptive_readahead.
 TEST_P(PrefetchTest, DBIterLevelReadAhead) {
   const int kNumKeys = 1000;
@@ -1158,7 +1155,6 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
   }
   Close();
 }
-#endif  //! ROCKSDB_LITE
 
 class PrefetchTest1 : public DBTestBase,
                       public ::testing::WithParamInterface<bool> {
@@ -1189,7 +1185,6 @@ class PrefetchTest1 : public DBTestBase,
 
 INSTANTIATE_TEST_CASE_P(PrefetchTest1, PrefetchTest1, ::testing::Bool());
 
-#ifndef ROCKSDB_LITE
 // This test verifies the functionality of ReadOptions.adaptive_readahead when
 // reads are not sequential.
 TEST_P(PrefetchTest1, NonSequentialReadsWithAdaptiveReadahead) {
@@ -1272,7 +1267,6 @@ TEST_P(PrefetchTest1, NonSequentialReadsWithAdaptiveReadahead) {
   }
   Close();
 }
-#endif  //! ROCKSDB_LITE
 
 // This test verifies the functionality of adaptive_readaheadsize with cache and
 // if block is found in cache, decrease the readahead_size if
@@ -1513,7 +1507,6 @@ TEST_P(PrefetchTest1, SeekParallelizationTest) {
 extern "C" bool RocksDbIOUringEnable() { return true; }
 
 namespace {
-#ifndef ROCKSDB_LITE
 #ifdef GFLAGS
 const int kMaxArgCount = 100;
 const size_t kArgBufferSize = 100000;
@@ -1538,7 +1531,6 @@ void RunIOTracerParserTool(std::string trace_file) {
   ASSERT_EQ(0, ROCKSDB_NAMESPACE::io_tracer_parser(argc, argv));
 }
 #endif  // GFLAGS
-#endif  // ROCKSDB_LITE
 }  // namespace
 
 // Tests the default implementation of ReadAsync API with PosixFileSystem during
@@ -1929,7 +1921,6 @@ TEST_P(PrefetchTest, SeekParallelizationTestWithPosix) {
   Close();
 }
 
-#ifndef ROCKSDB_LITE
 #ifdef GFLAGS
 // This test verifies io_tracing with PosixFileSystem during prefetching.
 TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
@@ -2167,7 +2158,6 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   ASSERT_EQ(result, async_result);
 }
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

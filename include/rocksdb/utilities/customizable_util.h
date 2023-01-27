@@ -69,11 +69,7 @@ static Status NewSharedObject(
     std::shared_ptr<T>* result) {
   if (!id.empty()) {
     Status status;
-#ifndef ROCKSDB_LITE
     status = config_options.registry->NewSharedObject(id, result);
-#else
-    status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
       status = Status::OK();
     } else if (status.ok()) {
@@ -123,16 +119,10 @@ static Status NewManagedObject(
     std::shared_ptr<T>* result) {
   Status status;
   if (!id.empty()) {
-#ifndef ROCKSDB_LITE
     status = config_options.registry->GetOrCreateManagedObject<T>(
         id, result, [config_options, opt_map](T* object) {
           return object->ConfigureFromMap(config_options, opt_map);
         });
-#else
-    (void)result;
-    (void)opt_map;
-    status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
       return Status::OK();
     }
@@ -254,11 +244,7 @@ static Status NewUniqueObject(
     std::unique_ptr<T>* result) {
   if (!id.empty()) {
     Status status;
-#ifndef ROCKSDB_LITE
     status = config_options.registry->NewUniqueObject(id, result);
-#else
-    status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
       status = Status::OK();
     } else if (status.ok()) {
@@ -325,11 +311,7 @@ static Status NewStaticObject(
     const std::unordered_map<std::string, std::string>& opt_map, T** result) {
   if (!id.empty()) {
     Status status;
-#ifndef ROCKSDB_LITE
     status = config_options.registry->NewStaticObject(id, result);
-#else
-    status = Status::NotSupported("Cannot load object in LITE mode ", id);
-#endif  // ROCKSDB_LITE
     if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
       status = Status::OK();
     } else if (status.ok()) {

@@ -23,7 +23,6 @@ namespace ROCKSDB_NAMESPACE {
 // cache disabled) reads appropriately, and also updates the IO stats.
 class SequentialFileReader {
  private:
-#ifndef ROCKSDB_LITE
   void NotifyOnFileReadFinish(
       uint64_t offset, size_t length,
       const FileOperationInfo::StartTimePoint& start_ts,
@@ -49,7 +48,6 @@ class SequentialFileReader {
                     }
                   });
   }
-#endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
@@ -70,11 +68,7 @@ class SequentialFileReader {
         file_(std::move(_file), io_tracer, _file_name),
         listeners_(),
         rate_limiter_(rate_limiter) {
-#ifndef ROCKSDB_LITE
     AddFileIOListeners(listeners);
-#else
-    (void)listeners;
-#endif
   }
 
   explicit SequentialFileReader(
@@ -89,11 +83,7 @@ class SequentialFileReader {
               io_tracer, _file_name),
         listeners_(),
         rate_limiter_(rate_limiter) {
-#ifndef ROCKSDB_LITE
     AddFileIOListeners(listeners);
-#else
-    (void)listeners;
-#endif
   }
   static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
                          const std::string& fname, const FileOptions& file_opts,

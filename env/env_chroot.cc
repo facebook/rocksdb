@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 
 #include "env/env_chroot.h"
 
@@ -145,4 +145,4 @@ Env* NewChrootEnv(Env* base_env, const std::string& chroot_dir) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#endif  //  !defined(OS_WIN)

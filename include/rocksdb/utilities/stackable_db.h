@@ -376,7 +376,6 @@ class StackableDB : public DB {
 
   virtual Status UnlockWAL() override { return db_->UnlockWAL(); }
 
-#ifndef ROCKSDB_LITE
 
   virtual Status DisableFileDeletions() override {
     return db_->DisableFileDeletions();
@@ -448,7 +447,6 @@ class StackableDB : public DB {
     return db_->NewDefaultReplayer(handles, std::move(reader), replayer);
   }
 
-#endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
@@ -552,11 +550,9 @@ class StackableDB : public DB {
     return db_->DefaultColumnFamily();
   }
 
-#ifndef ROCKSDB_LITE
   Status TryCatchUpWithPrimary() override {
     return db_->TryCatchUpWithPrimary();
   }
-#endif  // ROCKSDB_LITE
 
  protected:
   DB* db_;

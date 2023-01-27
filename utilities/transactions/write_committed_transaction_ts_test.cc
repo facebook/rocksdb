@@ -7,7 +7,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/merge_operators.h"
-#ifndef ROCKSDB_LITE
 
 #include "test_util/testutil.h"
 #include "utilities/transactions/transaction_test.h"
@@ -577,12 +576,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <cstdio>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Transactions not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

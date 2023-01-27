@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include "table/plain/plain_table_reader.h"
 
@@ -762,4 +761,3 @@ Slice PlainTableIterator::value() const {
 Status PlainTableIterator::status() const { return status_; }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE
