@@ -1733,6 +1733,7 @@ class DB : public DBDataInterface, public DBMetadataInterface {
   virtual DB* GetRootDB() { return this; }
 
   using DBDataInterface::CreateColumnFamily;
+  using DBDataInterface::CreateColumnFamilyWithImport;
   using DBDataInterface::Delete;
   using DBDataInterface::DeleteRange;
   using DBDataInterface::DestroyColumnFamilyHandle;
@@ -1742,6 +1743,8 @@ class DB : public DBDataInterface, public DBMetadataInterface {
   using DBDataInterface::GetApproximateSizes;
   using DBDataInterface::GetMergeOperands;
   using DBDataInterface::GetSnapshot;
+  using DBDataInterface::IngestExternalFile;
+  using DBDataInterface::IngestExternalFiles;
   using DBDataInterface::KeyMayExist;
   using DBDataInterface::Merge;
   using DBDataInterface::MultiGet;
@@ -1754,45 +1757,22 @@ class DB : public DBDataInterface, public DBMetadataInterface {
   using DBMetadataInterface::CompactFiles;
   using DBMetadataInterface::CompactRange;
   using DBMetadataInterface::ContinueBackgroundWork;
+  using DBMetadataInterface::DeleteFile;
   using DBMetadataInterface::DisableFileDeletions;
   using DBMetadataInterface::DisableManualCompaction;
   using DBMetadataInterface::EnableAutoCompaction;
   using DBMetadataInterface::EnableFileDeletions;
   using DBMetadataInterface::EnableManualCompaction;
-  using DBMetadataInterface::Flush;
-  using DBMetadataInterface::FlushWAL;
-  using DBMetadataInterface::GetAggregatedIntProperty;
-#ifndef ROCKSDB_LITE
-  using DBDataInterface::CreateColumnFamilyWithImport;
-  using DBDataInterface::IngestExternalFile;
-  using DBDataInterface::IngestExternalFiles;
-  using DBMetadataInterface::DeleteFile;
   using DBMetadataInterface::EndBlockCacheTrace;
   using DBMetadataInterface::EndIOTrace;
   using DBMetadataInterface::EndTrace;
+  using DBMetadataInterface::Flush;
+  using DBMetadataInterface::FlushWAL;
+  using DBMetadataInterface::GetAggregatedIntProperty;
   using DBMetadataInterface::GetAllColumnFamilyMetaData;
   using DBMetadataInterface::GetColumnFamilyMetaData;
   using DBMetadataInterface::GetCreationTimeOfOldestFile;
   using DBMetadataInterface::GetCurrentWalFile;
-  using DBMetadataInterface::GetLiveFiles;
-  using DBMetadataInterface::GetLiveFilesChecksumInfo;
-  using DBMetadataInterface::GetLiveFilesMetaData;
-  using DBMetadataInterface::GetLiveFilesStorageInfo;
-  using DBMetadataInterface::GetPropertiesOfAllTables;
-  using DBMetadataInterface::GetPropertiesOfTablesInRange;
-  using DBMetadataInterface::GetSortedWalFiles;
-  using DBMetadataInterface::GetUpdatesSince;
-  using DBMetadataInterface::NewDefaultReplayer;
-  using DBMetadataInterface::PromoteL0;
-  using DBMetadataInterface::StartBlockCacheTrace;
-  using DBMetadataInterface::StartIOTrace;
-  using DBMetadataInterface::StartTrace;
-  using DBMetadataInterface::SuggestCompactRange;
-  using DBMetadataInterface::TryCatchUpWithPrimary;
-  using DBMetadataInterface::VerifyChecksum;
-  using DBMetadataInterface::VerifyFileChecksums;
-#endif  // !ROCKSDB_LITE
-
   using DBMetadataInterface::GetDbIdentity;
   using DBMetadataInterface::GetDBOptions;
   using DBMetadataInterface::GetDbSessionId;
@@ -1801,22 +1781,39 @@ class DB : public DBDataInterface, public DBMetadataInterface {
   using DBMetadataInterface::GetFullHistoryTsLow;
   using DBMetadataInterface::GetIntProperty;
   using DBMetadataInterface::GetLatestSequenceNumber;
+  using DBMetadataInterface::GetLiveFiles;
+  using DBMetadataInterface::GetLiveFilesChecksumInfo;
+  using DBMetadataInterface::GetLiveFilesMetaData;
+  using DBMetadataInterface::GetLiveFilesStorageInfo;
   using DBMetadataInterface::GetMapProperty;
   using DBMetadataInterface::GetOptions;
+  using DBMetadataInterface::GetPropertiesOfAllTables;
+  using DBMetadataInterface::GetPropertiesOfTablesInRange;
   using DBMetadataInterface::GetProperty;
+  using DBMetadataInterface::GetSortedWalFiles;
   using DBMetadataInterface::GetStatsHistory;
+  using DBMetadataInterface::GetUpdatesSince;
   using DBMetadataInterface::IncreaseFullHistoryTsLow;
   using DBMetadataInterface::Level0StopWriteTrigger;
   using DBMetadataInterface::LockWAL;
   using DBMetadataInterface::MaxMemCompactionLevel;
+  using DBMetadataInterface::NewDefaultReplayer;
   using DBMetadataInterface::NumberLevels;
   using DBMetadataInterface::PauseBackgroundWork;
+  using DBMetadataInterface::PromoteL0;
   using DBMetadataInterface::ResetStats;
   using DBMetadataInterface::Resume;
   using DBMetadataInterface::SetDBOptions;
   using DBMetadataInterface::SetOptions;
+  using DBMetadataInterface::StartBlockCacheTrace;
+  using DBMetadataInterface::StartIOTrace;
+  using DBMetadataInterface::StartTrace;
+  using DBMetadataInterface::SuggestCompactRange;
   using DBMetadataInterface::SyncWAL;
+  using DBMetadataInterface::TryCatchUpWithPrimary;
   using DBMetadataInterface::UnlockWAL;
+  using DBMetadataInterface::VerifyChecksum;
+  using DBMetadataInterface::VerifyFileChecksums;
 
   Status Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
              const Slice& key, const Slice& value) override;
@@ -1931,12 +1928,10 @@ class DB : public DBDataInterface, public DBMetadataInterface {
     GetApproximateMemTableStats(DefaultColumnFamily(), range, count, size);
   }
 
-#ifndef ROCKSDB_LITE
   Status IngestExternalFile(const std::vector<std::string>& external_files,
                             const IngestExternalFileOptions& options) override {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
-#endif  // !ROCKSDB_LITE
 
   // Create a column_family and return the handle of column family
   // through the argument handle.
@@ -2027,14 +2022,12 @@ class DB : public DBDataInterface, public DBMetadataInterface {
   Status Flush(const FlushOptions& options) override {
     return Flush(options, DefaultColumnFamily());
   }
-#ifndef ROCKSDB_LITE
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* metadata) override {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props) override {
     return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
   }
-#endif  // !ROCKSDB_LITE
   FileSystem* GetFileSystem() const override;
 };
 
