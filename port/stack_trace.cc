@@ -151,6 +151,10 @@ void PrintStack(int first_frames_to_skip) {
   bool debug = debug_env != nullptr && strlen(debug_env) > 0;
 
   if (dll || debug) {
+    // Allow ouside debugger to attach, even with Yama security restrictions
+#ifdef PR_SET_PTRACER_ANY
+    (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+#endif
     // Try to invoke GDB, either for stack trace or debugging
     char pid_str[20];
     snprintf(pid_str, sizeof(pid_str), "%lld", (long long)getpid());
@@ -163,15 +167,23 @@ void PrintStack(int first_frames_to_skip) {
         return;
       } else {
         fprintf(stderr, "Invoking GDB for stack trace...\n");
+        // TODO: does this always select the correct thread in gdb?
+
         // Skip top ~4 frames here in PrintStack
         // See https://stackoverflow.com/q/40991943/454544
         auto bt_in_gdb =
             "frame apply level 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 "
             "23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 -q "
             "frame";
-        dup2(2, 1);  // redirect child stdout to original stderr
-        close(0);  // no child stdin
-        execlp("gdb", "gdb", "-n", "-batch", "-p", pid_str, "-ex", bt_in_gdb, (char *)nullptr);
+        // Redirect child stdout to original stderr
+        dup2(2, 1);
+        // No child stdin (don't use pager)
+        close(0);
+        // -n : Loading config files can apparently cause failures with the
+        // other options here.
+        // -batch : non-interactive; suppress banners as much as possible
+        execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-n", "-batch", "-p",
+               pid_str, "-ex", bt_in_gdb, (char*)nullptr);
         return;
       }
     } else {
@@ -242,7 +254,9 @@ void InstallStackTraceHandler() {
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
-  // Allow ouside debugger to attach, even with Yama security restrictions
+  // Allow ouside debugger to attach, even with Yama security restrictions.
+  // This is needed even outside of PrintStack() so that external mechanisms
+  // can dump stacks if they suspect that a test has hung.
 #ifdef PR_SET_PTRACER_ANY
   (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
 #endif
