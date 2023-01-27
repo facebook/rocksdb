@@ -1597,7 +1597,7 @@ Status DBImpl::LockWAL() {
   Status s = FlushWAL(/*sync=*/false);
   if (!s.ok()) {
     // Non-OK return should not be in locked state
-    UnlockWAL();
+    UnlockWAL().PermitUncheckedError();
   }
   return s;
 }
