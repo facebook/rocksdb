@@ -298,7 +298,6 @@ extern bool InitializeOptionsFromFile(Options& options);
 // input arguments.
 extern void InitializeOptionsFromFlags(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<Cache>& block_cache_compressed,
     const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
 
 // Initialize `options` on which `InitializeOptionsFromFile()` and
@@ -306,7 +305,7 @@ extern void InitializeOptionsFromFlags(
 // There are two cases.
 // Case 1: OPTIONS file is not specified. Command line arguments have been used
 //         to initialize `options`. InitializeOptionsGeneral() will use
-//         `cache`, `block_cache_compressed` and `filter_policy` to initialize
+//         `cache` and `filter_policy` to initialize
 //         corresponding fields of `options`. InitializeOptionsGeneral() will
 //         also set up other fields of `options` so that stress test can run.
 //         Examples include `create_if_missing` and
@@ -317,14 +316,13 @@ extern void InitializeOptionsFromFlags(
 //         case, if command line arguments indicate that the user wants to set
 //         up such shared objects, e.g. block cache, compressed block cache,
 //         row cache, filter policy, then InitializeOptionsGeneral() will honor
-//         the user's choice, thus passing `cache`, `block_cache_compressed`,
+//         the user's choice, thus passing `cache`,
 //         `filter_policy` as input arguments.
 //
 // InitializeOptionsGeneral() must not overwrite fields of `options` loaded
 // from OPTIONS file.
 extern void InitializeOptionsGeneral(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<Cache>& block_cache_compressed,
     const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
 
 // If no OPTIONS file is specified, set up `options` so that we can test

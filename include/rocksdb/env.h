@@ -180,17 +180,6 @@ class Env : public Customizable {
   const char* Name() const override { return ""; }
 
   // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result);
-
-  // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result,
-                        std::shared_ptr<Env>* guard);
-
-  // Loads the environment specified by the input value into the result
   // @see Customizable for a more detailed description of the parameters and
   // return codes
   //

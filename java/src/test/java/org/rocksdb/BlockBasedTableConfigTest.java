@@ -231,63 +231,6 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
-  public void blockCacheCompressed() {
-    try (final Cache cache = new LRUCache(17 * 1024 * 1024);
-         final Options options = new Options().setTableFormatConfig(
-        new BlockBasedTableConfig().setBlockCacheCompressed(cache))) {
-      assertThat(options.tableFactoryName()).isEqualTo("BlockBasedTable");
-    }
-  }
-
-  @Ignore("See issue: https://github.com/facebook/rocksdb/issues/4822")
-  @Test
-  public void blockCacheCompressedIntegration() throws RocksDBException {
-    final byte[] key1 = "some-key1".getBytes(StandardCharsets.UTF_8);
-    final byte[] key2 = "some-key1".getBytes(StandardCharsets.UTF_8);
-    final byte[] key3 = "some-key1".getBytes(StandardCharsets.UTF_8);
-    final byte[] key4 = "some-key1".getBytes(StandardCharsets.UTF_8);
-    final byte[] value = "some-value".getBytes(StandardCharsets.UTF_8);
-
-    try (final Cache compressedCache = new LRUCache(8 * 1024 * 1024);
-         final Statistics statistics = new Statistics()) {
-
-      final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig()
-          .setNoBlockCache(true)
-          .setBlockCache(null)
-          .setBlockCacheCompressed(compressedCache)
-          .setFormatVersion(4);
-
-      try (final Options options = new Options()
-             .setCreateIfMissing(true)
-             .setStatistics(statistics)
-             .setTableFormatConfig(blockBasedTableConfig)) {
-
-        for (int shard = 0; shard < 8; shard++) {
-          try (final FlushOptions flushOptions = new FlushOptions();
-               final WriteOptions writeOptions = new WriteOptions();
-               final ReadOptions readOptions = new ReadOptions();
-               final RocksDB db =
-                   RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "/" + shard)) {
-
-            db.put(writeOptions, key1, value);
-            db.put(writeOptions, key2, value);
-            db.put(writeOptions, key3, value);
-            db.put(writeOptions, key4, value);
-            db.flush(flushOptions);
-
-            db.get(readOptions, key1);
-            db.get(readOptions, key2);
-            db.get(readOptions, key3);
-            db.get(readOptions, key4);
-
-            assertThat(statistics.getTickerCount(TickerType.BLOCK_CACHE_COMPRESSED_ADD)).isEqualTo(shard + 1);
-          }
-        }
-      }
-    }
-  }
-
-  @Test
   public void blockSize() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setBlockSize(10);
@@ -470,21 +413,4 @@ public class BlockBasedTableConfigTest {
         isEqualTo(5);
   }
 
-  @Deprecated
-  @Test
-  public void blockCacheCompressedSize() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setBlockCacheCompressedSize(40);
-    assertThat(blockBasedTableConfig.blockCacheCompressedSize()).
-        isEqualTo(40);
-  }
-
-  @Deprecated
-  @Test
-  public void blockCacheCompressedNumShardBits() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setBlockCacheCompressedNumShardBits(4);
-    assertThat(blockBasedTableConfig.blockCacheCompressedNumShardBits()).
-        isEqualTo(4);
-  }
 }

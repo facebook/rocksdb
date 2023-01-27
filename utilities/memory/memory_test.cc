@@ -41,7 +41,6 @@ class MemoryTest : public testing::Test {
     const auto bbto = factory->GetOptions<BlockBasedTableOptions>();
     if (bbto != nullptr) {
       cache_set->insert(bbto->block_cache.get());
-      cache_set->insert(bbto->block_cache_compressed.get());
     }
   }
 

@@ -1207,6 +1207,11 @@ static bool SaveValue(void* arg, const char* entry) {
                 s->columns->SetPlainValue(result);
               }
             }
+          } else {
+            // We have found a final value (a base deletion) and have newer
+            // merge operands that we do not intend to merge. Nothing remains
+            // to be done so assign status to OK.
+            *(s->status) = Status::OK();
           }
         } else {
           *(s->status) = Status::NotFound();

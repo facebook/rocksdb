@@ -6589,6 +6589,58 @@ TEST_P(TransactionTest, LockWal) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_P(TransactionTest, StallTwoWriteQueues) {
+  // There was a two_write_queues bug in which both write thread leaders (for
+  // each queue) would attempt to own the stopping of writes in the primary
+  // write queue. This nearly worked but could lead to some broken assertions
+  // and a kind of deadlock in the test below. (Would resume if someone
+  // eventually signalled bg_cv_ again.)
+  if (!options.two_write_queues) {
+    ROCKSDB_GTEST_BYPASS("Test only needed with two_write_queues");
+    return;
+  }
+
+  // Stop writes
+  ASSERT_OK(db->LockWAL());
+
+  WriteOptions wopts;
+  wopts.sync = true;
+  wopts.disableWAL = false;
+
+  // Create one write thread that blocks in the primary write queue and one
+  // that blocks in the nonmem queue.
+  bool t1_completed = false;
+  bool t2_completed = false;
+  port::Thread t1{[&]() {
+    ASSERT_OK(db->Put(wopts, "x", "y"));
+    t1_completed = true;
+  }};
+  port::Thread t2{[&]() {
+    std::unique_ptr<Transaction> txn0{db->BeginTransaction(wopts, {})};
+    ASSERT_OK(txn0->SetName("xid"));
+    ASSERT_OK(txn0->Prepare());  // nonmem
+    ASSERT_OK(txn0->Commit());
+    t2_completed = true;
+  }};
+
+  // Sleep long enough to that above threads can usually reach a waiting point,
+  // to usually reveal deadlock if the bug is present.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // Ensure proper test setup
+  ASSERT_FALSE(t1_completed);
+  ASSERT_FALSE(t2_completed);
+
+  // Resume writes
+  ASSERT_OK(db->UnlockWAL());
+
+  // Wait for writes to finish
+  t1.join();
+  t2.join();
+  // Ensure proper test setup
+  ASSERT_TRUE(t1_completed);
+  ASSERT_TRUE(t2_completed);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
