@@ -891,7 +891,6 @@ TEST_P(DBIteratorTest, IteratorDeleteAfterCfDrop) {
 }
 
 // SetOptions not defined in ROCKSDB LITE
-#ifndef ROCKSDB_LITE
 TEST_P(DBIteratorTest, DBIteratorBoundTest) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -1119,7 +1118,6 @@ TEST_P(DBIteratorTest, DBIteratorBoundMultiSeek) {
               TestGetTickerCount(options, BLOCK_CACHE_MISS));
   }
 }
-#endif
 
 TEST_P(DBIteratorTest, DBIteratorBoundOptimizationTest) {
   for (auto format_version : {2, 3, 4}) {
@@ -1564,7 +1562,6 @@ INSTANTIATE_TEST_CASE_P(DBIteratorTestForPinnedDataInstance,
                         DBIteratorTestForPinnedData,
                         testing::Values(true, false));
 
-#ifndef ROCKSDB_LITE
 TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   Options options = CurrentOptions();
   BlockBasedTableOptions table_options;
@@ -1634,7 +1631,6 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
 
   delete iter;
 }
-#endif
 
 TEST_P(DBIteratorTest, PinnedDataIteratorMergeOperator) {
   Options options = CurrentOptions();
@@ -2216,9 +2212,7 @@ TEST_P(DBIteratorTest, ReadAhead) {
     ASSERT_OK(Put(Key(i), value));
   }
   ASSERT_OK(Flush());
-#ifndef ROCKSDB_LITE
   ASSERT_EQ("1,1,1", FilesPerLevel());
-#endif  // !ROCKSDB_LITE
 
   env_->random_read_bytes_counter_ = 0;
   options.statistics->setTickerCount(NO_FILE_OPENS, 0);
@@ -2281,12 +2275,10 @@ TEST_P(DBIteratorTest, DBIteratorSkipRecentDuplicatesTest) {
     ASSERT_OK(Put("b", std::to_string(i + 1).c_str()));
   }
 
-#ifndef ROCKSDB_LITE
   // Check that memtable wasn't flushed.
   std::string val;
   ASSERT_TRUE(db_->GetProperty("rocksdb.num-files-at-level0", &val));
   EXPECT_EQ("0", val);
-#endif
 
   // Seek iterator to a smaller key.
   get_perf_context()->Reset();

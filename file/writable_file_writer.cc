@@ -249,15 +249,12 @@ IOStatus WritableFileWriter::Close() {
   // we need to let the file know where data ends.
   if (use_direct_io()) {
     {
-#ifndef ROCKSDB_LITE
       FileOperationInfo::StartTimePoint start_ts;
       if (ShouldNotifyListeners()) {
         start_ts = FileOperationInfo::StartNow();
       }
-#endif
       uint64_t filesz = filesize_.load(std::memory_order_acquire);
       interim = writable_file_->Truncate(filesz, io_options, nullptr);
-#ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
         auto finish_ts = FileOperationInfo::FinishNow();
         NotifyOnFileTruncateFinish(start_ts, finish_ts, s);
@@ -266,18 +263,14 @@ IOStatus WritableFileWriter::Close() {
                           filesz);
         }
       }
-#endif
     }
     if (interim.ok()) {
       {
-#ifndef ROCKSDB_LITE
         FileOperationInfo::StartTimePoint start_ts;
         if (ShouldNotifyListeners()) {
           start_ts = FileOperationInfo::StartNow();
         }
-#endif
         interim = writable_file_->Fsync(io_options, nullptr);
-#ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileSyncFinish(start_ts, finish_ts, s,
@@ -286,7 +279,6 @@ IOStatus WritableFileWriter::Close() {
             NotifyOnIOError(interim, FileOperationType::kFsync, file_name());
           }
         }
-#endif
       }
     }
     if (!interim.ok() && s.ok()) {
@@ -296,14 +288,11 @@ IOStatus WritableFileWriter::Close() {
 
   TEST_KILL_RANDOM("WritableFileWriter::Close:0");
   {
-#ifndef ROCKSDB_LITE
     FileOperationInfo::StartTimePoint start_ts;
     if (ShouldNotifyListeners()) {
       start_ts = FileOperationInfo::StartNow();
     }
-#endif
     interim = writable_file_->Close(io_options, nullptr);
-#ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
       auto finish_ts = FileOperationInfo::FinishNow();
       NotifyOnFileCloseFinish(start_ts, finish_ts, s);
@@ -311,7 +300,6 @@ IOStatus WritableFileWriter::Close() {
         NotifyOnIOError(interim, FileOperationType::kClose, file_name());
       }
     }
-#endif
   }
   if (!interim.ok() && s.ok()) {
     s = interim;
@@ -344,7 +332,6 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
 
   if (buf_.CurrentSize() > 0) {
     if (use_direct_io()) {
-#ifndef ROCKSDB_LITE
       if (pending_sync_) {
         if (perform_data_verification_ && buffered_data_with_checksum_) {
           s = WriteDirectWithChecksum(op_rate_limiter_priority);
@@ -352,7 +339,6 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
           s = WriteDirect(op_rate_limiter_priority);
         }
       }
-#endif  // !ROCKSDB_LITE
     } else {
       if (perform_data_verification_ && buffered_data_with_checksum_) {
         s = WriteBufferedWithChecksum(buf_.BufferStart(), buf_.CurrentSize(),
@@ -369,18 +355,15 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
   }
 
   {
-#ifndef ROCKSDB_LITE
     FileOperationInfo::StartTimePoint start_ts;
     if (ShouldNotifyListeners()) {
       start_ts = FileOperationInfo::StartNow();
     }
-#endif
     IOOptions io_options;
     io_options.rate_limiter_priority =
         WritableFileWriter::DecideRateLimiterPriority(
             writable_file_->GetIOPriority(), op_rate_limiter_priority);
     s = writable_file_->Flush(io_options, nullptr);
-#ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileFlushFinish(start_ts, finish_ts, s);
@@ -388,7 +371,6 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
         NotifyOnIOError(s, FileOperationType::kFlush, file_name());
       }
     }
-#endif
   }
 
   if (!s.ok()) {
@@ -500,12 +482,10 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
 
   IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, clock_);
 
-#ifndef ROCKSDB_LITE
   FileOperationInfo::StartTimePoint start_ts;
   if (ShouldNotifyListeners()) {
     start_ts = FileOperationInfo::StartNow();
   }
-#endif
 
   IOOptions io_options;
   io_options.rate_limiter_priority = writable_file_->GetIOPriority();
@@ -514,7 +494,6 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
   } else {
     s = writable_file_->Sync(io_options, nullptr);
   }
-#ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
     auto finish_ts = std::chrono::steady_clock::now();
     NotifyOnFileSyncFinish(
@@ -526,7 +505,6 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
           file_name());
     }
   }
-#endif
   SetPerfLevel(prev_perf_level);
 
   // The caller will be responsible to call set_seen_error() if s is not OK.
@@ -540,19 +518,16 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
 
   IOSTATS_TIMER_GUARD(range_sync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::RangeSync:0");
-#ifndef ROCKSDB_LITE
   FileOperationInfo::StartTimePoint start_ts;
   if (ShouldNotifyListeners()) {
     start_ts = FileOperationInfo::StartNow();
   }
-#endif
   IOOptions io_options;
   io_options.rate_limiter_priority = writable_file_->GetIOPriority();
   IOStatus s = writable_file_->RangeSync(offset, nbytes, io_options, nullptr);
   if (!s.ok()) {
     set_seen_error();
   }
-#ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
     auto finish_ts = std::chrono::steady_clock::now();
     NotifyOnFileRangeSyncFinish(offset, nbytes, start_ts, finish_ts, s);
@@ -561,7 +536,6 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
                       offset);
     }
   }
-#endif
   return s;
 }
 
@@ -598,14 +572,12 @@ IOStatus WritableFileWriter::WriteBuffered(
       IOSTATS_TIMER_GUARD(write_nanos);
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
 
-#ifndef ROCKSDB_LITE
       FileOperationInfo::StartTimePoint start_ts;
       uint64_t old_size = writable_file_->GetFileSize(io_options, nullptr);
       if (ShouldNotifyListeners()) {
         start_ts = FileOperationInfo::StartNow();
         old_size = next_write_offset_;
       }
-#endif
       {
         auto prev_perf_level = GetPerfLevel();
 
@@ -633,7 +605,6 @@ IOStatus WritableFileWriter::WriteBuffered(
         }
         SetPerfLevel(prev_perf_level);
       }
-#ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(old_size, allowed, start_ts, finish_ts, s);
@@ -642,7 +613,6 @@ IOStatus WritableFileWriter::WriteBuffered(
                           old_size);
         }
       }
-#endif
       if (!s.ok()) {
         set_seen_error();
         return s;
@@ -702,14 +672,12 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(
     IOSTATS_TIMER_GUARD(write_nanos);
     TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
 
-#ifndef ROCKSDB_LITE
     FileOperationInfo::StartTimePoint start_ts;
     uint64_t old_size = writable_file_->GetFileSize(io_options, nullptr);
     if (ShouldNotifyListeners()) {
       start_ts = FileOperationInfo::StartNow();
       old_size = next_write_offset_;
     }
-#endif
     {
       auto prev_perf_level = GetPerfLevel();
 
@@ -720,7 +688,6 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(
       s = writable_file_->Append(Slice(src, left), io_options, v_info, nullptr);
       SetPerfLevel(prev_perf_level);
     }
-#ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileWriteFinish(old_size, left, start_ts, finish_ts, s);
@@ -729,7 +696,6 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(
                         old_size);
       }
     }
-#endif
     if (!s.ok()) {
       // If writable_file_->Append() failed, then the data may or may not
       // exist in the underlying memory buffer, OS page cache, remote file
@@ -789,7 +755,6 @@ void WritableFileWriter::Crc32cHandoffChecksumCalculation(const char* data,
 // whole number of pages to be written again on the next flush because we can
 // only write on aligned
 // offsets.
-#ifndef ROCKSDB_LITE
 IOStatus WritableFileWriter::WriteDirect(
     Env::IOPriority op_rate_limiter_priority) {
   if (seen_error()) {
@@ -1006,7 +971,6 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
   }
   return s;
 }
-#endif  // !ROCKSDB_LITE
 Env::IOPriority WritableFileWriter::DecideRateLimiterPriority(
     Env::IOPriority writable_file_io_priority,
     Env::IOPriority op_rate_limiter_priority) {

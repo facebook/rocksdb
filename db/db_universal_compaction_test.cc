@@ -9,7 +9,6 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
-#if !defined(ROCKSDB_LITE)
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
@@ -2220,16 +2219,9 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)
 
 int main(int argc, char** argv) {
-#if !defined(ROCKSDB_LITE)
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  (void)argc;
-  (void)argv;
-  return 0;
-#endif
 }

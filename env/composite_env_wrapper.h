@@ -289,10 +289,8 @@ class CompositeEnvWrapper : public CompositeEnv {
   const Customizable* Inner() const override { return target_.env; }
 
   Status PrepareOptions(const ConfigOptions& options) override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
-#endif  // ROCKSDB_LITE
 
   // Return the target to which this Env forwards all calls
   Env* env_target() const { return target_.env; }

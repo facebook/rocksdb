@@ -16,7 +16,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, OptionTypeInfo>
     lru_cache_options_type_info = {
         {"capacity",
@@ -64,7 +63,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 };
-#endif  // ROCKSDB_LITE
 
 Status SecondaryCache::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
@@ -75,7 +73,6 @@ Status SecondaryCache::CreateFromString(
     Status status;
     std::shared_ptr<SecondaryCache> sec_cache;
 
-#ifndef ROCKSDB_LITE
     CompressedSecondaryCacheOptions sec_cache_opts;
     status = OptionTypeInfo::ParseStruct(config_options, "",
                                          &comp_sec_cache_options_type_info, "",
@@ -84,11 +81,6 @@ Status SecondaryCache::CreateFromString(
       sec_cache = NewCompressedSecondaryCache(sec_cache_opts);
     }
 
-#else
-    (void)config_options;
-    status = Status::NotSupported(
-        "Cannot load compressed secondary cache in LITE mode ", args);
-#endif  //! ROCKSDB_LITE
 
     if (status.ok()) {
       result->swap(sec_cache);
@@ -108,7 +100,6 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
   if (value.find('=') == std::string::npos) {
     cache = NewLRUCache(ParseSizeT(value));
   } else {
-#ifndef ROCKSDB_LITE
     LRUCacheOptions cache_opts;
     status = OptionTypeInfo::ParseStruct(config_options, "",
                                          &lru_cache_options_type_info, "",
@@ -116,10 +107,6 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
     if (status.ok()) {
       cache = NewLRUCache(cache_opts);
     }
-#else
-    (void)config_options;
-    status = Status::NotSupported("Cannot load cache in LITE mode ", value);
-#endif  //! ROCKSDB_LITE
   }
   if (status.ok()) {
     result->swap(cache);

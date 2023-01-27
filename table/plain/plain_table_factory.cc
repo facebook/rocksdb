@@ -20,7 +20,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
     {"user_key_len",
      {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
@@ -153,9 +152,7 @@ Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
     return Status::InvalidArgument(s.getState());
   }
 }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
                                              const std::string& /*arg*/) {
   // The MemTableRepFactory built-in classes will be either a class
@@ -232,7 +229,6 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 Status GetMemTableRepFactoryFromString(
     const std::string& opts_str, std::unique_ptr<MemTableRepFactory>* result) {
@@ -245,12 +241,10 @@ Status GetMemTableRepFactoryFromString(
 Status MemTableRepFactory::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::unique_ptr<MemTableRepFactory>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterBuiltinMemTableRepFactory(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
   Status status = Customizable::GetOptionsMap(config_options, result->get(),
@@ -264,31 +258,8 @@ Status MemTableRepFactory::CreateFromString(
   } else if (id.empty()) {  // We have no Id but have options.  Not good
     return Status::NotSupported("Cannot reset object ", id);
   } else {
-#ifndef ROCKSDB_LITE
     status = NewUniqueObject<MemTableRepFactory>(config_options, id, opt_map,
                                                  result);
-#else
-    // To make it possible to configure the memtables in LITE mode, the ID
-    // is of the form <name>:<size>, where name is the name of the class and
-    // <size> is the length of the object (e.g. skip_list:10).
-    std::vector<std::string> opts_list = StringSplit(id, ':');
-    if (opts_list.empty() || opts_list.size() > 2 || !opt_map.empty()) {
-      status = Status::InvalidArgument("Can't parse memtable_factory option ",
-                                       value);
-    } else if (opts_list[0] == SkipListFactory::kNickName() ||
-               opts_list[0] == SkipListFactory::kClassName()) {
-      // Expecting format
-      // skip_list:<lookahead>
-      if (opts_list.size() == 2) {
-        size_t lookahead = ParseSizeT(opts_list[1]);
-        result->reset(new SkipListFactory(lookahead));
-      } else {
-        result->reset(new SkipListFactory());
-      }
-    } else if (!config_options.ignore_unsupported_options) {
-      status = Status::NotSupported("Cannot load object in LITE mode ", id);
-    }
-#endif  // ROCKSDB_LITE
   }
   return status;
 }
@@ -304,7 +275,6 @@ Status MemTableRepFactory::CreateFromString(
   return s;
 }
 
-#ifndef ROCKSDB_LITE
 Status GetPlainTableOptionsFromMap(
     const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
@@ -346,5 +316,4 @@ const std::string PlainTablePropertyNames::kBloomVersion =
 const std::string PlainTablePropertyNames::kNumBloomBlocks =
     "rocksdb.plain.table.bloom.numblocks";
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

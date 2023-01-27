@@ -482,8 +482,6 @@ TEST_F(CompactionPickerTest, LevelTriggerDynamic4) {
   ASSERT_EQ(num_levels - 1, compaction->output_level());
 }
 
-// Universal and FIFO Compactions are not supported in ROCKSDB_LITE
-#ifndef ROCKSDB_LITE
 TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
   NewVersionStorage(1, kCompactionStyleUniversal);
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
@@ -1245,7 +1243,6 @@ TEST_F(CompactionPickerTest, FIFOToWarmWithHotBetweenWarms) {
   ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
   NewVersionStorage(6, kCompactionStyleLevel);
@@ -2873,7 +2870,6 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesHit) {
   ASSERT_EQ(0, compaction->output_level());
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
   const uint64_t kFileSize = 100000;
 
@@ -3982,7 +3978,6 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
 INSTANTIATE_TEST_CASE_P(PerKeyPlacementCompactionPickerTest,
                         PerKeyPlacementCompactionPickerTest, ::testing::Bool());
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -29,7 +29,6 @@ class DBOptionsTest : public DBTestBase {
  public:
   DBOptionsTest() : DBTestBase("db_options_test", /*env_do_fsync=*/true) {}
 
-#ifndef ROCKSDB_LITE
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
       const DBOptions& options) {
     std::string options_str;
@@ -76,7 +75,6 @@ class DBOptionsTest : public DBTestBase {
     auto sanitized_options = SanitizeOptions(dbname_, db_options);
     return GetMutableDBOptionsMap(sanitized_options);
   }
-#endif  // ROCKSDB_LITE
 };
 
 TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
@@ -112,7 +110,6 @@ TEST_F(DBOptionsTest, ImmutableVerifySstUniqueIdInManifest) {
 }
 
 // RocksDB lite don't support dynamic options.
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBOptionsTest, AvoidUpdatingOptions) {
   Options options;
@@ -1148,7 +1145,6 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   // Verify the bottommost compression options still take effect even when the

@@ -620,11 +620,9 @@ class DBConstructor : public Constructor {
 
 enum TestType {
   BLOCK_BASED_TABLE_TEST,
-#ifndef ROCKSDB_LITE
   PLAIN_TABLE_SEMI_FIXED_PREFIX,
   PLAIN_TABLE_FULL_STR_PREFIX,
   PLAIN_TABLE_TOTAL_ORDER,
-#endif  // !ROCKSDB_LITE
   BLOCK_TEST,
   MEMTABLE_TEST,
   DB_TEST
@@ -654,11 +652,9 @@ std::ostream& operator<<(std::ostream& os, const TestArgs& args) {
 static std::vector<TestArgs> GenerateArgList() {
   std::vector<TestArgs> test_args;
   std::vector<TestType> test_types = {BLOCK_BASED_TABLE_TEST,
-#ifndef ROCKSDB_LITE
                                       PLAIN_TABLE_SEMI_FIXED_PREFIX,
                                       PLAIN_TABLE_FULL_STR_PREFIX,
                                       PLAIN_TABLE_TOTAL_ORDER,
-#endif  // !ROCKSDB_LITE
                                       BLOCK_TEST,
                                       MEMTABLE_TEST,
                                       DB_TEST};
@@ -697,7 +693,6 @@ static std::vector<TestArgs> GenerateArgList() {
 
   for (auto test_type : test_types) {
     for (auto reverse_compare : reverse_compare_types) {
-#ifndef ROCKSDB_LITE
       if (test_type == PLAIN_TABLE_SEMI_FIXED_PREFIX ||
           test_type == PLAIN_TABLE_FULL_STR_PREFIX ||
           test_type == PLAIN_TABLE_TOTAL_ORDER) {
@@ -715,7 +710,6 @@ static std::vector<TestArgs> GenerateArgList() {
         test_args.push_back(one_arg);
         continue;
       }
-#endif  // !ROCKSDB_LITE
 
       for (auto restart_interval : restart_intervals) {
         for (auto compression_type : compression_types) {
@@ -804,8 +798,7 @@ class HarnessTest : public testing::Test {
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
-// Plain table is not supported in ROCKSDB_LITE
-#ifndef ROCKSDB_LITE
+
       case PLAIN_TABLE_SEMI_FIXED_PREFIX:
         support_prev_ = false;
         only_support_prefix_seek_ = true;
@@ -845,7 +838,6 @@ class HarnessTest : public testing::Test {
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
-#endif  // !ROCKSDB_LITE
       case BLOCK_TEST:
         table_options_.block_size = 256;
         options_.table_factory.reset(
@@ -3811,8 +3803,6 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
   ASSERT_STREQ(checksum.c_str(), "\345\245\277\110");
 }
 
-// Plain table is not supported in ROCKSDB_LITE
-#ifndef ROCKSDB_LITE
 TEST_F(PlainTableTest, BasicPlainTableProperties) {
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = 8;
@@ -3942,7 +3932,6 @@ TEST_F(PlainTableTest, Crc32cFileChecksum) {
   EXPECT_STREQ(f.GetFileChecksum().c_str(), checksum.c_str());
 }
 
-#endif  // !ROCKSDB_LITE
 
 TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
@@ -4115,7 +4104,6 @@ TEST_P(ParameterizedHarnessTest, RandomizedHarnessTest) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBHarnessTest, RandomizedLongDB) {
   Random rnd(test::RandomSeed());
   int num_entries = 100000;
@@ -4136,7 +4124,6 @@ TEST_F(DBHarnessTest, RandomizedLongDB) {
   }
   ASSERT_GT(files, 0);
 }
-#endif  // ROCKSDB_LITE
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 class MemTableTest : public testing::Test {
@@ -4281,8 +4268,7 @@ TEST(TableTest, FooterTests) {
       ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 5U);
     }
   }
-// Plain table is not supported in ROCKSDB_LITE
-#ifndef ROCKSDB_LITE
+
   {
     // legacy plain table
     FooterBuilder footer;
@@ -4319,7 +4305,6 @@ TEST(TableTest, FooterTests) {
     ASSERT_EQ(decoded_footer.format_version(), 1U);
     ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 0U);
   }
-#endif  // !ROCKSDB_LITE
 }
 
 class IndexBlockRestartIntervalTest

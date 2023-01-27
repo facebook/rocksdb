@@ -165,7 +165,6 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   return std::min(kMaxPrefetchSize, max_qualified_size);
 }
 
-#ifndef ROCKSDB_LITE
 
 const std::string kOptNameMetadataCacheOpts = "metadata_cache_options";
 
@@ -226,11 +225,9 @@ static std::unordered_map<std::string,
         {"kFlushOnly",
          BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly}};
 
-#endif  // ROCKSDB_LITE
 
 static std::unordered_map<std::string, OptionTypeInfo>
     block_based_table_type_info = {
-#ifndef ROCKSDB_LITE
         /* currently not supported
           std::shared_ptr<Cache> block_cache = nullptr;
           CacheUsageOptions cache_usage_options;
@@ -414,7 +411,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 
-#endif  // ROCKSDB_LITE
 };
 
 // TODO(myabandeh): We should return an error instead of silently changing the
@@ -858,7 +854,6 @@ const void* BlockBasedTableFactory::GetOptionsPtr(
   }
 }
 
-#ifndef ROCKSDB_LITE
 // Take a default BlockBasedTableOptions "table_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
 // BlockBasedTableOptions "new_table_options".
@@ -974,7 +969,6 @@ Status GetBlockBasedTableOptionsFromMap(
   }
   return s;
 }
-#endif  // !ROCKSDB_LITE
 
 TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options) {

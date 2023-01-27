@@ -22,7 +22,6 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 
 void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
-#ifndef ROCKSDB_LITE
   if (replay_log) {
     if (replay_log->empty()) {
       // Optimization: in the common case of only one operation in the
@@ -32,11 +31,6 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
     replay_log->push_back(type);
     PutLengthPrefixedSlice(replay_log, value);
   }
-#else
-  (void)replay_log;
-  (void)type;
-  (void)value;
-#endif  // ROCKSDB_LITE
 }
 
 }  // namespace
@@ -584,7 +578,6 @@ void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context, Cleanable* value_pinner) {
-#ifndef ROCKSDB_LITE
   Slice s = replay_log;
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
@@ -601,13 +594,6 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
         ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
         &dont_care, value_pinner);
   }
-#else   // ROCKSDB_LITE
-  (void)replay_log;
-  (void)user_key;
-  (void)get_context;
-  (void)value_pinner;
-  assert(false);
-#endif  // ROCKSDB_LITE
 }
 
 }  // namespace ROCKSDB_NAMESPACE

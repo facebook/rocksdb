@@ -444,7 +444,6 @@ TEST_F(DBWALTest, RecoverWithBlob) {
 
   ASSERT_EQ(blob_file->GetTotalBlobCount(), 1);
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   ASSERT_NE(internal_stats, nullptr);
 
@@ -460,7 +459,6 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
 TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
@@ -610,7 +608,6 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBWALTest, LockWal) {
   do {
     Options options = CurrentOptions();
@@ -654,7 +651,6 @@ TEST_F(DBWALTest, LockWal) {
     SyncPoint::GetInstance()->DisableProcessing();
   } while (ChangeWalOptions());
 }
-#endif  //! ROCKSDB_LITE
 
 class DBRecoveryTestBlobError
     : public DBWALTest,
@@ -892,7 +888,6 @@ TEST_F(DBWALTest, PreallocateBlock) {
 }
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBWALTest, DISABLED_FullPurgePreservesRecycledLog) {
   // TODO(ajkr): Disabled until WAL recycling is fixed for
   // `kPointInTimeRecovery`.
@@ -2372,7 +2367,6 @@ TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
   Close();
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBWALTest, WalTermTest) {
   Options options = CurrentOptions();
@@ -2398,7 +2392,6 @@ TEST_F(DBWALTest, WalTermTest) {
   ASSERT_EQ("NOT_FOUND", Get(1, "foo2"));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBWALTest, GetCompressedWalsAfterSync) {
   if (db_->GetOptions().wal_compression == kNoCompression) {
     ROCKSDB_GTEST_BYPASS("stream compression not present");
@@ -2433,7 +2426,6 @@ TEST_F(DBWALTest, GetCompressedWalsAfterSync) {
   Status s = dbfull()->GetSortedWalFiles(wals);
   ASSERT_OK(s);
 }
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

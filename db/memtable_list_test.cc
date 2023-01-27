@@ -67,11 +67,9 @@ class MemTableListTest : public testing::Test {
   ~MemTableListTest() override {
     if (db) {
       std::vector<ColumnFamilyDescriptor> cf_descs(handles.size());
-#ifndef ROCKSDB_LITE
       for (int i = 0; i != static_cast<int>(handles.size()); ++i) {
         EXPECT_OK(handles[i]->GetDescriptor(&cf_descs[i]));
       }
-#endif  // !ROCKSDB_LITE
       for (auto h : handles) {
         if (h) {
           EXPECT_OK(db->DestroyColumnFamilyHandle(h));

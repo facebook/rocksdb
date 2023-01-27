@@ -26,7 +26,6 @@ FileSystem::FileSystem() {}
 
 FileSystem::~FileSystem() {}
 
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinFileSystems(ObjectLibrary& library,
                                       const std::string& /*arg*/) {
   library.AddFactory<FileSystem>(
@@ -79,7 +78,6 @@ static int RegisterBuiltinFileSystems(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 Status FileSystem::CreateFromString(const ConfigOptions& config_options,
                                     const std::string& value,
@@ -89,12 +87,10 @@ Status FileSystem::CreateFromString(const ConfigOptions& config_options,
     *result = default_fs;
     return Status::OK();
   } else {
-#ifndef ROCKSDB_LITE
     static std::once_flag once;
     std::call_once(once, [&]() {
       RegisterBuiltinFileSystems(*(ObjectLibrary::Default().get()), "");
     });
-#endif  // ROCKSDB_LITE
     return LoadSharedObject<FileSystem>(config_options, value, nullptr, result);
   }
 }
@@ -230,11 +226,9 @@ IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
 
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> fs_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
     {"target",
      OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
          0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
-#endif  // ROCKSDB_LITE
 };
 }  // namespace
 FileSystemWrapper::FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
@@ -249,7 +243,6 @@ Status FileSystemWrapper::PrepareOptions(const ConfigOptions& options) {
   return FileSystem::PrepareOptions(options);
 }
 
-#ifndef ROCKSDB_LITE
 std::string FileSystemWrapper::SerializeOptions(
     const ConfigOptions& config_options, const std::string& header) const {
   auto parent = FileSystem::SerializeOptions(config_options, "");
@@ -269,7 +262,6 @@ std::string FileSystemWrapper::SerializeOptions(
     return result;
   }
 }
-#endif  // ROCKSDB_LITE
 
 DirFsyncOptions::DirFsyncOptions() { reason = kDefault; }
 

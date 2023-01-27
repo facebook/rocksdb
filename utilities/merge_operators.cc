@@ -30,28 +30,12 @@ static bool LoadMergeOperator(const std::string& id,
     *result = MergeOperators::CreateUInt64AddOperator();
   } else if (id == "max" || id == "MaxOperator") {
     *result = MergeOperators::CreateMaxOperator();
-#ifdef ROCKSDB_LITE
-    // The remainder of the classes are handled by the ObjectRegistry in
-    // non-LITE mode
-  } else if (id == StringAppendOperator::kNickName() ||
-             id == StringAppendOperator::kClassName()) {
-    *result = MergeOperators::CreateStringAppendOperator();
-  } else if (id == StringAppendTESTOperator::kNickName() ||
-             id == StringAppendTESTOperator::kClassName()) {
-    *result = MergeOperators::CreateStringAppendTESTOperator();
-  } else if (id == BytesXOROperator::kNickName() ||
-             id == BytesXOROperator::kClassName()) {
-    *result = MergeOperators::CreateBytesXOROperator();
-  } else if (id == SortList::kNickName() || id == SortList::kClassName()) {
-    *result = MergeOperators::CreateSortOperator();
-#endif  // ROCKSDB_LITE
   } else {
     success = false;
   }
   return success;
 }
 
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
   size_t num_types;
@@ -90,17 +74,14 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
 
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 Status MergeOperator::CreateFromString(const ConfigOptions& config_options,
                                        const std::string& value,
                                        std::shared_ptr<MergeOperator>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterBuiltinMergeOperators(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
   return LoadSharedObject<MergeOperator>(config_options, value,
                                          LoadMergeOperator, result);
 }

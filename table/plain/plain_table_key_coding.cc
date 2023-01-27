@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "table/plain/plain_table_key_coding.h"
 
 #include <algorithm>
@@ -506,4 +505,3 @@ Status PlainTableKeyDecoder::NextKeyNoValue(uint32_t start_offset,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LIT

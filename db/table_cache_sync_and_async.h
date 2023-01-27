@@ -28,7 +28,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
   if (handle != nullptr && t == nullptr) {
     t = cache_.Value(handle);
   }
-#ifndef ROCKSDB_LITE
   autovector<std::string, MultiGetContext::MAX_BATCH_SIZE> row_cache_entries;
   IterKey row_cache_key;
   size_t row_cache_key_prefix_size = 0;
@@ -59,7 +58,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       }
     }
   }
-#endif  // ROCKSDB_LITE
 
   // Check that table_range is not empty. Its possible all keys may have been
   // found in the row cache and thus the range may now be empty
@@ -96,7 +94,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
     }
   }
 
-#ifndef ROCKSDB_LITE
   if (lookup_row_cache) {
     size_t row_idx = 0;
     RowCacheInterface row_cache{ioptions_.row_cache.get()};
@@ -122,7 +119,6 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       }
     }
   }
-#endif  // ROCKSDB_LITE
 
   if (handle != nullptr) {
     cache_.Release(handle);
