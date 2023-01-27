@@ -246,7 +246,6 @@ std::string Hash64TestDescriptor(const char *repeat, size_t limit) {
     uint64_t h = GetSliceHash64(Slice(input.data(), i));
     rv.append(1, mod61_encode[static_cast<size_t>(h % 61)]);
   }
-  assert(false);
   return rv;
 }
 
