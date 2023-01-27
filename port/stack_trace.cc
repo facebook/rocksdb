@@ -37,6 +37,8 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #endif
 #ifdef OS_LINUX
 #include <sys/prctl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #endif
 
 #include "port/lang.h"
@@ -136,6 +138,56 @@ void PrintStack(void* frames[], int num_frames) {
 }
 
 void PrintStack(int first_frames_to_skip) {
+#ifdef ROCKSDB_DLL
+  // LIB_MODE=shared build produces modiocre information from the above
+  // backtrace+addr2line stack trace method. Try to use GDB in that case.
+  bool dll = true;
+#else
+  bool dll = false;
+#endif
+  // Also support invoking interactive debugger on stack trace, with this
+  // envvar set to non-empty
+  char *debug_env = getenv("ROCKSDB_DEBUG");
+  bool debug = debug_env != nullptr && strlen(debug_env) > 0;
+
+  if (dll || debug) {
+    // Try to invoke GDB, either for stack trace or debugging
+    char pid_str[20];
+    snprintf(pid_str, sizeof(pid_str), "%lld", (long long)getpid());
+    pid_t child_pid = fork();
+    if (child_pid == 0) {
+      // child process
+      if (debug) {
+        fprintf(stderr, "Invoking GDB for debugging (ROCKSDB_DEBUG=%s)...\n", debug_env);
+        execlp("gdb", "gdb", "-p", pid_str, (char *)nullptr);
+        return;
+      } else {
+        fprintf(stderr, "Invoking GDB for stack trace...\n");
+        // Skip top ~4 frames here in PrintStack
+        // See https://stackoverflow.com/q/40991943/454544
+        auto bt_in_gdb =
+            "frame apply level 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 "
+            "23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 -q "
+            "frame";
+        dup2(2, 1);  // redirect child stdout to original stderr
+        close(0);  // no child stdin
+        execlp("gdb", "gdb", "-n", "-batch", "-p", pid_str, "-ex", bt_in_gdb, (char *)nullptr);
+        return;
+      }
+    } else {
+      // parent process; wait for child
+      int wstatus;
+      waitpid(child_pid, &wstatus, 0);
+      if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == EXIT_SUCCESS) {
+        // Good
+        return;
+      }
+    }
+    fprintf(
+        stderr,
+        "GDB failed; falling back on backtrace+addr2line...\n");
+  }
+
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
