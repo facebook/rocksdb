@@ -146,7 +146,7 @@ void PrintStack(int first_frames_to_skip) {
 #endif
   // Also support invoking interactive debugger on stack trace, with this
   // envvar set to non-empty
-  char *debug_env = getenv("ROCKSDB_DEBUG");
+  char* debug_env = getenv("ROCKSDB_DEBUG");
   bool debug = debug_env != nullptr && strlen(debug_env) > 0;
 
   if (dll || debug) {
@@ -161,8 +161,9 @@ void PrintStack(int first_frames_to_skip) {
     if (child_pid == 0) {
       // child process
       if (debug) {
-        fprintf(stderr, "Invoking GDB for debugging (ROCKSDB_DEBUG=%s)...\n", debug_env);
-        execlp("gdb", "gdb", "-p", pid_str, (char *)nullptr);
+        fprintf(stderr, "Invoking GDB for debugging (ROCKSDB_DEBUG=%s)...\n",
+                debug_env);
+        execlp("gdb", "gdb", "-p", pid_str, (char*)nullptr);
         return;
       } else {
         fprintf(stderr, "Invoking GDB for stack trace...\n");
@@ -171,9 +172,9 @@ void PrintStack(int first_frames_to_skip) {
         // Skip top ~4 frames here in PrintStack
         // See https://stackoverflow.com/q/40991943/454544
         auto bt_in_gdb =
-            "frame apply level 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 "
-            "23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 -q "
-            "frame";
+            "frame apply level 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 "
+            "21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 "
+            "42 43 44 -q frame";
         // Redirect child stdout to original stderr
         dup2(2, 1);
         // No child stdin (don't use pager)
@@ -194,9 +195,7 @@ void PrintStack(int first_frames_to_skip) {
         return;
       }
     }
-    fprintf(
-        stderr,
-        "GDB failed; falling back on backtrace+addr2line...\n");
+    fprintf(stderr, "GDB failed; falling back on backtrace+addr2line...\n");
   }
 
   const int kMaxFrames = 100;
