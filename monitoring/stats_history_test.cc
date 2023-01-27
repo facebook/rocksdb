@@ -29,7 +29,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 class StatsHistoryTest : public DBTestBase {
  public:
   StatsHistoryTest() : DBTestBase("stats_history_test", /*env_do_fsync=*/true) {
@@ -654,7 +653,6 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   Close();
 }
 
-#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

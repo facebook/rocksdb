@@ -5,7 +5,6 @@
 
 #pragma once
 
-#if !defined(ROCKSDB_LITE)
 
 #include <string>
 
@@ -462,4 +461,3 @@ class EncryptedFileSystem : public FileSystemWrapper {
 };
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)

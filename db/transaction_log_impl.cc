@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "db/transaction_log_impl.h"
 
@@ -295,4 +294,3 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* log_file) {
   return Status::OK();
 }
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/table_properties_collectors.h"
 namespace ROCKSDB_NAMESPACE {
 
@@ -67,4 +66,3 @@ class CompactOnDeletionCollector : public TablePropertiesCollector {
   bool finished_;
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

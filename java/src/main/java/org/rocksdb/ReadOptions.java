@@ -163,9 +163,6 @@ public class ReadOptions extends RocksObject {
    * added data) and is optimized for sequential reads. It will return records
    * that were inserted into the database after the creation of the iterator.
    * Default: false
-   *
-   * Not supported in {@code ROCKSDB_LITE} mode!
-   *
    * @return true if tailing iterator is enabled.
    */
   public boolean tailing() {
@@ -179,7 +176,6 @@ public class ReadOptions extends RocksObject {
    * added data) and is optimized for sequential reads. It will return records
    * that were inserted into the database after the creation of the iterator.
    * Default: false
-   * Not supported in ROCKSDB_LITE mode!
    *
    * @param tailing if true, then tailing iterator will be enabled.
    * @return the reference to the current ReadOptions.
@@ -537,8 +533,6 @@ public class ReadOptions extends RocksObject {
    * When true, by default use total_order_seek = true, and RocksDB can
    * selectively enable prefix seek mode if won't generate a different result
    * from total_order_seek, based on seek key, and iterator upper bound.
-   * Not supported in ROCKSDB_LITE mode, in the way that even with value true
-   * prefix mode is not used.
    * Default: false
    *
    * @return true if auto prefix mode is set.
@@ -553,8 +547,6 @@ public class ReadOptions extends RocksObject {
    * When true, by default use total_order_seek = true, and RocksDB can
    * selectively enable prefix seek mode if won't generate a different result
    * from total_order_seek, based on seek key, and iterator upper bound.
-   * Not supported in ROCKSDB_LITE mode, in the way that even with value true
-   * prefix mode is not used.
    * Default: false
    * @param mode auto prefix mode
    * @return the reference to the current ReadOptions.

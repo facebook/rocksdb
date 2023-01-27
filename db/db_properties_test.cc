@@ -55,7 +55,6 @@ class DBPropertiesTest : public DBTestBase {
   }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, Empty) {
   do {
     Options options;
@@ -1112,7 +1111,6 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   ASSERT_GT(CompressionRatioAtLevel(1), 10.0);
 }
 
-#endif  // ROCKSDB_LITE
 
 class CountingUserTblPropCollector : public TablePropertiesCollector {
  public:
@@ -1263,7 +1261,6 @@ class BlockCountingTablePropertiesCollectorFactory
   }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = (1 << 30);
@@ -1303,7 +1300,6 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
   ASSERT_GT(collector_factory->num_created_, 0U);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   Options options = CurrentOptions();
@@ -1365,7 +1361,6 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   ASSERT_GT(collector_factory->num_created_, 0U);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
   Random rnd(301);
 
@@ -2195,7 +2190,6 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
   } while (ChangeOptions());
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include <deque>
 #include <string>
 #include <vector>
@@ -242,4 +241,3 @@ int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/);
 }  // extern "C"
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

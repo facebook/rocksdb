@@ -1107,7 +1107,6 @@ class IoctlFriendlyTmpdir {
   bool is_supported_ = true;
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(EnvPosixTest, PositionedAppend) {
   std::unique_ptr<WritableFile> writable_file;
   EnvOptions options;
@@ -1141,7 +1140,6 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   ASSERT_EQ('a', result[kBlockSize - 1]);
   ASSERT_EQ('b', result[kBlockSize]);
 }
-#endif  // !ROCKSDB_LITE
 
 // `GetUniqueId()` temporarily returns zero on Windows. `BlockBasedTable` can
 // handle a return value of zero but this test case cannot.
@@ -1551,7 +1549,6 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
   EnvOptions soptions;
   soptions.use_direct_reads = true;
@@ -1622,7 +1619,6 @@ TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif  // ROCKSDB_LITE
 
 #if defined(ROCKSDB_IOURING_PRESENT)
 void GenerateFilesAndRequest(Env* env, const std::string& fname,
@@ -2470,13 +2466,11 @@ TEST_F(EnvTest, LogvWithInfoLogLevel) {
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 false)));
-#if !defined(ROCKSDB_LITE)
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 true)));
-#endif  // !defined(ROCKSDB_LITE)
 
-#if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 static Env* GetChrootEnv() {
   static std::unique_ptr<Env> chroot_env(
       NewChrootEnv(Env::Default(), test::TmpDir(Env::Default())));
@@ -2488,7 +2482,7 @@ INSTANTIATE_TEST_CASE_P(ChrootEnvWithoutDirectIO, EnvPosixTestWithParam,
 INSTANTIATE_TEST_CASE_P(ChrootEnvWithDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(GetChrootEnv(),
                                                                 true)));
-#endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#endif  //  !defined(OS_WIN)
 
 class EnvFSTestWithParam
     : public ::testing::Test,
@@ -2653,7 +2647,6 @@ class CreateEnvTest : public testing::Test {
   ConfigOptions config_options_;
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(CreateEnvTest, LoadCTRProvider) {
   config_options_.invoke_prepare_options = false;
   std::string CTR = CTREncryptionProvider::kClassName();
@@ -2712,7 +2705,6 @@ TEST_F(CreateEnvTest, LoadROT13Cipher) {
   ASSERT_NE(cipher, nullptr);
   ASSERT_STREQ(cipher->Name(), "ROT13");
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
   std::shared_ptr<SystemClock> clock, copy;
@@ -2720,15 +2712,12 @@ TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
                                           SystemClock::kDefaultName(), &clock));
   ASSERT_NE(clock, nullptr);
   ASSERT_EQ(clock, SystemClock::Default());
-#ifndef ROCKSDB_LITE
   std::string opts_str = clock->ToString(config_options_);
   std::string mismatch;
   ASSERT_OK(SystemClock::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(clock->AreEquivalent(config_options_, copy.get(), &mismatch));
-#endif  // ROCKSDB_LITE
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(CreateEnvTest, CreateMockSystemClock) {
   std::shared_ptr<SystemClock> mock, copy;
 
@@ -2943,7 +2932,6 @@ TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
   ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
 
-#endif  // ROCKSDB_LITE
 
 namespace {
 
@@ -3191,17 +3179,14 @@ TEST_F(CreateEnvTest, CreateDefaultEnv) {
   ASSERT_EQ(env, Env::Default());
   ASSERT_EQ(guard, nullptr);
 
-#ifndef ROCKSDB_LITE
   std::string opt_str = env->ToString(options);
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env));
   ASSERT_EQ(env, Env::Default());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
   ASSERT_EQ(env, Env::Default());
   ASSERT_EQ(guard, nullptr);
-#endif  // ROCKSDB_LITE
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 class WrappedEnv : public EnvWrapper {
  public:
@@ -3353,7 +3338,6 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
   ASSERT_NE(comp->Inner(), nullptr);
   ASSERT_OK(ValidateOptions(db_opts, cf_opts));
 }
-#endif  // ROCKSDB_LITE
 
 // Forward declaration
 class ReadAsyncFS;

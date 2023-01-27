@@ -18,7 +18,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
  public:
   explicit DBSecondaryTestBase(const std::string& dbname)
@@ -1682,7 +1681,6 @@ TEST_F(DBSecondaryTestWithTimestamp, Iterators) {
 
   Close();
 }
-#endif  //! ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

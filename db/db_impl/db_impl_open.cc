@@ -153,7 +153,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.avoid_flush_during_recovery = false;
   }
 
-#ifndef ROCKSDB_LITE
   ImmutableDBOptions immutable_db_options(result);
   if (!immutable_db_options.IsWalDirSameAsDBPath()) {
     // Either the WAL dir and db_paths[0]/db_name are not the same, or we
@@ -195,7 +194,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
         NewSstFileManager(result.env, result.info_log));
     result.sst_file_manager = sst_file_manager;
   }
-#endif  // !ROCKSDB_LITE
 
   // Supported wal compression types
   if (!StreamingCompressionTypeSupported(result.wal_compression)) {
@@ -845,7 +843,6 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
 }
 
 void DBImpl::InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap() {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.wal_filter == nullptr) {
     return;
   }
@@ -863,7 +860,6 @@ void DBImpl::InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap() {
   }
 
   wal_filter.ColumnFamilyLogNumberMap(cf_lognumber_map, cf_name_id_map);
-#endif  // !ROCKSDB_LITE
 }
 
 bool DBImpl::InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
@@ -872,7 +868,6 @@ bool DBImpl::InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
                                                 Status& status,
                                                 bool& stop_replay,
                                                 WriteBatch& batch) {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.wal_filter == nullptr) {
     return true;
   }
@@ -958,15 +953,6 @@ bool DBImpl::InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
     batch = new_batch;
   }
   return true;
-#else   // !ROCKSDB_LITE
-  (void)wal_number;
-  (void)wal_fname;
-  (void)reporter;
-  (void)status;
-  (void)stop_replay;
-  (void)batch;
-  return true;
-#endif  // ROCKSDB_LITE
 }
 
 // REQUIRES: wal_numbers are sorted in ascending order
@@ -1981,7 +1967,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   impl->mutex_.Unlock();
 
-#ifndef ROCKSDB_LITE
   auto sfm = static_cast<SstFileManagerImpl*>(
       impl->immutable_db_options_.sst_file_manager.get());
   if (s.ok() && sfm) {
@@ -2065,7 +2050,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                            impl->immutable_db_options_.db_paths[0].path);
   }
 
-#endif  // !ROCKSDB_LITE
 
   if (s.ok()) {
     ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",

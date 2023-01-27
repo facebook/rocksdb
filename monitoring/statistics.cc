@@ -275,7 +275,6 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl>(nullptr);
 }
 
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinStatistics(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
   library.AddFactory<Statistics>(
@@ -287,17 +286,14 @@ static int RegisterBuiltinStatistics(ObjectLibrary& library,
       });
   return 1;
 }
-#endif  // ROCKSDB_LITE
 
 Status Statistics::CreateFromString(const ConfigOptions& config_options,
                                     const std::string& id,
                                     std::shared_ptr<Statistics>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterBuiltinStatistics(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
   Status s;
   if (id == "" || id == StatisticsImpl::kClassName()) {
     result->reset(new StatisticsImpl(nullptr));
@@ -310,11 +306,9 @@ Status Statistics::CreateFromString(const ConfigOptions& config_options,
 }
 
 static std::unordered_map<std::string, OptionTypeInfo> stats_type_info = {
-#ifndef ROCKSDB_LITE
     {"inner", OptionTypeInfo::AsCustomSharedPtr<Statistics>(
                   0, OptionVerificationType::kByNameAllowFromNull,
                   OptionTypeFlags::kCompareNever)},
-#endif  // !ROCKSDB_LITE
 };
 
 StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats)

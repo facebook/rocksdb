@@ -9,7 +9,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
 
@@ -21,4 +20,3 @@ void DumpMallocStats(std::string*);
 
 }
 
-#endif  // !ROCKSDB_LITE
