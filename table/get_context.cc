@@ -301,8 +301,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kFound;
           if (do_merge_) {
             if (is_blob_index_) {
-              ukey_to_get_blob_value_copy_ = parsed_key.user_key.ToString();
-              ukey_to_get_blob_value_ = ukey_to_get_blob_value_copy_;
+              ukey_to_get_blob_value_.PinSelf(parsed_key.user_key);
             }
             if (LIKELY(pinnable_val_ != nullptr)) {
               Slice value_to_use = value;

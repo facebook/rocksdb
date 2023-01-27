@@ -199,10 +199,9 @@ class GetContext {
 
   GetState state_;
   Slice user_key_;
-  // When a blob index is found, this stores the corresponding user key on
-  // record in the sst file. This user key is later used for blob verification.
-  Slice ukey_to_get_blob_value_;
-  std::string ukey_to_get_blob_value_copy_;
+  // When a blob index is found, this copies the corresponding user key on
+  // record in the sst file and is later used for blob verification.
+  PinnableSlice ukey_to_get_blob_value_;
   PinnableSlice* pinnable_val_;
   PinnableWideColumns* columns_;
   std::string* timestamp_;
