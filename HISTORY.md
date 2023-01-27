@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+
+### Behavior changes
+* `ReadOptions::verify_checksums=false` disables checksum verification for more reads of non-`CacheEntryRole::kDataBlock` blocks.
+
 ### Bug Fixes
 * Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
 
