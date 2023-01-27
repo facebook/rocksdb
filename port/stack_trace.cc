@@ -163,7 +163,8 @@ void PrintStack(int first_frames_to_skip) {
       if (debug) {
         fprintf(stderr, "Invoking GDB for debugging (ROCKSDB_DEBUG=%s)...\n",
                 debug_env);
-        execlp("gdb", "gdb", "-p", pid_str, (char*)nullptr);
+        execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-p", pid_str,
+               (char*)nullptr);
         return;
       } else {
         fprintf(stderr, "Invoking GDB for stack trace...\n");
