@@ -338,11 +338,7 @@ int MemTable::KeyComparator::operator()(
 }
 
 void MemTableRep::InsertConcurrently(KeyHandle /*handle*/) {
-#ifndef ROCKSDB_LITE
   throw std::runtime_error("concurrent insert not supported");
-#else
-  abort();
-#endif
 }
 
 Slice MemTableRep::UserKey(const char* key) const {

@@ -6,7 +6,6 @@
 // This file contains utility functions for RocksDB Options.
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
@@ -103,4 +102,3 @@ Status CheckOptionsCompatibility(
     const std::vector<ColumnFamilyDescriptor>& cf_descs);
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

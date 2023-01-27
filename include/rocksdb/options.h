@@ -82,7 +82,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Use this if you don't need to keep the data sorted, i.e. you'll never use
   // an iterator, only Put() and Get() API calls
   //
-  // Not supported in ROCKSDB_LITE
   ColumnFamilyOptions* OptimizeForPointLookup(uint64_t block_cache_size_mb);
 
   // Default values for some parameters in ColumnFamilyOptions are not
@@ -99,8 +98,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // biggest performance gains.
   // Note: we might use more memory than memtable_memory_budget during high
   // write rate period
-  //
-  // OptimizeUniversalStyleCompaction is not supported in ROCKSDB_LITE
   ColumnFamilyOptions* OptimizeLevelStyleCompaction(
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
   ColumnFamilyOptions* OptimizeUniversalStyleCompaction(
@@ -464,14 +461,12 @@ struct DBOptions {
   // memtable to cost to
   DBOptions* OptimizeForSmallDb(std::shared_ptr<Cache>* cache = nullptr);
 
-#ifndef ROCKSDB_LITE
   // By default, RocksDB uses only one background thread for flush and
   // compaction. Calling this function will set it up such that total of
   // `total_threads` is used. Good value for `total_threads` is the number of
   // cores. You almost definitely want to call this function if your system is
   // bottlenecked by RocksDB.
   DBOptions* IncreaseParallelism(int total_threads = 16);
-#endif  // ROCKSDB_LITE
 
   // If true, the database will be created if it is missing.
   // Default: false
@@ -762,7 +757,6 @@ struct DBOptions {
   // If specified with non-zero value, log file will be rolled
   // if it has been active longer than `log_file_time_to_roll`.
   // Default: 0 (disabled)
-  // Not supported in ROCKSDB_LITE mode!
   size_t log_file_time_to_roll = 0;
 
   // Maximal info log files to be kept.
@@ -837,12 +831,10 @@ struct DBOptions {
 
   // Use O_DIRECT for user and compaction reads.
   // Default: false
-  // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
 
   // Use O_DIRECT for writes in background flush and compactions.
   // Default: false
-  // Not supported in ROCKSDB_LITE mode!
   bool use_direct_io_for_flush_and_compaction = false;
 
   // If false, fallocate() calls are bypassed, which disables file
@@ -1165,17 +1157,14 @@ struct DBOptions {
 
   // A global cache for table-level rows.
   // Default: nullptr (disabled)
-  // Not supported in ROCKSDB_LITE mode!
   std::shared_ptr<Cache> row_cache = nullptr;
 
-#ifndef ROCKSDB_LITE
   // A filter object supplied to be invoked while processing write-ahead-logs
   // (WALs) during recovery. The filter provides a way to inspect log
   // records, ignoring a particular record or skipping replay.
   // The filter is invoked at startup and is invoked from a single-thread
   // currently.
   WalFilter* wal_filter = nullptr;
-#endif  // ROCKSDB_LITE
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // SetOptions will fail if options file is not properly persisted.
@@ -1551,7 +1540,6 @@ struct ReadOptions {
   // added data) and is optimized for sequential reads. It will return records
   // that were inserted into the database after the creation of the iterator.
   // Default: false
-  // Not supported in ROCKSDB_LITE mode!
   bool tailing;
 
   // This options is not used anymore. It was to turn on a functionality that
@@ -1569,8 +1557,6 @@ struct ReadOptions {
   // When true, by default use total_order_seek = true, and RocksDB can
   // selectively enable prefix seek mode if won't generate a different result
   // from total_order_seek, based on seek key, and iterator upper bound.
-  // Not supported in ROCKSDB_LITE mode, in the way that even with value true
-  // prefix mode is not used.
   // BUG: Using Comparator::IsSameLengthImmediateSuccessor and
   // SliceTransform::FullLengthEnabled to enable prefix mode in cases where
   // prefix of upper bound differs from prefix of seek key has a flaw.
@@ -2103,7 +2089,6 @@ struct OpenAndCompactOptions {
   std::atomic<bool>* canceled = nullptr;
 };
 
-#ifndef ROCKSDB_LITE
 struct LiveFilesStorageInfoOptions {
   // Whether to populate FileStorageInfo::file_checksum* or leave blank
   bool include_checksum_info = false;
@@ -2112,6 +2097,5 @@ struct LiveFilesStorageInfoOptions {
   // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
 };
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -65,9 +65,7 @@
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/options_util.h"
-#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/replayer.h"
-#endif  // ROCKSDB_LITE
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -105,12 +103,6 @@ using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 using GFLAGS_NAMESPACE::SetVersionString;
 
-#ifdef ROCKSDB_LITE
-#define IF_ROCKSDB_LITE(Then, Else) Then
-#else
-#define IF_ROCKSDB_LITE(Then, Else) Else
-#endif
-
 DEFINE_string(
     benchmarks,
     "fillseq,"
@@ -130,11 +122,9 @@ DEFINE_string(
     "compact,"
     "compactall,"
     "flush,"
-IF_ROCKSDB_LITE("",
     "compact0,"
     "compact1,"
     "waitforcompaction,"
-)
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
@@ -231,11 +221,9 @@ IF_ROCKSDB_LITE("",
     "Meta operations:\n"
     "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
     "\tcompactall  -- Compact the entire DB\n"
-IF_ROCKSDB_LITE("",
     "\tcompact0  -- compact L0 into L1\n"
     "\tcompact1  -- compact L1 into L2\n"
     "\twaitforcompaction - pause until compaction is (probably) done\n"
-)
     "\tflush - flush the memtable\n"
     "\tstats       -- Print DB stats\n"
     "\tresetstats  -- Reset DB stats\n"
@@ -243,9 +231,7 @@ IF_ROCKSDB_LITE("",
     "\tmemstats  -- Print memtable stats\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-IF_ROCKSDB_LITE("",
     "\treplay      -- replay the trace file specified with trace_file\n"
-)
     "\tgetmergeoperands -- Insert lots of merge records which are a list of "
     "sorted ints for a key and then compare performance of lookup for another "
     "key by doing a Get followed by binary searching in the large sorted list "
@@ -945,7 +931,6 @@ DEFINE_int64(max_num_range_tombstones, 0,
 DEFINE_bool(expand_range_tombstones, false,
             "Expand range tombstone into sequential regular tombstones.");
 
-#ifndef ROCKSDB_LITE
 // Transactions Options
 DEFINE_bool(optimistic_transaction_db, false,
             "Open a OptimisticTransactionDB instance. "
@@ -1049,7 +1034,6 @@ DEFINE_string(
 static enum ROCKSDB_NAMESPACE::CompressionType
     FLAGS_blob_db_compression_type_e = ROCKSDB_NAMESPACE::kSnappyCompression;
 
-#endif  // ROCKSDB_LITE
 
 // Integrated BlobDB options
 DEFINE_bool(
@@ -1121,7 +1105,6 @@ DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
 
-#ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
@@ -1136,7 +1119,6 @@ DEFINE_int32(secondary_update_interval, 5,
              "Secondary instance attempts to catch up with the primary every "
              "secondary_update_interval seconds.");
 
-#endif  // ROCKSDB_LITE
 
 DEFINE_bool(report_bg_io_stats, false,
             "Measure times spents on I/Os while in compactions. ");
@@ -1144,7 +1126,6 @@ DEFINE_bool(report_bg_io_stats, false,
 DEFINE_bool(use_stderr_info_logger, false,
             "Write info logs to stderr instead of to LOG file. ");
 
-#ifndef ROCKSDB_LITE
 
 DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
@@ -1166,7 +1147,6 @@ DEFINE_int32(trace_replay_threads, 1,
 DEFINE_bool(io_uring_enabled, true,
             "If true, enable the use of IO uring if the platform supports it");
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
-#endif  // ROCKSDB_LITE
 
 DEFINE_bool(adaptive_readahead, false,
             "carry forward internal auto readahead size from one file to next "
@@ -1343,14 +1323,12 @@ static bool ValidateTableCacheNumshardbits(const char* flagname,
 }
 DEFINE_int32(table_cache_numshardbits, 4, "");
 
-#ifndef ROCKSDB_LITE
 DEFINE_string(env_uri, "",
               "URI for registry Env lookup. Mutually exclusive with --fs_uri");
 DEFINE_string(fs_uri, "",
               "URI for registry Filesystem lookup. Mutually exclusive"
               " with --env_uri."
               " Creates a default environment with the specified filesystem.");
-#endif  // ROCKSDB_LITE
 DEFINE_string(simulate_hybrid_fs_file, "",
               "File for Store Metadata for Simulate hybrid FS. Empty means "
               "disable the feature. Now, if it is set, last_level_temperature "
@@ -1547,12 +1525,10 @@ DEFINE_uint64(max_compaction_bytes,
               ROCKSDB_NAMESPACE::Options().max_compaction_bytes,
               "Max bytes allowed in one compaction");
 
-#ifndef ROCKSDB_LITE
 DEFINE_bool(readonly, false, "Run read only benchmarks.");
 
 DEFINE_bool(print_malloc_stats, false,
             "Print malloc stats to stdout after benchmarks finish.");
-#endif  // ROCKSDB_LITE
 
 DEFINE_bool(disable_auto_compactions, false, "Do not auto trigger compactions");
 
@@ -1708,11 +1684,9 @@ DEFINE_bool(read_with_latest_user_timestamp, true,
             "If true, always use the current latest timestamp for read. If "
             "false, choose a random timestamp from the past.");
 
-#ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
-#endif  // ROCKSDB_LITE
 
 static const bool FLAGS_prefix_size_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
@@ -1765,7 +1739,6 @@ static Status CreateMemTableRepFactory(
   Status s;
   if (!strcasecmp(FLAGS_memtablerep.c_str(), SkipListFactory::kNickName())) {
     factory->reset(new SkipListFactory(FLAGS_skip_list_lookahead));
-#ifndef ROCKSDB_LITE
   } else if (!strcasecmp(FLAGS_memtablerep.c_str(), "prefix_hash")) {
     factory->reset(NewHashSkipListRepFactory(FLAGS_hash_bucket_count));
   } else if (!strcasecmp(FLAGS_memtablerep.c_str(),
@@ -1773,7 +1746,6 @@ static Status CreateMemTableRepFactory(
     factory->reset(new VectorRepFactory());
   } else if (!strcasecmp(FLAGS_memtablerep.c_str(), "hash_linkedlist")) {
     factory->reset(NewHashLinkListRepFactory(FLAGS_hash_bucket_count));
-#endif  // ROCKSDB_LITE
   } else {
     std::unique_ptr<MemTableRepFactory> unique;
     s = MemTableRepFactory::CreateFromString(config_options, FLAGS_memtablerep,
@@ -1936,9 +1908,7 @@ static void AppendWithSpace(std::string* str, Slice msg) {
 struct DBWithColumnFamilies {
   std::vector<ColumnFamilyHandle*> cfh;
   DB* db;
-#ifndef ROCKSDB_LITE
   OptimisticTransactionDB* opt_txn_db;
-#endif                              // ROCKSDB_LITE
   std::atomic<size_t> num_created;  // Need to be updated after all the
                                     // new entries in cfh are set.
   size_t num_hot;  // Number of column families to be queried at each moment.
@@ -1950,10 +1920,8 @@ struct DBWithColumnFamilies {
 
   DBWithColumnFamilies()
       : db(nullptr)
-#ifndef ROCKSDB_LITE
         ,
         opt_txn_db(nullptr)
-#endif  // ROCKSDB_LITE
   {
     cfh.clear();
     num_created = 0;
@@ -1963,9 +1931,7 @@ struct DBWithColumnFamilies {
   DBWithColumnFamilies(const DBWithColumnFamilies& other)
       : cfh(other.cfh),
         db(other.db),
-#ifndef ROCKSDB_LITE
         opt_txn_db(other.opt_txn_db),
-#endif  // ROCKSDB_LITE
         num_created(other.num_created.load()),
         num_hot(other.num_hot),
         cfh_idx_to_prob(other.cfh_idx_to_prob) {
@@ -1975,7 +1941,6 @@ struct DBWithColumnFamilies {
     std::for_each(cfh.begin(), cfh.end(),
                   [](ColumnFamilyHandle* cfhi) { delete cfhi; });
     cfh.clear();
-#ifndef ROCKSDB_LITE
     if (opt_txn_db) {
       delete opt_txn_db;
       opt_txn_db = nullptr;
@@ -1983,10 +1948,6 @@ struct DBWithColumnFamilies {
       delete db;
       db = nullptr;
     }
-#else
-    delete db;
-    db = nullptr;
-#endif  // ROCKSDB_LITE
   }
 
   ColumnFamilyHandle* GetCfh(int64_t rand_num) {
@@ -2703,10 +2664,8 @@ class Benchmark {
   ReadOptions read_options_;
   WriteOptions write_options_;
   Options open_options_;  // keep options around to properly destroy db later
-#ifndef ROCKSDB_LITE
   TraceOptions trace_options_;
   TraceOptions block_cache_trace_options_;
-#endif
   int64_t reads_;
   int64_t deletes_;
   double read_random_exp_range_;
@@ -2720,7 +2679,6 @@ class Benchmark {
 
   class ErrorHandlerListener : public EventListener {
    public:
-#ifndef ROCKSDB_LITE
     ErrorHandlerListener()
         : mutex_(),
           cv_(&mutex_),
@@ -2765,10 +2723,6 @@ class Benchmark {
     InstrumentedCondVar cv_;
     bool no_auto_recovery_;
     bool recovery_complete_;
-#else   // ROCKSDB_LITE
-    bool WaitForRecovery(uint64_t /*abs_time_us*/) { return true; }
-    void EnableAutoRecovery(bool /*enable*/) {}
-#endif  // ROCKSDB_LITE
   };
 
   std::shared_ptr<ErrorHandlerListener> listener_;
@@ -3063,7 +3017,6 @@ class Benchmark {
           GetCacheAllocator(), kDefaultToAdaptiveMutex,
           kDefaultCacheMetadataChargePolicy, FLAGS_cache_low_pri_pool_ratio);
 
-#ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
             ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
@@ -3076,7 +3029,6 @@ class Benchmark {
         }
         opts.secondary_cache = secondary_cache;
       }
-#endif  // ROCKSDB_LITE
 
       if (FLAGS_use_compressed_secondary_cache) {
         CompressedSecondaryCacheOptions secondary_cache_opts;
@@ -3125,11 +3077,7 @@ class Benchmark {
                 : ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)),
         merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
         report_file_operations_(FLAGS_report_file_operations),
-#ifndef ROCKSDB_LITE
         use_blob_db_(FLAGS_use_blob_db),  // Stacked BlobDB
-#else
-        use_blob_db_(false),  // Stacked BlobDB
-#endif  // !ROCKSDB_LITE
         read_operands_(false) {
     // use simcache instead of cache
     if (FLAGS_simcache_size >= 0) {
@@ -3165,12 +3113,10 @@ class Benchmark {
       if (!FLAGS_wal_dir.empty()) {
         options.wal_dir = FLAGS_wal_dir;
       }
-#ifndef ROCKSDB_LITE
       if (use_blob_db_) {
         // Stacked BlobDB
         blob_db::DestroyBlobDB(FLAGS_db, options, blob_db::BlobDBOptions());
       }
-#endif  // !ROCKSDB_LITE
       DestroyDB(FLAGS_db, options);
       if (!FLAGS_wal_dir.empty()) {
         FLAGS_env->DeleteDir(FLAGS_wal_dir);
@@ -3567,14 +3513,12 @@ class Benchmark {
         method = &Benchmark::Compact;
       } else if (name == "compactall") {
         CompactAll();
-#ifndef ROCKSDB_LITE
       } else if (name == "compact0") {
         CompactLevel(0);
       } else if (name == "compact1") {
         CompactLevel(1);
       } else if (name == "waitforcompaction") {
         WaitForCompaction();
-#endif
       } else if (name == "flush") {
         Flush();
       } else if (name == "crc32c") {
@@ -3591,11 +3535,9 @@ class Benchmark {
         method = &Benchmark::Compress;
       } else if (name == "uncompress") {
         method = &Benchmark::Uncompress;
-#ifndef ROCKSDB_LITE
       } else if (name == "randomtransaction") {
         method = &Benchmark::RandomTransaction;
         post_process_method = &Benchmark::RandomTransactionVerify;
-#endif  // ROCKSDB_LITE
       } else if (name == "randomreplacekeys") {
         fresh_db = true;
         method = &Benchmark::RandomReplaceKeys;
@@ -3631,7 +3573,6 @@ class Benchmark {
         PrintStats("rocksdb.sstables");
       } else if (name == "stats_history") {
         PrintStatsHistory();
-#ifndef ROCKSDB_LITE
       } else if (name == "replay") {
         if (num_threads > 1) {
           fprintf(stderr, "Multi-threaded replay is not yet supported\n");
@@ -3642,24 +3583,19 @@ class Benchmark {
           ErrorExit();
         }
         method = &Benchmark::Replay;
-#endif  // ROCKSDB_LITE
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
-#ifndef ROCKSDB_LITE
       } else if (name == "verifychecksum") {
         method = &Benchmark::VerifyChecksum;
       } else if (name == "verifyfilechecksums") {
         method = &Benchmark::VerifyFileChecksums;
-#endif  // ROCKSDB_LITE
       } else if (name == "readrandomoperands") {
         read_operands_ = true;
         method = &Benchmark::ReadRandom;
-#ifndef ROCKSDB_LITE
       } else if (name == "backup") {
         method = &Benchmark::Backup;
       } else if (name == "restore") {
         method = &Benchmark::Restore;
-#endif
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         ErrorExit();
@@ -3691,7 +3627,6 @@ class Benchmark {
       if (method != nullptr) {
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
-#ifndef ROCKSDB_LITE
         if (name == "backup") {
           std::cout << "Backup path: [" << FLAGS_backup_dir << "]" << std::endl;
         } else if (name == "restore") {
@@ -3762,7 +3697,6 @@ class Benchmark {
           fprintf(stdout, "Tracing block cache accesses to: [%s]\n",
                   FLAGS_block_cache_trace_file.c_str());
         }
-#endif  // ROCKSDB_LITE
 
         if (num_warmup > 0) {
           printf("Warming up benchmark by running %d times\n", num_warmup);
@@ -3801,7 +3735,6 @@ class Benchmark {
       secondary_update_thread_.reset();
     }
 
-#ifndef ROCKSDB_LITE
     if (name != "replay" && FLAGS_trace_file != "") {
       Status s = db_.db->EndTrace();
       if (!s.ok()) {
@@ -3817,7 +3750,6 @@ class Benchmark {
                 s.ToString().c_str());
       }
     }
-#endif  // ROCKSDB_LITE
 
     if (FLAGS_statistics) {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
@@ -3828,21 +3760,17 @@ class Benchmark {
           static_cast_with_check<SimCache>(cache_.get())->ToString().c_str());
     }
 
-#ifndef ROCKSDB_LITE
     if (FLAGS_use_secondary_db) {
       fprintf(stdout, "Secondary instance updated  %" PRIu64 " times.\n",
               secondary_db_updates_);
     }
-#endif  // ROCKSDB_LITE
   }
 
  private:
   std::shared_ptr<TimestampEmulator> timestamp_emulator_;
   std::unique_ptr<port::Thread> secondary_update_thread_;
   std::atomic<int> secondary_update_stopped_{0};
-#ifndef ROCKSDB_LITE
   uint64_t secondary_db_updates_ = 0;
-#endif  // ROCKSDB_LITE
   struct ThreadArg {
     Benchmark* bm;
     SharedState* shared;
@@ -4090,7 +4018,6 @@ class Benchmark {
   // Returns true if the options is initialized from the specified
   // options file.
   bool InitializeOptionsFromFile(Options* opts) {
-#ifndef ROCKSDB_LITE
     printf("Initializing RocksDB Options from the specified file\n");
     DBOptions db_opts;
     std::vector<ColumnFamilyDescriptor> cf_descs;
@@ -4110,9 +4037,6 @@ class Benchmark {
               FLAGS_options_file.c_str(), s.ToString().c_str());
       exit(1);
     }
-#else
-    (void)opts;
-#endif
     return false;
   }
 
@@ -4174,13 +4098,11 @@ class Benchmark {
         FLAGS_use_direct_io_for_flush_and_compaction;
     options.manual_wal_flush = FLAGS_manual_wal_flush;
     options.wal_compression = FLAGS_wal_compression_e;
-#ifndef ROCKSDB_LITE
     options.ttl = FLAGS_fifo_compaction_ttl;
     options.compaction_options_fifo = CompactionOptionsFIFO(
         FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,
         FLAGS_fifo_compaction_allow_compaction);
     options.compaction_options_fifo.age_for_warm = FLAGS_fifo_age_for_warm;
-#endif  // ROCKSDB_LITE
     options.prefix_extractor = prefix_extractor_;
     if (FLAGS_use_uint64_comparator) {
       options.comparator = test::Uint64Comparator();
@@ -4230,7 +4152,6 @@ class Benchmark {
       exit(1);
     }
     if (FLAGS_use_plain_table) {
-#ifndef ROCKSDB_LITE
       if (!options.memtable_factory->IsInstanceOf("prefix_hash") &&
           !options.memtable_factory->IsInstanceOf("hash_linkedlist")) {
         fprintf(stderr, "Warning: plain table is used with %s\n",
@@ -4248,12 +4169,7 @@ class Benchmark {
       plain_table_options.hash_table_ratio = 0.75;
       options.table_factory = std::shared_ptr<TableFactory>(
           NewPlainTableFactory(plain_table_options));
-#else
-      fprintf(stderr, "Plain table is not supported in lite mode\n");
-      exit(1);
-#endif  // ROCKSDB_LITE
     } else if (FLAGS_use_cuckoo_table) {
-#ifndef ROCKSDB_LITE
       if (FLAGS_cuckoo_hash_ratio > 1 || FLAGS_cuckoo_hash_ratio < 0) {
         fprintf(stderr, "Invalid cuckoo_hash_ratio\n");
         exit(1);
@@ -4269,10 +4185,6 @@ class Benchmark {
       table_options.identity_as_first_hash = FLAGS_identity_as_first_hash;
       options.table_factory =
           std::shared_ptr<TableFactory>(NewCuckooTableFactory(table_options));
-#else
-      fprintf(stderr, "Cuckoo table is not supported in lite mode\n");
-      exit(1);
-#endif  // ROCKSDB_LITE
     } else {
       BlockBasedTableOptions block_based_options;
       block_based_options.checksum =
@@ -4416,7 +4328,6 @@ class Benchmark {
       block_based_options.data_block_hash_table_util_ratio =
           FLAGS_data_block_hash_table_util_ratio;
       if (FLAGS_read_cache_path != "") {
-#ifndef ROCKSDB_LITE
         Status rc_status;
 
         // Read cache need to be provided with a the Logger, we will put all
@@ -4448,11 +4359,6 @@ class Benchmark {
                   rc_status.ToString().c_str());
           exit(1);
         }
-#else
-        fprintf(stderr, "Read cache is not supported in LITE\n");
-        exit(1);
-
-#endif
       }
 
       if (FLAGS_use_blob_cache) {
@@ -4648,7 +4554,6 @@ class Benchmark {
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
 
-#ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
       exit(1);
@@ -4658,7 +4563,6 @@ class Benchmark {
       fprintf(stderr, "Cannot use use_secondary_db flag with transaction_db\n");
       exit(1);
     }
-#endif  // ROCKSDB_LITE
     options.memtable_protection_bytes_per_key =
         FLAGS_memtable_protection_bytes_per_key;
   }
@@ -4839,7 +4743,6 @@ class Benchmark {
           exit(1);
         }
       }
-#ifndef ROCKSDB_LITE
       if (FLAGS_readonly) {
         s = DB::OpenForReadOnly(options, db_name, column_families, &db->cfh,
                                 &db->db);
@@ -4865,14 +4768,10 @@ class Benchmark {
       } else {
         s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
       }
-#else
-      s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
-#endif  // ROCKSDB_LITE
       db->cfh.resize(FLAGS_num_column_families);
       db->num_created = num_hot;
       db->num_hot = num_hot;
       db->cfh_idx_to_prob = std::move(cfh_idx_to_prob);
-#ifndef ROCKSDB_LITE
     } else if (FLAGS_readonly) {
       s = DB::OpenForReadOnly(options, db_name, &db->db);
     } else if (FLAGS_optimistic_transaction_db) {
@@ -4938,7 +4837,6 @@ class Benchmark {
             },
             FLAGS_secondary_update_interval, db));
       }
-#endif  // ROCKSDB_LITE
     } else {
       s = DB::Open(options, db_name, &db->db);
     }
@@ -5322,7 +5220,6 @@ class Benchmark {
           val = gen.Generate();
         }
         if (use_blob_db_) {
-#ifndef ROCKSDB_LITE
           // Stacked BlobDB
           blob_db::BlobDB* blobdb =
               static_cast<blob_db::BlobDB*>(db_with_cfh->db);
@@ -5332,7 +5229,6 @@ class Benchmark {
           } else {
             s = blobdb->Put(write_options_, key, val);
           }
-#endif  //  ROCKSDB_LITE
         } else if (FLAGS_num_column_families <= 1) {
           batch.Put(key, val);
         } else {
@@ -5377,11 +5273,9 @@ class Benchmark {
               GenerateKeyFromInt(begin_num + offset, FLAGS_num,
                                  &expanded_keys[offset]);
               if (use_blob_db_) {
-#ifndef ROCKSDB_LITE
                 // Stacked BlobDB
                 s = db_with_cfh->db->Delete(write_options_,
                                             expanded_keys[offset]);
-#endif  //  ROCKSDB_LITE
               } else if (FLAGS_num_column_families <= 1) {
                 batch.Delete(expanded_keys[offset]);
               } else {
@@ -5394,12 +5288,10 @@ class Benchmark {
             GenerateKeyFromInt(begin_num + range_tombstone_width_, FLAGS_num,
                                &end_key);
             if (use_blob_db_) {
-#ifndef ROCKSDB_LITE
               // Stacked BlobDB
               s = db_with_cfh->db->DeleteRange(
                   write_options_, db_with_cfh->db->DefaultColumnFamily(),
                   begin_key, end_key);
-#endif  //  ROCKSDB_LITE
             } else if (FLAGS_num_column_families <= 1) {
               batch.DeleteRange(begin_key, end_key);
             } else {
@@ -5485,7 +5377,6 @@ class Benchmark {
   Status DoDeterministicCompact(ThreadState* thread,
                                 CompactionStyle compaction_style,
                                 WriteMode write_mode) {
-#ifndef ROCKSDB_LITE
     ColumnFamilyMetaData meta;
     std::vector<DB*> db_list;
     if (db_.db != nullptr) {
@@ -5786,14 +5677,6 @@ class Benchmark {
             std::to_string(options_list[i].level0_stop_writes_trigger)}});
     }
     return Status::OK();
-#else
-    (void)thread;
-    (void)compaction_style;
-    (void)write_mode;
-    fprintf(stderr, "Rocksdb Lite doesn't support filldeterministic\n");
-    return Status::NotSupported(
-        "Rocksdb Lite doesn't support filldeterministic");
-#endif  // ROCKSDB_LITE
   }
 
   void ReadSequential(ThreadState* thread) {
@@ -7803,7 +7686,6 @@ class Benchmark {
     }
   }
 
-#ifndef ROCKSDB_LITE
   void VerifyChecksum(ThreadState* thread) {
     DB* db = SelectDB(thread);
     ReadOptions ro;
@@ -7926,7 +7808,6 @@ class Benchmark {
       fprintf(stdout, "RandomTransactionVerify FAILED!!\n");
     }
   }
-#endif  // ROCKSDB_LITE
 
   // Writes and deletes random keys without overwriting keys.
   //
@@ -8177,7 +8058,6 @@ class Benchmark {
     }
   }
 
-#ifndef ROCKSDB_LITE
   void WaitForCompactionHelper(DBWithColumnFamilies& db) {
     // This is an imperfect way of waiting for compaction. The loop and sleep
     // is done because a thread that finishes a compaction job should get a
@@ -8314,7 +8194,6 @@ class Benchmark {
       while (!CompactLevelHelper(db_with_cfh, from_level)) WaitForCompaction();
     }
   }
-#endif
 
   void Flush() {
     FlushOptions flush_opt;
@@ -8438,7 +8317,6 @@ class Benchmark {
     }
   }
 
-#ifndef ROCKSDB_LITE
 
   void Replay(ThreadState* thread) {
     if (db_.db != nullptr) {
@@ -8528,7 +8406,6 @@ class Benchmark {
     delete backup_engine;
   }
 
-#endif  // ROCKSDB_LITE
 };
 
 int db_bench_tool(int argc, char** argv) {
@@ -8544,7 +8421,6 @@ int db_bench_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
   FLAGS_compaction_style_e =
       (ROCKSDB_NAMESPACE::CompactionStyle)FLAGS_compaction_style;
-#ifndef ROCKSDB_LITE
   if (FLAGS_statistics && !FLAGS_statistics_string.empty()) {
     fprintf(stderr,
             "Cannot provide both --statistics and --statistics_string.\n");
@@ -8560,7 +8436,6 @@ int db_bench_tool(int argc, char** argv) {
       exit(1);
     }
   }
-#endif  // ROCKSDB_LITE
   if (FLAGS_statistics) {
     dbstats = ROCKSDB_NAMESPACE::CreateDBStatistics();
   }
@@ -8590,7 +8465,6 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_compressed_secondary_cache_compression_type_e = StringToCompressionType(
       FLAGS_compressed_secondary_cache_compression_type.c_str());
 
-#ifndef ROCKSDB_LITE
   // Stacked BlobDB
   FLAGS_blob_db_compression_type_e =
       StringToCompressionType(FLAGS_blob_db_compression_type.c_str());
@@ -8622,7 +8496,6 @@ int db_bench_tool(int argc, char** argv) {
 
   // Let -readonly imply -use_existing_db
   FLAGS_use_existing_db |= FLAGS_readonly;
-#endif  // ROCKSDB_LITE
 
   if (FLAGS_build_info) {
     std::string build_info;
@@ -8703,13 +8576,11 @@ int db_bench_tool(int argc, char** argv) {
   ROCKSDB_NAMESPACE::Benchmark benchmark;
   benchmark.Run();
 
-#ifndef ROCKSDB_LITE
   if (FLAGS_print_malloc_stats) {
     std::string stats_string;
     ROCKSDB_NAMESPACE::DumpMallocStats(&stats_string);
     fprintf(stdout, "Malloc stats:\n%s\n", stats_string.c_str());
   }
-#endif  // ROCKSDB_LITE
 
   return 0;
 }

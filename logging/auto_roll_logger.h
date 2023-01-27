@@ -21,7 +21,6 @@ namespace ROCKSDB_NAMESPACE {
 class FileSystem;
 class SystemClock;
 
-#ifndef ROCKSDB_LITE
 // Rolls the log file by size and/or time
 class AutoRollLogger : public Logger {
  public:
@@ -158,7 +157,6 @@ class AutoRollLogger : public Logger {
   IODebugContext io_context_;
   mutable port::Mutex mutex_;
 };
-#endif  // !ROCKSDB_LITE
 
 // Facade to craete logger automatically
 Status CreateLoggerFromOptions(const std::string& dbname,

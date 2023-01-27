@@ -3,15 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#if !(defined GFLAGS) || defined(ROCKSDB_LITE)
+#if !(defined GFLAGS)
 
 #include <cstdio>
 int main() {
 #ifndef GFLAGS
   fprintf(stderr, "Please install gflags to run rocksdb tools\n");
-#endif
-#ifdef ROCKSDB_LITE
-  fprintf(stderr, "DbUndumpTool is not supported in ROCKSDB_LITE\n");
 #endif
   return 1;
 }
@@ -59,4 +56,4 @@ int main(int argc, char **argv) {
   }
   return 0;
 }
-#endif  // !(defined GFLAGS) || defined(ROCKSDB_LITE)
+#endif  // !(defined GFLAGS)

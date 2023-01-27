@@ -131,9 +131,7 @@ class DBBlobIndexTest : public DBTestBase {
         ASSERT_OK(Flush());
         ASSERT_OK(
             dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-#ifndef ROCKSDB_LITE
         ASSERT_EQ("0,1", FilesPerLevel());
-#endif  // !ROCKSDB_LITE
         break;
     }
   }
@@ -459,7 +457,6 @@ TEST_F(DBBlobIndexTest, Iterate) {
     verify(15, Status::kOk, get_value(16, 0), get_value(14, 0),
            create_blob_iterator, check_is_blob(false));
 
-#ifndef ROCKSDB_LITE
     // Iterator with blob support and using seek.
     ASSERT_OK(dbfull()->SetOptions(
         cfh(), {{"max_sequential_skip_in_iterations", "0"}}));
@@ -484,7 +481,6 @@ TEST_F(DBBlobIndexTest, Iterate) {
            create_blob_iterator, check_is_blob(false));
     verify(15, Status::kOk, get_value(16, 0), get_value(14, 0),
            create_blob_iterator, check_is_blob(false));
-#endif  // !ROCKSDB_LITE
 
     for (auto* snapshot : snapshots) {
       dbfull()->ReleaseSnapshot(snapshot);
@@ -584,12 +580,10 @@ TEST_F(DBBlobIndexTest, IntegratedBlobIterate) {
   Status expected_status;
   verify(1, expected_status, expected_value);
 
-#ifndef ROCKSDB_LITE
   // Test DBIter::FindValueForCurrentKeyUsingSeek flow.
   ASSERT_OK(dbfull()->SetOptions(cfh(),
                                  {{"max_sequential_skip_in_iterations", "0"}}));
   verify(1, expected_status, expected_value);
-#endif  // !ROCKSDB_LITE
 }
 
 }  // namespace ROCKSDB_NAMESPACE

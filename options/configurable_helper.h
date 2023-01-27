@@ -46,7 +46,6 @@ class ConfigurableHelper {
       const std::unordered_map<std::string, std::string>& options,
       std::unordered_map<std::string, std::string>* unused);
 
-#ifndef ROCKSDB_LITE
   // Internal method to configure a set of options for this object.
   // Classes may override this value to change its behavior.
   // @param config_options Controls how the options are being configured
@@ -181,7 +180,6 @@ class ConfigurableHelper {
       const ConfigOptions& config_options, Configurable& configurable,
       const OptionTypeInfo& opt_info, const std::string& opt_name,
       const std::string& name, const std::string& value, void* opt_ptr);
-#endif  // ROCKSDB_LITE
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -20,9 +20,7 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "utilities/counted_fs.h"
@@ -95,7 +93,6 @@ TEST_F(DBBasicTest, UniqueSession) {
   EXPECT_MATCHES_REGEX(sid2, expected);
   EXPECT_MATCHES_REGEX(sid3, expected);
 
-#ifndef ROCKSDB_LITE
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_OK(db_->GetDbSessionId(sid1));
@@ -110,7 +107,6 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_NE(sid1, sid2);
 
   ASSERT_EQ(sid2, sid3);
-#endif  // ROCKSDB_LITE
 
   CreateAndReopenWithCF({"goku"}, options);
   ASSERT_OK(db_->GetDbSessionId(sid1));
@@ -127,7 +123,6 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_NE(sid1, sid4);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
@@ -364,7 +359,6 @@ TEST_F(DBBasicTest, LevelLimitReopen) {
   options.max_bytes_for_level_multiplier_additional.resize(10, 1);
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBBasicTest, PutDeleteGet) {
   do {
@@ -426,7 +420,6 @@ TEST_F(DBBasicTest, GetFromVersions) {
   } while (ChangeOptions());
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, GetSnapshot) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
@@ -447,7 +440,6 @@ TEST_F(DBBasicTest, GetSnapshot) {
     }
   } while (ChangeOptions());
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBBasicTest, CheckLock) {
   do {
@@ -700,7 +692,6 @@ TEST_F(DBBasicTest, LockFileRecovery) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, Snapshot) {
   env_->SetMockSleep();
   anon::OptionsOverride options_override;
@@ -772,7 +763,6 @@ TEST_F(DBBasicTest, Snapshot) {
   } while (ChangeOptions());
 }
 
-#endif  // ROCKSDB_LITE
 
 class DBBasicMultiConfigs : public DBBasicTest,
                             public ::testing::WithParamInterface<int> {
@@ -2729,7 +2719,6 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
 INSTANTIATE_TEST_CASE_P(MultiGetPrefix, MultiGetPrefixExtractorTest,
                         ::testing::Bool());
 
-#ifndef ROCKSDB_LITE
 class DBMultiGetRowCacheTest : public DBBasicTest,
                                public ::testing::WithParamInterface<bool> {};
 
@@ -2884,7 +2873,6 @@ TEST_F(DBBasicTest, ValueTypeString) {
     ASSERT_TRUE(key_version.GetTypeName() != "Invalid");
   }
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   Options options = CurrentOptions();
@@ -2985,7 +2973,6 @@ TEST_F(DBBasicTest, BestEffortsRecoveryWithVersionBuildingFailure) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 class TableFileListener : public EventListener {
  public:
@@ -3260,7 +3247,6 @@ TEST_F(DBBasicTest, DisableTrackWal) {
   ASSERT_TRUE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   Options options = CurrentOptions();
@@ -3304,7 +3290,6 @@ TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
  public:
@@ -3360,7 +3345,6 @@ TEST_P(DBBasicTestTrackWal, DoNotTrackObsoleteWal) {
 
 INSTANTIATE_TEST_CASE_P(DBBasicTestTrackWal, DBBasicTestTrackWal,
                         testing::Bool());
-#endif  // ROCKSDB_LITE
 
 class DBBasicTestMultiGet : public DBTestBase {
  public:
@@ -3382,7 +3366,6 @@ class DBBasicTestMultiGet : public DBTestBase {
     Random rnd(301);
     BlockBasedTableOptions table_options;
 
-#ifndef ROCKSDB_LITE
     if (compression_enabled_) {
       std::vector<CompressionType> compression_types;
       compression_types = GetSupportedCompressions();
@@ -3401,12 +3384,6 @@ class DBBasicTestMultiGet : public DBTestBase {
         compression_enabled_ = false;
       }
     }
-#else
-    // GetSupportedCompressions() is not available in LITE build
-    if (!Snappy_Supported()) {
-      compression_enabled_ = false;
-    }
-#endif  // ROCKSDB_LITE
 
     table_options.block_cache = uncompressed_cache_;
     if (table_options.block_cache == nullptr) {
@@ -3729,7 +3706,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   class FakeDirectIOEnv : public EnvWrapper {
     class FakeDirectIOSequentialFile;
@@ -3846,7 +3822,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   }
   Close();
 }
-#endif  // ROCKSDB_LITE
 
 TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
   std::vector<std::string> key_data(10);
@@ -4387,7 +4362,6 @@ TEST_F(DBBasicTest, FailOpenIfLoggerCreationFail) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, VerifyFileChecksums) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
@@ -4453,7 +4427,6 @@ TEST_F(DBBasicTest, DISABLED_ManualWalSync) {
 
   ASSERT_TRUE(TryReopen(options).IsCorruption());
 }
-#endif  // !ROCKSDB_LITE
 
 // A test class for intercepting random reads and injecting artificial
 // delays. Used for testing the deadline/timeout feature

@@ -1809,7 +1809,6 @@ std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
   }
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 static ObjectLibrary::PatternEntry FilterPatternEntryWithBits(
     const char* name) {
@@ -1918,7 +1917,6 @@ static int RegisterBuiltinFilterPolicies(ObjectLibrary& library,
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 }  // namespace
-#endif  // ROCKSDB_LITE
 
 Status FilterPolicy::CreateFromString(
     const ConfigOptions& options, const std::string& value,
@@ -1940,16 +1938,11 @@ Status FilterPolicy::CreateFromString(
   } else if (id.empty()) {  // We have no Id but have options.  Not good
     return Status::NotSupported("Cannot reset object ", id);
   } else {
-#ifndef ROCKSDB_LITE
     static std::once_flag loaded;
     std::call_once(loaded, [&]() {
       RegisterBuiltinFilterPolicies(*(ObjectLibrary::Default().get()), "");
     });
     status = options.registry->NewSharedObject(id, policy);
-#else
-    status =
-        Status::NotSupported("Cannot load filter policy in LITE mode ", value);
-#endif  // ROCKSDB_LITE
   }
   if (options.ignore_unsupported_options && status.IsNotSupported()) {
     return Status::OK();

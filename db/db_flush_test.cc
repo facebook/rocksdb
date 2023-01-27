@@ -73,9 +73,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   ASSERT_OK(dbfull()->Flush(no_wait));
   // If the issue is hit we will wait here forever.
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-#ifndef ROCKSDB_LITE
   ASSERT_EQ(2, TotalTableFiles());
-#endif  // ROCKSDB_LITE
 }
 
 // Disable this test temporarily on Travis as it fails intermittently.
@@ -105,9 +103,7 @@ TEST_F(DBFlushTest, SyncFail) {
   // Now the background job will do the flush; wait for it.
   // Returns the IO error happend during flush.
   ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
-#ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
-#endif                             // ROCKSDB_LITE
   Destroy(options);
 }
 
@@ -664,7 +660,6 @@ TEST_F(DBFlushTest, StatisticsGarbageRangeDeletes) {
   Close();
 }
 
-#ifndef ROCKSDB_LITE
 // This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
@@ -744,10 +739,8 @@ class TestFlushListener : public EventListener {
   Env* env_;
   DBFlushTest* test_;
 };
-#endif  // !ROCKSDB_LITE
 
 // RocksDB lite does not support GetLiveFiles()
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, FixFlushReasonRaceFromConcurrentFlushes) {
   Options options = CurrentOptions();
   options.atomic_flush = true;
@@ -802,7 +795,6 @@ TEST_F(DBFlushTest, FixFlushReasonRaceFromConcurrentFlushes) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBFlushTest, MemPurgeBasic) {
   Options options = CurrentOptions();
@@ -835,24 +827,16 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
-#ifndef ROCKSDB_LITE
   // Initially deactivate the MemPurge prototype.
   options.experimental_mempurge_threshold = 0.0;
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#else
-  // Activate directly the MemPurge prototype.
-  // (RocksDB lite does not support dynamic options)
-  options.experimental_mempurge_threshold = 1.0;
-#endif  // !ROCKSDB_LITE
   ASSERT_OK(TryReopen(options));
 
   // RocksDB lite does not support dynamic options
-#ifndef ROCKSDB_LITE
   // Dynamically activate the MemPurge prototype without restarting the DB.
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   ASSERT_OK(db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}}));
-#endif
 
   std::atomic<uint32_t> mempurge_count{0};
   std::atomic<uint32_t> sst_count{0};
@@ -985,7 +969,6 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
 }
 
 // RocksDB lite does not support dynamic options
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   Options options = CurrentOptions();
 
@@ -1098,12 +1081,10 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
 
   Close();
 }
-// Closes the "#ifndef ROCKSDB_LITE"
 // End of MemPurgeBasicToggle, which is not
 // supported with RocksDB LITE because it
 // relies on dynamically changing the option
 // flag experimental_mempurge_threshold.
-#endif
 
 // At the moment, MemPurge feature is deactivated
 // when atomic_flush is enabled. This is because the level
@@ -1221,10 +1202,8 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-#ifndef ROCKSDB_LITE
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#endif  // !ROCKSDB_LITE
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
@@ -1422,10 +1401,8 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   options.compression = kNoCompression;
   options.inplace_update_support = false;
   options.allow_concurrent_memtable_write = true;
-#ifndef ROCKSDB_LITE
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#endif  // !ROCKSDB_LITE
   // Create a ConditionalUpdate compaction filter
   // that will update all the values of the KV pairs
   // where the keys are "lower" than KEY4.
@@ -1878,12 +1855,10 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   ASSERT_OK(db_->ContinueBackgroundWork());
   // We ingested the error to env, so the returned status is not OK.
   ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
-#ifndef ROCKSDB_LITE
   uint64_t num_bg_errors;
   ASSERT_TRUE(
       db_->GetIntProperty(DB::Properties::kBackgroundErrors, &num_bg_errors));
   ASSERT_GT(num_bg_errors, 0);
-#endif  // ROCKSDB_LITE
 
   // In the bug scenario, triggering another flush would cause the second flush
   // to hang forever. After the fix we expect it to return an error.
@@ -1925,7 +1900,6 @@ TEST_F(DBFlushTest, CFDropRaceWithWaitForFlushMemTables) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   class TestListener : public EventListener {
    public:
@@ -2016,7 +1990,6 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBFlushTest, FlushWithBlob) {
   constexpr uint64_t min_blob_size = 10;
@@ -2078,7 +2051,6 @@ TEST_F(DBFlushTest, FlushWithBlob) {
 
   ASSERT_EQ(blob_file->GetTotalBlobCount(), 1);
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   assert(internal_stats);
 
@@ -2094,7 +2066,6 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
 TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
@@ -2408,7 +2379,6 @@ TEST_P(DBFlushTestBlobError, FlushError) {
     ASSERT_NE(type, kBlobFile);
   }
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   assert(internal_stats);
 
@@ -2432,10 +2402,8 @@ TEST_P(DBFlushTestBlobError, FlushError) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
   class SimpleTestFlushListener : public EventListener {
    public:
@@ -2616,7 +2584,6 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
     ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
   }
 }
-#endif  // ROCKSDB_LITE
 
 TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
   Options options = CurrentOptions();

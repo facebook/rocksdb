@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <stack>
 #include <string>
@@ -381,4 +380,3 @@ class TransactionBaseImpl : public Transaction {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

@@ -46,7 +46,6 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
 // - Updating IO stats.
 class RandomAccessFileReader {
  private:
-#ifndef ROCKSDB_LITE
   void NotifyOnFileReadFinish(
       uint64_t offset, size_t length,
       const FileOperationInfo::StartTimePoint& start_ts,
@@ -77,7 +76,6 @@ class RandomAccessFileReader {
     io_status.PermitUncheckedError();
   }
 
-#endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
@@ -107,9 +105,7 @@ class RandomAccessFileReader {
     std::function<void(const FSReadRequest&, void*)> cb_;
     void* cb_arg_;
     uint64_t start_time_;
-#ifndef ROCKSDB_LITE
     FileOperationInfo::StartTimePoint fs_start_ts_;
-#endif
     // Below fields stores the parameters passed by caller in case of direct_io.
     char* user_scratch_;
     AlignedBuf* user_aligned_buf_;
@@ -142,16 +138,12 @@ class RandomAccessFileReader {
         listeners_(),
         file_temperature_(file_temperature),
         is_last_level_(is_last_level) {
-#ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {
                     if (e->ShouldBeNotifiedOnFileIO()) {
                       listeners_.emplace_back(e);
                     }
                   });
-#else  // !ROCKSDB_LITE
-    (void)listeners;
-#endif
   }
 
   static IOStatus Create(const std::shared_ptr<FileSystem>& fs,

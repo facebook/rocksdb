@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include "port/port.h"
 #include "rocksdb/options.h"
@@ -146,4 +145,3 @@ class RandomTransactionInserter {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

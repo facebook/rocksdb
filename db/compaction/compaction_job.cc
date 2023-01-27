@@ -978,7 +978,6 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
 void CompactionJob::NotifyOnSubcompactionBegin(
     SubcompactionState* sub_compact) {
-#ifndef ROCKSDB_LITE
   Compaction* c = compact_->compaction;
 
   if (db_options_.listeners.empty()) {
@@ -1004,14 +1003,10 @@ void CompactionJob::NotifyOnSubcompactionBegin(
   }
   info.status.PermitUncheckedError();
 
-#else
-  (void)sub_compact;
-#endif  // ROCKSDB_LITE
 }
 
 void CompactionJob::NotifyOnSubcompactionCompleted(
     SubcompactionState* sub_compact) {
-#ifndef ROCKSDB_LITE
 
   if (db_options_.listeners.empty()) {
     return;
@@ -1032,16 +1027,12 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
   for (const auto& listener : db_options_.listeners) {
     listener->OnSubcompactionCompleted(info);
   }
-#else
-  (void)sub_compact;
-#endif  // ROCKSDB_LITE
 }
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
 
-#ifndef ROCKSDB_LITE
   if (db_options_.compaction_service) {
     CompactionServiceJobStatus comp_status =
         ProcessKeyValueCompactionWithCompactionService(sub_compact);
@@ -1052,7 +1043,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // fallback to local compaction
     assert(comp_status == CompactionServiceJobStatus::kUseLocal);
   }
-#endif  // !ROCKSDB_LITE
 
   uint64_t prev_cpu_micros = db_options_.clock->CPUMicros();
 
@@ -1615,7 +1605,6 @@ Status CompactionJob::FinishCompactionOutputFile(
       TableFileCreationReason::kCompaction, status_for_listener, file_checksum,
       file_checksum_func_name);
 
-#ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
@@ -1634,7 +1623,6 @@ Status CompactionJob::FinishCompactionOutputFile(
       db_error_handler_->SetBGError(s, BackgroundErrorReason::kCompaction);
     }
   }
-#endif
 
   outputs.ResetBuilder();
   return s;
@@ -1759,11 +1747,9 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   std::string fname = GetTableFileName(file_number);
   // Fire events.
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-#ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(
       cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, job_id_,
       TableFileCreationReason::kCompaction);
-#endif  // !ROCKSDB_LITE
   // Make the output file
   std::unique_ptr<FSWritableFile> writable_file;
 #ifndef NDEBUG
@@ -1900,7 +1886,6 @@ void CompactionJob::CleanupCompaction() {
   compact_ = nullptr;
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
   assert(prefix_length > 0);
@@ -1909,7 +1894,6 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 }
 }  // namespace
 
-#endif  // !ROCKSDB_LITE
 
 void CompactionJob::UpdateCompactionStats() {
   assert(compact_);
@@ -1956,7 +1940,6 @@ void CompactionJob::UpdateCompactionInputStatsHelper(int* num_files,
 
 void CompactionJob::UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const {
-#ifndef ROCKSDB_LITE
   compaction_job_stats_->elapsed_micros = stats.micros;
 
   // input information
@@ -1983,9 +1966,6 @@ void CompactionJob::UpdateCompactionJobStats(
     CopyPrefix(compact_->LargestUserKey(), CompactionJobStats::kMaxPrefixLength,
                &compaction_job_stats_->largest_output_key_prefix);
   }
-#else
-  (void)stats;
-#endif  // !ROCKSDB_LITE
 }
 
 void CompactionJob::LogCompaction() {

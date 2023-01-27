@@ -1439,7 +1439,6 @@ void DBIter::Seek(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-#ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
@@ -1456,7 +1455,6 @@ void DBIter::Seek(const Slice& target) {
     db_impl_->TraceIteratorSeek(cfd_->GetID(), target, lower_bound, upper_bound)
         .PermitUncheckedError();
   }
-#endif  // ROCKSDB_LITE
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
@@ -1514,7 +1512,6 @@ void DBIter::SeekForPrev(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-#ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
@@ -1533,7 +1530,6 @@ void DBIter::SeekForPrev(const Slice& target) {
                                    upper_bound)
         .PermitUncheckedError();
   }
-#endif  // ROCKSDB_LITE
 
   status_ = Status::OK();
   ReleaseTempPinnedData();

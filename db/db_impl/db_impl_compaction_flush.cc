@@ -30,7 +30,6 @@ bool DBImpl::EnoughRoomForCompaction(
     bool* sfm_reserved_compact_space, LogBuffer* log_buffer) {
   // Check if we have enough room to do the compaction
   bool enough_room = true;
-#ifndef ROCKSDB_LITE
   auto sfm = static_cast<SstFileManagerImpl*>(
       immutable_db_options_.sst_file_manager.get());
   if (sfm) {
@@ -45,11 +44,6 @@ bool DBImpl::EnoughRoomForCompaction(
       *sfm_reserved_compact_space = true;
     }
   }
-#else
-  (void)cfd;
-  (void)inputs;
-  (void)sfm_reserved_compact_space;
-#endif  // ROCKSDB_LITE
   if (!enough_room) {
     // Just in case tests want to change the value of enough_room
     TEST_SYNC_POINT_CALLBACK(
@@ -259,11 +253,9 @@ Status DBImpl::FlushMemTableToOutputFile(
   TEST_SYNC_POINT_CALLBACK(
       "DBImpl::FlushMemTableToOutputFile:AfterPickMemtables", &flush_job);
 
-#ifndef ROCKSDB_LITE
   // may temporarily unlock and lock the mutex.
   NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id,
                      flush_reason);
-#endif  // ROCKSDB_LITE
 
   bool switched_to_mempurge = false;
   // Within flush_job.Run, rocksdb may call event listener to notify
@@ -344,7 +336,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   // If flush ran smoothly and no mempurge happened
   // install new SST file path.
   if (s.ok() && (!switched_to_mempurge)) {
-#ifndef ROCKSDB_LITE
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, mutable_cf_options,
                            flush_job.GetCommittedFlushJobsInfo());
@@ -367,7 +358,6 @@ Status DBImpl::FlushMemTableToOutputFile(
         error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
       }
     }
-#endif  // ROCKSDB_LITE
   }
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:Finish");
   return s;
@@ -486,7 +476,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   IOStatus log_io_s = IOStatus::OK();
   assert(num_cfs == static_cast<int>(jobs.size()));
 
-#ifndef ROCKSDB_LITE
   for (int i = 0; i != num_cfs; ++i) {
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
     // may temporarily unlock and lock the mutex.
@@ -494,7 +483,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
                        job_context->job_id, flush_reason);
   }
-#endif /* !ROCKSDB_LITE */
 
   if (logfile_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
@@ -703,10 +691,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         mems_list.emplace_back(&mems);
         mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
         tmp_file_meta.emplace_back(&file_meta[i]);
-#ifndef ROCKSDB_LITE
         committed_flush_jobs_info.emplace_back(
             jobs[i]->GetCommittedFlushJobsInfo());
-#endif  //! ROCKSDB_LITE
       }
     }
 
@@ -758,7 +744,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     if (made_progress) {
       *made_progress = true;
     }
-#ifndef ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     assert(all_mutable_cf_options.size() == static_cast<size_t>(num_cfs));
@@ -789,7 +774,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         }
       }
     }
-#endif  // ROCKSDB_LITE
   }
 
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
@@ -827,7 +811,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                                 const MutableCFOptions& mutable_cf_options,
                                 int job_id, FlushReason flush_reason) {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
   }
@@ -867,19 +850,11 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
   mutex_.Lock();
 // no need to signal bg_cv_ as it will be signaled at the end of the
 // flush process.
-#else
-  (void)cfd;
-  (void)file_meta;
-  (void)mutable_cf_options;
-  (void)job_id;
-  (void)flush_reason;
-#endif  // ROCKSDB_LITE
 }
 
 void DBImpl::NotifyOnFlushCompleted(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info) {
-#ifndef ROCKSDB_LITE
   assert(flush_jobs_info != nullptr);
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
@@ -911,11 +886,6 @@ void DBImpl::NotifyOnFlushCompleted(
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
-#else
-  (void)cfd;
-  (void)mutable_cf_options;
-  (void)flush_jobs_info;
-#endif  // ROCKSDB_LITE
 }
 
 Status DBImpl::CompactRange(const CompactRangeOptions& options,
@@ -1298,17 +1268,6 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
                             const int output_level, const int output_path_id,
                             std::vector<std::string>* const output_file_names,
                             CompactionJobInfo* compaction_job_info) {
-#ifdef ROCKSDB_LITE
-  (void)compact_options;
-  (void)column_family;
-  (void)input_file_names;
-  (void)output_level;
-  (void)output_path_id;
-  (void)output_file_names;
-  (void)compaction_job_info;
-  // not supported in lite version
-  return Status::NotSupported("Not supported in ROCKSDB LITE");
-#else
   if (column_family == nullptr) {
     return Status::InvalidArgument("ColumnFamilyHandle must be non-null.");
   }
@@ -1367,10 +1326,8 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   }
 
   return s;
-#endif  // ROCKSDB_LITE
 }
 
-#ifndef ROCKSDB_LITE
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
@@ -1512,14 +1469,12 @@ Status DBImpl::CompactFilesImpl(
   // SetBGError
   compaction_job.io_status().PermitUncheckedError();
   c->ReleaseCompactionFiles(s);
-#ifndef ROCKSDB_LITE
   // Need to make sure SstFileManager does its bookkeeping
   auto sfm = static_cast<SstFileManagerImpl*>(
       immutable_db_options_.sst_file_manager.get());
   if (sfm && sfm_reserved_compact_space) {
     sfm->OnCompactionCompletion(c.get());
   }
-#endif  // ROCKSDB_LITE
 
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
@@ -1576,7 +1531,6 @@ Status DBImpl::CompactFilesImpl(
 
   return status;
 }
-#endif  // ROCKSDB_LITE
 
 Status DBImpl::PauseBackgroundWork() {
   InstrumentedMutexLock guard_lock(&mutex_);
@@ -1610,7 +1564,6 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
                                      const Status& st,
                                      const CompactionJobStats& job_stats,
                                      int job_id) {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.empty()) {
     return;
   }
@@ -1639,19 +1592,11 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   }
   mutex_.Lock();
   current->Unref();
-#else
-  (void)cfd;
-  (void)c;
-  (void)st;
-  (void)job_stats;
-  (void)job_id;
-#endif  // ROCKSDB_LITE
 }
 
 void DBImpl::NotifyOnCompactionCompleted(
     ColumnFamilyData* cfd, Compaction* c, const Status& st,
     const CompactionJobStats& compaction_job_stats, const int job_id) {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
   }
@@ -1681,13 +1626,6 @@ void DBImpl::NotifyOnCompactionCompleted(
   current->Unref();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
-#else
-  (void)cfd;
-  (void)c;
-  (void)st;
-  (void)compaction_job_stats;
-  (void)job_id;
-#endif  // ROCKSDB_LITE
 }
 
 // REQUIREMENT: block all background work by calling PauseBackgroundWork()
@@ -3590,14 +3528,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     c->ReleaseCompactionFiles(status);
     *made_progress = true;
 
-#ifndef ROCKSDB_LITE
     // Need to make sure SstFileManager does its bookkeeping
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm && sfm_reserved_compact_space) {
       sfm->OnCompactionCompletion(c.get());
     }
-#endif  // ROCKSDB_LITE
 
     NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status,
                                 compaction_job_stats, job_context->job_id);
@@ -3774,7 +3710,6 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
   return false;
 }
 
-#ifndef ROCKSDB_LITE
 void DBImpl::BuildCompactionJobInfo(
     const ColumnFamilyData* cfd, Compaction* c, const Status& st,
     const CompactionJobStats& compaction_job_stats, const int job_id,
@@ -3843,7 +3778,6 @@ void DBImpl::BuildCompactionJobInfo(
         std::move(blob_file_garbage_info));
   }
 }
-#endif
 
 // SuperVersionContext gets created and destructed outside of the lock --
 // we use this conveniently to:

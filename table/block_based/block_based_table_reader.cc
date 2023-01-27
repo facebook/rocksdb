@@ -732,7 +732,6 @@ Status BlockBasedTable::Open(
     rep->table_prefix_extractor = prefix_extractor;
   } else {
     // Current prefix_extractor doesn't match table
-#ifndef ROCKSDB_LITE
     if (rep->table_properties) {
       //**TODO: If/When the DBOptions has a registry in it, the ConfigOptions
       // will need to use it
@@ -748,7 +747,6 @@ Status BlockBasedTable::Open(
                         st.ToString().c_str());
       }
     }
-#endif  // ROCKSDB_LITE
   }
 
   // With properties loaded, we can set up portable/stable cache keys

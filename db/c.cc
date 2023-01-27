@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/c.h"
 
@@ -6399,4 +6398,3 @@ void rocksdb_enable_manual_compaction(rocksdb_t* db) {
 
 }  // end extern "C"
 
-#endif  // !ROCKSDB_LITE

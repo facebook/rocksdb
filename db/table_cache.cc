@@ -53,7 +53,6 @@ static Slice GetSliceForFileNumber(const uint64_t* file_number) {
                sizeof(*file_number));
 }
 
-#ifndef ROCKSDB_LITE
 
 void AppendVarint64(IterKey* key, uint64_t v) {
   char buf[10];
@@ -61,7 +60,6 @@ void AppendVarint64(IterKey* key, uint64_t v) {
   key->TrimAppend(key->Size(), buf, ptr - buf);
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // anonymous namespace
 
@@ -338,7 +336,6 @@ Status TableCache::GetRangeTombstoneIterator(
   return s;
 }
 
-#ifndef ROCKSDB_LITE
 void TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
                                          const FileDescriptor& fd,
                                          const Slice& internal_key,
@@ -401,7 +398,6 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
   }
   return found;
 }
-#endif  // ROCKSDB_LITE
 
 Status TableCache::Get(
     const ReadOptions& options,
@@ -413,7 +409,6 @@ Status TableCache::Get(
   auto& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
   bool done = false;
-#ifndef ROCKSDB_LITE
   IterKey row_cache_key;
   std::string row_cache_entry_buffer;
 
@@ -428,7 +423,6 @@ Status TableCache::Get(
       row_cache_entry = &row_cache_entry_buffer;
     }
   }
-#endif  // ROCKSDB_LITE
   Status s;
   TableReader* t = fd.table_reader;
   TypedHandle* handle = nullptr;
@@ -475,7 +469,6 @@ Status TableCache::Get(
     }
   }
 
-#ifndef ROCKSDB_LITE
   // Put the replay log in row cache only if something was found.
   if (!done && s.ok() && row_cache_entry && !row_cache_entry->empty()) {
     RowCacheInterface row_cache{ioptions_.row_cache.get()};
@@ -485,7 +478,6 @@ Status TableCache::Get(
     row_cache.Insert(row_cache_key.GetUserKey(), row_ptr, charge)
         .PermitUncheckedError();
   }
-#endif  // ROCKSDB_LITE
 
   if (handle != nullptr) {
     cache_.Release(handle);
@@ -523,7 +515,6 @@ Status TableCache::MultiGetFilter(
     HistogramImpl* file_read_hist, int level,
     MultiGetContext::Range* mget_range, TypedHandle** table_handle) {
   auto& fd = file_meta.fd;
-#ifndef ROCKSDB_LITE
   IterKey row_cache_key;
   std::string row_cache_entry_buffer;
 
@@ -534,7 +525,6 @@ Status TableCache::MultiGetFilter(
   if (ioptions_.row_cache && !first_key.get_context->NeedToReadSequence()) {
     return Status::NotSupported();
   }
-#endif  // ROCKSDB_LITE
   Status s;
   TableReader* t = fd.table_reader;
   TypedHandle* handle = nullptr;
