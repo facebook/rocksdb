@@ -432,8 +432,7 @@ inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
 class IterKey {
  public:
   IterKey()
-      : buf_(space_),
-        key_(buf_),
+      : key_(space_),
         key_size_(0),
         buf_size_(sizeof(space_)),
         is_user_key_(true) {}
@@ -614,13 +613,14 @@ class IterKey {
   bool IsUserKey() const { return is_user_key_; }
 
  private:
-  char* buf_;
   const char* key_;
-  size_t key_size_;
-  size_t buf_size_;
-  char space_[32];  // Avoid allocation for short keys
-  bool is_user_key_;
-
+  uint32_t key_size_;
+  uint32_t buf_size_ : 31;
+  uint32_t is_user_key_ : 1;
+  union {
+    char* buf_;
+    char space_[48];  // Avoid allocation for short keys
+  };
 
   char* buf() { return buf_size_ <= sizeof(space_) ? space_ : buf_ ; }
   const char* buf() const { return buf_size_ <= sizeof(space_) ? space_ : buf_ ; }
@@ -641,9 +641,8 @@ class IterKey {
   }
 
   void ResetBuffer() {
-    if (buf_ != space_) {
+    if (sizeof(space_) != buf_size_) {
       delete[] buf_;
-      buf_ = space_;
     }
     buf_size_ = sizeof(space_);
     key_size_ = 0;
