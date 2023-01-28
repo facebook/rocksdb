@@ -495,8 +495,15 @@ class IterKey {
       buf_ = p;
       buf_size_ = total_size;
     }
-
+    #if defined(__GNUC__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Warray-bounds"
+    #pragma GCC diagnostic ignored "-Wstringop-overflow"
+    #endif
     memcpy(buf() + shared_len, non_shared_data, non_shared_len);
+    #if defined(__GNUC__)
+    #pragma GCC diagnostic pop
+    #endif
     key_ = buf();
     key_size_ = total_size;
   }
@@ -644,7 +651,14 @@ class IterKey {
 
   void ResetBuffer() {
     if (sizeof(space_) != buf_size_) {
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
       delete[] buf_;
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
     }
     buf_size_ = sizeof(space_);
     key_size_ = 0;
