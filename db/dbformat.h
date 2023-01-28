@@ -423,6 +423,18 @@ inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
   return num >> 8;
 }
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#elif defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunknown-warning-option"
+#pragma clang diagnostic ignored "-Warray-bounds"
+#pragma clang diagnostic ignored "-Wstringop-overflow"
+#pragma clang diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 // The class to store keys in an efficient way. It allows:
 // 1. Users can either copy the key into it, or have it point to an unowned
 //    address.
@@ -495,15 +507,7 @@ class IterKey {
       buf_ = p;
       buf_size_ = total_size;
     }
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Warray-bounds"
-#pragma GCC diagnostic ignored "-Wstringop-overflow"
-#endif
     memcpy(buf() + shared_len, non_shared_data, non_shared_len);
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
     key_ = buf();
     key_size_ = total_size;
   }
@@ -651,14 +655,7 @@ class IterKey {
 
   void ResetBuffer() {
     if (sizeof(space_) != buf_size_) {
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
       delete[] buf_;
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
     }
     buf_size_ = sizeof(space_);
     key_size_ = 0;
@@ -679,6 +676,11 @@ class IterKey {
 
   void EnlargeBuffer(size_t key_size);
 };
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#elif defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 // Convert from a SliceTransform of user keys, to a SliceTransform of
 // internal keys.
