@@ -3584,6 +3584,54 @@ TEST_P(DBCompactionTestWithParam, FullCompactionInBottomPriThreadPool) {
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
+TEST_F(DBCompactionTest, CancelCompactionInBottomPriThreadPoolQueue) {
+  // This test verifies cancellation of a queued bottom-pri compaction.
+  //
+  // A `CompactRange()` in universal compacts all files to the bottom level so
+  // gets queued to the bottom-pri thread pool since it is nonempty. A sleeping
+  // thread in the bottom-pri pool blocks such a bottom-level compaction from
+  // executing, giving us a chance to cancel it.
+  const int kNumLevels = 3;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // Fill two overlapping files in L0
+  Random rnd(301);
+  for (int i = 0; i < 2; ++i) {
+    int key_idx = 0;
+    GenerateNewFile(&rnd, &key_idx);
+  }
+  ASSERT_EQ("2", FilesPerLevel(0));
+
+  // Open up bottom-pri pool and block it
+  env_->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  test::SleepingBackgroundTask sleeping_task_bottom;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_bottom, Env::Priority::BOTTOM);
+
+  // Issue a full compaction
+  auto manual_compaction_thread = port::Thread([this]() {
+    ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                    .IsIncomplete());
+  });
+
+  // Cancel it. Thread should be joinable, i.e., manual compaction was unblocked
+  // despite being in bottom-pri queue
+  db_->DisableManualCompaction();
+  manual_compaction_thread.join();
+  ASSERT_EQ("2", FilesPerLevel(0));
+
+  sleeping_task_bottom.WakeUp();
+  sleeping_task_bottom.WaitUntilDone();
+  env_->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+}
+
 TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {
   // Deletions can be dropped when compacted to non-last level if they fall
   // outside the lower-level files' key-ranges.
