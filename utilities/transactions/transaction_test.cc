@@ -6578,6 +6578,11 @@ TEST_P(TransactionTest, LockWal) {
   ASSERT_OK(db->UnlockWAL());
   txn0.reset();
 
+  // `UnlockWAL()` does not wait for the write stall barrier to be removed from
+  // the `WriteThread`. To avoid failing the transaction on the barrier's
+  // presence we reset `no_slowdown`. Note the test would hang if `UnlockWAL()`
+  // failed to do its job of (eventually) unblocking writes.
+  wopts.no_slowdown = false;
   txn0.reset(db->BeginTransaction(wopts, TransactionOptions()));
   ASSERT_OK(txn0->SetName("txn0_1"));
   ASSERT_OK(txn0->Put("foo", "v1"));
