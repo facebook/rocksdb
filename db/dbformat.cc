@@ -201,6 +201,32 @@ LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,
   end_ = dst;
 }
 
+void IterKey::TrimAppend(const size_t shared_len, const char* non_shared_data,
+                         const size_t non_shared_len) {
+  assert(shared_len <= key_size_);
+  size_t total_size = shared_len + non_shared_len;
+
+  if (IsKeyPinned() /* key is not in buf_ */) {
+    // Copy the key from external memory to buf_ (copy shared_len bytes)
+    EnlargeBufferIfNeeded(total_size);
+    memcpy(buf(), key_, shared_len);
+  } else if (total_size > buf_size_) {
+    // Need to allocate space, delete previous space
+    char* p = new char[total_size];
+    memcpy(p, key_, shared_len);
+
+    if (buf_size_ != sizeof(space_)) {
+      delete[] buf_;
+    }
+
+    buf_ = p;
+    buf_size_ = total_size;
+  }
+  memcpy(buf() + shared_len, non_shared_data, non_shared_len);
+  key_ = buf();
+  key_size_ = total_size;
+}
+
 void IterKey::EnlargeBuffer(size_t key_size) {
   // If size is smaller than buffer size, continue using current buffer,
   // or the static allocated one, as default

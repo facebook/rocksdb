@@ -487,30 +487,7 @@ class IterKey {
   // shared_len: bytes in [0, shard_len-1] would be remained
   // non_shared_data: data to be append, its length must be >= non_shared_len
   void TrimAppend(const size_t shared_len, const char* non_shared_data,
-                  const size_t non_shared_len) {
-    assert(shared_len <= key_size_);
-    size_t total_size = shared_len + non_shared_len;
-
-    if (IsKeyPinned() /* key is not in buf_ */) {
-      // Copy the key from external memory to buf_ (copy shared_len bytes)
-      EnlargeBufferIfNeeded(total_size);
-      memcpy(buf(), key_, shared_len);
-    } else if (total_size > buf_size_) {
-      // Need to allocate space, delete previous space
-      char* p = new char[total_size];
-      memcpy(p, key_, shared_len);
-
-      if (buf_size_ != sizeof(space_)) {
-        delete[] buf_;
-      }
-
-      buf_ = p;
-      buf_size_ = total_size;
-    }
-    memcpy(buf() + shared_len, non_shared_data, non_shared_len);
-    key_ = buf();
-    key_size_ = total_size;
-  }
+                  const size_t non_shared_len);
 
   Slice SetKey(const Slice& key, bool copy = true) {
     // is_user_key_ expected to be set already via SetIsUserKey
