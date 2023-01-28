@@ -622,8 +622,10 @@ class IterKey {
     char space_[48];  // Avoid allocation for short keys
   };
 
-  char* buf() { return buf_size_ <= sizeof(space_) ? space_ : buf_ ; }
-  const char* buf() const { return buf_size_ <= sizeof(space_) ? space_ : buf_ ; }
+  char* buf() { return buf_size_ <= sizeof(space_) ? space_ : buf_; }
+  const char* buf() const {
+    return buf_size_ <= sizeof(space_) ? space_ : buf_;
+  }
 
   Slice SetKeyImpl(const Slice& key, bool copy) {
     size_t size = key.size();
