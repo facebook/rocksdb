@@ -621,9 +621,9 @@ class IterKey {
 
  private:
   const char* key_;
-  uint32_t key_size_;
-  uint32_t buf_size_ : 31;
-  uint32_t is_user_key_ : 1;
+  size_t key_size_ : 32;
+  size_t buf_size_ : 31;
+  size_t is_user_key_ : 1;
   union {
     char* buf_;
     char space_[48];  // Avoid allocation for short keys
