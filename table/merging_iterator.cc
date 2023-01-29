@@ -154,12 +154,17 @@ class MergingIterator : public InternalIterator {
 
   // Add range_tombstone_iters_[level] into min heap.
   // Updates active_ if the end key of a range tombstone is inserted.
+  // pinned_heap_items_[level].type is updated based on `start_key`.
+  //
+  // If range_tombstone_iters_[level] is after iterate_upper_bound_,
+  // it is removed from the heap.
   // @param start_key specifies which end point of the range tombstone to add.
   void InsertRangeTombstoneToMinHeap(size_t level, bool start_key = true,
                                      bool replace_top = false) {
     assert(!range_tombstone_iters_.empty() &&
            range_tombstone_iters_[level]->Valid());
     if (start_key) {
+      pinned_heap_item_[level].type = HeapItem::Type::DELETE_RANGE_START;
       ParsedInternalKey pik = range_tombstone_iters_[level]->start_key();
       // iterate_upper_bound does not have timestamp
       if (iterate_upper_bound_ &&
@@ -174,7 +179,6 @@ class MergingIterator : public InternalIterator {
         return;
       }
       pinned_heap_item_[level].SetTombstoneKey(std::move(pik));
-      pinned_heap_item_[level].type = HeapItem::Type::DELETE_RANGE_START;
       assert(active_.count(level) == 0);
     } else {
       // allow end key to go over upper bound (if present) since start key is
@@ -948,11 +952,19 @@ bool MergingIterator::SkipNextDeleted() {
     // constructor, parsed_largest.sequence is decremented 1 in this case.
     if (range_tombstone_iters_[current->level] &&
         range_tombstone_iters_[current->level]->Valid()) {
-      // range tombstone end key must immediately follow file boundary sentinel
-      assert(!minHeap_.empty() && minHeap_.top()->level == current->level &&
-             minHeap_.top()->type == HeapItem::Type::DELETE_RANGE_END);
-      minHeap_.pop();
-      active_.erase(current->level);
+      if (!minHeap_.empty() && minHeap_.top()->level == current->level) {
+        assert(minHeap_.top()->type == HeapItem::Type::DELETE_RANGE_END);
+        minHeap_.pop();
+        active_.erase(current->level);
+      } else {
+        // range tombstone is still valid, but it is not on heap.
+        // This can only happen if range tombstone is over iterator upper bound
+        assert(iterate_upper_bound_ &&
+               comparator_->user_comparator()->CompareWithoutTimestamp(
+                   range_tombstone_iters_[current->level]->start_key().user_key,
+                   true /* a_has_ts */, *iterate_upper_bound_,
+                   false /* b_has_ts */) >= 0);
+      }
     }
     // LevelIterator enters a new SST file
     current->iter.Next();

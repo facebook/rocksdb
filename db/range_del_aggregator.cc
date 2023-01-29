@@ -30,7 +30,7 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       icmp_(icmp),
       smallest_ikey_(smallest),
       largest_ikey_(largest) {
-  // Set up bounds such that this range tombstones from this iterator is
+  // Set up bounds such that range tombstones from this iterator are
   // truncated to range [smallest, largest).
   if (smallest != nullptr) {
     pinned_bounds_.emplace_back();
