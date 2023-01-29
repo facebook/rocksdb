@@ -3607,7 +3607,6 @@ TEST_F(DBCompactionTest, CancelCompactionInBottomPriThreadPoolQueue) {
     int key_idx = 0;
     GenerateNewFile(&rnd, &key_idx);
   }
-  ASSERT_EQ("2", FilesPerLevel(0));
 
   // Open up bottom-pri pool and block it
   env_->SetBackgroundThreads(1, Env::Priority::BOTTOM);
@@ -3615,17 +3614,26 @@ TEST_F(DBCompactionTest, CancelCompactionInBottomPriThreadPoolQueue) {
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
                  &sleeping_task_bottom, Env::Priority::BOTTOM);
 
-  // Issue a full compaction
+  // Ensure this test proceeds to `DisableManualCompaction()` after manual
+  // compaction has been scheduled
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::RunManualCompaction:Scheduled",
+        "DBCompactionTest::CancelCompactionInBottomPriThreadPoolQueue:"
+        "PreDisableManualCompaction"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   auto manual_compaction_thread = port::Thread([this]() {
     ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
                     .IsIncomplete());
   });
+  TEST_SYNC_POINT(
+      "DBCompactionTest::CancelCompactionInBottomPriThreadPoolQueue:"
+      "PreDisableManualCompaction");
+  ASSERT_EQ(1U, env_->GetThreadPoolQueueLen(Env::Priority::BOTTOM));
 
   // Cancel it. Thread should be joinable, i.e., manual compaction was unblocked
   // despite being in bottom-pri queue
   db_->DisableManualCompaction();
   manual_compaction_thread.join();
-  ASSERT_EQ("2", FilesPerLevel(0));
 
   sleeping_task_bottom.WakeUp();
   sleeping_task_bottom.WaitUntilDone();
