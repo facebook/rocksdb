@@ -1544,19 +1544,19 @@ Status DBImpl::WriteRecoverableState() {
 
 void DBImpl::SelectColumnFamiliesForAtomicFlush(
     autovector<ColumnFamilyData*>* selected_cfds,
-    const autovector<ColumnFamilyData*> candidate_cfds) {
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds) {
   assert(selected_cfds);
 
-  autovector<ColumnFamilyData*> cfds;
-  if (!candidate_cfds.empty()) {
-    cfds = candidate_cfds;
-  } else {
+  autovector<ColumnFamilyData*> candidate_cfds;
+  if (provided_candidate_cfds.empty()) {
     for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-      cfds.push_back(cfd);
+      candidate_cfds.push_back(cfd);
     }
+  } else {
+    candidate_cfds = provided_candidate_cfds;
   }
 
-  for (ColumnFamilyData* cfd : cfds) {
+  for (ColumnFamilyData* cfd : candidate_cfds) {
     if (cfd->IsDropped()) {
       continue;
     }

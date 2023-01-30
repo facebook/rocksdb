@@ -2217,11 +2217,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   return s;
 }
 
-// Flush all elements in 'column_family_datas'
-// and atomically record the result to the MANIFEST.
 Status DBImpl::AtomicFlushMemTables(
     const FlushOptions& flush_options, FlushReason flush_reason,
-    const autovector<ColumnFamilyData*>& candidate_cfds,
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
     bool entered_write_thread) {
   assert(immutable_db_options_.atomic_flush);
   if (!flush_options.wait && write_controller_.IsStopped()) {
@@ -2231,6 +2229,15 @@ Status DBImpl::AtomicFlushMemTables(
     return Status::TryAgain(oss.str());
   }
   Status s;
+  autovector<ColumnFamilyData*> candidate_cfds;
+  if (provided_candidate_cfds.empty()) {
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      candidate_cfds.push_back(cfd);
+    }
+  } else {
+    candidate_cfds = provided_candidate_cfds;
+  }
+
   if (!flush_options.allow_write_stall) {
     int num_cfs_to_flush = 0;
     for (auto cfd : candidate_cfds) {
@@ -2335,13 +2342,12 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
     InstrumentedMutexLock l(&mutex_);
     uint64_t orig_active_memtable_id = cfd->mem()->GetID();
     WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
+#ifndef NDEBUG
+    auto pair = std::make_pair(&write_stall_condition, &bg_cv_);
     TEST_SYNC_POINT_CALLBACK(
         "DBImpl::WaitUntilFlushWouldNotStallWrites:MockWriteStallCondition",
-        &write_stall_condition);
-    TEST_SYNC_POINT_CALLBACK(
-        "DBImpl::WaitUntilFlushWouldNotStallWrites:"
-        "MockWriteStallConditionBGCVHack",
-        &bg_cv_);
+        &pair);
+#endif  // NDEBUG
     do {
       if (write_stall_condition != WriteStallCondition::kNormal) {
         // Same error handling as user writes: Don't wait if there's a

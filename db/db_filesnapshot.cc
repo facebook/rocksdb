@@ -434,4 +434,3 @@ Status DBImpl::GetLiveFilesStorageInfo(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

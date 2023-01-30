@@ -155,9 +155,10 @@ Status DBImpl::TEST_FlushMemTable(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::TEST_AtomicFlushMemTables(
-    const autovector<ColumnFamilyData*>& candidate_cfds,
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
     const FlushOptions& flush_opts) {
-  return AtomicFlushMemTables(flush_opts, FlushReason::kTest, candidate_cfds);
+  return AtomicFlushMemTables(flush_opts, FlushReason::kTest,
+                              provided_candidate_cfds);
 }
 
 Status DBImpl::TEST_WaitForBackgroundWork() {
