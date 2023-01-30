@@ -3606,9 +3606,7 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnConflict) {
   // Block automatic compaction when it runs in the callback
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():Start",
-      [&](void* /*arg*/) {
-    auto_compaction_sleeping_task.DoSleep();
-  });
+      [&](void* /*arg*/) { auto_compaction_sleeping_task.DoSleep(); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Fill overlapping files in L0 to trigger an automatic compaction
