@@ -1833,8 +1833,13 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
       // Notify write_thread about the stall so it can setup a barrier and
       // fail any pending writers with no_slowdown
       write_thread.BeginWriteStall();
-      TEST_SYNC_POINT("DBImpl::DelayWrite:Wait");
+      if (&write_thread == &write_thread_) {
+        TEST_SYNC_POINT("DBImpl::DelayWrite:Wait");
+      } else {
+        TEST_SYNC_POINT("DBImpl::DelayWrite:NonmemWait");
+      }
       bg_cv_.Wait();
+      TEST_SYNC_POINT_CALLBACK("DBImpl::DelayWrite:AfterWait", &mutex_);
       write_thread.EndWriteStall();
     }
   }
