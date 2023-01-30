@@ -1543,14 +1543,26 @@ Status DBImpl::WriteRecoverableState() {
 }
 
 void DBImpl::SelectColumnFamiliesForAtomicFlush(
-    autovector<ColumnFamilyData*>* cfds) {
-  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    autovector<ColumnFamilyData*>* selected_cfds,
+    const autovector<ColumnFamilyData*> candidate_cfds) {
+  assert(selected_cfds);
+
+  autovector<ColumnFamilyData*> cfds;
+  if (!candidate_cfds.empty()) {
+    cfds = candidate_cfds;
+  } else {
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      cfds.push_back(cfd);
+    }
+  }
+
+  for (ColumnFamilyData* cfd : cfds) {
     if (cfd->IsDropped()) {
       continue;
     }
     if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
         !cached_recoverable_state_empty_.load()) {
-      cfds->push_back(cfd);
+      selected_cfds->push_back(cfd);
     }
   }
 }

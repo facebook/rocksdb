@@ -741,6 +741,79 @@ class TestFlushListener : public EventListener {
 };
 
 // RocksDB lite does not support GetLiveFiles()
+#ifndef ROCKSDB_LITE
+TEST_F(DBFlushTest, Draft) {
+  Options options = CurrentOptions();
+  options.atomic_flush = true;
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_shutdown = true;
+  options.level0_stop_writes_trigger = 1;
+
+  CreateAndReopenWithCF({"cf1"}, options);
+
+  // Writestall
+  ASSERT_OK(Put(0, "ToCreateWriteStall", "ToCreateWriteStall"));
+  ASSERT_OK(Flush(0));
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  write_opts.sync = false;
+
+  ASSERT_OK(Put(1, "cf1k1", "v1", write_opts));
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+
+  // bool enter_mock = false;
+  // WriteStallCondition* write_stall_condition;
+  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  //     "DBImpl::WaitUntilFlushWouldNotStallWrites:MockWriteStallCondition",
+  //     [&](void* arg) {
+  //       if (enter_mock) {
+  //         return;
+  //       }
+  //       write_stall_condition = (WriteStallCondition*)arg;
+  //       *write_stall_condition = WriteStallCondition::kDelayed;
+  //       TEST_SYNC_POINT("TEST::InsertionReady");
+  //       enter_mock = true;
+  //     });
+  // InstrumentedCondVar* bg_cv = nullptr;
+  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  //     "DBImpl::WaitUntilFlushWouldNotStallWrites:"
+  //     "MockWriteStallConditionBGCVHack",
+  //     [&](void* arg) {
+  //       bg_cv = (InstrumentedCondVar*)arg;
+  //       ;
+  //     });
+  // SyncPoint::GetInstance()->LoadDependency({{
+  //     "TEST::InsertionReady",
+  //     "Insertion",
+  // }});
+  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // port::Thread thread1([&] {
+  //   TEST_SYNC_POINT("TEST::Insertion");
+  //   ASSERT_OK(Put(0, "cf0k1", "v1", write_opts));
+  //   ASSERT_OK(Put(1, "cf1k2", "v2", write_opts));
+  //   assert(bg_cv != nullptr);
+  //   *write_stall_condition = WriteStallCondition::kNormal;
+  //   bg_cv->SignalAll();
+  // });
+
+  // std::vector<std::string> files;
+  // uint64_t manifest_file_size;
+  // ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+
+  // // Reopen and lose data
+  // thread1.join();
+  // ReopenWithColumnFamilies({"default", "cf1"}, options);
+  // // Pre-fix: return not found
+  // ASSERT_EQ(Get(0, "cf0k1"), "v1");
+  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  // ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+#endif // !ROCKSDB_LITE
+
 TEST_F(DBFlushTest, FixFlushReasonRaceFromConcurrentFlushes) {
   Options options = CurrentOptions();
   options.atomic_flush = true;
