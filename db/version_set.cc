@@ -2367,6 +2367,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
             *value = std::move(result);
           } else {
             assert(columns);
+            columns->Reset();
             columns->SetPlainValue(result);
           }
         }
