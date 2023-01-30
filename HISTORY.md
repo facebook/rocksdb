@@ -6,6 +6,7 @@
 
 ### Bug Fixes
 * Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
+* Fixed a feature interaction bug where for blobs `GetEntity` would expose the blob reference instead of the blob value.
 
 ### Feature Removal
 * Remove RocksDB Lite.
