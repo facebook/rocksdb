@@ -48,8 +48,8 @@ DEBUG_LEVEL?=1
 # Mode "static" means to link against static libraries (.a)
 # Mode "shared" means to link against shared libraries (.so, .sl, .dylib, etc)
 #
-# Set the default LIB_MODE to static
-LIB_MODE?=static
+# Set the default LIB_MODE to shared for efficient `make check` etc.
+LIB_MODE?=shared
 
 # OBJ_DIR is where the object files reside.  Default to the current directory
 OBJ_DIR?=.
