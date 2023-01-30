@@ -402,8 +402,6 @@ ts_params = {
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
-    "enable_blob_files": 0,
-    "use_blob_db": 0,
     "ingest_external_file_one_in": 0,
     # PutEntity with timestamps is not yet implemented
     "use_put_entity_one_in" : 0,
