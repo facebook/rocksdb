@@ -104,8 +104,6 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
   options.env = EnvMergeTest::GetInstance();
   EXPECT_OK(DestroyDB(dbname, Options()));
   Status s;
-// DBWithTTL is not supported in ROCKSDB_LITE
-#ifndef ROCKSDB_LITE
   if (ttl) {
     DBWithTTL* db_with_ttl;
     s = DBWithTTL::Open(options, dbname, &db_with_ttl);
@@ -113,10 +111,6 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
   } else {
     s = DB::Open(options, dbname, &db);
   }
-#else
-  assert(!ttl);
-  s = DB::Open(options, dbname, &db);
-#endif  // !ROCKSDB_LITE
   EXPECT_OK(s);
   assert(s.ok());
   // Allowed to call NowNanos during DB creation (in GenerateRawUniqueId() for
@@ -595,7 +589,6 @@ TEST_F(MergeTest, MergeDbTest) {
   runTest(test::PerThreadDBPath("merge_testdb"));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(MergeTest, MergeDbTtlTest) {
   runTest(test::PerThreadDBPath("merge_testdbttl"),
           true);  // Run test on TTL database
@@ -613,7 +606,6 @@ TEST_F(MergeTest, MergeWithCompactionAndFlush) {
   }
   ASSERT_OK(DestroyDB(dbname, Options()));
 }
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

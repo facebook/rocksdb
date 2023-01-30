@@ -627,9 +627,7 @@ class Statistics : public Customizable {
   // Resets all ticker and histogram stats
   virtual Status Reset() { return Status::NotSupported("Not implemented"); }
 
-#ifndef ROCKSDB_LITE
   using Customizable::ToString;
-#endif  // ROCKSDB_LITE
   // String representation of the statistic object. Must be thread-safe.
   virtual std::string ToString() const {
     // Do nothing by default

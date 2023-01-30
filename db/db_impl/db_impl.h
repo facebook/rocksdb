@@ -54,13 +54,9 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
-#ifndef ROCKSDB_LITE
 #include "rocksdb/trace_reader_writer.h"
-#endif  // ROCKSDB_LITE
 #include "rocksdb/transaction_log.h"
-#ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/replayer.h"
-#endif  // ROCKSDB_LITE
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
@@ -469,7 +465,6 @@ class DBImpl : public DB {
       uint64_t start_time, uint64_t end_time,
       std::unique_ptr<StatsHistoryIterator>* stats_iterator) override;
 
-#ifndef ROCKSDB_LITE
   using DB::ResetStats;
   virtual Status ResetStats() override;
   // All the returned filenames start with "/"
@@ -597,7 +592,6 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) override;
 
-#endif  // ROCKSDB_LITE
 
   // ---- End of implementations of the DB interface ----
   SystemClock* GetSystemClock() const;
@@ -655,7 +649,6 @@ class DBImpl : public DB {
   // depends also on data written to the WAL but not to the memtable.
   SequenceNumber TEST_GetLastVisibleSequence() const;
 
-#ifndef ROCKSDB_LITE
   // Similar to Write() but will call the callback once on the single write
   // thread to determine whether it is safe to perform the write.
   virtual Status WriteWithCallback(const WriteOptions& write_options,
@@ -720,7 +713,6 @@ class DBImpl : public DB {
   Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
                                   const Slice& lower_bound,
                                   const Slice upper_bound);
-#endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
   // will be used for transaction write-conflict checking.  The DB can then
@@ -1176,9 +1168,7 @@ class DBImpl : public DB {
     return files_grabbed_for_purge_;
   }
 
-#ifndef ROCKSDB_LITE
   const PeriodicTaskScheduler& TEST_GetPeriodicTaskScheduler() const;
-#endif  // !ROCKSDB_LITE
 
 #endif  // NDEBUG
 
@@ -1401,12 +1391,10 @@ class DBImpl : public DB {
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
 
-#ifndef ROCKSDB_LITE
   void NotifyOnExternalFileIngested(
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
 
   virtual Status FlushForGetLiveFiles();
-#endif  // !ROCKSDB_LITE
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 
@@ -1554,9 +1542,7 @@ class DBImpl : public DB {
   friend class WriteUnpreparedTxnDB;
   friend class WriteUnpreparedTxn;
 
-#ifndef ROCKSDB_LITE
   friend class ForwardIterator;
-#endif
   friend struct SuperVersion;
   friend class CompactedDBImpl;
   friend class DBTest_ConcurrentFlushWAL_Test;
@@ -2023,7 +2009,6 @@ class DBImpl : public DB {
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
 
-#ifndef ROCKSDB_LITE
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
                           const std::vector<std::string>& input_file_names,
@@ -2031,7 +2016,6 @@ class DBImpl : public DB {
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer,
                           CompactionJobInfo* compaction_job_info);
-#endif  // ROCKSDB_LITE
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
@@ -2170,7 +2154,6 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
-#ifndef ROCKSDB_LITE
   void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
                               const Status& st,
                               const CompactionJobStats& compaction_job_stats,
@@ -2183,7 +2166,6 @@ class DBImpl : public DB {
       ColumnFamilyData* cfd, uint64_t num,
       std::unique_ptr<std::list<uint64_t>::iterator>& pending_output_elem,
       uint64_t* next_file_number);
-#endif  //! ROCKSDB_LITE
 
   bool ShouldPurge(uint64_t file_number) const;
   void MarkAsGrabbedForPurge(uint64_t file_number);
@@ -2593,9 +2575,7 @@ class DBImpl : public DB {
   // REQUIRES: mutex held
   int num_running_ingest_file_;
 
-#ifndef ROCKSDB_LITE
   WalManager wal_manager_;
-#endif  // ROCKSDB_LITE
 
   // A value of > 0 temporarily disables scheduling of background work
   int bg_work_paused_;
@@ -2623,14 +2603,12 @@ class DBImpl : public DB {
   // Only to be set during initialization
   std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
-#ifndef ROCKSDB_LITE
   // Scheduler to run DumpStats(), PersistStats(), and FlushInfoLog().
   // Currently, internally it has a global timer instance for running the tasks.
   PeriodicTaskScheduler periodic_task_scheduler_;
 
   // It contains the implementations for each periodic task.
   std::map<PeriodicTaskType, const PeriodicTaskFunc> periodic_task_functions_;
-#endif
 
   // When set, we use a separate queue for writes that don't write to memtable.
   // In 2PC these are the writes at Prepare phase.

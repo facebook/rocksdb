@@ -12,7 +12,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 class PeriodicTaskSchedulerTest : public DBTestBase {
  public:
   PeriodicTaskSchedulerTest()
@@ -220,7 +219,6 @@ TEST_F(PeriodicTaskSchedulerTest, MultiEnv) {
   Close();
 }
 
-#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

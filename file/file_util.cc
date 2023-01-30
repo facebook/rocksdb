@@ -116,7 +116,6 @@ IOStatus CreateFile(FileSystem* fs, const std::string& destination,
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
                     const std::string& fname, const std::string& dir_to_sync,
                     const bool force_bg, const bool force_fg) {
-#ifndef ROCKSDB_LITE
   SstFileManagerImpl* sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
   if (sfm && !force_fg) {
@@ -124,14 +123,6 @@ Status DeleteDBFile(const ImmutableDBOptions* db_options,
   } else {
     return db_options->env->DeleteFile(fname);
   }
-#else
-  (void)dir_to_sync;
-  (void)force_bg;
-  (void)force_fg;
-  // SstFileManager is not supported in ROCKSDB_LITE
-  // Delete file immediately
-  return db_options->env->DeleteFile(fname);
-#endif
 }
 
 // requested_checksum_func_name brings the function name of the checksum

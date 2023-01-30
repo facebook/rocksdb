@@ -5,8 +5,6 @@
 
 #include <stdio.h>
 
-#ifndef ROCKSDB_LITE  // Lite does not support C API
-
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -3468,12 +3466,3 @@ int main(int argc, char** argv) {
   fprintf(stderr, "PASS\n");
   return 0;
 }
-
-#else
-
-int main(void) {
-  fprintf(stderr, "SKIPPED\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

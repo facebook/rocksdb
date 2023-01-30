@@ -206,11 +206,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
         (attempt < kNumAttempts / 2) ? 512 * 1024 : 700 * 1024;
     std::string actual;
     std::unique_ptr<FakeWF> wf(new FakeWF(&actual,
-#ifndef ROCKSDB_LITE
                                           attempt % 2 == 1,
-#else
-                                          false,
-#endif
                                           no_flush));
     std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
         std::move(wf), "" /* don't care */, env_options));
@@ -421,7 +417,6 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
   Destroy(options);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   class FakeWF : public FSWritableFile {
    public:
@@ -477,7 +472,6 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   fwf->SetIOError(true);
   ASSERT_NOK(writer->Append(std::string(2 * kMb, 'b')));
 }
-#endif
 
 class ReadaheadRandomAccessFileTest
     : public testing::Test,
@@ -792,7 +786,6 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 class IOErrorEventListener : public EventListener {
  public:
   IOErrorEventListener() { notify_error_.store(0); }
@@ -908,7 +901,6 @@ TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
   ASSERT_EQ(listener->NotifyErrorCount(), 2);
   fwf->CheckCounters(1, 1);
 }
-#endif  // ROCKSDB_LITE
 
 class WritableFileWriterIOPriorityTest : public testing::Test {
  protected:

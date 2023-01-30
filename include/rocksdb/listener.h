@@ -210,7 +210,6 @@ struct WriteStallInfo {
   } condition;
 };
 
-#ifndef ROCKSDB_LITE
 
 struct FileDeletionInfo {
   FileDeletionInfo() = default;
@@ -843,11 +842,5 @@ class EventListener : public Customizable {
   ~EventListener() override {}
 };
 
-#else
-
-class EventListener {};
-struct FlushJobInfo {};
-
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

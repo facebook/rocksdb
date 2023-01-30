@@ -33,7 +33,6 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1591,7 +1590,6 @@ TEST_F(EventListenerTest, BlobDBFileTest) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

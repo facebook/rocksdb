@@ -12,7 +12,6 @@
 namespace ROCKSDB_NAMESPACE {
 namespace experimental {
 
-#ifndef ROCKSDB_LITE
 
 Status SuggestCompactRange(DB* db, ColumnFamilyHandle* column_family,
                            const Slice* begin, const Slice* end) {
@@ -30,19 +29,6 @@ Status PromoteL0(DB* db, ColumnFamilyHandle* column_family, int target_level) {
   return db->PromoteL0(column_family, target_level);
 }
 
-#else  // ROCKSDB_LITE
-
-Status SuggestCompactRange(DB* /*db*/, ColumnFamilyHandle* /*column_family*/,
-                           const Slice* /*begin*/, const Slice* /*end*/) {
-  return Status::NotSupported("Not supported in RocksDB LITE");
-}
-
-Status PromoteL0(DB* /*db*/, ColumnFamilyHandle* /*column_family*/,
-                 int /*target_level*/) {
-  return Status::NotSupported("Not supported in RocksDB LITE");
-}
-
-#endif  // ROCKSDB_LITE
 
 Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end) {
   return SuggestCompactRange(db, db->DefaultColumnFamily(), begin, end);
