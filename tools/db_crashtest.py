@@ -657,12 +657,11 @@ def gen_cmd_params(args):
     if args.test_tiered_storage:
         params.update(tiered_params)
 
-    # Best-effort recovery, user defined timestamp, tiered storage are currently
-    # incompatible with BlobDB. Test BE recovery if specified on the command
-    # line; otherwise, apply BlobDB related overrides with a 10% chance.
+    # Best-effort recovery, tiered storage are currently incompatible with BlobDB.
+    # Test BE recovery if specified on the command line; otherwise, apply BlobDB
+    # related overrides with a 10% chance.
     if (
         not args.test_best_efforts_recovery
-        and not args.enable_ts
         and not args.test_tiered_storage
         and random.choice([0] * 9 + [1]) == 1
     ):
