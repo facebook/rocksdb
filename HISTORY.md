@@ -7,6 +7,7 @@
 ### Bug Fixes
 * Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
 * Fixed an issue in `Get` and `MultiGet` when user-defined timestamps is enabled in combination with BlobDB.
+* Fixed some atypical behaviors for `LockWAL()` such as allowing concurrent/recursive use and not expecting `UnlockWAL()` after non-OK result. See API comments.
 
 ### Feature Removal
 * Remove RocksDB Lite.
