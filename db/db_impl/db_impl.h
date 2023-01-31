@@ -426,7 +426,7 @@ class DBImpl : public DB {
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
   virtual Status FlushWAL(bool sync) override;
-  bool WALBufferIsEmpty(bool lock = true);
+  bool WALBufferIsEmpty();
   virtual Status SyncWAL() override;
   virtual Status LockWAL() override;
   virtual Status UnlockWAL() override;
@@ -2663,9 +2663,14 @@ class DBImpl : public DB {
   // thread safe, both read and write need db mutex hold.
   SeqnoToTimeMapping seqno_time_mapping_;
 
-  // stop write token that is acquired when LockWal() is called. Destructed
-  // when UnlockWal() is called.
+  // Stop write token that is acquired when first LockWAL() is called.
+  // Destroyed when last UnlockWAL() is called. Controlled by DB mutex.
+  // See lock_wal_count_
   std::unique_ptr<WriteControllerToken> lock_wal_write_token_;
+
+  // The number of LockWAL called without matching UnlockWAL call.
+  // See also lock_wal_write_token_
+  uint32_t lock_wal_count_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

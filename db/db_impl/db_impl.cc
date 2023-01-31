@@ -243,7 +243,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_, &event_logger_,
-                     immutable_db_options_.listeners, dbname_) {
+                     immutable_db_options_.listeners, dbname_),
+      lock_wal_count_(0) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -1429,15 +1430,10 @@ Status DBImpl::FlushWAL(bool sync) {
   return SyncWAL();
 }
 
-bool DBImpl::WALBufferIsEmpty(bool lock) {
-  if (lock) {
-    log_write_mutex_.Lock();
-  }
+bool DBImpl::WALBufferIsEmpty() {
+  InstrumentedMutexLock l(&log_write_mutex_);
   log::Writer* cur_log_writer = logs_.back().writer;
   auto res = cur_log_writer->BufferIsEmpty();
-  if (lock) {
-    log_write_mutex_.Unlock();
-  }
   return res;
 }
 
@@ -1539,29 +1535,57 @@ Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
 Status DBImpl::LockWAL() {
   {
     InstrumentedMutexLock lock(&mutex_);
-    WriteThread::Writer w;
-    write_thread_.EnterUnbatched(&w, &mutex_);
-    WriteThread::Writer nonmem_w;
-    if (two_write_queues_) {
-      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
-    }
+    if (lock_wal_count_ > 0) {
+      assert(lock_wal_write_token_);
+      ++lock_wal_count_;
+    } else {
+      WriteThread::Writer w;
+      write_thread_.EnterUnbatched(&w, &mutex_);
+      WriteThread::Writer nonmem_w;
+      if (two_write_queues_) {
+        nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      }
 
-    lock_wal_write_token_ = write_controller_.GetStopToken();
+      // NOTE: releasing mutex in EnterUnbatched might mean we are actually
+      // now lock_wal_count > 0
+      if (lock_wal_count_ == 0) {
+        assert(!lock_wal_write_token_);
+        lock_wal_write_token_ = write_controller_.GetStopToken();
+      }
+      ++lock_wal_count_;
 
-    if (two_write_queues_) {
-      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      if (two_write_queues_) {
+        nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      }
+      write_thread_.ExitUnbatched(&w);
     }
-    write_thread_.ExitUnbatched(&w);
   }
-  return FlushWAL(/*sync=*/false);
+  // NOTE: avoid I/O holding DB mutex
+  Status s = FlushWAL(/*sync=*/false);
+  if (!s.ok()) {
+    // Non-OK return should not be in locked state
+    UnlockWAL().PermitUncheckedError();
+  }
+  return s;
 }
 
 Status DBImpl::UnlockWAL() {
+  bool signal = false;
   {
     InstrumentedMutexLock lock(&mutex_);
-    lock_wal_write_token_.reset();
+    if (lock_wal_count_ == 0) {
+      return Status::Aborted("No LockWAL() in effect");
+    }
+    --lock_wal_count_;
+    if (lock_wal_count_ == 0) {
+      lock_wal_write_token_.reset();
+      signal = true;
+    }
   }
-  bg_cv_.SignalAll();
+  if (signal) {
+    // SignalAll outside of mutex for efficiency
+    bg_cv_.SignalAll();
+  }
   return Status::OK();
 }
 

@@ -613,19 +613,9 @@ TEST_F(DBWALTest, LockWal) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     DestroyAndReopen(options);
-    SyncPoint::GetInstance()->DisableProcessing();
-    SyncPoint::GetInstance()->LoadDependency(
-        {{"DBWALTest::LockWal:AfterGetSortedWal",
-          "DBWALTest::LockWal:BeforeFlush:1"}});
-    SyncPoint::GetInstance()->EnableProcessing();
 
     ASSERT_OK(Put("foo", "v"));
     ASSERT_OK(Put("bar", "v"));
-    port::Thread worker([&]() {
-      TEST_SYNC_POINT("DBWALTest::LockWal:BeforeFlush:1");
-      Status tmp_s = db_->Flush(FlushOptions());
-      ASSERT_OK(tmp_s);
-    });
 
     ASSERT_OK(db_->LockWAL());
     // Verify writes are stopped
@@ -638,7 +628,10 @@ TEST_F(DBWALTest, LockWal) {
       ASSERT_OK(db_->GetSortedWalFiles(wals));
       ASSERT_FALSE(wals.empty());
     }
-    TEST_SYNC_POINT("DBWALTest::LockWal:AfterGetSortedWal");
+    port::Thread worker([&]() {
+      Status tmp_s = db_->Flush(FlushOptions());
+      ASSERT_OK(tmp_s);
+    });
     FlushOptions flush_opts;
     flush_opts.wait = false;
     s = db_->Flush(flush_opts);
@@ -647,8 +640,6 @@ TEST_F(DBWALTest, LockWal) {
     ASSERT_OK(db_->Put(WriteOptions(), "foo", "dontcare"));
 
     worker.join();
-
-    SyncPoint::GetInstance()->DisableProcessing();
   } while (ChangeWalOptions());
 }
 
