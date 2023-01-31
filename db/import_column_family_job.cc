@@ -5,7 +5,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/version_builder.h"
-#ifndef ROCKSDB_LITE
 
 #include "db/import_column_family_job.h"
 
@@ -312,4 +311,3 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

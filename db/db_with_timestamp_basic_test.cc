@@ -13,9 +13,7 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
@@ -645,7 +643,6 @@ TEST_F(DBBasicTestWithTimestamp, OpenAndTrimHistoryInvalidOptionTest) {
                   .IsInvalidArgument());
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
   Options options = CurrentOptions();
   const size_t kTimestampSize = Timestamp(0, 0).size();
@@ -675,7 +672,6 @@ TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
   }
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 class DBBasicTestWithTimestampTableOptions
     : public DBBasicTestWithTimestampBase,
@@ -2677,7 +2673,6 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
@@ -2970,7 +2965,6 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetNoReturnTs) {
   Close();
 }
 
-#endif  // !ROCKSDB_LITE
 
 INSTANTIATE_TEST_CASE_P(
     Timestamp, DBBasicTestWithTimestampCompressionSettings,

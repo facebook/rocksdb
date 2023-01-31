@@ -18,7 +18,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 SstFileManagerImpl::SstFileManagerImpl(
     const std::shared_ptr<SystemClock>& clock,
     const std::shared_ptr<FileSystem>& fs,
@@ -504,22 +503,5 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
   return res;
 }
 
-#else
-
-SstFileManager* NewSstFileManager(Env* /*env*/,
-                                  std::shared_ptr<Logger> /*info_log*/,
-                                  std::string /*trash_dir*/,
-                                  int64_t /*rate_bytes_per_sec*/,
-                                  bool /*delete_existing_trash*/,
-                                  Status* status, double /*max_trash_db_ratio*/,
-                                  uint64_t /*bytes_max_delete_chunk*/) {
-  if (status) {
-    *status =
-        Status::NotSupported("SstFileManager is not supported in ROCKSDB_LITE");
-  }
-  return nullptr;
-}
-
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

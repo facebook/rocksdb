@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/checkpoint/checkpoint_impl.h"
 
@@ -467,4 +466,3 @@ Status CheckpointImpl::ExportFilesInMetaData(
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

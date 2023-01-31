@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -44,4 +43,3 @@ class SstFileReader {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

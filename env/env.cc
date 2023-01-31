@@ -29,7 +29,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinEnvs(ObjectLibrary& library,
                                const std::string& /*arg*/) {
   library.AddFactory<Env>(MockEnv::kClassName(), [](const std::string& /*uri*/,
@@ -48,15 +47,12 @@ static int RegisterBuiltinEnvs(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 static void RegisterSystemEnvs() {
-#ifndef ROCKSDB_LITE
   static std::once_flag loaded;
   std::call_once(loaded, [&]() {
     RegisterBuiltinEnvs(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
 }
 
 class LegacySystemClock : public SystemClock {
@@ -97,7 +93,6 @@ class LegacySystemClock : public SystemClock {
     return env_->TimeToString(time);
   }
 
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& /*config_options*/,
                                const std::string& /*prefix*/) const override {
     // We do not want the LegacySystemClock to appear in the serialized output.
@@ -105,7 +100,6 @@ class LegacySystemClock : public SystemClock {
     // would be part of the Env.  As such, do not serialize it here.
     return "";
   }
-#endif  // ROCKSDB_LITE
 };
 
 class LegacySequentialFileWrapper : public FSSequentialFile {
@@ -605,7 +599,6 @@ class LegacyFileSystemWrapper : public FileSystem {
     return status_to_io_status(target_->IsDirectory(path, is_dir));
   }
 
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& /*config_options*/,
                                const std::string& /*prefix*/) const override {
     // We do not want the LegacyFileSystem to appear in the serialized output.
@@ -613,7 +606,6 @@ class LegacyFileSystemWrapper : public FileSystem {
     // would be part of the Env.  As such, do not serialize it here.
     return "";
   }
-#endif  // ROCKSDB_LITE
  private:
   Env* target_;
 };
@@ -679,13 +671,8 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
     status = Status::OK();
   } else {
     RegisterSystemEnvs();
-#ifndef ROCKSDB_LITE
     // First, try to load the Env as a unique object.
     status = config_options.registry->NewObject<Env>(id, &env, &uniq);
-#else
-    status =
-        Status::NotSupported("Cannot load environment in LITE mode", value);
-#endif
   }
   if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
     status = Status::OK();
@@ -1177,11 +1164,9 @@ const std::shared_ptr<SystemClock>& Env::GetSystemClock() const {
 }
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> sc_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
     {"target",
      OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
          0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
-#endif  // ROCKSDB_LITE
 };
 
 }  // namespace
@@ -1197,7 +1182,6 @@ Status SystemClockWrapper::PrepareOptions(const ConfigOptions& options) {
   return SystemClock::PrepareOptions(options);
 }
 
-#ifndef ROCKSDB_LITE
 std::string SystemClockWrapper::SerializeOptions(
     const ConfigOptions& config_options, const std::string& header) const {
   auto parent = SystemClock::SerializeOptions(config_options, "");
@@ -1217,9 +1201,7 @@ std::string SystemClockWrapper::SerializeOptions(
     return result;
   }
 }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinSystemClocks(ObjectLibrary& library,
                                        const std::string& /*arg*/) {
   library.AddFactory<SystemClock>(
@@ -1232,7 +1214,6 @@ static int RegisterBuiltinSystemClocks(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 Status SystemClock::CreateFromString(const ConfigOptions& config_options,
                                      const std::string& value,
@@ -1242,12 +1223,10 @@ Status SystemClock::CreateFromString(const ConfigOptions& config_options,
     *result = clock;
     return Status::OK();
   } else {
-#ifndef ROCKSDB_LITE
     static std::once_flag once;
     std::call_once(once, [&]() {
       RegisterBuiltinSystemClocks(*(ObjectLibrary::Default().get()), "");
     });
-#endif  // ROCKSDB_LITE
     return LoadSharedObject<SystemClock>(config_options, value, nullptr,
                                          result);
   }

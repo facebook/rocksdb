@@ -606,7 +606,6 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb(
   return this;
 }
 
-#ifndef ROCKSDB_LITE
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
     uint64_t block_cache_size_mb) {
   BlockBasedTableOptions block_based_options;
@@ -678,7 +677,6 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
   return this;
 }
 
-#endif  // !ROCKSDB_LITE
 
 ReadOptions::ReadOptions()
     : snapshot(nullptr),

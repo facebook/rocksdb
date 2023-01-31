@@ -157,12 +157,10 @@ class Customizable : public Configurable {
   bool AreEquivalent(const ConfigOptions& config_options,
                      const Configurable* other,
                      std::string* mismatch) const override;
-#ifndef ROCKSDB_LITE
   // Gets the value of the option associated with the input name
   // @see Configurable::GetOption for more details
   Status GetOption(const ConfigOptions& config_options, const std::string& name,
                    std::string* value) const override;
-#endif  // ROCKSDB_LITE
   // Helper method for getting for parsing the opt_value into the corresponding
   // options for use in potentially creating a new Customizable object (this
   // method is primarily a support method for LoadSharedObject et al for new
@@ -224,10 +222,8 @@ class Customizable : public Configurable {
   virtual const char* NickName() const { return ""; }
   //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
   std::string GetOptionName(const std::string& long_name) const override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& options,
                                const std::string& prefix) const override;
-#endif  // ROCKSDB_LITE
 };
 
 }  // namespace ROCKSDB_NAMESPACE

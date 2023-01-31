@@ -87,6 +87,7 @@ DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
 DECLARE_int32(manual_wal_flush_one_in);
+DECLARE_int32(lock_wal_one_in);
 DECLARE_bool(test_cf_consistency);
 DECLARE_bool(test_multi_ops_txns);
 DECLARE_int32(threads);
@@ -252,7 +253,6 @@ DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
 
-#ifndef ROCKSDB_LITE
 // Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
 DECLARE_uint64(blob_db_min_blob_size);
@@ -260,7 +260,6 @@ DECLARE_uint64(blob_db_bytes_per_sync);
 DECLARE_uint64(blob_db_file_size);
 DECLARE_bool(blob_db_enable_gc);
 DECLARE_double(blob_db_gc_cutoff);
-#endif  // !ROCKSDB_LITE
 
 // Options for integrated BlobDB
 DECLARE_bool(allow_setting_blob_options_dynamically);
@@ -297,11 +296,9 @@ DECLARE_int32(secondary_cache_fault_one_in);
 DECLARE_int32(prepopulate_block_cache);
 
 DECLARE_bool(two_write_queues);
-#ifndef ROCKSDB_LITE
 DECLARE_bool(use_only_the_last_commit_time_batch_for_recovery);
 DECLARE_uint64(wp_snapshot_cache_bits);
 DECLARE_uint64(wp_commit_cache_bits);
-#endif  // !ROCKSDB_LITE
 
 DECLARE_bool(adaptive_readahead);
 DECLARE_bool(async_io);
