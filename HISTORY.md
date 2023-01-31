@@ -6,6 +6,7 @@
 
 ### Bug Fixes
 * Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
+* Fixed an issue in `Get` and `MultiGet` when user-defined timestamps is enabled in combination with BlobDB.
 
 ### Feature Removal
 * Remove RocksDB Lite.

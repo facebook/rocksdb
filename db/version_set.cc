@@ -2194,8 +2194,9 @@ void Version::MultiGetBlob(
 
       key_context.value->Reset();
       blob_reqs_in_file.emplace_back(
-          key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
-          blob_index.compression(), key_context.value, key_context.s);
+          key_context.get_context->ukey_to_get_blob_value(),
+          blob_index.offset(), blob_index.size(), blob_index.compression(),
+          key_context.value, key_context.s);
     }
     if (blob_reqs_in_file.size() > 0) {
       const auto file_size = blob_file_meta->GetBlobFileSize();
@@ -2204,7 +2205,8 @@ void Version::MultiGetBlob(
   }
 
   if (blob_reqs.size() > 0) {
-    blob_source_->MultiGetBlob(read_options, blob_reqs, /*bytes_read=*/nullptr);
+    blob_source_->MultiGetBlob(read_options, blob_reqs,
+                               /*bytes_read=*/nullptr);
   }
 
   for (auto& ctx : blob_ctxs) {
@@ -2345,8 +2347,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
             constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
             constexpr uint64_t* bytes_read = nullptr;
 
-            *status = GetBlob(read_options, user_key, *value, prefetch_buffer,
-                              value, bytes_read);
+            *status =
+                GetBlob(read_options, get_context.ukey_to_get_blob_value(),
+                        *value, prefetch_buffer, value, bytes_read);
             if (!status->ok()) {
               if (status->IsIncomplete()) {
                 get_context.MarkKeyMayExist();
