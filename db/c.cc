@@ -4678,7 +4678,7 @@ rocksdb_cache_t* rocksdb_cache_create_lru_opts(
 rocksdb_hyper_clock_cache_options_t* rocksdb_hyper_clock_cache_options_create(
     size_t capacity, size_t estimated_entry_charge) {
   return new rocksdb_hyper_clock_cache_options_t {
-    HyperClockCacheOptions(capacity, estimated_entry_charge);
+    HyperClockCacheOptions(capacity, estimated_entry_charge)
   };
 }
 
