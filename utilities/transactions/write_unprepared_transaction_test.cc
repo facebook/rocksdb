@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/transaction_test.h"
 #include "utilities/transactions/write_unprepared_txn.h"
@@ -28,7 +27,7 @@ class WriteUnpreparedTransactionTest
   WriteUnpreparedTransactionTest()
       : WriteUnpreparedTransactionTestBase(std::get<0>(GetParam()),
                                            std::get<1>(GetParam()),
-                                           std::get<2>(GetParam())){}
+                                           std::get<2>(GetParam())) {}
 };
 
 INSTANTIATE_TEST_CASE_P(
@@ -773,17 +772,8 @@ TEST_P(WriteUnpreparedTransactionTest, UntrackedKeys) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as Transactions are not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

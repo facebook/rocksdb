@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include <functional>
 #include <string>
@@ -39,12 +38,12 @@ class OptimisticTransactionTest
     options.merge_operator.reset(new TestPutOperator());
     dbname = test::PerThreadDBPath("optimistic_transaction_testdb");
 
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
     Open();
   }
   ~OptimisticTransactionTest() override {
     delete txn_db;
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
   }
 
   void Reopen() {
@@ -53,7 +52,7 @@ class OptimisticTransactionTest
     Open();
   }
 
-private:
+ private:
   void Open() {
     ColumnFamilyOptions cf_options(options);
     OptimisticTransactionDBOptions occ_opts;
@@ -162,6 +161,65 @@ TEST_P(OptimisticTransactionTest, WriteConflictTest2) {
   ASSERT_EQ(value, "barz");
   ASSERT_OK(txn_db->Get(read_options, "foo2", &value));
   ASSERT_EQ(value, "bar");
+
+  delete txn;
+}
+
+TEST_P(OptimisticTransactionTest, WriteConflictTest3) {
+  ASSERT_OK(txn_db->Put(WriteOptions(), "foo", "bar"));
+
+  Transaction* txn = txn_db->BeginTransaction(WriteOptions());
+  ASSERT_NE(txn, nullptr);
+
+  std::string value;
+  ASSERT_OK(txn->GetForUpdate(ReadOptions(), "foo", &value));
+  ASSERT_EQ(value, "bar");
+  ASSERT_OK(txn->Merge("foo", "bar3"));
+
+  // Merge outside of a transaction should conflict with the previous merge
+  ASSERT_OK(txn_db->Merge(WriteOptions(), "foo", "bar2"));
+  ASSERT_OK(txn_db->Get(ReadOptions(), "foo", &value));
+  ASSERT_EQ(value, "bar2");
+
+  ASSERT_EQ(1, txn->GetNumKeys());
+
+  Status s = txn->Commit();
+  EXPECT_TRUE(s.IsBusy());  // Txn should not commit
+
+  // Verify that transaction did not write anything
+  ASSERT_OK(txn_db->Get(ReadOptions(), "foo", &value));
+  ASSERT_EQ(value, "bar2");
+
+  delete txn;
+}
+
+TEST_P(OptimisticTransactionTest, WriteConflict4) {
+  ASSERT_OK(txn_db->Put(WriteOptions(), "foo", "bar"));
+
+  Transaction* txn = txn_db->BeginTransaction(WriteOptions());
+  ASSERT_NE(txn, nullptr);
+
+  std::string value;
+  ASSERT_OK(txn->GetForUpdate(ReadOptions(), "foo", &value));
+  ASSERT_EQ(value, "bar");
+  ASSERT_OK(txn->Merge("foo", "bar3"));
+
+  // Range delete outside of a transaction should conflict with the previous
+  // merge inside txn
+  auto* dbimpl = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+  ColumnFamilyHandle* default_cf = dbimpl->DefaultColumnFamily();
+  ASSERT_OK(dbimpl->DeleteRange(WriteOptions(), default_cf, "foo", "foo1"));
+  Status s = txn_db->Get(ReadOptions(), "foo", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  ASSERT_EQ(1, txn->GetNumKeys());
+
+  s = txn->Commit();
+  EXPECT_TRUE(s.IsBusy());  // Txn should not commit
+
+  // Verify that transaction did not write anything
+  s = txn_db->Get(ReadOptions(), "foo", &value);
+  ASSERT_TRUE(s.IsNotFound());
 
   delete txn;
 }
@@ -1367,7 +1425,8 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
   WriteOptions write_options;
   OptimisticTransactionOptions transaction_options;
 
-  Transaction* transaction(txn_db->BeginTransaction(write_options, transaction_options));
+  Transaction* transaction(
+      txn_db->BeginTransaction(write_options, transaction_options));
   Status s = transaction->Put("foo", "val");
   ASSERT_OK(s);
   s = transaction->Put("foo2", "val");
@@ -1413,18 +1472,8 @@ INSTANTIATE_TEST_CASE_P(
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(
-      stderr,
-      "SKIPPED as optimistic_transaction is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

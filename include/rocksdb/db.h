@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -27,6 +28,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
+#include "rocksdb/wide_columns.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -51,20 +53,13 @@ struct Options;
 struct ReadOptions;
 struct TableProperties;
 struct WriteOptions;
-#ifdef ROCKSDB_LITE
-class CompactionJobInfo;
-#endif
 class Env;
 class EventListener;
 class FileSystem;
-#ifndef ROCKSDB_LITE
 class Replayer;
-#endif
 class StatsHistoryIterator;
-#ifndef ROCKSDB_LITE
 class TraceReader;
 class TraceWriter;
-#endif
 class WriteBatch;
 
 extern const std::string kDefaultColumnFamilyName;
@@ -195,8 +190,6 @@ class DB {
 
   // Open the database for read only.
   //
-  // Not supported in ROCKSDB_LITE, in which case the function will
-  // return Status::NotSupported.
   static Status OpenForReadOnly(const Options& options, const std::string& name,
                                 DB** dbptr,
                                 bool error_if_wal_file_exists = false);
@@ -208,8 +201,6 @@ class DB {
   // to specify default column family. The default column family name is
   // 'default' and it's stored in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
   //
-  // Not supported in ROCKSDB_LITE, in which case the function will
-  // return Status::NotSupported.
   static Status OpenForReadOnly(
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
@@ -280,7 +271,6 @@ class DB {
       const std::string& secondary_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
-
 
   // Open DB and run the compaction.
   // It's a read-only operation, the result won't be installed to the DB, it
@@ -406,6 +396,15 @@ class DB {
     return Put(options, DefaultColumnFamily(), key, ts, value);
   }
 
+  // Set the database entry for "key" in the column family specified by
+  // "column_family" to the wide-column entity defined by "columns". If the key
+  // already exists in the column family, it will be overwritten.
+  //
+  // Returns OK on success, and a non-OK status on error.
+  virtual Status PutEntity(const WriteOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           const WideColumns& columns);
+
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
   // did not exist in the database.
@@ -463,7 +462,7 @@ class DB {
   // a `Status::InvalidArgument` is returned.
   //
   // This feature is now usable in production, with the following caveats:
-  // 1) Accumulating many range tombstones in the memtable will degrade read
+  // 1) Accumulating too many range tombstones in the memtable will degrade read
   // performance; this can be avoided by manually flushing occasionally.
   // 2) Limiting the maximum number of open files in the presence of range
   // tombstones can degrade read performance. To avoid this problem, set
@@ -471,13 +470,10 @@ class DB {
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
-  virtual Status DeleteRange(const WriteOptions& /*options*/,
-                             ColumnFamilyHandle* /*column_family*/,
-                             const Slice& /*begin_key*/,
-                             const Slice& /*end_key*/, const Slice& /*ts*/) {
-    return Status::NotSupported(
-        "DeleteRange does not support user-defined timestamp yet");
-  }
+  virtual Status DeleteRange(const WriteOptions& options,
+                             ColumnFamilyHandle* column_family,
+                             const Slice& begin_key, const Slice& end_key,
+                             const Slice& ts);
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
@@ -493,10 +489,7 @@ class DB {
   virtual Status Merge(const WriteOptions& /*options*/,
                        ColumnFamilyHandle* /*column_family*/,
                        const Slice& /*key*/, const Slice& /*ts*/,
-                       const Slice& /*value*/) {
-    return Status::NotSupported(
-        "Merge does not support user-defined timestamp yet");
-  }
+                       const Slice& /*value*/);
 
   // Apply the specified updates to the database.
   // If `updates` contains no update, WAL will still be synced if
@@ -505,16 +498,17 @@ class DB {
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
 
-  // If the database contains an entry for "key" store the
-  // corresponding value in *value and return OK.
+  // If the column family specified by "column_family" contains an entry for
+  // "key", return the corresponding value in "*value". If the entry is a plain
+  // key-value, return the value as-is; if it is a wide-column entity, return
+  // the value of its default anonymous column (see kDefaultWideColumnName) if
+  // any, or an empty value otherwise.
   //
   // If timestamp is enabled and a non-null timestamp pointer is passed in,
   // timestamp is returned.
   //
-  // If there is no entry for "key" leave *value unchanged and return
-  // a status for which Status::IsNotFound() returns true.
-  //
-  // May return some other Status on an error.
+  // Returns OK on success. Returns NotFound and an empty value in "*value" if
+  // there is no entry for "key". Returns some other non-OK status on error.
   virtual inline Status Get(const ReadOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             std::string* value) {
@@ -561,6 +555,22 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
+  // If the column family specified by "column_family" contains an entry for
+  // "key", return it as a wide-column entity in "*columns". If the entry is a
+  // wide-column entity, return it as-is; if it is a plain key-value, return it
+  // as an entity with a single anonymous column (see kDefaultWideColumnName)
+  // which contains the value.
+  //
+  // Returns OK on success. Returns NotFound and an empty wide-column entity in
+  // "*columns" if there is no entry for "key". Returns some other non-OK status
+  // on error.
+  virtual Status GetEntity(const ReadOptions& /* options */,
+                           ColumnFamilyHandle* /* column_family */,
+                           const Slice& /* key */,
+                           PinnableWideColumns* /* columns */) {
+    return Status::NotSupported("GetEntity not supported");
+  }
+
   // Populates the `merge_operands` array with all the merge operands in the DB
   // for `key`. The `merge_operands` array will be populated in the order of
   // insertion. The number of entries populated in `merge_operands` will be
@@ -575,6 +585,10 @@ class DB {
   // `merge_operands`- Points to an array of at-least
   //             merge_operands_options.expected_max_number_of_operands and the
   //             caller is responsible for allocating it.
+  //
+  // The caller should delete or `Reset()` the `merge_operands` entries when
+  // they are no longer needed. All `merge_operands` entries must be destroyed
+  // or `Reset()` before this DB is closed or destroyed.
   virtual Status GetMergeOperands(
       const ReadOptions& options, ColumnFamilyHandle* column_family,
       const Slice& key, PinnableSlice* merge_operands,
@@ -824,7 +838,6 @@ class DB {
   // use "snapshot" after this call.
   virtual void ReleaseSnapshot(const Snapshot* snapshot) = 0;
 
-#ifndef ROCKSDB_LITE
   // Contains all valid property arguments for GetProperty() or
   // GetMapProperty(). Each is a "string" property for retrieval with
   // GetProperty() unless noted as a "map" property, for GetMapProperty().
@@ -882,6 +895,10 @@ class DB {
     //      `BlockCacheEntryStatsMapKeys` for structured representation of keys
     //      available in the map form.
     static const std::string kBlockCacheEntryStats;
+
+    //  "rocksdb.fast-block-cache-entry-stats" - same as above, but returns
+    //      stale values more frequently to reduce overhead and latency.
+    static const std::string kFastBlockCacheEntryStats;
 
     //  "rocksdb.num-immutable-mem-table" - returns number of immutable
     //      memtables that have not yet been flushed.
@@ -1074,8 +1091,18 @@ class DB {
     // "rocksdb.live-blob-file-garbage-size" - returns the total amount of
     // garbage in the blob files in the current version.
     static const std::string kLiveBlobFileGarbageSize;
+
+    //  "rocksdb.blob-cache-capacity" - returns blob cache capacity.
+    static const std::string kBlobCacheCapacity;
+
+    //  "rocksdb.blob-cache-usage" - returns the memory size for the entries
+    //      residing in blob cache.
+    static const std::string kBlobCacheUsage;
+
+    // "rocksdb.blob-cache-pinned-usage" - returns the memory size for the
+    //      entries being pinned in blob cache.
+    static const std::string kBlobCachePinnedUsage;
   };
-#endif /* ROCKSDB_LITE */
 
   // DB implementations export properties about their state via this method.
   // If "property" is a valid "string" property understood by this DB
@@ -1139,6 +1166,9 @@ class DB {
   //  "rocksdb.num-blob-files"
   //  "rocksdb.total-blob-file-size"
   //  "rocksdb.live-blob-file-size"
+  //  "rocksdb.blob-cache-capacity"
+  //  "rocksdb.blob-cache-usage"
+  //  "rocksdb.blob-cache-pinned-usage"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
@@ -1370,7 +1400,7 @@ class DB {
 
   virtual DBOptions GetDBOptions() const = 0;
 
-  // Flush all mem-table data.
+  // Flush all memtable data.
   // Flush a single column family, even when atomic flush is enabled. To flush
   // multiple column families, use Flush(options, column_families).
   virtual Status Flush(const FlushOptions& options,
@@ -1378,7 +1408,7 @@ class DB {
   virtual Status Flush(const FlushOptions& options) {
     return Flush(options, DefaultColumnFamily());
   }
-  // Flushes multiple column families.
+  // Flushes memtables of multiple column families.
   // If atomic flush is not enabled, Flush(options, column_families) is
   // equivalent to calling Flush(options, column_family) multiple times.
   // If atomic flush is enabled, Flush(options, column_families) will flush all
@@ -1390,23 +1420,41 @@ class DB {
       const FlushOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
-  // Flush the WAL memory buffer to the file. If sync is true, it calls SyncWAL
-  // afterwards.
+  // When using the manual_wal_flush option, flushes RocksDB internal buffers
+  // of WAL data to the file, so that the data can survive process crash or be
+  // included in a Checkpoint or Backup. Without manual_wal_flush, there is no
+  // such internal buffer. If sync is true, it calls SyncWAL() afterwards.
   virtual Status FlushWAL(bool /*sync*/) {
     return Status::NotSupported("FlushWAL not implemented");
   }
-  // Sync the wal. Note that Write() followed by SyncWAL() is not exactly the
-  // same as Write() with sync=true: in the latter case the changes won't be
-  // visible until the sync is done.
-  // Currently only works if allow_mmap_writes = false in Options.
+
+  // Ensure all WAL writes have been synced to storage, so that (assuming OS
+  // and hardware support) data will survive power loss. This function does
+  // not imply FlushWAL, so `FlushWAL(true)` is recommended if using
+  // manual_wal_flush=true. Currently only works if allow_mmap_writes = false
+  // in Options.
+  //
+  // Note that Write() followed by SyncWAL() is not exactly the same as Write()
+  // with sync=true: in the latter case the changes won't be visible until the
+  // sync is done.
   virtual Status SyncWAL() = 0;
 
-  // Lock the WAL. Also flushes the WAL after locking.
+  // Freezes the logical state of the DB (by stopping writes), and if WAL is
+  // enabled, ensures that state has been flushed to DB files (as in
+  // FlushWAL()). This can be used for taking a Checkpoint at a known DB
+  // state, though the user must use options to insure no DB flush is invoked
+  // in this frozen state. Other operations allowed on a "read only" DB should
+  // work while frozen. Each LockWAL() call that returns OK must eventually be
+  // followed by a corresponding call to UnlockWAL(). Where supported, non-OK
+  // status is generally only possible with some kind of corruption or I/O
+  // error.
   virtual Status LockWAL() {
     return Status::NotSupported("LockWAL not implemented");
   }
 
-  // Unlock the WAL.
+  // Unfreeze the DB state from a successful LockWAL().
+  // The write stop on the database will be cleared when UnlockWAL() have been
+  // called for each successful LockWAL().
   virtual Status UnlockWAL() {
     return Status::NotSupported("UnlockWAL not implemented");
   }
@@ -1441,7 +1489,6 @@ class DB {
   // threads call EnableFileDeletions()
   virtual Status EnableFileDeletions(bool force = true) = 0;
 
-#ifndef ROCKSDB_LITE
   // Retrieves the creation time of the oldest file in the DB.
   // This API only works if max_open_files = -1, if it is not then
   // Status returned is Status::NotSupported()
@@ -1530,9 +1577,10 @@ class DB {
   // The valid size of the manifest file is returned in manifest_file_size.
   // The manifest file is an ever growing file, but only the portion specified
   // by manifest_file_size is valid for this snapshot. Setting flush_memtable
-  // to true does Flush before recording the live files. Setting flush_memtable
-  // to false is useful when we don't want to wait for flush which may have to
-  // wait for compaction to complete taking an indeterminate time.
+  // to true does Flush before recording the live files (unless DB is
+  // read-only). Setting flush_memtable to false is useful when we don't want
+  // to wait for flush which may have to wait for compaction to complete
+  // taking an indeterminate time.
   //
   // NOTE: Although GetLiveFiles() followed by GetSortedWalFiles() can generate
   // a lossless backup, GetLiveFilesStorageInfo() is strongly recommended
@@ -1640,7 +1688,6 @@ class DB {
 
   virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
-#endif  // ROCKSDB_LITE
 
   // Returns the unique ID which is read from IDENTITY file during the opening
   // of database by setting in the identity variable
@@ -1657,7 +1704,6 @@ class DB {
   // Returns default column family handle
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
 
-#ifndef ROCKSDB_LITE
 
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props) = 0;
@@ -1701,8 +1747,14 @@ class DB {
 
   // Trace block cache accesses. Use EndBlockCacheTrace() to stop tracing.
   virtual Status StartBlockCacheTrace(
-      const TraceOptions& /*options*/,
+      const TraceOptions& /*trace_options*/,
       std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
+    return Status::NotSupported("StartBlockCacheTrace() is not implemented.");
+  }
+
+  virtual Status StartBlockCacheTrace(
+      const BlockCacheTraceOptions& /*options*/,
+      std::unique_ptr<BlockCacheTraceWriter>&& /*trace_writer*/) {
     return Status::NotSupported("StartBlockCacheTrace() is not implemented.");
   }
 
@@ -1718,7 +1770,6 @@ class DB {
     return Status::NotSupported("NewDefaultReplayer() is not implemented.");
   }
 
-#endif  // ROCKSDB_LITE
 
   // Needed for StackableDB
   virtual DB* GetRootDB() { return this; }
@@ -1732,7 +1783,6 @@ class DB {
     return Status::NotSupported("GetStatsHistory() is not implemented.");
   }
 
-#ifndef ROCKSDB_LITE
   // Make the secondary instance catch up with the primary by tailing and
   // replaying the MANIFEST and WAL of the primary.
   // Column families created by the primary after the secondary instance starts
@@ -1746,7 +1796,6 @@ class DB {
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }
-#endif  // !ROCKSDB_LITE
 };
 
 // Overloaded operators for enum class SizeApproximationFlags.
@@ -1781,7 +1830,6 @@ Status DestroyDB(const std::string& name, const Options& options,
                  const std::vector<ColumnFamilyDescriptor>& column_families =
                      std::vector<ColumnFamilyDescriptor>());
 
-#ifndef ROCKSDB_LITE
 // If a DB cannot be opened, you may attempt to call this method to
 // resurrect as much of the contents of the database as possible.
 // Some data may be lost, so be careful when calling this function
@@ -1804,6 +1852,5 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 //                families encountered during the repair
 Status RepairDB(const std::string& dbname, const Options& options);
 
-#endif
 
 }  // namespace ROCKSDB_NAMESPACE

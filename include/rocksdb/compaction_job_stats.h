@@ -6,6 +6,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+
 #include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -102,5 +103,7 @@ struct CompactionJobStats {
 
   // number of single-deletes which meet something other than a put
   uint64_t num_single_del_mismatch;
+
+  // TODO: Add output_to_penultimate_level output information
 };
 }  // namespace ROCKSDB_NAMESPACE

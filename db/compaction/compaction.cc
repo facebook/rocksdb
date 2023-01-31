@@ -77,11 +77,11 @@ void Compaction::SetInputVersion(Version* _input_version) {
 void Compaction::GetBoundaryKeys(
     VersionStorageInfo* vstorage,
     const std::vector<CompactionInputFiles>& inputs, Slice* smallest_user_key,
-    Slice* largest_user_key) {
+    Slice* largest_user_key, int exclude_level) {
   bool initialized = false;
   const Comparator* ucmp = vstorage->InternalComparator()->user_comparator();
   for (size_t i = 0; i < inputs.size(); ++i) {
-    if (inputs[i].files.empty()) {
+    if (inputs[i].files.empty() || inputs[i].level == exclude_level) {
       continue;
     }
     if (inputs[i].level == 0) {
@@ -214,13 +214,14 @@ Compaction::Compaction(
     CompressionOptions _compression_opts, Temperature _output_temperature,
     uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
     bool _manual_compaction, const std::string& _trim_ts, double _score,
-    bool _deletion_compaction, CompactionReason _compaction_reason,
+    bool _deletion_compaction, bool l0_files_might_overlap,
+    CompactionReason _compaction_reason,
     BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
     double _blob_garbage_collection_age_cutoff)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
       output_level_(_output_level),
-      max_output_file_size_(_target_file_size),
+      target_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
       max_subcompactions_(_max_subcompactions),
       immutable_options_(_immutable_options),
@@ -233,10 +234,19 @@ Compaction::Compaction(
       output_compression_opts_(_compression_opts),
       output_temperature_(_output_temperature),
       deletion_compaction_(_deletion_compaction),
+      l0_files_might_overlap_(l0_files_might_overlap),
       inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
       score_(_score),
-      bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
+      bottommost_level_(
+          // For simplicity, we don't support the concept of "bottommost level"
+          // with
+          // `CompactionReason::kExternalSstIngestion` and
+          // `CompactionReason::kRefitLevel`
+          (_compaction_reason == CompactionReason::kExternalSstIngestion ||
+           _compaction_reason == CompactionReason::kRefitLevel)
+              ? false
+              : IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
       trim_ts_(_trim_ts),
@@ -254,7 +264,16 @@ Compaction::Compaction(
           _blob_garbage_collection_age_cutoff < 0 ||
                   _blob_garbage_collection_age_cutoff > 1
               ? mutable_cf_options()->blob_garbage_collection_age_cutoff
-              : _blob_garbage_collection_age_cutoff) {
+              : _blob_garbage_collection_age_cutoff),
+      penultimate_level_(
+          // For simplicity, we don't support the concept of "penultimate level"
+          // with `CompactionReason::kExternalSstIngestion` and
+          // `CompactionReason::kRefitLevel`
+          _compaction_reason == CompactionReason::kExternalSstIngestion ||
+                  _compaction_reason == CompactionReason::kRefitLevel
+              ? Compaction::kInvalidLevel
+              : EvaluatePenultimateLevel(vstorage, immutable_options_,
+                                         start_level_, output_level_)) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -262,6 +281,14 @@ Compaction::Compaction(
   if (max_subcompactions_ == 0) {
     max_subcompactions_ = _mutable_db_options.max_subcompactions;
   }
+
+  // for the non-bottommost levels, it tries to build files match the target
+  // file size, but not guaranteed. It could be 2x the size of the target size.
+  max_output_file_size_ =
+      bottommost_level_ || grandparents_.empty() ||
+              !_immutable_options.level_compaction_dynamic_file_size
+          ? target_output_file_size_
+          : 2 * target_output_file_size_;
 
 #ifndef NDEBUG
   for (size_t i = 1; i < inputs_.size(); ++i) {
@@ -279,6 +306,70 @@ Compaction::Compaction(
   }
 
   GetBoundaryKeys(vstorage, inputs_, &smallest_user_key_, &largest_user_key_);
+
+  // Every compaction regardless of any compaction reason may respect the
+  // existing compact cursor in the output level to split output files
+  output_split_key_ = nullptr;
+  if (immutable_options_.compaction_style == kCompactionStyleLevel &&
+      immutable_options_.compaction_pri == kRoundRobin) {
+    const InternalKey* cursor =
+        &input_vstorage_->GetCompactCursors()[output_level_];
+    if (cursor->size() != 0) {
+      const Slice& cursor_user_key = ExtractUserKey(cursor->Encode());
+      auto ucmp = vstorage->InternalComparator()->user_comparator();
+      // May split output files according to the cursor if it in the user-key
+      // range
+      if (ucmp->CompareWithoutTimestamp(cursor_user_key, smallest_user_key_) >
+              0 &&
+          ucmp->CompareWithoutTimestamp(cursor_user_key, largest_user_key_) <=
+              0) {
+        output_split_key_ = cursor;
+      }
+    }
+  }
+
+  PopulatePenultimateLevelOutputRange();
+}
+
+void Compaction::PopulatePenultimateLevelOutputRange() {
+  if (!SupportsPerKeyPlacement()) {
+    return;
+  }
+
+  // exclude the last level, the range of all input levels is the safe range
+  // of keys that can be moved up.
+  int exclude_level = number_levels_ - 1;
+  penultimate_output_range_type_ = PenultimateOutputRangeType::kNonLastRange;
+
+  // For universal compaction, the penultimate_output_range could be extended if
+  // all penultimate level files are included in the compaction (which includes
+  // the case that the penultimate level is empty).
+  if (immutable_options_.compaction_style == kCompactionStyleUniversal) {
+    exclude_level = kInvalidLevel;
+    penultimate_output_range_type_ = PenultimateOutputRangeType::kFullRange;
+    std::set<uint64_t> penultimate_inputs;
+    for (const auto& input_lvl : inputs_) {
+      if (input_lvl.level == penultimate_level_) {
+        for (const auto& file : input_lvl.files) {
+          penultimate_inputs.emplace(file->fd.GetNumber());
+        }
+      }
+    }
+    auto penultimate_files = input_vstorage_->LevelFiles(penultimate_level_);
+    for (const auto& file : penultimate_files) {
+      if (penultimate_inputs.find(file->fd.GetNumber()) ==
+          penultimate_inputs.end()) {
+        exclude_level = number_levels_ - 1;
+        penultimate_output_range_type_ =
+            PenultimateOutputRangeType::kNonLastRange;
+        break;
+      }
+    }
+  }
+
+  GetBoundaryKeys(input_vstorage_, inputs_,
+                  &penultimate_level_smallest_user_key_,
+                  &penultimate_level_largest_user_key_, exclude_level);
 }
 
 Compaction::~Compaction() {
@@ -288,6 +379,48 @@ Compaction::~Compaction() {
   if (cfd_ != nullptr) {
     cfd_->UnrefAndTryDelete();
   }
+}
+
+bool Compaction::SupportsPerKeyPlacement() const {
+  return penultimate_level_ != kInvalidLevel;
+}
+
+int Compaction::GetPenultimateLevel() const { return penultimate_level_; }
+
+// smallest_key and largest_key include timestamps if user-defined timestamp is
+// enabled.
+bool Compaction::OverlapPenultimateLevelOutputRange(
+    const Slice& smallest_key, const Slice& largest_key) const {
+  if (!SupportsPerKeyPlacement()) {
+    return false;
+  }
+  const Comparator* ucmp =
+      input_vstorage_->InternalComparator()->user_comparator();
+
+  return ucmp->CompareWithoutTimestamp(
+             smallest_key, penultimate_level_largest_user_key_) <= 0 &&
+         ucmp->CompareWithoutTimestamp(
+             largest_key, penultimate_level_smallest_user_key_) >= 0;
+}
+
+// key includes timestamp if user-defined timestamp is enabled.
+bool Compaction::WithinPenultimateLevelOutputRange(const Slice& key) const {
+  if (!SupportsPerKeyPlacement()) {
+    return false;
+  }
+
+  if (penultimate_level_smallest_user_key_.empty() ||
+      penultimate_level_largest_user_key_.empty()) {
+    return false;
+  }
+
+  const Comparator* ucmp =
+      input_vstorage_->InternalComparator()->user_comparator();
+
+  return ucmp->CompareWithoutTimestamp(
+             key, penultimate_level_smallest_user_key_) >= 0 &&
+         ucmp->CompareWithoutTimestamp(
+             key, penultimate_level_largest_user_key_) <= 0;
 }
 
 bool Compaction::InputCompressionMatchesOutput() const {
@@ -311,8 +444,10 @@ bool Compaction::IsTrivialMove() const {
   // filter to be applied to that level, and thus cannot be a trivial move.
 
   // Check if start level have files with overlapping ranges
-  if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false) {
-    // We cannot move files from L0 to L1 if the files are overlapping
+  if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false &&
+      l0_files_might_overlap_) {
+    // We cannot move files from L0 to L1 if the L0 files in the LSM-tree are
+    // overlapping, unless we are sure that files picked in L0 don't overlap.
     return false;
   }
 
@@ -367,6 +502,11 @@ bool Compaction::IsTrivialMove() const {
         return false;
       }
     }
+  }
+
+  // PerKeyPlacement compaction should never be trivial move.
+  if (SupportsPerKeyPlacement()) {
+    return false;
   }
 
   return true;
@@ -584,20 +724,23 @@ bool Compaction::IsOutputLevelEmpty() const {
 }
 
 bool Compaction::ShouldFormSubcompactions() const {
-  if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
+  if (cfd_ == nullptr) {
     return false;
   }
 
-  // Note: the subcompaction boundary picking logic does not currently guarantee
-  // that all user keys that differ only by timestamp get processed by the same
-  // subcompaction.
-  if (cfd_->user_comparator()->timestamp_size() > 0) {
+  // Round-Robin pri under leveled compaction allows subcompactions by default
+  // and the number of subcompactions can be larger than max_subcompactions_
+  if (cfd_->ioptions()->compaction_pri == kRoundRobin &&
+      cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+    return output_level_ > 0;
+  }
+
+  if (max_subcompactions_ <= 1) {
     return false;
   }
 
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0 &&
-           !IsOutputLevelEmpty();
+    return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0;
   } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
   } else {
@@ -651,8 +794,59 @@ uint64_t Compaction::MinInputFileOldestAncesterTime(
   return min_oldest_ancester_time;
 }
 
-int Compaction::GetInputBaseLevel() const {
-  return input_vstorage_->base_level();
+uint64_t Compaction::MinInputFileEpochNumber() const {
+  uint64_t min_epoch_number = std::numeric_limits<uint64_t>::max();
+  for (const auto& inputs_per_level : inputs_) {
+    for (const auto& file : inputs_per_level.files) {
+      min_epoch_number = std::min(min_epoch_number, file->epoch_number);
+    }
+  }
+  return min_epoch_number;
+}
+
+int Compaction::EvaluatePenultimateLevel(
+    const VersionStorageInfo* vstorage,
+    const ImmutableOptions& immutable_options, const int start_level,
+    const int output_level) {
+  // TODO: currently per_key_placement feature only support level and universal
+  //  compaction
+  if (immutable_options.compaction_style != kCompactionStyleLevel &&
+      immutable_options.compaction_style != kCompactionStyleUniversal) {
+    return kInvalidLevel;
+  }
+  if (output_level != immutable_options.num_levels - 1) {
+    return kInvalidLevel;
+  }
+
+  int penultimate_level = output_level - 1;
+  assert(penultimate_level < immutable_options.num_levels);
+  if (penultimate_level <= 0) {
+    return kInvalidLevel;
+  }
+
+  // If the penultimate level is not within input level -> output level range
+  // check if the penultimate output level is empty, if it's empty, it could
+  // also be locked for the penultimate output.
+  // TODO: ideally, it only needs to check if there's a file within the
+  //  compaction output key range. For simplicity, it just check if there's any
+  //  file on the penultimate level.
+  if (start_level == immutable_options.num_levels - 1 &&
+      (immutable_options.compaction_style != kCompactionStyleUniversal ||
+       !vstorage->LevelFiles(penultimate_level).empty())) {
+    return kInvalidLevel;
+  }
+
+  bool supports_per_key_placement =
+      immutable_options.preclude_last_level_data_seconds > 0;
+
+  // it could be overridden by unittest
+  TEST_SYNC_POINT_CALLBACK("Compaction::SupportsPerKeyPlacement:Enabled",
+                           &supports_per_key_placement);
+  if (!supports_per_key_placement) {
+    return kInvalidLevel;
+  }
+
+  return penultimate_level;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

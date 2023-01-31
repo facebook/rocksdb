@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <functional>
 #include <limits>
@@ -155,8 +154,7 @@ class BlobDB : public StackableDB {
 
   using ROCKSDB_NAMESPACE::StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<Slice>& keys,
+      const ReadOptions& options, const std::vector<Slice>& keys,
       std::vector<std::string>* values) override = 0;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -179,8 +177,8 @@ class BlobDB : public StackableDB {
                         PinnableSlice* /*values*/, Status* statuses,
                         const bool /*sorted_input*/ = false) override {
     for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Status::NotSupported(
-          "Blob DB doesn't support batched MultiGet");
+      statuses[i] =
+          Status::NotSupported("Blob DB doesn't support batched MultiGet");
     }
   }
 
@@ -264,4 +262,3 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

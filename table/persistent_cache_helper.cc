@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/persistent_cache_helper.h"
+
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 
@@ -11,7 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 
 const PersistentCacheOptions PersistentCacheOptions::kEmpty;
 
-void PersistentCacheHelper::InsertRawPage(
+void PersistentCacheHelper::InsertSerialized(
     const PersistentCacheOptions& cache_options, const BlockHandle& handle,
     const char* data, const size_t size) {
   assert(cache_options.persistent_cache);
@@ -24,7 +25,7 @@ void PersistentCacheHelper::InsertRawPage(
       .PermitUncheckedError();
 }
 
-void PersistentCacheHelper::InsertUncompressedPage(
+void PersistentCacheHelper::InsertUncompressed(
     const PersistentCacheOptions& cache_options, const BlockHandle& handle,
     const BlockContents& contents) {
   assert(cache_options.persistent_cache);
@@ -42,11 +43,11 @@ void PersistentCacheHelper::InsertUncompressedPage(
   ;
 }
 
-Status PersistentCacheHelper::LookupRawPage(
+Status PersistentCacheHelper::LookupSerialized(
     const PersistentCacheOptions& cache_options, const BlockHandle& handle,
-    std::unique_ptr<char[]>* raw_data, const size_t raw_data_size) {
+    std::unique_ptr<char[]>* out_data, const size_t expected_data_size) {
 #ifdef NDEBUG
-  (void)raw_data_size;
+  (void)expected_data_size;
 #endif
   assert(cache_options.persistent_cache);
   assert(cache_options.persistent_cache->IsCompressed());
@@ -56,7 +57,7 @@ Status PersistentCacheHelper::LookupRawPage(
 
   size_t size;
   Status s =
-      cache_options.persistent_cache->Lookup(key.AsSlice(), raw_data, &size);
+      cache_options.persistent_cache->Lookup(key.AsSlice(), out_data, &size);
   if (!s.ok()) {
     // cache miss
     RecordTick(cache_options.statistics, PERSISTENT_CACHE_MISS);
@@ -65,13 +66,14 @@ Status PersistentCacheHelper::LookupRawPage(
 
   // cache hit
   // Block-based table is assumed
-  assert(raw_data_size == handle.size() + BlockBasedTable::kBlockTrailerSize);
-  assert(size == raw_data_size);
+  assert(expected_data_size ==
+         handle.size() + BlockBasedTable::kBlockTrailerSize);
+  assert(size == expected_data_size);
   RecordTick(cache_options.statistics, PERSISTENT_CACHE_HIT);
   return Status::OK();
 }
 
-Status PersistentCacheHelper::LookupUncompressedPage(
+Status PersistentCacheHelper::LookupUncompressed(
     const PersistentCacheOptions& cache_options, const BlockHandle& handle,
     BlockContents* contents) {
   assert(cache_options.persistent_cache);

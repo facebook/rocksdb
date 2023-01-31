@@ -66,7 +66,7 @@ public class Options extends RocksObject
       final ColumnFamilyOptions columnFamilyOptions) {
     super(newOptions(dbOptions.nativeHandle_,
         columnFamilyOptions.nativeHandle_));
-    env_ = Env.getDefault();
+    env_ = dbOptions.getEnv() != null ? dbOptions.getEnv() : Env.getDefault();
   }
 
   /**
@@ -1624,6 +1624,17 @@ public class Options extends RocksObject
   }
 
   @Override
+  public double experimentalMempurgeThreshold() {
+    return experimentalMempurgeThreshold(nativeHandle_);
+  }
+
+  @Override
+  public Options setExperimentalMempurgeThreshold(final double experimentalMempurgeThreshold) {
+    setExperimentalMempurgeThreshold(nativeHandle_, experimentalMempurgeThreshold);
+    return this;
+  }
+
+  @Override
   public boolean memtableWholeKeyFiltering() {
     return memtableWholeKeyFiltering(nativeHandle_);
   }
@@ -2093,6 +2104,17 @@ public class Options extends RocksObject
     return blobFileStartingLevel(nativeHandle_);
   }
 
+  @Override
+  public Options setPrepopulateBlobCache(final PrepopulateBlobCache prepopulateBlobCache) {
+    setPrepopulateBlobCache(nativeHandle_, prepopulateBlobCache.getValue());
+    return this;
+  }
+
+  @Override
+  public PrepopulateBlobCache prepopulateBlobCache() {
+    return PrepopulateBlobCache.getPrepopulateBlobCache(prepopulateBlobCache(nativeHandle_));
+  }
+
   //
   // END options for blobs (integrated BlobDB)
   //
@@ -2420,6 +2442,9 @@ public class Options extends RocksObject
   private native void setMemtablePrefixBloomSizeRatio(
       long handle, double memtablePrefixBloomSizeRatio);
   private native double memtablePrefixBloomSizeRatio(long handle);
+  private native void setExperimentalMempurgeThreshold(
+      long handle, double experimentalMempurgeThreshold);
+  private native double experimentalMempurgeThreshold(long handle);
   private native void setMemtableWholeKeyFiltering(long handle, boolean memtableWholeKeyFiltering);
   private native boolean memtableWholeKeyFiltering(long handle);
   private native void setBloomLocality(
@@ -2527,6 +2552,9 @@ public class Options extends RocksObject
   private native void setBlobFileStartingLevel(
       final long nativeHandle_, final int blobFileStartingLevel);
   private native int blobFileStartingLevel(final long nativeHandle_);
+  private native void setPrepopulateBlobCache(
+      final long nativeHandle_, final byte prepopulateBlobCache);
+  private native byte prepopulateBlobCache(final long nativeHandle_);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

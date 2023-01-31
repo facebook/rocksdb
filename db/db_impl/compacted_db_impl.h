@@ -4,13 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 #include <string>
 #include <vector>
+
 #include "db/db_impl/db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO: Share common structure with DBImplSecondary and DBImplReadOnly
 class CompactedDBImpl : public DBImpl {
  public:
   CompactedDBImpl(const DBOptions& options, const std::string& dbname);
@@ -54,12 +55,22 @@ class CompactedDBImpl : public DBImpl {
                      const Slice& /*key*/, const Slice& /*value*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
+
+  using DBImpl::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
+
   using DBImpl::Merge;
   virtual Status Merge(const WriteOptions& /*options*/,
                        ColumnFamilyHandle* /*column_family*/,
                        const Slice& /*key*/, const Slice& /*value*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
+
   using DBImpl::Delete;
   virtual Status Delete(const WriteOptions& /*options*/,
                         ColumnFamilyHandle* /*column_family*/,
@@ -117,6 +128,15 @@ class CompactedDBImpl : public DBImpl {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
 
+  // FIXME: some missing overrides for more "write" functions
+  // Share with DBImplReadOnly?
+
+ protected:
+  Status FlushForGetLiveFiles() override {
+    // No-op for read-only DB
+    return Status::OK();
+  }
+
  private:
   friend class DB;
   inline size_t FindFile(const Slice& key);
@@ -128,4 +148,3 @@ class CompactedDBImpl : public DBImpl {
   LevelFilesBrief files_;
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

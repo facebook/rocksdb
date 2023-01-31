@@ -12,13 +12,15 @@
 #include "db_stress_tool/db_stress_common.h"
 
 namespace ROCKSDB_NAMESPACE {
-class DbStressEnvWrapper : public EnvWrapper {
+class DbStressFSWrapper : public FileSystemWrapper {
  public:
-  explicit DbStressEnvWrapper(Env* t) : EnvWrapper(t) {}
-  static const char* kClassName() { return "DbStressEnv"; }
+  explicit DbStressFSWrapper(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  static const char* kClassName() { return "DbStressFS"; }
   const char* Name() const override { return kClassName(); }
 
-  Status DeleteFile(const std::string& f) override {
+  IOStatus DeleteFile(const std::string& f, const IOOptions& opts,
+                      IODebugContext* dbg) override {
     // We determine whether it is a manifest file by searching a strong,
     // so that there will be false positive if the directory path contains the
     // keyword but it is unlikely.
@@ -28,11 +30,11 @@ class DbStressEnvWrapper : public EnvWrapper {
         f.find("checkpoint") != std::string::npos ||
         f.find(".backup") != std::string::npos ||
         f.find(".restore") != std::string::npos) {
-      return target()->DeleteFile(f);
+      return target()->DeleteFile(f, opts, dbg);
     }
     // Rename the file instead of deletion to keep the history, and
     // at the same time it is not visible to RocksDB.
-    return target()->RenameFile(f, f + "_renamed_");
+    return target()->RenameFile(f, f + "_renamed_", opts, dbg);
   }
 
   // If true, all manifest files will not be delted in DeleteFile().

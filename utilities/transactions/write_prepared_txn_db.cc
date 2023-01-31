@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_prepared_txn_db.h"
 
@@ -166,6 +165,15 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
     // increased for this batch.
     return Status::OK();
   }
+
+  if (write_options_orig.protection_bytes_per_key > 0) {
+    auto s = WriteBatchInternal::UpdateProtectionInfo(
+        batch, write_options_orig.protection_bytes_per_key);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   if (batch_cnt == 0) {  // not provided, then compute it
     // TODO(myabandeh): add an option to allow user skipping this cost
     SubBatchCounter counter(*GetCFComparatorMap());
@@ -299,7 +307,6 @@ void WritePreparedTxnDB::UpdateCFComparatorMap(ColumnFamilyHandle* h) {
   cf_map_.reset(cf_map);
   handle_map_.reset(handle_map);
 }
-
 
 std::vector<Status> WritePreparedTxnDB::MultiGet(
     const ReadOptions& options,
@@ -599,7 +606,8 @@ void WritePreparedTxnDB::RemovePrepared(const uint64_t prepare_seq,
 bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
                                         CommitEntry64b* entry_64b,
                                         CommitEntry* entry) const {
-  *entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].load(std::memory_order_acquire);
+  *entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].load(
+      std::memory_order_acquire);
   bool valid = entry_64b->Parse(indexed_seq, entry, FORMAT);
   return valid;
 }
@@ -608,8 +616,9 @@ bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
                                         const CommitEntry& new_entry,
                                         CommitEntry* evicted_entry) {
   CommitEntry64b new_entry_64b(new_entry, FORMAT);
-  CommitEntry64b evicted_entry_64b = commit_cache_[static_cast<size_t>(indexed_seq)].exchange(
-      new_entry_64b, std::memory_order_acq_rel);
+  CommitEntry64b evicted_entry_64b =
+      commit_cache_[static_cast<size_t>(indexed_seq)].exchange(
+          new_entry_64b, std::memory_order_acq_rel);
   bool valid = evicted_entry_64b.Parse(indexed_seq, evicted_entry, FORMAT);
   return valid;
 }
@@ -1017,4 +1026,3 @@ void SubBatchCounter::AddKey(const uint32_t cf, const Slice& key) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

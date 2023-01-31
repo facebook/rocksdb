@@ -29,7 +29,6 @@ class DBOptionsTest : public DBTestBase {
  public:
   DBOptionsTest() : DBTestBase("db_options_test", /*env_do_fsync=*/true) {}
 
-#ifndef ROCKSDB_LITE
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
       const DBOptions& options) {
     std::string options_str;
@@ -76,7 +75,6 @@ class DBOptionsTest : public DBTestBase {
     auto sanitized_options = SanitizeOptions(dbname_, db_options);
     return GetMutableDBOptionsMap(sanitized_options);
   }
-#endif  // ROCKSDB_LITE
 };
 
 TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
@@ -112,7 +110,6 @@ TEST_F(DBOptionsTest, ImmutableVerifySstUniqueIdInManifest) {
 }
 
 // RocksDB lite don't support dynamic options.
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBOptionsTest, AvoidUpdatingOptions) {
   Options options;
@@ -220,6 +217,7 @@ TEST_F(DBOptionsTest, SetMutableTableOptions) {
 
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   Options c_opts = dbfull()->GetOptions(cfh);
+
   const auto* c_bbto =
       c_opts.table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(c_bbto, nullptr);
@@ -401,7 +399,7 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   // Do not flush. If we flush here, SwitchWAL will reuse old WAL file since its
   // empty and will not get the new wal_bytes_per_sync value.
   low_bytes_per_sync = counter;
-  //5242880 = 1024 * 1024 * 5
+  // 5242880 = 1024 * 1024 * 5
   ASSERT_OK(dbfull()->SetDBOptions({{"wal_bytes_per_sync", "5242880"}}));
   ASSERT_EQ(5242880, dbfull()->GetDBOptions().wal_bytes_per_sync);
   counter = 0;
@@ -452,7 +450,7 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
       dbfull()->SetDBOptions({{"writable_file_max_buffer_size", "524288"}}));
   buffer_size = 512 * 1024;
   match_cnt = 0;
-  unmatch_cnt = 0;  // SetDBOptions() will create a WriteableFileWriter
+  unmatch_cnt = 0;  // SetDBOptions() will create a WritableFileWriter
 
   ASSERT_EQ(buffer_size,
             dbfull()->GetDBOptions().writable_file_max_buffer_size);
@@ -603,7 +601,7 @@ TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
 TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   Options options;
   options.create_if_missing = true;
-  options.max_background_compactions = 1;   // default value
+  options.max_background_compactions = 1;  // default value
   options.env = env_;
   Reopen(options);
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
@@ -625,7 +623,6 @@ TEST_F(DBOptionsTest, SetBackgroundFlushThreads) {
   ASSERT_EQ(3, env_->GetBackgroundThreads(Env::Priority::HIGH));
   ASSERT_EQ(3, dbfull()->TEST_BGFlushesAllowed());
 }
-
 
 TEST_F(DBOptionsTest, SetBackgroundJobs) {
   Options options;
@@ -690,7 +687,8 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
   options.delayed_write_rate = 2 * 1024U * 1024U;
   options.env = env_;
   Reopen(options);
-  ASSERT_EQ(2 * 1024U * 1024U, dbfull()->TEST_write_controler().max_delayed_write_rate());
+  ASSERT_EQ(2 * 1024U * 1024U,
+            dbfull()->TEST_write_controler().max_delayed_write_rate());
 
   ASSERT_OK(dbfull()->SetDBOptions({{"delayed_write_rate", "20000"}}));
   ASSERT_EQ(20000, dbfull()->TEST_write_controler().max_delayed_write_rate());
@@ -1147,7 +1145,6 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   // Verify the bottommost compression options still take effect even when the

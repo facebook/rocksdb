@@ -58,7 +58,6 @@ struct ImmutableDBOptions {
   bool allow_fallocate;
   bool is_fd_close_on_exec;
   bool advise_random_on_open;
-  double experimental_mempurge_threshold;
   size_t db_write_buffer_size;
   std::shared_ptr<WriteBufferManager> write_buffer_manager;
   DBOptions::AccessHint access_hint_on_compaction_start;
@@ -77,9 +76,7 @@ struct ImmutableDBOptions {
   WALRecoveryMode wal_recovery_mode;
   bool allow_2pc;
   std::shared_ptr<Cache> row_cache;
-#ifndef ROCKSDB_LITE
   WalFilter* wal_filter;
-#endif  // ROCKSDB_LITE
   bool fail_if_options_file_error;
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
@@ -140,7 +137,6 @@ struct MutableDBOptions {
   int max_background_flushes;
 };
 
-#ifndef ROCKSDB_LITE
 Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
                                      const MutableDBOptions& mutable_opts,
                                      std::string* opt_string);
@@ -152,6 +148,5 @@ Status GetMutableDBOptionsFromStrings(
 
 bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
                               const MutableDBOptions& that_options);
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "db/wal_manager.h"
 
@@ -37,7 +36,8 @@ class WalManagerTest : public testing::Test {
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         current_log_number_(0) {
-    env_.reset(MockEnv::Create(Env::Default())), DestroyDB(dbname_, Options());
+    env_.reset(MockEnv::Create(Env::Default()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   void Init() {
@@ -54,7 +54,7 @@ class WalManagerTest : public testing::Test {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
 
     wal_manager_.reset(
         new WalManager(db_options_, env_options_, nullptr /*IOTracer*/));
@@ -68,7 +68,7 @@ class WalManagerTest : public testing::Test {
   // NOT thread safe
   void Put(const std::string& key, const std::string& value) {
     assert(current_log_writer_.get() != nullptr);
-    uint64_t seq =  versions_->LastSequence() + 1;
+    uint64_t seq = versions_->LastSequence() + 1;
     WriteBatch batch;
     ASSERT_OK(batch.Put(key, value));
     WriteBatchInternal::SetSequence(&batch, seq);
@@ -87,7 +87,8 @@ class WalManagerTest : public testing::Test {
     std::unique_ptr<WritableFileWriter> file_writer;
     ASSERT_OK(WritableFileWriter::Create(fs, fname, env_options_, &file_writer,
                                          nullptr));
-    current_log_writer_.reset(new log::Writer(std::move(file_writer), 0, false));
+    current_log_writer_.reset(
+        new log::Writer(std::move(file_writer), 0, false));
   }
 
   void CreateArchiveLogs(int num_logs, int entries_per_log) {
@@ -214,7 +215,7 @@ int CountRecords(TransactionLogIterator* iter) {
   EXPECT_OK(iter->status());
   return count;
 }
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(WalManagerTest, WALArchivalSizeLimit) {
   db_options_.WAL_ttl_seconds = 0;
@@ -328,16 +329,8 @@ TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as WalManager is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

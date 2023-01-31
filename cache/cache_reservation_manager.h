@@ -18,7 +18,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
-#include "rocksdb/cache.h"
+#include "cache/typed_cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
@@ -36,6 +36,12 @@ class CacheReservationManager {
   };
   virtual ~CacheReservationManager() {}
   virtual Status UpdateCacheReservation(std::size_t new_memory_used) = 0;
+  // TODO(hx235): replace the usage of
+  // `UpdateCacheReservation(memory_used_delta, increase)` with
+  // `UpdateCacheReservation(new_memory_used)` so that we only have one
+  // `UpdateCacheReservation` function
+  virtual Status UpdateCacheReservation(std::size_t memory_used_delta,
+                                        bool increase) = 0;
   virtual Status MakeCacheReservation(
       std::size_t incremental_memory_used,
       std::unique_ptr<CacheReservationManager::CacheReservationHandle>
@@ -128,6 +134,11 @@ class CacheReservationManagerImpl
   //         On keeping dummy entries the same, it always returns Status::OK().
   Status UpdateCacheReservation(std::size_t new_memory_used) override;
 
+  Status UpdateCacheReservation(std::size_t /* memory_used_delta */,
+                                bool /* increase */) override {
+    return Status::NotSupported();
+  }
+
   // One of the two ways of reserving cache space and releasing is done through
   // destruction of CacheReservationHandle.
   // See UpdateCacheReservation() for the other way.
@@ -186,10 +197,10 @@ class CacheReservationManagerImpl
 
   static constexpr std::size_t GetDummyEntrySize() { return kSizeDummyEntry; }
 
-  // For testing only - it is to help ensure the NoopDeleterForRole<R>
+  // For testing only - it is to help ensure the CacheItemHelperForRole<R>
   // accessed from CacheReservationManagerImpl and the one accessed from the
   // test are from the same translation units
-  static Cache::DeleterFn TEST_GetNoopDeleterForRole();
+  static const Cache::CacheItemHelper *TEST_GetCacheItemHelperForRole();
 
  private:
   static constexpr std::size_t kSizeDummyEntry = 256 * 1024;
@@ -200,7 +211,8 @@ class CacheReservationManagerImpl
   Status IncreaseCacheReservation(std::size_t new_mem_used);
   Status DecreaseCacheReservation(std::size_t new_mem_used);
 
-  std::shared_ptr<Cache> cache_;
+  using CacheInterface = PlaceholderSharedCacheInterface<R>;
+  CacheInterface cache_;
   bool delayed_decrease_;
   std::atomic<std::size_t> cache_allocated_size_;
   std::size_t memory_used_;
@@ -254,6 +266,23 @@ class ConcurrentCacheReservationManager
     std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
     return cache_res_mgr_->UpdateCacheReservation(new_memory_used);
   }
+
+  inline Status UpdateCacheReservation(std::size_t memory_used_delta,
+                                       bool increase) override {
+    std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
+    std::size_t total_mem_used = cache_res_mgr_->GetTotalMemoryUsed();
+    Status s;
+    if (!increase) {
+      assert(total_mem_used >= memory_used_delta);
+      s = cache_res_mgr_->UpdateCacheReservation(total_mem_used -
+                                                 memory_used_delta);
+    } else {
+      s = cache_res_mgr_->UpdateCacheReservation(total_mem_used +
+                                                 memory_used_delta);
+    }
+    return s;
+  }
+
   inline Status MakeCacheReservation(
       std::size_t incremental_memory_used,
       std::unique_ptr<CacheReservationManager::CacheReservationHandle> *handle)

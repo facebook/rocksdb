@@ -10,7 +10,6 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
-#if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
@@ -18,15 +17,22 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class DBTestTailingIterator : public DBTestBase {
+class DBTestTailingIterator : public DBTestBase,
+                              public ::testing::WithParamInterface<bool> {
  public:
   DBTestTailingIterator()
       : DBTestBase("db_tailing_iterator_test", /*env_do_fsync=*/true) {}
 };
 
-TEST_F(DBTestTailingIterator, TailingIteratorSingle) {
+INSTANTIATE_TEST_CASE_P(DBTestTailingIterator, DBTestTailingIterator,
+                        ::testing::Bool());
+
+TEST_P(DBTestTailingIterator, TailingIteratorSingle) {
   ReadOptions read_options;
   read_options.tailing = true;
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
   iter->SeekToFirst();
@@ -43,11 +49,13 @@ TEST_F(DBTestTailingIterator, TailingIteratorSingle) {
   ASSERT_TRUE(!iter->Valid());
 }
 
-TEST_F(DBTestTailingIterator, TailingIteratorKeepAdding) {
+TEST_P(DBTestTailingIterator, TailingIteratorKeepAdding) {
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   ReadOptions read_options;
   read_options.tailing = true;
-
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
   ASSERT_OK(iter->status());
   std::string value(1024, 'a');
@@ -66,11 +74,13 @@ TEST_F(DBTestTailingIterator, TailingIteratorKeepAdding) {
   }
 }
 
-TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
+TEST_P(DBTestTailingIterator, TailingIteratorSeekToNext) {
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   ReadOptions read_options;
   read_options.tailing = true;
-
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
   ASSERT_OK(iter->status());
   std::unique_ptr<Iterator> itern(db_->NewIterator(read_options, handles_[1]));
@@ -125,7 +135,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
   }
 }
 
-TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
+TEST_P(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   const uint64_t k150KB = 150 * 1024;
   Options options;
   options.write_buffer_size = k150KB;
@@ -135,6 +145,9 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   CreateAndReopenWithCF({"pikachu"}, options);
   ReadOptions read_options;
   read_options.tailing = true;
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   int num_iters, deleted_iters;
 
   char bufe[32];
@@ -227,7 +240,6 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   iterh = nullptr;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
-  table_options.block_cache_compressed = nullptr;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   read_options.read_tier = kBlockCacheTier;
@@ -265,10 +277,13 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   }
 }
 
-TEST_F(DBTestTailingIterator, TailingIteratorDeletes) {
+TEST_P(DBTestTailingIterator, TailingIteratorDeletes) {
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   ReadOptions read_options;
   read_options.tailing = true;
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
   ASSERT_OK(iter->status());
@@ -300,15 +315,18 @@ TEST_F(DBTestTailingIterator, TailingIteratorDeletes) {
 
   // make sure we can read all new records using the existing iterator
   int count = 0;
-  for (; iter->Valid(); iter->Next(), ++count) ;
+  for (; iter->Valid(); iter->Next(), ++count)
+    ;
 
   ASSERT_EQ(count, num_records);
 }
 
-TEST_F(DBTestTailingIterator, TailingIteratorPrefixSeek) {
+TEST_P(DBTestTailingIterator, TailingIteratorPrefixSeek) {
   ReadOptions read_options;
   read_options.tailing = true;
-
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
@@ -338,10 +356,13 @@ TEST_F(DBTestTailingIterator, TailingIteratorPrefixSeek) {
   ASSERT_TRUE(!iter->Valid());
 }
 
-TEST_F(DBTestTailingIterator, TailingIteratorIncomplete) {
+TEST_P(DBTestTailingIterator, TailingIteratorIncomplete) {
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   ReadOptions read_options;
   read_options.tailing = true;
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   read_options.read_tier = kBlockCacheTier;
 
   std::string key("key");
@@ -361,7 +382,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorIncomplete) {
   ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
 }
 
-TEST_F(DBTestTailingIterator, TailingIteratorSeekToSame) {
+TEST_P(DBTestTailingIterator, TailingIteratorSeekToSame) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 1000;
@@ -369,12 +390,14 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToSame) {
 
   ReadOptions read_options;
   read_options.tailing = true;
-
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   const int NROWS = 10000;
   // Write rows with keys 00000, 00002, 00004 etc.
   for (int i = 0; i < NROWS; ++i) {
     char buf[100];
-    snprintf(buf, sizeof(buf), "%05d", 2*i);
+    snprintf(buf, sizeof(buf), "%05d", 2 * i);
     std::string key(buf);
     std::string value("value");
     ASSERT_OK(db_->Put(WriteOptions(), key, value));
@@ -400,14 +423,16 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToSame) {
 // Sets iterate_upper_bound and verifies that ForwardIterator doesn't call
 // Seek() on immutable iterators when target key is >= prev_key and all
 // iterators, including the memtable iterator, are over the upper bound.
-TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
+TEST_P(DBTestTailingIterator, TailingIteratorUpperBound) {
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
 
   const Slice upper_bound("20", 3);
   ReadOptions read_options;
   read_options.tailing = true;
   read_options.iterate_upper_bound = &upper_bound;
-
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   ASSERT_OK(Put(1, "11", "11"));
   ASSERT_OK(Put(1, "12", "12"));
   ASSERT_OK(Put(1, "22", "22"));
@@ -439,10 +464,14 @@ TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
 
   ASSERT_FALSE(it->Valid());
   ASSERT_OK(it->status());
-  ASSERT_EQ(0, immutable_seeks);
+  if (GetParam()) {
+    ASSERT_EQ(1, immutable_seeks);
+  } else {
+    ASSERT_EQ(0, immutable_seeks);
+  }
 }
 
-TEST_F(DBTestTailingIterator, TailingIteratorGap) {
+TEST_P(DBTestTailingIterator, TailingIteratorGap) {
   // level 1:            [20, 25]  [35, 40]
   // level 2:  [10 - 15]                    [45 - 50]
   // level 3:            [20,    30,    40]
@@ -455,7 +484,9 @@ TEST_F(DBTestTailingIterator, TailingIteratorGap) {
 
   ReadOptions read_options;
   read_options.tailing = true;
-
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   ASSERT_OK(Put(1, "20", "20"));
   ASSERT_OK(Put(1, "30", "30"));
   ASSERT_OK(Put(1, "40", "40"));
@@ -497,12 +528,14 @@ TEST_F(DBTestTailingIterator, TailingIteratorGap) {
   ASSERT_OK(it->status());
 }
 
-TEST_F(DBTestTailingIterator, SeekWithUpperBoundBug) {
+TEST_P(DBTestTailingIterator, SeekWithUpperBoundBug) {
   ReadOptions read_options;
   read_options.tailing = true;
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   const Slice upper_bound("cc", 3);
   read_options.iterate_upper_bound = &upper_bound;
-
 
   // 1st L0 file
   ASSERT_OK(db_->Put(WriteOptions(), "aa", "SEEN"));
@@ -520,12 +553,14 @@ TEST_F(DBTestTailingIterator, SeekWithUpperBoundBug) {
   ASSERT_EQ(iter->key().ToString(), "aa");
 }
 
-TEST_F(DBTestTailingIterator, SeekToFirstWithUpperBoundBug) {
+TEST_P(DBTestTailingIterator, SeekToFirstWithUpperBoundBug) {
   ReadOptions read_options;
   read_options.tailing = true;
+  if (GetParam()) {
+    read_options.async_io = true;
+  }
   const Slice upper_bound("cc", 3);
   read_options.iterate_upper_bound = &upper_bound;
-
 
   // 1st L0 file
   ASSERT_OK(db_->Put(WriteOptions(), "aa", "SEEN"));
@@ -552,16 +587,9 @@ TEST_F(DBTestTailingIterator, SeekToFirstWithUpperBoundBug) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)
 
 int main(int argc, char** argv) {
-#if !defined(ROCKSDB_LITE)
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  (void) argc;
-  (void) argv;
-  return 0;
-#endif
 }

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/pessimistic_transaction.h"
 
@@ -100,6 +99,9 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   use_only_the_last_commit_time_batch_for_recovery_ =
       txn_options.use_only_the_last_commit_time_batch_for_recovery;
   skip_prepare_ = txn_options.skip_prepare;
+
+  read_timestamp_ = kMaxTxnTimestamp;
+  commit_timestamp_ = kMaxTxnTimestamp;
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -1169,4 +1171,3 @@ Status PessimisticTransaction::SetName(const TransactionName& name) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

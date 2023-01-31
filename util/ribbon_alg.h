@@ -150,7 +150,7 @@ namespace ribbon {
 // (m/n) than is required with Gaussian elimination.
 //
 // Recommended reading:
-// "Peeling Close to the Orientability Threshold – Spatial Coupling in
+// "Peeling Close to the Orientability Threshold - Spatial Coupling in
 // Hashing-Based Data Structures" by Stefan Walzer
 //
 // ######################################################################

@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction/compaction_picker_fifo.h"
-#ifndef ROCKSDB_LITE
 
 #include <cinttypes>
 #include <string>
@@ -83,7 +82,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
           break;
         }
       }
-      total_size -= f->compensated_file_size;
+      total_size -= f->fd.file_size;
       inputs[0].files.push_back(f);
     }
   }
@@ -116,24 +115,50 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       mutable_cf_options.compression_opts, Temperature::kUnknown,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
-      /* is deletion compaction */ true, CompactionReason::kFIFOTtl);
+      /* is deletion compaction */ true, /* l0_files_might_overlap */ true,
+      CompactionReason::kFIFOTtl);
   return c;
 }
 
+// The size-based compaction picker for FIFO.
+//
+// When the entire column family size exceeds max_table_files_size, FIFO will
+// try to delete the oldest sst file(s) until the resulting column family size
+// is smaller than max_table_files_size.
+//
+// This function also takes care the case where a DB is migrating from level /
+// universal compaction to FIFO compaction.  During the migration, the column
+// family will also have non-L0 files while FIFO can only create L0 files.
+// In this case, this function will first purge the sst files in the bottom-
+// most non-empty level first, and the DB will eventually converge to the
+// regular FIFO case where there're only L0 files.  Note that during the
+// migration case, the purge order will only be an approximation of "FIFO"
+// as entries inside lower-level files might sometimes be newer than some
+// entries inside upper-level files.
 Compaction* FIFOCompactionPicker::PickSizeCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     LogBuffer* log_buffer) {
-  const int kLevel0 = 0;
-  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
-  uint64_t total_size = GetTotalFilesSize(level_files);
+  // compute the total size and identify the last non-empty level
+  int last_level = 0;
+  uint64_t total_size = 0;
+  for (int level = 0; level < vstorage->num_levels(); ++level) {
+    auto level_size = GetTotalFilesSize(vstorage->LevelFiles(level));
+    total_size += level_size;
+    if (level_size > 0) {
+      last_level = level;
+    }
+  }
+  const std::vector<FileMetaData*>& last_level_files =
+      vstorage->LevelFiles(last_level);
 
-  if (total_size <=
-          mutable_cf_options.compaction_options_fifo.max_table_files_size ||
-      level_files.size() == 0) {
-    // total size not exceeded
+  if (last_level == 0 &&
+      total_size <=
+          mutable_cf_options.compaction_options_fifo.max_table_files_size) {
+    // total size not exceeded, try to find intra level 0 compaction if enabled
+    const std::vector<FileMetaData*>& level0_files = vstorage->LevelFiles(0);
     if (mutable_cf_options.compaction_options_fifo.allow_compaction &&
-        level_files.size() > 0) {
+        level0_files.size() > 0) {
       CompactionInputFiles comp_inputs;
       // try to prevent same files from being compacted multiple times, which
       // could produce large files that may never TTL-expire. Achieve this by
@@ -145,7 +170,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
               static_cast<uint64_t>(mutable_cf_options.write_buffer_size),
               1.1));
       if (FindIntraL0Compaction(
-              level_files,
+              level0_files,
               mutable_cf_options
                   .level0_file_num_compaction_trigger /* min_files_to_compact */
               ,
@@ -160,6 +185,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             0 /* max_subcompactions */, {}, /* is manual */ false,
             /* trim_ts */ "", vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
+            /* l0_files_might_overlap */ true,
             CompactionReason::kFIFOReduceNumFiles);
         return c;
       }
@@ -185,31 +211,76 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 
   std::vector<CompactionInputFiles> inputs;
   inputs.emplace_back();
-  inputs[0].level = 0;
+  inputs[0].level = last_level;
 
-  for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
-    auto f = *ritr;
-    total_size -= f->compensated_file_size;
-    inputs[0].files.push_back(f);
-    char tmp_fsize[16];
-    AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
-    ROCKS_LOG_BUFFER(log_buffer,
-                     "[%s] FIFO compaction: picking file %" PRIu64
-                     " with size %s for deletion",
-                     cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
-    if (total_size <=
-        mutable_cf_options.compaction_options_fifo.max_table_files_size) {
-      break;
+  if (last_level == 0) {
+    // In L0, right-most files are the oldest files.
+    for (auto ritr = last_level_files.rbegin(); ritr != last_level_files.rend();
+         ++ritr) {
+      auto f = *ritr;
+      total_size -= f->fd.file_size;
+      inputs[0].files.push_back(f);
+      char tmp_fsize[16];
+      AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] FIFO compaction: picking file %" PRIu64
+                       " with size %s for deletion",
+                       cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
+      if (total_size <=
+          mutable_cf_options.compaction_options_fifo.max_table_files_size) {
+        break;
+      }
     }
+  } else if (total_size >
+             mutable_cf_options.compaction_options_fifo.max_table_files_size) {
+    // If the last level is non-L0, we actually don't know which file is
+    // logically the oldest since the file creation time only represents
+    // when this file was compacted to this level, which is independent
+    // to when the entries in this file were first inserted.
+    //
+    // As a result, we delete files from the left instead.  This means the sst
+    // file with the smallest key will be deleted first.  This design decision
+    // better serves a major type of FIFO use cases where smaller keys are
+    // associated with older data.
+    for (const auto& f : last_level_files) {
+      total_size -= f->fd.file_size;
+      inputs[0].files.push_back(f);
+      char tmp_fsize[16];
+      AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "[%s] FIFO compaction: picking file %" PRIu64
+          " with size %s for deletion under total size %" PRIu64
+          " vs max table files size %" PRIu64,
+          cf_name.c_str(), f->fd.GetNumber(), tmp_fsize, total_size,
+          mutable_cf_options.compaction_options_fifo.max_table_files_size);
+
+      if (total_size <=
+          mutable_cf_options.compaction_options_fifo.max_table_files_size) {
+        break;
+      }
+    }
+  } else {
+    ROCKS_LOG_BUFFER(
+        log_buffer,
+        "[%s] FIFO compaction: nothing to do. Total size %" PRIu64
+        ", max size %" PRIu64 "\n",
+        cf_name.c_str(), total_size,
+        mutable_cf_options.compaction_options_fifo.max_table_files_size);
+    return nullptr;
   }
 
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-      std::move(inputs), 0, 0, 0, 0, kNoCompression,
+      std::move(inputs), last_level,
+      /* target_file_size */ 0,
+      /* max_compaction_bytes */ 0,
+      /* output_path_id */ 0, kNoCompression,
       mutable_cf_options.compression_opts, Temperature::kUnknown,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
-      /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
+      /* is deletion compaction */ true,
+      /* l0_files_might_overlap */ true, CompactionReason::kFIFOMaxSize);
   return c;
 }
 
@@ -219,6 +290,13 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
     LogBuffer* log_buffer) {
   if (mutable_cf_options.compaction_options_fifo.age_for_warm == 0) {
     return nullptr;
+  }
+
+  // PickCompactionToWarm is only triggered if there is no non-L0 files.
+  for (int level = 1; level < vstorage->num_levels(); ++level) {
+    if (GetTotalFilesSize(vstorage->LevelFiles(level)) > 0) {
+      return nullptr;
+    }
   }
 
   const int kLevel0 = 0;
@@ -315,16 +393,15 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
       Temperature::kWarm,
       /* max_subcompactions */ 0, {}, /* is manual */ false, /* trim_ts */ "",
       vstorage->CompactionScore(0),
-      /* is deletion compaction */ false, CompactionReason::kChangeTemperature);
+      /* is deletion compaction */ false, /* l0_files_might_overlap */ true,
+      CompactionReason::kChangeTemperature);
   return c;
 }
 
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer, SequenceNumber /*earliest_memtable_seqno*/) {
-  assert(vstorage->num_levels() == 1);
-
+    LogBuffer* log_buffer) {
   Compaction* c = nullptr;
   if (mutable_cf_options.ttl > 0) {
     c = PickTTLCompaction(cf_name, mutable_cf_options, mutable_db_options,
@@ -365,4 +442,3 @@ Compaction* FIFOCompactionPicker::CompactRange(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

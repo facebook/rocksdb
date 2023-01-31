@@ -52,11 +52,11 @@ struct SyncPoint::Data {
   // successor/predecessor map loaded from LoadDependency
   std::unordered_map<std::string, std::vector<std::string>> successors_;
   std::unordered_map<std::string, std::vector<std::string>> predecessors_;
-  std::unordered_map<std::string, std::function<void(void*)> > callbacks_;
-  std::unordered_map<std::string, std::vector<std::string> > markers_;
+  std::unordered_map<std::string, std::function<void(void*)>> callbacks_;
+  std::unordered_map<std::string, std::vector<std::string>> markers_;
   std::unordered_map<std::string, std::thread::id> marked_thread_id_;
 
-  std::mutex              mutex_;
+  std::mutex mutex_;
   std::condition_variable cv_;
   // sync points that have been passed through
   std::unordered_set<std::string> cleared_points_;
@@ -68,29 +68,24 @@ struct SyncPoint::Data {
 
   void LoadDependency(const std::vector<SyncPointPair>& dependencies);
   void LoadDependencyAndMarkers(const std::vector<SyncPointPair>& dependencies,
-    const std::vector<SyncPointPair>& markers);
+                                const std::vector<SyncPointPair>& markers);
   bool PredecessorsAllCleared(const std::string& point);
   void SetCallBack(const std::string& point,
-    const std::function<void(void*)>& callback) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  callbacks_[point] = callback;
-  point_filter_.Add(point);
-}
+                   const std::function<void(void*)>& callback) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    callbacks_[point] = callback;
+    point_filter_.Add(point);
+  }
 
   void ClearCallBack(const std::string& point);
   void ClearAllCallBacks();
-  void EnableProcessing() {
-    enabled_ = true;
-  }
-  void DisableProcessing() {
-    enabled_ = false;
-  }
+  void EnableProcessing() { enabled_ = true; }
+  void DisableProcessing() { enabled_ = false; }
   void ClearTrace() {
     std::lock_guard<std::mutex> lock(mutex_);
     cleared_points_.clear();
   }
-  bool DisabledByMarker(const std::string& point,
-                        std::thread::id thread_id) {
+  bool DisabledByMarker(const std::string& point, std::thread::id thread_id) {
     auto marked_point_iter = marked_thread_id_.find(point);
     return marked_point_iter != marked_thread_id_.end() &&
            thread_id != marked_point_iter->second;
@@ -98,4 +93,4 @@ struct SyncPoint::Data {
   void Process(const Slice& point, void* cb_arg);
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif // NDEBUG
+#endif  // NDEBUG

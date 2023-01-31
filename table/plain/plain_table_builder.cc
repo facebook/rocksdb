@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 #include "table/plain/plain_table_builder.h"
 
 #include <assert.h>
@@ -82,8 +81,9 @@ PlainTableBuilder::PlainTableBuilder(
     index_builder_.reset(new PlainTableIndexBuilder(
         &arena_, ioptions, moptions.prefix_extractor.get(), index_sparseness,
         hash_table_ratio, huge_page_tlb_size_));
-    properties_.user_collected_properties
-        [PlainTablePropertyNames::kBloomVersion] = "1";  // For future use
+    properties_
+        .user_collected_properties[PlainTablePropertyNames::kBloomVersion] =
+        "1";  // For future use
   }
 
   properties_.fixed_key_len = user_key_len;
@@ -112,8 +112,8 @@ PlainTableBuilder::PlainTableBuilder(
 
   std::string val;
   PutFixed32(&val, static_cast<uint32_t>(encoder_.GetEncodingType()));
-  properties_.user_collected_properties
-      [PlainTablePropertyNames::kEncodingType] = val;
+  properties_
+      .user_collected_properties[PlainTablePropertyNames::kEncodingType] = val;
 
   assert(int_tbl_prop_collector_factories);
   for (auto& factory : *int_tbl_prop_collector_factories) {
@@ -277,7 +277,7 @@ Status PlainTableBuilder::Finish() {
   IOStatus s = WriteBlock(property_block_builder.Finish(), file_, &offset_,
                           &property_block_handle);
   if (!s.ok()) {
-    return std::move(s);
+    return static_cast<Status>(s);
   }
   meta_index_builer.Add(kPropertiesBlockName, property_block_handle);
 
@@ -303,17 +303,13 @@ Status PlainTableBuilder::Finish() {
   return status_;
 }
 
-void PlainTableBuilder::Abandon() {
-  closed_ = true;
-}
+void PlainTableBuilder::Abandon() { closed_ = true; }
 
 uint64_t PlainTableBuilder::NumEntries() const {
   return properties_.num_entries;
 }
 
-uint64_t PlainTableBuilder::FileSize() const {
-  return offset_;
-}
+uint64_t PlainTableBuilder::FileSize() const { return offset_; }
 
 std::string PlainTableBuilder::GetFileChecksum() const {
   if (file_ != nullptr) {
@@ -330,6 +326,10 @@ const char* PlainTableBuilder::GetFileChecksumFuncName() const {
     return kUnknownFileChecksumFuncName;
   }
 }
+void PlainTableBuilder::SetSeqnoTimeTableProperties(const std::string& string,
+                                                    uint64_t uint_64) {
+  // TODO: storing seqno to time mapping is not yet support for plain table.
+  TableBuilder::SetSeqnoTimeTableProperties(string, uint_64);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -12,7 +12,7 @@
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
-namespace { // anonymous namespace
+namespace {  // anonymous namespace
 
 using ROCKSDB_NAMESPACE::AssociativeMergeOperator;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
@@ -27,7 +27,7 @@ class UInt64AddOperator : public AssociativeMergeOperator {
              const Slice& value, std::string* new_value,
              Logger* logger) const override {
     uint64_t orig_value = 0;
-    if (existing_value){
+    if (existing_value) {
       orig_value = DecodeInteger(*existing_value, logger);
     }
     uint64_t operand = DecodeInteger(value, logger);

@@ -4,11 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
+#include <algorithm>
 #include <mutex>
 #include <vector>
-#include <algorithm>
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -85,4 +84,3 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

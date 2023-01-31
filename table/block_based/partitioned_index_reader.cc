@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
 
+#include "block_cache.h"
 #include "file/random_access_file_reader.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/partitioned_index_iterator.h"
@@ -156,9 +157,9 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
       handle.offset() + BlockBasedTable::BlockSizeWithTrailer(handle);
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
-                                false /*Implicit auto readahead*/,
-                                false /*async_io*/);
+  rep->CreateFilePrefetchBuffer(
+      0, 0, &prefetch_buffer, false /*Implicit auto readahead*/,
+      0 /*num_reads_*/, 0 /*num_file_reads_for_auto_readahead*/);
   IOOptions opts;
   {
     Status s = rep->file->PrepareIOOptions(ro, opts);
@@ -186,7 +187,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     // filter blocks
     Status s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        /*wait=*/true, /*for_compaction=*/false, &block, BlockType::kIndex,
+        /*wait=*/true, /*for_compaction=*/false, &block.As<Block_kIndex>(),
         /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr,
         /*async_read=*/false);
 

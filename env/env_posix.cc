@@ -55,10 +55,10 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/port.h"
+#include "port/sys_time.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -302,6 +302,10 @@ class PosixEnv : public CompositeEnv {
 
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
 
+  int ReserveThreads(int threads_to_be_reserved, Priority pri) override;
+
+  int ReleaseThreads(int threads_to_be_released, Priority pri) override;
+
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
     assert(thread_status_updater_);
     return thread_status_updater_->GetThreadList(thread_list);
@@ -435,6 +439,16 @@ int PosixEnv::UnSchedule(void* arg, Priority pri) {
 unsigned int PosixEnv::GetThreadPoolQueueLen(Priority pri) const {
   assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
   return thread_pools_[pri].GetQueueLen();
+}
+
+int PosixEnv::ReserveThreads(int threads_to_reserved, Priority pri) {
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
+  return thread_pools_[pri].ReserveThreads(threads_to_reserved);
+}
+
+int PosixEnv::ReleaseThreads(int threads_to_released, Priority pri) {
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
+  return thread_pools_[pri].ReleaseThreads(threads_to_released);
 }
 
 struct StartThreadState {

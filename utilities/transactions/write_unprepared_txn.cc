@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_unprepared_txn.h"
 
@@ -464,7 +463,7 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
   // only used if the write batch encounters an invalid cf id, and falls back to
   // this comparator.
   WriteBatchWithIndex wb(wpt_db_->DefaultColumnFamily()->GetComparator(), 0,
-                         true, 0);
+                         true, 0, write_options_.protection_bytes_per_key);
   // Swap with write_batch_ so that wb contains the complete write batch. The
   // actual write batch that will be flushed to DB will be built in
   // write_batch_, and will be read by FlushWriteBatchToDBInternal.
@@ -722,7 +721,8 @@ Status WriteUnpreparedTxn::WriteRollbackKeys(
 Status WriteUnpreparedTxn::RollbackInternal() {
   // TODO(lth): Reduce duplicate code with WritePrepared rollback logic.
   WriteBatchWithIndex rollback_batch(
-      wpt_db_->DefaultColumnFamily()->GetComparator(), 0, true, 0);
+      wpt_db_->DefaultColumnFamily()->GetComparator(), 0, true, 0,
+      write_options_.protection_bytes_per_key);
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
   Status s;
@@ -1049,4 +1049,3 @@ WriteUnpreparedTxn::GetUnpreparedSequenceNumbers() {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

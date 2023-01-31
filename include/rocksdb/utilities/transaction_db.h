@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <utility>
@@ -25,8 +24,8 @@ class TransactionDBMutexFactory;
 
 enum TxnDBWritePolicy {
   WRITE_COMMITTED = 0,  // write only the committed data
-  WRITE_PREPARED,  // write data after the prepare phase of 2pc
-  WRITE_UNPREPARED  // write data before the prepare phase of 2pc
+  WRITE_PREPARED,       // write data after the prepare phase of 2pc
+  WRITE_UNPREPARED      // write data before the prepare phase of 2pc
 };
 
 constexpr uint32_t kInitialMaxDeadlocks = 5;
@@ -505,4 +504,3 @@ class TransactionDB : public StackableDB {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

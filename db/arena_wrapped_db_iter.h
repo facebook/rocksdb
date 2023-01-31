@@ -9,7 +9,9 @@
 
 #pragma once
 #include <stdint.h>
+
 #include <string>
+
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/range_del_aggregator.h"
@@ -44,15 +46,17 @@ class ArenaWrappedDBIter : public Iterator {
   // Get the arena to be used to allocate memory for DBIter to be wrapped,
   // as well as child iterators in it.
   virtual Arena* GetArena() { return &arena_; }
-  virtual ReadRangeDelAggregator* GetRangeDelAggregator() {
-    return db_iter_->GetRangeDelAggregator();
-  }
+
   const ReadOptions& GetReadOptions() { return read_options_; }
 
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
   // a merging iterator.
   virtual void SetIterUnderDBIter(InternalIterator* iter) {
     db_iter_->SetIter(iter);
+  }
+
+  void SetMemtableRangetombstoneIter(TruncatedRangeDelIterator** iter) {
+    memtable_range_tombstone_iter_ = iter;
   }
 
   bool Valid() const override { return db_iter_->Valid(); }
@@ -68,6 +72,7 @@ class ArenaWrappedDBIter : public Iterator {
   void Prev() override { db_iter_->Prev(); }
   Slice key() const override { return db_iter_->key(); }
   Slice value() const override { return db_iter_->value(); }
+  const WideColumns& columns() const override { return db_iter_->columns(); }
   Status status() const override { return db_iter_->status(); }
   Slice timestamp() const override { return db_iter_->timestamp(); }
   bool IsBlob() const { return db_iter_->IsBlob(); }
@@ -104,6 +109,9 @@ class ArenaWrappedDBIter : public Iterator {
   ReadCallback* read_callback_;
   bool expose_blob_index_ = false;
   bool allow_refresh_ = true;
+  // If this is nullptr, it means the mutable memtable does not contain range
+  // tombstone when added under this DBIter.
+  TruncatedRangeDelIterator** memtable_range_tombstone_iter_ = nullptr;
 };
 
 // Generate the arena wrapped iterator class.

@@ -17,7 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
                                  const std::string& dbname,
                                  std::string secondary_path)
@@ -100,7 +99,11 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   assert(logs != nullptr);
   std::vector<std::string> filenames;
   Status s;
-  s = env_->GetChildren(immutable_db_options_.GetWalDir(), &filenames);
+  IOOptions io_opts;
+  io_opts.do_not_recurse = true;
+  s = immutable_db_options_.fs->GetChildren(immutable_db_options_.GetWalDir(),
+                                            io_opts, &filenames,
+                                            /*IODebugContext*=*/nullptr);
   if (s.IsNotFound()) {
     return Status::InvalidArgument("Failed to open wal_dir",
                                    immutable_db_options_.GetWalDir());
@@ -153,8 +156,7 @@ Status DBImplSecondary::MaybeInitLogReader(
     {
       std::unique_ptr<FSSequentialFile> file;
       Status status = fs_->NewSequentialFile(
-          fname, fs_->OptimizeForLogRead(file_options_), &file,
-          nullptr);
+          fname, fs_->OptimizeForLogRead(file_options_), &file, nullptr);
       if (!status.ok()) {
         *log_reader = nullptr;
         return status;
@@ -196,7 +198,7 @@ Status DBImplSecondary::RecoverLogFiles(
     assert(reader != nullptr);
   }
   for (auto log_number : log_numbers) {
-    auto it  = log_readers_.find(log_number);
+    auto it = log_readers_.find(log_number);
     assert(it != log_readers_.end());
     log::FragmentBufferedReader* reader = it->second->reader_;
     Status* wal_read_status = it->second->status_;
@@ -261,6 +263,7 @@ Status DBImplSecondary::RecoverLogFiles(
             MemTable* new_mem =
                 cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
+            cfd->mem()->ConstructFragmentedRangeTombstones();
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
             new_mem->Ref();
             cfd->SetMemtable(new_mem);
@@ -389,16 +392,18 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   const Comparator* ucmp = column_family->GetComparator();
   assert(ucmp);
   std::string* ts = ucmp->timestamp_size() > 0 ? timestamp : nullptr;
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), ts, &s,
-                              &merge_context, &max_covering_tombstone_seq,
-                              read_options, &read_cb)) {
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
+                              /*columns=*/nullptr, ts, &s, &merge_context,
+                              &max_covering_tombstone_seq, read_options,
+                              false /* immutable_memtable */, &read_cb)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else if ((s.ok() || s.IsMergeInProgress()) &&
              super_version->imm->Get(
-                 lkey, pinnable_val->GetSelf(), ts, &s, &merge_context,
-                 &max_covering_tombstone_seq, read_options, &read_cb)) {
+                 lkey, pinnable_val->GetSelf(), /*columns=*/nullptr, ts, &s,
+                 &merge_context, &max_covering_tombstone_seq, read_options,
+                 &read_cb)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
@@ -411,8 +416,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
     PERF_TIMER_GUARD(get_from_output_files_time);
     PinnedIteratorsManager pinned_iters_mgr;
     super_version->current->Get(
-        read_options, lkey, pinnable_val, ts, &s, &merge_context,
-        &max_covering_tombstone_seq, &pinned_iters_mgr, /*value_found*/ nullptr,
+        read_options, lkey, pinnable_val, /*columns=*/nullptr, ts, &s,
+        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
+        /*value_found*/ nullptr,
         /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb, /*is_blob*/ nullptr,
         /*do_merge*/ true);
     RecordTick(stats_, MEMTABLE_MISS);
@@ -489,8 +495,7 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
       expose_blob_index, read_options.snapshot ? false : allow_refresh);
   auto internal_iter = NewInternalIterator(
       db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
-      db_iter->GetRangeDelAggregator(), snapshot,
-      /* allow_unprepared_value */ true);
+      snapshot, /* allow_unprepared_value */ true, db_iter);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -682,12 +687,6 @@ Status DB::OpenAsSecondary(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   *dbptr = nullptr;
-  if (db_options.max_open_files != -1) {
-    // TODO (yanqin) maybe support max_open_files != -1 by creating hard links
-    // on SST files so that db secondary can still have access to old SSTs
-    // while primary instance may delete original.
-    return Status::InvalidArgument("require max_open_files to be -1");
-  }
 
   DBOptions tmp_opts(db_options);
   Status s;
@@ -697,6 +696,27 @@ Status DB::OpenAsSecondary(
       tmp_opts.info_log = nullptr;
       return s;
     }
+  }
+
+  assert(tmp_opts.info_log != nullptr);
+  if (db_options.max_open_files != -1) {
+    std::ostringstream oss;
+    oss << "The primary instance may delete all types of files after they "
+           "become obsolete. The application can coordinate the primary and "
+           "secondary so that primary does not delete/rename files that are "
+           "currently being used by the secondary. Alternatively, a custom "
+           "Env/FS can be provided such that files become inaccessible only "
+           "after all primary and secondaries indicate that they are obsolete "
+           "and deleted. If the above two are not possible, you can open the "
+           "secondary instance with `max_open_files==-1` so that secondary "
+           "will eagerly keep all table files open. Even if a file is deleted, "
+           "its content can still be accessed via a prior open file "
+           "descriptor. This is a hacky workaround for only table files. If "
+           "none of the above is done, then point lookup or "
+           "range scan via the secondary instance can result in IOError: file "
+           "not found. This can be resolved by retrying "
+           "TryCatchUpWithPrimary().";
+    ROCKS_LOG_WARN(tmp_opts.info_log, "%s", oss.str().c_str());
   }
 
   handles->clear();
@@ -925,22 +945,5 @@ Status DB::OpenAndCompact(
                         output, override_options);
 }
 
-#else   // !ROCKSDB_LITE
-
-Status DB::OpenAsSecondary(const Options& /*options*/,
-                           const std::string& /*name*/,
-                           const std::string& /*secondary_path*/,
-                           DB** /*dbptr*/) {
-  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
-}
-
-Status DB::OpenAsSecondary(
-    const DBOptions& /*db_options*/, const std::string& /*dbname*/,
-    const std::string& /*secondary_path*/,
-    const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
-    std::vector<ColumnFamilyHandle*>* /*handles*/, DB** /*dbptr*/) {
-  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
-}
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

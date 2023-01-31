@@ -285,7 +285,6 @@ class ChangeFilterFactory : public CompactionFilterFactory {
   const char* Name() const override { return "ChangeFilterFactory"; }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Options options = CurrentOptions();
   options.max_open_files = -1;
@@ -328,11 +327,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Arena arena;
   {
     InternalKeyComparator icmp(options.comparator);
-    ReadRangeDelAggregator range_del_agg(&icmp,
-                                         kMaxSequenceNumber /* upper_bound */);
     ReadOptions read_options;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        read_options, &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
+        read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -422,11 +419,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   count = 0;
   {
     InternalKeyComparator icmp(options.comparator);
-    ReadRangeDelAggregator range_del_agg(&icmp,
-                                         kMaxSequenceNumber /* upper_bound */);
     ReadOptions read_options;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        read_options, &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
+        read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -473,7 +468,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
 
   delete itr;
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, CompactionFilterFlush) {
   // Tests a `CompactionFilterFactory` that filters when table file is created
@@ -659,7 +653,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   ASSERT_EQ(newvalue, four);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
   KeepFilterFactory* filter = new KeepFilterFactory(true, true);
 
@@ -701,11 +694,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     int total = 0;
     Arena arena;
     InternalKeyComparator icmp(options.comparator);
-    ReadRangeDelAggregator range_del_agg(&icmp,
-                                         kMaxSequenceNumber /* snapshots */);
     ReadOptions read_options;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        read_options, &arena, &range_del_agg, kMaxSequenceNumber));
+    ScopedArenaIterator iter(dbfull()->NewInternalIterator(read_options, &arena,
+                                                           kMaxSequenceNumber));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -721,7 +712,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_EQ(count, 0);
   }
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   KeepFilterFactory* filter = new KeepFilterFactory(false, true);
@@ -752,7 +742,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   ASSERT_TRUE(filter->compaction_filter_created());
 }
 
-#ifndef ROCKSDB_LITE
 // Compaction filters aplies to all records, regardless snapshots.
 TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   std::string five = std::to_string(5);
@@ -813,7 +802,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   // removed.
   db_->ReleaseSnapshot(snapshot);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, SkipUntil) {
   Options options = CurrentOptions();

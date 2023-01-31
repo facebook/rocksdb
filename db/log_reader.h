@@ -18,6 +18,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/compression.h"
+#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Logger;
@@ -61,12 +62,17 @@ class Reader {
 
   // Read the next record into *record.  Returns true if read
   // successfully, false if we hit end of the input.  May use
-  // "*scratch" as temporary storage.  The contents filled in *record
+  // "*scratch" as temporary storage. The contents filled in *record
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
+  // If record_checksum is not nullptr, then this function will calculate the
+  // checksum of the record read and set record_checksum to it. The checksum is
+  // calculated from the original buffers that contain the contents of the
+  // record.
   virtual bool ReadRecord(Slice* record, std::string* scratch,
                           WALRecoveryMode wal_recovery_mode =
-                              WALRecoveryMode::kTolerateCorruptedTailRecords);
+                              WALRecoveryMode::kTolerateCorruptedTailRecords,
+                          uint64_t* record_checksum = nullptr);
 
   // Returns the physical offset of the last record returned by ReadRecord.
   //
@@ -79,9 +85,7 @@ class Reader {
   uint64_t LastRecordEnd();
 
   // returns true if the reader has encountered an eof condition.
-  bool IsEOF() {
-    return eof_;
-  }
+  bool IsEOF() { return eof_; }
 
   // returns true if the reader has encountered read error.
   bool hasReadError() const { return read_error_; }
@@ -116,8 +120,8 @@ class Reader {
 
   // Internal state variables used for reading records
   Slice buffer_;
-  bool eof_;   // Last Read() indicated EOF by returning < kBlockSize
-  bool read_error_;   // Error occurred while reading from file
+  bool eof_;         // Last Read() indicated EOF by returning < kBlockSize
+  bool read_error_;  // Error occurred while reading from file
 
   // Offset of the file position indicator within the last block when an
   // EOF was detected.
@@ -145,6 +149,10 @@ class Reader {
   std::unique_ptr<char[]> uncompressed_buffer_;
   // Reusable uncompressed record
   std::string uncompressed_record_;
+  // Used for stream hashing fragment content in ReadRecord()
+  XXH3_state_t* hash_state_;
+  // Used for stream hashing uncompressed buffer in ReadPhysicalRecord()
+  XXH3_state_t* uncompress_hash_state_;
 
   // Extend record types with the following special values
   enum {
@@ -165,10 +173,14 @@ class Reader {
   };
 
   // Return type, or one of the preceding special values
-  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);
+  // If WAL compressioned is enabled, fragment_checksum is the checksum of the
+  // fragment computed from the orginal buffer containinng uncompressed
+  // fragment.
+  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size,
+                                  uint64_t* fragment_checksum = nullptr);
 
   // Read some more
-  bool ReadMore(size_t* drop_size, int *error);
+  bool ReadMore(size_t* drop_size, int* error);
 
   void UnmarkEOFInternal();
 
@@ -191,7 +203,8 @@ class FragmentBufferedReader : public Reader {
   ~FragmentBufferedReader() override {}
   bool ReadRecord(Slice* record, std::string* scratch,
                   WALRecoveryMode wal_recovery_mode =
-                      WALRecoveryMode::kTolerateCorruptedTailRecords) override;
+                      WALRecoveryMode::kTolerateCorruptedTailRecords,
+                  uint64_t* record_checksum = nullptr) override;
   void UnmarkEOF() override;
 
  private:

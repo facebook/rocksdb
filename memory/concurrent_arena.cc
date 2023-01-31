@@ -8,7 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memory/concurrent_arena.h"
+
 #include <thread>
+
 #include "port/port.h"
 #include "util/random.h"
 

@@ -55,7 +55,6 @@ class DBPropertiesTest : public DBTestBase {
   }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, Empty) {
   do {
     Options options;
@@ -270,7 +269,8 @@ void GetExpectedTableProperties(
   const int kDeletionCount = kTableCount * kDeletionsPerTable;
   const int kMergeCount = kTableCount * kMergeOperandsPerTable;
   const int kRangeDeletionCount = kTableCount * kRangeDeletionsPerTable;
-  const int kKeyCount = kPutCount + kDeletionCount + kMergeCount + kRangeDeletionCount;
+  const int kKeyCount =
+      kPutCount + kDeletionCount + kMergeCount + kRangeDeletionCount;
   const int kAvgSuccessorSize = kKeySize / 5;
   const int kEncodingSavePerKey = kKeySize / 4;
   expected_tp->raw_key_size = kKeyCount * (kKeySize + 8);
@@ -281,7 +281,8 @@ void GetExpectedTableProperties(
   expected_tp->num_merge_operands = kMergeCount;
   expected_tp->num_range_deletions = kRangeDeletionCount;
   expected_tp->num_data_blocks =
-      kTableCount * (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
+      kTableCount *
+      (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
       kBlockSize;
   expected_tp->data_size =
       kTableCount * (kKeysPerTable * (kKeySize + 8 + kValueSize));
@@ -1110,7 +1111,6 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   ASSERT_GT(CompressionRatioAtLevel(1), 10.0);
 }
 
-#endif  // ROCKSDB_LITE
 
 class CountingUserTblPropCollector : public TablePropertiesCollector {
  public:
@@ -1120,7 +1120,8 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
     std::string encoded;
     PutVarint32(&encoded, count_);
     *properties = UserCollectedProperties{
-        {"CountingUserTblPropCollector", message_}, {"Count", encoded},
+        {"CountingUserTblPropCollector", message_},
+        {"Count", encoded},
     };
     return Status::OK();
   }
@@ -1225,7 +1226,7 @@ class BlockCountingTablePropertiesCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  void BlockAdd(uint64_t /* block_raw_bytes */,
+  void BlockAdd(uint64_t /* block_uncomp_bytes */,
                 uint64_t block_compressed_bytes_fast,
                 uint64_t block_compressed_bytes_slow) override {
     if (block_compressed_bytes_fast > 0 || block_compressed_bytes_slow > 0) {
@@ -1260,7 +1261,6 @@ class BlockCountingTablePropertiesCollectorFactory
   }
 };
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = (1 << 30);
@@ -1300,7 +1300,6 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
   ASSERT_GT(collector_factory->num_created_, 0U);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   Options options = CurrentOptions();
@@ -1362,7 +1361,6 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   ASSERT_GT(collector_factory->num_created_, 0U);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
   Random rnd(301);
 
@@ -1818,6 +1816,85 @@ TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
   ASSERT_TRUE(listener->Validated());
 }
 
+TEST_F(DBPropertiesTest, BlobCacheProperties) {
+  Options options;
+  uint64_t value;
+
+  options.env = CurrentOptions().env;
+
+  // Test with empty blob cache.
+  constexpr size_t kCapacity = 100;
+  LRUCacheOptions co;
+  co.capacity = kCapacity;
+  co.num_shard_bits = 0;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto blob_cache = NewLRUCache(co);
+  options.blob_cache = blob_cache;
+
+  Reopen(options);
+
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  ASSERT_EQ(0, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
+
+  // Insert unpinned blob to the cache and check size.
+  constexpr size_t kSize1 = 70;
+  ASSERT_OK(blob_cache->Insert("blob1", nullptr /*value*/,
+                               &kNoopCacheItemHelper, kSize1));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  ASSERT_EQ(kSize1, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
+
+  // Insert pinned blob to the cache and check size.
+  constexpr size_t kSize2 = 60;
+  Cache::Handle* blob2 = nullptr;
+  ASSERT_OK(blob_cache->Insert("blob2", nullptr /*value*/,
+                               &kNoopCacheItemHelper, kSize2, &blob2));
+  ASSERT_NE(nullptr, blob2);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  // blob1 is evicted.
+  ASSERT_EQ(kSize2, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(kSize2, value);
+
+  // Insert another pinned blob to make the cache over-sized.
+  constexpr size_t kSize3 = 80;
+  Cache::Handle* blob3 = nullptr;
+  ASSERT_OK(blob_cache->Insert("blob3", nullptr /*value*/,
+                               &kNoopCacheItemHelper, kSize3, &blob3));
+  ASSERT_NE(nullptr, blob3);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  ASSERT_EQ(kSize2 + kSize3, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(kSize2 + kSize3, value);
+
+  // Check size after release.
+  blob_cache->Release(blob2);
+  blob_cache->Release(blob3);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
+  ASSERT_EQ(kCapacity, value);
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));
+  // blob2 will be evicted, while blob3 remain in cache after release.
+  ASSERT_EQ(kSize3, value);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kBlobCachePinnedUsage, &value));
+  ASSERT_EQ(0, value);
+}
+
 TEST_F(DBPropertiesTest, BlockCacheProperties) {
   Options options;
   uint64_t value;
@@ -1874,8 +1951,8 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
 
   // Insert unpinned item to the cache and check size.
   constexpr size_t kSize1 = 50;
-  ASSERT_OK(block_cache->Insert("item1", nullptr /*value*/, kSize1,
-                                nullptr /*deleter*/));
+  ASSERT_OK(block_cache->Insert("item1", nullptr /*value*/,
+                                &kNoopCacheItemHelper, kSize1));
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
@@ -1887,8 +1964,8 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   // Insert pinned item to the cache and check size.
   constexpr size_t kSize2 = 30;
   Cache::Handle* item2 = nullptr;
-  ASSERT_OK(block_cache->Insert("item2", nullptr /*value*/, kSize2,
-                                nullptr /*deleter*/, &item2));
+  ASSERT_OK(block_cache->Insert("item2", nullptr /*value*/,
+                                &kNoopCacheItemHelper, kSize2, &item2));
   ASSERT_NE(nullptr, item2);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
@@ -1901,8 +1978,8 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   // Insert another pinned item to make the cache over-sized.
   constexpr size_t kSize3 = 80;
   Cache::Handle* item3 = nullptr;
-  ASSERT_OK(block_cache->Insert("item3", nullptr /*value*/, kSize3,
-                                nullptr /*deleter*/, &item3));
+  ASSERT_OK(block_cache->Insert("item3", nullptr /*value*/,
+                                &kNoopCacheItemHelper, kSize3, &item3));
   ASSERT_NE(nullptr, item2);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
@@ -2043,7 +2120,7 @@ std::string PopMetaIndexKey(InternalIterator* meta_iter) {
   }
 }
 
-}  // namespace
+}  // anonymous namespace
 
 TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
   // This is to detect unexpected churn in metaindex block keys. This is more
@@ -2113,7 +2190,6 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
   } while (ChangeOptions());
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

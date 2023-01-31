@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "env/fs_remap.h"
 
@@ -268,6 +267,10 @@ IOStatus RemapFileSystem::RenameFile(const std::string& src,
                                      IODebugContext* dbg) {
   auto status_and_src_enc_path = EncodePath(src);
   if (!status_and_src_enc_path.first.ok()) {
+    if (status_and_src_enc_path.first.IsNotFound()) {
+      const IOStatus& s = status_and_src_enc_path.first;
+      status_and_src_enc_path.first = IOStatus::PathNotFound(s.ToString());
+    }
     return status_and_src_enc_path.first;
   }
   auto status_and_dest_enc_path = EncodePathWithNewBasename(dest);
@@ -336,4 +339,3 @@ IOStatus RemapFileSystem::GetAbsolutePath(const std::string& db_path,
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

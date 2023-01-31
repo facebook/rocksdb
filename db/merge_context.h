@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {

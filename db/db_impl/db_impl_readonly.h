@@ -5,14 +5,15 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
+
 #include "db/db_impl/db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO: Share common structure with CompactedDBImpl and DBImplSecondary
 class DBImplReadOnly : public DBImpl {
  public:
   DBImplReadOnly(const DBOptions& options, const std::string& dbname);
@@ -48,6 +49,15 @@ class DBImplReadOnly : public DBImpl {
                      const Slice& /*key*/, const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
+  using DBImpl::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
   using DBImpl::Merge;
   virtual Status Merge(const WriteOptions& /*options*/,
                        ColumnFamilyHandle* /*column_family*/,
@@ -132,6 +142,14 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  // FIXME: some missing overrides for more "write" functions
+
+ protected:
+  Status FlushForGetLiveFiles() override {
+    // No-op for read-only DB
+    return Status::OK();
+  }
+
  private:
   // A "helper" function for DB::OpenForReadOnly without column families
   // to reduce unnecessary I/O
@@ -146,4 +164,3 @@ class DBImplReadOnly : public DBImpl {
 };
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

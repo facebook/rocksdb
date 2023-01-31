@@ -11,11 +11,11 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
-#include <memory>
 
 #include "db/version_set.h"
 #include "file/file_util.h"
@@ -28,7 +28,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 
 // WAL manager provides the abstraction for reading the WAL files as a single
 // unit. Internally, it opens and reads the files using Reader or Writer
@@ -134,5 +133,4 @@ class WalManager {
   std::shared_ptr<IOTracer> io_tracer_;
 };
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

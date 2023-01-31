@@ -3,9 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
-
 #include <functional>
+#include <memory>
 
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -23,18 +22,19 @@
 namespace ROCKSDB_NAMESPACE {
 
 // A test environment that can be configured to fail the Link operation.
-class ExternalSSTTestEnv : public EnvWrapper {
+class ExternalSSTTestFS : public FileSystemWrapper {
  public:
-  ExternalSSTTestEnv(Env* t, bool fail_link)
-      : EnvWrapper(t), fail_link_(fail_link) {}
-  static const char* kClassName() { return "ExternalSSTTestEnv"; }
+  ExternalSSTTestFS(const std::shared_ptr<FileSystem>& t, bool fail_link)
+      : FileSystemWrapper(t), fail_link_(fail_link) {}
+  static const char* kClassName() { return "ExternalSSTTestFS"; }
   const char* Name() const override { return kClassName(); }
 
-  Status LinkFile(const std::string& s, const std::string& t) override {
+  IOStatus LinkFile(const std::string& s, const std::string& t,
+                    const IOOptions& options, IODebugContext* dbg) override {
     if (fail_link_) {
-      return Status::NotSupported("Link failed");
+      return IOStatus::NotSupported("Link failed");
     }
-    return target()->LinkFile(s, t);
+    return target()->LinkFile(s, t, options, dbg);
   }
 
   void set_fail_link(bool fail_link) { fail_link_ = fail_link; }
@@ -68,24 +68,24 @@ class ExternSSTFileLinkFailFallbackTest
     : public ExternalSSTFileTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternSSTFileLinkFailFallbackTest()
-      : test_env_(new ExternalSSTTestEnv(env_, true)) {
+  ExternSSTFileLinkFailFallbackTest() {
+    fs_ = std::make_shared<ExternalSSTTestFS>(env_->GetFileSystem(), true);
+    test_env_.reset(new CompositeEnvWrapper(env_, fs_));
     options_ = CurrentOptions();
     options_.disable_auto_compactions = true;
-    options_.env = test_env_;
+    options_.env = test_env_.get();
   }
 
   void TearDown() override {
     delete db_;
     db_ = nullptr;
     ASSERT_OK(DestroyDB(dbname_, options_));
-    delete test_env_;
-    test_env_ = nullptr;
   }
 
  protected:
   Options options_;
-  ExternalSSTTestEnv* test_env_;
+  std::shared_ptr<ExternalSSTTestFS> fs_;
+  std::unique_ptr<Env> test_env_;
 };
 
 class ExternalSSTFileTest
@@ -301,7 +301,8 @@ TEST_F(ExternalSSTFileTest, Basic) {
 
     SstFileWriter sst_file_writer(EnvOptions(), options);
 
-    // Current file size should be 0 after sst_file_writer init and before open a file.
+    // Current file size should be 0 after sst_file_writer init and before open
+    // a file.
     ASSERT_EQ(sst_file_writer.FileSize(), 0);
 
     // file1.sst (0 => 99)
@@ -972,7 +973,7 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
 
   do {
     Options options = CurrentOptions();
-
+    options.disable_auto_compactions = true;
     std::atomic<int> thread_num(0);
     std::function<void()> write_file_func = [&]() {
       int file_idx = thread_num.fetch_add(1);
@@ -1248,8 +1249,9 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
 
   // This file overlaps with file 0 (L3), file 1 (L2) and the
   // output of compaction going to L1
-  ASSERT_OK(GenerateAndAddExternalFile(options, {4, 7}, -1, false, false, true,
-                                       false, false, &true_data));
+  ASSERT_OK(GenerateAndAddExternalFile(options, {4, 7}, -1,
+                                       true /* allow_global_seqno */, false,
+                                       true, false, false, &true_data));
   EXPECT_EQ(FilesPerLevel(), "5,0,1,1");
 
   // This file does not overlap with any file or with the running compaction
@@ -1265,106 +1267,6 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
 
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-}
-
-TEST_F(ExternalSSTFileTest, PickedLevelBug) {
-  env_->skip_fsync_ = true;
-  Options options = CurrentOptions();
-  options.disable_auto_compactions = false;
-  options.level0_file_num_compaction_trigger = 3;
-  options.num_levels = 2;
-  DestroyAndReopen(options);
-
-  std::vector<int> file_keys;
-
-  // file #1 in L0
-  file_keys = {0, 5, 7};
-  for (int k : file_keys) {
-    ASSERT_OK(Put(Key(k), Key(k)));
-  }
-  ASSERT_OK(Flush());
-
-  // file #2 in L0
-  file_keys = {4, 6, 8, 9};
-  for (int k : file_keys) {
-    ASSERT_OK(Put(Key(k), Key(k)));
-  }
-  ASSERT_OK(Flush());
-
-  // We have 2 overlapping files in L0
-  EXPECT_EQ(FilesPerLevel(), "2");
-
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::IngestExternalFile:AfterIncIngestFileCounter",
-        "ExternalSSTFileTest::PickedLevelBug:0"},
-       {"ExternalSSTFileTest::PickedLevelBug:1", "DBImpl::AddFile:MutexUnlock"},
-       {"ExternalSSTFileTest::PickedLevelBug:2",
-        "DBImpl::RunManualCompaction:0"},
-       {"ExternalSSTFileTest::PickedLevelBug:3",
-        "DBImpl::RunManualCompaction:1"}});
-
-  std::atomic<bool> bg_compact_started(false);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:Start",
-      [&](void* /*arg*/) { bg_compact_started.store(true); });
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
-  Status bg_compact_status;
-  Status bg_addfile_status;
-
-  {
-    // While writing the MANIFEST start a thread that will ask for compaction
-    ThreadGuard bg_compact(port::Thread([&]() {
-      bg_compact_status =
-          db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-    }));
-    TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:2");
-
-    // Start a thread that will ingest a new file
-    ThreadGuard bg_addfile(port::Thread([&]() {
-      file_keys = {1, 2, 3};
-      bg_addfile_status = GenerateAndAddExternalFile(options, file_keys, 1);
-    }));
-
-    // Wait for AddFile to start picking levels and writing MANIFEST
-    TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:0");
-
-    TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:3");
-
-    // We need to verify that no compactions can run while AddFile is
-    // ingesting the files into the levels it find suitable. So we will
-    // wait for 2 seconds to give a chance for compactions to run during
-    // this period, and then make sure that no compactions where able to run
-    env_->SleepForMicroseconds(1000000 * 2);
-    bool bg_compact_started_tmp = bg_compact_started.load();
-
-    // Hold AddFile from finishing writing the MANIFEST
-    TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:1");
-
-    // check the status at the end, so even if the ASSERT fails the threads
-    // could be joined and return.
-    ASSERT_FALSE(bg_compact_started_tmp);
-  }
-
-  ASSERT_OK(bg_addfile_status);
-  ASSERT_OK(bg_compact_status);
-
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-  int total_keys = 0;
-  Iterator* iter = db_->NewIterator(ReadOptions());
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ASSERT_OK(iter->status());
-    total_keys++;
-  }
-  ASSERT_EQ(total_keys, 10);
-
-  delete iter;
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -1419,7 +1321,8 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
   int range_id = 0;
   std::vector<int> file_keys;
   std::function<void()> bg_addfile = [&]() {
-    ASSERT_OK(GenerateAndAddExternalFile(options, file_keys, range_id));
+    ASSERT_OK(GenerateAndAddExternalFile(options, file_keys, range_id,
+                                         true /* allow_global_seqno */));
   };
 
   const int num_of_ranges = 1000;
@@ -1502,8 +1405,9 @@ TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
 
   // This file overlaps with the output of the compaction (going to L3)
   // so the file will be added to L0 since L3 is the base level
-  ASSERT_OK(GenerateAndAddExternalFile(options, {31, 32, 33, 34}, -1, false,
-                                       false, true, false, false, &true_data));
+  ASSERT_OK(GenerateAndAddExternalFile(options, {31, 32, 33, 34}, -1,
+                                       true /* allow_global_seqno */, false,
+                                       true, false, false, &true_data));
   EXPECT_EQ(FilesPerLevel(), "5");
 
   // This file does not overlap with the current running compactiong
@@ -1641,14 +1545,15 @@ TEST_F(ExternalSSTFileTest, AddFileTrivialMoveBug) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():Start", [&](void* /*arg*/) {
-        // fit in L3 but will overlap with compaction so will be added
-        // to L2 but a compaction will trivially move it to L3
-        // and break LSM consistency
+        // Fit in L3 but will overlap with the compaction output so will be
+        // added to L2. Prior to the fix, a compaction will then trivially move
+        // this file to L3 and break LSM consistency
         static std::atomic<bool> called = {false};
         if (!called) {
           called = true;
           ASSERT_OK(dbfull()->SetOptions({{"max_bytes_for_level_base", "1"}}));
-          ASSERT_OK(GenerateAndAddExternalFile(options, {15, 16}, 7));
+          ASSERT_OK(GenerateAndAddExternalFile(options, {15, 16}, 7,
+                                               true /* allow_global_seqno */));
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -2091,7 +1996,7 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
   const bool fail_link = std::get<0>(GetParam());
   const bool failed_move_fall_back_to_copy = std::get<1>(GetParam());
-  test_env_->set_fail_link(fail_link);
+  fs_->set_fail_link(fail_link);
   const EnvOptions env_options;
   DestroyAndReopen(options_);
   const int kNumKeys = 10000;
@@ -2317,7 +2222,6 @@ TEST_F(ExternalSSTFileTest, SkipBloomFilter) {
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-
 
   // Create external SST file and include bloom filters
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -2954,14 +2858,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as External SST File Writer and Ingestion are not supported "
-          "in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

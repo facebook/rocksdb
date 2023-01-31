@@ -180,11 +180,21 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 
   const Compaction* real_compaction() const override { return nullptr; }
 
+  bool SupportsPerKeyPlacement() const override {
+    return supports_per_key_placement;
+  }
+
+  bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
+    return (!key.starts_with("unsafe_pb"));
+  }
+
   bool key_not_exists_beyond_output_level = false;
 
   bool is_bottommost_level = false;
 
   bool is_allow_ingest_behind = false;
+
+  bool supports_per_key_placement = false;
 };
 
 // A simplified snapshot checker which assumes each snapshot has a global
@@ -193,7 +203,8 @@ class TestSnapshotChecker : public SnapshotChecker {
  public:
   explicit TestSnapshotChecker(
       SequenceNumber last_committed_sequence,
-      const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots = {{}})
+      const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots =
+          {{}})
       : last_committed_sequence_(last_committed_sequence),
         snapshots_(snapshots) {}
 
@@ -254,6 +265,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
       compaction_proxy_->is_allow_ingest_behind = AllowIngestBehind();
       compaction_proxy_->key_not_exists_beyond_output_level =
           key_not_exists_beyond_output_level;
+      compaction_proxy_->supports_per_key_placement = SupportsPerKeyPlacement();
       compaction.reset(compaction_proxy_);
     }
     bool use_snapshot_checker = UseSnapshotChecker() || GetParam();
@@ -294,6 +306,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
   virtual bool UseSnapshotChecker() const { return false; }
 
   virtual bool AllowIngestBehind() const { return false; }
+
+  virtual bool SupportsPerKeyPlacement() const { return false; }
 
   void RunTest(
       const std::vector<std::string>& input_keys,
@@ -756,6 +770,123 @@ TEST_P(CompactionIteratorTest, ConvertToPutAtBottom) {
 INSTANTIATE_TEST_CASE_P(CompactionIteratorTestInstance, CompactionIteratorTest,
                         testing::Values(true, false));
 
+class PerKeyPlacementCompIteratorTest : public CompactionIteratorTest {
+ public:
+  bool SupportsPerKeyPlacement() const override { return true; }
+};
+
+TEST_P(PerKeyPlacementCompIteratorTest, SplitLastLevelData) {
+  std::atomic_uint64_t latest_cold_seq = 0;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
+        auto context = static_cast<PerKeyPlacementContext*>(arg);
+        context->output_to_penultimate_level =
+            context->seq_num > latest_cold_seq;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  latest_cold_seq = 5;
+
+  InitIterators(
+      {test::KeyStr("a", 7, kTypeValue), test::KeyStr("b", 6, kTypeValue),
+       test::KeyStr("c", 5, kTypeValue)},
+      {"vala", "valb", "valc"}, {}, {}, kMaxSequenceNumber, kMaxSequenceNumber,
+      nullptr, nullptr, true);
+  c_iter_->SeekToFirst();
+  ASSERT_TRUE(c_iter_->Valid());
+
+  // the first 2 keys are hot, which should has
+  // `output_to_penultimate_level()==true` and seq num not zeroed out
+  ASSERT_EQ(test::KeyStr("a", 7, kTypeValue), c_iter_->key().ToString());
+  ASSERT_TRUE(c_iter_->output_to_penultimate_level());
+  c_iter_->Next();
+  ASSERT_TRUE(c_iter_->Valid());
+  ASSERT_EQ(test::KeyStr("b", 6, kTypeValue), c_iter_->key().ToString());
+  ASSERT_TRUE(c_iter_->output_to_penultimate_level());
+  c_iter_->Next();
+  ASSERT_TRUE(c_iter_->Valid());
+  // `a` is cold data, which should be output to bottommost
+  ASSERT_EQ(test::KeyStr("c", 0, kTypeValue), c_iter_->key().ToString());
+  ASSERT_FALSE(c_iter_->output_to_penultimate_level());
+  c_iter_->Next();
+  ASSERT_OK(c_iter_->status());
+  ASSERT_FALSE(c_iter_->Valid());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(PerKeyPlacementCompIteratorTest, SnapshotData) {
+  AddSnapshot(5);
+
+  InitIterators(
+      {test::KeyStr("a", 7, kTypeValue), test::KeyStr("b", 6, kTypeDeletion),
+       test::KeyStr("b", 5, kTypeValue)},
+      {"vala", "", "valb"}, {}, {}, kMaxSequenceNumber, kMaxSequenceNumber,
+      nullptr, nullptr, true);
+  c_iter_->SeekToFirst();
+  ASSERT_TRUE(c_iter_->Valid());
+
+  // The first key and the tombstone are within snapshot, which should output
+  // to the penultimate level (and seq num cannot be zeroed out).
+  ASSERT_EQ(test::KeyStr("a", 7, kTypeValue), c_iter_->key().ToString());
+  ASSERT_TRUE(c_iter_->output_to_penultimate_level());
+  c_iter_->Next();
+  ASSERT_TRUE(c_iter_->Valid());
+  ASSERT_EQ(test::KeyStr("b", 6, kTypeDeletion), c_iter_->key().ToString());
+  ASSERT_TRUE(c_iter_->output_to_penultimate_level());
+  c_iter_->Next();
+  ASSERT_TRUE(c_iter_->Valid());
+  // `a` is not protected by the snapshot, the sequence number is zero out and
+  // should output bottommost
+  ASSERT_EQ(test::KeyStr("b", 0, kTypeValue), c_iter_->key().ToString());
+  ASSERT_FALSE(c_iter_->output_to_penultimate_level());
+  c_iter_->Next();
+  ASSERT_OK(c_iter_->status());
+  ASSERT_FALSE(c_iter_->Valid());
+}
+
+TEST_P(PerKeyPlacementCompIteratorTest, ConflictWithSnapshot) {
+  std::atomic_uint64_t latest_cold_seq = 0;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
+        auto context = static_cast<PerKeyPlacementContext*>(arg);
+        context->output_to_penultimate_level =
+            context->seq_num > latest_cold_seq;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  latest_cold_seq = 6;
+
+  AddSnapshot(5);
+
+  InitIterators({test::KeyStr("a", 7, kTypeValue),
+                 test::KeyStr("unsafe_pb", 6, kTypeValue),
+                 test::KeyStr("c", 5, kTypeValue)},
+                {"vala", "valb", "valc"}, {}, {}, kMaxSequenceNumber,
+                kMaxSequenceNumber, nullptr, nullptr, true);
+  c_iter_->SeekToFirst();
+  ASSERT_TRUE(c_iter_->Valid());
+
+  ASSERT_EQ(test::KeyStr("a", 7, kTypeValue), c_iter_->key().ToString());
+  ASSERT_TRUE(c_iter_->output_to_penultimate_level());
+  // the 2nd key is unsafe to output_to_penultimate_level, but it's within
+  // snapshot so for per_key_placement feature it has to be outputted to the
+  // penultimate level. which is a corruption. We should never see
+  // such case as the data with seq num (within snapshot) should always come
+  // from higher compaction input level, which makes it safe to
+  // output_to_penultimate_level.
+  c_iter_->Next();
+  ASSERT_TRUE(c_iter_->status().IsCorruption());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+INSTANTIATE_TEST_CASE_P(PerKeyPlacementCompIteratorTest,
+                        PerKeyPlacementCompIteratorTest,
+                        testing::Values(true, false));
+
 // Tests how CompactionIterator work together with SnapshotChecker.
 class CompactionIteratorWithSnapshotCheckerTest
     : public CompactionIteratorTest {
@@ -912,7 +1043,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
        NotRemoveDeletionIfValuePresentToEarlierSnapshot) {
-  AddSnapshot(2,1);
+  AddSnapshot(2, 1);
   RunTest({test::KeyStr("a", 4, kTypeDeletion),
            test::KeyStr("a", 1, kTypeValue), test::KeyStr("b", 3, kTypeValue)},
           {"", "", ""},
@@ -979,6 +1110,21 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
           {"", ""}, 2 /*last_committed_seq*/, nullptr /*merge_operator*/,
           nullptr /*compaction_filter*/, false /*bottommost_level*/,
           2 /*earliest_write_conflict_snapshot*/);
+}
+
+// Same as above but with a wide-column entity. In addition to the value getting
+// trimmed, the type of the KV is changed to kTypeValue.
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       KeepSingleDeletionForWriteConflictChecking_WideColumnEntity) {
+  AddSnapshot(2, 0);
+  RunTest({test::KeyStr("a", 2, kTypeSingleDeletion),
+           test::KeyStr("a", 1, kTypeWideColumnEntity)},
+          {"", "fake_entity"},
+          {test::KeyStr("a", 2, kTypeSingleDeletion),
+           test::KeyStr("a", 1, kTypeValue)},
+          {"", ""}, 2 /* last_committed_seq */, nullptr /* merge_operator */,
+          nullptr /* compaction_filter */, false /* bottommost_level */,
+          2 /* earliest_write_conflict_snapshot */);
 }
 
 // Compaction filter should keep uncommitted key as-is, and
@@ -1109,6 +1255,31 @@ TEST_P(CompactionIteratorTsGcTest, NoKeyEligibleForGC) {
   }
 }
 
+TEST_P(CompactionIteratorTsGcTest, NoMergeEligibleForGc) {
+  constexpr char user_key[] = "a";
+  const std::vector<std::string> input_keys = {
+      test::KeyStr(10002, user_key, 102, kTypeMerge),
+      test::KeyStr(10001, user_key, 101, kTypeMerge),
+      test::KeyStr(10000, user_key, 100, kTypeValue)};
+  const std::vector<std::string> input_values = {"2", "1", "a0"};
+  std::shared_ptr<MergeOperator> merge_op =
+      MergeOperators::CreateStringAppendTESTOperator();
+  const std::vector<std::string>& expected_keys = input_keys;
+  const std::vector<std::string>& expected_values = input_values;
+  const std::vector<std::pair<bool, bool>> params = {
+      {false, false}, {false, true}, {true, true}};
+  for (const auto& param : params) {
+    const bool bottommost_level = param.first;
+    const bool key_not_exists_beyond_output_level = param.second;
+    RunTest(input_keys, input_values, expected_keys, expected_values,
+            /*last_committed_seq=*/kMaxSequenceNumber, merge_op.get(),
+            /*compaction_filter=*/nullptr, bottommost_level,
+            /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+            key_not_exists_beyond_output_level,
+            /*full_history_ts_low=*/nullptr);
+  }
+}
+
 TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
   constexpr char user_key[][2] = {{'a', '\0'}, {'b', '\0'}};
   const std::vector<std::string> input_keys = {
@@ -1159,6 +1330,91 @@ TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
             /*bottommost_level=*/false,
             /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
             /*key_not_exists_beyond_output_level=*/true, &full_history_ts_low);
+  }
+}
+
+TEST_P(CompactionIteratorTsGcTest, SomeMergesOlderThanThreshold) {
+  constexpr char user_key[][2] = {"a", "f"};
+  const std::vector<std::string> input_keys = {
+      test::KeyStr(/*ts=*/25000, user_key[0], /*seq=*/2500, kTypeMerge),
+      test::KeyStr(/*ts=*/19000, user_key[0], /*seq=*/2300, kTypeMerge),
+      test::KeyStr(/*ts=*/18000, user_key[0], /*seq=*/1800, kTypeMerge),
+      test::KeyStr(/*ts=*/16000, user_key[0], /*seq=*/1600, kTypeValue),
+      test::KeyStr(/*ts=*/19000, user_key[1], /*seq=*/2000, kTypeMerge),
+      test::KeyStr(/*ts=*/17000, user_key[1], /*seq=*/1700, kTypeMerge),
+      test::KeyStr(/*ts=*/15000, user_key[1], /*seq=*/1600,
+                   kTypeDeletionWithTimestamp)};
+  const std::vector<std::string> input_values = {"25", "19", "18", "16",
+                                                 "19", "17", ""};
+  std::shared_ptr<MergeOperator> merge_op =
+      MergeOperators::CreateStringAppendTESTOperator();
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 20000);
+
+  const std::vector<std::pair<bool, bool>> params = {
+      {false, false}, {false, true}, {true, true}};
+
+  {
+    AddSnapshot(1600);
+    AddSnapshot(1900);
+    const std::vector<std::string> expected_keys = {
+        test::KeyStr(/*ts=*/25000, user_key[0], /*seq=*/2500, kTypeMerge),
+        test::KeyStr(/*ts=*/19000, user_key[0], /*seq=*/2300, kTypeMerge),
+        test::KeyStr(/*ts=*/18000, user_key[0], /*seq=*/1800, kTypeMerge),
+        test::KeyStr(/*ts=*/16000, user_key[0], /*seq=*/1600, kTypeValue),
+        test::KeyStr(/*ts=*/19000, user_key[1], /*seq=*/2000, kTypeMerge),
+        test::KeyStr(/*ts=*/17000, user_key[1], /*seq=*/1700, kTypeMerge),
+        test::KeyStr(/*ts=*/15000, user_key[1], /*seq=*/1600,
+                     kTypeDeletionWithTimestamp)};
+    const std::vector<std::string> expected_values = {"25", "19", "18", "16",
+                                                      "19", "17", ""};
+    for (const auto& param : params) {
+      const bool bottommost_level = param.first;
+      const bool key_not_exists_beyond_output_level = param.second;
+      auto expected_keys_copy = expected_keys;
+      auto expected_values_copy = expected_values;
+      if (bottommost_level || key_not_exists_beyond_output_level) {
+        // the kTypeDeletionWithTimestamp will be dropped
+        expected_keys_copy.pop_back();
+        expected_values_copy.pop_back();
+        if (bottommost_level) {
+          // seq zero
+          expected_keys_copy[3] =
+              test::KeyStr(/*ts=*/0, user_key[0], /*seq=*/0, kTypeValue);
+        }
+      }
+      RunTest(input_keys, input_values, expected_keys_copy,
+              expected_values_copy,
+              /*last_committed_seq=*/kMaxSequenceNumber, merge_op.get(),
+              /*compaction_filter=*/nullptr, bottommost_level,
+              /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+              key_not_exists_beyond_output_level, &full_history_ts_low);
+    }
+    ClearSnapshots();
+  }
+
+  // No snapshots
+  {
+    const std::vector<std::string> expected_keys = {
+        test::KeyStr(/*ts=*/25000, user_key[0], /*seq=*/2500, kTypeValue),
+        test::KeyStr(/*ts=*/19000, user_key[1], /*seq=*/2000, kTypeValue)};
+    const std::vector<std::string> expected_values = {"16,18,19,25", "17,19"};
+    for (const auto& param : params) {
+      const bool bottommost_level = param.first;
+      const bool key_not_exists_beyond_output_level = param.second;
+      auto expected_keys_copy = expected_keys;
+      auto expected_values_copy = expected_values;
+      if (bottommost_level) {
+        expected_keys_copy[1] =
+            test::KeyStr(/*ts=*/0, user_key[1], /*seq=*/0, kTypeValue);
+      }
+      RunTest(input_keys, input_values, expected_keys_copy,
+              expected_values_copy,
+              /*last_committed_seq=*/kMaxSequenceNumber, merge_op.get(),
+              /*compaction_filter=*/nullptr, bottommost_level,
+              /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+              key_not_exists_beyond_output_level, &full_history_ts_low);
+    }
   }
 }
 
@@ -1356,6 +1612,7 @@ INSTANTIATE_TEST_CASE_P(CompactionIteratorTsGcTestInstance,
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

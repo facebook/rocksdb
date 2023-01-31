@@ -9,9 +9,9 @@
 
 #include "db/malloc_stats.h"
 
-#ifndef ROCKSDB_LITE
-#include <memory>
 #include <string.h>
+
+#include <memory>
 
 #include "port/jemalloc_helper.h"
 
@@ -51,4 +51,3 @@ void DumpMallocStats(std::string* stats) {
 void DumpMallocStats(std::string*) {}
 #endif  // ROCKSDB_JEMALLOC
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

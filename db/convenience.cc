@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/convenience.h"
 
@@ -26,8 +25,7 @@ Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
 }
 
 Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
-                           const RangePtr* ranges, size_t n,
-                           bool include_end) {
+                           const RangePtr* ranges, size_t n, bool include_end) {
   return (static_cast_with_check<DBImpl>(db->GetRootDB()))
       ->DeleteFilesInRanges(column_family, ranges, n, include_end);
 }
@@ -47,9 +45,8 @@ Status VerifySstFileChecksum(const Options& options,
   InternalKeyComparator internal_comparator(options.comparator);
   ImmutableOptions ioptions(options);
 
-  Status s = ioptions.fs->NewRandomAccessFile(file_path,
-                                              FileOptions(env_options),
-                                              &file, nullptr);
+  Status s = ioptions.fs->NewRandomAccessFile(
+      file_path, FileOptions(env_options), &file, nullptr);
   if (s.ok()) {
     s = ioptions.fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   } else {
@@ -80,4 +77,3 @@ Status VerifySstFileChecksum(const Options& options,
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/transaction_base.h"
 
@@ -67,8 +66,11 @@ TransactionBaseImpl::TransactionBaseImpl(
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       lock_tracker_factory_(lock_tracker_factory),
       start_time_(dbimpl_->GetSystemClock()->NowMicros()),
-      write_batch_(cmp_, 0, true, 0),
+      write_batch_(cmp_, 0, true, 0, write_options.protection_bytes_per_key),
       tracked_locks_(lock_tracker_factory_.Create()),
+      commit_time_batch_(0 /* reserved_bytes */, 0 /* max_bytes */,
+                         write_options.protection_bytes_per_key,
+                         0 /* default_cf_ts_sz */),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
@@ -108,6 +110,12 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   start_time_ = dbimpl_->GetSystemClock()->NowMicros();
   indexing_enabled_ = true;
   cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
+  WriteBatchInternal::UpdateProtectionInfo(
+      write_batch_.GetWriteBatch(), write_options_.protection_bytes_per_key)
+      .PermitUncheckedError();
+  WriteBatchInternal::UpdateProtectionInfo(
+      &commit_time_batch_, write_options_.protection_bytes_per_key)
+      .PermitUncheckedError();
 }
 
 void TransactionBaseImpl::SetSnapshot() {
@@ -200,8 +208,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
 }
 
 Status TransactionBaseImpl::PopSavePoint() {
-  if (save_points_ == nullptr ||
-      save_points_->empty()) {
+  if (save_points_ == nullptr || save_points_->empty()) {
     // No SavePoint yet.
     assert(write_batch_.PopSavePoint().IsNotFound());
     return Status::NotFound();
@@ -720,4 +727,3 @@ WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

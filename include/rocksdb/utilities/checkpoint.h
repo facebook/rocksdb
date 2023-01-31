@@ -6,10 +6,10 @@
 // A checkpoint is an openable snapshot of a database at a point in time.
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
+
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -61,4 +61,3 @@ class Checkpoint {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

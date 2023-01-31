@@ -4,12 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <string>
+
+#include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "util/murmurhash.h"
-#include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -78,4 +78,3 @@ class CuckooTableFactory : public TableFactory {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -23,6 +23,7 @@
 #include "memory/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block_type.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
@@ -47,10 +48,12 @@
 
 #if defined(ZSTD)
 #include <zstd.h>
-#if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
+// v1.1.3+
+#if ZSTD_VERSION_NUMBER >= 10103
 #include <zdict.h>
 #endif  // ZSTD_VERSION_NUMBER >= 10103
-#if ZSTD_VERSION_NUMBER >= 10400  // v1.4.0+
+// v1.4.0+
+#if ZSTD_VERSION_NUMBER >= 10400
 #define ZSTD_STREAMING
 #endif  // ZSTD_VERSION_NUMBER >= 10400
 namespace ROCKSDB_NAMESPACE {
@@ -143,6 +146,7 @@ class ZSTDUncompressCachedData {
   int64_t GetCacheIndex() const { return -1; }
   void CreateIfNeeded() {}
   void InitFromCache(const ZSTDUncompressCachedData&, int64_t) {}
+
  private:
   void ignore_padding__() { padding = nullptr; }
 };
@@ -317,6 +321,11 @@ struct UncompressionDict {
   bool own_bytes() const { return !dict_.empty() || allocation_; }
 
   const Slice& GetRawDict() const { return slice_; }
+
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return slice_; }
+  static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kOtherBlock;
+  static constexpr BlockType kBlockType = BlockType::kCompressionDictionary;
 
 #ifdef ROCKSDB_ZSTD_DDICT
   const ZSTD_DDict* GetDigestedZstdDDict() const { return zstd_ddict_; }
@@ -1256,7 +1265,7 @@ inline bool LZ4HC_Compress(const CompressionInfo& info,
   size_t compression_dict_size = compression_dict.size();
   if (compression_dict_data != nullptr) {
     LZ4_loadDictHC(stream, compression_dict_data,
-                  static_cast<int>(compression_dict_size));
+                   static_cast<int>(compression_dict_size));
   }
 
 #if LZ4_VERSION_NUMBER >= 10700  // r129+
@@ -1733,6 +1742,8 @@ class ZSTDStreamingCompress final : public StreamingCompress {
                           max_output_len) {
 #ifdef ZSTD_STREAMING
     cctx_ = ZSTD_createCCtx();
+    // Each compressed frame will have a checksum
+    ZSTD_CCtx_setParameter(cctx_, ZSTD_c_checksumFlag, 1);
     assert(cctx_ != nullptr);
     input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif

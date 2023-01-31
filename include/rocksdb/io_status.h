@@ -14,11 +14,13 @@
 #pragma once
 
 #include <string>
+
 #include "rocksdb/slice.h"
 #ifdef OS_WIN
 #include <string.h>
 #endif
 #include <cstring>
+
 #include "status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -123,6 +125,13 @@ class IOStatus : public Status {
   static IOStatus IOFenced() { return IOStatus(kIOError, kIOFenced); }
   static IOStatus IOFenced(const Slice& msg, const Slice& msg2 = Slice()) {
     return IOStatus(kIOError, kIOFenced, msg, msg2);
+  }
+
+  static IOStatus Aborted(SubCode msg = kNone) {
+    return IOStatus(kAborted, msg);
+  }
+  static IOStatus Aborted(const Slice& msg, const Slice& msg2 = Slice()) {
+    return IOStatus(kAborted, msg, msg2);
   }
 
   // Return a string representation of this status suitable for printing.
