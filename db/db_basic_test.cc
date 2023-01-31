@@ -20,9 +20,7 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "utilities/counted_fs.h"
@@ -95,7 +93,6 @@ TEST_F(DBBasicTest, UniqueSession) {
   EXPECT_MATCHES_REGEX(sid2, expected);
   EXPECT_MATCHES_REGEX(sid3, expected);
 
-#ifndef ROCKSDB_LITE
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_OK(db_->GetDbSessionId(sid1));
@@ -110,7 +107,6 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_NE(sid1, sid2);
 
   ASSERT_EQ(sid2, sid3);
-#endif  // ROCKSDB_LITE
 
   CreateAndReopenWithCF({"goku"}, options);
   ASSERT_OK(db_->GetDbSessionId(sid1));
@@ -127,7 +123,6 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_NE(sid1, sid4);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
@@ -364,7 +359,6 @@ TEST_F(DBBasicTest, LevelLimitReopen) {
   options.max_bytes_for_level_multiplier_additional.resize(10, 1);
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBBasicTest, PutDeleteGet) {
   do {
@@ -426,7 +420,6 @@ TEST_F(DBBasicTest, GetFromVersions) {
   } while (ChangeOptions());
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, GetSnapshot) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
@@ -447,7 +440,6 @@ TEST_F(DBBasicTest, GetSnapshot) {
     }
   } while (ChangeOptions());
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBBasicTest, CheckLock) {
   do {
@@ -679,7 +671,27 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts) {
   } while (ChangeCompactOptions());
 }
 
-#ifndef ROCKSDB_LITE
+TEST_F(DBBasicTest, LockFileRecovery) {
+  Options options = CurrentOptions();
+  // Regardless of best_efforts_recovery
+  for (bool ber : {false, true}) {
+    options.best_efforts_recovery = ber;
+    DestroyAndReopen(options);
+    std::string id1, id2;
+    ASSERT_OK(db_->GetDbIdentity(id1));
+    Close();
+
+    // Should be OK to re-open DB after lock file deleted
+    std::string lockfilename = LockFileName(dbname_);
+    ASSERT_OK(env_->DeleteFile(lockfilename));
+    Reopen(options);
+
+    // Should be same DB as before
+    ASSERT_OK(db_->GetDbIdentity(id2));
+    ASSERT_EQ(id1, id2);
+  }
+}
+
 TEST_F(DBBasicTest, Snapshot) {
   env_->SetMockSleep();
   anon::OptionsOverride options_override;
@@ -751,7 +763,6 @@ TEST_F(DBBasicTest, Snapshot) {
   } while (ChangeOptions());
 }
 
-#endif  // ROCKSDB_LITE
 
 class DBBasicMultiConfigs : public DBBasicTest,
                             public ::testing::WithParamInterface<int> {
@@ -2708,7 +2719,6 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
 INSTANTIATE_TEST_CASE_P(MultiGetPrefix, MultiGetPrefixExtractorTest,
                         ::testing::Bool());
 
-#ifndef ROCKSDB_LITE
 class DBMultiGetRowCacheTest : public DBBasicTest,
                                public ::testing::WithParamInterface<bool> {};
 
@@ -2863,7 +2873,6 @@ TEST_F(DBBasicTest, ValueTypeString) {
     ASSERT_TRUE(key_version.GetTypeName() != "Invalid");
   }
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   Options options = CurrentOptions();
@@ -2964,7 +2973,6 @@ TEST_F(DBBasicTest, BestEffortsRecoveryWithVersionBuildingFailure) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 class TableFileListener : public EventListener {
  public:
@@ -3239,7 +3247,6 @@ TEST_F(DBBasicTest, DisableTrackWal) {
   ASSERT_TRUE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   Options options = CurrentOptions();
@@ -3283,7 +3290,6 @@ TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
  public:
@@ -3339,21 +3345,16 @@ TEST_P(DBBasicTestTrackWal, DoNotTrackObsoleteWal) {
 
 INSTANTIATE_TEST_CASE_P(DBBasicTestTrackWal, DBBasicTestTrackWal,
                         testing::Bool());
-#endif  // ROCKSDB_LITE
 
 class DBBasicTestMultiGet : public DBTestBase {
  public:
-  DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,
+  DBBasicTestMultiGet(std::string test_dir, int num_cfs,
                       bool uncompressed_cache, bool _compression_enabled,
                       bool _fill_cache, uint32_t compression_parallel_threads)
       : DBTestBase(test_dir, /*env_do_fsync=*/false) {
     compression_enabled_ = _compression_enabled;
     fill_cache_ = _fill_cache;
 
-    if (compressed_cache) {
-      std::shared_ptr<Cache> cache = NewLRUCache(1048576);
-      compressed_cache_ = std::make_shared<MyBlockCache>(cache);
-    }
     if (uncompressed_cache) {
       std::shared_ptr<Cache> cache = NewLRUCache(1048576);
       uncompressed_cache_ = std::make_shared<MyBlockCache>(cache);
@@ -3365,7 +3366,6 @@ class DBBasicTestMultiGet : public DBTestBase {
     Random rnd(301);
     BlockBasedTableOptions table_options;
 
-#ifndef ROCKSDB_LITE
     if (compression_enabled_) {
       std::vector<CompressionType> compression_types;
       compression_types = GetSupportedCompressions();
@@ -3384,12 +3384,6 @@ class DBBasicTestMultiGet : public DBTestBase {
         compression_enabled_ = false;
       }
     }
-#else
-    // GetSupportedCompressions() is not available in LITE build
-    if (!Snappy_Supported()) {
-      compression_enabled_ = false;
-    }
-#endif  // ROCKSDB_LITE
 
     table_options.block_cache = uncompressed_cache_;
     if (table_options.block_cache == nullptr) {
@@ -3397,7 +3391,6 @@ class DBBasicTestMultiGet : public DBTestBase {
     } else {
       table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     }
-    table_options.block_cache_compressed = compressed_cache_;
     table_options.flush_block_policy_factory.reset(
         new MyFlushBlockPolicyFactory());
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -3580,16 +3573,14 @@ class DBBasicTestMultiGet : public DBTestBase {
   std::vector<std::string> cf_names_;
 };
 
-class DBBasicTestWithParallelIO
-    : public DBBasicTestMultiGet,
-      public testing::WithParamInterface<
-          std::tuple<bool, bool, bool, bool, uint32_t>> {
+class DBBasicTestWithParallelIO : public DBBasicTestMultiGet,
+                                  public testing::WithParamInterface<
+                                      std::tuple<bool, bool, bool, uint32_t>> {
  public:
   DBBasicTestWithParallelIO()
       : DBBasicTestMultiGet("/db_basic_test_with_parallel_io", 1,
                             std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam()), std::get<3>(GetParam()),
-                            std::get<4>(GetParam())) {}
+                            std::get<2>(GetParam()), std::get<3>(GetParam())) {}
 };
 
 TEST_P(DBBasicTestWithParallelIO, MultiGet) {
@@ -3715,7 +3706,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   class FakeDirectIOEnv : public EnvWrapper {
     class FakeDirectIOSequentialFile;
@@ -3832,7 +3822,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   }
   Close();
 }
-#endif  // ROCKSDB_LITE
 
 TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
   std::vector<std::string> key_data(10);
@@ -3920,13 +3909,12 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
 
 INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
                         // Params are as follows -
-                        // Param 0 - Compressed cache enabled
-                        // Param 1 - Uncompressed cache enabled
-                        // Param 2 - Data compression enabled
-                        // Param 3 - ReadOptions::fill_cache
-                        // Param 4 - CompressionOptions::parallel_threads
+                        // Param 0 - Uncompressed cache enabled
+                        // Param 1 - Data compression enabled
+                        // Param 2 - ReadOptions::fill_cache
+                        // Param 3 - CompressionOptions::parallel_threads
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Bool(),
                                            ::testing::Values(1, 4)));
 
 // Forward declaration
@@ -4137,9 +4125,8 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet,
   DBBasicTestMultiGetDeadline()
       : DBBasicTestMultiGet(
             "db_basic_test_multiget_deadline" /*Test dir*/,
-            10 /*# of column families*/, false /*compressed cache enabled*/,
-            true /*uncompressed cache enabled*/, true /*compression enabled*/,
-            true /*ReadOptions.fill_cache*/,
+            10 /*# of column families*/, true /*uncompressed cache enabled*/,
+            true /*compression enabled*/, true /*ReadOptions.fill_cache*/,
             1 /*# of parallel compression threads*/) {}
 
   inline void CheckStatus(std::vector<Status>& statuses, size_t num_ok) {
@@ -4375,7 +4362,6 @@ TEST_F(DBBasicTest, FailOpenIfLoggerCreationFail) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, VerifyFileChecksums) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
@@ -4441,7 +4427,6 @@ TEST_F(DBBasicTest, DISABLED_ManualWalSync) {
 
   ASSERT_TRUE(TryReopen(options).IsCorruption());
 }
-#endif  // !ROCKSDB_LITE
 
 // A test class for intercepting random reads and injecting artificial
 // delays. Used for testing the deadline/timeout feature

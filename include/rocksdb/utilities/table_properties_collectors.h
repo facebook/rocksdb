@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 #include <atomic>
 #include <memory>
 
@@ -87,4 +86,3 @@ NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
                                      double deletion_ratio = 0);
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

@@ -107,11 +107,9 @@ Status BuildTable(
   std::vector<std::string> blob_file_paths;
   std::string file_checksum = kUnknownFileChecksum;
   std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
-#ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(ioptions.listeners, dbname,
                                                tboptions.column_family_name,
                                                fname, job_id, tboptions.reason);
-#endif  // !ROCKSDB_LITE
   Env* env = db_options.env;
   assert(env);
   FileSystem* fs = db_options.fs.get();

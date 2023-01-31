@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction/compaction_picker_universal.h"
-#ifndef ROCKSDB_LITE
 
 #include <cinttypes>
 #include <limits>
@@ -1451,4 +1450,3 @@ uint64_t UniversalCompactionBuilder::GetMaxOverlappingBytes() const {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

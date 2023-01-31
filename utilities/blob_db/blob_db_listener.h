@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <atomic>
 
@@ -68,4 +67,3 @@ class BlobDBListenerGC : public BlobDBListener {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

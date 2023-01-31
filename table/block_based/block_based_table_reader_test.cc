@@ -537,23 +537,12 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
 // Param 2: whether to use direct reads
 // Param 3: Block Based Table Index type
 // Param 4: BBTO no_block_cache option
-#ifdef ROCKSDB_LITE
-// Skip direct I/O tests in lite mode since direct I/O is unsupported.
-INSTANTIATE_TEST_CASE_P(
-    MultiGet, BlockBasedTableReaderTest,
-    ::testing::Combine(
-        ::testing::ValuesIn(GetSupportedCompressions()),
-        ::testing::Values(false),
-        ::testing::Values(BlockBasedTableOptions::IndexType::kBinarySearch),
-        ::testing::Values(false)));
-#else   // ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(
     MultiGet, BlockBasedTableReaderTest,
     ::testing::Combine(
         ::testing::ValuesIn(GetSupportedCompressions()), ::testing::Bool(),
         ::testing::Values(BlockBasedTableOptions::IndexType::kBinarySearch),
         ::testing::Values(false)));
-#endif  // ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
     ::testing::Combine(

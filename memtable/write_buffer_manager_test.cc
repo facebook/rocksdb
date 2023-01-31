@@ -14,7 +14,6 @@
 namespace ROCKSDB_NAMESPACE {
 class WriteBufferManagerTest : public testing::Test {};
 
-#ifndef ROCKSDB_LITE
 const size_t kSizeDummyEntry = 256 * 1024;
 
 TEST_F(WriteBufferManagerTest, ShouldFlush) {
@@ -295,7 +294,6 @@ TEST_F(ChargeWriteBufferTest, BasicWithCacheFull) {
             46 * kSizeDummyEntry + kMetaDataChargeOverhead);
 }
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

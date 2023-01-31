@@ -9,7 +9,6 @@
 
 #include <stdio.h>
 
-#ifndef ROCKSDB_LITE
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -237,9 +236,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-#else
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as RocksDBLite does not include utilities.\n");
-  return 0;
-}
-#endif  // !ROCKSDB_LITE

@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/c.h"
 
@@ -69,6 +68,7 @@ using ROCKSDB_NAMESPACE::CompactionOptionsFIFO;
 using ROCKSDB_NAMESPACE::CompactRangeOptions;
 using ROCKSDB_NAMESPACE::Comparator;
 using ROCKSDB_NAMESPACE::CompressionType;
+using ROCKSDB_NAMESPACE::ConfigOptions;
 using ROCKSDB_NAMESPACE::CuckooTableOptions;
 using ROCKSDB_NAMESPACE::DB;
 using ROCKSDB_NAMESPACE::DBOptions;
@@ -2498,8 +2498,12 @@ void rocksdb_load_latest_options(
     rocksdb_options_t*** list_column_family_options, char** errptr) {
   DBOptions db_opt;
   std::vector<ColumnFamilyDescriptor> cf_descs;
-  Status s = LoadLatestOptions(std::string(db_path), env->rep, &db_opt,
-                               &cf_descs, ignore_unknown_options, &cache->rep);
+  ConfigOptions config_opts;
+  config_opts.ignore_unknown_options = ignore_unknown_options;
+  config_opts.input_strings_escaped = true;
+  config_opts.env = env->rep;
+  Status s = LoadLatestOptions(config_opts, std::string(db_path), &db_opt,
+                               &cf_descs, &cache->rep);
   if (s.ok()) {
     char** cf_names = (char**)malloc(cf_descs.size() * sizeof(char*));
     rocksdb_options_t** cf_options = (rocksdb_options_t**)malloc(
@@ -2617,14 +2621,6 @@ void rocksdb_block_based_options_set_block_cache(
     rocksdb_cache_t* block_cache) {
   if (block_cache) {
     options->rep.block_cache = block_cache->rep;
-  }
-}
-
-void rocksdb_block_based_options_set_block_cache_compressed(
-    rocksdb_block_based_table_options_t* options,
-    rocksdb_cache_t* block_cache_compressed) {
-  if (block_cache_compressed) {
-    options->rep.block_cache_compressed = block_cache_compressed->rep;
   }
 }
 
@@ -6402,4 +6398,3 @@ void rocksdb_enable_manual_compaction(rocksdb_t* db) {
 
 }  // end extern "C"
 
-#endif  // !ROCKSDB_LITE

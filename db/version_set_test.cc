@@ -3500,7 +3500,6 @@ class ChargeFileMetadataTestWithParam
   ChargeFileMetadataTestWithParam() {}
 };
 
-#ifndef ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(
     ChargeFileMetadataTestWithParam, ChargeFileMetadataTestWithParam,
     ::testing::Values(CacheEntryRoleOptions::Decision::kEnabled,
@@ -3611,7 +3610,6 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
     EXPECT_TRUE(s.ok());
   }
 }
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

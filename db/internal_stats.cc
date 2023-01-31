@@ -32,7 +32,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 
 const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
     {
@@ -1991,12 +1990,5 @@ void InternalStats::DumpCFFileHistogram(std::string* value) {
   value->append(oss.str());
 }
 
-#else
-
-const DBPropertyInfo* GetPropertyInfo(const Slice& /*property*/) {
-  return nullptr;
-}
-
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -157,7 +157,6 @@ TEST_F(DBStatisticsTest, ExcludeTickers) {
   ASSERT_GT(options.statistics->getTickerCount(BYTES_READ), 0);
 }
 
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
   Options options = CurrentOptions();
@@ -204,7 +203,6 @@ TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
   }
 }
 
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

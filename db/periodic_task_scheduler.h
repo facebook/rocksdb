@@ -6,7 +6,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include "util/timer.h"
 
@@ -107,4 +106,3 @@ class PeriodicTaskScheduler {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

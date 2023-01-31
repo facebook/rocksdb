@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 
 #include "rocksdb/utilities/backup_engine.h"
 
@@ -4407,8 +4407,8 @@ int main(int argc, char** argv) {
 #include <stdio.h>
 
 int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as BackupEngine is not supported in ROCKSDB_LITE\n");
+  fprintf(stderr, "SKIPPED as BackupEngine is not supported in Windows\n");
   return 0;
 }
 
-#endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#endif  // !defined(OS_WIN)

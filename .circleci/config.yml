@@ -302,27 +302,6 @@ jobs:
       - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
 
-  build-linux-lite:
-    executor: linux-docker
-    resource_class: large
-    steps:
-      - pre-steps
-      - run: LITE=1 make V=1 J=8 -j8 check
-      - post-steps
-
-  build-linux-lite-release:
-    executor: linux-docker
-    resource_class: large
-    steps:
-      - checkout # check out the code in the project directory
-      - run: LITE=1 make V=1 -j8 release
-      - run: ./db_stress --version # ensure with gflags
-      - run: make clean
-      - run: apt-get remove -y libgflags-dev
-      - run: LITE=1 make V=1 -j8 release
-      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-      - post-steps
-
   build-linux-clang-no_test_run:
     executor: linux-docker
     resource_class: xlarge
@@ -821,7 +800,6 @@ workflows:
       - build-linux-cmake-with-folly-coroutines
       - build-linux-cmake-with-benchmark
       - build-linux-encrypted_env-no_compression
-      - build-linux-lite
   jobs-linux-run-tests-san:
     jobs:
       - build-linux-clang10-asan
@@ -832,7 +810,6 @@ workflows:
     jobs:
       - build-linux-release
       - build-linux-release-rtti
-      - build-linux-lite-release
       - build-examples
       - build-fuzzers
       - build-linux-clang-no_test_run

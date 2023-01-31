@@ -24,7 +24,6 @@
 #include "test_util/testutil.h"
 #include "util/random.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -616,7 +615,6 @@ INSTANTIATE_TEST_CASE_P(DBTablePropertiesTest, DBTablePropertiesTest,
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
