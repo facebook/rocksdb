@@ -80,12 +80,10 @@ class BlockBasedTableFactory : public TableFactory {
 
  protected:
   const void* GetOptionsPtr(const std::string& name) const override;
-#ifndef ROCKSDB_LITE
   Status ParseOption(const ConfigOptions& config_options,
                      const OptionTypeInfo& opt_info,
                      const std::string& opt_name, const std::string& opt_value,
                      void* opt_ptr) override;
-#endif
   void InitializeOptions();
 
  private:

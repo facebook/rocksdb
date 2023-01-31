@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "util/stop_watch.h"
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <sstream>
@@ -242,4 +241,3 @@ IOStatus SimulatedWritableFile::Sync(const IOOptions& options,
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

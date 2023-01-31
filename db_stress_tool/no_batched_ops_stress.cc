@@ -123,7 +123,8 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            s, /* strict */ true);
+                            /* msg_prefix */ "Iterator verification", s,
+                            /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -142,7 +143,8 @@ class NonBatchedOpsStressTest : public StressTest {
           Status s = db_->Get(options, column_families_[cf], key, &from_db);
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            s, /* strict */ true);
+                            /* msg_prefix */ "Get verification", s,
+                            /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -176,7 +178,8 @@ class NonBatchedOpsStressTest : public StressTest {
             const std::string from_db = values[j].ToString();
 
             VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
-                              from_db, statuses[j], /* strict */ true);
+                              from_db, /* msg_prefix */ "MultiGet verification",
+                              statuses[j], /* strict */ true);
 
             if (!from_db.empty()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
@@ -228,7 +231,8 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
-                            s, /* strict */ true);
+                            /* msg_prefix */ "GetMergeOperands verification", s,
+                            /* strict */ true);
 
           if (!from_db.empty()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
@@ -239,7 +243,6 @@ class NonBatchedOpsStressTest : public StressTest {
     }
   }
 
-#ifndef ROCKSDB_LITE
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
     if (!cmp_db_) {
       return;
@@ -333,9 +336,6 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
   }
-#else
-  void ContinuouslyVerifyDb(ThreadState* /*thread*/) const override {}
-#endif  // ROCKSDB_LITE
 
   void MaybeClearOneColumnFamily(ThreadState* thread) override {
     if (FLAGS_column_families > 1) {
@@ -493,7 +493,6 @@ class NonBatchedOpsStressTest : public StressTest {
     // Create a transaction in order to write some data. The purpose is to
     // exercise WriteBatchWithIndex::MultiGetFromBatchAndDB. The transaction
     // will be rolled back once MultiGet returns.
-#ifndef ROCKSDB_LITE
     Transaction* txn = nullptr;
     if (use_txn) {
       WriteOptions wo;
@@ -506,11 +505,9 @@ class NonBatchedOpsStressTest : public StressTest {
         std::terminate();
       }
     }
-#endif
     for (size_t i = 0; i < num_keys; ++i) {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
-#ifndef ROCKSDB_LITE
       if (use_txn) {
         // With a 1 in 10 probability, insert the just added key in the batch
         // into the transaction. This will create an overlap with the MultiGet
@@ -545,7 +542,6 @@ class NonBatchedOpsStressTest : public StressTest {
           }
         }
       }
-#endif
     }
 
     if (!use_txn) {
@@ -559,10 +555,8 @@ class NonBatchedOpsStressTest : public StressTest {
         error_count = fault_fs_guard->GetAndResetErrorCount();
       }
     } else {
-#ifndef ROCKSDB_LITE
       txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
-#endif
     }
 
     if (fault_fs_guard && error_count && !SharedState::ignore_read_error) {
@@ -599,9 +593,7 @@ class NonBatchedOpsStressTest : public StressTest {
         std::string value;
 
         if (use_txn) {
-#ifndef ROCKSDB_LITE
           tmp_s = txn->Get(readoptionscopy, cfh, keys[i], &value);
-#endif  // ROCKSDB_LITE
         } else {
           tmp_s = db_->Get(readoptionscopy, cfh, keys[i], &value);
         }
@@ -659,9 +651,7 @@ class NonBatchedOpsStressTest : public StressTest {
       db_->ReleaseSnapshot(readoptionscopy.snapshot);
     }
     if (use_txn) {
-#ifndef ROCKSDB_LITE
       RollbackTxn(txn);
-#endif
     }
     return statuses;
   }
@@ -803,6 +793,7 @@ class NonBatchedOpsStressTest : public StressTest {
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
       if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
+                             /* msg_prefix */ "Pre-Put Get verification",
                              from_db, s, /* strict */ true)) {
         return s;
       }
@@ -824,7 +815,6 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Merge(write_opts, cfh, k, write_ts, v);
         }
       } else {
-#ifndef ROCKSDB_LITE
         Transaction* txn;
         s = NewTxn(write_opts, &txn);
         if (s.ok()) {
@@ -833,7 +823,6 @@ class NonBatchedOpsStressTest : public StressTest {
             s = CommitTxn(txn, thread);
           }
         }
-#endif
       }
     } else if (FLAGS_use_put_entity_one_in > 0 &&
                (value_base % FLAGS_use_put_entity_one_in) == 0) {
@@ -847,7 +836,6 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Put(write_opts, cfh, k, write_ts, v);
         }
       } else {
-#ifndef ROCKSDB_LITE
         Transaction* txn;
         s = NewTxn(write_opts, &txn);
         if (s.ok()) {
@@ -856,7 +844,6 @@ class NonBatchedOpsStressTest : public StressTest {
             s = CommitTxn(txn, thread);
           }
         }
-#endif
       }
     }
 
@@ -913,7 +900,6 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->Delete(write_opts, cfh, key, write_ts);
         }
       } else {
-#ifndef ROCKSDB_LITE
         Transaction* txn;
         s = NewTxn(write_opts, &txn);
         if (s.ok()) {
@@ -922,7 +908,6 @@ class NonBatchedOpsStressTest : public StressTest {
             s = CommitTxn(txn, thread);
           }
         }
-#endif
       }
       shared->Delete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddDeletes(1);
@@ -950,7 +935,6 @@ class NonBatchedOpsStressTest : public StressTest {
           s = db_->SingleDelete(write_opts, cfh, key, write_ts);
         }
       } else {
-#ifndef ROCKSDB_LITE
         Transaction* txn;
         s = NewTxn(write_opts, &txn);
         if (s.ok()) {
@@ -959,7 +943,6 @@ class NonBatchedOpsStressTest : public StressTest {
             s = CommitTxn(txn, thread);
           }
         }
-#endif
       }
       shared->SingleDelete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddSingleDeletes(1);
@@ -1047,18 +1030,6 @@ class NonBatchedOpsStressTest : public StressTest {
     return s;
   }
 
-#ifdef ROCKSDB_LITE
-  void TestIngestExternalFile(
-      ThreadState* /* thread */,
-      const std::vector<int>& /* rand_column_families */,
-      const std::vector<int64_t>& /* rand_keys */) override {
-    assert(false);
-    fprintf(stderr,
-            "RocksDB lite does not support "
-            "TestIngestExternalFile\n");
-    std::terminate();
-  }
-#else
   void TestIngestExternalFile(ThreadState* thread,
                               const std::vector<int>& rand_column_families,
                               const std::vector<int64_t>& rand_keys) override {
@@ -1132,7 +1103,6 @@ class NonBatchedOpsStressTest : public StressTest {
       shared->Put(column_family, keys[i], values[i], false /* pending */);
     }
   }
-#endif  // ROCKSDB_LITE
 
   // Given a key K, this creates an iterator which scans the range
   // [K, K + FLAGS_num_iterations) forward and backward.
@@ -1441,7 +1411,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                          SharedState* shared, const std::string& value_from_db,
-                         const Status& s, bool strict = false) const {
+                         std::string msg_prefix, const Status& s,
+                         bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
@@ -1466,34 +1437,36 @@ class NonBatchedOpsStressTest : public StressTest {
     if (s.ok()) {
       char value[kValueMaxLen];
       if (value_base == SharedState::DELETION_SENTINEL) {
-        VerificationAbort(shared, "Unexpected value found", cf, key,
-                          value_from_db, "");
+        VerificationAbort(shared, msg_prefix + ": Unexpected value found", cf,
+                          key, value_from_db, "");
         return false;
       }
       size_t sz = GenerateValue(value_base, value, sizeof(value));
       if (value_from_db.length() != sz) {
-        VerificationAbort(shared, "Length of value read is not equal", cf, key,
-                          value_from_db, Slice(value, sz));
+        VerificationAbort(shared,
+                          msg_prefix + ": Length of value read is not equal",
+                          cf, key, value_from_db, Slice(value, sz));
         return false;
       }
       if (memcmp(value_from_db.data(), value, sz) != 0) {
-        VerificationAbort(shared, "Contents of value read don't match", cf, key,
-                          value_from_db, Slice(value, sz));
+        VerificationAbort(shared,
+                          msg_prefix + ": Contents of value read don't match",
+                          cf, key, value_from_db, Slice(value, sz));
         return false;
       }
     } else {
       if (value_base != SharedState::DELETION_SENTINEL) {
         char value[kValueMaxLen];
         size_t sz = GenerateValue(value_base, value, sizeof(value));
-        VerificationAbort(shared, "Value not found: " + s.ToString(), cf, key,
-                          "", Slice(value, sz));
+        VerificationAbort(shared,
+                          msg_prefix + ": Value not found: " + s.ToString(), cf,
+                          key, "", Slice(value, sz));
         return false;
       }
     }
     return true;
   }
 
-#ifndef ROCKSDB_LITE
   void PrepareTxnDbOptions(SharedState* shared,
                            TransactionDBOptions& txn_db_opts) override {
     txn_db_opts.rollback_deletion_type_callback =
@@ -1506,7 +1479,6 @@ class NonBatchedOpsStressTest : public StressTest {
           return !shared->AllowsOverwrite(key_num);
         };
   }
-#endif  // ROCKSDB_LITE
 };
 
 StressTest* CreateNonBatchedOpsStressTest() {

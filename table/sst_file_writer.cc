@@ -23,7 +23,6 @@ const std::string ExternalSstFilePropertyNames::kVersion =
 const std::string ExternalSstFilePropertyNames::kGlobalSeqno =
     "rocksdb.external_sst_file.global_seqno";
 
-#ifndef ROCKSDB_LITE
 
 const size_t kFadviseTrigger = 1024 * 1024;  // 1MB
 
@@ -422,6 +421,5 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 }
 
 uint64_t SstFileWriter::FileSize() { return rep_->file_info.file_size; }
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

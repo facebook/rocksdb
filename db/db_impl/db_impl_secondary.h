@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
@@ -269,12 +268,10 @@ class DBImplSecondary : public DBImpl {
 #endif  // NDEBUG
 
  protected:
-#ifndef ROCKSDB_LITE
   Status FlushForGetLiveFiles() override {
     // No-op for read-only DB
     return Status::OK();
   }
-#endif  // !ROCKSDB_LITE
 
   // ColumnFamilyCollector is a write batch handler which does nothing
   // except recording unique column family IDs
@@ -407,4 +404,3 @@ class DBImplSecondary : public DBImpl {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

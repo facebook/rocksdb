@@ -28,13 +28,11 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit"},
     {BLOCK_CACHE_INDEX_ADD, "rocksdb.block.cache.index.add"},
     {BLOCK_CACHE_INDEX_BYTES_INSERT, "rocksdb.block.cache.index.bytes.insert"},
-    {BLOCK_CACHE_INDEX_BYTES_EVICT, "rocksdb.block.cache.index.bytes.evict"},
     {BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss"},
     {BLOCK_CACHE_FILTER_HIT, "rocksdb.block.cache.filter.hit"},
     {BLOCK_CACHE_FILTER_ADD, "rocksdb.block.cache.filter.add"},
     {BLOCK_CACHE_FILTER_BYTES_INSERT,
      "rocksdb.block.cache.filter.bytes.insert"},
-    {BLOCK_CACHE_FILTER_BYTES_EVICT, "rocksdb.block.cache.filter.bytes.evict"},
     {BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss"},
     {BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit"},
     {BLOCK_CACHE_DATA_ADD, "rocksdb.block.cache.data.add"},
@@ -45,7 +43,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOOM_FILTER_FULL_POSITIVE, "rocksdb.bloom.filter.full.positive"},
     {BLOOM_FILTER_FULL_TRUE_POSITIVE,
      "rocksdb.bloom.filter.full.true.positive"},
-    {BLOOM_FILTER_MICROS, "rocksdb.bloom.filter.micros"},
     {PERSISTENT_CACHE_HIT, "rocksdb.persistent.cache.hit"},
     {PERSISTENT_CACHE_MISS, "rocksdb.persistent.cache.miss"},
     {SIM_BLOCK_CACHE_HIT, "rocksdb.sim.block.cache.hit"},
@@ -76,35 +73,22 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_DB_NEXT_FOUND, "rocksdb.number.db.next.found"},
     {NUMBER_DB_PREV_FOUND, "rocksdb.number.db.prev.found"},
     {ITER_BYTES_READ, "rocksdb.db.iter.bytes.read"},
-    {NO_FILE_CLOSES, "rocksdb.no.file.closes"},
     {NO_FILE_OPENS, "rocksdb.no.file.opens"},
     {NO_FILE_ERRORS, "rocksdb.no.file.errors"},
-    {STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros"},
-    {STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"},
-    {STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"},
     {STALL_MICROS, "rocksdb.stall.micros"},
     {DB_MUTEX_WAIT_MICROS, "rocksdb.db.mutex.wait.micros"},
-    {RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis"},
-    {NO_ITERATORS, "rocksdb.num.iterators"},
     {NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"},
     {NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read"},
     {NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read"},
-    {NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered"},
     {NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures"},
     {BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked"},
     {BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful"},
     {NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration"},
     {GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls"},
-    {BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss"},
-    {BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit"},
-    {BLOCK_CACHE_COMPRESSED_ADD, "rocksdb.block.cachecompressed.add"},
-    {BLOCK_CACHE_COMPRESSED_ADD_FAILURES,
-     "rocksdb.block.cachecompressed.add.failures"},
     {WAL_FILE_SYNCED, "rocksdb.wal.synced"},
     {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
     {WRITE_DONE_BY_SELF, "rocksdb.write.self"},
     {WRITE_DONE_BY_OTHER, "rocksdb.write.other"},
-    {WRITE_TIMEDOUT, "rocksdb.write.timeout"},
     {WRITE_WITH_WAL, "rocksdb.write.wal"},
     {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},
     {COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes"},
@@ -158,11 +142,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_GC_NUM_FILES, "rocksdb.blobdb.gc.num.files"},
     {BLOB_DB_GC_NUM_NEW_FILES, "rocksdb.blobdb.gc.num.new.files"},
     {BLOB_DB_GC_FAILURES, "rocksdb.blobdb.gc.failures"},
-    {BLOB_DB_GC_NUM_KEYS_OVERWRITTEN, "rocksdb.blobdb.gc.num.keys.overwritten"},
-    {BLOB_DB_GC_NUM_KEYS_EXPIRED, "rocksdb.blobdb.gc.num.keys.expired"},
     {BLOB_DB_GC_NUM_KEYS_RELOCATED, "rocksdb.blobdb.gc.num.keys.relocated"},
-    {BLOB_DB_GC_BYTES_OVERWRITTEN, "rocksdb.blobdb.gc.bytes.overwritten"},
-    {BLOB_DB_GC_BYTES_EXPIRED, "rocksdb.blobdb.gc.bytes.expired"},
     {BLOB_DB_GC_BYTES_RELOCATED, "rocksdb.blobdb.gc.bytes.relocated"},
     {BLOB_DB_FIFO_NUM_FILES_EVICTED, "rocksdb.blobdb.fifo.num.files.evicted"},
     {BLOB_DB_FIFO_NUM_KEYS_EVICTED, "rocksdb.blobdb.fifo.num.keys.evicted"},
@@ -184,8 +164,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.block.cache.compression.dict.add"},
     {BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
      "rocksdb.block.cache.compression.dict.bytes.insert"},
-    {BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
-     "rocksdb.block.cache.compression.dict.bytes.evict"},
     {BLOCK_CACHE_ADD_REDUNDANT, "rocksdb.block.cache.add.redundant"},
     {BLOCK_CACHE_INDEX_ADD_REDUNDANT,
      "rocksdb.block.cache.index.add.redundant"},
@@ -252,11 +230,6 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {READ_BLOCK_COMPACTION_MICROS, "rocksdb.read.block.compaction.micros"},
     {READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros"},
     {WRITE_RAW_BLOCK_MICROS, "rocksdb.write.raw.block.micros"},
-    {STALL_L0_SLOWDOWN_COUNT, "rocksdb.l0.slowdown.count"},
-    {STALL_MEMTABLE_COMPACTION_COUNT, "rocksdb.memtable.compaction.count"},
-    {STALL_L0_NUM_FILES_COUNT, "rocksdb.num.files.stall.count"},
-    {HARD_RATE_LIMIT_DELAY_COUNT, "rocksdb.hard.rate.limit.delay.count"},
-    {SOFT_RATE_LIMIT_DELAY_COUNT, "rocksdb.soft.rate.limit.delay.count"},
     {NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction"},
     {DB_SEEK, "rocksdb.db.seek.micros"},
     {WRITE_STALL, "rocksdb.db.write.stall"},
@@ -281,14 +254,12 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {BLOB_DB_BLOB_FILE_WRITE_MICROS, "rocksdb.blobdb.blob.file.write.micros"},
     {BLOB_DB_BLOB_FILE_READ_MICROS, "rocksdb.blobdb.blob.file.read.micros"},
     {BLOB_DB_BLOB_FILE_SYNC_MICROS, "rocksdb.blobdb.blob.file.sync.micros"},
-    {BLOB_DB_GC_MICROS, "rocksdb.blobdb.gc.micros"},
     {BLOB_DB_COMPRESSION_MICROS, "rocksdb.blobdb.compression.micros"},
     {BLOB_DB_DECOMPRESSION_MICROS, "rocksdb.blobdb.decompression.micros"},
     {FLUSH_TIME, "rocksdb.db.flush.micros"},
     {SST_BATCH_SIZE, "rocksdb.sst.batch.size"},
     {NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
      "rocksdb.num.index.and.filter.blocks.read.per.level"},
-    {NUM_DATA_BLOCKS_READ_PER_LEVEL, "rocksdb.num.data.blocks.read.per.level"},
     {NUM_SST_READ_PER_LEVEL, "rocksdb.num.sst.read.per.level"},
     {ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
      "rocksdb.error.handler.autoresume.retry.count"},
@@ -304,7 +275,6 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl>(nullptr);
 }
 
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinStatistics(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
   library.AddFactory<Statistics>(
@@ -316,17 +286,14 @@ static int RegisterBuiltinStatistics(ObjectLibrary& library,
       });
   return 1;
 }
-#endif  // ROCKSDB_LITE
 
 Status Statistics::CreateFromString(const ConfigOptions& config_options,
                                     const std::string& id,
                                     std::shared_ptr<Statistics>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterBuiltinStatistics(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
   Status s;
   if (id == "" || id == StatisticsImpl::kClassName()) {
     result->reset(new StatisticsImpl(nullptr));
@@ -339,11 +306,9 @@ Status Statistics::CreateFromString(const ConfigOptions& config_options,
 }
 
 static std::unordered_map<std::string, OptionTypeInfo> stats_type_info = {
-#ifndef ROCKSDB_LITE
     {"inner", OptionTypeInfo::AsCustomSharedPtr<Statistics>(
                   0, OptionVerificationType::kByNameAllowFromNull,
                   OptionTypeFlags::kCompareNever)},
-#endif  // !ROCKSDB_LITE
 };
 
 StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats)

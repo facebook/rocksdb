@@ -18,7 +18,6 @@
 #include "test_util/testharness.h"
 #include "util/string_util.h"
 
-#ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -716,9 +715,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-int main(int /*argc*/, char** /*argv*/) {
-  printf("DeleteScheduler is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-#endif  // ROCKSDB_LITE

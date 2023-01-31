@@ -5,7 +5,6 @@
 #pragma once
 
 #include "rocksdb/comparator.h"
-#ifndef ROCKSDB_LITE
 
 #include <queue>
 #include <string>
@@ -165,4 +164,3 @@ class ForwardIterator : public InternalIterator {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -202,7 +202,6 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
   // This is like a mini-stress test dedicated to `OpFailureScope::kMustMerge`.
@@ -355,7 +354,6 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
   }
 }
 
-#endif  // ROCKSDB_LITE
 
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
                                  public testing::WithParamInterface<bool> {
@@ -368,7 +366,6 @@ class MergeOperatorPinningTest : public DBMergeOperatorTest,
 INSTANTIATE_TEST_CASE_P(MergeOperatorPinningTest, MergeOperatorPinningTest,
                         ::testing::Bool());
 
-#ifndef ROCKSDB_LITE
 TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   Options options = CurrentOptions();
   BlockBasedTableOptions table_options;
@@ -639,7 +636,6 @@ TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
   EXPECT_TRUE(pushed_first_operand);
   EXPECT_TRUE(stepped_to_next_operand);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   Options options = CurrentOptions();

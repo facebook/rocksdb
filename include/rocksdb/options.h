@@ -82,7 +82,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Use this if you don't need to keep the data sorted, i.e. you'll never use
   // an iterator, only Put() and Get() API calls
   //
-  // Not supported in ROCKSDB_LITE
   ColumnFamilyOptions* OptimizeForPointLookup(uint64_t block_cache_size_mb);
 
   // Default values for some parameters in ColumnFamilyOptions are not
@@ -99,8 +98,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // biggest performance gains.
   // Note: we might use more memory than memtable_memory_budget during high
   // write rate period
-  //
-  // OptimizeUniversalStyleCompaction is not supported in ROCKSDB_LITE
   ColumnFamilyOptions* OptimizeLevelStyleCompaction(
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
   ColumnFamilyOptions* OptimizeUniversalStyleCompaction(
@@ -464,14 +461,12 @@ struct DBOptions {
   // memtable to cost to
   DBOptions* OptimizeForSmallDb(std::shared_ptr<Cache>* cache = nullptr);
 
-#ifndef ROCKSDB_LITE
   // By default, RocksDB uses only one background thread for flush and
   // compaction. Calling this function will set it up such that total of
   // `total_threads` is used. Good value for `total_threads` is the number of
   // cores. You almost definitely want to call this function if your system is
   // bottlenecked by RocksDB.
   DBOptions* IncreaseParallelism(int total_threads = 16);
-#endif  // ROCKSDB_LITE
 
   // If true, the database will be created if it is missing.
   // Default: false
@@ -762,7 +757,6 @@ struct DBOptions {
   // If specified with non-zero value, log file will be rolled
   // if it has been active longer than `log_file_time_to_roll`.
   // Default: 0 (disabled)
-  // Not supported in ROCKSDB_LITE mode!
   size_t log_file_time_to_roll = 0;
 
   // Maximal info log files to be kept.
@@ -837,12 +831,10 @@ struct DBOptions {
 
   // Use O_DIRECT for user and compaction reads.
   // Default: false
-  // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
 
   // Use O_DIRECT for writes in background flush and compactions.
   // Default: false
-  // Not supported in ROCKSDB_LITE mode!
   bool use_direct_io_for_flush_and_compaction = false;
 
   // If false, fallocate() calls are bypassed, which disables file
@@ -1165,17 +1157,14 @@ struct DBOptions {
 
   // A global cache for table-level rows.
   // Default: nullptr (disabled)
-  // Not supported in ROCKSDB_LITE mode!
   std::shared_ptr<Cache> row_cache = nullptr;
 
-#ifndef ROCKSDB_LITE
   // A filter object supplied to be invoked while processing write-ahead-logs
   // (WALs) during recovery. The filter provides a way to inspect log
   // records, ignoring a particular record or skipping replay.
   // The filter is invoked at startup and is invoked from a single-thread
   // currently.
   WalFilter* wal_filter = nullptr;
-#endif  // ROCKSDB_LITE
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // SetOptions will fail if options file is not properly persisted.
@@ -1212,7 +1201,10 @@ struct DBOptions {
   // Setting this option to true will affect 2 things:
   // 1) Disable some internal optimizations around SST file compression
   // 2) Reserve bottom-most level for ingested files only.
-  // 3) Note that num_levels should be >= 3 if this option is turned on.
+  // Note that only universal compaction supports reserving last level
+  // for file ingestion only.
+  // `num_levels` should be >= 3 if this option is turned on.
+  //
   //
   // DEFAULT: false
   // Immutable.
@@ -1285,36 +1277,36 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 
-  // By default, RocksDB recovery fails if any table/blob file referenced in the
-  // final version reconstructed from the
-  // MANIFEST are missing after scanning the MANIFEST pointed to by the
-  // CURRENT file. It can also fail if verification of unique SST id fails.
-  // Best-efforts recovery is another recovery mode that does not necessarily
-  // fail when certain table/blob files are missing/corrupted or have mismatched
-  // unique id table property. Instead, best-efforts recovery recovers each
-  // column family to a point in the MANIFEST that corresponds to a version. In
-  // such a version, all valid table/blob files referenced have the expected
-  // file size. For table files, their unique id table property match the
-  // MANIFEST.
+  // By default, RocksDB will attempt to detect any data losses or corruptions
+  // in DB files and return an error to the user, either at DB::Open time or
+  // later during DB operation. The exception to this policy is the WAL file,
+  // whose recovery is controlled by the wal_recovery_mode option.
   //
-  // Best-efforts recovery does not need a valid CURRENT file, and tries to
-  // recover the database using one of the available MANIFEST files in the db
-  // directory.
-  // Best-efforts recovery tries the available MANIFEST files from high file
-  // numbers (newer) to low file numbers (older), and stops after finding the
-  // first MANIFEST file from which the db can be recovered to a state without
-  // invalid (missing/filesize-mismatch/unique-id-mismatch) table and blob
-  // files. It is possible that the database can be restored to an empty state
-  // with no table or blob files.
+  // Best-efforts recovery (this option set to true) signals a preference for
+  // opening the DB to any point-in-time valid state for each column family,
+  // including the empty/new state, versus the default of returning non-WAL
+  // data losses to the user as errors. In terms of RocksDB user data, this
+  // is like applying WALRecoveryMode::kPointInTimeRecovery to each column
+  // family rather than just the WAL.
   //
-  // Regardless of this option, the IDENTITY file
-  // is updated if needed during recovery to match the DB ID in the MANIFEST (if
-  // previously using write_dbid_to_manifest) or to be in some valid state
-  // (non-empty DB ID). Currently, not compatible with atomic flush.
-  // Furthermore, WAL files will not be used for recovery if
-  // best_efforts_recovery is true. Also requires either 1) LOCK file exists or
-  // 2) underlying env's LockFile() call returns ok even for non-existing LOCK
-  // file.
+  // Best-efforts recovery (BER) is specifically designed to recover a DB with
+  // files that are missing or truncated to some smaller size, such as the
+  // result of an incomplete DB "physical" (FileSystem) copy. BER can also
+  // detect when an SST file has been replaced with a different one of the
+  // same size (assuming SST unique IDs are tracked in DB manifest).
+  // BER is not yet designed to produce a usable DB from other corruptions to
+  // DB files (which should generally be detectable by DB::VerifyChecksum()),
+  // and BER does not yet attempt to recover any WAL files.
+  //
+  // For example, if an SST or blob file referenced by the MANIFEST is missing,
+  // BER might be able to find a set of files corresponding to an old "point in
+  // time" version of the column family, possibly from an older MANIFEST
+  // file. Some other kinds of DB files (e.g. CURRENT, LOCK, IDENTITY) are
+  // either ignored or replaced with BER, or quietly fixed regardless of BER
+  // setting. BER does require at least one valid MANIFEST to recover to a
+  // non-trivial DB state, unlike `ldb repair`.
+  //
+  // Currently, best_efforts_recovery=true is not compatible with atomic flush.
   //
   // Default: false
   bool best_efforts_recovery = false;
@@ -1548,7 +1540,6 @@ struct ReadOptions {
   // added data) and is optimized for sequential reads. It will return records
   // that were inserted into the database after the creation of the iterator.
   // Default: false
-  // Not supported in ROCKSDB_LITE mode!
   bool tailing;
 
   // This options is not used anymore. It was to turn on a functionality that
@@ -1566,8 +1557,6 @@ struct ReadOptions {
   // When true, by default use total_order_seek = true, and RocksDB can
   // selectively enable prefix seek mode if won't generate a different result
   // from total_order_seek, based on seek key, and iterator upper bound.
-  // Not supported in ROCKSDB_LITE mode, in the way that even with value true
-  // prefix mode is not used.
   // BUG: Using Comparator::IsSameLengthImmediateSuccessor and
   // SliceTransform::FullLengthEnabled to enable prefix mode in cases where
   // prefix of upper bound differs from prefix of seek key has a flaw.
@@ -2100,7 +2089,6 @@ struct OpenAndCompactOptions {
   std::atomic<bool>* canceled = nullptr;
 };
 
-#ifndef ROCKSDB_LITE
 struct LiveFilesStorageInfoOptions {
   // Whether to populate FileStorageInfo::file_checksum* or leave blank
   bool include_checksum_info = false;
@@ -2109,6 +2097,5 @@ struct LiveFilesStorageInfoOptions {
   // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
 };
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
