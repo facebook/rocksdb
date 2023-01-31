@@ -349,7 +349,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   } else if (decision == CompactionFilter::Decision::kChangeValue) {
     if (ikey_.type != kTypeValue) {
       ikey_.type = kTypeValue;
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      current_key_.UpdateInternalKey(ikey_.sequence, kTypeValue);
     }
 
     value_ = compaction_filter_value_;
@@ -373,7 +373,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
 
     if (ikey_.type != kTypeBlobIndex) {
       ikey_.type = kTypeBlobIndex;
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      current_key_.UpdateInternalKey(ikey_.sequence, kTypeBlobIndex);
     }
 
     value_ = compaction_filter_value_;
