@@ -30,6 +30,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+static bool enable_io_uring = true;
+extern "C" bool RocksDbIOUringEnable() { return enable_io_uring; }
+
 class DBBasicTest : public DBTestBase {
  public:
   DBBasicTest() : DBTestBase("db_basic_test", /*env_do_fsync=*/false) {}
@@ -2173,6 +2176,7 @@ class DBMultiGetAsyncIOTest : public DBBasicTest,
     options_.disable_auto_compactions = true;
     options_.statistics = statistics_;
     options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    options_.env = Env::Default();
     Reopen(options_);
     int num_keys = 0;
 
@@ -2253,6 +2257,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
   std::vector<PinnableSlice> values(key_strs.size());
   std::vector<Status> statuses(key_strs.size());
 
+  ReopenDB();
+
   ReadOptions ro;
   ro.async_io = true;
   ro.optimize_multiget_for_io = GetParam();
@@ -2297,6 +2303,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
+  ReopenDB();
+
   ReadOptions ro;
   ro.async_io = true;
   ro.optimize_multiget_for_io = GetParam();
@@ -2335,9 +2343,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1Error) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
+  int count = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "TableCache::GetTableReader:BeforeOpenFile", [&](void* status) {
-        static int count = 0;
         count++;
         // Fail the last table reader open, which is the 6th SST file
         // since 3 overlapping L0 files + 3 L1 files containing the keys
@@ -2548,6 +2556,44 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
   ASSERT_EQ(statuses[2], Status::NotFound());
 
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+}
+
+TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  key_strs.push_back(Key(33));
+  key_strs.push_back(Key(54));
+  key_strs.push_back(Key(102));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  keys.push_back(key_strs[2]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  enable_io_uring = false;
+  ReopenDB();
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), 3);
+  ASSERT_EQ(statuses[0], Status::NotSupported());
+  ASSERT_EQ(statuses[1], Status::NotSupported());
+  ASSERT_EQ(statuses[2], Status::NotSupported());
+
+  HistogramData multiget_io_batch_size;
+
+  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
+
+  // A batch of 3 async IOs is expected, one for each overlapping file in L1
+  ASSERT_EQ(multiget_io_batch_size.count, 1);
+  ASSERT_EQ(multiget_io_batch_size.max, 3);
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 }
 
