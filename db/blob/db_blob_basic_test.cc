@@ -1772,6 +1772,28 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsSecondary) {
             1);
 }
 
+TEST_F(DBBlobBasicTest, GetEntityBlob) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+
+  ASSERT_OK(Flush());
+
+  PinnableWideColumns result;
+  ASSERT_OK(
+      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
+
+  WideColumns expected_columns{{kDefaultWideColumnName, blob_value}};
+  ASSERT_EQ(result.columns(), expected_columns);
+}
+
 class DBBlobWithTimestampTest : public DBBasicTestWithTimestampBase {
  protected:
   DBBlobWithTimestampTest()
