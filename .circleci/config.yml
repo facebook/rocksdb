@@ -444,7 +444,7 @@ jobs:
       - pre-steps
       - setup-folly
       - build-folly
-      - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+      - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check
       - post-steps
 
   build-linux-gcc-7-with-folly-lite-no-test:
@@ -490,7 +490,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
+      - run: LIB_MODE=static CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
       - post-steps
 
   build-linux-clang-13-no_test_run:
