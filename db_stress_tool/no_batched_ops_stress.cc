@@ -51,6 +51,7 @@ class NonBatchedOpsStressTest : public StressTest {
       enum class VerificationMethod {
         kIterator,
         kGet,
+        kGetEntity,
         kMultiGet,
         kGetMergeOperands,
         // Add any new items above kNumberOfMethods
@@ -105,7 +106,6 @@ class NonBatchedOpsStressTest : public StressTest {
                 VerificationAbort(shared, static_cast<int>(cf), i,
                                   iter->value(), iter->columns(),
                                   expected_columns);
-                break;
               }
 
               from_db = iter->value().ToString();
@@ -144,6 +144,45 @@ class NonBatchedOpsStressTest : public StressTest {
 
           VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
                             /* msg_prefix */ "Get verification", s,
+                            /* strict */ true);
+
+          if (!from_db.empty()) {
+            PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
+                          from_db.data(), from_db.size());
+          }
+        }
+      } else if (method == VerificationMethod::kGetEntity) {
+        for (int64_t i = start; i < end; ++i) {
+          if (thread->shared->HasVerificationFailedYet()) {
+            break;
+          }
+
+          const std::string key = Key(i);
+          PinnableWideColumns columns;
+
+          Status s =
+              db_->GetEntity(options, column_families_[cf], key, &columns);
+
+          const WideColumns& columns_from_db = columns.columns();
+
+          std::string from_db;
+
+          if (s.ok()) {
+            if (!columns_from_db.empty() &&
+                columns_from_db[0].name() == kDefaultWideColumnName) {
+              from_db = columns_from_db[0].value().ToString();
+            }
+
+            const WideColumns expected_columns =
+                GenerateExpectedWideColumns(GetValueBase(from_db), from_db);
+            if (columns_from_db != expected_columns) {
+              VerificationAbort(shared, static_cast<int>(cf), i, from_db,
+                                columns_from_db, expected_columns);
+            }
+          }
+
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+                            /* msg_prefix */ "GetEntity verification", s,
                             /* strict */ true);
 
           if (!from_db.empty()) {
@@ -1416,6 +1455,7 @@ class NonBatchedOpsStressTest : public StressTest {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
+
     // compare value_from_db with the value in the shared state
     uint32_t value_base = shared->Get(cf, key);
     if (value_base == SharedState::UNKNOWN_SENTINEL) {
