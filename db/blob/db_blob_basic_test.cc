@@ -11,6 +11,7 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
+#include "db/db_with_timestamp_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
 #include "utilities/fault_injection_env.h"
@@ -1769,6 +1770,190 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsSecondary) {
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
             1);
+}
+
+class DBBlobWithTimestampTest : public DBBasicTestWithTimestampBase {
+ protected:
+  DBBlobWithTimestampTest()
+      : DBBasicTestWithTimestampBase("db_blob_with_timestamp_test") {}
+};
+
+TEST_F(DBBlobWithTimestampTest, GetBlob) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(db_->Put(write_opts, key, ts, blob_value));
+
+  ASSERT_OK(Flush());
+
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+  std::string value;
+  ASSERT_OK(db_->Get(read_opts, key, &value));
+  ASSERT_EQ(value, blob_value);
+}
+
+TEST_F(DBBlobWithTimestampTest, MultiGetBlobs) {
+  constexpr size_t min_blob_size = 6;
+
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+
+  // Put then retrieve three key-values. The first value is below the size limit
+  // and is thus stored inline; the other two are stored separately as blobs.
+  constexpr size_t num_keys = 3;
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "short";
+  static_assert(sizeof(first_value) - 1 < min_blob_size,
+                "first_value too long to be inlined");
+
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+  ASSERT_OK(db_->Put(write_opts, first_key, ts, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "long_value";
+  static_assert(sizeof(second_value) - 1 >= min_blob_size,
+                "second_value too short to be stored as blob");
+
+  ASSERT_OK(db_->Put(write_opts, second_key, ts, second_value));
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "other_long_value";
+  static_assert(sizeof(third_value) - 1 >= min_blob_size,
+                "third_value too short to be stored as blob");
+
+  ASSERT_OK(db_->Put(write_opts, third_key, ts, third_value));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  read_options.timestamp = &read_ts_slice;
+  std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
+
+  {
+    std::array<PinnableSlice, num_keys> values;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(values[0], first_value);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(values[1], second_value);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(values[2], third_value);
+  }
+}
+
+TEST_F(DBBlobWithTimestampTest, GetMergeBlobWithPut) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+  ASSERT_OK(db_->Put(write_opts, "Key1", ts, "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key1", ts, "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key1", ts, "v3"));
+  ASSERT_OK(Flush());
+
+  std::string value;
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+  ASSERT_OK(db_->Get(read_opts, "Key1", &value));
+  ASSERT_EQ(value, "v1,v2,v3");
+}
+
+TEST_F(DBBlobWithTimestampTest, MultiGetMergeBlobWithPut) {
+  constexpr size_t num_keys = 3;
+
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+
+  ASSERT_OK(db_->Put(write_opts, "Key0", ts, "v0_0"));
+  ASSERT_OK(db_->Put(write_opts, "Key1", ts, "v1_0"));
+  ASSERT_OK(db_->Put(write_opts, "Key2", ts, "v2_0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key0", ts, "v0_1"));
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key1", ts, "v1_1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key0", ts, "v0_2"));
+  ASSERT_OK(Flush());
+
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+  std::array<Slice, num_keys> keys{{"Key0", "Key1", "Key2"}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+
+  db_->MultiGet(read_opts, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                &values[0], &statuses[0]);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "v0_0,v0_1,v0_2");
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1], "v1_0,v1_1");
+
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], "v2_0");
 }
 
 }  // namespace ROCKSDB_NAMESPACE
