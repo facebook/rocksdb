@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
+* Fixed `DisableManualCompaction()` and `CompactRangeOptions::canceled` to cancel compactions even when they are waiting on conflicting compactions to finish
 
 ## 7.9.2 (12/21/2022)
 ### Bug Fixes
