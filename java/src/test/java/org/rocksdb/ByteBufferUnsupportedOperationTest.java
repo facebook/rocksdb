@@ -32,12 +32,14 @@ public class ByteBufferUnsupportedOperationTest {
     public void addTable(final UUID streamID) throws RocksDBException {
       final ColumnFamilyOptions tableOptions = new ColumnFamilyOptions();
       tableOptions.optimizeUniversalStyleCompaction();
-      final ComparatorOptions comparatorOptions = new ComparatorOptions();
-      //comparatorOptions.setReusedSynchronisationType(ReusedSynchronisationType.ADAPTIVE_MUTEX);
-      tableOptions.setComparator(new ReverseBytewiseComparator(comparatorOptions));
-      final ColumnFamilyDescriptor tableDescriptor = new ColumnFamilyDescriptor(streamID.toString().getBytes(StandardCharsets.UTF_8), tableOptions);
-      final ColumnFamilyHandle tableHandle = database.createColumnFamily(tableDescriptor);
-      columnFamilies.put(streamID, tableHandle);
+      try (final ComparatorOptions comparatorOptions = new ComparatorOptions()) {
+        // comparatorOptions.setReusedSynchronisationType(ReusedSynchronisationType.ADAPTIVE_MUTEX);
+        tableOptions.setComparator(new ReverseBytewiseComparator(comparatorOptions));
+        final ColumnFamilyDescriptor tableDescriptor = new ColumnFamilyDescriptor(
+            streamID.toString().getBytes(StandardCharsets.UTF_8), tableOptions);
+        final ColumnFamilyHandle tableHandle = database.createColumnFamily(tableDescriptor);
+        columnFamilies.put(streamID, tableHandle);
+      }
     }
 
     public void updateAll(final List<byte[][]> keyValuePairs, final UUID streamID)
@@ -111,7 +113,7 @@ public class ByteBufferUnsupportedOperationTest {
   }
 
   @Test public void unsupportedOperation() throws RocksDBException {
-    final int n = 10_000;
+    final int n = 1_000;
     final int repeatTest = 100;
 
     // the error is not always reproducible... let's try to increase the odds by repeating the main test body

@@ -14,7 +14,10 @@ namespace ROCKSDB_NAMESPACE {
 ComparatorJniCallback::ComparatorJniCallback(
     JNIEnv* env, jobject jcomparator,
     const ComparatorJniCallbackOptions* options)
-    : JniCallback(env, jcomparator), m_options(options) {
+    : JniCallback(env, jcomparator),
+      m_options(std::make_unique<ComparatorJniCallbackOptions>(
+          options->reused_synchronisation_type, options->direct_buffer,
+          options->max_reused_buffer_size)) {
   // cache the AbstractComparatorJniBridge class as we will reuse it many times
   // for each callback
   m_abstract_comparator_jni_bridge_clazz = static_cast<jclass>(

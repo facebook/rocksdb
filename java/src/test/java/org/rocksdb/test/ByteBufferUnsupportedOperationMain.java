@@ -31,12 +31,14 @@ public class ByteBufferUnsupportedOperationMain {
     public void addTable(UUID streamID) throws RocksDBException {
       ColumnFamilyOptions tableOptions = new ColumnFamilyOptions();
       tableOptions.optimizeUniversalStyleCompaction();
-      ComparatorOptions comparatorOptions = new ComparatorOptions();
-      //comparatorOptions.setReusedSynchronisationType(ReusedSynchronisationType.ADAPTIVE_MUTEX);
-      tableOptions.setComparator(new ReverseBytewiseComparator(comparatorOptions));
-      ColumnFamilyDescriptor tableDescriptor = new ColumnFamilyDescriptor(streamID.toString().getBytes(StandardCharsets.UTF_8), tableOptions);
-      ColumnFamilyHandle tableHandle = database.createColumnFamily(tableDescriptor);
-      columnFamilies.put(streamID, tableHandle);
+      try (ComparatorOptions comparatorOptions = new ComparatorOptions()) {
+        // comparatorOptions.setReusedSynchronisationType(ReusedSynchronisationType.ADAPTIVE_MUTEX);
+        tableOptions.setComparator(new ReverseBytewiseComparator(comparatorOptions));
+        ColumnFamilyDescriptor tableDescriptor = new ColumnFamilyDescriptor(
+            streamID.toString().getBytes(StandardCharsets.UTF_8), tableOptions);
+        ColumnFamilyHandle tableHandle = database.createColumnFamily(tableDescriptor);
+        columnFamilies.put(streamID, tableHandle);
+      }
     }
 
     public void updateAll(List<byte[][]> keyValuePairs, UUID streamID)

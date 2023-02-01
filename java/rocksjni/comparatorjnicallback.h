@@ -43,18 +43,26 @@ enum ReusedSynchronisationType {
 };
 
 struct ComparatorJniCallbackOptions {
+  ComparatorJniCallbackOptions(
+      ReusedSynchronisationType _reused_synchronisation_type,
+      bool _direct_buffer, int32_t _max_reused_buffer_size)
+      : reused_synchronisation_type(_reused_synchronisation_type),
+        direct_buffer(_direct_buffer),
+        max_reused_buffer_size(_max_reused_buffer_size) {}
+  ComparatorJniCallbackOptions()
+      : ComparatorJniCallbackOptions(ReusedSynchronisationType::ADAPTIVE_MUTEX,
+                                     true, 64) {}
   // Set the synchronisation type used to guard the reused buffers.
   // Only used if max_reused_buffer_size > 0.
   // Default: ADAPTIVE_MUTEX
-  ReusedSynchronisationType reused_synchronisation_type =
-      ReusedSynchronisationType::ADAPTIVE_MUTEX;
+  ReusedSynchronisationType reused_synchronisation_type;
 
   // Indicates if a direct byte buffer (i.e. outside of the normal
   // garbage-collected heap) is used for the callbacks to Java,
   // as opposed to a non-direct byte buffer which is a wrapper around
   // an on-heap byte[].
   // Default: true
-  bool direct_buffer = true;
+  bool direct_buffer;
 
   // Maximum size of a buffer (in bytes) that will be reused.
   // Comparators will use 5 of these buffers,
@@ -64,7 +72,7 @@ struct ComparatorJniCallbackOptions {
   // existing buffer will be reused, else a new buffer will be
   // allocated just for that callback. -1 to disable.
   // Default: 64 bytes
-  int32_t max_reused_buffer_size = 64;
+  int32_t max_reused_buffer_size;
 };
 
 /**
@@ -92,7 +100,7 @@ class ComparatorJniCallback : public JniCallback, public Comparator {
   virtual void FindShortestSeparator(std::string* start,
                                      const Slice& limit) const;
   virtual void FindShortSuccessor(std::string* key) const;
-  const ComparatorJniCallbackOptions* m_options;
+  const std::unique_ptr<ComparatorJniCallbackOptions> m_options;
 
  private:
   struct ThreadLocalBuf {
