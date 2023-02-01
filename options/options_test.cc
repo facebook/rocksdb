@@ -811,9 +811,11 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
   ConfigOptions exact;
-
+  ConfigOptions cf_config_options;
+  cf_config_options.input_strings_escaped = false;
+  cf_config_options.ignore_unknown_options = false;
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt,
+      cf_config_options, base_cf_opt,
       "write_buffer_size=18;prefix_extractor=capped:8;"
       "arena_block_size=19",
       &new_cf_opt));
@@ -824,7 +826,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
 
   // And with a bad option
   ASSERT_NOK(GetColumnFamilyOptionsFromString(
-      base_cf_opt,
+      cf_config_options, base_cf_opt,
       "write_buffer_size=10;max_write_buffer_number=16;"
       "block_based_table_factory={xx_block_size=4;}",
       &new_cf_opt));
@@ -836,15 +838,17 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"max_write_buffer_number", "2"},
       {"min_write_buffer_number_to_merge", "3"},
   };
-  ASSERT_OK(
-      GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
+                                          cf_options_map, &new_cf_opt));
   cf_options_map["unknown_option"] = "1";
-  ASSERT_NOK(
-      GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
+                                           cf_options_map, &new_cf_opt));
   ASSERT_OK(
       RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
-  ASSERT_OK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map,
-                                          &new_cf_opt, true, true));
+  cf_config_options.input_strings_escaped = true;
+  cf_config_options.ignore_unknown_options = true;
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
+                                          cf_options_map, &new_cf_opt));
 
   DBOptions base_db_opt;
   DBOptions new_db_opt;
@@ -857,7 +861,12 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
   };
-  ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+
+  ConfigOptions db_config_options(base_db_opt);
+  db_config_options.input_strings_escaped = false;
+  db_config_options.ignore_unknown_options = false;
+  ASSERT_OK(GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
+                                &new_db_opt));
   ASSERT_EQ(new_db_opt.create_if_missing, false);
   ASSERT_EQ(new_db_opt.create_missing_column_families, true);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
@@ -866,23 +875,28 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   db_options_map["unknown_option"] = "1";
-  Status s = GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt);
+  Status s = GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
+                                 &new_db_opt);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
 
   ASSERT_OK(
       RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
-  ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt, true,
-                                true));
+  db_config_options.input_strings_escaped = true;
+  db_config_options.ignore_unknown_options = true;
+  ASSERT_OK(GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
+                                &new_db_opt));
+  db_config_options.input_strings_escaped = false;
+  db_config_options.ignore_unknown_options = false;
   ASSERT_OK(GetDBOptionsFromString(
-      base_db_opt,
+      db_config_options, base_db_opt,
       "create_if_missing=false;error_if_exists=false;max_open_files=42;",
       &new_db_opt));
   ASSERT_EQ(new_db_opt.create_if_missing, false);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.max_open_files, 42);
   s = GetDBOptionsFromString(
-      base_db_opt,
+      db_config_options, base_db_opt,
       "create_if_missing=false;error_if_exists=false;max_open_files=42;"
       "unknown_option=1;",
       &new_db_opt);
@@ -2355,8 +2369,11 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
 
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
-  ASSERT_OK(GetColumnFamilyOptionsFromMap(
-            base_cf_opt, cf_options_map, &new_cf_opt));
+  ConfigOptions cf_config_options;
+  cf_config_options.ignore_unknown_options = false;
+  cf_config_options.input_strings_escaped = false;
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
+                                          cf_options_map, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 1U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 2);
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
@@ -2444,8 +2461,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
-  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
-             base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
+                                           cf_options_map, &new_cf_opt));
   ConfigOptions exact, loose;
   exact.sanity_level = ConfigOptions::kSanityLevelExactMatch;
   loose.sanity_level = ConfigOptions::kSanityLevelLooselyCompatible;
@@ -2453,18 +2470,18 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   cf_options_map["write_buffer_size"] = "1";
-  ASSERT_OK(GetColumnFamilyOptionsFromMap(
-            base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
+                                          cf_options_map, &new_cf_opt));
 
   cf_options_map["unknown_option"] = "1";
-  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
-             base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
+                                           cf_options_map, &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
-  ASSERT_OK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map,
-                                          &new_cf_opt,
-                                          false, /* input_strings_escaped  */
-                                          true /* ignore_unknown_options */));
+  cf_config_options.input_strings_escaped = false;
+  cf_config_options.ignore_unknown_options = true;
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,
+                                          cf_options_map, &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
       loose, base_cf_opt, new_cf_opt, nullptr /* new_opt_map */));
   ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
@@ -2472,7 +2489,11 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
 
   DBOptions base_db_opt;
   DBOptions new_db_opt;
-  ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+  ConfigOptions db_config_options(base_db_opt);
+  db_config_options.input_strings_escaped = false;
+  db_config_options.ignore_unknown_options = false;
+  ASSERT_OK(GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
+                                &new_db_opt));
   ASSERT_EQ(new_db_opt.create_if_missing, false);
   ASSERT_EQ(new_db_opt.create_missing_column_families, true);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
@@ -2515,18 +2536,21 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.strict_bytes_per_sync, true);
 
   db_options_map["max_open_files"] = "hello";
-  ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+  ASSERT_NOK(GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
+                                 &new_db_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(loose, base_db_opt, new_db_opt));
 
   // unknow options should fail parsing without ignore_unknown_options = true
   db_options_map["unknown_db_option"] = "1";
-  ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+  ASSERT_NOK(GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
+                                 &new_db_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
 
-  ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt,
-                                false, /* input_strings_escaped  */
-                                true /* ignore_unknown_options */));
+  db_config_options.input_strings_escaped = false;
+  db_config_options.ignore_unknown_options = true;
+  ASSERT_OK(GetDBOptionsFromMap(db_config_options, base_db_opt, db_options_map,
+                                &new_db_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(loose, base_db_opt, new_db_opt));
   ASSERT_NOK(RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
 }
@@ -2535,33 +2559,38 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
   base_cf_opt.table_factory.reset();
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt, "", &new_cf_opt));
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=5", &new_cf_opt));
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
+  ASSERT_OK(GetColumnFamilyOptionsFromString(config_options, base_cf_opt, "",
+                                             &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt, "write_buffer_size=5", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 5U);
   ASSERT_TRUE(new_cf_opt.table_factory == nullptr);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=6;", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt, "write_buffer_size=6;", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 6U);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "  write_buffer_size =  7  ", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt, "  write_buffer_size =  7  ", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 7U);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "  write_buffer_size =  8 ; ", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt, "  write_buffer_size =  8 ; ", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 8U);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=9;max_write_buffer_number=10", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=9;max_write_buffer_number=10", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 9U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 10);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=11; max_write_buffer_number  =  12 ;",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=11; max_write_buffer_number  =  12 ;", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 11U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 12);
   // Wrong name "max_write_buffer_number_"
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13;max_write_buffer_number_=14;",
-              &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=13;max_write_buffer_number_=14;", &new_cf_opt));
   ConfigOptions exact;
   exact.sanity_level = ConfigOptions::kSanityLevelExactMatch;
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
@@ -2574,30 +2603,34 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
          std::unique_ptr<const Comparator>* /*guard*/,
          std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
 
-  ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt, "comparator=" + kCompName + ";", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(config_options, base_cf_opt,
+                                             "comparator=" + kCompName + ";",
+                                             &new_cf_opt));
   ASSERT_EQ(new_cf_opt.comparator, ReverseBytewiseComparator());
 
   // MergeOperator from object registry
   std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
   std::string kMoName = bxo->Name();
-  ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt, "merge_operator=" + kMoName + ";", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(config_options, base_cf_opt,
+                                             "merge_operator=" + kMoName + ";",
+                                             &new_cf_opt));
   ASSERT_EQ(kMoName, std::string(new_cf_opt.merge_operator->Name()));
 
   // Wrong key/value pair
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13;max_write_buffer_number;", &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=13;max_write_buffer_number;", &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Error Paring value
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13;max_write_buffer_number=;", &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=13;max_write_buffer_number=;", &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Missing option name
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13; =100;", &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt, "write_buffer_size=13; =100;", &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   const uint64_t kilo = 1024UL;
@@ -2607,17 +2640,17 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
 
   // Units (k)
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt, "max_write_buffer_number=15K", &new_cf_opt));
+      config_options, base_cf_opt, "max_write_buffer_number=15K", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 15 * kilo);
   // Units (m)
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "max_write_buffer_number=16m;inplace_update_num_locks=17M",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "max_write_buffer_number=16m;inplace_update_num_locks=17M", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 16 * mega);
   ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 17u * mega);
   // Units (g)
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt,
+      config_options, base_cf_opt,
       "write_buffer_size=18g;prefix_extractor=capped:8;"
       "arena_block_size=19G",
       &new_cf_opt));
@@ -2628,107 +2661,119 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.CappedPrefix.8");
 
   // Units (t)
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=20t;arena_block_size=21T", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt, "write_buffer_size=20t;arena_block_size=21T",
+      &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 20 * tera);
   ASSERT_EQ(new_cf_opt.arena_block_size, 21 * tera);
 
   // Nested block based table options
   // Empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "block_based_table_factory={};arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={};arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   // Non-empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "block_based_table_factory={block_cache=1M;block_size=4;};"
-            "arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_cache=1M;block_size=4;};"
+      "arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   // Last one
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "block_based_table_factory={block_cache=1M;block_size=4;}",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_cache=1M;block_size=4;}",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   // Mismatch curly braces
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={{{block_size=4;};"
-             "arena_block_size=1024",
-             &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={{{block_size=4;};"
+      "arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Unexpected chars after closing curly brace
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={block_size=4;}};"
-             "arena_block_size=1024",
-             &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_size=4;}};"
+      "arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={block_size=4;}xdfa;"
-             "arena_block_size=1024",
-             &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_size=4;}xdfa;"
+      "arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={block_size=4;}xdfa",
-             &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_size=4;}xdfa",
+      &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Invalid block based table option
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={xx_block_size=4;}",
-             &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={xx_block_size=4;}",
+      &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-           "optimize_filters_for_hits=true",
-           &new_cf_opt));
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "optimize_filters_for_hits=false",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(config_options, base_cf_opt,
+                                             "optimize_filters_for_hits=true",
+                                             &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(config_options, base_cf_opt,
+                                             "optimize_filters_for_hits=false",
+                                             &new_cf_opt));
 
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-              "optimize_filters_for_hits=junk",
-              &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(config_options, base_cf_opt,
+                                              "optimize_filters_for_hits=junk",
+                                              &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(exact, base_cf_opt, new_cf_opt));
 
   // Nested plain table options
   // Empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "plain_table_factory={};arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "plain_table_factory={};arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.table_factory->Name()), "PlainTable");
   // Non-empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "plain_table_factory={user_key_len=66;bloom_bits_per_key=20;};"
-            "arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "plain_table_factory={user_key_len=66;bloom_bits_per_key=20;};"
+      "arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.table_factory->Name()), "PlainTable");
 
   // memtable factory
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "memtable=skip_list:10;arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "memtable=skip_list:10;arena_block_size=1024",
+      &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
 
   // blob cache
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt,
+      config_options, base_cf_opt,
       "blob_cache={capacity=1M;num_shard_bits=4;"
       "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};",
       &new_cf_opt));
@@ -2832,9 +2877,15 @@ TEST_F(OptionsTest, SliceTransformCreateFromString) {
 TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   BlockBasedTableOptions table_opt;
   BlockBasedTableOptions new_opt;
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
+  config_options.invoke_prepare_options = false;
+  config_options.ignore_unsupported_options = false;
+
   // make sure default values are overwritten by something else
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      table_opt,
+      config_options, table_opt,
       "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
       "checksum=kxxHash;no_block_cache=1;"
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
@@ -2860,54 +2911,57 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 5);
 
   // unknown option
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
-             "bad_option=1",
-             &new_opt));
+  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
+      "bad_option=1",
+      &new_opt));
   ASSERT_EQ(static_cast<bool>(table_opt.cache_index_and_filter_blocks),
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized index type
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX",
-             &new_opt));
+  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX", &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized checksum type
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;checksum=kxxHashXX",
-             &new_opt));
+  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "cache_index_and_filter_blocks=1;checksum=kxxHashXX", &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized filter policy name
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;"
-             "filter_policy=bloomfilterxx:4:true",
-             &new_opt));
+  ASSERT_NOK(
+      GetBlockBasedTableOptionsFromString(config_options, table_opt,
+                                          "cache_index_and_filter_blocks=1;"
+                                          "filter_policy=bloomfilterxx:4:true",
+                                          &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
   // Used to be rejected, now accepted
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      table_opt, "filter_policy=bloomfilter:4", &new_opt));
+      config_options, table_opt, "filter_policy=bloomfilter:4", &new_opt));
   bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
 
   // Check block cache options are overwritten when specified
   // in new format as a struct.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};"
-             "block_cache_compressed={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;high_pri_pool_ratio=0.5;}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "block_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};"
+      "block_cache_compressed={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;}",
+      &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
   ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
@@ -2919,10 +2973,11 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
 
   // Set only block cache capacity. Check other values are
   // reset to default values.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={capacity=2M};"
-             "block_cache_compressed={capacity=2M}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "block_cache={capacity=2M};"
+      "block_cache_compressed={capacity=2M}",
+      &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 2*1024UL*1024UL);
   // Default values
@@ -2936,7 +2991,7 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
 
   // Set couple of block cache options.
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      table_opt,
+      config_options, table_opt,
       "block_cache={num_shard_bits=5;high_pri_pool_ratio=0.5;};"
       "block_cache_compressed={num_shard_bits=5;"
       "high_pri_pool_ratio=0.0;}",
@@ -2950,12 +3005,13 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
                 new_opt.block_cache)->GetHighPriPoolRatio(), 0.5);
 
   // Set couple of block cache options.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;};"
-             "block_cache_compressed={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "block_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;};"
+      "block_cache_compressed={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;}",
+      &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
   ASSERT_EQ(std::dynamic_pointer_cast<ShardedCacheBase>(new_opt.block_cache)
@@ -2971,11 +3027,16 @@ TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
   PlainTableOptions table_opt;
   PlainTableOptions new_opt;
   // make sure default values are overwritten by something else
-  ASSERT_OK(GetPlainTableOptionsFromString(table_opt,
-            "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-            "index_sparseness=8;huge_page_tlb_size=4;encoding_type=kPrefix;"
-            "full_scan_mode=true;store_index_in_file=true",
-            &new_opt));
+  ConfigOptions config_options_from_string;
+  config_options_from_string.input_strings_escaped = false;
+  config_options_from_string.ignore_unknown_options = false;
+  config_options_from_string.invoke_prepare_options = false;
+  ASSERT_OK(GetPlainTableOptionsFromString(
+      config_options_from_string, table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "index_sparseness=8;huge_page_tlb_size=4;encoding_type=kPrefix;"
+      "full_scan_mode=true;store_index_in_file=true",
+      &new_opt));
   ASSERT_EQ(new_opt.user_key_len, 66u);
   ASSERT_EQ(new_opt.bloom_bits_per_key, 20);
   ASSERT_EQ(new_opt.hash_table_ratio, 0.5);
@@ -2988,22 +3049,28 @@ TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
   std::unordered_map<std::string, std::string> opt_map;
   ASSERT_OK(StringToMap(
       "user_key_len=55;bloom_bits_per_key=10;huge_page_tlb_size=8;", &opt_map));
-  ASSERT_OK(GetPlainTableOptionsFromMap(table_opt, opt_map, &new_opt));
+  ConfigOptions config_options_from_map;
+  config_options_from_map.input_strings_escaped = false;
+  config_options_from_map.ignore_unknown_options = false;
+  ASSERT_OK(GetPlainTableOptionsFromMap(config_options_from_map, table_opt,
+                                        opt_map, &new_opt));
   ASSERT_EQ(new_opt.user_key_len, 55u);
   ASSERT_EQ(new_opt.bloom_bits_per_key, 10);
   ASSERT_EQ(new_opt.huge_page_tlb_size, 8);
 
   // unknown option
-  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
-             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-             "bad_option=1",
-             &new_opt));
+  ASSERT_NOK(GetPlainTableOptionsFromString(
+      config_options_from_string, table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "bad_option=1",
+      &new_opt));
 
   // unrecognized EncodingType
-  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
-             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-             "encoding_type=kPrefixXX",
-             &new_opt));
+  ASSERT_NOK(GetPlainTableOptionsFromString(
+      config_options_from_string, table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "encoding_type=kPrefixXX",
+      &new_opt));
 }
 
 TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
@@ -3085,10 +3152,15 @@ TEST_F(OptionsOldApiTest, DBOptionsSerialization) {
 
   // Phase 3: Set new_options from the derived string and expect
   //          new_options == base_options
-  ASSERT_OK(GetDBOptionsFromString(DBOptions(), base_options_file_content,
-                                   &new_options));
-  ConfigOptions config_options;
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_options, base_options, new_options));
+  const DBOptions base_db_options;
+  ConfigOptions db_config_options(base_db_options);
+  db_config_options.input_strings_escaped = false;
+  db_config_options.ignore_unknown_options = false;
+  ASSERT_OK(GetDBOptionsFromString(db_config_options, base_db_options,
+                                   base_options_file_content, &new_options));
+  ConfigOptions verify_db_config_options;
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(verify_db_config_options,
+                                                  base_options, new_options));
 }
 
 TEST_F(OptionsOldApiTest, ColumnFamilyOptionsSerialization) {
@@ -3106,10 +3178,15 @@ TEST_F(OptionsOldApiTest, ColumnFamilyOptionsSerialization) {
 
   // Phase 3: Set new_opt from the derived string and expect
   //          new_opt == base_opt
-  ASSERT_OK(GetColumnFamilyOptionsFromString(
-      ColumnFamilyOptions(), base_options_file_content, &new_opt));
-  ConfigOptions config_options;
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_opt, new_opt));
+  ConfigOptions cf_config_options;
+  cf_config_options.input_strings_escaped = false;
+  cf_config_options.ignore_unknown_options = false;
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromString(cf_config_options, ColumnFamilyOptions(),
+                                       base_options_file_content, &new_opt));
+  ConfigOptions verify_cf_config_options;
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(verify_cf_config_options,
+                                                  base_opt, new_opt));
   if (base_opt.compaction_filter) {
     delete base_opt.compaction_filter;
   }
