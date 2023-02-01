@@ -1972,8 +1972,19 @@ Status DBImpl::RunManualCompaction(
                manual.begin, manual.end, &manual.manual_end, &manual_conflict,
                max_file_num_to_ignore, trim_ts)) == nullptr &&
           manual_conflict))) {
-      // Running either this or some other manual compaction
-      bg_cv_.Wait();
+      if (!scheduled) {
+        // There is a conflicting compaction
+        if (manual_compaction_paused_ > 0 || manual.canceled == true) {
+          // Stop waiting since it was canceled. Pretend the error came from
+          // compaction so the below cleanup/error handling code can process it.
+          manual.done = true;
+          manual.status =
+              Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+        }
+      }
+      if (!manual.done) {
+        bg_cv_.Wait();
+      }
       if (manual_compaction_paused_ > 0 && scheduled && !unscheduled) {
         assert(thread_pool_priority != Env::Priority::TOTAL);
         // unschedule all manual compactions
