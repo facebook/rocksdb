@@ -3,6 +3,7 @@
 ### Bug Fixes
 * Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
 * Fixed `DisableManualCompaction()` and `CompactRangeOptions::canceled` to cancel compactions even when they are waiting on conflicting compactions to finish
+* Fixed a bug in which a successful `GetMergeOperands()` could transiently return `Status::MergeInProgress()`
 
 ## 7.10.0 (01/23/2023)
 ### Behavior changes
