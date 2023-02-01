@@ -178,7 +178,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
         gmake rocksdbjava
 
 * **iOS**:
-  * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define two important pre-processing macros: `ROCKSDB_LITE` and `IOS_CROSS_COMPILE`.
+  * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define an important pre-processing macros: `IOS_CROSS_COMPILE`.
 
 * **Windows** (Visual Studio 2017 to up):
   * Read and follow the instructions at CMakeLists.txt

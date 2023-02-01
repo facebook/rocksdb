@@ -96,19 +96,10 @@ std::string GetTestNameSuffix(
   return oss.str();
 }
 
-#ifndef ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(DBRateLimiterOnReadTest, DBRateLimiterOnReadTest,
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool()),
                         GetTestNameSuffix);
-#else   // ROCKSDB_LITE
-// Cannot use direct I/O in lite mode.
-INSTANTIATE_TEST_CASE_P(DBRateLimiterOnReadTest, DBRateLimiterOnReadTest,
-                        ::testing::Combine(::testing::Values(false),
-                                           ::testing::Bool(),
-                                           ::testing::Bool()),
-                        GetTestNameSuffix);
-#endif  // ROCKSDB_LITE
 
 TEST_P(DBRateLimiterOnReadTest, Get) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
@@ -234,7 +225,6 @@ TEST_P(DBRateLimiterOnReadTest, Iterator) {
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
-#if !defined(ROCKSDB_LITE)
 
 TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
@@ -264,7 +254,6 @@ TEST_P(DBRateLimiterOnReadTest, VerifyFileChecksums) {
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
-#endif  // !defined(ROCKSDB_LITE)
 
 class DBRateLimiterOnWriteTest : public DBTestBase {
  public:
@@ -319,10 +308,8 @@ TEST_F(DBRateLimiterOnWriteTest, Compact) {
 
   // Pre-comaction:
   // level-0 : `kNumFiles` SST files overlapping on [kStartKey, kEndKey]
-#ifndef ROCKSDB_LITE
   std::string files_per_level_pre_compaction = std::to_string(kNumFiles);
   ASSERT_EQ(files_per_level_pre_compaction, FilesPerLevel(0 /* cf */));
-#endif  // !ROCKSDB_LITE
 
   std::int64_t prev_total_request =
       options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
@@ -337,10 +324,8 @@ TEST_F(DBRateLimiterOnWriteTest, Compact) {
   // Post-comaction:
   // level-0 : 0 SST file
   // level-1 : 1 SST file
-#ifndef ROCKSDB_LITE
   std::string files_per_level_post_compaction = "0,1";
   ASSERT_EQ(files_per_level_post_compaction, FilesPerLevel(0 /* cf */));
-#endif  // !ROCKSDB_LITE
 
   std::int64_t exepcted_compaction_request = 1;
   EXPECT_EQ(actual_compaction_request, exepcted_compaction_request);

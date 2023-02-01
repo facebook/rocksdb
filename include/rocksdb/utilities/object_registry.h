@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <functional>
 #include <map>
@@ -582,4 +581,3 @@ class ObjectRegistry {
   mutable std::mutex library_mutex_;  // Mutex for managed libraries
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include <stdint.h>
 
 #include <string>
@@ -151,4 +150,3 @@ class PlainTableBuilder : public TableBuilder {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

@@ -49,7 +49,6 @@ std::shared_ptr<DB> OpenNormalDb(const std::string& delim) {
   return std::shared_ptr<DB>(db);
 }
 
-#ifndef ROCKSDB_LITE  // TtlDb is not supported in Lite
 // Open a TtlDB with a non-associative StringAppendTESTOperator
 std::shared_ptr<DB> OpenTtlDb(const std::string& delim) {
   DBWithTTL* db;
@@ -65,7 +64,6 @@ std::shared_ptr<DB> OpenTtlDb(const std::string& delim) {
   EXPECT_OK(DBWithTTL::Open(options, kDbName, &db, 123456));
   return std::shared_ptr<DB>(db);
 }
-#endif  // !ROCKSDB_LITE
 }  // namespace
 
 /// StringLists represents a set of string-lists, each with a key-index.
@@ -130,14 +128,12 @@ class StringAppendOperatorTest : public testing::Test,
   }
 
   void SetUp() override {
-#ifndef ROCKSDB_LITE  // TtlDb is not supported in Lite
     bool if_use_ttl = GetParam();
     if (if_use_ttl) {
       fprintf(stderr, "Running tests with ttl db and generic operator.\n");
       StringAppendOperatorTest::SetOpenDbFunction(&OpenTtlDb);
       return;
     }
-#endif  // !ROCKSDB_LITE
     fprintf(stderr, "Running tests with regular db and operator.\n");
     StringAppendOperatorTest::SetOpenDbFunction(&OpenNormalDb);
   }

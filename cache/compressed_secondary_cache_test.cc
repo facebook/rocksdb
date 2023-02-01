@@ -817,7 +817,6 @@ class CompressedSecondaryCacheTestWithCompressionParam
   bool sec_cache_is_compressed_;
 };
 
-#ifndef ROCKSDB_LITE
 
 TEST_P(CompressedSecondaryCacheTestWithCompressionParam, BasicTestFromString) {
   std::shared_ptr<SecondaryCache> sec_cache{nullptr};
@@ -882,7 +881,6 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
   BasicTestHelper(sec_cache, sec_cache_is_compressed_);
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST_P(CompressedSecondaryCacheTestWithCompressionParam, FailsTest) {
   FailsTest(sec_cache_is_compressed_);

@@ -17,7 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
                                  const std::string& dbname,
                                  std::string secondary_path)
@@ -946,22 +945,5 @@ Status DB::OpenAndCompact(
                         output, override_options);
 }
 
-#else   // !ROCKSDB_LITE
-
-Status DB::OpenAsSecondary(const Options& /*options*/,
-                           const std::string& /*name*/,
-                           const std::string& /*secondary_path*/,
-                           DB** /*dbptr*/) {
-  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
-}
-
-Status DB::OpenAsSecondary(
-    const DBOptions& /*db_options*/, const std::string& /*dbname*/,
-    const std::string& /*secondary_path*/,
-    const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
-    std::vector<ColumnFamilyHandle*>* /*handles*/, DB** /*dbptr*/) {
-  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
-}
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

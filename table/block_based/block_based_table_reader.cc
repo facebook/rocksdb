@@ -576,15 +576,13 @@ Status BlockBasedTable::Open(
   Footer footer;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
-  // From read_options, retain deadline, io_timeout, and rate_limiter_priority.
-  // In future, we may retain more
-  // options. Specifically, we ignore verify_checksums and default to
-  // checksum verification anyway when creating the index and filter
-  // readers.
+  // From read_options, retain deadline, io_timeout, rate_limiter_priority, and
+  // verify_checksums. In future, we may retain more options.
   ReadOptions ro;
   ro.deadline = read_options.deadline;
   ro.io_timeout = read_options.io_timeout;
   ro.rate_limiter_priority = read_options.rate_limiter_priority;
+  ro.verify_checksums = read_options.verify_checksums;
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
@@ -734,7 +732,6 @@ Status BlockBasedTable::Open(
     rep->table_prefix_extractor = prefix_extractor;
   } else {
     // Current prefix_extractor doesn't match table
-#ifndef ROCKSDB_LITE
     if (rep->table_properties) {
       //**TODO: If/When the DBOptions has a registry in it, the ConfigOptions
       // will need to use it
@@ -750,7 +747,6 @@ Status BlockBasedTable::Open(
                         st.ToString().c_str());
       }
     }
-#endif  // ROCKSDB_LITE
   }
 
   // With properties loaded, we can set up portable/stable cache keys

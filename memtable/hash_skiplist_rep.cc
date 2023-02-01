@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 #include <atomic>
 
 #include "db/memtable.h"
@@ -390,4 +389,3 @@ MemTableRepFactory* NewHashSkipListRepFactory(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

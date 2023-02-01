@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_unprepared_txn.h"
 
@@ -1050,4 +1049,3 @@ WriteUnpreparedTxn::GetUnpreparedSequenceNumbers() {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

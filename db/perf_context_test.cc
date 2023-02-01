@@ -49,11 +49,9 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
       FLAGS_min_write_buffer_number_to_merge;
 
   if (FLAGS_use_set_based_memetable) {
-#ifndef ROCKSDB_LITE
     options.prefix_extractor.reset(
         ROCKSDB_NAMESPACE::NewFixedPrefixTransform(0));
     options.memtable_factory.reset(NewHashSkipListRepFactory());
-#endif  // ROCKSDB_LITE
   }
 
   Status s;
@@ -498,7 +496,6 @@ void ProfileQueries(bool enabled_time = false) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(PerfContextTest, KeyComparisonCount) {
   SetPerfLevel(kEnableCount);
   ProfileQueries();
@@ -509,7 +506,6 @@ TEST_F(PerfContextTest, KeyComparisonCount) {
   SetPerfLevel(kEnableTime);
   ProfileQueries(true);
 }
-#endif  // ROCKSDB_LITE
 
 // make perf_context_test
 // export ROCKSDB_TESTS=PerfContextTest.SeekKeyComparison

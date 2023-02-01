@@ -27,9 +27,6 @@ class DBRangeDelTest : public DBTestBase {
   }
 };
 
-// PlainTableFactory, WriteBatchWithIndex, and NumTableFilesAtLevel() are not
-// supported in ROCKSDB_LITE
-#ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
   // TODO: figure out why MmapReads trips the iterator pinning assertion in
   // RangeDelAggregator. Ideally it would be supported; otherwise it should at
@@ -298,7 +295,6 @@ TEST_F(DBRangeDelTest, CompactRangeDelsSameStartKey) {
     ASSERT_TRUE(db_->Get(ReadOptions(), "b1", &value).IsNotFound());
   }
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBRangeDelTest, FlushRemovesCoveredKeys) {
   const int kNum = 300, kRangeBegin = 50, kRangeEnd = 250;
@@ -335,8 +331,6 @@ TEST_F(DBRangeDelTest, FlushRemovesCoveredKeys) {
   db_->ReleaseSnapshot(snapshot);
 }
 
-// NumTableFilesAtLevel() is not supported in ROCKSDB_LITE
-#ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
   const int kNumPerFile = 100, kNumFiles = 4;
   Options opts = CurrentOptions();
@@ -517,7 +511,6 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
       "" /*trim_ts*/));
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBRangeDelTest, CompactionRemovesCoveredMergeOperands) {
   const int kNumPerFile = 3, kNumFiles = 3;
@@ -589,8 +582,6 @@ TEST_F(DBRangeDelTest, PutDeleteRangeMergeFlush) {
   ASSERT_EQ(expected, actual);
 }
 
-// NumTableFilesAtLevel() is not supported in ROCKSDB_LITE
-#ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, ObsoleteTombstoneCleanup) {
   // During compaction to bottommost level, verify range tombstones older than
   // the oldest snapshot are removed, while others are preserved.
@@ -3024,7 +3015,6 @@ TEST_F(DBRangeDelTest, DoubleCountRangeTombstoneCompensatedSize) {
   db_->ReleaseSnapshot(snapshot);
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

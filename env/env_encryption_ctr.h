@@ -5,7 +5,6 @@
 
 #pragma once
 
-#if !defined(ROCKSDB_LITE)
 
 #include "rocksdb/env_encryption.h"
 
@@ -113,4 +112,3 @@ Status NewEncryptedFileSystemImpl(
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE)

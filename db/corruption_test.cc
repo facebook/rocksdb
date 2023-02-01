@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/options.h"
-#ifndef ROCKSDB_LITE
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -168,6 +167,10 @@ class CorruptionTest : public testing::Test {
   void Build(int n, int flush_every = 0) { Build(n, 0, flush_every); }
 
   void Check(int min_expected, int max_expected) {
+    Check(min_expected, max_expected, ReadOptions(false, true));
+  }
+
+  void Check(int min_expected, int max_expected, ReadOptions read_options) {
     uint64_t next_expected = 0;
     uint64_t missed = 0;
     int bad_keys = 0;
@@ -179,7 +182,7 @@ class CorruptionTest : public testing::Test {
     // Instead, we want the reads to be successful and this test
     // will detect whether the appropriate corruptions have
     // occurred.
-    Iterator* iter = db_->NewIterator(ReadOptions(false, true));
+    Iterator* iter = db_->NewIterator(read_options);
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_OK(iter->status());
       uint64_t key;
@@ -515,7 +518,7 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   dbi = static_cast_with_check<DBImpl>(db_);
   // one full file may be readable, since only one was corrupted
   // the other file should be fully non-readable, since index was corrupted
-  Check(0, 5000);
+  Check(0, 5000, ReadOptions(true, true));
   ASSERT_NOK(dbi->VerifyChecksum());
 
   // In paranoid mode, the db cannot be opened due to the corrupted file.
@@ -1664,12 +1667,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as RepairDB() is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

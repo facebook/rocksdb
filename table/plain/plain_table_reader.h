@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include <stdint.h>
 
 #include <memory>
@@ -241,4 +240,3 @@ class PlainTableReader : public TableReader {
   void operator=(const TableReader&) = delete;
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

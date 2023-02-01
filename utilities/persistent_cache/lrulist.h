@@ -5,7 +5,6 @@
 //
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <atomic>
 
@@ -171,4 +170,3 @@ class LRUList {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif

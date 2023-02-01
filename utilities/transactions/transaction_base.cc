@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/transaction_base.h"
 
@@ -728,4 +727,3 @@ WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
