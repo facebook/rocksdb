@@ -9,6 +9,7 @@
 * Fixed an issue in `Get` and `MultiGet` when user-defined timestamps is enabled in combination with BlobDB.
 * Fixed some atypical behaviors for `LockWAL()` such as allowing concurrent/recursive use and not expecting `UnlockWAL()` after non-OK result. See API comments.
 * Fixed a feature interaction bug where for blobs `GetEntity` would expose the blob reference instead of the blob value.
+* Fixed `DisableManualCompaction()` and `CompactRangeOptions::canceled` to cancel compactions even when they are waiting on conflicting compactions to finish
 
 ### Feature Removal
 * Remove RocksDB Lite.
