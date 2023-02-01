@@ -1,23 +1,25 @@
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 package org.rocksdb;
 
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.util.ReverseBytewiseComparator;
 
-import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-
 public class ByteBufferUnsupportedOperationTest {
-
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
       new RocksNativeLibraryResource();
 
-  @Rule
-  public TemporaryFolder dbFolder = new TemporaryFolder();
+  @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   public static class Handler {
     private final RocksDB database;
@@ -69,7 +71,6 @@ public class ByteBufferUnsupportedOperationTest {
       return false;
     }
 
-
     public void close() {
       for (final ColumnFamilyHandle handle : columnFamilies.values()) {
         handle.close();
@@ -78,22 +79,22 @@ public class ByteBufferUnsupportedOperationTest {
     }
   }
 
-  private void inner(final int n) throws RocksDBException {
+  private void inner(final int numRepeats) throws RocksDBException {
     final Options opts = new Options();
     opts.setCreateIfMissing(true);
     final Handler handler = new Handler("testDB", opts);
     final UUID stream1 = UUID.randomUUID();
 
     final List<byte[][]> entries = new ArrayList<>();
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < numRepeats; i++) {
       final byte[] value = value(i);
       final byte[] key = key(i);
-      entries.add(new byte[][]{key, value});
+      entries.add(new byte[][] {key, value});
     }
     handler.addTable(stream1);
     handler.updateAll(entries, stream1);
 
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < numRepeats; i++) {
       final byte[] val = value(i);
       final boolean hasValue = handler.containsValue(val, stream1);
       if (!hasValue) {
@@ -112,14 +113,20 @@ public class ByteBufferUnsupportedOperationTest {
     return ("value" + i).getBytes(StandardCharsets.UTF_8);
   }
 
-  @Test public void unsupportedOperation() throws RocksDBException {
-    final int n = 1_000;
-    final int repeatTest = 100;
+  @Test
+  public void unsupportedOperation() throws RocksDBException {
+    final int numRepeats = 1000;
+    final int repeatTest = 10;
 
-    // the error is not always reproducible... let's try to increase the odds by repeating the main test body
+    // the error is not always reproducible... let's try to increase the odds by repeating the main
+    // test body
     for (int i = 0; i < repeatTest; i++) {
-      inner(n);
-      System.out.println("done " + i);
+      try {
+        inner(numRepeats);
+      } catch (final RuntimeException runtimeException) {
+        System.out.println("Exception on repeat " + i);
+        throw runtimeException;
+      }
     }
   }
 }
