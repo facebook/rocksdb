@@ -2243,6 +2243,20 @@ class DBMultiGetAsyncIOTest : public DBBasicTest,
   const std::shared_ptr<Statistics>& statistics() { return statistics_; }
 
  protected:
+  void PrepareDBForTest() {
+#ifdef ROCKSDB_IOURING_PRESENT
+    Reopen(options_);
+#else   // ROCKSDB_IOURING_PRESENT
+    // Warm up the block cache so we don't need to use the IO uring
+    Iterator* iter = dbfull()->NewIterator(ReadOptions());
+    for (iter->SeekToFirst(); iter->Valid() && iter->status().ok();
+         iter->Next())
+      ;
+    EXPECT_OK(iter->status());
+    delete iter;
+#endif  // ROCKSDB_IOURING_PRESENT
+  }
+
   void ReopenDB() { Reopen(options_); }
 
  private:
@@ -2257,7 +2271,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
   std::vector<PinnableSlice> values(key_strs.size());
   std::vector<Status> statuses(key_strs.size());
 
-  ReopenDB();
+  PrepareDBForTest();
 
   ReadOptions ro;
   ro.async_io = true;
@@ -2277,6 +2291,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
   // With async IO, lookups will happen in parallel for each key
+#ifdef ROCKSDB_IOURING_PRESENT
   if (GetParam()) {
     ASSERT_EQ(multiget_io_batch_size.count, 1);
     ASSERT_EQ(multiget_io_batch_size.max, 3);
@@ -2286,6 +2301,11 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
     // L0 file
     ASSERT_EQ(multiget_io_batch_size.count, 3);
   }
+#else   // ROCKSDB_IOURING_PRESENT
+  if (GetParam()) {
+    ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  }
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
@@ -2303,7 +2323,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
-  ReopenDB();
+  PrepareDBForTest();
 
   ReadOptions ro;
   ro.async_io = true;
@@ -2318,6 +2338,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
+#ifdef ROCKSDB_IOURING_PRESENT
   HistogramData multiget_io_batch_size;
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
@@ -2325,9 +2346,11 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(multiget_io_batch_size.count, 1);
   ASSERT_EQ(multiget_io_batch_size.max, 3);
+#endif  // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 }
 
+#ifdef ROCKSDB_IOURING_PRESENT
 TEST_P(DBMultiGetAsyncIOTest, GetFromL1Error) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
@@ -2368,7 +2391,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1Error) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ReopenDB();
+  PrepareDBForTest();
 
   ReadOptions ro;
   ro.async_io = true;
@@ -2390,6 +2413,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1Error) {
   ASSERT_EQ(multiget_io_batch_size.max, 2);
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
 }
+#endif  // ROCKSDB_IOURING_PRESENT
 
 TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
   std::vector<std::string> key_strs;
@@ -2407,6 +2431,8 @@ TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
+  PrepareDBForTest();
+
   ReadOptions ro;
   ro.async_io = true;
   ro.optimize_multiget_for_io = GetParam();
@@ -2420,6 +2446,7 @@ TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
+#ifdef ROCKSDB_IOURING_PRESENT
   HistogramData multiget_io_batch_size;
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
@@ -2430,6 +2457,7 @@ TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
   // will lookup 2 files in parallel and issue 2 async reads
   ASSERT_EQ(multiget_io_batch_size.count, 2);
   ASSERT_EQ(multiget_io_batch_size.max, 2);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
@@ -2448,6 +2476,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
+  PrepareDBForTest();
+
   ReadOptions ro;
   ro.async_io = true;
   ro.optimize_multiget_for_io = GetParam();
@@ -2461,6 +2491,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   ASSERT_EQ(values[1], "val_l2_" + std::to_string(56));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
+#ifdef ROCKSDB_IOURING_PRESENT
   HistogramData multiget_io_batch_size;
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
@@ -2470,6 +2501,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   // Otherwise, the L2 lookup will happen after L1.
   ASSERT_EQ(multiget_io_batch_size.count, GetParam() ? 1 : 2);
   ASSERT_EQ(multiget_io_batch_size.max, GetParam() ? 3 : 2);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
@@ -2486,6 +2518,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
+  PrepareDBForTest();
+
   ReadOptions ro;
   ro.async_io = true;
   ro.optimize_multiget_for_io = GetParam();
@@ -2501,6 +2535,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
 }
 
+#ifdef ROCKSDB_IOURING_PRESENT
 TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
@@ -2514,6 +2549,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
   keys.push_back(key_strs[1]);
   values.resize(keys.size());
   statuses.resize(keys.size());
+
+  PrepareDBForTest();
 
   ReadOptions ro;
   ro.async_io = true;
@@ -2544,6 +2581,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
   values.resize(keys.size());
   statuses.resize(keys.size());
 
+  PrepareDBForTest();
+
   ReadOptions ro;
   ro.async_io = true;
   ro.optimize_multiget_for_io = GetParam();
@@ -2558,6 +2597,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 }
+#endif  // ROCKSDB_IOURING_PRESENT
 
 TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
   std::vector<std::string> key_strs;

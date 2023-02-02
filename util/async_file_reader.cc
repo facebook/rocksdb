@@ -66,7 +66,7 @@ void AsyncFileReader::Wait() {
       if (waiter->io_handle_[i] && waiter->del_fn_[i]) {
         waiter->del_fn_[i](waiter->io_handle_[i]);
       }
-      if (!s.ok()) {
+      if (waiter->read_reqs_[i].status.ok() && !s.ok()) {
         // Override the request status with the Poll error
         waiter->read_reqs_[i].status = s;
       }
