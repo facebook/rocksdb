@@ -854,6 +854,30 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDB) {
   delete snapshot_db;
 }
 
+TEST_F(CheckpointTest, CheckpointWithLockWAL) {
+  Options options = CurrentOptions();
+  ASSERT_OK(Put("foo", "foo_value"));
+
+  ASSERT_OK(db_->LockWAL());
+
+  Checkpoint* checkpoint = nullptr;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  delete checkpoint;
+  checkpoint = nullptr;
+
+  ASSERT_OK(db_->UnlockWAL());
+  Close();
+
+  DB* snapshot_db = nullptr;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &snapshot_db));
+  ReadOptions read_opts;
+  std::string get_result;
+  ASSERT_OK(snapshot_db->Get(read_opts, "foo", &get_result));
+  ASSERT_EQ("foo_value", get_result);
+  delete snapshot_db;
+}
+
 TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);

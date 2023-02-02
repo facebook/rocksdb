@@ -88,6 +88,7 @@ default_params = {
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "ingest_external_file_one_in": 1000000,
     "iterpercent": 10,
+    "lock_wal_one_in": 1000000,
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
