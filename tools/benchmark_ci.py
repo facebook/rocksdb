@@ -49,7 +49,6 @@ class Config:
         "SUBCOMPACTIONS",
         "COMPACTION_STYLE",
         "CI_TESTS_ONLY",
-        "NUMA",
     ]
 
 
