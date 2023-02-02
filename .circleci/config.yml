@@ -152,15 +152,15 @@ commands:
     steps:
       - run:
           name: "Test low-variance benchmarks"
-          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 20000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
             # How long to run parts of the test(s)
             DURATION_RO: 400
-            DURATION_RW: 700
+            DURATION_RW: 600
             # Keep threads within physical capacity of server (much lower than default)
             NUM_THREADS: 1
-            MAX_BACKGROUND_JOBS: 3
+            MAX_BACKGROUND_JOBS: 4
             # Don't run a couple of "optional" initial tests
             CI_TESTS_ONLY: "true"
             # Reduce configured size of levels to ensure more levels in the leveled compaction LSM tree
@@ -170,7 +170,12 @@ commands:
             # The benchmark host has 32GB memory
             # The following values are tailored to work with that
             # Note, tests may not exercise the targeted issues if the memory is increased on new test hosts.
-
+            COMPRESSION_TYPE: "none"
+            CACHE_INDEX_AND_FILTER_BLOCKS: 1
+            MIN_LEVEL_TO_COMPRESS: 3
+            CACHE_SIZE_MB: 10240
+            MB_WRITE_PER_SEC: 2
+            NUMA: 1
 
   post-benchmarks:
     steps:
