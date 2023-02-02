@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
 #include "rocksdb/c.h"
 
 #include <cstdlib>
@@ -4677,9 +4676,8 @@ rocksdb_cache_t* rocksdb_cache_create_lru_opts(
 
 rocksdb_hyper_clock_cache_options_t* rocksdb_hyper_clock_cache_options_create(
     size_t capacity, size_t estimated_entry_charge) {
-  return new rocksdb_hyper_clock_cache_options_t {
-    HyperClockCacheOptions(capacity, estimated_entry_charge)
-  };
+  return new rocksdb_hyper_clock_cache_options_t{
+      HyperClockCacheOptions(capacity, estimated_entry_charge)};
 }
 
 void rocksdb_hyper_clock_cache_options_destroy(
@@ -6449,4 +6447,3 @@ void rocksdb_enable_manual_compaction(rocksdb_t* db) {
 }
 
 }  // end extern "C"
-

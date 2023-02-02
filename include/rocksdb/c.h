@@ -2032,10 +2032,10 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_hyper_clock_cache_options_set_memory_allocator(
     rocksdb_hyper_clock_cache_options_t*, rocksdb_memory_allocator_t*);
 
-extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_clock(
+extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_hyper_clock(
     size_t capacity, size_t estimated_entry_charge);
-extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_clock_opts(
-    rocksdb_hyper_clock_cache_options_t*);
+extern ROCKSDB_LIBRARY_API rocksdb_cache_t*
+rocksdb_cache_create_hyper_clock_opts(rocksdb_hyper_clock_cache_options_t*);
 
 /* DBPath */
 
