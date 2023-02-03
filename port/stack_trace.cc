@@ -137,34 +137,37 @@ void PrintStack(void* frames[], int num_frames) {
 }
 
 void PrintStack(int first_frames_to_skip) {
-#ifdef ROCKSDB_DLL
+#if defined(ROCKSDB_DLL) && defined(OS_LINUX)
   // LIB_MODE=shared build produces mediocre information from the above
-  // backtrace+addr2line stack trace method. Try to use GDB in that case.
-  bool dll = true;
+  // backtrace+addr2line stack trace method. Try to use GDB in that case, but
+  // only on Linux where we know how to attach to a particular thread.
+  bool linux_dll = true;
 #else
-  bool dll = false;
+  bool linux_dll = false;
 #endif
   // Also support invoking interactive debugger on stack trace, with this
   // envvar set to non-empty
   char* debug_env = getenv("ROCKSDB_DEBUG");
   bool debug = debug_env != nullptr && strlen(debug_env) > 0;
 
-  if (dll || debug) {
+  if (linux_dll || debug) {
     // Allow ouside debugger to attach, even with Yama security restrictions
 #ifdef PR_SET_PTRACER_ANY
     (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
 #endif
     // Try to invoke GDB, either for stack trace or debugging.
-    //
+    long long attach_id = getpid();
+
     // `gdb -p PID` seems to always attach to main thread, but `gdb -p TID`
     // seems to be able to attach to a particular thread in a process, which
     // makes sense as the main thread TID == PID of the process.
-    long long attach_id = gettid();
     // But I haven't found that gdb capability documented anywhere, so leave
     // a back door to attach to main thread.
-    if (getenv("ROCKSDB_DEBUG_USE_PID")) {
-      attach_id = getpid();
+#ifdef OS_LINUX
+    if (getenv("ROCKSDB_DEBUG_USE_PID") == nullptr) {
+      attach_id = gettid();
     }
+#endif
     char attach_id_str[20];
     snprintf(attach_id_str, sizeof(attach_id_str), "%lld", attach_id);
     pid_t child_pid = fork();
