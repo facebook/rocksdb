@@ -3,8 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include <functional>
+#include <memory>
 
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -22,18 +22,19 @@
 namespace ROCKSDB_NAMESPACE {
 
 // A test environment that can be configured to fail the Link operation.
-class ExternalSSTTestEnv : public EnvWrapper {
+class ExternalSSTTestFS : public FileSystemWrapper {
  public:
-  ExternalSSTTestEnv(Env* t, bool fail_link)
-      : EnvWrapper(t), fail_link_(fail_link) {}
-  static const char* kClassName() { return "ExternalSSTTestEnv"; }
+  ExternalSSTTestFS(const std::shared_ptr<FileSystem>& t, bool fail_link)
+      : FileSystemWrapper(t), fail_link_(fail_link) {}
+  static const char* kClassName() { return "ExternalSSTTestFS"; }
   const char* Name() const override { return kClassName(); }
 
-  Status LinkFile(const std::string& s, const std::string& t) override {
+  IOStatus LinkFile(const std::string& s, const std::string& t,
+                    const IOOptions& options, IODebugContext* dbg) override {
     if (fail_link_) {
-      return Status::NotSupported("Link failed");
+      return IOStatus::NotSupported("Link failed");
     }
-    return target()->LinkFile(s, t);
+    return target()->LinkFile(s, t, options, dbg);
   }
 
   void set_fail_link(bool fail_link) { fail_link_ = fail_link; }
@@ -67,24 +68,24 @@ class ExternSSTFileLinkFailFallbackTest
     : public ExternalSSTFileTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternSSTFileLinkFailFallbackTest()
-      : test_env_(new ExternalSSTTestEnv(env_, true)) {
+  ExternSSTFileLinkFailFallbackTest() {
+    fs_ = std::make_shared<ExternalSSTTestFS>(env_->GetFileSystem(), true);
+    test_env_.reset(new CompositeEnvWrapper(env_, fs_));
     options_ = CurrentOptions();
     options_.disable_auto_compactions = true;
-    options_.env = test_env_;
+    options_.env = test_env_.get();
   }
 
   void TearDown() override {
     delete db_;
     db_ = nullptr;
     ASSERT_OK(DestroyDB(dbname_, options_));
-    delete test_env_;
-    test_env_ = nullptr;
   }
 
  protected:
   Options options_;
-  ExternalSSTTestEnv* test_env_;
+  std::shared_ptr<ExternalSSTTestFS> fs_;
+  std::unique_ptr<Env> test_env_;
 };
 
 class ExternalSSTFileTest
@@ -1995,7 +1996,7 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
   const bool fail_link = std::get<0>(GetParam());
   const bool failed_move_fall_back_to_copy = std::get<1>(GetParam());
-  test_env_->set_fail_link(fail_link);
+  fs_->set_fail_link(fail_link);
   const EnvOptions env_options;
   DestroyAndReopen(options_);
   const int kNumKeys = 10000;
