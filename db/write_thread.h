@@ -357,7 +357,7 @@ class WriteThread {
 
   // Insert a dummy writer at the tail of the write queue to indicate a write
   // stall, and fail any writers in the queue with no_slowdown set to true
-  // REQUIRES: db mutex held
+  // REQUIRES: db mutex held, no other stall on this queue outstanding
   void BeginWriteStall();
 
   // Remove the dummy writer and wake up waiting writers
@@ -415,7 +415,9 @@ class WriteThread {
 
   // Count the number of stalls begun, so that we can check whether
   // a particular stall has cleared (even if caught in another stall).
-  // Controlled by DB mutex
+  // Controlled by DB mutex.
+  // Because of the contract on BeginWriteStall() / EndWriteStall(),
+  // stall_ended_count_ <= stall_begun_count_ <= stall_ended_count_ + 1.
   uint64_t stall_begun_count_ = 0;
   // Count the number of stalls ended, so that we can check whether
   // a particular stall has cleared (even if caught in another stall).
