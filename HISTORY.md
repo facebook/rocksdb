@@ -9,6 +9,9 @@
 * Fixed an issue in `Get` and `MultiGet` when user-defined timestamps is enabled in combination with BlobDB.
 * Fixed some atypical behaviors for `LockWAL()` such as allowing concurrent/recursive use and not expecting `UnlockWAL()` after non-OK result. See API comments.
 * Fixed a feature interaction bug where for blobs `GetEntity` would expose the blob reference instead of the blob value.
+* Fixed `DisableManualCompaction()` and `CompactRangeOptions::canceled` to cancel compactions even when they are waiting on conflicting compactions to finish
+* Fixed a bug in which a successful `GetMergeOperands()` could transiently return `Status::MergeInProgress()`
+* Return the correct error (Status::NotSupported()) to MultiGet caller when ReadOptions::async_io flag is true and IO uring is not enabled. Previously, Status::Corruption() was being returned when the actual failure was lack of async IO support.
 
 ### Feature Removal
 * Remove RocksDB Lite.

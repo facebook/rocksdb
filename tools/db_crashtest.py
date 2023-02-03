@@ -402,8 +402,6 @@ ts_params = {
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
-    "enable_blob_files": 0,
-    "use_blob_db": 0,
     "ingest_external_file_one_in": 0,
     # PutEntity with timestamps is not yet implemented
     "use_put_entity_one_in" : 0,
@@ -657,12 +655,11 @@ def gen_cmd_params(args):
     if args.test_tiered_storage:
         params.update(tiered_params)
 
-    # Best-effort recovery, user defined timestamp, tiered storage are currently
-    # incompatible with BlobDB. Test BE recovery if specified on the command
-    # line; otherwise, apply BlobDB related overrides with a 10% chance.
+    # Best-effort recovery, tiered storage are currently incompatible with BlobDB.
+    # Test BE recovery if specified on the command line; otherwise, apply BlobDB
+    # related overrides with a 10% chance.
     if (
         not args.test_best_efforts_recovery
-        and not args.enable_ts
         and not args.test_tiered_storage
         and random.choice([0] * 9 + [1]) == 1
     ):

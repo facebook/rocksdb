@@ -3584,6 +3584,59 @@ TEST_P(DBCompactionTestWithParam, FullCompactionInBottomPriThreadPool) {
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
+TEST_F(DBCompactionTest, CancelCompactionWaitingOnConflict) {
+  // This test verifies cancellation of a compaction waiting to be scheduled due
+  // to conflict with a running compaction.
+  //
+  // A `CompactRange()` in universal compacts all files, waiting for files to
+  // become available if they are locked for another compaction. This test
+  // triggers an automatic compaction that blocks a `CompactRange()`, and
+  // verifies that `DisableManualCompaction()` can successfully cancel the
+  // `CompactRange()` without waiting for the automatic compaction to finish.
+  const int kNumSortedRuns = 4;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = kNumSortedRuns;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  Reopen(options);
+
+  test::SleepingBackgroundTask auto_compaction_sleeping_task;
+  // Block automatic compaction when it runs in the callback
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():Start",
+      [&](void* /*arg*/) { auto_compaction_sleeping_task.DoSleep(); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Fill overlapping files in L0 to trigger an automatic compaction
+  Random rnd(301);
+  for (int i = 0; i < kNumSortedRuns; ++i) {
+    int key_idx = 0;
+    GenerateNewFile(&rnd, &key_idx, true /* nowait */);
+  }
+  auto_compaction_sleeping_task.WaitUntilSleeping();
+
+  // Make sure the manual compaction has seen the conflict before being canceled
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"ColumnFamilyData::CompactRange:Return",
+        "DBCompactionTest::CancelCompactionWaitingOnConflict:"
+        "PreDisableManualCompaction"}});
+  auto manual_compaction_thread = port::Thread([this]() {
+    ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                    .IsIncomplete());
+  });
+
+  // Cancel it. Thread should be joinable, i.e., manual compaction was unblocked
+  // despite finding a conflict with an automatic compaction that is still
+  // running
+  TEST_SYNC_POINT(
+      "DBCompactionTest::CancelCompactionWaitingOnConflict:"
+      "PreDisableManualCompaction");
+  db_->DisableManualCompaction();
+  manual_compaction_thread.join();
+}
+
 TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {
   // Deletions can be dropped when compacted to non-last level if they fall
   // outside the lower-level files' key-ranges.
