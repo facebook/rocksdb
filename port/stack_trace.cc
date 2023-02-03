@@ -36,6 +36,8 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #endif
 #ifdef OS_LINUX
 #include <sys/prctl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #endif
 
 #include "port/lang.h"
@@ -135,6 +137,80 @@ void PrintStack(void* frames[], int num_frames) {
 }
 
 void PrintStack(int first_frames_to_skip) {
+#if defined(ROCKSDB_DLL) && defined(OS_LINUX)
+  // LIB_MODE=shared build produces mediocre information from the above
+  // backtrace+addr2line stack trace method. Try to use GDB in that case, but
+  // only on Linux where we know how to attach to a particular thread.
+  bool linux_dll = true;
+#else
+  bool linux_dll = false;
+#endif
+  // Also support invoking interactive debugger on stack trace, with this
+  // envvar set to non-empty
+  char* debug_env = getenv("ROCKSDB_DEBUG");
+  bool debug = debug_env != nullptr && strlen(debug_env) > 0;
+
+  if (linux_dll || debug) {
+    // Allow ouside debugger to attach, even with Yama security restrictions
+#ifdef PR_SET_PTRACER_ANY
+    (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+#endif
+    // Try to invoke GDB, either for stack trace or debugging.
+    long long attach_id = getpid();
+
+    // `gdb -p PID` seems to always attach to main thread, but `gdb -p TID`
+    // seems to be able to attach to a particular thread in a process, which
+    // makes sense as the main thread TID == PID of the process.
+    // But I haven't found that gdb capability documented anywhere, so leave
+    // a back door to attach to main thread.
+#ifdef OS_LINUX
+    if (getenv("ROCKSDB_DEBUG_USE_PID") == nullptr) {
+      attach_id = gettid();
+    }
+#endif
+    char attach_id_str[20];
+    snprintf(attach_id_str, sizeof(attach_id_str), "%lld", attach_id);
+    pid_t child_pid = fork();
+    if (child_pid == 0) {
+      // child process
+      if (debug) {
+        fprintf(stderr, "Invoking GDB for debugging (ROCKSDB_DEBUG=%s)...\n",
+                debug_env);
+        execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-p", attach_id_str,
+               (char*)nullptr);
+        return;
+      } else {
+        fprintf(stderr, "Invoking GDB for stack trace...\n");
+
+        // Skip top ~4 frames here in PrintStack
+        // See https://stackoverflow.com/q/40991943/454544
+        auto bt_in_gdb =
+            "frame apply level 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 "
+            "21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 "
+            "42 43 44 -q frame";
+        // Redirect child stdout to original stderr
+        dup2(2, 1);
+        // No child stdin (don't use pager)
+        close(0);
+        // -n : Loading config files can apparently cause failures with the
+        // other options here.
+        // -batch : non-interactive; suppress banners as much as possible
+        execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-n", "-batch", "-p",
+               attach_id_str, "-ex", bt_in_gdb, (char*)nullptr);
+        return;
+      }
+    } else {
+      // parent process; wait for child
+      int wstatus;
+      waitpid(child_pid, &wstatus, 0);
+      if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == EXIT_SUCCESS) {
+        // Good
+        return;
+      }
+    }
+    fprintf(stderr, "GDB failed; falling back on backtrace+addr2line...\n");
+  }
+
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
@@ -189,7 +265,9 @@ void InstallStackTraceHandler() {
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
-  // Allow ouside debugger to attach, even with Yama security restrictions
+  // Allow ouside debugger to attach, even with Yama security restrictions.
+  // This is needed even outside of PrintStack() so that external mechanisms
+  // can dump stacks if they suspect that a test has hung.
 #ifdef PR_SET_PTRACER_ANY
   (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
 #endif
