@@ -138,7 +138,7 @@ void PrintStack(void* frames[], int num_frames) {
 
 void PrintStack(int first_frames_to_skip) {
 #ifdef ROCKSDB_DLL
-  // LIB_MODE=shared build produces modiocre information from the above
+  // LIB_MODE=shared build produces mediocre information from the above
   // backtrace+addr2line stack trace method. Try to use GDB in that case.
   bool dll = true;
 #else
