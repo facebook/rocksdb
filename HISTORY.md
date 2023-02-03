@@ -4,6 +4,7 @@
 * Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
 * Fixed `DisableManualCompaction()` and `CompactRangeOptions::canceled` to cancel compactions even when they are waiting on conflicting compactions to finish
 * Fixed a bug in which a successful `GetMergeOperands()` could transiently return `Status::MergeInProgress()`
+* Return the correct error (Status::NotSupported()) to MultiGet caller when ReadOptions::async_io flag is true and IO uring is not enabled. Previously, Status::Corruption() was being returned when the actual failure was lack of async IO support.
 
 ## 7.10.0 (01/23/2023)
 ### Behavior changes
