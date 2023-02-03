@@ -154,21 +154,30 @@ void PrintStack(int first_frames_to_skip) {
 #ifdef PR_SET_PTRACER_ANY
     (void)prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
 #endif
-    // Try to invoke GDB, either for stack trace or debugging
-    char pid_str[20];
-    snprintf(pid_str, sizeof(pid_str), "%lld", (long long)getpid());
+    // Try to invoke GDB, either for stack trace or debugging.
+    //
+    // `gdb -p PID` seems to always attach to main thread, but `gdb -p TID`
+    // seems to be able to attach to a particular thread in a process, which
+    // makes sense as the main thread TID == PID of the process.
+    long long attach_id = gettid();
+    // But I haven't found that gdb capability documented anywhere, so leave
+    // a back door to attach to main thread.
+    if (getenv("ROCKSDB_DEBUG_USE_PID")) {
+      attach_id = getpid();
+    }
+    char attach_id_str[20];
+    snprintf(attach_id_str, sizeof(attach_id_str), "%lld", attach_id);
     pid_t child_pid = fork();
     if (child_pid == 0) {
       // child process
       if (debug) {
         fprintf(stderr, "Invoking GDB for debugging (ROCKSDB_DEBUG=%s)...\n",
                 debug_env);
-        execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-p", pid_str,
+        execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-p", attach_id_str,
                (char*)nullptr);
         return;
       } else {
         fprintf(stderr, "Invoking GDB for stack trace...\n");
-        // TODO: does this always select the correct thread in gdb?
 
         // Skip top ~4 frames here in PrintStack
         // See https://stackoverflow.com/q/40991943/454544
@@ -184,7 +193,7 @@ void PrintStack(int first_frames_to_skip) {
         // other options here.
         // -batch : non-interactive; suppress banners as much as possible
         execlp(/*cmd in PATH*/ "gdb", /*arg0*/ "gdb", "-n", "-batch", "-p",
-               pid_str, "-ex", bt_in_gdb, (char*)nullptr);
+               attach_id_str, "-ex", bt_in_gdb, (char*)nullptr);
         return;
       }
     } else {
