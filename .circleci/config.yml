@@ -175,7 +175,6 @@ commands:
             MIN_LEVEL_TO_COMPRESS: 3
             CACHE_SIZE_MB: 10240
             MB_WRITE_PER_SEC: 2
-            NUMA: 1
 
   post-benchmarks:
     steps:
