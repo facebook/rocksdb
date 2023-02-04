@@ -93,7 +93,7 @@ extern const WideColumns kNoWideColumns;
 class PinnableWideColumns {
  public:
   const WideColumns& columns() const { return columns_; }
-  size_t serialized_size() const { return buf_.size(); }
+  size_t serialized_size() const { return value_.size(); }
 
   void SetPlainValue(const Slice& value);
   void SetPlainValue(const Slice& value, Cleanable* cleanable);
@@ -109,12 +109,12 @@ class PinnableWideColumns {
   void CreateIndexForPlainValue();
   Status CreateIndexForWideColumns();
 
-  PinnableSlice buf_;
+  PinnableSlice value_;
   WideColumns columns_;
 };
 
 inline void PinnableWideColumns::CopyValue(const Slice& value) {
-  buf_.PinSelf(value);
+  value_.PinSelf(value);
 }
 
 inline void PinnableWideColumns::PinOrCopyValue(const Slice& value,
@@ -124,11 +124,11 @@ inline void PinnableWideColumns::PinOrCopyValue(const Slice& value,
     return;
   }
 
-  buf_.PinSlice(value, cleanable);
+  value_.PinSlice(value, cleanable);
 }
 
 inline void PinnableWideColumns::CreateIndexForPlainValue() {
-  columns_ = WideColumns{{kDefaultWideColumnName, buf_}};
+  columns_ = WideColumns{{kDefaultWideColumnName, value_}};
 }
 
 inline void PinnableWideColumns::SetPlainValue(const Slice& value) {
@@ -154,7 +154,7 @@ inline Status PinnableWideColumns::SetWideColumnValue(const Slice& value,
 }
 
 inline void PinnableWideColumns::Reset() {
-  buf_.Reset();
+  value_.Reset();
   columns_.clear();
 }
 

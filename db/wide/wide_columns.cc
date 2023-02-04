@@ -16,9 +16,9 @@ const Slice kDefaultWideColumnName;
 const WideColumns kNoWideColumns;
 
 Status PinnableWideColumns::CreateIndexForWideColumns() {
-  Slice buf_copy = buf_;
+  Slice value_copy = value_;
 
-  return WideColumnSerialization::Deserialize(buf_copy, columns_);
+  return WideColumnSerialization::Deserialize(value_copy, columns_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
