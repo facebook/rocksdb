@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <cstdint>
 #include <fstream>
 #include <memory>
 #include <thread>
@@ -605,23 +606,124 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
   Close();
 }
 
-// Test that db->LockWAL() flushes the WAL after locking.
-TEST_P(DBWriteTest, LockWalInEffect) {
+// Test that db->LockWAL() flushes the WAL after locking, which can fail
+TEST_P(DBWriteTest, LockWALInEffect) {
   Options options = GetOptions();
+  std::unique_ptr<FaultInjectionTestEnv> mock_env(
+      new FaultInjectionTestEnv(env_));
+  options.env = mock_env.get();
+  options.paranoid_checks = false;
   Reopen(options);
   // try the 1st WAL created during open
-  ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
-  ASSERT_OK(dbfull()->UnlockWAL());
+  ASSERT_OK(Put("key0", "value"));
+  ASSERT_NE(options.manual_wal_flush, dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->LockWAL());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->UnlockWAL());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
-  ASSERT_OK(Put("key" + std::to_string(0), "value"));
-  ASSERT_TRUE(options.manual_wal_flush != dbfull()->WALBufferIsEmpty());
-  ASSERT_OK(dbfull()->LockWAL());
-  ASSERT_TRUE(dbfull()->WALBufferIsEmpty(false));
-  ASSERT_OK(dbfull()->UnlockWAL());
+  ASSERT_OK(Put("key1", "value"));
+  ASSERT_NE(options.manual_wal_flush, dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->LockWAL());
+  ASSERT_TRUE(dbfull()->WALBufferIsEmpty());
+  ASSERT_OK(db_->UnlockWAL());
+
+  // Fail the WAL flush if applicable
+  mock_env->SetFilesystemActive(false);
+  Status s = Put("key2", "value");
+  if (options.manual_wal_flush) {
+    ASSERT_OK(s);
+    // I/O failure
+    ASSERT_NOK(db_->LockWAL());
+    // Should not need UnlockWAL after LockWAL fails
+  } else {
+    ASSERT_NOK(s);
+    ASSERT_OK(db_->LockWAL());
+    ASSERT_OK(db_->UnlockWAL());
+  }
+  mock_env->SetFilesystemActive(true);
+  // Writes should work again
+  ASSERT_OK(Put("key3", "value"));
+  ASSERT_EQ(Get("key3"), "value");
+
+  // Should be extraneous, but allowed
+  ASSERT_NOK(db_->UnlockWAL());
+
+  // Close before mock_env destruct.
+  Close();
+}
+
+TEST_P(DBWriteTest, LockWALConcurrentRecursive) {
+  Options options = GetOptions();
+  Reopen(options);
+  ASSERT_OK(Put("k1", "val"));
+  ASSERT_OK(db_->LockWAL());  // 0 -> 1
+  auto frozen_seqno = db_->GetLatestSequenceNumber();
+  std::atomic<bool> t1_completed{false};
+  port::Thread t1{[&]() {
+    // Won't finish until WAL unlocked
+    ASSERT_OK(Put("k1", "val2"));
+    t1_completed = true;
+  }};
+
+  ASSERT_OK(db_->LockWAL());  // 1 -> 2
+  // Read-only ops are OK
+  ASSERT_EQ(Get("k1"), "val");
+  {
+    std::vector<LiveFileStorageInfo> files;
+    LiveFilesStorageInfoOptions lf_opts;
+    // A DB flush could deadlock
+    lf_opts.wal_size_for_flush = UINT64_MAX;
+    ASSERT_OK(db_->GetLiveFilesStorageInfo({lf_opts}, &files));
+  }
+
+  port::Thread t2{[&]() {
+    ASSERT_OK(db_->LockWAL());  // 2 -> 3 or 1 -> 2
+  }};
+
+  ASSERT_OK(db_->UnlockWAL());  // 2 -> 1 or 3 -> 2
+  // Give t1 an extra chance to jump in case of bug
+  std::this_thread::yield();
+  t2.join();
+  ASSERT_FALSE(t1_completed.load());
+
+  // Should now have 2 outstanding LockWAL
+  ASSERT_EQ(Get("k1"), "val");
+
+  ASSERT_OK(db_->UnlockWAL());  // 2 -> 1
+
+  ASSERT_FALSE(t1_completed.load());
+  ASSERT_EQ(Get("k1"), "val");
+  ASSERT_EQ(frozen_seqno, db_->GetLatestSequenceNumber());
+
+  // Ensure final Unlock is concurrency safe and extra Unlock is safe but
+  // non-OK
+  std::atomic<int> unlock_ok{0};
+  port::Thread t3{[&]() {
+    if (db_->UnlockWAL().ok()) {
+      unlock_ok++;
+    }
+    ASSERT_OK(db_->LockWAL());
+    if (db_->UnlockWAL().ok()) {
+      unlock_ok++;
+    }
+  }};
+
+  if (db_->UnlockWAL().ok()) {
+    unlock_ok++;
+  }
+  t3.join();
+
+  // There was one extra unlock, so just one non-ok
+  ASSERT_EQ(unlock_ok.load(), 2);
+
+  // Write can proceed
+  t1.join();
+  ASSERT_TRUE(t1_completed.load());
+  ASSERT_EQ(Get("k1"), "val2");
+  // And new writes
+  ASSERT_OK(Put("k2", "val"));
+  ASSERT_EQ(Get("k2"), "val");
 }
 
 TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
