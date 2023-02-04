@@ -5,8 +5,6 @@
 
 #include "rocksdb/wide_columns.h"
 
-#include <algorithm>
-
 #include "db/wide/wide_column_serialization.h"
 
 namespace ROCKSDB_NAMESPACE {
