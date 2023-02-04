@@ -31,14 +31,18 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #include <string.h>
 #include <unistd.h>
 
-#if defined(OS_FREEBSD)
+#ifdef OS_FREEBSD
 #include <sys/sysctl.h>
-#endif
+#endif  // OS_FREEBSD
 #ifdef OS_LINUX
 #include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#endif
+#if __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 30)
+#include <sys/syscall.h>
+#define gettid() syscall(SYS_gettid)
+#endif  // GLIBC version
+#endif  // OS_LINUX
 
 #include "port/lang.h"
 
