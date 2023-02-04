@@ -93,8 +93,6 @@ extern const WideColumns kNoWideColumns;
 class PinnableWideColumns {
  public:
   const WideColumns& columns() const { return columns_; }
-
-  const std::string& serialized_data() const { return *buf_.GetSelf(); }
   size_t serialized_size() const { return buf_.size(); }
 
   void SetPlainValue(const Slice& value);
