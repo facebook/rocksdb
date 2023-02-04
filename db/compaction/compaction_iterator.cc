@@ -251,7 +251,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
 
-  PinnableWideColumns new_entity;
+  std::vector<std::pair<std::string, std::string>> new_columns;
 
   {
     StopWatchNano timer(clock_, report_detailed_time_);
@@ -310,11 +310,11 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     }
 
     if (decision == CompactionFilter::Decision::kUndetermined) {
-      WideColumns existing_entity;
+      WideColumns existing_columns;
       if (ikey_.type == kTypeWideColumnEntity) {
         Slice value_copy = value_;
         const Status s =
-            WideColumnSerialization::Deserialize(value_copy, existing_entity);
+            WideColumnSerialization::Deserialize(value_copy, existing_columns);
 
         if (!s.ok()) {
           status_ = s;
@@ -328,8 +328,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           ikey_.type != kTypeWideColumnEntity
               ? (blob_value_.empty() ? &value_ : &blob_value_)
               : nullptr,
-          ikey_.type == kTypeWideColumnEntity ? &existing_entity : nullptr,
-          &compaction_filter_value_, &new_entity,
+          ikey_.type == kTypeWideColumnEntity ? &existing_columns : nullptr,
+          &compaction_filter_value_, &new_columns,
           compaction_filter_skip_until_.rep());
     }
 
@@ -413,12 +413,32 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     validity_info_.Invalidate();
     return false;
   } else if (decision == CompactionFilter::Decision::kChangeWideColumnEntity) {
+    WideColumns sorted_columns;
+
+    sorted_columns.reserve(new_columns.size());
+    for (const auto& column : new_columns) {
+      sorted_columns.emplace_back(column.first, column.second);
+    }
+
+    std::sort(sorted_columns.begin(), sorted_columns.end(),
+              [](const WideColumn& lhs, const WideColumn& rhs) {
+                return lhs.name().compare(rhs.name()) < 0;
+              });
+
+    {
+      const Status s = WideColumnSerialization::Serialize(
+          sorted_columns, compaction_filter_value_);
+      if (!s.ok()) {
+        status_ = s;
+        validity_info_.Invalidate();
+        return false;
+      }
+    }
+
     if (ikey_.type != kTypeWideColumnEntity) {
       ikey_.type = kTypeWideColumnEntity;
       current_key_.UpdateInternalKey(ikey_.sequence, kTypeWideColumnEntity);
     }
-
-    compaction_filter_value_ = new_entity.serialized_data();
 
     value_ = compaction_filter_value_;
   }

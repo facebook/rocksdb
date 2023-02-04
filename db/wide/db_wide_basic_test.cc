@@ -638,13 +638,13 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class KeepFilter : public CompactionFilter {
      public:
-      Decision FilterV3(int /* level */, const Slice& /* key */,
-                        ValueType /* value_type */,
-                        const Slice* /* existing_value */,
-                        const WideColumns* /* existing_entity */,
-                        std::string* /* new_value */,
-                        PinnableWideColumns* /* new_entity */,
-                        std::string* /* skip_until */) const override {
+      Decision FilterV3(
+          int /* level */, const Slice& /* key */, ValueType /* value_type */,
+          const Slice* /* existing_value */,
+          const WideColumns* /* existing_columns */,
+          std::string* /* new_value */,
+          std::vector<std::pair<std::string, std::string>>* /* new_columns */,
+          std::string* /* skip_until */) const override {
         return Decision::kKeep;
       }
 
@@ -688,13 +688,13 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class RemoveFilter : public CompactionFilter {
      public:
-      Decision FilterV3(int /* level */, const Slice& /* key */,
-                        ValueType /* value_type */,
-                        const Slice* /* existing_value */,
-                        const WideColumns* /* existing_entity */,
-                        std::string* /* new_value */,
-                        PinnableWideColumns* /* new_entity */,
-                        std::string* /* skip_until */) const override {
+      Decision FilterV3(
+          int /* level */, const Slice& /* key */, ValueType /* value_type */,
+          const Slice* /* existing_value */,
+          const WideColumns* /* existing_columns */,
+          std::string* /* new_value */,
+          std::vector<std::pair<std::string, std::string>>* /* new_columns */,
+          std::string* /* skip_until */) const override {
         return Decision::kRemove;
       }
 
@@ -736,12 +736,12 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class ChangeValueFilter : public CompactionFilter {
      public:
-      Decision FilterV3(int /* level */, const Slice& /* key */,
-                        ValueType value_type, const Slice* existing_value,
-                        const WideColumns* existing_entity,
-                        std::string* new_value,
-                        PinnableWideColumns* /* new_entity */,
-                        std::string* /* skip_until */) const override {
+      Decision FilterV3(
+          int /* level */, const Slice& /* key */, ValueType value_type,
+          const Slice* existing_value, const WideColumns* existing_columns,
+          std::string* new_value,
+          std::vector<std::pair<std::string, std::string>>* /* new_columns */,
+          std::string* /* skip_until */) const override {
         assert(new_value);
 
         auto upper = [](const std::string& str) {
@@ -755,10 +755,10 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
         };
 
         if (value_type == ValueType::kWideColumnEntity) {
-          assert(existing_entity);
+          assert(existing_columns);
 
-          if (!existing_entity->empty()) {
-            *new_value = upper(existing_entity->front().value().ToString());
+          if (!existing_columns->empty()) {
+            *new_value = upper(existing_columns->front().value().ToString());
           }
         } else {
           assert(existing_value);
@@ -819,13 +819,13 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
   {
     class ChangeEntityFilter : public CompactionFilter {
      public:
-      Decision FilterV3(int /* level */, const Slice& /* key */,
-                        ValueType value_type, const Slice* existing_value,
-                        const WideColumns* existing_entity,
-                        std::string* /* new_value */,
-                        PinnableWideColumns* new_entity,
-                        std::string* /* skip_until */) const override {
-        assert(new_entity);
+      Decision FilterV3(
+          int /* level */, const Slice& /* key */, ValueType value_type,
+          const Slice* existing_value, const WideColumns* existing_columns,
+          std::string* /* new_value */,
+          std::vector<std::pair<std::string, std::string>>* new_columns,
+          std::string* /* skip_until */) const override {
+        assert(new_columns);
 
         auto upper = [](const std::string& str) {
           std::string result(str);
@@ -838,31 +838,17 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
         };
 
         if (value_type == ValueType::kWideColumnEntity) {
-          assert(existing_entity);
+          assert(existing_columns);
 
-          std::vector<std::string> new_values;
-          new_values.reserve(existing_entity->size());
-
-          WideColumns new_columns;
-          new_columns.reserve(existing_entity->size());
-
-          for (const auto& column : *existing_entity) {
-            new_values.emplace_back(upper(column.value().ToString()));
-            new_columns.emplace_back(column.name(), new_values.back());
+          for (const auto& column : *existing_columns) {
+            new_columns->emplace_back(column.name().ToString(),
+                                      upper(column.value().ToString()));
           }
-
-          [[maybe_unused]] const Status s =
-              ToPinnableWideColumns(new_columns, *new_entity);
-          assert(s.ok());
         } else {
           assert(existing_value);
 
-          const std::string new_value = upper(existing_value->ToString());
-          WideColumns new_columns{{kDefaultWideColumnName, new_value}};
-
-          [[maybe_unused]] const Status s =
-              ToPinnableWideColumns(new_columns, *new_entity);
-          assert(s.ok());
+          new_columns->emplace_back(kDefaultWideColumnName.ToString(),
+                                    upper(existing_value->ToString()));
         }
 
         return Decision::kChangeWideColumnEntity;

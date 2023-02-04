@@ -11,6 +11,7 @@
 #include <cassert>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "rocksdb/customizable.h"
@@ -194,15 +195,15 @@ class CompactionFilter : public Customizable {
     }
   }
 
-  virtual Decision FilterV3(int level, const Slice& key, ValueType value_type,
-                            const Slice* existing_value,
-                            const WideColumns* existing_entity,
-                            std::string* new_value,
-                            PinnableWideColumns* /* new_entity */,
-                            std::string* skip_until) const {
-    assert(!existing_value || !existing_entity);
+  virtual Decision FilterV3(
+      int level, const Slice& key, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* new_value,
+      std::vector<std::pair<std::string, std::string>>* /* new_columns */,
+      std::string* skip_until) const {
+    assert(!existing_value || !existing_columns);
     assert(value_type == ValueType::kWideColumnEntity || existing_value);
-    assert(value_type != ValueType::kWideColumnEntity || existing_entity);
+    assert(value_type != ValueType::kWideColumnEntity || existing_columns);
 
     if (value_type == ValueType::kWideColumnEntity) {
       return Decision::kKeep;

@@ -115,9 +115,6 @@ class PinnableWideColumns {
   WideColumns columns_;
 };
 
-Status ToPinnableWideColumns(const WideColumns& columns,
-                             PinnableWideColumns& pinnable_columns);
-
 inline void PinnableWideColumns::CopyValue(const Slice& value) {
   buf_.PinSelf(value);
 }
