@@ -198,6 +198,8 @@ void DBImpl::TEST_LockMutex() { mutex_.Lock(); }
 
 void DBImpl::TEST_UnlockMutex() { mutex_.Unlock(); }
 
+void DBImpl::TEST_SignalAllBgCv() { bg_cv_.SignalAll(); }
+
 void* DBImpl::TEST_BeginWrite() {
   auto w = new WriteThread::Writer();
   write_thread_.EnterUnbatched(w, &mutex_);

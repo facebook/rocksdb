@@ -1923,7 +1923,8 @@ struct IngestExternalFileOptions {
   bool snapshot_consistency = true;
   // If set to false, IngestExternalFile() will fail if the file key range
   // overlaps with existing keys or tombstones or output of ongoing compaction
-  // during file ingestion in the DB.
+  // during file ingestion in the DB (the conditions under which a global_seqno
+  // must be assigned to the ingested file).
   bool allow_global_seqno = true;
   // If set to false and the file key range overlaps with the memtable key range
   // (memtable flush required), IngestExternalFile will fail.
@@ -1936,18 +1937,14 @@ struct IngestExternalFileOptions {
   // with allow_ingest_behind=true since the dawn of time.
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
-  // Set to true if you would like to write global_seqno to a given offset in
-  // the external SST file for backward compatibility. Older versions of
-  // RocksDB writes a global_seqno to a given offset within ingested SST files,
-  // and new versions of RocksDB do not. If you ingest an external SST using
-  // new version of RocksDB and would like to be able to downgrade to an
-  // older version of RocksDB, you should set 'write_global_seqno' to true. If
-  // your service is just starting to use the new RocksDB, we recommend that
-  // you set this option to false, which brings two benefits:
-  // 1. No extra random write for global_seqno during ingestion.
-  // 2. Without writing external SST file, it's possible to do checksum.
-  // We have a plan to set this option to false by default in the future.
-  bool write_global_seqno = true;
+  // DEPRECATED - Set to true if you would like to write global_seqno to
+  // the external SST file on ingestion for backward compatibility before
+  // RocksDB 5.16.0. Such old versions of RocksDB expect any global_seqno to
+  // be written to the SST file rather than recorded in the DB manifest.
+  // This functionality was deprecated because (a) random writes might be
+  // costly or unsupported on some FileSystems, and (b) the file checksum
+  // changes with such a write.
+  bool write_global_seqno = false;
   // Set to true if you would like to verify the checksums of each block of the
   // external SST file before ingestion.
   // Warning: setting this to true causes slowdown in file ingestion because
