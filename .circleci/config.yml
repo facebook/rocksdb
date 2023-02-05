@@ -492,7 +492,7 @@ jobs:
       - pre-steps
       - setup-folly
       - build-folly
-      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
+      - run: LIB_MODE=static CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
@@ -501,7 +501,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: DEBUG_LEVEL=0 make -j32 run_microbench
+      - run: LIB_MODE=static DEBUG_LEVEL=0 make -j32 run_microbench
       - post-steps
 
   build-linux-mini-crashtest:
