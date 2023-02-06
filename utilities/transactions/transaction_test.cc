@@ -6640,6 +6640,108 @@ TEST_P(TransactionTest, StallTwoWriteQueues) {
   ASSERT_TRUE(t2_completed);
 }
 
+// Make sure UnlockWAL does not return until the stall it controls is cleared.
+TEST_P(TransactionTest, UnlockWALStallCleared) {
+  auto dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  for (bool external_stall : {false, true}) {
+    WriteOptions wopts;
+    wopts.sync = true;
+    wopts.disableWAL = false;
+
+    ASSERT_OK(db->Put(wopts, "k1", "val1"));
+
+    // Stall writes
+    ASSERT_OK(db->LockWAL());
+
+    std::unique_ptr<WriteControllerToken> token;
+    if (external_stall) {
+      // Also make sure UnlockWAL can return despite another stall being in
+      // effect.
+      token = dbimpl->TEST_write_controler().GetStopToken();
+    }
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    std::vector<SyncPoint::SyncPointPair> sync_deps;
+    sync_deps.push_back(
+        {"DBImpl::DelayWrite:Wait",
+         "TransactionTest::UnlockWALStallCleared:BeforeUnlockWAL1"});
+    if (options.two_write_queues &&
+        txn_db_options.write_policy == WRITE_COMMITTED) {
+      sync_deps.push_back(
+          {"DBImpl::DelayWrite:NonmemWait",
+           "TransactionTest::UnlockWALStallCleared:BeforeUnlockWAL2"});
+    }
+    SyncPoint::GetInstance()->LoadDependency(sync_deps);
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::DelayWrite:AfterWait", [](void* arg) {
+          auto& mu = *static_cast<CacheAlignedInstrumentedMutex*>(arg);
+          mu.AssertHeld();
+          // Pretend we are slow waking up from bg_cv_, to give a chance for the
+          // bug to occur if it can. Randomly prefer one queue over the other.
+          mu.Unlock();
+          if (Random::GetTLSInstance()->OneIn(2)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          } else {
+            std::this_thread::yield();
+          }
+          mu.Lock();
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    // Create blocking writes (for both queues) in background and use
+    // sync point dependency to get the stall into the write queue(s)
+    std::atomic<bool> t1_completed{false};
+    port::Thread t1{[&]() {
+      ASSERT_OK(db->Put(wopts, "k2", "val2"));
+      t1_completed = true;
+    }};
+
+    std::atomic<bool> t2_completed{false};
+    port::Thread t2{[&]() {
+      std::unique_ptr<Transaction> txn0{db->BeginTransaction(wopts, {})};
+      ASSERT_OK(txn0->SetName("x1"));
+      ASSERT_OK(txn0->Put("k3", "val3"));
+      ASSERT_OK(txn0->Prepare());  // nonmem
+      ASSERT_OK(txn0->Commit());
+    }};
+
+    // Be sure the test is set up appropriately
+    TEST_SYNC_POINT("TransactionTest::UnlockWALStallCleared:BeforeUnlockWAL1");
+    TEST_SYNC_POINT("TransactionTest::UnlockWALStallCleared:BeforeUnlockWAL2");
+    ASSERT_FALSE(t1_completed.load());
+    ASSERT_FALSE(t2_completed.load());
+
+    // Clear the stall
+    ASSERT_OK(db->UnlockWAL());
+
+    WriteOptions wopts2 = wopts;
+    if (external_stall) {
+      // We did not deadlock in UnlockWAL, so now async clear the external
+      // stall and then do a blocking write.
+      // DB mutex acquire+release is needed to ensure we don't reset token and
+      // signal while DelayWrite() is between IsStopped() and
+      // BeginWriteStall().
+      token.reset();
+      dbimpl->TEST_LockMutex();
+      dbimpl->TEST_UnlockMutex();
+      dbimpl->TEST_SignalAllBgCv();
+    } else {
+      // To verify the LockWAL stall is guaranteed cleared, do a non-blocking
+      // write that is attempting to catch a bug by attempting to come before
+      // the thread that did BeginWriteStall() can do EndWriteStall()
+      wopts2.no_slowdown = true;
+    }
+    std::unique_ptr<Transaction> txn0{db->BeginTransaction(wopts2, {})};
+    ASSERT_OK(txn0->SetName("x2"));
+    ASSERT_OK(txn0->Put("k1", "val4"));
+    ASSERT_OK(txn0->Prepare());  // nonmem
+    ASSERT_OK(txn0->Commit());
+
+    t1.join();
+    t2.join();
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

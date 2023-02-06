@@ -1117,6 +1117,8 @@ class DBImpl : public DB {
 
   void TEST_UnlockMutex();
 
+  void TEST_SignalAllBgCv();
+
   // REQUIRES: mutex locked
   void* TEST_BeginWrite();
 
