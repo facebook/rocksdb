@@ -156,8 +156,8 @@ commands:
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
             # How long to run parts of the test(s)
-            DURATION_RO: 400
-            DURATION_RW: 600
+            DURATION_RO: 300
+            DURATION_RW: 500
             # Keep threads within physical capacity of server (much lower than default)
             NUM_THREADS: 1
             MAX_BACKGROUND_JOBS: 4
