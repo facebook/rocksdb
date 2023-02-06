@@ -5,6 +5,7 @@
 
 #include "rocksdb/write_buffer_manager.h"
 
+#include <cassert>
 #include <jni.h>
 
 #include "include/org_rocksdb_WriteBufferManager.h"

@@ -6,7 +6,7 @@
 // This file implements the "bridge" between Java and C++ for
 // ROCKSDB_NAMESPACE::Cache.
 
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 
 #include <jni.h>
 
