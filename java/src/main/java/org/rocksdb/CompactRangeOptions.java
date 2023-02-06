@@ -14,7 +14,6 @@ public class CompactRangeOptions extends RocksObject {
   private final static byte VALUE_kSkip = 0;
   private final static byte VALUE_kIfHaveCompactionFilter = 1;
   private final static byte VALUE_kForce = 2;
-
   private final static byte VALUE_kForceOptimized = 3;
 
   // For level based compaction, we can configure if we want to skip/force bottommost level
@@ -65,7 +64,7 @@ public class CompactRangeOptions extends RocksObject {
         case VALUE_kIfHaveCompactionFilter: return kIfHaveCompactionFilter;
         case VALUE_kForce: return kForce;
         case VALUE_kForceOptimized: return kForceOptimized;
-      default: return null;
+        default: return null;
       }
     }
   }
