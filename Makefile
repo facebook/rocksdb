@@ -2421,7 +2421,7 @@ checkout_folly:
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard d506ac06dc6164f18132d5cca6881b79924712db
+	cd third-party/folly && git reset --hard beacd86d63cd71c904632262e6c36f60874d78ba
 	@# A hack to remove boost dependency.
 	@# NOTE: this hack is only needed if building using USE_FOLLY_LITE
 	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
@@ -2441,8 +2441,7 @@ build_folly:
 	# Restore the original version of Invoke.h with boost dependency
 	cd third-party/folly && ${GIT_COMMAND} checkout folly/functional/Invoke.h
 	cd third-party/folly && MAYBE_AVX2=`echo $(CXXFLAGS) | grep -o -- -DHAVE_AVX2 | sed 's/-DHAVE_AVX2/-mavx2/g' || true` && \
-		MAYBE_SHARED_LIBS=`[ "$(LIB_MODE)" == "shared" ] && echo "--shared-libs" || true` && \
-		CXXFLAGS=" $$MAYBE_AVX2 -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests $$MAYBE_SHARED_LIBS
+		CXXFLAGS=" $$MAYBE_AVX2 -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
 
 # ---------------------------------------------------------------------------
 #   Build size testing

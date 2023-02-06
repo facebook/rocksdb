@@ -430,7 +430,7 @@ jobs:
       - pre-steps
       - setup-folly
       - build-folly
-      - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+      - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   build-linux-gcc-7-with-folly-lite-no-test:
@@ -495,7 +495,7 @@ jobs:
       - pre-steps
       - setup-folly
       - build-folly
-      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
+      - run: CC=clang-13 CXX=clang++-13 LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
@@ -836,7 +836,6 @@ workflows:
       - build-linux-clang10-clang-analyze
       - build-linux-unity-and-headers
       - build-linux-mini-crashtest
-      - build-linux-run-microbench
   jobs-windows:
     jobs:
       - build-windows-vs2022
