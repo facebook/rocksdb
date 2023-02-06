@@ -4979,6 +4979,12 @@ TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
   ASSERT_TRUE(merge_op->IsInstanceOf("PutOperator"));
 
   ASSERT_OK(
+      MergeOperator::CreateFromString(config_options, "int64add", &merge_op));
+  ASSERT_NE(merge_op, nullptr);
+  ASSERT_TRUE(merge_op->IsInstanceOf("int64add"));
+  ASSERT_STREQ(merge_op->Name(), "Int64AddOperator");
+
+  ASSERT_OK(
       MergeOperator::CreateFromString(config_options, "uint64add", &merge_op));
   ASSERT_NE(merge_op, nullptr);
   ASSERT_TRUE(merge_op->IsInstanceOf("uint64add"));
