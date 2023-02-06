@@ -1617,8 +1617,8 @@ ROCKSDB_NAMESPACE::Env* CreateAwsEnv(
 
 static const auto& s3_reg __attribute__((__unused__)) =
     ROCKSDB_NAMESPACE::ObjectLibrary::Default()
-        -> Register<ROCKSDB_NAMESPACE::Env>(
-            "s3://.*",
+        -> AddFactory<ROCKSDB_NAMESPACE::Env>(
+            ROCKSDB_NAMESPACE::ObjectLibrary::PatternEntry("s3").AddSeparator("://", false),
             [](const std::string& uri,
                std::unique_ptr<ROCKSDB_NAMESPACE::Env>* guard, std::string*) {
               CreateAwsEnv(uri, guard);
