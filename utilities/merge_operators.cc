@@ -20,6 +20,27 @@
 #include "utilities/merge_operators/uint64add.h"
 
 namespace ROCKSDB_NAMESPACE {
+static bool LoadMergeOperator(const std::string& id,
+                              std::shared_ptr<MergeOperator>* result) {
+  bool success = true;
+  // TODO: Hook the "name" up to the actual Name() of the MergeOperators?
+  // Requires these classes be moved into a header file...
+  if (id == "put" || id == "PutOperator") {
+    *result = MergeOperators::CreatePutOperator();
+  } else if (id == "put_v1") {
+    *result = MergeOperators::CreateDeprecatedPutOperator();
+  } else if (id == "int64add" || id == "Int64AddOperator") {
+    *result = MergeOperators::CreateInt64AddOperator();
+  } else if (id == "uint64add" || id == "UInt64AddOperator") {
+    *result = MergeOperators::CreateUInt64AddOperator();
+  } else if (id == "max" || id == "MaxOperator") {
+    *result = MergeOperators::CreateMaxOperator();
+  } else {
+    success = false;
+  }
+  return success;
+}
+
 static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
   size_t num_types;

@@ -1061,6 +1061,7 @@ set(SOURCES
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/uint64add.cc
+        utilities/merge_operators/int64add.cc
         utilities/object_registry.cc
         utilities/option_change_migration/option_change_migration.cc
         utilities/options/options_util.cc
@@ -1653,7 +1654,7 @@ if(WITH_TESTS)
         utilities/env_timed_test.cc
         utilities/fault_injection_fs_test.cc
         utilities/memory/memory_test.cc
-        utilities/merge_operators/string_append/stringappend_test.cc
+        utilities/merge_operators/test/merge_operators_test.cc
         utilities/object_registry_test.cc
         utilities/option_change_migration/option_change_migration_test.cc
         utilities/options/options_util_test.cc
