@@ -273,12 +273,12 @@ jobs:
           ./sst_dump --help | grep -E -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
       - post-steps
 
-  build-linux-shared_lib-alt_namespace-status_checked:
+  build-linux-static_lib-alt_namespace-status_checked:
     executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check
+      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=static OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check
       - post-steps
 
   build-linux-release:
@@ -286,11 +286,17 @@ jobs:
     resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: make V=1 -j32 release
+      - run: make V=1 -j32 LIB_MODE=shared release
+      - run: ./db_stress --version # ensure with gflags
+      - run: make clean
+      - run: make V=1 -j32 LIB_MODE=static release
       - run: ./db_stress --version # ensure with gflags
       - run: make clean
       - run: apt-get remove -y libgflags-dev
-      - run: make V=1 -j32 release
+      - run: make V=1 -j32 LIB_MODE=shared release
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
+      - run: make clean
+      - run: make V=1 -j32 LIB_MODE=static release
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - post-steps
 
@@ -421,7 +427,7 @@ jobs:
       - pre-steps
       - setup-folly
       - build-folly
-      - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+      - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   build-linux-gcc-7-with-folly-lite-no-test:
@@ -467,7 +473,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
+      - run: LIB_MODE=static CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench # TODO: LIB_MODE only to work around unresolved linker failures
       - post-steps
 
   build-linux-clang-13-no_test_run:
@@ -809,7 +815,7 @@ workflows:
       - build-linux-clang10-asan
       - build-linux-clang10-ubsan
       - build-linux-clang10-mini-tsan
-      - build-linux-shared_lib-alt_namespace-status_checked
+      - build-linux-static_lib-alt_namespace-status_checked
   jobs-linux-no-test-run:
     jobs:
       - build-linux-release
