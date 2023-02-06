@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "port/port.h"
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
@@ -6397,4 +6397,3 @@ void rocksdb_enable_manual_compaction(rocksdb_t* db) {
 }
 
 }  // end extern "C"
-
