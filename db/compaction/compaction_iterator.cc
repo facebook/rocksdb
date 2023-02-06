@@ -310,8 +310,18 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     }
 
     if (decision == CompactionFilter::Decision::kUndetermined) {
+      const Slice* existing_val = nullptr;
+      const WideColumns* existing_col = nullptr;
+
       WideColumns existing_columns;
-      if (ikey_.type == kTypeWideColumnEntity) {
+
+      if (ikey_.type != kTypeWideColumnEntity) {
+        if (!blob_value_.empty()) {
+          existing_val = &blob_value_;
+        } else {
+          existing_val = &value_;
+        }
+      } else {
         Slice value_copy = value_;
         const Status s =
             WideColumnSerialization::Deserialize(value_copy, existing_columns);
@@ -321,14 +331,12 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           validity_info_.Invalidate();
           return false;
         }
+
+        existing_col = &existing_columns;
       }
 
       decision = compaction_filter_->FilterV3(
-          level_, filter_key, value_type,
-          ikey_.type != kTypeWideColumnEntity
-              ? (blob_value_.empty() ? &value_ : &blob_value_)
-              : nullptr,
-          ikey_.type == kTypeWideColumnEntity ? &existing_columns : nullptr,
+          level_, filter_key, value_type, existing_val, existing_col,
           &compaction_filter_value_, &new_columns,
           compaction_filter_skip_until_.rep());
     }
