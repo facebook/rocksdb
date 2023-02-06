@@ -5,6 +5,11 @@
 //
 
 /**
+ * This file has no main() - it contributes tests to merge_operators_test
+ *
+ */
+
+/**
  * An persistent map : key -> (list of strings), using rocksdb merge.
  * This file is a test-harness / use-case for the StringAppendOperator.
  *
@@ -18,7 +23,6 @@
 #include <map>
 #include <tuple>
 
-#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
@@ -631,9 +635,3 @@ INSTANTIATE_TEST_CASE_P(StringAppendOperatorTest, StringAppendOperatorTest,
                         testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE
-
-int main(int argc, char** argv) {
-  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
-}
