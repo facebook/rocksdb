@@ -748,7 +748,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
           std::string result(str);
 
           for (char& c : result) {
-            c = std::toupper(static_cast<unsigned char>(c));
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
           }
 
           return result;
@@ -831,7 +831,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
           std::string result(str);
 
           for (char& c : result) {
-            c = std::toupper(static_cast<unsigned char>(c));
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
           }
 
           return result;
