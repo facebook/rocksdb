@@ -182,6 +182,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
+  src/main/java/org/rocksdb/Int64AddOperator.java
   src/main/java/org/rocksdb/LevelMetaData.java
   src/main/java/org/rocksdb/ConcurrentTaskLimiter.java
   src/main/java/org/rocksdb/ConcurrentTaskLimiterImpl.java
@@ -698,6 +699,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
           org.rocksdb.HashSkipListMemTableConfig
           org.rocksdb.HyperClockCache
           org.rocksdb.IngestExternalFileOptions
+          org.rocksdb.Int64AddOperator
           org.rocksdb.Logger
           org.rocksdb.LRUCache
           org.rocksdb.MemoryUtil
