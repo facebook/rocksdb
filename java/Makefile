@@ -35,6 +35,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.FlushOptions\
 	org.rocksdb.Filter\
 	org.rocksdb.IngestExternalFileOptions\
+	org.rocksdb.Int64AddOperator\
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
 	org.rocksdb.ConcurrentTaskLimiter\

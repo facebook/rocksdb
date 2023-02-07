@@ -51,7 +51,12 @@ class Int64AddMergeOperator : public AssociativeMergeOperator {
     return true;
   }
 
-  const char* Name() const override { return "Int64AddMergeOperator"; }
+
+  static const char* kClassName() { return "Int64AddMergeOperator"; }
+  static const char* kNickName() { return "int64add"; }
+   const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
+
 };
 
 }  // namespace
