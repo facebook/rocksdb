@@ -28,6 +28,9 @@
 ### Build Changes
 * The `make` build now builds a shared library by default instead of a static library. Use `LIB_MODE=static` to override.
 
+### New Features
+* Compaction filters are now supported for wide-column entities by means of the `FilterV3` API. See the comment of the API for more details.
+
 ## 7.10.0 (01/23/2023)
 ### Behavior changes
 * Make best-efforts recovery verify SST unique ID before Version construction (#10962)
