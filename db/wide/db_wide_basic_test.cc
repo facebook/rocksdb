@@ -812,7 +812,7 @@ TEST_F(DBWideBasicTest, CompactionFilter) {
     }
   }
 
-  // Test a compaction filter that changes the column names/values of entries to
+  // Test a compaction filter that changes the column values of entries to
   // uppercase. The new entry is always a wide-column entity; if the existing
   // entry is a plain key-value, it is converted to a wide-column entity with a
   // single default column.
