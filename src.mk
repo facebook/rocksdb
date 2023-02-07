@@ -624,8 +624,6 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/checkpoint/checkpoint_test.cc                               \
   utilities/env_timed_test.cc                                           \
   utilities/memory/memory_test.cc                                       \
-  utilities/merge_operators/test/stringappend_test.cc                   \
-  utilities/merge_operators/test/int64add_test.cc                       \
   utilities/merge_operators/test/merge_operators_test.cc                \
   utilities/object_registry_test.cc                                     \
   utilities/option_change_migration/option_change_migration_test.cc     \

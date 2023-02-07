@@ -329,6 +329,68 @@ public class MergeTest {
   }
 
   @Test
+  public void cFInt64AddOperatorOption()
+      throws InterruptedException, RocksDBException {
+    try (final Int64AddOperator int64AddOperator = new Int64AddOperator();
+         final ColumnFamilyOptions cfOpt1 = new ColumnFamilyOptions()
+             .setMergeOperator(int64AddOperator);
+         final ColumnFamilyOptions cfOpt2 = new ColumnFamilyOptions()
+             .setMergeOperator(int64AddOperator)
+    ) {
+      final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
+          new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpt1),
+          new ColumnFamilyDescriptor("new_cf".getBytes(), cfOpt2)
+      );
+      final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+      try (final DBOptions opt = new DBOptions()
+          .setCreateIfMissing(true)
+          .setCreateMissingColumnFamilies(true);
+           final RocksDB db = RocksDB.open(opt,
+               dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
+               columnFamilyHandleList)
+      ) {
+        try {
+          // writing (long)100 under key
+          db.put(columnFamilyHandleList.get(1),
+              "cfkey".getBytes(), longToByteArray(100));
+          // merge (long)1 under key
+          db.merge(columnFamilyHandleList.get(1),
+              "cfkey".getBytes(), longToByteArray(1));
+          byte[] value = db.get(columnFamilyHandleList.get(1),
+              "cfkey".getBytes());
+          long longValue = longFromByteArray(value);
+
+          // Test also with createColumnFamily
+          try (final ColumnFamilyOptions cfHandleOpts =
+                   new ColumnFamilyOptions()
+                       .setMergeOperator(int64AddOperator);
+               final ColumnFamilyHandle cfHandle =
+                   db.createColumnFamily(
+                       new ColumnFamilyDescriptor("new_cf2".getBytes(),
+                           cfHandleOpts))
+          ) {
+            // writing (long)200 under cfkey2
+            db.put(cfHandle, "cfkey2".getBytes(), longToByteArray(200));
+            // merge (long)50 under cfkey2
+            db.merge(cfHandle, new WriteOptions(), "cfkey2".getBytes(),
+                longToByteArray(50));
+            value = db.get(cfHandle, "cfkey2".getBytes());
+            long longValueTmpCf = longFromByteArray(value);
+
+            assertThat(longValue).isEqualTo(101);
+            assertThat(longValueTmpCf).isEqualTo(250);
+          }
+        } finally {
+          for (final ColumnFamilyHandle columnFamilyHandle :
+              columnFamilyHandleList) {
+            columnFamilyHandle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   public void operatorGcBehaviour()
       throws RocksDBException {
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator()) {
