@@ -176,7 +176,6 @@ AwsFileSystem::AwsFileSystem(const std::shared_ptr<FileSystem>& underlying_fs,
                              const CloudFileSystemOptions& _cloud_fs_options,
                              const std::shared_ptr<Logger>& info_log)
     : CloudFileSystemImpl(_cloud_fs_options, underlying_fs, info_log) {
-  Aws::InitAPI(Aws::SDKOptions());
 }
 
 // If you do not specify a region, then S3 buckets are created in the
@@ -209,8 +208,6 @@ Status AwsFileSystem::PrepareOptions(const ConfigOptions& options) {
   }
   return CloudFileSystemImpl::PrepareOptions(options);
 }
-
-void AwsFileSystem::Shutdown() { Aws::ShutdownAPI(Aws::SDKOptions()); }
 
 // The factory method for creating an S3 Env
 Status AwsFileSystem::NewAwsFileSystem(

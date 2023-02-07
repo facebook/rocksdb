@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cinttypes>
+#include <aws/core/Aws.h>
 
 #include "cloud/cloud_file_system_impl.h"
 #include "cloud/db_cloud_impl.h"
@@ -513,7 +514,10 @@ TEST_F(RemoteCompactionTest, ColumnFamilyTest) {
 // Run all pluggable compaction tests
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  Aws::InitAPI(Aws::SDKOptions());
+  auto r = RUN_ALL_TESTS();
+  Aws::ShutdownAPI(Aws::SDKOptions());
+  return r;
 }
 
 #else  // USE_AWS

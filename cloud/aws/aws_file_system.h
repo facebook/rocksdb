@@ -42,6 +42,10 @@ namespace ROCKSDB_NAMESPACE {
 // AwsFileSystem internally share PosixFileSystem for sharing common file system
 // resources.
 //
+// NOTE: The AWS SDK must be initialized before any AwsFileSystem is
+// constructed, and remain active (Aws::ShutdownAPI() not called) as long as any
+// AwsFileSystem objects exist.
+//
 class AwsFileSystem : public CloudFileSystemImpl {
  public:
   // A factory method for creating S3 envs
@@ -55,12 +59,6 @@ class AwsFileSystem : public CloudFileSystemImpl {
 
   static const char* kName() { return kAws(); }
   const char* Name() const override { return kAws(); }
-
-  // We cannot invoke Aws::ShutdownAPI from the destructor because there could
-  // be multiple AwsFileSystem's ceated by a process and Aws::ShutdownAPI should
-  // be called only once by the entire process when all AwsFileSystem are
-  // destroyed.
-  static void Shutdown();
 
   Status PrepareOptions(const ConfigOptions& options) override;
   // If you do not specify a region, then S3 buckets are created in the

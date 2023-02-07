@@ -499,6 +499,9 @@ struct CloudManifestDelta {
 //
 // The Cloud file system
 //
+// NOTE: The AWS SDK must be initialized before the CloudFileSystem is
+// constructed, and remain active (Aws::ShutdownAPI() not called) as long as any
+// CloudFileSystem objects exist.
 class CloudFileSystem : public FileSystem {
  protected:
   CloudFileSystemOptions cloud_fs_options;

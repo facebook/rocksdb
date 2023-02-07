@@ -3281,7 +3281,10 @@ TEST_F(CloudTest, ReplayCloudManifestDeltaTest) {
 // A black-box test for the cloud wrapper around rocksdb
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  Aws::InitAPI(Aws::SDKOptions());
+  auto r = RUN_ALL_TESTS();
+  Aws::ShutdownAPI(Aws::SDKOptions());
+  return r;
 }
 
 #else  // USE_AWS
