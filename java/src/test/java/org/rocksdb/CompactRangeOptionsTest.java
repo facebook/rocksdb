@@ -39,6 +39,9 @@ public class CompactRangeOptionsTest {
     value = BottommostLevelCompaction.kIfHaveCompactionFilter;
     opt.setBottommostLevelCompaction(value);
     assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
+    value = BottommostLevelCompaction.kForceOptimized;
+    opt.setBottommostLevelCompaction(value);
+    assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
   }
 
   @Test
