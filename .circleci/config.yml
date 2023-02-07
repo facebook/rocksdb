@@ -287,16 +287,20 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: make V=1 -j32 LIB_MODE=shared release
+      - run: ls librocksdb.so # ensure shared lib built
       - run: ./db_stress --version # ensure with gflags
       - run: make clean
-      - run: make V=1 -j32 LIB_MODE=static release
+      - run: make V=1 -j32 release
+      - run: ls librocksdb.a # ensure static lib built
       - run: ./db_stress --version # ensure with gflags
       - run: make clean
       - run: apt-get remove -y libgflags-dev
       - run: make V=1 -j32 LIB_MODE=shared release
+      - run: ls librocksdb.so # ensure shared lib built
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - run: make clean
-      - run: make V=1 -j32 LIB_MODE=static release
+      - run: make V=1 -j32 release
+      - run: ls librocksdb.a # ensure static lib built
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - post-steps
 
@@ -504,7 +508,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: DEBUG_LEVEL=0 LIB_MODE=static make -j32 run_microbench # TODO: LIB_MODE only to work around unresolved linker failures
+      - run: DEBUG_LEVEL=0 make -j32 run_microbench
       - post-steps
 
   build-linux-mini-crashtest:
