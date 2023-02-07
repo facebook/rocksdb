@@ -291,6 +291,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                  // It makes little sense to pay overhead for mid-point
                  // insertion while the block size is only 8MB.
                  co.high_pri_pool_ratio = 0.0;
+                 co.low_pri_pool_ratio = 0.0;
                  bbto->block_cache = NewLRUCache(co);
                }
                return Status::OK();

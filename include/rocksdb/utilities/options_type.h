@@ -711,6 +711,26 @@ class OptionTypeInfo {
     return static_cast<char*>(base) + offset_;
   }
 
+  // Returns either the base or the base+offset address,
+  // depending on the kUseBaseAddress flag
+  template <typename T>
+  const void* GetBaseOffset(const void* base, const std::function<T>& f) const {
+    if (f != nullptr && IsEnabled(OptionTypeFlags::kUseBaseAddress)) {
+      return base;
+    } else {
+      return GetOffset(base);
+    }
+  }
+
+  template <typename T>
+  void* GetBaseOffset(void* base, const std::function<T>& f) const {
+    if (f != nullptr && IsEnabled(OptionTypeFlags::kUseBaseAddress)) {
+      return base;
+    } else {
+      return GetOffset(base);
+    }
+  }
+
   template <typename T>
   const T* GetOffsetAs(const void* base) const {
     const void* addr = GetOffset(base);
