@@ -195,6 +195,20 @@ class CompactionFilter : public Customizable {
     }
   }
 
+  // Wide column aware API. Called for plain values, merge operands, and
+  // wide-column entities; the `value_type` parameter indicates the type of the
+  // key-value. When the key-value is a plain value or a merge operand, the
+  // `existing_value` parameter contains the existing value and the
+  // `existing_columns` parameter is invalid (nullptr). When the key-value is a
+  // wide-column entity, the `existing_columns` parameter contains the wide
+  // columns of the existing entity and the `existing_value` parameter is
+  // invalid (nullptr). See above for the semantics of the potential return
+  // values.
+  //
+  // For compatibility, the default implementation keeps all wide-column
+  // entities, and falls back to FilterV2 for plain values and merge operands.
+  // If you override this method, there is no need to override FilterV2 (or
+  // Filter/FilterMergeOperand).
   virtual Decision FilterV3(
       int level, const Slice& key, ValueType value_type,
       const Slice* existing_value, const WideColumns* existing_columns,
@@ -237,7 +251,7 @@ class CompactionFilter : public Customizable {
   // In the case of BlobDB, it may be possible to reach a decision with only
   // the key without reading the actual value. Keys whose value_type is
   // kBlobIndex will be checked by this method.
-  // Returning kUndetermined will cause FilterV2() to be called to make a
+  // Returning kUndetermined will cause FilterV3() to be called to make a
   // decision as usual.
   virtual Decision FilterBlobByKey(int /*level*/, const Slice& /*key*/,
                                    std::string* /*new_value*/,
