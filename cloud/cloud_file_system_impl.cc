@@ -1719,7 +1719,7 @@ IOStatus CloudFileSystemImpl::SanitizeDirectory(const DBOptions& options,
         local_name.c_str());
     return IOStatus::OK();
   }
-  Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
       "[cloud_fs_impl] SanitizeDirectory local directory %s cleanup needed",
       local_name.c_str());
 
