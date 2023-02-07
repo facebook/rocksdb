@@ -63,7 +63,8 @@ public class CompactRangeOptions extends RocksObject {
         case VALUE_kSkip: return kSkip;
         case VALUE_kIfHaveCompactionFilter: return kIfHaveCompactionFilter;
         case VALUE_kForce: return kForce;
-        case VALUE_kForceOptimized: return kForceOptimized;
+        case VALUE_kForceOptimized:
+          return kForceOptimized;
         default: return null;
       }
     }
