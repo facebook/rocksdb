@@ -992,7 +992,7 @@ TEST_P(CompressionLogTest, AlignedFragmentation) {
   // beginning of the block.
   while ((WrittenBytes() & (kBlockSize - 1)) >= kHeaderSize) {
     char entry = 'a';
-    writer_->AddRecord(Slice(&entry, 1));
+    ASSERT_OK(writer_->AddRecord(Slice(&entry, 1)));
     num_filler_records++;
   }
   const std::vector<std::string> wal_entries = {
