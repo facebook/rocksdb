@@ -438,8 +438,9 @@ function setup_test_directory {
   run_remote "ls -l $DB_BENCH_DIR"
 
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-      run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
-      run_local "$SCP ./ldb $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/ldb"
+      shopt -s nullglob # allow missing librocksdb*.so* for static lib build
+      run_local "tar cz db_bench ldb librocksdb*.so* | $SSH $REMOTE_USER_AT_HOST 'cd $DB_BENCH_DIR/ && tar xzv'"
+      shopt -u nullglob
   fi
 
   run_local "mkdir -p $RESULT_PATH"
