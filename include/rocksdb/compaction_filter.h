@@ -202,8 +202,10 @@ class CompactionFilter : public Customizable {
   // `existing_columns` parameter is invalid (nullptr). When the key-value is a
   // wide-column entity, the `existing_columns` parameter contains the wide
   // columns of the existing entity and the `existing_value` parameter is
-  // invalid (nullptr). See above for the semantics of the potential return
-  // values.
+  // invalid (nullptr). The output parameters `new_value` and `new_columns` can
+  // be used to change the value or wide columns of the key-value when
+  // `kChangeValue` or `kChangeWideColumnEntity` is returned. See above for more
+  // information on the semantics of the potential return values.
   //
   // For compatibility, the default implementation keeps all wide-column
   // entities, and falls back to FilterV2 for plain values and merge operands.
