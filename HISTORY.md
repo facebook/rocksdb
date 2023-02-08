@@ -31,6 +31,7 @@
 
 ### New Features
 * Compaction filters are now supported for wide-column entities by means of the `FilterV3` API. See the comment of the API for more details.
+* Added `include_entry_types` and `exclude_compression_entry_types` to `CompressedSecondaryCacheOptions` to support customizing the behavior on certain kinds of block.
 
 ## 7.10.0 (01/23/2023)
 ### Behavior changes

@@ -22,12 +22,14 @@ CompressedSecondaryCache::CompressedSecondaryCache(
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version,
-    bool enable_custom_split_merge)
+    bool enable_custom_split_merge, CacheEntryRoleSet include_entry_types,
+    CacheEntryRoleSet exclude_compression_entry_types)
     : cache_options_(capacity, num_shard_bits, strict_capacity_limit,
                      high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
                      use_adaptive_mutex, metadata_charge_policy,
                      compression_type, compress_format_version,
-                     enable_custom_split_merge) {
+                     enable_custom_split_merge, include_entry_types,
+                     exclude_compression_entry_types) {
   cache_ =
       NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                   high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
@@ -41,6 +43,10 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
     bool& is_in_sec_cache) {
   assert(helper);
+  if (!cache_options_.include_entry_types.Contains(helper->role)) {
+    // We don't store this kind of block in the cache
+    return nullptr;
+  }
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
@@ -71,7 +77,8 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   Status s;
   Cache::ObjectPtr value{nullptr};
   size_t charge{0};
-  if (cache_options_.compression_type == kNoCompression) {
+  if (cache_options_.compression_type == kNoCompression ||
+      cache_options_.exclude_compression_entry_types.Contains(helper->role)) {
     s = helper->create_cb(Slice(ptr->get(), handle_value_charge),
                           create_context, allocator, &value, &charge);
   } else {
@@ -120,6 +127,11 @@ Status CompressedSecondaryCache::Insert(const Slice& key,
   if (value == nullptr) {
     return Status::InvalidArgument();
   }
+  if (!cache_options_.include_entry_types.Contains(helper->role)) {
+    // We don't store this kind of block in the cache, but no error
+    // to report
+    return Status::OK();
+  }
 
   Cache::Handle* lru_handle = cache_->Lookup(key);
   auto internal_helper = GetHelper(cache_options_.enable_custom_split_merge);
@@ -143,7 +155,8 @@ Status CompressedSecondaryCache::Insert(const Slice& key,
   Slice val(ptr.get(), size);
 
   std::string compressed_val;
-  if (cache_options_.compression_type != kNoCompression) {
+  if (cache_options_.compression_type != kNoCompression &&
+      !cache_options_.exclude_compression_entry_types.Contains(helper->role)) {
     PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes, size);
     CompressionOptions compression_opts;
     CompressionContext compression_context(cache_options_.compression_type);
@@ -314,12 +327,14 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version,
-    bool enable_custom_split_merge) {
+    bool enable_custom_split_merge, CacheEntryRoleSet include_entry_types,
+    CacheEntryRoleSet exclude_compression_entry_types) {
   return std::make_shared<CompressedSecondaryCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       low_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
       metadata_charge_policy, compression_type, compress_format_version,
-      enable_custom_split_merge);
+      enable_custom_split_merge, include_entry_types,
+      exclude_compression_entry_types);
 }
 
 std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
@@ -331,7 +346,8 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
       opts.high_pri_pool_ratio, opts.low_pri_pool_ratio, opts.memory_allocator,
       opts.use_adaptive_mutex, opts.metadata_charge_policy,
       opts.compression_type, opts.compress_format_version,
-      opts.enable_custom_split_merge);
+      opts.enable_custom_split_merge, opts.include_entry_types,
+      opts.exclude_compression_entry_types);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
