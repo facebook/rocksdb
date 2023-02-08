@@ -11,11 +11,13 @@
 #include <cassert>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/types.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -34,6 +36,7 @@ class CompactionFilter : public Customizable {
     kValue,
     kMergeOperand,
     kBlobIndex,  // used internally by BlobDB.
+    kWideColumnEntity,
   };
 
   enum class Decision {
@@ -44,6 +47,7 @@ class CompactionFilter : public Customizable {
     kChangeBlobIndex,  // used internally by BlobDB.
     kIOError,          // used internally by BlobDB.
     kPurge,            // used for keys that can only be SingleDelete'ed
+    kChangeWideColumnEntity,
     kUndetermined,
   };
 
@@ -176,15 +180,57 @@ class CompactionFilter : public Customizable {
         }
         return value_changed ? Decision::kChangeValue : Decision::kKeep;
       }
+
       case ValueType::kMergeOperand: {
         bool rv = FilterMergeOperand(level, key, existing_value);
         return rv ? Decision::kRemove : Decision::kKeep;
       }
+
       case ValueType::kBlobIndex:
         return Decision::kKeep;
+
+      default:
+        assert(false);
+        return Decision::kKeep;
     }
-    assert(false);
-    return Decision::kKeep;
+  }
+
+  // Wide column aware API. Called for plain values, merge operands, and
+  // wide-column entities; the `value_type` parameter indicates the type of the
+  // key-value. When the key-value is a plain value or a merge operand, the
+  // `existing_value` parameter contains the existing value and the
+  // `existing_columns` parameter is invalid (nullptr). When the key-value is a
+  // wide-column entity, the `existing_columns` parameter contains the wide
+  // columns of the existing entity and the `existing_value` parameter is
+  // invalid (nullptr). The output parameters `new_value` and `new_columns` can
+  // be used to change the value or wide columns of the key-value when
+  // `kChangeValue` or `kChangeWideColumnEntity` is returned. See above for more
+  // information on the semantics of the potential return values.
+  //
+  // For compatibility, the default implementation keeps all wide-column
+  // entities, and falls back to FilterV2 for plain values and merge operands.
+  // If you override this method, there is no need to override FilterV2 (or
+  // Filter/FilterMergeOperand).
+  virtual Decision FilterV3(
+      int level, const Slice& key, ValueType value_type,
+      const Slice* existing_value, const WideColumns* existing_columns,
+      std::string* new_value,
+      std::vector<std::pair<std::string, std::string>>* /* new_columns */,
+      std::string* skip_until) const {
+#ifdef NDEBUG
+    (void)existing_columns;
+#endif
+
+    assert(!existing_value || !existing_columns);
+    assert(value_type == ValueType::kWideColumnEntity || existing_value);
+    assert(value_type != ValueType::kWideColumnEntity || existing_columns);
+
+    if (value_type == ValueType::kWideColumnEntity) {
+      return Decision::kKeep;
+    }
+
+    return FilterV2(level, key, value_type, *existing_value, new_value,
+                    skip_until);
   }
 
   // Internal (BlobDB) use only. Do not override in application code.
@@ -211,7 +257,7 @@ class CompactionFilter : public Customizable {
   // In the case of BlobDB, it may be possible to reach a decision with only
   // the key without reading the actual value. Keys whose value_type is
   // kBlobIndex will be checked by this method.
-  // Returning kUndetermined will cause FilterV2() to be called to make a
+  // Returning kUndetermined will cause FilterV3() to be called to make a
   // decision as usual.
   virtual Decision FilterBlobByKey(int /*level*/, const Slice& /*key*/,
                                    std::string* /*new_value*/,

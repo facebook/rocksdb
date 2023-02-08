@@ -13,6 +13,7 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/prefetch_buffer_collection.h"
 #include "db/snapshot_checker.h"
+#include "db/wide/wide_column_serialization.h"
 #include "logging/logging.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
@@ -225,8 +226,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     return true;
   }
 
-  // TODO: support compaction filter for wide-column entities
-  if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex) {
+  if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex &&
+      ikey_.type != kTypeWideColumnEntity) {
     return true;
   }
 
@@ -234,7 +235,9 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       CompactionFilter::Decision::kUndetermined;
   CompactionFilter::ValueType value_type =
       ikey_.type == kTypeValue ? CompactionFilter::ValueType::kValue
-                               : CompactionFilter::ValueType::kBlobIndex;
+      : ikey_.type == kTypeBlobIndex
+          ? CompactionFilter::ValueType::kBlobIndex
+          : CompactionFilter::ValueType::kWideColumnEntity;
 
   // Hack: pass internal key to BlobIndexCompactionFilter since it needs
   // to get sequence number.
@@ -247,6 +250,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
 
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
+
+  std::vector<std::pair<std::string, std::string>> new_columns;
 
   {
     StopWatchNano timer(clock_, report_detailed_time_);
@@ -303,10 +308,36 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         value_type = CompactionFilter::ValueType::kValue;
       }
     }
+
     if (decision == CompactionFilter::Decision::kUndetermined) {
-      decision = compaction_filter_->FilterV2(
-          level_, filter_key, value_type,
-          blob_value_.empty() ? value_ : blob_value_, &compaction_filter_value_,
+      const Slice* existing_val = nullptr;
+      const WideColumns* existing_col = nullptr;
+
+      WideColumns existing_columns;
+
+      if (ikey_.type != kTypeWideColumnEntity) {
+        if (!blob_value_.empty()) {
+          existing_val = &blob_value_;
+        } else {
+          existing_val = &value_;
+        }
+      } else {
+        Slice value_copy = value_;
+        const Status s =
+            WideColumnSerialization::Deserialize(value_copy, existing_columns);
+
+        if (!s.ok()) {
+          status_ = s;
+          validity_info_.Invalidate();
+          return false;
+        }
+
+        existing_col = &existing_columns;
+      }
+
+      decision = compaction_filter_->FilterV3(
+          level_, filter_key, value_type, existing_val, existing_col,
+          &compaction_filter_value_, &new_columns,
           compaction_filter_skip_until_.rep());
     }
 
@@ -315,9 +346,10 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   }
 
   if (decision == CompactionFilter::Decision::kUndetermined) {
-    // Should not reach here, since FilterV2 should never return kUndetermined.
-    status_ =
-        Status::NotSupported("FilterV2() should never return kUndetermined");
+    // Should not reach here, since FilterV2/FilterV3 should never return
+    // kUndetermined.
+    status_ = Status::NotSupported(
+        "FilterV2/FilterV3 should never return kUndetermined");
     validity_info_.Invalidate();
     return false;
   }
@@ -326,7 +358,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       cmp_->Compare(*compaction_filter_skip_until_.rep(), ikey_.user_key) <=
           0) {
     // Can't skip to a key smaller than the current one.
-    // Keep the key as per FilterV2 documentation.
+    // Keep the key as per FilterV2/FilterV3 documentation.
     decision = CompactionFilter::Decision::kKeep;
   }
 
@@ -388,6 +420,35 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     status_ = Status::IOError("Failed to access blob during compaction filter");
     validity_info_.Invalidate();
     return false;
+  } else if (decision == CompactionFilter::Decision::kChangeWideColumnEntity) {
+    WideColumns sorted_columns;
+
+    sorted_columns.reserve(new_columns.size());
+    for (const auto& column : new_columns) {
+      sorted_columns.emplace_back(column.first, column.second);
+    }
+
+    std::sort(sorted_columns.begin(), sorted_columns.end(),
+              [](const WideColumn& lhs, const WideColumn& rhs) {
+                return lhs.name().compare(rhs.name()) < 0;
+              });
+
+    {
+      const Status s = WideColumnSerialization::Serialize(
+          sorted_columns, compaction_filter_value_);
+      if (!s.ok()) {
+        status_ = s;
+        validity_info_.Invalidate();
+        return false;
+      }
+    }
+
+    if (ikey_.type != kTypeWideColumnEntity) {
+      ikey_.type = kTypeWideColumnEntity;
+      current_key_.UpdateInternalKey(ikey_.sequence, kTypeWideColumnEntity);
+    }
+
+    value_ = compaction_filter_value_;
   }
 
   return true;
