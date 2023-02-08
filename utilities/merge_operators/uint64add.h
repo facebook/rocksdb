@@ -25,6 +25,7 @@ class UInt64AddOperator : public AssociativeMergeOperator {
   bool Merge(const Slice& /*key*/, const Slice* existing_value,
              const Slice& value, std::string* new_value,
              Logger* logger) const override;
+
  private:
   // Takes the string and decodes it into a uint64_t
   // On error, prints a message and returns 0

@@ -47,11 +47,10 @@ class PutOperatorV2 : public PutOperator {
 
   bool FullMerge(const Slice& /*key*/, const Slice* /*existing_value*/,
                  const std::deque<std::string>& /*operand_sequence*/,
-                 std::string* /*new_value*/,
-                 Logger* /*logger*/) const override;
+                 std::string* /*new_value*/, Logger* /*logger*/) const override;
 
   bool FullMergeV2(const MergeOperationInput& merge_in,
                    MergeOperationOutput* merge_out) const override;
 };
-  
+
 }  // namespace ROCKSDB_NAMESPACE
