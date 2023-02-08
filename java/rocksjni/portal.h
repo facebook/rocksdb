@@ -8657,6 +8657,8 @@ class FileOperationInfoJni : public JavaClass {
                             "(Ljava/lang/String;JJJJLorg/rocksdb/Status;)V");
   }
 };
+
+// Class used to manage Customizable objects and their associated methods.
 class CustomizableJni : public JavaClass {
  public:
   // Creates a new shared<R> via T::CreateFromString using the input
