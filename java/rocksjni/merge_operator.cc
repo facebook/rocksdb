@@ -16,9 +16,9 @@
 #include <memory>
 #include <string>
 
+#include "include/org_rocksdb_Int64AddOperator.h"
 #include "include/org_rocksdb_StringAppendOperator.h"
 #include "include/org_rocksdb_UInt64AddOperator.h"
-#include "include/org_rocksdb_Int64AddOperator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
@@ -105,9 +105,9 @@ void Java_org_rocksdb_UInt64AddOperator_disposeInternalJni(JNIEnv* /*env*/,
  */
 jlong Java_org_rocksdb_Int64AddOperator_newSharedInt64AddOperator(
     JNIEnv* /*env*/, jclass /*jclazz*/) {
-  auto* sptr_int64_add_op = new std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>(
+  auto* sptr_int64_add_op =
+      new std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>(
           ROCKSDB_NAMESPACE::MergeOperators::CreateInt64AddOperator());
-  std::cout << "Java_org_rocksdb_Int64AddOperator_newSharedInt64AddOperator" << sptr_int64_add_op->use_count() << std::endl;
   return GET_CPLUSPLUS_POINTER(sptr_int64_add_op);
 }
 
@@ -117,13 +117,10 @@ jlong Java_org_rocksdb_Int64AddOperator_newSharedInt64AddOperator(
  * Signature: (J)V
  */
 void Java_org_rocksdb_Int64AddOperator_disposeInternal(JNIEnv* /*env*/,
-                                                        jobject /*jobj*/,
-                                                        jlong jhandle) {
+                                                       jobject /*jobj*/,
+                                                       jlong jhandle) {
   auto* sptr_int64_add_op =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>*>(
           jhandle);
-  std::cout << "Java_org_rocksdb_Int64AddOperator_disposeInternal" << sptr_int64_add_op->use_count() << std::endl;
   delete sptr_int64_add_op;  // delete this instance of the std::shared_ptr
 }
-
-

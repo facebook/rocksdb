@@ -1885,10 +1885,15 @@ TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
 TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
   std::shared_ptr<MergeOperator> result;
   std::vector<std::string> failed;
-  std::unordered_set<std::string> expected = {
-      "put", "put_v1",      "PutOperator", "uint64add", "UInt64AddOperator",
-      "max", "MaxOperator", "in64add", "Int64AddOperator"
-  };
+  std::unordered_set<std::string> expected = {"put",
+                                              "put_v1",
+                                              "PutOperator",
+                                              "uint64add",
+                                              "UInt64AddOperator",
+                                              "max",
+                                              "MaxOperator",
+                                              "in64add",
+                                              "Int64AddOperator"};
   expected.insert({
       StringAppendOperator::kClassName(),
       StringAppendOperator::kNickName(),
