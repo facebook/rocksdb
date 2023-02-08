@@ -20,7 +20,7 @@ public class StringAppendOperator extends MergeOperator {
     }
 
     public StringAppendOperator(final String delim) {
-      super(newSharedStringAppendOperator(delim));
+        super(newSharedStringAppendOperator(delim));
     }
 
   private static native long newSharedStringAppendOperator(final char delim);
