@@ -2926,10 +2926,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
     fprintf(stderr, "TransactionDB does not support timestamp yet.\n");
     exit(1);
   }
-  if (FLAGS_enable_blob_files || FLAGS_use_blob_db) {
-    fprintf(stderr, "BlobDB not supported with timestamp.\n");
-    exit(1);
-  }
   if (FLAGS_test_cf_consistency || FLAGS_test_batches_snapshots) {
     fprintf(stderr,
             "Due to per-key ts-seq ordering constraint, only the (default) "
