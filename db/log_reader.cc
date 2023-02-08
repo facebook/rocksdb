@@ -515,10 +515,11 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
 
       size_t uncompressed_size = 0;
       int remaining = 0;
+      const char* input = header + header_size;
       do {
-        remaining = uncompress_->Uncompress(header + header_size, length,
-                                            uncompressed_buffer_.get(),
-                                            &uncompressed_size);
+        remaining = uncompress_->Uncompress(
+            input, length, uncompressed_buffer_.get(), &uncompressed_size);
+        input = nullptr;
         if (remaining < 0) {
           buffer_.clear();
           return kBadRecord;
@@ -830,10 +831,11 @@ bool FragmentBufferedReader::TryReadFragment(
     uncompressed_record_.clear();
     size_t uncompressed_size = 0;
     int remaining = 0;
+    const char* input = header + header_size;
     do {
-      remaining = uncompress_->Uncompress(header + header_size, length,
-                                          uncompressed_buffer_.get(),
-                                          &uncompressed_size);
+      remaining = uncompress_->Uncompress(
+          input, length, uncompressed_buffer_.get(), &uncompressed_size);
+      input = nullptr;
       if (remaining < 0) {
         buffer_.clear();
         *fragment_type_or_err = kBadRecord;
