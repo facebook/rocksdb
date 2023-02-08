@@ -136,6 +136,14 @@ class StackableDB : public DB {
                          statuses, sorted_input);
   }
 
+  using DB::MultiGetEntity;
+  void MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                      ColumnFamilyHandle** column_families, const Slice* keys,
+                      PinnableWideColumns* results, Status* statuses) override {
+    db_->MultiGetEntity(options, num_keys, column_families, keys, results,
+                        statuses);
+  }
+
   using DB::IngestExternalFile;
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* column_family,
