@@ -141,6 +141,7 @@ JAVA_TESTS = \
 	org.rocksdb.IngestExternalFileOptionsTest\
 	org.rocksdb.util.IntComparatorTest\
 	org.rocksdb.util.JNIComparatorTest\
+	org.rocksdb.util.MergeEncodingsTest\
 	org.rocksdb.FilterTest\
 	org.rocksdb.FlushTest\
 	org.rocksdb.ImportColumnFamilyTest\
