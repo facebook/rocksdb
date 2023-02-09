@@ -1711,8 +1711,11 @@ class StreamingUncompress {
         compress_format_version_(compress_format_version),
         max_output_len_(max_output_len) {}
   virtual ~StreamingUncompress() = default;
-  // uncompress should be called again with the same input if output_size is
-  // equal to max_output_len or with the next input fragment.
+  // Uncompress can be called repeatedly to progressively process the same
+  // input buffer, or can be called with a new input buffer. When the input
+  // buffer is not fully consumed, the return value is > 0 or output_size
+  // == max_output_len. When calling uncompress to continue processing the
+  // same input buffer, the input argument should be nullptr.
   // Parameters:
   // input - buffer to uncompress
   // input_size - size of input buffer
