@@ -2659,7 +2659,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     values[i].Reset();
-    key_context.emplace_back(column_families[i], keys[i], &values[i],
+    key_context.emplace_back(column_families[i], keys[i], &values[i], nullptr,
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
   }
@@ -2806,7 +2806,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     values[i].Reset();
-    key_context.emplace_back(column_family, keys[i], &values[i],
+    key_context.emplace_back(column_family, keys[i], &values[i], nullptr,
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
   }
