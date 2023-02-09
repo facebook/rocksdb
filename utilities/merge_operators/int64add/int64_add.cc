@@ -19,7 +19,7 @@ namespace {  // anonymous namespace
 // A 'model' merge operator with int64 addition semantics
 // operands and database value should be variable length encoded
 // int64_t values, as encoded/decoded by `util/coding.h`.
-class Int64AddMergeOperator : public AssociativeMergeOperator {
+class Int64AddOperator : public AssociativeMergeOperator {
  public:
   bool Merge(const Slice&, const Slice* existing_value, const Slice& value,
              std::string* new_value, Logger* logger) const override {
@@ -51,7 +51,7 @@ class Int64AddMergeOperator : public AssociativeMergeOperator {
     return true;
   }
 
-  static const char* kClassName() { return "Int64AddMergeOperator"; }
+  static const char* kClassName() { return "Int64AddOperator"; }
   static const char* kNickName() { return "int64add"; }
   const char* Name() const override { return kClassName(); }
   const char* NickName() const override { return kNickName(); }
@@ -62,7 +62,7 @@ class Int64AddMergeOperator : public AssociativeMergeOperator {
 namespace ROCKSDB_NAMESPACE {
 
 std::shared_ptr<MergeOperator> MergeOperators::CreateInt64AddOperator() {
-  return std::make_shared<Int64AddMergeOperator>();
+  return std::make_shared<Int64AddOperator>();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
