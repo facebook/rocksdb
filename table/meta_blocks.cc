@@ -385,7 +385,7 @@ Status ReadTablePropertiesHelper(
 
   // Modified version of BlockFetcher checksum verification
   // (See write_global_seqno comment above)
-  if (s.ok() && footer.GetBlockTrailerSize() > 0 && ro.verify_checksums) {
+  if (s.ok() && footer.GetBlockTrailerSize() > 0) {
     s = VerifyBlockChecksum(footer.checksum_type(), properties_block.data(),
                             block_size, file->file_name(), handle.offset());
     if (s.IsCorruption()) {
