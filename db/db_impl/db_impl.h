@@ -294,11 +294,6 @@ class DBImpl : public DB {
                 PinnableSlice* values, std::string* timestamps,
                 Status* statuses, const bool sorted_input = false) override;
 
-  void MultiGetWithCallback(
-      const ReadOptions& options, ColumnFamilyHandle* column_family,
-      ReadCallback* callback,
-      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
-
   using DB::MultiGetEntity;
   void MultiGetEntity(const ReadOptions& options, size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
@@ -2191,17 +2186,16 @@ class DBImpl : public DB {
                       PinnableWideColumns* columns, std::string* timestamps,
                       Status* statuses, bool sorted_input);
 
+  void MultiGetWithCallback(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      ReadCallback* callback,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
+
   void MultiGetCommon(const ReadOptions& options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, PinnableWideColumns* columns,
                       std::string* timestamps, Status* statuses,
                       bool sorted_input);
-
-  // Utility function to do some debug validation and sort the given vector
-  // of MultiGet keys
-  void PrepareMultiGetKeys(
-      const size_t num_keys, bool sorted,
-      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* key_ptrs);
 
   // A structure to hold the information required to process MultiGet of keys
   // belonging to one column family. For a multi column family MultiGet, there
@@ -2261,6 +2255,12 @@ class DBImpl : public DB {
       std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
           iter_deref_func,
       T* cf_list, SequenceNumber* snapshot);
+
+  // Utility function to do some debug validation and sort the given vector
+  // of MultiGet keys
+  void PrepareMultiGetKeys(
+      const size_t num_keys, bool sorted,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* key_ptrs);
 
   // The actual implementation of the batching MultiGet. The caller is expected
   // to have acquired the SuperVersion and pass in a snapshot sequence number

@@ -2480,6 +2480,51 @@ std::vector<Status> DBImpl::MultiGet(
   return stat_list;
 }
 
+void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
+                      ColumnFamilyHandle** column_families, const Slice* keys,
+                      PinnableSlice* values, Status* statuses,
+                      const bool sorted_input) {
+  MultiGet(read_options, num_keys, column_families, keys, values,
+           /* timestamps */ nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
+                      ColumnFamilyHandle** column_families, const Slice* keys,
+                      PinnableSlice* values, std::string* timestamps,
+                      Status* statuses, const bool sorted_input) {
+  MultiGetCommon(read_options, num_keys, column_families, keys, values,
+                 /* columns */ nullptr, timestamps, statuses, sorted_input);
+}
+
+void DBImpl::MultiGet(const ReadOptions& read_options,
+                      ColumnFamilyHandle* column_family, const size_t num_keys,
+                      const Slice* keys, PinnableSlice* values,
+                      Status* statuses, const bool sorted_input) {
+  MultiGet(read_options, column_family, num_keys, keys, values,
+           /* timestamps */ nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGet(const ReadOptions& read_options,
+                      ColumnFamilyHandle* column_family, const size_t num_keys,
+                      const Slice* keys, PinnableSlice* values,
+                      std::string* timestamps, Status* statuses,
+                      const bool sorted_input) {
+  MultiGetCommon(read_options, column_family, num_keys, keys, values,
+                 /* columns */ nullptr, timestamps, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                            ColumnFamilyHandle** column_families,
+                            const Slice* keys, PinnableWideColumns* results,
+                            Status* statuses) {
+  (void)options;
+  (void)num_keys;
+  (void)column_families;
+  (void)keys;
+  (void)results;
+  (void)statuses;
+}
+
 template <class T>
 bool DBImpl::MultiCFSnapshot(
     const ReadOptions& read_options, ReadCallback* callback,
@@ -2599,22 +2644,6 @@ bool DBImpl::MultiCFSnapshot(
   PERF_TIMER_STOP(get_snapshot_time);
 
   return last_try;
-}
-
-void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
-                      ColumnFamilyHandle** column_families, const Slice* keys,
-                      PinnableSlice* values, Status* statuses,
-                      const bool sorted_input) {
-  MultiGet(read_options, num_keys, column_families, keys, values,
-           /*timestamps=*/nullptr, statuses, sorted_input);
-}
-
-void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
-                      ColumnFamilyHandle** column_families, const Slice* keys,
-                      PinnableSlice* values, std::string* timestamps,
-                      Status* statuses, const bool sorted_input) {
-  MultiGetCommon(read_options, num_keys, column_families, keys, values,
-                 /* columns */ nullptr, timestamps, statuses, sorted_input);
 }
 
 void DBImpl::MultiGetCommon(const ReadOptions& read_options,
@@ -2791,23 +2820,6 @@ void DBImpl::PrepareMultiGetKeys(
             CompareKeyContext());
 }
 
-void DBImpl::MultiGet(const ReadOptions& read_options,
-                      ColumnFamilyHandle* column_family, const size_t num_keys,
-                      const Slice* keys, PinnableSlice* values,
-                      Status* statuses, const bool sorted_input) {
-  MultiGet(read_options, column_family, num_keys, keys, values,
-           /*timestamp=*/nullptr, statuses, sorted_input);
-}
-
-void DBImpl::MultiGet(const ReadOptions& read_options,
-                      ColumnFamilyHandle* column_family, const size_t num_keys,
-                      const Slice* keys, PinnableSlice* values,
-                      std::string* timestamps, Status* statuses,
-                      const bool sorted_input) {
-  MultiGetCommon(read_options, column_family, num_keys, keys, values,
-                 /* columns */ nullptr, timestamps, statuses, sorted_input);
-}
-
 void DBImpl::MultiGetCommon(const ReadOptions& read_options,
                             ColumnFamilyHandle* column_family,
                             const size_t num_keys, const Slice* keys,
@@ -2898,18 +2910,6 @@ void DBImpl::MultiGetWithCallback(
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
   ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
                                multiget_cf_data[0].super_version);
-}
-
-void DBImpl::MultiGetEntity(const ReadOptions& options, size_t num_keys,
-                            ColumnFamilyHandle** column_families,
-                            const Slice* keys, PinnableWideColumns* results,
-                            Status* statuses) {
-  (void)options;
-  (void)num_keys;
-  (void)column_families;
-  (void)keys;
-  (void)results;
-  (void)statuses;
 }
 
 // The actual implementation of batched MultiGet. Parameters -
