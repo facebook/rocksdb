@@ -929,7 +929,7 @@ set(SOURCES
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/uint64add.cc
-        utilities/merge_operators/int64add.cc
+        utilities/merge_operators/int64add/int64_add.cc
         utilities/object_registry.cc
         utilities/option_change_migration/option_change_migration.cc
         utilities/options/options_util.cc
