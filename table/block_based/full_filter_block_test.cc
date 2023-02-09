@@ -112,13 +112,12 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block),
-                               rocksdb::ReadOptions());
+  FullFilterBlockReader reader(table_.get(), std::move(block));
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr, Env::IO_TOTAL));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
 }
 
 TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
@@ -190,13 +189,12 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block),
-                               rocksdb::ReadOptions());
+  FullFilterBlockReader reader(table_.get(), std::move(block));
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
-                                 /*lookup_context=*/nullptr, Env::IO_TOTAL));
+                                 /*lookup_context=*/nullptr, ReadOptions()));
 }
 
 class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {

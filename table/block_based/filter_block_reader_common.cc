@@ -103,8 +103,7 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     const SliceTransform* prefix_extractor, const Comparator* comparator,
     const Slice* const const_ikey_ptr, bool* filter_checked,
     bool need_upper_bound_check, bool no_io,
-    BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) {
+    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
   if (!prefix_extractor || !prefix_extractor->InDomain(user_key_without_ts)) {
     *filter_checked = false;
     return true;
@@ -118,7 +117,7 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     *filter_checked = true;
     return PrefixMayMatch(prefix, no_io, const_ikey_ptr,
                           /* get_context */ nullptr, lookup_context,
-                          rate_limiter_priority);
+                          read_options);
   }
 }
 

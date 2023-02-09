@@ -40,7 +40,7 @@ class FilterBlockReaderCommon : public FilterBlockReader {
                      const Slice* const const_ikey_ptr, bool* filter_checked,
                      bool need_upper_bound_check, bool no_io,
                      BlockCacheLookupContext* lookup_context,
-                     Env::IOPriority rate_limiter_priority) override;
+                     const ReadOptions& read_options) override;
 
  protected:
   static Status ReadFilterBlock(const BlockBasedTable* table,
