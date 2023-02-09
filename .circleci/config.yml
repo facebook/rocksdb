@@ -589,6 +589,23 @@ jobs:
           command: make V=1 J=8 -j8 jtest
       - post-steps
 
+  build-linux-java-spotbugs:
+    executor: linux-docker
+    resource_class: large
+    steps:
+      - pre-steps
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Spotbugs RocksDBJava"
+          command: make V=1 J=8 -j8 jspotbugs
+      - post-steps
+
   build-linux-java-static:
     executor: linux-docker
     resource_class: large
@@ -853,6 +870,7 @@ workflows:
       - build-macos-java
       - build-macos-java-static
       - build-macos-java-static-universal
+      - build-linux-java-spotbugs
   jobs-macos:
     jobs:
       - build-macos
