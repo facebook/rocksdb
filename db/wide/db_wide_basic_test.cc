@@ -106,6 +106,29 @@ TEST_F(DBWideBasicTest, PutEntity) {
     }
 
     {
+      constexpr size_t num_keys = 3;
+
+      std::array<ColumnFamilyHandle*, num_keys> column_families{
+          {db_->DefaultColumnFamily(), db_->DefaultColumnFamily(),
+           db_->DefaultColumnFamily()}};
+      std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
+      std::array<PinnableWideColumns, num_keys> results;
+      std::array<Status, num_keys> statuses;
+
+      db_->MultiGetEntity(ReadOptions(), num_keys, &column_families[0],
+                          &keys[0], &results[0], &statuses[0]);
+
+      ASSERT_OK(statuses[0]);
+      ASSERT_EQ(results[0].columns(), first_columns);
+
+      ASSERT_OK(statuses[1]);
+      ASSERT_EQ(results[1].columns(), second_columns);
+
+      ASSERT_OK(statuses[2]);
+      ASSERT_EQ(results[2].columns(), expected_third_columns);
+    }
+
+    {
       std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
 
       iter->SeekToFirst();
