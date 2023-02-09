@@ -612,6 +612,7 @@ TEST_P(DBWriteTest, LockWALInEffect) {
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
       new FaultInjectionTestEnv(env_));
   options.env = mock_env.get();
+  options.disable_auto_compactions = true;
   options.paranoid_checks = false;
   Reopen(options);
   // try the 1st WAL created during open
