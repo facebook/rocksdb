@@ -202,8 +202,13 @@ TEST_F(SmallEnumSetTest, SmallEnumSetTest2) {
   ASSERT_TRUE(s.Contains(MyEnumClass::A));
   ASSERT_FALSE(s.Contains(MyEnumClass::B));
   ASSERT_TRUE(s.With(MyEnumClass::B).Contains(MyEnumClass::B));
+  ASSERT_TRUE(s.With(MyEnumClass::A).Contains(MyEnumClass::A));
   ASSERT_FALSE(s.Contains(MyEnumClass::B));
   ASSERT_FALSE(s.Without(MyEnumClass::A).Contains(MyEnumClass::A));
+  ASSERT_FALSE(
+      s.With(MyEnumClass::B).Without(MyEnumClass::B).Contains(MyEnumClass::B));
+  ASSERT_TRUE(
+      s.Without(MyEnumClass::B).With(MyEnumClass::B).Contains(MyEnumClass::B));
   ASSERT_TRUE(s.Contains(MyEnumClass::A));
 
   const MyEnumClassSet cs = s;

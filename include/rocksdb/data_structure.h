@@ -48,17 +48,6 @@ class SmallEnumSet {
     return SmallEnumSet(RawStateMarker(), tmp | (tmp - 1));
   }
 
-  // destruct
-  ~SmallEnumSet() {}
-
-  // copy
-  SmallEnumSet(const SmallEnumSet& that) = default;
-  SmallEnumSet& operator=(const SmallEnumSet& that) = default;
-
-  // move
-  SmallEnumSet(SmallEnumSet&& other) noexcept = default;
-  SmallEnumSet& operator=(SmallEnumSet&& other) noexcept = default;
-
   // equality
   bool operator==(const SmallEnumSet& that) const {
     return this->state_ == that.state_;
@@ -94,8 +83,8 @@ class SmallEnumSet {
       return this->pos_ == that.pos_;
     }
 
-    bool operator!=(const const_iterator& other) const {
-      return !(*this == other);
+    bool operator!=(const const_iterator& that) const {
+      return !(*this == that);
     }
 
     // ++iterator
