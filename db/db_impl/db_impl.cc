@@ -2517,12 +2517,9 @@ void DBImpl::MultiGetEntity(const ReadOptions& options, size_t num_keys,
                             ColumnFamilyHandle** column_families,
                             const Slice* keys, PinnableWideColumns* results,
                             Status* statuses) {
-  (void)options;
-  (void)num_keys;
-  (void)column_families;
-  (void)keys;
-  (void)results;
-  (void)statuses;
+  MultiGetCommon(options, num_keys, column_families, keys, /* values */ nullptr,
+                 results, /* timestamps */ nullptr, statuses,
+                 /* sorted_input */ false);
 }
 
 template <class T>
