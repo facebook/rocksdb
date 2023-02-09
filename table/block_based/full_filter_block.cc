@@ -168,10 +168,10 @@ bool FullFilterBlockReader::PrefixMayMatch(
   return MayMatch(prefix, no_io, get_context, lookup_context, read_options);
 }
 
-bool FullFilterBlockReader::MayMatch(
-    const Slice& entry, bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
-    const ReadOptions& read_options) const {
+bool FullFilterBlockReader::MayMatch(const Slice& entry, bool no_io,
+                                     GetContext* get_context,
+                                     BlockCacheLookupContext* lookup_context,
+                                     const ReadOptions& read_options) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
   const Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,

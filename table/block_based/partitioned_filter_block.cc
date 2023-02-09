@@ -322,8 +322,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
 bool PartitionedFilterBlockReader::MayMatch(
     const Slice& slice, bool no_io, const Slice* const_ikey_ptr,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    const ReadOptions& read_options,
-    FilterFunction filter_function) const {
+    const ReadOptions& read_options, FilterFunction filter_function) const {
   CachableEntry<Block_kFilterPartitionIndex> filter_block;
   Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
                                   &filter_block, read_options);
@@ -358,13 +357,11 @@ bool PartitionedFilterBlockReader::MayMatch(
 
 void PartitionedFilterBlockReader::MayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor, bool no_io,
-    BlockCacheLookupContext* lookup_context,
-    const ReadOptions& read_options,
+    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options,
     FilterManyFunction filter_function) const {
   CachableEntry<Block_kFilterPartitionIndex> filter_block;
-  Status s =
-      GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
-                           &filter_block, read_options);
+  Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
+                                  lookup_context, &filter_block, read_options);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return;  // Any/all may match
