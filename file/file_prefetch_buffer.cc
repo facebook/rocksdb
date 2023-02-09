@@ -569,10 +569,11 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
     bufs_[second].offset_ = rounddown_start2;
     assert(roundup_len2 >= chunk_len2);
     uint64_t read_len2 = static_cast<size_t>(roundup_len2 - chunk_len2);
-    Status tmp_s = ReadAsync(opts, reader, read_len2, rounddown_start2, second);
-    if (!tmp_s.ok()) {
+    s = ReadAsync(opts, reader, read_len2, rounddown_start2, second);
+    if (!s.ok()) {
       DestroyAndClearIOHandle(second);
       bufs_[second].buffer_.Clear();
+      return s;
     }
   }
 
