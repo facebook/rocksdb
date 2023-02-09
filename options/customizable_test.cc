@@ -1892,7 +1892,7 @@ TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
                                               "UInt64AddOperator",
                                               "max",
                                               "MaxOperator",
-                                              "in64add",
+                                              "int64add",
                                               "Int64AddOperator"};
   expected.insert({
       StringAppendOperator::kClassName(),
