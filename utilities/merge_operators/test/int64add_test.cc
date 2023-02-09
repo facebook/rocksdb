@@ -98,6 +98,7 @@ TEST_P(EmptyDbTest, MergeEmptyDbCf) {
   cf_opts.merge_operator = options_.merge_operator;
   ColumnFamilyHandle* cf1;
   Status s = db_->CreateColumnFamily(cf_opts, "cf1", &cf1);
+  ASSERT_OK(s);
 
   PutVarsignedint64(&value, merge_num);
   s = db_->Merge(write_opts_, cf1, "key",
@@ -112,8 +113,8 @@ TEST_P(EmptyDbTest, MergeEmptyDbCf) {
   int64_t read_value = 0;
   const bool read_ok = GetVarsignedint64(&read_slice, &read_value);
 
-  db_->DropColumnFamily(cf1);
-  db_->DestroyColumnFamilyHandle(cf1);
+  ASSERT_OK(db_->DropColumnFamily(cf1));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cf1));
 
   ASSERT_TRUE(read_ok);
   const int64_t expected = 0 + merge_num;
@@ -187,8 +188,8 @@ TEST_P(NonEmptyDbTest, MergeNonEmptyDbCf) {
   int64_t read_value = 0;
   const bool read_ok = GetVarsignedint64(&read_slice, &read_value);
 
-  db_->DropColumnFamily(cf1);
-  db_->DestroyColumnFamilyHandle(cf1);
+  ASSERT_OK(db_->DropColumnFamily(cf1));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(cf1));
 
   ASSERT_TRUE(read_ok);
   const int64_t expected = initial_db_num + merge_num;
