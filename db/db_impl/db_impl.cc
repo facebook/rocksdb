@@ -2605,14 +2605,25 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, Status* statuses,
                       const bool sorted_input) {
-  return MultiGet(read_options, num_keys, column_families, keys, values,
-                  /*timestamps=*/nullptr, statuses, sorted_input);
+  MultiGet(read_options, num_keys, column_families, keys, values,
+           /*timestamps=*/nullptr, statuses, sorted_input);
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, std::string* timestamps,
                       Status* statuses, const bool sorted_input) {
+  MultiGetCommon(read_options, num_keys, column_families, keys, values,
+                 /* columns */ nullptr, timestamps, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetCommon(const ReadOptions& read_options,
+                            const size_t num_keys,
+                            ColumnFamilyHandle** column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            PinnableWideColumns* columns,
+                            std::string* timestamps, Status* statuses,
+                            const bool sorted_input) {
   if (num_keys == 0) {
     return;
   }
@@ -2659,9 +2670,10 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     values[i].Reset();
-    key_context.emplace_back(column_families[i], keys[i], &values[i], nullptr,
-                             timestamps ? &timestamps[i] : nullptr,
-                             &statuses[i]);
+    key_context.emplace_back(
+        column_families[i], keys[i], values ? &values[i] : nullptr,
+        columns ? &columns[i] : nullptr, timestamps ? &timestamps[i] : nullptr,
+        &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];
@@ -2783,8 +2795,8 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
                       Status* statuses, const bool sorted_input) {
-  return MultiGet(read_options, column_family, num_keys, keys, values,
-                  /*timestamp=*/nullptr, statuses, sorted_input);
+  MultiGet(read_options, column_family, num_keys, keys, values,
+           /*timestamp=*/nullptr, statuses, sorted_input);
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options,
@@ -2792,6 +2804,16 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       const Slice* keys, PinnableSlice* values,
                       std::string* timestamps, Status* statuses,
                       const bool sorted_input) {
+  MultiGetCommon(read_options, column_family, num_keys, keys, values,
+                 /* columns */ nullptr, timestamps, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetCommon(const ReadOptions& read_options,
+                            ColumnFamilyHandle* column_family,
+                            const size_t num_keys, const Slice* keys,
+                            PinnableSlice* values, PinnableWideColumns* columns,
+                            std::string* timestamps, Status* statuses,
+                            bool sorted_input) {
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.
@@ -2806,9 +2828,10 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     values[i].Reset();
-    key_context.emplace_back(column_family, keys[i], &values[i], nullptr,
-                             timestamps ? &timestamps[i] : nullptr,
-                             &statuses[i]);
+    key_context.emplace_back(
+        column_family, keys[i], values ? &values[i] : nullptr,
+        columns ? &columns[i] : nullptr, timestamps ? &timestamps[i] : nullptr,
+        &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];
