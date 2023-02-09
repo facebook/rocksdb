@@ -12,14 +12,17 @@
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
-using namespace ROCKSDB_NAMESPACE;
-
 namespace {  // anonymous namespace
+
+using ROCKSDB_NAMESPACE::AssociativeMergeOperator;
+using ROCKSDB_NAMESPACE::InfoLogLevel;
+using ROCKSDB_NAMESPACE::Logger;
+using ROCKSDB_NAMESPACE::Slice;
 
 // A 'model' merge operator with int64 addition semantics
 // operands and database value should be variable length encoded
 // int64_t values, as encoded/decoded by `util/coding.h`.
-class Int64AddOperator : public AssociativeMergeOperator {
+class Int64AddOperator : public ROCKSDB_NAMESPACE::AssociativeMergeOperator {
  public:
   bool Merge(const Slice&, const Slice* existing_value, const Slice& value,
              std::string* new_value, Logger* logger) const override {
@@ -36,7 +39,7 @@ class Int64AddOperator : public AssociativeMergeOperator {
 
     int64_t operand = 0;
     Slice v(value);
-    if (!GetVarsignedint64(&v, &operand)) {
+    if (!ROCKSDB_NAMESPACE::GetVarsignedint64(&v, &operand)) {
       ROCKS_LOG_ERROR(logger,
                       "int64 operand corruption, size: %" ROCKSDB_PRIszt,
                       value.size());
@@ -46,7 +49,7 @@ class Int64AddOperator : public AssociativeMergeOperator {
     assert(new_value);
     new_value->clear();
     const int64_t new_number = orig_value + operand;
-    PutVarsignedint64(new_value, new_number);
+    ROCKSDB_NAMESPACE::PutVarsignedint64(new_value, new_number);
 
     return true;
   }
