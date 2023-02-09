@@ -2,6 +2,7 @@
 ## Unreleased
 ### Behavior changes
 * Compaction output file cutting logic now considers range tombstone start keys. For example, SST partitioner now may receive ParitionRequest for range tombstone start keys.
+* User-provided `ReadOptions` take effect for more reads of index and filter blocks.
 
 ### Bug Fixes
 * Fixed an issue for backward iteration when user defined timestamp is enabled in combination with BlobDB.
