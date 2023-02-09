@@ -2877,6 +2877,18 @@ void DBImpl::MultiGetWithCallback(
                                multiget_cf_data[0].super_version);
 }
 
+void DBImpl::MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                            ColumnFamilyHandle** column_families,
+                            const Slice* keys, PinnableWideColumns* results,
+                            Status* statuses) {
+  (void)options;
+  (void)num_keys;
+  (void)column_families;
+  (void)keys;
+  (void)results;
+  (void)statuses;
+}
+
 // The actual implementation of batched MultiGet. Parameters -
 // start_key - Index in the sorted_keys vector to start processing from
 // num_keys - Number of keys to lookup, starting with sorted_keys[start_key]
