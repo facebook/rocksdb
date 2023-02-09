@@ -1,10 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
+    <!-- The set failing checks when spotbugs was set up were added to this file, as a baseline -->
+    <!-- These exclusions should each be justified or removed and fixed AP (2023-02-09) -->
     <Match>
+        <Class name="org.rocksdb.SstFileWriter"/>
+        <Bug pattern="UPM_UNCALLED_PRIVATE_METHOD" />
+    </Match>
+    <Match>
+        <Class name="org.rocksdb.AbstractTransactionNotifier"/>
+        <Bug pattern="UPM_UNCALLED_PRIVATE_METHOD" />
+    </Match>
+    <Match>
+        <Class name="org.rocksdb.Env"/>
         <Bug pattern="MS_EXPOSE_REP" />
     </Match>
     <Match>
-        <Bug pattern="UPM_UNCALLED_PRIVATE_METHOD" />
+        <Class name="org.rocksdb.BackupEngineOptions"/>
+        <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
         <Class name="org.rocksdb.BackupEngineOptions"/>
