@@ -2695,7 +2695,10 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    values[i].Reset();
+    if (values) {
+      values[i].Reset();
+    }
+
     key_context.emplace_back(
         column_families[i], keys[i], values ? &values[i] : nullptr,
         columns ? &columns[i] : nullptr, timestamps ? &timestamps[i] : nullptr,
@@ -2836,7 +2839,9 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    values[i].Reset();
+    if (values) {
+      values[i].Reset();
+    }
     key_context.emplace_back(
         column_family, keys[i], values ? &values[i] : nullptr,
         columns ? &columns[i] : nullptr, timestamps ? &timestamps[i] : nullptr,
@@ -3001,7 +3006,13 @@ Status DBImpl::MultiGetImpl(
   for (size_t i = start_key; i < start_key + num_keys - keys_left; ++i) {
     KeyContext* key = (*sorted_keys)[i];
     if (key->s->ok()) {
-      bytes_read += key->value->size();
+      if (key->value) {
+        bytes_read += key->value->size();
+      } else {
+        assert(key->columns);
+        bytes_read += key->columns->serialized_size();
+      }
+
       num_found++;
     }
   }
