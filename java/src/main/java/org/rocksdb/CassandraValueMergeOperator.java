@@ -20,6 +20,4 @@ public class CassandraValueMergeOperator extends MergeOperator {
 
     private native static long newSharedCassandraValueMergeOperator(
         int gcGracePeriodInSeconds, int limit);
-
-    @Override protected final native void disposeInternal(final long handle);
 }
