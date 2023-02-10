@@ -2669,17 +2669,18 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       if (LIKELY(iter->value != nullptr)) {
         *iter->value->GetSelf() = std::move(result);
         iter->value->PinSelf();
+        range->AddValueSize(iter->value->size());
       } else {
         assert(iter->columns);
         iter->columns->SetPlainValue(result);
+        range->AddValueSize(iter->columns()->serialized_size());
       }
 
-        range->AddValueSize(iter->value->size());
-        range->MarkKeyDone(iter);
-        if (range->GetValueSize() > read_options.value_size_soft_limit) {
-          s = Status::Aborted();
-          break;
-        }
+      range->MarkKeyDone(iter);
+      if (range->GetValueSize() > read_options.value_size_soft_limit) {
+        s = Status::Aborted();
+        break;
+      }
     } else {
       range->MarkKeyDone(iter);
       *status = Status::NotFound();  // Use an empty error message for speed
