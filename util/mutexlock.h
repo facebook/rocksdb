@@ -11,9 +11,9 @@
 #include <assert.h>
 
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <thread>
-#include <functional>
 
 #include "port/port.h"
 

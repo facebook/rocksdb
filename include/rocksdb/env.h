@@ -27,9 +27,9 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/functor_wrapper.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
-#include "rocksdb/port_defs.h"
 
 #ifdef _WIN32
 // Windows API macro interference

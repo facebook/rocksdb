@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <thread>
 
 #include "rocksdb/port_defs.h"

@@ -9,7 +9,6 @@
 
 #include "cache/clock_cache.h"
 
-#include <cassert>
 #include <functional>
 #include <numeric>
 
@@ -18,10 +17,10 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/lang.h"
+#include "rocksdb/env.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/random.h"
-#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
