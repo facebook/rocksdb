@@ -301,6 +301,26 @@ TEST_F(DBWideBasicTest, MergePlainKeyValue) {
     }
 
     {
+      constexpr size_t num_keys = 3;
+
+      std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
+      std::array<PinnableWideColumns, num_keys> results;
+      std::array<Status, num_keys> statuses;
+
+      db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                          &keys[0], &results[0], &statuses[0]);
+
+      ASSERT_OK(statuses[0]);
+      ASSERT_EQ(results[0].columns(), expected_first_columns);
+
+      ASSERT_OK(statuses[1]);
+      ASSERT_EQ(results[1].columns(), expected_second_columns);
+
+      ASSERT_OK(statuses[2]);
+      ASSERT_EQ(results[2].columns(), expected_third_columns);
+    }
+
+    {
       std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
 
       iter->SeekToFirst();
@@ -475,6 +495,23 @@ TEST_F(DBWideBasicTest, MergeEntity) {
 
       ASSERT_EQ(values[1], second_expected_default);
       ASSERT_OK(statuses[1]);
+    }
+
+    {
+      constexpr size_t num_keys = 2;
+
+      std::array<Slice, num_keys> keys{{first_key, second_key}};
+      std::array<PinnableWideColumns, num_keys> results;
+      std::array<Status, num_keys> statuses;
+
+      db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                          &keys[0], &results[0], &statuses[0]);
+
+      ASSERT_OK(statuses[0]);
+      ASSERT_EQ(results[0].columns(), first_expected_columns);
+
+      ASSERT_OK(statuses[1]);
+      ASSERT_EQ(results[1].columns(), second_expected_columns);
     }
 
     {
