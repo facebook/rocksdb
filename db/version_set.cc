@@ -23,7 +23,6 @@
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
-#include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_source.h"
 #include "db/compaction/compaction.h"
@@ -2177,26 +2176,35 @@ void Version::MultiGetBlob(
 
     autovector<BlobReadRequest> blob_reqs_in_file;
     BlobReadContexts& blobs_in_file = ctx.second;
-    for (const auto& blob : blobs_in_file) {
-      const BlobIndex& blob_index = blob.first;
-      const KeyContext& key_context = blob.second;
+    for (auto& blob : blobs_in_file) {
+      const BlobIndex& blob_index = blob.blob_index;
+      const KeyContext* const key_context = blob.key_context;
+      assert(key_context);
+      assert(key_context->get_context);
+      assert(key_context->s);
+
+      if (key_context->value) {
+        key_context->value->Reset();
+      } else {
+        assert(key_context->columns);
+        key_context->columns->Reset();
+      }
 
       if (!blob_file_meta) {
-        *key_context.s = Status::Corruption("Invalid blob file number");
+        *key_context->s = Status::Corruption("Invalid blob file number");
         continue;
       }
 
       if (blob_index.HasTTL() || blob_index.IsInlined()) {
-        *key_context.s =
+        *key_context->s =
             Status::Corruption("Unexpected TTL/inlined blob index");
         continue;
       }
 
-      key_context.value->Reset();
       blob_reqs_in_file.emplace_back(
-          key_context.get_context->ukey_to_get_blob_value(),
+          key_context->get_context->ukey_to_get_blob_value(),
           blob_index.offset(), blob_index.size(), blob_index.compression(),
-          key_context.value, key_context.s);
+          &blob.result, key_context->s);
     }
     if (blob_reqs_in_file.size() > 0) {
       const auto file_size = blob_file_meta->GetBlobFileSize();
@@ -2211,18 +2219,29 @@ void Version::MultiGetBlob(
 
   for (auto& ctx : blob_ctxs) {
     BlobReadContexts& blobs_in_file = ctx.second;
-    for (const auto& blob : blobs_in_file) {
-      const KeyContext& key_context = blob.second;
-      if (key_context.s->ok()) {
-        range.AddValueSize(key_context.value->size());
-        if (range.GetValueSize() > read_options.value_size_soft_limit) {
-          *key_context.s = Status::Aborted();
+    for (auto& blob : blobs_in_file) {
+      const KeyContext* const key_context = blob.key_context;
+      assert(key_context);
+      assert(key_context->get_context);
+      assert(key_context->s);
+
+      if (key_context->s->ok()) {
+        if (key_context->value) {
+          *key_context->value = std::move(blob.result);
+          range.AddValueSize(key_context->value->size());
+        } else {
+          assert(key_context->columns);
+          key_context->columns->SetPlainValue(blob.result);
+          range.AddValueSize(key_context->columns->serialized_size());
         }
-      } else if (key_context.s->IsIncomplete()) {
+
+        if (range.GetValueSize() > read_options.value_size_soft_limit) {
+          *key_context->s = Status::Aborted();
+        }
+      } else if (key_context->s->IsIncomplete()) {
         // read_options.read_tier == kBlockCacheTier
         // Cannot read blob(s): no disk I/O allowed
-        assert(key_context.get_context);
-        auto& get_context = *(key_context.get_context);
+        auto& get_context = *(key_context->get_context);
         get_context.MarkKeyMayExist();
       }
     }

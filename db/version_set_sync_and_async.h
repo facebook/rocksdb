@@ -117,8 +117,7 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
           Status tmp_s = blob_index.DecodeFrom(blob_index_slice);
           if (tmp_s.ok()) {
             const uint64_t blob_file_num = blob_index.file_number();
-            blob_ctxs[blob_file_num].emplace_back(
-                std::make_pair(blob_index, std::cref(*iter)));
+            blob_ctxs[blob_file_num].emplace_back(blob_index, &*iter);
           } else {
             *(iter->s) = tmp_s;
           }
