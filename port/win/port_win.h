@@ -26,6 +26,7 @@
 #include <malloc.h>
 #include <intrin.h>
 #include <process.h>
+#include <cassert>
 
 #include <stdint.h>
 
