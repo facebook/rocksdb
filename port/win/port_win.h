@@ -31,7 +31,7 @@
 
 #include "port/win/win_thread.h"
 
-#include "rocksdb/options.h"
+#include "rocksdb/port_defs.h"
 
 #undef min
 #undef max

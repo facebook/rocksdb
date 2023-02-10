@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <limits.h>
 
 #include <thread>
 #include <utility>

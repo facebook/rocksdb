@@ -14,6 +14,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
+#include "rocksdb/db.h"
 #include "util/async_file_reader.h"
 #include "util/autovector.h"
 #include "util/math.h"

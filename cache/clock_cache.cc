@@ -21,6 +21,7 @@
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/random.h"
+#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
