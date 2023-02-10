@@ -25,6 +25,7 @@
 
 #include <cassert>
 #include <condition_variable>
+#include <cstdlib>
 #include <limits>
 #include <mutex>
 #include <string>
