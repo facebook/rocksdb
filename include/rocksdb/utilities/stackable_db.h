@@ -137,11 +137,21 @@ class StackableDB : public DB {
   }
 
   using DB::MultiGetEntity;
+
+  void MultiGetEntity(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableWideColumns* results,
+                      Status* statuses, bool sorted_input) override {
+    db_->MultiGetEntity(options, column_family, num_keys, keys, results,
+                        statuses, sorted_input);
+  }
+
   void MultiGetEntity(const ReadOptions& options, size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
-                      PinnableWideColumns* results, Status* statuses) override {
+                      PinnableWideColumns* results, Status* statuses,
+                      bool sorted_input) override {
     db_->MultiGetEntity(options, num_keys, column_families, keys, results,
-                        statuses);
+                        statuses, sorted_input);
   }
 
   using DB::IngestExternalFile;

@@ -2516,10 +2516,17 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
 void DBImpl::MultiGetEntity(const ReadOptions& options, size_t num_keys,
                             ColumnFamilyHandle** column_families,
                             const Slice* keys, PinnableWideColumns* results,
-                            Status* statuses) {
+                            Status* statuses, bool sorted_input) {
   MultiGetCommon(options, num_keys, column_families, keys, /* values */ nullptr,
-                 results, /* timestamps */ nullptr, statuses,
-                 /* sorted_input */ false);
+                 results, /* timestamps */ nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetEntity(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, size_t num_keys,
+                            const Slice* keys, PinnableWideColumns* results,
+                            Status* statuses, bool sorted_input) {
+  MultiGetCommon(options, column_family, num_keys, keys, /* values */ nullptr,
+                 results, /* timestamps */ nullptr, statuses, sorted_input);
 }
 
 template <class T>

@@ -769,11 +769,23 @@ class DB {
     }
   }
 
+  virtual void MultiGetEntity(const ReadOptions& /* options */,
+                              ColumnFamilyHandle* /* column_family */,
+                              size_t num_keys, const Slice* /* keys */,
+                              PinnableWideColumns* /* results */,
+                              Status* statuses,
+                              bool /* sorted_input */ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported("MultiGetEntity not supported");
+    }
+  }
+
   virtual void MultiGetEntity(const ReadOptions& /* options */, size_t num_keys,
                               ColumnFamilyHandle** /* column_families */,
                               const Slice* /* keys */,
                               PinnableWideColumns* /* results */,
-                              Status* statuses) {
+                              Status* statuses,
+                              bool /* sorted_input */ = false) {
     for (size_t i = 0; i < num_keys; ++i) {
       statuses[i] = Status::NotSupported("MultiGetEntity not supported");
     }

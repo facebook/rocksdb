@@ -295,9 +295,16 @@ class DBImpl : public DB {
                 Status* statuses, const bool sorted_input = false) override;
 
   using DB::MultiGetEntity;
+
+  void MultiGetEntity(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableWideColumns* results,
+                      Status* statuses, bool sorted_input) override;
+
   void MultiGetEntity(const ReadOptions& options, size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
-                      PinnableWideColumns* results, Status* statuses) override;
+                      PinnableWideColumns* results, Status* statuses,
+                      bool sorted_input) override;
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
