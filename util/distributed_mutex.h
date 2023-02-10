@@ -36,6 +36,8 @@ using DMutexLock = std::lock_guard<folly::DistributedMutex>;
 
 #else
 
+#include <mutex>
+
 #include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {

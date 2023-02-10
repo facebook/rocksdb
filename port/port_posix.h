@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <cassert>
-#include <mutex>
 #include <thread>
 
 #include "rocksdb/port_defs.h"

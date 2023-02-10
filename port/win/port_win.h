@@ -16,12 +16,13 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#include <windows.h>
+//^^ <windows.h> should be included first before other system lib
 #include <intrin.h>
 #include <malloc.h>
 #include <process.h>
 #include <stdint.h>
 #include <string.h>
-#include <windows.h>
 
 #include <cassert>
 #include <condition_variable>
