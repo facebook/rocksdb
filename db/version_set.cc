@@ -2673,7 +2673,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       } else {
         assert(iter->columns);
         iter->columns->SetPlainValue(result);
-        range->AddValueSize(iter->columns()->serialized_size());
+        range->AddValueSize(iter->columns->serialized_size());
       }
 
       range->MarkKeyDone(iter);
