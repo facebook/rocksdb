@@ -242,7 +242,7 @@ function run_db_bench {
 
   seek_nexts=$SEEK_NEXTS
   if [ "$async_io" == "true" ]; then
-    $seek_nexts=$SEEK_NEXTS_ASYNCIO
+    seek_nexts=$SEEK_NEXTS_ASYNCIO
   fi
 
 
