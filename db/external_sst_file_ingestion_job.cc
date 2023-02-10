@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "db/external_sst_file_ingestion_job.h"
 
 #include <algorithm>
@@ -866,7 +865,17 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
   int target_level = 0;
   auto* vstorage = cfd_->current()->storage_info();
 
-  for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
+  // bottommost_level is either the bottommmost non-empty level plus one, or
+  // `num_level-1`.
+  int bottommost_level = vstorage->num_non_empty_levels();
+  if (bottommost_level < vstorage->base_level()) {
+    bottommost_level = vstorage->base_level();
+  }
+  if (bottommost_level > cfd_->NumberLevels() - 1) {
+    bottommost_level = cfd_->NumberLevels() - 1;
+  }
+
+  for (int lvl = 0; lvl <= bottommost_level; lvl++) {
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;
     }
@@ -874,9 +883,9 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
             file_to_ingest->smallest_internal_key.user_key(),
             file_to_ingest->largest_internal_key.user_key(), lvl)) {
       // We must use L0 or any level higher than `lvl` to be able to overwrite
-      // the compaction output keys that we overlap with in this level, We also
-      // need to assign this file a seqno to overwrite the compaction output
-      // keys in level `lvl`
+      // the compaction output keys that we overlap with in this level, We
+      // also need to assign this file a seqno to overwrite the compaction
+      // output keys in level `lvl`
       overlap_with_db = true;
       break;
     } else if (vstorage->NumLevelFiles(lvl) > 0) {
@@ -889,9 +898,10 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         return status;
       }
       if (overlap_with_level) {
-        // We must use L0 or any level higher than `lvl` to be able to overwrite
-        // the keys that we overlap with in this level, We also need to assign
-        // this file a seqno to overwrite the existing keys in level `lvl`
+        // We must use L0 or any level higher than `lvl` to be able to
+        // overwrite the keys that we overlap with in this level, We also need
+        // to assign this file a seqno to overwrite the existing keys in level
+        // `lvl`
         overlap_with_db = true;
         break;
       }
@@ -925,6 +935,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       target_level = lvl;
     }
   }
+
   // If files overlap, we have to ingest them at level 0 and assign the newest
   // sequence number
   if (files_overlap_) {
@@ -933,7 +944,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
   }
 
   if (ingestion_options_.fail_if_not_bottommost_level &&
-      target_level < cfd_->NumberLevels() - 1) {
+      target_level != bottommost_level) {
     status = Status::TryAgain(
         "Files cannot be ingested to Lmax. Please make sure key range of Lmax "
         "and ongoing compaction's output to Lmax"
@@ -987,7 +998,8 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     return Status::InvalidArgument("Global seqno is required, but disabled");
   } else if (file_to_ingest->global_seqno_offset == 0) {
     return Status::InvalidArgument(
-        "Trying to set global seqno for a file that don't have a global seqno "
+        "Trying to set global seqno for a file that don't have a global "
+        "seqno "
         "field");
   }
 
@@ -1044,7 +1056,8 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
   std::string file_checksum;
   std::string file_checksum_func_name;
   std::string requested_checksum_func_name;
-  // TODO: rate limit file reads for checksum calculation during file ingestion.
+  // TODO: rate limit file reads for checksum calculation during file
+  // ingestion.
   IOStatus io_s = GenerateOneFileChecksum(
       fs_.get(), file_to_ingest->internal_file_path,
       db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
@@ -1094,4 +1107,3 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

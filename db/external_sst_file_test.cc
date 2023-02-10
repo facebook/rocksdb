@@ -1216,12 +1216,12 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
   // File 0 will go to last level (L3)
   ASSERT_OK(GenerateAndAddExternalFile(options, {1, 10}, -1, false, false, true,
                                        false, false, &true_data));
-  EXPECT_EQ(FilesPerLevel(), "0,0,0,1");
+  EXPECT_EQ(FilesPerLevel(), "0,1");
 
   // File 1 will go to level L2 (since it overlap with file 0 in L3)
   ASSERT_OK(GenerateAndAddExternalFile(options, {2, 9}, -1, false, false, true,
                                        false, false, &true_data));
-  EXPECT_EQ(FilesPerLevel(), "0,0,1,1");
+  EXPECT_EQ(FilesPerLevel(), "0,1,1");
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"ExternalSSTFileTest::PickedLevel:0", "BackgroundCallCompaction:0"},
@@ -1245,25 +1245,25 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
   TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevel:0");
   TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevel:1");
 
-  EXPECT_EQ(FilesPerLevel(), "4,0,1,1");
+  EXPECT_EQ(FilesPerLevel(), "4,1,1");
 
   // This file overlaps with file 0 (L3), file 1 (L2) and the
   // output of compaction going to L1
   ASSERT_OK(GenerateAndAddExternalFile(options, {4, 7}, -1,
                                        true /* allow_global_seqno */, false,
                                        true, false, false, &true_data));
-  EXPECT_EQ(FilesPerLevel(), "5,0,1,1");
+  EXPECT_EQ(FilesPerLevel(), "5,1,1");
 
   // This file does not overlap with any file or with the running compaction
   ASSERT_OK(GenerateAndAddExternalFile(options, {9000, 9001}, -1, false, false,
                                        false, false, false, &true_data));
-  EXPECT_EQ(FilesPerLevel(), "5,0,1,2");
+  EXPECT_EQ(FilesPerLevel(), "5,1,1,1");
 
   // Hold compaction from finishing
   TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevel:2");
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  EXPECT_EQ(FilesPerLevel(), "1,1,1,2");
+  EXPECT_EQ(FilesPerLevel(), "1,1,1,1");
 
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
@@ -1698,7 +1698,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
       verify_checksums_before_ingest, false, false, &true_data));
 
   // This file don't overlap with anything in the DB, will go to L4
-  ASSERT_EQ("0,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ("0,1", FilesPerLevel());
 
   // Insert 80 -> 130 using AddFile
   file_data.clear();
@@ -1711,7 +1711,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
 
   // This file overlap with the memtable, so it will flush it and add
   // it self to L0
-  ASSERT_EQ("2,0,0,0,1", FilesPerLevel());
+  ASSERT_EQ("2,1", FilesPerLevel());
 
   // Insert 30 -> 50 using AddFile
   file_data.clear();
@@ -1723,7 +1723,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
       verify_checksums_before_ingest, false, false, &true_data));
 
   // This file don't overlap with anything in the DB and fit in L4 as well
-  ASSERT_EQ("2,0,0,0,2", FilesPerLevel());
+  ASSERT_EQ("2,1,1", FilesPerLevel());
 
   // Insert 10 -> 40 using AddFile
   file_data.clear();
@@ -1735,7 +1735,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
       verify_checksums_before_ingest, false, false, &true_data));
 
   // This file overlap with files in L4, we will ingest it in L3
-  ASSERT_EQ("2,0,0,1,2", FilesPerLevel());
+  ASSERT_EQ("2,1,2", FilesPerLevel());
 
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
@@ -2857,4 +2857,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

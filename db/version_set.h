@@ -1247,7 +1247,6 @@ class VersionSet {
   Status DumpManifest(Options& options, std::string& manifestFileName,
                       bool verbose, bool hex = false, bool json = false);
 
-
   const std::string& DbSessionId() const { return db_session_id_; }
 
   // Return the current manifest file number
