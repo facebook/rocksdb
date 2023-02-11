@@ -658,13 +658,11 @@ def gen_cmd_params(args):
     # Best-effort recovery, tiered storage are currently incompatible with BlobDB.
     # Test BE recovery if specified on the command line; otherwise, apply BlobDB
     # related overrides with a 10% chance.
-    # TODO(yuzhangyu): remove this
-    # if (
-    #     not args.test_best_efforts_recovery
-    #     and not args.test_tiered_storage
-    #     and random.choice([0] * 9 + [1]) == 1
-    # ):
-    if args.enable_ts:
+    if (
+        not args.test_best_efforts_recovery
+        and not args.test_tiered_storage
+        and random.choice([0] * 9 + [1]) == 1
+    ):
         params.update(blob_params)
 
     for k, v in vars(args).items():
