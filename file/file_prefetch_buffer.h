@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <deque>
 #include <sstream>
 #include <string>
 
@@ -27,6 +28,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 #define DEFAULT_DECREMENT 8 * 1024
+#define NUM_BUFFERS 2
+#define NUM_OVERLAP_BUFFERS 1
 
 struct IOOptions;
 class RandomAccessFileReader;
@@ -50,7 +53,8 @@ struct BufferInfo {
 
   IOHandleDeleter del_fn_ = nullptr;
 
-  // pos represents the index of this buffer in vector of BufferInfo.
+  // pos represents the index of this buffer in queue of BufferInfo. It's
+  // required during async callback to know which buffer to filled.
   uint32_t pos_ = 0;
 };
 
@@ -85,7 +89,7 @@ class FilePrefetchBuffer {
                      uint64_t num_file_reads_for_auto_readahead = 0,
                      FileSystem* fs = nullptr, SystemClock* clock = nullptr,
                      Statistics* stats = nullptr)
-      : curr_(0),
+      :  // curr_(0),
         readahead_size_(readahead_size),
         initial_auto_readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
@@ -103,12 +107,15 @@ class FilePrefetchBuffer {
         stats_(stats) {
     assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
-    // If ReadOptions.async_io is enabled, data is asynchronously filled in
-    // second buffer while curr_ is being consumed. If data is overlapping in
-    // two buffers, data is copied to third buffer to return continuous buffer.
-    bufs_.resize(3);
-    for (uint32_t i = 0; i < 2; i++) {
-      bufs_[i].pos_ = i;
+
+    // If ReadOptions.async_io is enabled, data is asynchronously filled in the
+    // queue. If data is overlapping in two buffers, data is copied to third
+    // buffer i.e. overlap_bufs_ to return continuous buffer.
+    overlap_bufs_.resize(NUM_OVERLAP_BUFFERS);
+    free_bufs_.resize(NUM_BUFFERS);
+    for (uint32_t i = 0; i < NUM_BUFFERS; i++) {
+      free_bufs_[i] = new BufferInfo();
+      free_bufs_[i]->pos_ = i;
     }
   }
 
@@ -116,10 +123,9 @@ class FilePrefetchBuffer {
     // Abort any pending async read request before destroying the class object.
     if (fs_ != nullptr) {
       std::vector<void*> handles;
-      for (uint32_t i = 0; i < 2; i++) {
-        if (bufs_[i].async_read_in_progress_ &&
-            bufs_[i].io_handle_ != nullptr) {
-          handles.emplace_back(bufs_[i].io_handle_);
+      for (auto& buf : bufs_) {
+        if (buf->async_read_in_progress_ && buf->io_handle_ != nullptr) {
+          handles.emplace_back(buf->io_handle_);
         }
       }
       if (!handles.empty()) {
@@ -132,46 +138,36 @@ class FilePrefetchBuffer {
     // Prefetch buffer bytes discarded.
     uint64_t bytes_discarded = 0;
     // Iterated over 2 buffers.
-    for (int i = 0; i < 2; i++) {
-      int first = i;
-      int second = i ^ 1;
-
-      if (DoesBufferContainData(first)) {
-        // If last block was read completely from first and some bytes in
-        // first buffer are still unconsumed.
-        if (prev_offset_ >= bufs_[first].offset_ &&
+    for (auto& buf : bufs_) {
+      if (DoesBufferContainData(buf)) {
+        // If last read was from this block and some bytes are still unconsumed.
+        if (prev_offset_ >= buf->offset_ &&
             prev_offset_ + prev_len_ <
-                bufs_[first].offset_ + bufs_[first].buffer_.CurrentSize()) {
-          bytes_discarded += bufs_[first].buffer_.CurrentSize() -
-                             (prev_offset_ + prev_len_ - bufs_[first].offset_);
+                buf->offset_ + buf->buffer_.CurrentSize()) {
+          bytes_discarded += buf->buffer_.CurrentSize() -
+                             (prev_offset_ + prev_len_ - buf->offset_);
         }
-        // If data was in second buffer and some/whole block bytes were read
-        // from second buffer.
-        else if (prev_offset_ < bufs_[first].offset_ &&
-                 !DoesBufferContainData(second)) {
-          // If last block read was completely from different buffer, this
-          // buffer is unconsumed.
-          if (prev_offset_ + prev_len_ <= bufs_[first].offset_) {
-            bytes_discarded += bufs_[first].buffer_.CurrentSize();
-          }
-          // If last block read overlaps with this buffer and some data is
-          // still unconsumed and previous buffer (second) is not cleared.
-          else if (prev_offset_ + prev_len_ > bufs_[first].offset_ &&
-                   bufs_[first].offset_ + bufs_[first].buffer_.CurrentSize() ==
-                       bufs_[second].offset_) {
-            bytes_discarded += bufs_[first].buffer_.CurrentSize() -
-                               (/*bytes read from this buffer=*/prev_len_ -
-                                (bufs_[first].offset_ - prev_offset_));
-          }
+        // If last read was from previous blocks and this block is unconsumed.
+        else if (prev_offset_ < buf->offset_ &&
+                 prev_offset_ + prev_len_ <= buf->offset_) {
+          bytes_discarded += buf->buffer_.CurrentSize();
         }
       }
+      // Release io_handle.
+      // DestroyAndClearIOHandle(buf);
     }
 
-    for (uint32_t i = 0; i < 2; i++) {
-      // Release io_handle.
-      DestroyAndClearIOHandle(i);
-    }
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
+
+    for (auto& buf : bufs_) {
+      delete buf;
+      buf = nullptr;
+    }
+
+    for (auto& buf : free_bufs_) {
+      delete buf;
+      buf = nullptr;
+    }
   }
 
   // Load data into the buffer from a file.
@@ -256,11 +252,11 @@ class FilePrefetchBuffer {
     //   - block is sequential with the previous read and,
     //   - num_file_reads_ + 1 (including this read) >
     //   num_file_reads_for_auto_readahead_
-    size_t curr_size = bufs_[curr_].async_read_in_progress_
-                           ? bufs_[curr_].async_req_len_
-                           : bufs_[curr_].buffer_.CurrentSize();
+    size_t curr_size = bufs_.front()->async_read_in_progress_
+                           ? bufs_.front()->async_req_len_
+                           : bufs_.front()->buffer_.CurrentSize();
     if (implicit_auto_readahead_ && readahead_size_ > 0) {
-      if ((offset + size > bufs_[curr_].offset_ + curr_size) &&
+      if ((offset + size > bufs_.front()->offset_ + curr_size) &&
           IsBlockSequential(offset) &&
           (num_file_reads_ + 1 > num_file_reads_for_auto_readahead_)) {
         readahead_size_ =
@@ -277,9 +273,9 @@ class FilePrefetchBuffer {
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_. It also allocates new buffer or refit tail if
   // required.
-  void CalculateOffsetAndLen(size_t alignment, uint64_t offset,
-                             size_t roundup_len, uint32_t index,
-                             bool refit_tail, uint64_t& chunk_len);
+  void CalculateOffsetAndLen(BufferInfo* buf, size_t alignment, uint64_t offset,
+                             size_t roundup_len, bool refit_tail,
+                             uint64_t& chunk_len);
 
   void AbortIOIfNeeded(uint64_t offset);
 
@@ -298,9 +294,10 @@ class FilePrefetchBuffer {
                                Env::IOPriority rate_limiter_priority,
                                bool& copy_to_third_buffer);
 
-  Status Read(const IOOptions& opts, RandomAccessFileReader* reader,
+  Status Read(BufferInfo* buf, const IOOptions& opts,
+              RandomAccessFileReader* reader,
               Env::IOPriority rate_limiter_priority, uint64_t read_len,
-              uint64_t chunk_len, uint64_t rounddown_start, uint32_t index);
+              uint64_t chunk_len, uint64_t rounddown_start);
 
   Status ReadAsync(const IOOptions& opts, RandomAccessFileReader* reader,
                    uint64_t read_len, uint64_t rounddown_start, uint32_t index);
@@ -343,34 +340,31 @@ class FilePrefetchBuffer {
   }
 
   // Helper functions.
-  bool IsDataBlockInBuffer(uint64_t offset, size_t length, uint32_t index) {
-    return (offset >= bufs_[index].offset_ &&
-            offset + length <=
-                bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize());
+  bool IsDataBlockInBuffer(BufferInfo* buf, uint64_t offset, size_t length) {
+    return (offset >= buf->offset_ &&
+            offset + length <= buf->offset_ + buf->buffer_.CurrentSize());
   }
-  bool IsOffsetInBuffer(uint64_t offset, uint32_t index) {
-    return (offset >= bufs_[index].offset_ &&
-            offset < bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize());
+  bool IsOffsetInBuffer(BufferInfo* buf, uint64_t offset) {
+    return (offset >= buf->offset_ &&
+            offset < buf->offset_ + buf->buffer_.CurrentSize());
   }
-  bool DoesBufferContainData(uint32_t index) {
-    return bufs_[index].buffer_.CurrentSize() > 0;
+  bool DoesBufferContainData(BufferInfo* buf) {
+    return buf->buffer_.CurrentSize() > 0;
   }
-  bool IsBufferOutdated(uint64_t offset, uint32_t index) {
-    return (
-        !bufs_[index].async_read_in_progress_ && DoesBufferContainData(index) &&
-        offset >= bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize());
+  bool IsBufferOutdated(BufferInfo* buf, uint64_t offset) {
+    return (!buf->async_read_in_progress_ && DoesBufferContainData(buf) &&
+            offset >= buf->offset_ + buf->buffer_.CurrentSize());
   }
-  bool IsBufferOutdatedWithAsyncProgress(uint64_t offset, uint32_t index) {
-    return (bufs_[index].async_read_in_progress_ &&
-            bufs_[index].io_handle_ != nullptr &&
-            offset >= bufs_[index].offset_ + bufs_[index].async_req_len_);
+  bool IsBufferOutdatedWithAsyncProgress(BufferInfo* buf, uint64_t offset) {
+    return (buf->async_read_in_progress_ && buf->io_handle_ != nullptr &&
+            offset >= buf->offset_ + buf->async_req_len_);
   }
-  bool IsOffsetInBufferWithAsyncProgress(uint64_t offset, uint32_t index) {
-    return (bufs_[index].async_read_in_progress_ &&
-            offset >= bufs_[index].offset_ &&
-            offset < bufs_[index].offset_ + bufs_[index].async_req_len_);
+  bool IsOffsetInBufferWithAsyncProgress(BufferInfo* buf, uint64_t offset) {
+    return (buf->async_read_in_progress_ && offset >= buf->offset_ &&
+            offset < buf->offset_ + buf->async_req_len_);
   }
 
+  /*
   bool IsSecondBuffEligibleForPrefetching() {
     uint32_t second = curr_ ^ 1;
     if (bufs_[second].async_read_in_progress_) {
@@ -402,11 +396,29 @@ class FilePrefetchBuffer {
                                Env::IOPriority rate_limiter_priority,
                                bool& copy_to_third_buffer, uint64_t& tmp_offset,
                                size_t& tmp_length);
+  */
 
-  std::vector<BufferInfo> bufs_;
+  void AllocateBuffer() {
+    BufferInfo* buf = free_bufs_.front();
+    free_bufs_.pop_front();
+    bufs_.push_back(buf);
+  }
+
+  void FreeBuffer(BufferInfo* buf) { free_bufs_.push_back(buf); }
+
+  void AllocateBufferIfEmpty() {
+    if (bufs_.empty()) {
+      AllocateBuffer();
+    }
+  }
+
+  std::deque<BufferInfo*> bufs_;
+  std::deque<BufferInfo*> free_bufs_;
+  std::deque<BufferInfo*> overlap_bufs_;
+
   // curr_ represents the index for bufs_ indicating which buffer is being
   // consumed currently.
-  uint32_t curr_;
+  // uint32_t curr_;
 
   size_t readahead_size_;
   size_t initial_auto_readahead_size_;

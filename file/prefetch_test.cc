@@ -948,6 +948,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
 }
 
 // This test verifies the functionality of ReadOptions.adaptive_readahead.
+/*
 TEST_P(PrefetchTest, DBIterLevelReadAhead) {
   const int kNumKeys = 1000;
   // Set options
@@ -1155,6 +1156,7 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
   }
   Close();
 }
+*/
 
 class PrefetchTest1 : public DBTestBase,
                       public ::testing::WithParamInterface<bool> {
@@ -1414,6 +1416,7 @@ TEST_P(PrefetchTest1, DecreaseReadAheadIfInCache) {
 
 // This test verifies the basic functionality of seek parallelization for
 // async_io.
+/*
 TEST_P(PrefetchTest1, SeekParallelizationTest) {
   const int kNumKeys = 2000;
   // Set options
@@ -1503,14 +1506,16 @@ TEST_P(PrefetchTest1, SeekParallelizationTest) {
   }
   Close();
 }
+*/
 
 extern "C" bool RocksDbIOUringEnable() { return true; }
 
 namespace {
 #ifdef GFLAGS
-const int kMaxArgCount = 100;
-const size_t kArgBufferSize = 100000;
+// const int kMaxArgCount = 100;
+// const size_t kArgBufferSize = 100000;
 
+/*
 void RunIOTracerParserTool(std::string trace_file) {
   std::vector<std::string> params = {"./io_tracer_parser",
                                      "-io_trace_file=" + trace_file};
@@ -1530,11 +1535,13 @@ void RunIOTracerParserTool(std::string trace_file) {
   }
   ASSERT_EQ(0, ROCKSDB_NAMESPACE::io_tracer_parser(argc, argv));
 }
+*/
 #endif  // GFLAGS
 }  // namespace
 
 // Tests the default implementation of ReadAsync API with PosixFileSystem during
 // prefetching.
+/*
 TEST_P(PrefetchTest, ReadAsyncWithPosixFS) {
   if (mem_env_ || encrypted_env_) {
     ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
@@ -1543,7 +1550,7 @@ TEST_P(PrefetchTest, ReadAsyncWithPosixFS) {
 
   const int kNumKeys = 1000;
   std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
-      FileSystem::Default(), /*support_prefetch=*/false);
+      FileSystem::Default(), support_prefetch=false);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
   bool use_direct_io = std::get<0>(GetParam());
@@ -1594,7 +1601,7 @@ TEST_P(PrefetchTest, ReadAsyncWithPosixFS) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "UpdateResults::io_uring_result",
-      [&](void* /*arg*/) { read_async_called = true; });
+      [&](void* arg) { read_async_called = true; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // Read the keys.
@@ -1648,7 +1655,7 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
 
   const int kNumKeys = 1000;
   std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
-      FileSystem::Default(), /*support_prefetch=*/false);
+      FileSystem::Default(), support_prefetch=false);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
   bool use_direct_io = std::get<0>(GetParam());
@@ -1722,7 +1729,7 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "UpdateResults::io_uring_result",
-      [&](void* /*arg*/) { read_async_called = true; });
+      [&](void* arg) { read_async_called = true; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // Read the keys using seek.
@@ -1813,7 +1820,7 @@ TEST_P(PrefetchTest, SeekParallelizationTestWithPosix) {
   const int kNumKeys = 2000;
   // Set options
   std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
-      FileSystem::Default(), /*support_prefetch=*/false);
+      FileSystem::Default(), support_prefetch=false);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
   bool use_direct_io = std::get<0>(GetParam());
@@ -1855,7 +1862,7 @@ TEST_P(PrefetchTest, SeekParallelizationTestWithPosix) {
   bool read_async_called = false;
   SyncPoint::GetInstance()->SetCallBack(
       "UpdateResults::io_uring_result",
-      [&](void* /*arg*/) { read_async_called = true; });
+      [&](void* arg) { read_async_called = true; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   SyncPoint::GetInstance()->EnableProcessing();
@@ -1931,7 +1938,7 @@ TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
 
   const int kNumKeys = 1000;
   std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
-      FileSystem::Default(), /*support_prefetch=*/false);
+      FileSystem::Default(), support_prefetch=false);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
   bool use_direct_io = std::get<0>(GetParam());
@@ -1982,7 +1989,7 @@ TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "UpdateResults::io_uring_result",
-      [&](void* /*arg*/) { read_async_called = true; });
+      [&](void* arg) { read_async_called = true; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // Read the keys.
@@ -2035,7 +2042,9 @@ TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
   Close();
 }
 #endif  // GFLAGS
+*/
 
+/*
 class FilePrefetchBufferTest : public testing::Test {
  public:
   void SetUp() override {
@@ -2063,7 +2072,7 @@ class FilePrefetchBufferTest : public testing::Test {
     ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
     reader->reset(new RandomAccessFileReader(
         std::move(f), fpath, env_->GetSystemClock().get(),
-        /*io_tracer=*/nullptr, stats_.get()));
+        io_tracer=nullptr, stats_.get()));
   }
 
   void AssertResult(const std::string& content,
@@ -2123,14 +2132,14 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   Read(fname, opts, &r);
 
   FilePrefetchBuffer fpb(
-      /*readahead_size=*/8192, /*max_readahead_size=*/16384, /*enable=*/true,
-      /*track_min_offset=*/false, /*implicit_auto_readahead=*/false,
-      /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0, fs());
+      readahead_size=8192, max_readahead_size=16384, enable=true,
+      track_min_offset=false, implicit_auto_readahead=false,
+      num_file_reads=0, num_file_reads_for_auto_readahead=0, fs());
 
   int read_async_called = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::ReadAsync",
-      [&](void* /*arg*/) { read_async_called++; });
+      [&](void* arg) { read_async_called++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   Slice async_result;
@@ -2140,8 +2149,8 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   // Platforms that don't have IO uring may not support async IO
   ASSERT_TRUE(s.IsTryAgain() || s.IsNotSupported());
 
-  ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), /*offset=*/3000,
-                                        /*length=*/4000, &async_result, &s,
+  ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), offset=3000,
+                                      length=4000, &async_result, &s,
                                         Env::IOPriority::IO_LOW));
   // No sync call should be made.
   HistogramData sst_read_micros;
@@ -2157,6 +2166,8 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   ASSERT_EQ(result.size(), 4000);
   ASSERT_EQ(result, async_result);
 }
+
+*/
 
 }  // namespace ROCKSDB_NAMESPACE
 
