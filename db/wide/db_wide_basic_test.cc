@@ -230,6 +230,40 @@ TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
+TEST_F(DBWideBasicTest, MultiCFMultiGetEntity) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"corinthian"}, options);
+
+  constexpr char first_key[] = "first";
+  WideColumns first_columns{{"attr_name1", "foo"}, {"attr_name2", "bar"}};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           first_key, first_columns));
+
+  constexpr char second_key[] = "second";
+  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), handles_[1], second_key, second_columns));
+
+  constexpr size_t num_keys = 2;
+
+  std::array<ColumnFamilyHandle*, num_keys> column_families{
+      {db_->DefaultColumnFamily(), handles_[1]}};
+  std::array<Slice, num_keys> keys{{first_key, second_key}};
+  std::array<PinnableWideColumns, num_keys> results;
+  std::array<Status, num_keys> statuses;
+
+  db_->MultiGetEntity(ReadOptions(), num_keys, &column_families[0], &keys[0],
+                      &results[0], &statuses[0]);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(results[0].columns(), first_columns);
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(results[1].columns(), second_columns);
+}
+
 TEST_F(DBWideBasicTest, MergePlainKeyValue) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
