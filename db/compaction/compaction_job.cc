@@ -1274,8 +1274,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
           const Slice& next_table_min_key) {
         return this->FinishCompactionOutputFile(
             status, sub_compact, outputs, next_table_min_key,
-            start_user_key.empty() ? nullptr : &start_user_key,
-            end_user_key.empty() ? nullptr : &end_user_key);
+            sub_compact->start.has_value() ? &start_user_key : nullptr,
+            sub_compact->end.has_value() ? &end_user_key : nullptr);
       };
 
   Status status;
