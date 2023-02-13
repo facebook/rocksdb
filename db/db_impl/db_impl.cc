@@ -3013,6 +3013,9 @@ Status DBImpl::MultiGetImpl(
   uint64_t bytes_read = 0;
   for (size_t i = start_key; i < start_key + num_keys - keys_left; ++i) {
     KeyContext* key = (*sorted_keys)[i];
+    assert(key);
+    assert(key->s);
+
     if (key->s->ok()) {
       if (key->value) {
         bytes_read += key->value->size();
