@@ -101,20 +101,25 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
         file_range.MarkKeyDone(iter);
 
         if (iter->is_blob_index) {
-          assert(iter->value ||
-                 (iter->columns && !iter->columns->columns().empty() &&
-                  iter->columns->columns().front().name() ==
-                      kDefaultWideColumnName));
-
-          TEST_SYNC_POINT_CALLBACK("Version::MultiGet::TamperWithBlobIndex",
-                                   &(*iter));
-
-          Slice blob_index_slice =
-              iter->value ? *(iter->value)
-                          : iter->columns->columns().front().value();
-
           BlobIndex blob_index;
-          Status tmp_s = blob_index.DecodeFrom(blob_index_slice);
+          Status tmp_s;
+
+          if (iter->value) {
+            TEST_SYNC_POINT_CALLBACK("Version::MultiGet::TamperWithBlobIndex",
+                                     &(*iter));
+
+            tmp_s = blob_index.DecodeFrom(*(iter->value));
+
+          } else {
+            assert(iter->columns);
+            assert(!iter->columns->columns().empty());
+            assert(iter->columns->columns().front().name() ==
+                   kDefaultWideColumnName);
+
+            tmp_s =
+                blob_index.DecodeFrom(iter->columns->columns().front().value());
+          }
+
           if (tmp_s.ok()) {
             const uint64_t blob_file_num = blob_index.file_number();
             blob_ctxs[blob_file_num].emplace_back(blob_index, &*iter);
