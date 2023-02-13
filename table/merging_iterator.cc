@@ -498,7 +498,7 @@ class MergingIterator : public InternalIterator {
 
   class MaxHeapItemComparator {
    public:
-    MaxHeapItemComparator(const InternalKeyComparator* comparator)
+    explicit MaxHeapItemComparator(const InternalKeyComparator* comparator)
         : comparator_(comparator) {}
     bool operator()(HeapItem* a, HeapItem* b) const {
       if (LIKELY(a->type == HeapItem::ITERATOR)) {
@@ -1270,7 +1270,8 @@ void MergingIterator::ClearHeaps(bool clear_active) {
 
 void MergingIterator::InitMaxHeap() {
   if (!maxHeap_) {
-    maxHeap_ = std::make_unique<MergerMaxIterHeap>(comparator_);
+    maxHeap_ =
+        std::make_unique<MergerMaxIterHeap>(MaxHeapItemComparator(comparator_));
   }
 }
 
