@@ -156,7 +156,28 @@
                   </dependency>
                 </dependencies>
               </plugin>
-        </plugins>
+              <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-pmd-plugin</artifactId>
+                <version>3.20.0</version>
+                <executions>
+                  <execution>
+                    <goals>
+                      <goal>check</goal>
+                      <goal>cpd-check</goal>
+                    </goals>
+                  </execution>
+                </executions>
+                <configuration>
+                    <rulesets>
+                      <!-- A rule set, that comes bundled with PMD -->
+                      <ruleset>/pmd-rules.xml</ruleset>
+                      <!-- A rule set, that comes bundled with PMD -->
+                      <!-- <ruleset>/category/java/errorprone.xml</ruleset> -->
+                    </rulesets>
+                  </configuration>          
+              </plugin>
+      </plugins>
     </build>
 
     <dependencies>
@@ -190,5 +211,15 @@
             <version>1.10.19</version>
             <scope>test</scope>
         </dependency>
-    </dependencies>
+   </dependencies>
+
+   <reporting>
+    <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-jxr-plugin</artifactId>
+            <version>3.3.0</version>
+        </plugin>
+    </plugins>
+  </reporting>
 </project>
