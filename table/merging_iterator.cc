@@ -12,95 +12,6 @@
 #include "db/arena_wrapped_db_iter.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-// Without anonymous namespace here, we fail the warning -Wmissing-prototypes
-namespace {
-// For merging iterator to process range tombstones, we treat the start and end
-// keys of a range tombstone as point keys and put them into the minHeap/maxHeap
-// used in merging iterator. Take minHeap for example, we are able to keep track
-// of currently "active" range tombstones (the ones whose start keys are popped
-// but end keys are still in the heap) in `active_`. This `active_` set of range
-// tombstones is then used to quickly determine whether the point key at heap
-// top is deleted (by heap property, the point key at heap top must be within
-// internal key range of active range tombstones).
-//
-// The HeapItem struct represents 3 types of elements in the minHeap/maxHeap:
-// point key and the start and end keys of a range tombstone.
-struct HeapItem {
-  HeapItem() = default;
-
-  IteratorWrapper iter;
-  size_t level = 0;
-  ParsedInternalKey tombstone_pik;
-  // Will be overwritten before use, initialize here so compiler does not
-  // complain.
-  enum Type { ITERATOR, DELETE_RANGE_START, DELETE_RANGE_END };
-  Type type = ITERATOR;
-
-  explicit HeapItem(size_t _level, InternalIteratorBase<Slice>* _iter)
-      : level(_level), type(Type::ITERATOR) {
-    iter.Set(_iter);
-  }
-
-  void SetTombstoneKey(ParsedInternalKey&& pik) {
-    // op_type is already initialized in MergingIterator::Finish().
-    tombstone_pik.user_key = pik.user_key;
-    tombstone_pik.sequence = pik.sequence;
-  }
-};
-
-class MinHeapItemComparator {
- public:
-  explicit MinHeapItemComparator(const InternalKeyComparator* comparator)
-      : comparator_(comparator) {}
-  bool operator()(HeapItem* a, HeapItem* b) const {
-    if (LIKELY(a->type == HeapItem::ITERATOR)) {
-      if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->iter.key(), b->iter.key()) > 0;
-      } else {
-        return comparator_->Compare(a->iter.key(), b->tombstone_pik) > 0;
-      }
-    } else {
-      if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->tombstone_pik, b->iter.key()) > 0;
-      } else {
-        return comparator_->Compare(a->tombstone_pik, b->tombstone_pik) > 0;
-      }
-    }
-  }
-
- private:
-  const InternalKeyComparator* comparator_;
-};
-
-class MaxHeapItemComparator {
- public:
-  MaxHeapItemComparator(const InternalKeyComparator* comparator)
-      : comparator_(comparator) {}
-  bool operator()(HeapItem* a, HeapItem* b) const {
-    if (LIKELY(a->type == HeapItem::ITERATOR)) {
-      if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->iter.key(), b->iter.key()) < 0;
-      } else {
-        return comparator_->Compare(a->iter.key(), b->tombstone_pik) < 0;
-      }
-    } else {
-      if (LIKELY(b->type == HeapItem::ITERATOR)) {
-        return comparator_->Compare(a->tombstone_pik, b->iter.key()) < 0;
-      } else {
-        return comparator_->Compare(a->tombstone_pik, b->tombstone_pik) < 0;
-      }
-    }
-  }
-
- private:
-  const InternalKeyComparator* comparator_;
-};
-
-using MergerMinIterHeap = BinaryHeap<HeapItem*, MinHeapItemComparator>;
-using MergerMaxIterHeap = BinaryHeap<HeapItem*, MaxHeapItemComparator>;
-}  // namespace
-
 class MergingIterator : public InternalIterator {
  public:
   MergingIterator(const InternalKeyComparator* comparator,
@@ -525,6 +436,92 @@ class MergingIterator : public InternalIterator {
   }
 
  private:
+  // For merging iterator to process range tombstones, we treat the start and
+  // end
+  // keys of a range tombstone as point keys and put them into the
+  // minHeap/maxHeap used in merging iterator. Take minHeap for example, we are
+  // able to keep track of currently "active" range tombstones (the ones whose
+  // start keys are popped but end keys are still in the heap) in `active_`.
+  // This `active_` set of range tombstones is then used to quickly determine
+  // whether the point key at heap top is deleted (by heap property, the point
+  // key at heap top must be within internal key range of active range
+  // tombstones).
+  //
+  // The HeapItem struct represents 3 types of elements in the minHeap/maxHeap:
+  // point key and the start and end keys of a range tombstone.
+  struct HeapItem {
+    HeapItem() = default;
+
+    IteratorWrapper iter;
+    size_t level = 0;
+    ParsedInternalKey tombstone_pik;
+    // Will be overwritten before use, initialize here so compiler does not
+    // complain.
+    enum Type { ITERATOR, DELETE_RANGE_START, DELETE_RANGE_END };
+    Type type = ITERATOR;
+
+    explicit HeapItem(size_t _level, InternalIteratorBase<Slice>* _iter)
+        : level(_level), type(Type::ITERATOR) {
+      iter.Set(_iter);
+    }
+
+    void SetTombstoneKey(ParsedInternalKey&& pik) {
+      // op_type is already initialized in MergingIterator::Finish().
+      tombstone_pik.user_key = pik.user_key;
+      tombstone_pik.sequence = pik.sequence;
+    }
+  };
+
+  class MinHeapItemComparator {
+   public:
+    explicit MinHeapItemComparator(const InternalKeyComparator* comparator)
+        : comparator_(comparator) {}
+    bool operator()(HeapItem* a, HeapItem* b) const {
+      if (LIKELY(a->type == HeapItem::ITERATOR)) {
+        if (LIKELY(b->type == HeapItem::ITERATOR)) {
+          return comparator_->Compare(a->iter.key(), b->iter.key()) > 0;
+        } else {
+          return comparator_->Compare(a->iter.key(), b->tombstone_pik) > 0;
+        }
+      } else {
+        if (LIKELY(b->type == HeapItem::ITERATOR)) {
+          return comparator_->Compare(a->tombstone_pik, b->iter.key()) > 0;
+        } else {
+          return comparator_->Compare(a->tombstone_pik, b->tombstone_pik) > 0;
+        }
+      }
+    }
+
+   private:
+    const InternalKeyComparator* comparator_;
+  };
+
+  class MaxHeapItemComparator {
+   public:
+    MaxHeapItemComparator(const InternalKeyComparator* comparator)
+        : comparator_(comparator) {}
+    bool operator()(HeapItem* a, HeapItem* b) const {
+      if (LIKELY(a->type == HeapItem::ITERATOR)) {
+        if (LIKELY(b->type == HeapItem::ITERATOR)) {
+          return comparator_->Compare(a->iter.key(), b->iter.key()) < 0;
+        } else {
+          return comparator_->Compare(a->iter.key(), b->tombstone_pik) < 0;
+        }
+      } else {
+        if (LIKELY(b->type == HeapItem::ITERATOR)) {
+          return comparator_->Compare(a->tombstone_pik, b->iter.key()) < 0;
+        } else {
+          return comparator_->Compare(a->tombstone_pik, b->tombstone_pik) < 0;
+        }
+      }
+    }
+
+   private:
+    const InternalKeyComparator* comparator_;
+  };
+
+  using MergerMinIterHeap = BinaryHeap<HeapItem*, MinHeapItemComparator>;
+  using MergerMaxIterHeap = BinaryHeap<HeapItem*, MaxHeapItemComparator>;
   friend class MergeIteratorBuilder;
   // Clears heaps for both directions, used when changing direction or seeking
   void ClearHeaps(bool clear_active = true);

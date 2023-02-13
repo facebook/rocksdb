@@ -6,55 +6,6 @@
 #include "table/compaction_merging_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
-namespace {
-struct HeapItem {
-  HeapItem() = default;
-
-  IteratorWrapper iter;
-  size_t level = 0;
-  std::string tombstone_str;
-  enum Type { ITERATOR, DELETE_RANGE_START };
-  Type type = ITERATOR;
-
-  explicit HeapItem(size_t _level, InternalIteratorBase<Slice>* _iter)
-      : level(_level), type(Type::ITERATOR) {
-    iter.Set(_iter);
-  }
-
-  void SetTombstoneForCompaction(const ParsedInternalKey&& pik) {
-    tombstone_str.clear();
-    AppendInternalKey(&tombstone_str, pik);
-  }
-
-  [[nodiscard]] Slice key() const {
-    return type == ITERATOR ? iter.key() : tombstone_str;
-  }
-};
-
-class CompactionHeapItemComparator {
- public:
-  explicit CompactionHeapItemComparator(const InternalKeyComparator* comparator)
-      : comparator_(comparator) {}
-
-  bool operator()(HeapItem* a, HeapItem* b) const {
-    int r = comparator_->Compare(a->key(), b->key());
-    // For each file, we assume all range tombstone start keys come before
-    // its file boundary sentinel key (file's meta.largest key).
-    // In the case when meta.smallest = meta.largest and range tombstone start
-    // key is truncated at meta.smallest, the start key will have op_type =
-    // kMaxValid to make it smaller (see TruncatedRangeDelIterator constructor).
-    // The following assertion validates this assumption.
-    assert(a->type == b->type || r != 0);
-    return r > 0;
-  }
-
- private:
-  const InternalKeyComparator* comparator_;
-};
-
-using CompactionMinHeap = BinaryHeap<HeapItem*, CompactionHeapItemComparator>;
-}  // namespace
-
 class CompactionMergingIterator : public InternalIterator {
  public:
   CompactionMergingIterator(
@@ -187,6 +138,53 @@ class CompactionMergingIterator : public InternalIterator {
   }
 
  private:
+  struct HeapItem {
+    HeapItem() = default;
+
+    IteratorWrapper iter;
+    size_t level = 0;
+    std::string tombstone_str;
+    enum Type { ITERATOR, DELETE_RANGE_START };
+    Type type = ITERATOR;
+
+    explicit HeapItem(size_t _level, InternalIteratorBase<Slice>* _iter)
+        : level(_level), type(Type::ITERATOR) {
+      iter.Set(_iter);
+    }
+
+    void SetTombstoneForCompaction(const ParsedInternalKey&& pik) {
+      tombstone_str.clear();
+      AppendInternalKey(&tombstone_str, pik);
+    }
+
+    [[nodiscard]] Slice key() const {
+      return type == ITERATOR ? iter.key() : tombstone_str;
+    }
+  };
+
+  class CompactionHeapItemComparator {
+   public:
+    explicit CompactionHeapItemComparator(
+        const InternalKeyComparator* comparator)
+        : comparator_(comparator) {}
+
+    bool operator()(HeapItem* a, HeapItem* b) const {
+      int r = comparator_->Compare(a->key(), b->key());
+      // For each file, we assume all range tombstone start keys come before
+      // its file boundary sentinel key (file's meta.largest key).
+      // In the case when meta.smallest = meta.largest and range tombstone start
+      // key is truncated at meta.smallest, the start key will have op_type =
+      // kMaxValid to make it smaller (see TruncatedRangeDelIterator
+      // constructor). The following assertion validates this assumption.
+      assert(a->type == b->type || r != 0);
+      return r > 0;
+    }
+
+   private:
+    const InternalKeyComparator* comparator_;
+  };
+
+  using CompactionMinHeap = BinaryHeap<HeapItem*, CompactionHeapItemComparator>;
   bool is_arena_mode_;
   const InternalKeyComparator* comparator_;
   // HeapItem for all child point iterators.
