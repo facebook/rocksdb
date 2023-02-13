@@ -12,6 +12,7 @@
 #include "db/lookup_key.h"
 #include "db/merge_context.h"
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
 #include "util/async_file_reader.h"
