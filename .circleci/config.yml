@@ -127,6 +127,13 @@ commands:
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
 
+  install-maven:
+    steps:
+      - run:
+          name: Install maven
+          command: |
+            apt-get install -y maven
+
   setup-folly:
     steps:
       - run:
@@ -593,6 +600,7 @@ jobs:
     executor: linux-docker
     resource_class: large
     steps:
+      - install-maven
       - pre-steps
       - run:
           name: "Set Java Environment"
@@ -870,7 +878,7 @@ workflows:
       - build-macos-java
       - build-macos-java-static
       - build-macos-java-static-universal
-      - build-linux-java-jpmd
+      - build-linux-java-pmd
   jobs-macos:
     jobs:
       - build-macos
