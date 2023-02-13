@@ -11,8 +11,36 @@
 
 
     <!-- Use PMD rules from a few sets, and then make excpetions -->
-    <rule ref="category/java/codestyle.xml"/>
-    <rule ref="category/java/errorprone.xml"/>
-    <rule ref="category/java/bestpractices.xml"/>
+    <rule ref="category/java/codestyle.xml">
+        <!-- These problems are acceptable in perpertuity -->
+        <exclude name="AvoidUsingNativeCode"/>
+        <exclude name="LongVariable"/>
+        <exclude name="ShortVariable"/>
+        <exclude name="ShortClassName"/>
+        <exclude name="OnlyOneReturn"/>
+        <exclude name="FieldNamingConventions"/>
+        <exclude name="FormalParameterNamingConventions"/>
+        <exclude name="LinguisticNaming"/>
+        <!-- These could be fixed if we take the time to do it -->
+        <exclude name="CommentDefaultAccessModifier"/>
+        <exclude name="FieldDeclarationsShouldBeAtStartOfClass"/>
+        <exclude name="FinalParameterInAbstractMethod"/>
+        <exclude name="EmptyMethodInAbstractClassShouldBeAbstract"/>
+        <exclude name="MethodArgumentCouldBeFinal"/>
+        <exclude name="LocalVariableNamingConventions"/>
+        <exclude name="LocalVariableCouldBeFinal"/>
+        <exclude name="ControlStatementBraces"/>
+        <exclude name="CallSuperInConstructor"/>
+        <exclude name="ControlStatementBraces"/>
+        <exclude name="MethodNamingConventions"/>
+        <exclude name="UselessParentheses"/>
+        <exclude name="AtLeastOneConstructor"/>
+    </rule>
+    <rule ref="category/java/errorprone.xml">
+        <exclude name="AvoidFieldNameMatchingMethodName"/>
+    </rule>
+    <rule ref="category/java/bestpractices.xml">
+        <exclude name="UseVarargs"/>
+    </rule>
 
 </ruleset>
