@@ -458,5 +458,5 @@ db_bench: java
 	$(AM_V_GEN)mkdir -p $(BENCHMARK_MAIN_CLASSES)
 	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -cp $(MAIN_CLASSES) -d $(BENCHMARK_MAIN_CLASSES) $(BENCHMARK_MAIN_SRC)/org/rocksdb/benchmark/*.java
 
-spotbugs:
-	$(MAVEN_CMD) spotbugs:check
+pmd:
+	$(MAVEN_CMD) pmd:pmd pmd:cpd pmd:check

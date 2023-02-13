@@ -589,7 +589,7 @@ jobs:
           command: make V=1 J=8 -j8 jtest
       - post-steps
 
-  build-linux-java-spotbugs:
+  build-linux-java-pmd:
     executor: linux-docker
     resource_class: large
     steps:
@@ -602,8 +602,8 @@ jobs:
             which java && java -version
             which javac && javac -version
       - run:
-          name: "Spotbugs RocksDBJava"
-          command: make V=1 J=8 -j8 jspotbugs
+          name: "PMD RocksDBJava"
+          command: make V=1 J=8 -j8 jpmd
       - post-steps
 
   build-linux-java-static:
@@ -870,7 +870,7 @@ workflows:
       - build-macos-java
       - build-macos-java-static
       - build-macos-java-static-universal
-      - build-linux-java-spotbugs
+      - build-linux-java-jpmd
   jobs-macos:
     jobs:
       - build-macos

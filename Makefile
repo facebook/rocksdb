@@ -2419,8 +2419,8 @@ jtest_run:
 jtest: rocksdbjava
 	cd java;$(MAKE) sample test
 
-jspotbugs: rocksdbjava rocksdbjavageneratepom
-	cd java;$(MAKE) spotbugs
+jpmd: rocksdbjava rocksdbjavageneratepom
+	cd java;$(MAKE) pmd
 
 jdb_bench:
 	cd java;$(MAKE) db_bench;
