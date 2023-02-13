@@ -2669,14 +2669,22 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    PinnableSlice* val = nullptr;
+    PinnableWideColumns* col = nullptr;
+
     if (values) {
-      values[i].Reset();
+      val = &values[i];
+      val->Reset();
+    } else {
+      assert(columns);
+
+      col = &columns[i];
+      col->Reset();
     }
 
-    key_context.emplace_back(
-        column_families[i], keys[i], values ? &values[i] : nullptr,
-        columns ? &columns[i] : nullptr, timestamps ? &timestamps[i] : nullptr,
-        &statuses[i]);
+    key_context.emplace_back(column_families[i], keys[i], val, col,
+                             timestamps ? &timestamps[i] : nullptr,
+                             &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];
@@ -2830,13 +2838,22 @@ void DBImpl::MultiGetCommon(const ReadOptions& read_options,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    PinnableSlice* val = nullptr;
+    PinnableWideColumns* col = nullptr;
+
     if (values) {
-      values[i].Reset();
+      val = &values[i];
+      val->Reset();
+    } else {
+      assert(columns);
+
+      col = &columns[i];
+      col->Reset();
     }
-    key_context.emplace_back(
-        column_family, keys[i], values ? &values[i] : nullptr,
-        columns ? &columns[i] : nullptr, timestamps ? &timestamps[i] : nullptr,
-        &statuses[i]);
+
+    key_context.emplace_back(column_family, keys[i], val, col,
+                             timestamps ? &timestamps[i] : nullptr,
+                             &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];
