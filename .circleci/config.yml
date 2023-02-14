@@ -132,7 +132,7 @@ commands:
       - run:
           name: Install maven
           command: |
-            apt-get install -y maven
+            sudo apt-get update -y && sudo apt-get install -y maven
 
   setup-folly:
     steps:
@@ -597,7 +597,8 @@ jobs:
       - post-steps
 
   build-linux-java-pmd:
-    executor: linux-docker
+    machine: 
+      image: ubuntu-2004:202111-02
     resource_class: large
     steps:
       - install-maven
