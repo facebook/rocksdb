@@ -12,7 +12,6 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
-#include "rocksdb/advanced_cache.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"

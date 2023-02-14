@@ -9,7 +9,6 @@
 
 #include "rocksdb/write_buffer_manager.h"
 
-#include "rocksdb/advanced_cache.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {

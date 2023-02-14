@@ -8,7 +8,7 @@
 #include <string>
 
 #include "port/port.h"
-#include "rocksdb/advanced_cache.h"
+#include "rocksdb/cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 
