@@ -600,13 +600,14 @@ jobs:
     machine: 
       image: ubuntu-2004:202111-02
     resource_class: large
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64
     steps:
       - install-maven
       - pre-steps
       - run:
           name: "Set Java Environment"
           command: |
-            source /etc/environment
             echo "JAVA_HOME=${JAVA_HOME}"
             echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
