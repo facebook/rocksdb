@@ -19,14 +19,13 @@
 namespace ROCKSDB_NAMESPACE {
 
 /**
- * Keep adding tickers here. Note that the C++ enum values, unlike the values in
- * the Java bindings, are not guaranteed to be stable; also, the C++ and Java
- * values for any given ticker are not guaranteed to match.
- *  1. Add the new ticker before TICKER_ENUM_MAX.
+ * Keep adding tickers here.
+ *  1. Any ticker should be added immediately before TICKER_ENUM_MAX, taking
+ *     over its old value.
  *  2. Add a readable string in TickersNameMap below for the newly added ticker.
- *  3. Add a corresponding enum value to TickerType.java in the Java API.
- *  4. Add the enum conversions from/to Java/C++ to portal.h's toJavaTickerType
- *     and toCppTickers.
+ *  3. Add a corresponding enum value to TickerType.java in the java API
+ *  4. Add the enum conversions from Java and C++ to portal.h's toJavaTickerType
+ *     and toCppTickers
  */
 enum Tickers : uint32_t {
   // total block cache misses
@@ -51,6 +50,8 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_INDEX_ADD,
   // # of bytes of index blocks inserted into cache
   BLOCK_CACHE_INDEX_BYTES_INSERT,
+  // # of bytes of index block erased from cache
+  BLOCK_CACHE_INDEX_BYTES_EVICT,
   // # of times cache miss when accessing filter block from block cache.
   BLOCK_CACHE_FILTER_MISS,
   // # of times cache hit when accessing filter block from block cache.
@@ -59,6 +60,8 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_FILTER_ADD,
   // # of bytes of bloom filter blocks inserted into cache
   BLOCK_CACHE_FILTER_BYTES_INSERT,
+  // # of bytes of bloom filter block erased from cache
+  BLOCK_CACHE_FILTER_BYTES_EVICT,
   // # of times cache miss when accessing data block from block cache.
   BLOCK_CACHE_DATA_MISS,
   // # of times cache hit when accessing data block from block cache.
@@ -79,6 +82,8 @@ enum Tickers : uint32_t {
   // # of times bloom FullFilter has not avoided the reads and data actually
   // exist.
   BLOOM_FILTER_FULL_TRUE_POSITIVE,
+
+  BLOOM_FILTER_MICROS,
 
   // # persistent cache hit
   PERSISTENT_CACHE_HIT,
@@ -142,6 +147,7 @@ enum Tickers : uint32_t {
   // The number of uncompressed bytes read from an iterator.
   // Includes size of key and value.
   ITER_BYTES_READ,
+  NO_FILE_CLOSES,
   NO_FILE_OPENS,
   NO_FILE_ERRORS,
   // Writer has to wait for compaction or flush to finish.
@@ -149,12 +155,16 @@ enum Tickers : uint32_t {
   // The wait time for db mutex.
   // Disabled by default. To enable it set stats level to kAll
   DB_MUTEX_WAIT_MICROS,
+  RATE_LIMIT_DELAY_MILLIS,
 
   // Number of MultiGet calls, keys read, and bytes read
   NUMBER_MULTIGET_CALLS,
   NUMBER_MULTIGET_KEYS_READ,
   NUMBER_MULTIGET_BYTES_READ,
 
+  // Number of deletes records that were not required to be
+  // written to storage because key does not exist
+  NUMBER_FILTERED_DELETES,
   NUMBER_MERGE_FAILURES,
 
   // number of times bloom was checked before creating iterator on a
@@ -183,6 +193,7 @@ enum Tickers : uint32_t {
   // head of the writers queue.
   WRITE_DONE_BY_SELF,
   WRITE_DONE_BY_OTHER,  // Equivalent to writes done for others
+  WRITE_TIMEDOUT,       // Number of writes ending up with timed-out.
   WRITE_WITH_WAL,       // Number of Write calls that request WAL
   COMPACT_READ_BYTES,   // Bytes read during compaction
   COMPACT_WRITE_BYTES,  // Bytes written during compaction
@@ -332,6 +343,7 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_COMPRESSION_DICT_HIT,
   BLOCK_CACHE_COMPRESSION_DICT_ADD,
   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
+  BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
 
   // # of blocks redundantly inserted into block cache.
   // REQUIRES: BLOCK_CACHE_ADD_REDUNDANT <= BLOCK_CACHE_ADD
@@ -429,15 +441,12 @@ enum Tickers : uint32_t {
 extern const std::vector<std::pair<Tickers, std::string>> TickersNameMap;
 
 /**
- * Keep adding histograms here. Note that the C++ enum values, unlike the values
- * in the Java bindings, are not guaranteed to be stable; also, the C++ and Java
- * values for any given histogram are not guaranteed to match.
- *  1. Add the new histogram before HISTOGRAM_ENUM_MAX.
- *  2. Add a readable string in HistogramsNameMap below for the newly added
- *     histogram.
- *  3. Add a corresponding enum value to HistogramType.java in the Java API.
- *  4. Add the enum conversions from/to Java/C++ to portal.h's
- *     toJavaHistogramsType and toCppHistograms.
+ * Keep adding histogram's here.
+ * Any histogram should have value less than HISTOGRAM_ENUM_MAX
+ * Add a new Histogram by assigning it the current value of HISTOGRAM_ENUM_MAX
+ * Add a string representation in HistogramsNameMap below
+ * And increment HISTOGRAM_ENUM_MAX
+ * Add a corresponding enum value to HistogramType.java in the java API
  */
 enum Histograms : uint32_t {
   DB_GET = 0,
@@ -455,6 +464,11 @@ enum Histograms : uint32_t {
   READ_BLOCK_COMPACTION_MICROS,
   READ_BLOCK_GET_MICROS,
   WRITE_RAW_BLOCK_MICROS,
+  STALL_L0_SLOWDOWN_COUNT,
+  STALL_MEMTABLE_COMPACTION_COUNT,
+  STALL_L0_NUM_FILES_COUNT,
+  HARD_RATE_LIMIT_DELAY_COUNT,
+  SOFT_RATE_LIMIT_DELAY_COUNT,
   NUM_FILES_IN_SINGLE_COMPACTION,
   DB_SEEK,
   WRITE_STALL,
