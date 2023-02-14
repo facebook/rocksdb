@@ -17,7 +17,6 @@
 
 ### Feature Removal
 * Remove RocksDB Lite.
-* The feature block_cache_compressed is removed. Statistics related to it are removed too.
 * Remove deprecated Env::LoadEnv(). Use Env::CreateFromString() instead.
 * Remove deprecated FileSystem::Load(). Use FileSystem::CreateFromString() instead.
 * Remove the FactoryFunc from the LoadObject method from the Customizable helper methods.

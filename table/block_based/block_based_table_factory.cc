@@ -230,6 +230,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
     block_based_table_type_info = {
         /* currently not supported
           std::shared_ptr<Cache> block_cache = nullptr;
+          std::shared_ptr<Cache> block_cache_compressed = nullptr;
           CacheUsageOptions cache_usage_options;
          */
         {"flush_block_policy_factory",
@@ -390,8 +391,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
             return Cache::CreateFromString(opts, value, cache);
           }}},
         {"block_cache_compressed",
-         {0, OptionType::kUnknown, OptionVerificationType::kDeprecated,
-          OptionTypeFlags::kNone}},
+         {offsetof(struct BlockBasedTableOptions, block_cache_compressed),
+          OptionType::kUnknown, OptionVerificationType::kNormal,
+          (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize),
+          // Parses the input value as a Cache
+          [](const ConfigOptions& opts, const std::string&,
+             const std::string& value, void* addr) {
+            auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
+            return Cache::CreateFromString(opts, value, cache);
+          }}},
         {"max_auto_readahead_size",
          {offsetof(struct BlockBasedTableOptions, max_auto_readahead_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,
@@ -497,10 +505,18 @@ namespace {
 // they must not share an underlying key space with each other.
 Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
   int cache_count = (bbto.block_cache != nullptr) +
+                    (bbto.block_cache_compressed != nullptr) +
                     (bbto.persistent_cache != nullptr);
   if (cache_count <= 1) {
     // Nothing to share / overlap
     return Status::OK();
+  }
+
+  // Simple pointer equality
+  if (bbto.block_cache == bbto.block_cache_compressed) {
+    return Status::InvalidArgument(
+        "block_cache same as block_cache_compressed not currently supported, "
+        "and would be bad for performance anyway");
   }
 
   // More complex test of shared key space, in case the instances are wrappers
@@ -512,10 +528,17 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
     char c;
   };
   static SentinelValue kRegularBlockCacheMarker{'b'};
+  static SentinelValue kCompressedBlockCacheMarker{'c'};
   static char kPersistentCacheMarker{'p'};
   if (bbto.block_cache) {
     bbto.block_cache
         ->Insert(sentinel_key.AsSlice(), &kRegularBlockCacheMarker, &kHelper, 1)
+        .PermitUncheckedError();
+  }
+  if (bbto.block_cache_compressed) {
+    bbto.block_cache_compressed
+        ->Insert(sentinel_key.AsSlice(), &kCompressedBlockCacheMarker, &kHelper,
+                 1)
         .PermitUncheckedError();
   }
   if (bbto.persistent_cache) {
@@ -532,7 +555,11 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
       auto v = static_cast<SentinelValue*>(bbto.block_cache->Value(handle));
       char c = v->c;
       bbto.block_cache->Release(handle);
-      if (c == kPersistentCacheMarker) {
+      if (v == &kCompressedBlockCacheMarker) {
+        return Status::InvalidArgument(
+            "block_cache and block_cache_compressed share the same key space, "
+            "which is not supported");
+      } else if (c == kPersistentCacheMarker) {
         return Status::InvalidArgument(
             "block_cache and persistent_cache share the same key space, "
             "which is not supported");
@@ -541,7 +568,28 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
       }
     }
   }
-
+  if (bbto.block_cache_compressed) {
+    auto handle = bbto.block_cache_compressed->Lookup(sentinel_key.AsSlice());
+    if (handle) {
+      auto v = static_cast<SentinelValue*>(
+          bbto.block_cache_compressed->Value(handle));
+      char c = v->c;
+      bbto.block_cache_compressed->Release(handle);
+      if (v == &kRegularBlockCacheMarker) {
+        return Status::InvalidArgument(
+            "block_cache_compressed and block_cache share the same key space, "
+            "which is not supported");
+      } else if (c == kPersistentCacheMarker) {
+        return Status::InvalidArgument(
+            "block_cache_compressed and persistent_cache share the same key "
+            "space, "
+            "which is not supported");
+      } else if (v != &kCompressedBlockCacheMarker) {
+        return Status::Corruption(
+            "Unexpected mutation to block_cache_compressed");
+      }
+    }
+  }
   if (bbto.persistent_cache) {
     std::unique_ptr<char[]> data;
     size_t size = 0;
@@ -551,6 +599,11 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
       if (data[0] == kRegularBlockCacheMarker.c) {
         return Status::InvalidArgument(
             "persistent_cache and block_cache share the same key space, "
+            "which is not supported");
+      } else if (data[0] == kCompressedBlockCacheMarker.c) {
+        return Status::InvalidArgument(
+            "persistent_cache and block_cache_compressed share the same key "
+            "space, "
             "which is not supported");
       } else if (data[0] != kPersistentCacheMarker) {
         return Status::Corruption("Unexpected mutation to persistent_cache");
@@ -770,6 +823,20 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
     }
     ret.append("  block_cache_options:\n");
     ret.append(table_options_.block_cache->GetPrintableOptions());
+  }
+  snprintf(buffer, kBufferSize, "  block_cache_compressed: %p\n",
+           static_cast<void*>(table_options_.block_cache_compressed.get()));
+  ret.append(buffer);
+  if (table_options_.block_cache_compressed) {
+    const char* block_cache_compressed_name =
+        table_options_.block_cache_compressed->Name();
+    if (block_cache_compressed_name != nullptr) {
+      snprintf(buffer, kBufferSize, "  block_cache_name: %s\n",
+               block_cache_compressed_name);
+      ret.append(buffer);
+    }
+    ret.append("  block_cache_compressed_options:\n");
+    ret.append(table_options_.block_cache_compressed->GetPrintableOptions());
   }
   snprintf(buffer, kBufferSize, "  persistent_cache: %p\n",
            static_cast<void*>(table_options_.persistent_cache.get()));

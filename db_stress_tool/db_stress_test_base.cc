@@ -53,6 +53,8 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
 
 StressTest::StressTest()
     : cache_(NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits)),
+      compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size,
+                                    FLAGS_compressed_cache_numshardbits)),
       filter_policy_(CreateFilterPolicy()),
       db_(nullptr),
       txn_db_(nullptr),
@@ -2484,9 +2486,10 @@ void StressTest::Open(SharedState* shared) {
   assert(db_ == nullptr);
   assert(txn_db_ == nullptr);
   if (!InitializeOptionsFromFile(options_)) {
-    InitializeOptionsFromFlags(cache_, filter_policy_, options_);
+    InitializeOptionsFromFlags(cache_, compressed_cache_, filter_policy_,
+                               options_);
   }
-  InitializeOptionsGeneral(cache_, filter_policy_, options_);
+  InitializeOptionsGeneral(cache_, compressed_cache_, filter_policy_, options_);
 
   if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
     fprintf(stderr,
@@ -2961,6 +2964,7 @@ bool InitializeOptionsFromFile(Options& options) {
 
 void InitializeOptionsFromFlags(
     const std::shared_ptr<Cache>& cache,
+    const std::shared_ptr<Cache>& block_cache_compressed,
     const std::shared_ptr<const FilterPolicy>& filter_policy,
     Options& options) {
   BlockBasedTableOptions block_based_options;
@@ -2973,6 +2977,7 @@ void InitializeOptionsFromFlags(
       static_cast<PinningTier>(FLAGS_partition_pinning);
   block_based_options.metadata_cache_options.unpartitioned_pinning =
       static_cast<PinningTier>(FLAGS_unpartitioned_pinning);
+  block_based_options.block_cache_compressed = block_cache_compressed;
   block_based_options.checksum = checksum_type_e;
   block_based_options.block_size = FLAGS_block_size;
   block_based_options.cache_usage_options.options_overrides.insert(
@@ -3215,6 +3220,7 @@ void InitializeOptionsFromFlags(
 
 void InitializeOptionsGeneral(
     const std::shared_ptr<Cache>& cache,
+    const std::shared_ptr<Cache>& block_cache_compressed,
     const std::shared_ptr<const FilterPolicy>& filter_policy,
     Options& options) {
   options.create_missing_column_families = true;
@@ -3234,6 +3240,10 @@ void InitializeOptionsGeneral(
   if (table_options) {
     if (FLAGS_cache_size > 0) {
       table_options->block_cache = cache;
+    }
+    if (!table_options->block_cache_compressed &&
+        FLAGS_compressed_cache_size > 0) {
+      table_options->block_cache_compressed = block_cache_compressed;
     }
     if (!table_options->filter_policy) {
       table_options->filter_policy = filter_policy;
