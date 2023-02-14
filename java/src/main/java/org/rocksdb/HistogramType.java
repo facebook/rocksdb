@@ -145,6 +145,11 @@ public enum HistogramType {
   BLOB_DB_BLOB_FILE_SYNC_MICROS((byte) 0x2B),
 
   /**
+   * BlobDB garbage collection time.
+   */
+  BLOB_DB_GC_MICROS((byte) 0x2C),
+
+  /**
    * BlobDB compression time.
    */
   BLOB_DB_COMPRESSION_MICROS((byte) 0x2D),
@@ -159,6 +164,11 @@ public enum HistogramType {
    * request
    */
   NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL((byte) 0x2F),
+
+  /**
+   * Num of Data blocks read from file system per level in MultiGet request.
+   */
+  NUM_DATA_BLOCKS_READ_PER_LEVEL((byte) 0x30),
 
   /**
    * Num of SST files read from file system per level in MultiGet request.
