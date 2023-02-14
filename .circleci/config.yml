@@ -105,6 +105,15 @@ commands:
           path: /tmp/core_dumps
           when: on_fail
 
+  post-pmd-steps:
+    steps:
+      - store_artifacts:
+          path: /home/circleci/project/java/target/pmd.xml
+          when: on_fail
+      - store_artifacts:
+          path: /home/circleci/project/java/target/site
+          when: on_fail
+
   upgrade-cmake:
     steps:
       - run:
@@ -615,7 +624,7 @@ jobs:
       - run:
           name: "PMD RocksDBJava"
           command: make V=1 J=8 -j8 jpmd
-      - post-steps
+      - post-pmd-steps
 
   build-linux-java-static:
     executor: linux-docker
