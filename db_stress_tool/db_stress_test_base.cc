@@ -2943,13 +2943,9 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
 
 bool InitializeOptionsFromFile(Options& options) {
   DBOptions db_options;
-  ConfigOptions config_options;
-  config_options.ignore_unknown_options = false;
-  config_options.input_strings_escaped = true;
-  config_options.env = db_stress_env;
   std::vector<ColumnFamilyDescriptor> cf_descriptors;
   if (!FLAGS_options_file.empty()) {
-    Status s = LoadOptionsFromFile(config_options, FLAGS_options_file,
+    Status s = LoadOptionsFromFile(FLAGS_options_file, db_stress_env,
                                    &db_options, &cf_descriptors);
     if (!s.ok()) {
       fprintf(stderr, "Unable to load options file %s --- %s\n",
