@@ -143,8 +143,9 @@ function main {
       run_db_bench "seekrandom"
       run_db_bench "seekrandomwhilewriting"
       run_db_bench "multireadrandom"
-      run_db_bench "seekrandom_asyncio" $NUM_KEYS 1 0 0 true
-      run_db_bench "multireadrandom_asyncio" $NUM_KEYS 1 0 0 true
+      # run_db_bench benchmark_name NUM_OPS NUM_THREADS USED_EXISTING_DB UPDATE_REPORT ASYNC_IO
+      run_db_bench "seekrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
+      run_db_bench "multireadrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
   fi
 
   cleanup_test_directory $TEST_ROOT_DIR
@@ -202,7 +203,7 @@ function init_arguments {
 }
 
 # $1 --- benchmark name
-# $2 --- number of operations.  Default: $NUM_KEYS
+# $2 --- number of operations.  Default: $NUM_OPS
 # $3 --- number of threads.  Default $NUM_THREADS
 # $4 --- use_existing_db.  Default: 1
 # $5 --- update_report. Default: 1
@@ -334,7 +335,10 @@ function multiply {
 # $1 --- name of the benchmark
 # $2 --- the filename of the output log of db_bench
 function update_report {
-  main_result=`cat $2 | grep $1`
+  # In case of async_io, benchmark is benchmark_asyncio
+  db_bench_type=${1%%_*}
+
+  main_result=`cat $2 | grep $db_bench_type`
   exit_on_error $?
   perc_statement=`cat $2 | grep Percentile`
   exit_on_error $?
