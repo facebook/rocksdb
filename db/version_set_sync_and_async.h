@@ -101,23 +101,39 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
         file_range.MarkKeyDone(iter);
 
         if (iter->is_blob_index) {
+          BlobIndex blob_index;
+          Status tmp_s;
+
           if (iter->value) {
             TEST_SYNC_POINT_CALLBACK("Version::MultiGet::TamperWithBlobIndex",
                                      &(*iter));
 
-            const Slice& blob_index_slice = *(iter->value);
-            BlobIndex blob_index;
-            Status tmp_s = blob_index.DecodeFrom(blob_index_slice);
-            if (tmp_s.ok()) {
-              const uint64_t blob_file_num = blob_index.file_number();
-              blob_ctxs[blob_file_num].emplace_back(
-                  std::make_pair(blob_index, std::cref(*iter)));
-            } else {
-              *(iter->s) = tmp_s;
-            }
+            tmp_s = blob_index.DecodeFrom(*(iter->value));
+
+          } else {
+            assert(iter->columns);
+            assert(!iter->columns->columns().empty());
+            assert(iter->columns->columns().front().name() ==
+                   kDefaultWideColumnName);
+
+            tmp_s =
+                blob_index.DecodeFrom(iter->columns->columns().front().value());
+          }
+
+          if (tmp_s.ok()) {
+            const uint64_t blob_file_num = blob_index.file_number();
+            blob_ctxs[blob_file_num].emplace_back(blob_index, &*iter);
+          } else {
+            *(iter->s) = tmp_s;
           }
         } else {
-          file_range.AddValueSize(iter->value->size());
+          if (iter->value) {
+            file_range.AddValueSize(iter->value->size());
+          } else {
+            assert(iter->columns);
+            file_range.AddValueSize(iter->columns->serialized_size());
+          }
+
           if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
             s = Status::Aborted();
             break;
