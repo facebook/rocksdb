@@ -32,6 +32,7 @@
 
 ### New Features
 * Compaction filters are now supported for wide-column entities by means of the `FilterV3` API. See the comment of the API for more details.
+* Added a new `MultiGetEntity` API that enables batched wide-column point lookups. See the API comments for more details.
 
 ## 7.10.0 (01/23/2023)
 ### Behavior changes
