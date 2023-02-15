@@ -154,6 +154,10 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (!props.compression_options.empty()) {
     Add(TablePropertiesNames::kCompressionOptions, props.compression_options);
   }
+  if (!props.seqno_to_time_mapping.empty()) {
+    Add(TablePropertiesNames::kSequenceNumberTimeMapping,
+        props.seqno_to_time_mapping);
+  }
 }
 
 Slice PropertyBlockBuilder::Finish() {
@@ -192,10 +196,11 @@ bool NotifyCollectTableCollectorsOnAdd(
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    const uint64_t block_raw_bytes, const uint64_t block_compressed_bytes_fast,
+    const uint64_t block_uncomp_bytes,
+    const uint64_t block_compressed_bytes_fast,
     const uint64_t block_compressed_bytes_slow) {
   for (auto& collector : collectors) {
-    collector->BlockAdd(block_raw_bytes, block_compressed_bytes_fast,
+    collector->BlockAdd(block_uncomp_bytes, block_compressed_bytes_fast,
                         block_compressed_bytes_slow);
   }
 }
@@ -369,6 +374,8 @@ Status ReadTablePropertiesHelper(
       new_table_properties->compression_name = raw_val.ToString();
     } else if (key == TablePropertiesNames::kCompressionOptions) {
       new_table_properties->compression_options = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kSequenceNumberTimeMapping) {
+      new_table_properties->seqno_to_time_mapping = raw_val.ToString();
     } else {
       // handle user-collected properties
       new_table_properties->user_collected_properties.insert(

@@ -47,8 +47,8 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
 
   assert(column_family);
   if (read_options.timestamp) {
-    const Status s =
-        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(
+        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -58,6 +58,13 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
       return s;
     }
   }
+
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (timestamp) {
+    timestamp->clear();
+  }
+
   const Comparator* ucmp = column_family->GetComparator();
   assert(ucmp);
   std::string* ts = ucmp->timestamp_size() > 0 ? timestamp : nullptr;
@@ -78,17 +85,18 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), ts, &s,
-                              &merge_context, &max_covering_tombstone_seq,
-                              read_options, &read_cb)) {
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
+                              /*columns=*/nullptr, ts, &s, &merge_context,
+                              &max_covering_tombstone_seq, read_options,
+                              false /* immutable_memtable */, &read_cb)) {
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
     PinnedIteratorsManager pinned_iters_mgr;
     super_version->current->Get(
-        read_options, lkey, pinnable_val, ts, &s, &merge_context,
-        &max_covering_tombstone_seq, &pinned_iters_mgr,
+        read_options, lkey, pinnable_val, /*columns=*/nullptr, ts, &s,
+        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         /*value_found*/ nullptr,
         /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
         /*is_blob*/ nullptr,
@@ -107,8 +115,8 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
                                       ColumnFamilyHandle* column_family) {
   assert(column_family);
   if (read_options.timestamp) {
-    const Status s =
-        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(
+        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -135,8 +143,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
       super_version->version_number, read_callback);
   auto internal_iter = NewInternalIterator(
       db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
-      db_iter->GetRangeDelAggregator(), read_seq,
-      /* allow_unprepared_value */ true);
+      read_seq, /* allow_unprepared_value */ true, db_iter);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -148,7 +155,8 @@ Status DBImplReadOnly::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
+                                          /*ts_for_read=*/true);
       if (!s.ok()) {
         return s;
       }
@@ -185,9 +193,8 @@ Status DBImplReadOnly::NewIterators(
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
         sv->version_number, read_callback);
     auto* internal_iter = NewInternalIterator(
-        db_iter->GetReadOptions(), cfd, sv, db_iter->GetArena(),
-        db_iter->GetRangeDelAggregator(), read_seq,
-        /* allow_unprepared_value */ true);
+        db_iter->GetReadOptions(), cfd, sv, db_iter->GetArena(), read_seq,
+        /* allow_unprepared_value */ true, db_iter);
     db_iter->SetIterUnderDBIter(internal_iter);
     iterators->push_back(db_iter);
   }

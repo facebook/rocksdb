@@ -209,6 +209,16 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     // Don't do anything for simplicity.
   }
 
+  bool IsSameLengthImmediateSuccessor(const Slice& s,
+                                      const Slice& t) const override {
+    // Always returning false to prevent surfacing design flaws in
+    // auto_prefix_mode
+    (void)s, (void)t;
+    return false;
+    // "Correct" implementation:
+    // return BytewiseComparatorImpl::IsSameLengthImmediateSuccessor(t, s);
+  }
+
   bool CanKeysWithDifferentByteContentsBeEqual() const override {
     return false;
   }

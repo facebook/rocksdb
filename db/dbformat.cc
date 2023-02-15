@@ -26,7 +26,7 @@ namespace ROCKSDB_NAMESPACE {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-const ValueType kValueTypeForSeek = kTypeDeletionWithTimestamp;
+const ValueType kValueTypeForSeek = kTypeWideColumnEntity;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
 const std::string kDisableUserTimestamp("");
 
@@ -46,6 +46,8 @@ EntryType GetEntryType(ValueType value_type) {
       return kEntryRangeDeletion;
     case kTypeBlobIndex:
       return kEntryBlobIndex;
+    case kTypeWideColumnEntity:
+      return kEntryWideColumnEntity;
     default:
       return kEntryOther;
   }
@@ -86,6 +88,19 @@ void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
   result->append(kTsMax.data(), ts_sz);
 }
 
+void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                   size_t ts_sz) {
+  assert(ts_sz > 0);
+  result->append(key.data(), key.size() - ts_sz);
+
+  static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+  if (ts_sz < strlen(kTsMax)) {
+    result->append(kTsMax, ts_sz);
+  } else {
+    result->append(std::string(ts_sz, '\xff'));
+  }
+}
+
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
   std::string result = "'";
   if (log_err_key) {
@@ -114,13 +129,6 @@ std::string InternalKey::DebugString(bool hex) const {
   return result;
 }
 
-const char* InternalKeyComparator::Name() const {
-  if (name_.empty()) {
-    return "rocksdb.anonymous.InternalKeyComparator";
-  }
-  return name_.c_str();
-}
-
 int InternalKeyComparator::Compare(const ParsedInternalKey& a,
                                    const ParsedInternalKey& b) const {
   // Order by:
@@ -140,40 +148,6 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
     }
   }
   return r;
-}
-
-void InternalKeyComparator::FindShortestSeparator(std::string* start,
-                                                  const Slice& limit) const {
-  // Attempt to shorten the user portion of the key
-  Slice user_start = ExtractUserKey(*start);
-  Slice user_limit = ExtractUserKey(limit);
-  std::string tmp(user_start.data(), user_start.size());
-  user_comparator_.FindShortestSeparator(&tmp, user_limit);
-  if (tmp.size() <= user_start.size() &&
-      user_comparator_.Compare(user_start, tmp) < 0) {
-    // User key has become shorter physically, but larger logically.
-    // Tack on the earliest possible number to the shortened user key.
-    PutFixed64(&tmp,
-               PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
-    assert(this->Compare(*start, tmp) < 0);
-    assert(this->Compare(tmp, limit) < 0);
-    start->swap(tmp);
-  }
-}
-
-void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
-  Slice user_key = ExtractUserKey(*key);
-  std::string tmp(user_key.data(), user_key.size());
-  user_comparator_.FindShortSuccessor(&tmp);
-  if (tmp.size() <= user_key.size() &&
-      user_comparator_.Compare(user_key, tmp) < 0) {
-    // User key has become shorter physically, but larger logically.
-    // Tack on the earliest possible number to the shortened user key.
-    PutFixed64(&tmp,
-               PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
-    assert(this->Compare(*key, tmp) < 0);
-    key->swap(tmp);
-  }
 }
 
 LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,

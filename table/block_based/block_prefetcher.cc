@@ -14,19 +14,25 @@
 namespace ROCKSDB_NAMESPACE {
 void BlockPrefetcher::PrefetchIfNeeded(
     const BlockBasedTable::Rep* rep, const BlockHandle& handle,
-    const size_t readahead_size, bool is_for_compaction, const bool async_io,
+    const size_t readahead_size, bool is_for_compaction,
+    const bool no_sequential_checking,
     const Env::IOPriority rate_limiter_priority) {
+  // num_file_reads is used  by FilePrefetchBuffer only when
+  // implicit_auto_readahead is set.
   if (is_for_compaction) {
     rep->CreateFilePrefetchBufferIfNotExists(
         compaction_readahead_size_, compaction_readahead_size_,
-        &prefetch_buffer_, false, async_io);
+        &prefetch_buffer_, /*implicit_auto_readahead=*/false,
+        /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0);
     return;
   }
 
   // Explicit user requested readahead.
   if (readahead_size > 0) {
     rep->CreateFilePrefetchBufferIfNotExists(
-        readahead_size, readahead_size, &prefetch_buffer_, false, async_io);
+        readahead_size, readahead_size, &prefetch_buffer_,
+        /*implicit_auto_readahead=*/false, /*num_file_reads=*/0,
+        /*num_file_reads_for_auto_readahead=*/0);
     return;
   }
 
@@ -39,11 +45,18 @@ void BlockPrefetcher::PrefetchIfNeeded(
     return;
   }
 
-  // In case of async_io, it always creates the PrefetchBuffer.
-  if (async_io) {
+  if (initial_auto_readahead_size_ > max_auto_readahead_size) {
+    initial_auto_readahead_size_ = max_auto_readahead_size;
+  }
+
+  // In case of no_sequential_checking, it will skip the num_file_reads_ and
+  // will always creates the FilePrefetchBuffer.
+  if (no_sequential_checking) {
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
-        &prefetch_buffer_, /*implicit_auto_readahead=*/true, async_io);
+        &prefetch_buffer_, /*implicit_auto_readahead=*/true,
+        /*num_file_reads=*/0,
+        rep->table_options.num_file_reads_for_auto_readahead);
     return;
   }
 
@@ -65,22 +78,18 @@ void BlockPrefetcher::PrefetchIfNeeded(
   UpdateReadPattern(offset, len);
 
   // Implicit auto readahead, which will be enabled if the number of reads
-  // reached `kMinNumFileReadsToStartAutoReadahead` (default: 2)  and scans are
-  // sequential.
+  // reached `table_options.num_file_reads_for_auto_readahead` (default: 2)  and
+  // scans are sequential.
   num_file_reads_++;
-  if (num_file_reads_ <=
-      BlockBasedTable::kMinNumFileReadsToStartAutoReadahead) {
+  if (num_file_reads_ <= rep->table_options.num_file_reads_for_auto_readahead) {
     return;
   }
 
-  if (initial_auto_readahead_size_ > max_auto_readahead_size) {
-    initial_auto_readahead_size_ = max_auto_readahead_size;
-  }
-
   if (rep->file->use_direct_io()) {
-    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size_,
-                                             max_auto_readahead_size,
-                                             &prefetch_buffer_, true, async_io);
+    rep->CreateFilePrefetchBufferIfNotExists(
+        initial_auto_readahead_size_, max_auto_readahead_size,
+        &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
+        rep->table_options.num_file_reads_for_auto_readahead);
     return;
   }
 
@@ -96,9 +105,10 @@ void BlockPrefetcher::PrefetchIfNeeded(
       BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_,
       rate_limiter_priority);
   if (s.IsNotSupported()) {
-    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size_,
-                                             max_auto_readahead_size,
-                                             &prefetch_buffer_, true, async_io);
+    rep->CreateFilePrefetchBufferIfNotExists(
+        initial_auto_readahead_size_, max_auto_readahead_size,
+        &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
+        rep->table_options.num_file_reads_for_auto_readahead);
     return;
   }
 

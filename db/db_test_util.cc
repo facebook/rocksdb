@@ -18,6 +18,7 @@
 #include "rocksdb/env_encryption.h"
 #include "util/stderr_logger.h"
 #ifdef USE_AWS
+#include <aws/core/Aws.h>
 #include "cloud/cloud_file_system_impl.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #endif
@@ -71,6 +72,11 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   non_writable_count_ = 0;
   table_write_callback_ = nullptr;
 }
+#ifdef USE_AWS
+namespace {
+void shutdownAws() { Aws::ShutdownAPI(Aws::SDKOptions()); }
+}  // namespace
+#endif
 DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
     : option_env_(kDefaultEnv),
       mem_env_(nullptr),
@@ -107,6 +113,12 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
 
   env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log_);
   info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
+
+  static std::once_flag aws_init;
+  std::call_once(aws_init, []() {
+    Aws::InitAPI(Aws::SDKOptions());
+    std::atexit(shutdownAws);
+  });
   s3_env_ = CreateNewAwsEnv(mypath, env_);
 #endif
 #endif  // !ROCKSDB_LITE
@@ -542,8 +554,10 @@ Options DBTestBase::GetOptions(
     case kInfiniteMaxOpenFiles:
       options.max_open_files = -1;
       break;
-    case kXXH3Checksum: {
-      table_options.checksum = kXXH3;
+    case kCRC32cChecksum: {
+      // Old default was CRC32c, but XXH3 (new default) is faster on common
+      // hardware
+      table_options.checksum = kCRC32c;
       // Thrown in here for basic coverage:
       options.DisableExtraChecks();
       break;
@@ -1083,19 +1097,36 @@ std::string DBTestBase::Contents(int cf) {
   return result;
 }
 
+void DBTestBase::CheckAllEntriesWithFifoReopen(
+    const std::string& expected_value, const Slice& user_key, int cf,
+    const std::vector<std::string>& cfs, const Options& options) {
+  ASSERT_EQ(AllEntriesFor(user_key, cf), expected_value);
+
+  std::vector<std::string> cfs_plus_default = cfs;
+  cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
+
+  Options fifo_options(options);
+  fifo_options.compaction_style = kCompactionStyleFIFO;
+  fifo_options.max_open_files = -1;
+  fifo_options.disable_auto_compactions = true;
+  ASSERT_OK(TryReopenWithColumnFamilies(cfs_plus_default, fifo_options));
+  ASSERT_EQ(AllEntriesFor(user_key, cf), expected_value);
+
+  ASSERT_OK(TryReopenWithColumnFamilies(cfs_plus_default, options));
+  ASSERT_EQ(AllEntriesFor(user_key, cf), expected_value);
+}
+
 std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   Arena arena;
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
-  ReadRangeDelAggregator range_del_agg(&icmp,
-                                       kMaxSequenceNumber /* upper_bound */);
   ReadOptions read_options;
   ScopedArenaIterator iter;
   if (cf == 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
                                            kMaxSequenceNumber));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
                                            kMaxSequenceNumber, handles_[cf]));
   }
   InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
@@ -1551,17 +1582,13 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   Arena arena;
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
-  ReadRangeDelAggregator range_del_agg(&icmp,
-                                       kMaxSequenceNumber /* upper_bound */);
-  // This should be defined after range_del_agg so that it destructs the
-  // assigned iterator before it range_del_agg is already destructed.
   ReadOptions read_options;
   ScopedArenaIterator iter;
   if (cf != 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
                                            kMaxSequenceNumber, handles_[cf]));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
                                            kMaxSequenceNumber));
   }
   iter->SeekToFirst();
@@ -1766,11 +1793,9 @@ void DBTestBase::VerifyDBInternal(
     std::vector<std::pair<std::string, std::string>> true_data) {
   Arena arena;
   InternalKeyComparator icmp(last_options_.comparator);
-  ReadRangeDelAggregator range_del_agg(&icmp,
-                                       kMaxSequenceNumber /* upper_bound */);
   ReadOptions read_options;
-  auto iter = dbfull()->NewInternalIterator(read_options, &arena,
-                                            &range_del_agg, kMaxSequenceNumber);
+  auto iter =
+      dbfull()->NewInternalIterator(read_options, &arena, kMaxSequenceNumber);
   iter->SeekToFirst();
   for (auto p : true_data) {
     ASSERT_TRUE(iter->Valid());
@@ -1795,6 +1820,15 @@ uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
     result += (fileMetadata.column_family_name == column_family_name);
   }
   return result;
+}
+
+uint64_t DBTestBase::GetSstSizeHelper(Temperature temperature) {
+  std::string prop;
+  EXPECT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature +
+          std::to_string(static_cast<uint8_t>(temperature)),
+      &prop));
+  return static_cast<uint64_t>(std::atoi(prop.c_str()));
 }
 #endif  // ROCKSDB_LITE
 
@@ -1864,5 +1898,6 @@ template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kFilterConstruction>;
 template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kBlockBasedTableReader>;
+template class TargetCacheChargeTrackingCache<CacheEntryRole::kFileMetadata>;
 
 }  // namespace ROCKSDB_NAMESPACE

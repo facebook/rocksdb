@@ -4,8 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/full_filter_block.h"
+
 #include <array>
 
+#include "block_type.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -122,19 +124,16 @@ FullFilterBlockReader::FullFilterBlockReader(
     : FilterBlockReaderCommon(t, std::move(filter_block)) {
 }
 
-bool FullFilterBlockReader::KeyMayMatch(
-    const Slice& key, const SliceTransform* /*prefix_extractor*/,
-    uint64_t block_offset, const bool no_io,
-    const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context) {
-#ifdef NDEBUG
-  (void)block_offset;
-#endif
-  assert(block_offset == kNotValid);
+bool FullFilterBlockReader::KeyMayMatch(const Slice& key, const bool no_io,
+                                        const Slice* const /*const_ikey_ptr*/,
+                                        GetContext* get_context,
+                                        BlockCacheLookupContext* lookup_context,
+                                        Env::IOPriority rate_limiter_priority) {
   if (!whole_key_filtering()) {
     return true;
   }
-  return MayMatch(key, no_io, get_context, lookup_context);
+  return MayMatch(key, no_io, get_context, lookup_context,
+                  rate_limiter_priority);
 }
 
 std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
@@ -149,7 +148,7 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
                                      nullptr /* get_context */, lookup_context,
-                                     &filter_block);
+                                     &filter_block, BlockType::kFilter);
     if (!s.ok()) {
       IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
@@ -165,24 +164,23 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
 }
 
 bool FullFilterBlockReader::PrefixMayMatch(
-    const Slice& prefix, const SliceTransform* /* prefix_extractor */,
-    uint64_t block_offset, const bool no_io,
+    const Slice& prefix, const bool no_io,
     const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context) {
-#ifdef NDEBUG
-  (void)block_offset;
-#endif
-  assert(block_offset == kNotValid);
-  return MayMatch(prefix, no_io, get_context, lookup_context);
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) {
+  return MayMatch(prefix, no_io, get_context, lookup_context,
+                  rate_limiter_priority);
 }
 
 bool FullFilterBlockReader::MayMatch(
     const Slice& entry, bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context) const {
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
   const Status s =
-      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
+      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block,
+                           BlockType::kFilter, rate_limiter_priority);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -202,43 +200,38 @@ bool FullFilterBlockReader::MayMatch(
       return false;
     }
   }
-  return true;  // remain the same with block_based filter
+  return true;
 }
 
 void FullFilterBlockReader::KeysMayMatch(
-    MultiGetRange* range, const SliceTransform* /*prefix_extractor*/,
-    uint64_t block_offset, const bool no_io,
-    BlockCacheLookupContext* lookup_context) {
-#ifdef NDEBUG
-  (void)block_offset;
-#endif
-  assert(block_offset == kNotValid);
+    MultiGetRange* range, const bool no_io,
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) {
   if (!whole_key_filtering()) {
     // Simply return. Don't skip any key - consider all keys as likely to be
     // present
     return;
   }
-  MayMatch(range, no_io, nullptr, lookup_context);
+  MayMatch(range, no_io, nullptr, lookup_context, rate_limiter_priority);
 }
 
 void FullFilterBlockReader::PrefixesMayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, const bool no_io,
-    BlockCacheLookupContext* lookup_context) {
-#ifdef NDEBUG
-  (void)block_offset;
-#endif
-  assert(block_offset == kNotValid);
-  MayMatch(range, no_io, prefix_extractor, lookup_context);
+    const bool no_io, BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) {
+  MayMatch(range, no_io, prefix_extractor, lookup_context,
+           rate_limiter_priority);
 }
 
 void FullFilterBlockReader::MayMatch(
     MultiGetRange* range, bool no_io, const SliceTransform* prefix_extractor,
-    BlockCacheLookupContext* lookup_context) const {
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
-                                        lookup_context, &filter_block);
+  const Status s = GetOrReadFilterBlock(
+      no_io, range->begin()->get_context, lookup_context, &filter_block,
+      BlockType::kFilter, rate_limiter_priority);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return;

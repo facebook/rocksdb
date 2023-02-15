@@ -186,6 +186,11 @@ class Timer {
     }
     return ret;
   }
+
+  void TEST_OverrideTimer(SystemClock* clock) {
+    InstrumentedMutexLock l(&mutex_);
+    clock_ = clock;
+  }
 #endif  // NDEBUG
 
  private:

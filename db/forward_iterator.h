@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include "rocksdb/comparator.h"
 #ifndef ROCKSDB_LITE
 
 #include <string>
@@ -28,14 +29,14 @@ struct FileMetaData;
 
 class MinIterComparator {
  public:
-  explicit MinIterComparator(const Comparator* comparator) :
-    comparator_(comparator) {}
+  explicit MinIterComparator(const CompareInterface* comparator)
+      : comparator_(comparator) {}
 
   bool operator()(InternalIterator* a, InternalIterator* b) {
     return comparator_->Compare(a->key(), b->key()) > 0;
   }
  private:
-  const Comparator* comparator_;
+  const CompareInterface* comparator_;
 };
 
 using MinIterHeap =
@@ -100,7 +101,9 @@ class ForwardIterator : public InternalIterator {
   void BuildLevelIterators(const VersionStorageInfo* vstorage,
                            SuperVersion* sv);
   void ResetIncompleteIterators();
-  void SeekInternal(const Slice& internal_key, bool seek_to_first);
+  void SeekInternal(const Slice& internal_key, bool seek_to_first,
+                    bool seek_after_async_io);
+
   void UpdateCurrent();
   bool NeedToSeekImmutable(const Slice& internal_key);
   void DeleteCurrentIter();

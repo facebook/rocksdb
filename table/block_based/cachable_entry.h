@@ -132,17 +132,17 @@ public:
     ResetFields();
   }
 
-  void SetOwnedValue(T* value) {
-    assert(value != nullptr);
+  void SetOwnedValue(std::unique_ptr<T>&& value) {
+    assert(value.get() != nullptr);
 
-    if (UNLIKELY(value_ == value && own_value_)) {
+    if (UNLIKELY(value_ == value.get() && own_value_)) {
       assert(cache_ == nullptr && cache_handle_ == nullptr);
       return;
     }
 
     Reset();
 
-    value_ = value;
+    value_ = value.release();
     own_value_ = true;
   }
 

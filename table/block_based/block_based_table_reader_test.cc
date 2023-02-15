@@ -248,10 +248,11 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   for (size_t i = 0; i < keys.size(); ++i) {
-    get_context.emplace_back(
-        BytewiseComparator(), nullptr, nullptr, nullptr, GetContext::kNotFound,
-        keys[i], &values[i], nullptr, nullptr, nullptr, true /* do_merge */,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    get_context.emplace_back(BytewiseComparator(), nullptr, nullptr, nullptr,
+                             GetContext::kNotFound, keys[i], &values[i],
+                             nullptr, nullptr, nullptr, nullptr,
+                             true /* do_merge */, nullptr, nullptr, nullptr,
+                             nullptr, nullptr, nullptr);
     key_context.emplace_back(nullptr, keys[i], &values[i], nullptr,
                              &statuses.back());
     key_context.back().get_context = &get_context.back();
@@ -406,9 +407,9 @@ TEST_P(ChargeTableReaderTest, Basic) {
   // 2. overestimate/underestimate max_table_reader_num_capped due to the gap
   // between ApproximateTableReaderMem() and actual table reader mem
   std::size_t max_table_reader_num_capped_upper_bound =
-      (std::size_t)(max_table_reader_num_capped * 1.01);
+      (std::size_t)(max_table_reader_num_capped * 1.05);
   std::size_t max_table_reader_num_capped_lower_bound =
-      (std::size_t)(max_table_reader_num_capped * 0.99);
+      (std::size_t)(max_table_reader_num_capped * 0.95);
   std::size_t max_table_reader_num_uncapped =
       (std::size_t)(max_table_reader_num_capped * 1.1);
   ASSERT_GT(max_table_reader_num_uncapped,

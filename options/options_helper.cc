@@ -218,6 +218,10 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->prefix_extractor = moptions.prefix_extractor;
   cf_opts->disable_auto_flush = moptions.disable_auto_flush;
   cf_opts->disable_write_stall = moptions.disable_write_stall;
+  cf_opts->experimental_mempurge_threshold =
+      moptions.experimental_mempurge_threshold;
+  cf_opts->memtable_protection_bytes_per_key =
+      moptions.memtable_protection_bytes_per_key;
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;
@@ -231,6 +235,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.level0_slowdown_writes_trigger;
   cf_opts->level0_stop_writes_trigger = moptions.level0_stop_writes_trigger;
   cf_opts->max_compaction_bytes = moptions.max_compaction_bytes;
+  cf_opts->ignore_max_compaction_bytes_for_input =
+      moptions.ignore_max_compaction_bytes_for_input;
   cf_opts->target_file_size_base = moptions.target_file_size_base;
   cf_opts->target_file_size_multiplier = moptions.target_file_size_multiplier;
   cf_opts->max_bytes_for_level_base = moptions.max_bytes_for_level_base;
@@ -260,6 +266,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.blob_garbage_collection_force_threshold;
   cf_opts->blob_compaction_readahead_size =
       moptions.blob_compaction_readahead_size;
+  cf_opts->blob_file_starting_level = moptions.blob_file_starting_level;
+  cf_opts->prepopulate_blob_cache = moptions.prepopulate_blob_cache;
 
   // Misc options
   cf_opts->max_sequential_skip_in_iterations =
@@ -274,7 +282,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->bottommost_compression_opts = moptions.bottommost_compression_opts;
   cf_opts->sample_for_compression = moptions.sample_for_compression;
   cf_opts->compression_per_level = moptions.compression_per_level;
-  cf_opts->bottommost_temperature = moptions.bottommost_temperature;
+  cf_opts->last_level_temperature = moptions.last_level_temperature;
+  cf_opts->bottommost_temperature = moptions.last_level_temperature;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -300,6 +309,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->bloom_locality = ioptions.bloom_locality;
   cf_opts->level_compaction_dynamic_level_bytes =
       ioptions.level_compaction_dynamic_level_bytes;
+  cf_opts->level_compaction_dynamic_file_size =
+      ioptions.level_compaction_dynamic_file_size;
   cf_opts->num_levels = ioptions.num_levels;
   cf_opts->optimize_filters_for_hits = ioptions.optimize_filters_for_hits;
   cf_opts->force_consistency_checks = ioptions.force_consistency_checks;
@@ -308,6 +319,11 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->cf_paths = ioptions.cf_paths;
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
+  cf_opts->blob_cache = ioptions.blob_cache;
+  cf_opts->preclude_last_level_data_seconds =
+      ioptions.preclude_last_level_data_seconds;
+  cf_opts->preserve_internal_time_seconds =
+      ioptions.preserve_internal_time_seconds;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
@@ -324,7 +340,8 @@ std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
     {kByCompensatedSize, "kByCompensatedSize"},
     {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
     {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
-    {kMinOverlappingRatio, "kMinOverlappingRatio"}};
+    {kMinOverlappingRatio, "kMinOverlappingRatio"},
+    {kRoundRobin, "kRoundRobin"}};
 
 std::map<CompactionStopStyle, std::string>
     OptionsHelper::compaction_stop_style_to_string = {
@@ -834,7 +851,8 @@ std::unordered_map<std::string, CompactionPri>
         {"kByCompensatedSize", kByCompensatedSize},
         {"kOldestLargestSeqFirst", kOldestLargestSeqFirst},
         {"kOldestSmallestSeqFirst", kOldestSmallestSeqFirst},
-        {"kMinOverlappingRatio", kMinOverlappingRatio}};
+        {"kMinOverlappingRatio", kMinOverlappingRatio},
+        {"kRoundRobin", kRoundRobin}};
 
 std::unordered_map<std::string, CompactionStopStyle>
     OptionsHelper::compaction_stop_style_string_map = {
@@ -847,6 +865,11 @@ std::unordered_map<std::string, Temperature>
         {"kHot", Temperature::kHot},
         {"kWarm", Temperature::kWarm},
         {"kCold", Temperature::kCold}};
+
+std::unordered_map<std::string, PrepopulateBlobCache>
+    OptionsHelper::prepopulate_blob_cache_string_map = {
+        {"kDisable", PrepopulateBlobCache::kDisable},
+        {"kFlushOnly", PrepopulateBlobCache::kFlushOnly}};
 
 Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
                                  size_t pos, size_t* end, std::string* token) {

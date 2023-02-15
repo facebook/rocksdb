@@ -1,7 +1,5 @@
 ## RocksDB-Cloud: A Key-Value Store for Cloud Applications
 
-[![Build Status](https://travis-ci.org/rockset/rocksdb-cloud.svg?branch=master)](https://travis-ci.org/rockset/rocksdb-cloud)
-
 RocksDB-Cloud is a C++ library that brings the power of RocksDB to AWS, Google Cloud and Microsoft Azure.
 It leverages the power of RocksDB to provide fast key-value access to data stored
 in Flash and RAM systems. It provides for data durability even in the face of
@@ -18,8 +16,6 @@ RocksDB-Cloud provides three main advantages for AWS environments:
 3. A rocksdb instance can leverage hierarchical storage. The entire rocksdb storage footprint need not be resident on local storage. S3 contains the entire database and the local storage contains only the files that are in the working set.
 
 ### Inherits from RocksDB:
-
-RocksDB-Cloud is API compatible and data format compatible with [RocksDB](https://github.com/facebook/rocksdb).
 
 RocksDB is developed and maintained by Facebook Database Engineering Team.
 It is built on earlier work on [LevelDB](https://github.com/google/leveldb) by Sanjay Ghemawat (sanjay@google.com)

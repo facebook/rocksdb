@@ -48,7 +48,6 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/lang.h"
@@ -83,8 +82,6 @@ namespace {
 inline mode_t GetDBFileMode(bool allow_non_owner_access) {
   return allow_non_owner_access ? 0644 : 0600;
 }
-
-static uint64_t gettid() { return Env::Default()->GetThreadID(); }
 
 // list of pathnames that are locked
 // Only used for error message.
@@ -550,50 +547,9 @@ class PosixFileSystem : public FileSystem {
     if (fd < 0) {
       return IOError("While open directory", name, errno);
     } else {
-      result->reset(new PosixDirectory(fd));
+      result->reset(new PosixDirectory(fd, name));
     }
     return IOStatus::OK();
-  }
-
-  IOStatus NewLogger(const std::string& fname, const IOOptions& /*opts*/,
-                     std::shared_ptr<Logger>* result,
-                     IODebugContext* /*dbg*/) override {
-    FILE* f = nullptr;
-    int fd;
-    {
-      IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(),
-                cloexec_flags(O_WRONLY | O_CREAT | O_TRUNC, nullptr),
-                GetDBFileMode(allow_non_owner_access_));
-      if (fd != -1) {
-        f = fdopen(fd,
-                   "w"
-#ifdef __GLIBC_PREREQ
-#if __GLIBC_PREREQ(2, 7)
-                   "e"  // glibc extension to enable O_CLOEXEC
-#endif
-#endif
-        );
-      }
-    }
-    if (fd == -1) {
-      result->reset();
-      return status_to_io_status(
-          IOError("when open a file for new logger", fname, errno));
-    }
-    if (f == nullptr) {
-      close(fd);
-      result->reset();
-      return status_to_io_status(
-          IOError("when fdopen a file for new logger", fname, errno));
-    } else {
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
-#endif
-      SetFD_CLOEXEC(fd, nullptr);
-      result->reset(new PosixLogger(f, &gettid, Env::Default()));
-      return IOStatus::OK();
-    }
   }
 
   IOStatus FileExists(const std::string& fname, const IOOptions& /*opts*/,
@@ -619,7 +575,7 @@ class PosixFileSystem : public FileSystem {
     }
   }
 
-  IOStatus GetChildren(const std::string& dir, const IOOptions& /*opts*/,
+  IOStatus GetChildren(const std::string& dir, const IOOptions& opts,
                        std::vector<std::string>* result,
                        IODebugContext* /*dbg*/) override {
     result->clear();
@@ -639,12 +595,20 @@ class PosixFileSystem : public FileSystem {
     // reset errno before calling readdir()
     errno = 0;
     struct dirent* entry;
+
     while ((entry = readdir(d)) != nullptr) {
       // filter out '.' and '..' directory entries
       // which appear only on some platforms
       const bool ignore =
           entry->d_type == DT_DIR &&
-          (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0);
+          (strcmp(entry->d_name, ".") == 0 ||
+           strcmp(entry->d_name, "..") == 0
+#ifndef ASSERT_STATUS_CHECKED
+           // In case of ASSERT_STATUS_CHECKED, GetChildren support older
+           // version of API for debugging purpose.
+           || opts.do_not_recurse
+#endif
+          );
       if (!ignore) {
         result->push_back(entry->d_name);
       }
@@ -883,8 +847,8 @@ class PosixFileSystem : public FileSystem {
       return IOStatus::OK();
     }
 
-    char the_path[256];
-    char* ret = getcwd(the_path, 256);
+    char the_path[4096];
+    char* ret = getcwd(the_path, 4096);
     if (ret == nullptr) {
       return IOStatus::IOError(errnoStr(errno).c_str());
     }
@@ -1102,15 +1066,21 @@ class PosixFileSystem : public FileSystem {
         req.scratch = posix_handle->scratch;
         req.offset = posix_handle->offset;
         req.len = posix_handle->len;
+
         size_t finished_len = 0;
         size_t bytes_read = 0;
+        bool read_again = false;
         UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
-                     true /*async_read*/, finished_len, &req, bytes_read);
+                     true /*async_read*/, posix_handle->use_direct_io,
+                     posix_handle->alignment, finished_len, &req, bytes_read,
+                     read_again);
         posix_handle->is_finished = true;
         io_uring_cqe_seen(iu, cqe);
         posix_handle->cb(req, posix_handle->cb_arg);
+
         (void)finished_len;
         (void)bytes_read;
+        (void)read_again;
 
         if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           break;
@@ -1124,17 +1094,109 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
-  // TODO akanksha: Look into flags and see how to provide support for AbortIO
-  // in posix for IOUring requests. Currently it calls Poll to wait for requests
-  // to complete the request.
   virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
-    IOStatus s = Poll(io_handles, io_handles.size());
+#if defined(ROCKSDB_IOURING_PRESENT)
+    // io_uring_queue_init.
+    struct io_uring* iu = nullptr;
+    if (thread_local_io_urings_) {
+      iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    }
+
+    // Init failed, platform doesn't support io_uring.
     // If Poll is not supported then it didn't submit any request and it should
     // return OK.
-    if (s.IsNotSupported()) {
+    if (iu == nullptr) {
       return IOStatus::OK();
     }
-    return s;
+
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      Posix_IOHandle* posix_handle =
+          static_cast<Posix_IOHandle*>(io_handles[i]);
+      if (posix_handle->is_finished == true) {
+        continue;
+      }
+      assert(posix_handle->iu == iu);
+      if (posix_handle->iu != iu) {
+        return IOStatus::IOError("");
+      }
+
+      // Prepare the cancel request.
+      struct io_uring_sqe* sqe;
+      sqe = io_uring_get_sqe(iu);
+
+      // In order to cancel the request, sqe->addr of cancel request should
+      // match with the read request submitted which is posix_handle->iov.
+      io_uring_prep_cancel(sqe, &posix_handle->iov, 0);
+      // Sets sqe->user_data to posix_handle.
+      io_uring_sqe_set_data(sqe, posix_handle);
+
+      // submit the request.
+      ssize_t ret = io_uring_submit(iu);
+      if (ret < 0) {
+        fprintf(stderr, "io_uring_submit error: %ld\n", long(ret));
+        return IOStatus::IOError("io_uring_submit() requested but returned " +
+                                 std::to_string(ret));
+      }
+    }
+
+    // After submitting the requests, wait for the requests.
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      if ((static_cast<Posix_IOHandle*>(io_handles[i]))->is_finished) {
+        continue;
+      }
+
+      while (true) {
+        struct io_uring_cqe* cqe = nullptr;
+        ssize_t ret = io_uring_wait_cqe(iu, &cqe);
+        if (ret) {
+          // abort as it shouldn't be in indeterminate state and there is no
+          // good way currently to handle this error.
+          abort();
+        }
+        assert(cqe != nullptr);
+
+        // Returns cqe->user_data.
+        Posix_IOHandle* posix_handle =
+            static_cast<Posix_IOHandle*>(io_uring_cqe_get_data(cqe));
+        assert(posix_handle->iu == iu);
+        if (posix_handle->iu != iu) {
+          return IOStatus::IOError("");
+        }
+        posix_handle->req_count++;
+
+        // Reset cqe data to catch any stray reuse of it
+        static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+        io_uring_cqe_seen(iu, cqe);
+
+        // - If the request is cancelled successfully, the original request is
+        //   completed with -ECANCELED and the cancel request is completed with
+        //   a result of 0.
+        // - If the request was already running, the original may or
+        //   may not complete in error. The cancel request will complete with
+        //  -EALREADY for that case.
+        // - And finally, if the request to cancel wasn't
+        //   found, the cancel request is completed with -ENOENT.
+        //
+        // Every handle has to wait for 2 requests completion: original one and
+        // the cancel request which is tracked by PosixHandle::req_count.
+        if (posix_handle->req_count == 2 &&
+            static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
+          posix_handle->is_finished = true;
+          FSReadRequest req;
+          req.status = IOStatus::Aborted();
+          posix_handle->cb(req, posix_handle->cb_arg);
+
+          break;
+        }
+      }
+    }
+    return IOStatus::OK();
+#else
+    // If Poll is not supported then it didn't submit any request and it should
+    // return OK.
+    (void)io_handles;
+    return IOStatus::OK();
+#endif
   }
 
 #if defined(ROCKSDB_IOURING_PRESENT)

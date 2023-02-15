@@ -25,6 +25,7 @@
 #endif
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
+#include "utilities/counted_fs.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
@@ -252,6 +253,7 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
   ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
   ASSERT_OK(Flush());
+  ASSERT_OK(Put("something_not_flushed", "x"));
   Close();
 
   ASSERT_OK(ReadOnlyReopen(options));
@@ -259,6 +261,20 @@ TEST_F(DBBasicTest, CompactedDB) {
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported operation in read only mode.");
+
+  // TODO: validate that other write ops return NotImplemented
+  // (DBImplReadOnly is missing some overrides)
+
+  // Ensure no deadlock on flush triggered by another API function
+  // (Old deadlock bug depends on something_not_flushed above.)
+  std::vector<std::string> files;
+  uint64_t manifest_file_size;
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  LiveFilesStorageInfoOptions lfsi_opts;
+  lfsi_opts.wal_size_for_flush = 0;  // always
+  std::vector<LiveFileStorageInfo> files2;
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files2));
+
   Close();
 
   // Full compaction
@@ -288,6 +304,13 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_EQ(DummyString(kFileSize / 2, 'i'), Get("iii"));
   ASSERT_EQ(DummyString(kFileSize / 2, 'j'), Get("jjj"));
   ASSERT_EQ("NOT_FOUND", Get("kkk"));
+
+  // TODO: validate that other write ops return NotImplemented
+  // (CompactedDB is missing some overrides)
+
+  // Ensure no deadlock on flush triggered by another API function
+  ASSERT_OK(db_->GetLiveFiles(files, &manifest_file_size, /*flush*/ true));
+  ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsi_opts, &files2));
 
   // MultiGet
   std::vector<std::string> values;
@@ -578,52 +601,81 @@ TEST_F(DBBasicTest, ManifestRollOver) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBBasicTest, IdentityAcrossRestarts1) {
+TEST_F(DBBasicTest, IdentityAcrossRestarts) {
+  constexpr size_t kMinIdSize = 10;
   do {
-    std::string id1;
-    ASSERT_OK(db_->GetDbIdentity(id1));
+    for (bool with_manifest : {false, true}) {
+      std::string idfilename = IdentityFileName(dbname_);
+      std::string id1, tmp;
+      ASSERT_OK(db_->GetDbIdentity(id1));
+      ASSERT_GE(id1.size(), kMinIdSize);
 
-    Options options = CurrentOptions();
-    Reopen(options);
-    std::string id2;
-    ASSERT_OK(db_->GetDbIdentity(id2));
-    // id1 should match id2 because identity was not regenerated
-    ASSERT_EQ(id1.compare(id2), 0);
+      Options options = CurrentOptions();
+      options.write_dbid_to_manifest = with_manifest;
+      Reopen(options);
+      std::string id2;
+      ASSERT_OK(db_->GetDbIdentity(id2));
+      // id2 should match id1 because identity was not regenerated
+      ASSERT_EQ(id1, id2);
+      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+      ASSERT_EQ(tmp, id2);
 
-    std::string idfilename = IdentityFileName(dbname_);
-    ASSERT_OK(env_->DeleteFile(idfilename));
-    Reopen(options);
-    std::string id3;
-    ASSERT_OK(db_->GetDbIdentity(id3));
-    if (options.write_dbid_to_manifest) {
-      ASSERT_EQ(id1.compare(id3), 0);
-    } else {
-      // id1 should NOT match id3 because identity was regenerated
-      ASSERT_NE(id1.compare(id3), 0);
+      // Recover from deleted/missing IDENTITY
+      ASSERT_OK(env_->DeleteFile(idfilename));
+      Reopen(options);
+      std::string id3;
+      ASSERT_OK(db_->GetDbIdentity(id3));
+      if (with_manifest) {
+        // id3 should match id1 because identity was restored from manifest
+        ASSERT_EQ(id1, id3);
+      } else {
+        // id3 should NOT match id1 because identity was regenerated
+        ASSERT_NE(id1, id3);
+        ASSERT_GE(id3.size(), kMinIdSize);
+      }
+      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+      ASSERT_EQ(tmp, id3);
+
+      // Recover from truncated IDENTITY
+      {
+        std::unique_ptr<WritableFile> w;
+        ASSERT_OK(env_->NewWritableFile(idfilename, &w, EnvOptions()));
+        ASSERT_OK(w->Close());
+      }
+      Reopen(options);
+      std::string id4;
+      ASSERT_OK(db_->GetDbIdentity(id4));
+      if (with_manifest) {
+        // id4 should match id1 because identity was restored from manifest
+        ASSERT_EQ(id1, id4);
+      } else {
+        // id4 should NOT match id1 because identity was regenerated
+        ASSERT_NE(id1, id4);
+        ASSERT_GE(id4.size(), kMinIdSize);
+      }
+      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+      ASSERT_EQ(tmp, id4);
+
+      // Recover from overwritten IDENTITY
+      std::string silly_id = "asdf123456789";
+      {
+        std::unique_ptr<WritableFile> w;
+        ASSERT_OK(env_->NewWritableFile(idfilename, &w, EnvOptions()));
+        ASSERT_OK(w->Append(silly_id));
+        ASSERT_OK(w->Close());
+      }
+      Reopen(options);
+      std::string id5;
+      ASSERT_OK(db_->GetDbIdentity(id5));
+      if (with_manifest) {
+        // id4 should match id1 because identity was restored from manifest
+        ASSERT_EQ(id1, id5);
+      } else {
+        ASSERT_EQ(id5, silly_id);
+      }
+      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+      ASSERT_EQ(tmp, id5);
     }
-  } while (ChangeCompactOptions());
-}
-
-TEST_F(DBBasicTest, IdentityAcrossRestarts2) {
-  do {
-    std::string id1;
-    ASSERT_OK(db_->GetDbIdentity(id1));
-
-    Options options = CurrentOptions();
-    options.write_dbid_to_manifest = true;
-    Reopen(options);
-    std::string id2;
-    ASSERT_OK(db_->GetDbIdentity(id2));
-    // id1 should match id2 because identity was not regenerated
-    ASSERT_EQ(id1.compare(id2), 0);
-
-    std::string idfilename = IdentityFileName(dbname_);
-    ASSERT_OK(env_->DeleteFile(idfilename));
-    Reopen(options);
-    std::string id3;
-    ASSERT_OK(db_->GetDbIdentity(id3));
-    // id1 should NOT match id3 because identity was regenerated
-    ASSERT_EQ(id1, id3);
   } while (ChangeCompactOptions());
 }
 
@@ -1153,6 +1205,39 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_EQ(env->GetCloseCount(), 3);
 }
 
+TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("db_close_all_dir_fds_test");
+  // Configure a specific WAL directory
+  options.wal_dir = dbname + "_wal_dir";
+  // Configure 3 different data directories
+  options.db_paths.emplace_back(dbname + "_1", 512 * 1024);
+  options.db_paths.emplace_back(dbname + "_2", 4 * 1024 * 1024);
+  options.db_paths.emplace_back(dbname + "_3", 1024 * 1024 * 1024);
+
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  DB* db = nullptr;
+  std::unique_ptr<Env> env = NewCompositeEnv(
+      std::make_shared<CountedFileSystem>(FileSystem::Default()));
+  options.create_if_missing = true;
+  options.env = env.get();
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+
+  // Explicitly close the database to ensure the open and close counter for
+  // directories are equivalent
+  s = db->Close();
+  auto* counted_fs =
+      options.env->GetFileSystem()->CheckedCast<CountedFileSystem>();
+  ASSERT_TRUE(counted_fs != nullptr);
+  ASSERT_EQ(counted_fs->counters()->dir_opens,
+            counted_fs->counters()->dir_closes);
+  ASSERT_OK(s);
+  delete db;
+}
+
 TEST_F(DBBasicTest, DBCloseFlushError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
       new FaultInjectionTestEnv(env_));
@@ -1467,7 +1552,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedSimpleUnsorted) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   do {
@@ -1521,7 +1606,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedSortedMultiFile) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   do {
@@ -1579,7 +1664,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedDuplicateKeys) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   Options opts = CurrentOptions();
@@ -1643,7 +1728,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedMultiLevel) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   Options options = CurrentOptions();
@@ -1729,7 +1814,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedMultiLevelMerge) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   Options options = CurrentOptions();
@@ -1826,7 +1911,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeInMemory) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
@@ -1950,15 +2035,13 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSize) {
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
-#ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    ROCKSDB_GTEST_BYPASS("This test needs to be fixed for async IO");
     return;
   }
-#endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   Options options = CurrentOptions();
@@ -2068,7 +2151,8 @@ INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
                         testing::Combine(testing::Bool(), testing::Bool()));
 
 #if USE_COROUTINES
-class DBMultiGetAsyncIOTest : public DBBasicTest {
+class DBMultiGetAsyncIOTest : public DBBasicTest,
+                              public ::testing::WithParamInterface<bool> {
  public:
   DBMultiGetAsyncIOTest()
       : DBBasicTest(), statistics_(ROCKSDB_NAMESPACE::CreateDBStatistics()) {
@@ -2083,7 +2167,7 @@ class DBMultiGetAsyncIOTest : public DBBasicTest {
 
     // Put all keys in the bottommost level, and overwrite some keys
     // in L0 and L1
-    for (int i = 0; i < 128; ++i) {
+    for (int i = 0; i < 256; ++i) {
       EXPECT_OK(Put(Key(i), "val_l2_" + std::to_string(i)));
       num_keys++;
       if (num_keys == 8) {
@@ -2109,6 +2193,21 @@ class DBMultiGetAsyncIOTest : public DBBasicTest {
       EXPECT_OK(Flush());
       num_keys = 0;
     }
+    // Put some range deletes in L1
+    for (int i = 128; i < 256; i += 32) {
+      std::string range_begin = Key(i);
+      std::string range_end = Key(i + 16);
+      EXPECT_OK(dbfull()->DeleteRange(WriteOptions(),
+                                      dbfull()->DefaultColumnFamily(),
+                                      range_begin, range_end));
+      // Also do some Puts to force creation of bloom filter
+      for (int j = i + 16; j < i + 32; ++j) {
+        if (j % 3 == 0) {
+          EXPECT_OK(Put(Key(j), "val_l1_" + std::to_string(j)));
+        }
+      }
+      EXPECT_OK(Flush());
+    }
     MoveFilesToLevel(1);
 
     for (int i = 0; i < 128; i += 5) {
@@ -2132,7 +2231,7 @@ class DBMultiGetAsyncIOTest : public DBBasicTest {
   std::shared_ptr<Statistics> statistics_;
 };
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
   // All 3 keys in L0. The L0 files should be read serially.
   std::vector<std::string> key_strs{Key(0), Key(40), Key(80)};
   std::vector<Slice> keys{key_strs[0], key_strs[1], key_strs[2]};
@@ -2141,6 +2240,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2155,12 +2255,19 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
-  // No async IO in this case since we don't do parallel lookup in L0
-  ASSERT_EQ(multiget_io_batch_size.count, 0);
-  ASSERT_EQ(multiget_io_batch_size.max, 0);
+  // With async IO, lookups will happen in parallel for each key
+  if (GetParam()) {
+    ASSERT_EQ(multiget_io_batch_size.count, 1);
+    ASSERT_EQ(multiget_io_batch_size.max, 3);
+    ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  } else {
+    // Without Async IO, MultiGet will call MultiRead 3 times, once for each
+    // L0 file
+    ASSERT_EQ(multiget_io_batch_size.count, 3);
+  }
 }
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2177,6 +2284,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2194,9 +2302,10 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(multiget_io_batch_size.count, 1);
   ASSERT_EQ(multiget_io_batch_size.max, 3);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 }
 
-TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
+TEST_P(DBMultiGetAsyncIOTest, LastKeyInFile) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2214,6 +2323,7 @@ TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2236,7 +2346,7 @@ TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
   ASSERT_EQ(multiget_io_batch_size.max, 2);
 }
 
-TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   std::vector<std::string> key_strs;
   std::vector<Slice> keys;
   std::vector<PinnableSlice> values;
@@ -2254,6 +2364,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
 
   ReadOptions ro;
   ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
@@ -2268,11 +2379,102 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
-  // There is only one MultiGet key in the bottommost level - 56. Thus
-  // the bottommost level will not use async IO.
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 2);
+  // There are 2 keys in L1 in twp separate files, and 1 in L2. With
+  // optimize_multiget_for_io, all three lookups will happen in parallel.
+  // Otherwise, the L2 lookup will happen after L1.
+  ASSERT_EQ(multiget_io_batch_size.count, GetParam() ? 1 : 2);
+  ASSERT_EQ(multiget_io_batch_size.max, GetParam() ? 3 : 2);
 }
+
+TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  // 19 and 26 are in L2, but overlap with L0 and L1 file ranges
+  key_strs.push_back(Key(19));
+  key_strs.push_back(Key(26));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), 2);
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(values[0], "val_l2_" + std::to_string(19));
+  ASSERT_EQ(values[1], "val_l2_" + std::to_string(26));
+
+  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+}
+
+TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  // 139 and 163 are in L2, but overlap with a range deletes in L1
+  key_strs.push_back(Key(139));
+  key_strs.push_back(Key(163));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), 2);
+  ASSERT_EQ(statuses[0], Status::NotFound());
+  ASSERT_EQ(statuses[1], Status::NotFound());
+
+  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+}
+
+TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  // 139 and 163 are in L2, but overlap with a range deletes in L1
+  key_strs.push_back(Key(139));
+  key_strs.push_back(Key(144));
+  key_strs.push_back(Key(163));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  keys.push_back(key_strs[2]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = GetParam();
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), keys.size());
+  ASSERT_EQ(statuses[0], Status::NotFound());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(values[1], "val_l1_" + std::to_string(144));
+  ASSERT_EQ(statuses[2], Status::NotFound());
+
+  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+}
+
+INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,
+                        testing::Bool());
 #endif  // USE_COROUTINES
 
 TEST_F(DBBasicTest, MultiGetStats) {
@@ -2344,27 +2546,37 @@ TEST_F(DBBasicTest, MultiGetStats) {
                 values.data(), s.data(), false);
 
   ASSERT_EQ(values.size(), kMultiGetBatchSize);
-  HistogramData hist_data_blocks;
+  HistogramData hist_level;
   HistogramData hist_index_and_filter_blocks;
   HistogramData hist_sst;
 
-  options.statistics->histogramData(NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                                    &hist_data_blocks);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &hist_level);
   options.statistics->histogramData(NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
                                     &hist_index_and_filter_blocks);
   options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &hist_sst);
 
   // Maximum number of blocks read from a file system in a level.
-  ASSERT_EQ(hist_data_blocks.max, 32);
+  ASSERT_EQ(hist_level.max, 1);
   ASSERT_GT(hist_index_and_filter_blocks.max, 0);
   // Maximum number of sst files read from file system in a level.
   ASSERT_EQ(hist_sst.max, 2);
 
   // Minimun number of blocks read in a level.
-  ASSERT_EQ(hist_data_blocks.min, 4);
+  ASSERT_EQ(hist_level.min, 1);
   ASSERT_GT(hist_index_and_filter_blocks.min, 0);
   // Minimun number of sst files read in a level.
   ASSERT_EQ(hist_sst.min, 1);
+
+  for (PinnableSlice& value : values) {
+    value.Reset();
+  }
+  for (Status& status : s) {
+    status = Status::OK();
+  }
+  db_->MultiGet(read_opts, handles_[1], kMultiGetBatchSize, &keys[950],
+                values.data(), s.data(), false);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &hist_level);
+  ASSERT_EQ(hist_level.max, 2);
 }
 
 // Test class for batched MultiGet with prefix extractor
@@ -2392,35 +2604,37 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   SetPerfLevel(kEnableCount);
   get_perf_context()->Reset();
 
-  // First key is not in the prefix_extractor domain
   ASSERT_OK(Put("k", "v0"));
   ASSERT_OK(Put("kk1", "v1"));
   ASSERT_OK(Put("kk2", "v2"));
   ASSERT_OK(Put("kk3", "v3"));
   ASSERT_OK(Put("kk4", "v4"));
-  std::vector<std::string> mem_keys(
+  std::vector<std::string> keys(
       {"k", "kk1", "kk2", "kk3", "kk4", "rofl", "lmho"});
-  std::vector<std::string> inmem_values;
-  inmem_values = MultiGet(mem_keys, nullptr);
-  ASSERT_EQ(inmem_values[0], "v0");
-  ASSERT_EQ(inmem_values[1], "v1");
-  ASSERT_EQ(inmem_values[2], "v2");
-  ASSERT_EQ(inmem_values[3], "v3");
-  ASSERT_EQ(inmem_values[4], "v4");
+  std::vector<std::string> expected(
+      {"v0", "v1", "v2", "v3", "v4", "NOT_FOUND", "NOT_FOUND"});
+  std::vector<std::string> values;
+  values = MultiGet(keys, nullptr);
+  ASSERT_EQ(values, expected);
+  // One key ("k") is not queried against the filter because it is outside
+  // the prefix_extractor domain, leaving 6 keys with queried prefixes.
   ASSERT_EQ(get_perf_context()->bloom_memtable_miss_count, 2);
-  ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 5);
+  ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 4);
   ASSERT_OK(Flush());
 
-  std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
-  std::vector<std::string> values;
   get_perf_context()->Reset();
   values = MultiGet(keys, nullptr);
-  ASSERT_EQ(values[0], "v0");
-  ASSERT_EQ(values[1], "v1");
-  ASSERT_EQ(values[2], "v2");
-  ASSERT_EQ(values[3], "v3");
-  ASSERT_EQ(values[4], "v4");
-  // Filter hits for 4 in-domain keys
+  ASSERT_EQ(values, expected);
+  ASSERT_EQ(get_perf_context()->bloom_sst_miss_count, 2);
+  ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
+
+  // Also check Get stat
+  get_perf_context()->Reset();
+  for (size_t i = 0; i < keys.size(); ++i) {
+    values[i] = Get(keys[i]);
+  }
+  ASSERT_EQ(values, expected);
+  ASSERT_EQ(get_perf_context()->bloom_sst_miss_count, 2);
   ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
 }
 
@@ -2541,13 +2755,20 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
     ASSERT_OK(Delete(std::to_string(i)));
   }
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, handles_[0], Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  for (size_t i = 0; i < kNumInserts + kNumDeletes + kNumUpdates; i++) {
+    if (i % 3 == 0) {
+      ASSERT_EQ(key_versions[i].GetTypeName(), "TypeDeletion");
+    } else {
+      ASSERT_EQ(key_versions[i].GetTypeName(), "TypeValue");
+    }
+  }
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[0], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
 
   // Check non-default column family
@@ -2560,10 +2781,20 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   for (size_t i = 0; i + 1 != kNumDeletes; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, handles_[1], Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
+}
+
+TEST_F(DBBasicTest, ValueTypeString) {
+  KeyVersion key_version;
+  // when adding new type, please also update `value_type_string_map`
+  for (unsigned char i = ValueType::kTypeDeletion; i < ValueType::kTypeMaxValid;
+       i++) {
+    key_version.type = i;
+    ASSERT_TRUE(key_version.GetTypeName() != "Invalid");
+  }
 }
 #endif  // !ROCKSDB_LITE
 
@@ -4053,6 +4284,27 @@ TEST_F(DBBasicTest, DestroyDefaultCfHandle) {
   ASSERT_TRUE(db_->DestroyColumnFamilyHandle(default_cf).IsInvalidArgument());
 }
 
+TEST_F(DBBasicTest, FailOpenIfLoggerCreationFail) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "rocksdb::CreateLoggerFromOptions:AfterGetPath", [&](void* arg) {
+        auto* s = reinterpret_cast<Status*>(arg);
+        assert(s);
+        *s = Status::IOError("Injected");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = TryReopen(options);
+  ASSERT_EQ(nullptr, options.info_log);
+  ASSERT_TRUE(s.IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, VerifyFileChecksums) {
   Options options = GetDefaultOptions();
@@ -4097,7 +4349,9 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
 
-TEST_F(DBBasicTest, ManualWalSync) {
+// TODO: re-enable after we provide finer-grained control for WAL tracking to
+// meet the needs of different use cases, durability levels and recovery modes.
+TEST_F(DBBasicTest, DISABLED_ManualWalSync) {
   Options options = CurrentOptions();
   options.track_and_verify_wals_in_manifest = true;
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;

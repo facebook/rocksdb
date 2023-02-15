@@ -97,7 +97,7 @@ class TestFSWritableFile : public FSWritableFile {
   };
 
  private:
-  FSFileState state_;
+  FSFileState state_;  // Need protection by mutex_
   FileOptions file_opts_;
   std::unique_ptr<FSWritableFile> target_;
   bool writable_file_opened_;
@@ -178,6 +178,9 @@ class TestFSDirectory : public FSDirectory {
   ~TestFSDirectory() {}
 
   virtual IOStatus Fsync(const IOOptions& options,
+                         IODebugContext* dbg) override;
+
+  virtual IOStatus Close(const IOOptions& options,
                          IODebugContext* dbg) override;
 
   virtual IOStatus FsyncWithDirOptions(

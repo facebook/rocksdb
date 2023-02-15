@@ -277,7 +277,7 @@ Status PlainTableBuilder::Finish() {
   IOStatus s = WriteBlock(property_block_builder.Finish(), file_, &offset_,
                           &property_block_handle);
   if (!s.ok()) {
-    return std::move(s);
+    return static_cast<Status>(s);
   }
   meta_index_builer.Add(kPropertiesBlockName, property_block_handle);
 
@@ -329,6 +329,11 @@ const char* PlainTableBuilder::GetFileChecksumFuncName() const {
   } else {
     return kUnknownFileChecksumFuncName;
   }
+}
+void PlainTableBuilder::SetSeqnoTimeTableProperties(const std::string& string,
+                                                    uint64_t uint_64) {
+  // TODO: storing seqno to time mapping is not yet support for plain table.
+  TableBuilder::SetSeqnoTimeTableProperties(string, uint_64);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

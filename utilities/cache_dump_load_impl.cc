@@ -39,12 +39,9 @@ Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
       // We only want to save cache entries that are portable to another
       // DB::Open, so only save entries with stable keys.
       bool is_stable;
-      // WART: if the file is extremely large (> kMaxFileSizeStandardEncoding)
-      // then the prefix will be different. But this should not be a concern
-      // in practice because that limit is currently 4TB on a single file.
-      BlockBasedTable::SetupBaseCacheKey(
-          id->second.get(), /*cur_db_session_id*/ "", /*cur_file_num*/ 0,
-          /*file_size*/ 42, &base, &is_stable);
+      BlockBasedTable::SetupBaseCacheKey(id->second.get(),
+                                         /*cur_db_session_id*/ "",
+                                         /*cur_file_num*/ 0, &base, &is_stable);
       if (is_stable) {
         Slice prefix_slice = base.CommonPrefixSlice();
         assert(prefix_slice.size() == OffsetableCacheKey::kCommonPrefixSize);
@@ -139,11 +136,6 @@ CacheDumperImpl::DumpOneBlockCallBack() {
         block_start = (static_cast<Block*>(value))->data();
         block_len = (static_cast<Block*>(value))->size();
         break;
-      case CacheEntryRole::kDeprecatedFilterBlock:
-        type = CacheDumpUnitType::kDeprecatedFilterBlock;
-        block_start = (static_cast<BlockContents*>(value))->data.data();
-        block_len = (static_cast<BlockContents*>(value))->data.size();
-        break;
       case CacheEntryRole::kFilterBlock:
         type = CacheDumpUnitType::kFilter;
         block_start = (static_cast<ParsedFullFilterBlock*>(value))
@@ -163,6 +155,10 @@ CacheDumperImpl::DumpOneBlockCallBack() {
         block_start = (static_cast<Block*>(value))->data();
         block_len = (static_cast<Block*>(value))->size();
         break;
+      case CacheEntryRole::kDeprecatedFilterBlock:
+        // Obsolete
+        filter_out = true;
+        break;
       case CacheEntryRole::kMisc:
         filter_out = true;
         break;
@@ -179,33 +175,33 @@ CacheDumperImpl::DumpOneBlockCallBack() {
     // Step 4: if the block should not be filter out, write the block to the
     // CacheDumpWriter
     if (!filter_out && block_start != nullptr) {
-      char* buffer = new char[block_len];
-      memcpy(buffer, block_start, block_len);
-      WriteCacheBlock(type, key, (void*)buffer, block_len)
+      WriteBlock(type, key, Slice(block_start, block_len))
           .PermitUncheckedError();
-      delete[] buffer;
     }
   };
 }
-// Write the raw block to the writer. It takes the timestamp of the block being
-// copied from block cache, block type, key, block pointer, raw block size and
-// the block checksum as the input. When writing the raw block, we first create
-// the dump unit and encoude it to a string. Then, we calculate the checksum of
-// the how dump unit string and store it in the dump unit metadata.
+
+// Write the block to the writer. It takes the timestamp of the
+// block being copied from block cache, block type, key, block pointer,
+// block size and block checksum as the input. When writing the dumper raw
+// block, we first create the dump unit and encoude it to a string. Then,
+// we calculate the checksum of the whole dump unit string and store it in
+// the dump unit metadata.
 // First, we write the metadata first, which is a fixed size string. Then, we
 // Append the dump unit string to the writer.
-IOStatus CacheDumperImpl::WriteRawBlock(uint64_t timestamp,
-                                        CacheDumpUnitType type,
-                                        const Slice& key, void* value,
-                                        size_t len, uint32_t checksum) {
-  // First, serilize the block information in a string
+IOStatus CacheDumperImpl::WriteBlock(CacheDumpUnitType type, const Slice& key,
+                                     const Slice& value) {
+  uint64_t timestamp = clock_->NowMicros();
+  uint32_t value_checksum = crc32c::Value(value.data(), value.size());
+
+  // First, serialize the block information in a string
   DumpUnit dump_unit;
   dump_unit.timestamp = timestamp;
   dump_unit.key = key;
   dump_unit.type = type;
-  dump_unit.value_len = len;
-  dump_unit.value = value;
-  dump_unit.value_checksum = checksum;
+  dump_unit.value_len = value.size();
+  dump_unit.value = const_cast<char*>(value.data());
+  dump_unit.value_checksum = value_checksum;
   std::string encoded_data;
   CacheDumperHelper::EncodeDumpUnit(dump_unit, &encoded_data);
 
@@ -216,19 +212,19 @@ IOStatus CacheDumperImpl::WriteRawBlock(uint64_t timestamp,
   unit_meta.sequence_num = sequence_num_;
   sequence_num_++;
   unit_meta.dump_unit_checksum =
-      crc32c::Value(encoded_data.c_str(), encoded_data.size());
-  unit_meta.dump_unit_size = static_cast<uint64_t>(encoded_data.size());
+      crc32c::Value(encoded_data.data(), encoded_data.size());
+  unit_meta.dump_unit_size = encoded_data.size();
   std::string encoded_meta;
   CacheDumperHelper::EncodeDumpUnitMeta(unit_meta, &encoded_meta);
 
   // We write the metadata first.
   assert(writer_ != nullptr);
-  IOStatus io_s = writer_->WriteMetadata(Slice(encoded_meta));
+  IOStatus io_s = writer_->WriteMetadata(encoded_meta);
   if (!io_s.ok()) {
     return io_s;
   }
   // followed by the dump unit.
-  return writer_->WritePacket(Slice(encoded_data));
+  return writer_->WritePacket(encoded_data);
 }
 
 // Before we write any block, we write the header first to store the cache dump
@@ -242,38 +238,18 @@ IOStatus CacheDumperImpl::WriteHeader() {
     << "RocksDB Version: " << kMajorVersion << "." << kMinorVersion << "\t"
     << "Format: dump_unit_metadata <sequence_number, dump_unit_checksum, "
        "dump_unit_size>, dump_unit <timestamp, key, block_type, "
-       "block_size, raw_block, raw_block_checksum> cache_value\n";
+       "block_size, block_data, block_checksum> cache_value\n";
   std::string header_value(s.str());
   CacheDumpUnitType type = CacheDumpUnitType::kHeader;
-  uint64_t timestamp = clock_->NowMicros();
-  uint32_t header_checksum =
-      crc32c::Value(header_value.c_str(), header_value.size());
-  return WriteRawBlock(timestamp, type, Slice(header_key),
-                       (void*)header_value.c_str(), header_value.size(),
-                       header_checksum);
-}
-
-// Write the block dumped from cache
-IOStatus CacheDumperImpl::WriteCacheBlock(const CacheDumpUnitType type,
-                                          const Slice& key, void* value,
-                                          size_t len) {
-  uint64_t timestamp = clock_->NowMicros();
-  uint32_t value_checksum = crc32c::Value((char*)value, len);
-  return WriteRawBlock(timestamp, type, key, value, len, value_checksum);
+  return WriteBlock(type, header_key, header_value);
 }
 
 // Write the footer after all the blocks are stored to indicate the ending.
 IOStatus CacheDumperImpl::WriteFooter() {
   std::string footer_key = "footer";
-  std::ostringstream s;
   std::string footer_value("cache dump completed");
   CacheDumpUnitType type = CacheDumpUnitType::kFooter;
-  uint64_t timestamp = clock_->NowMicros();
-  uint32_t footer_checksum =
-      crc32c::Value(footer_value.c_str(), footer_value.size());
-  return WriteRawBlock(timestamp, type, Slice(footer_key),
-                       (void*)footer_value.c_str(), footer_value.size(),
-                       footer_checksum);
+  return WriteBlock(type, footer_key, footer_value);
 }
 
 // This is the main function to restore the cache entries to secondary cache.
@@ -313,37 +289,22 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     if (!io_s.ok()) {
       break;
     }
-    // create the raw_block_content based on the information in the dump_unit
-    BlockContents raw_block_contents(
-        Slice((char*)dump_unit.value, dump_unit.value_len));
+    // Create the uncompressed_block based on the information in the dump_unit
+    // (There is no block trailer here compatible with block-based SST file.)
+    BlockContents uncompressed_block(
+        Slice(static_cast<char*>(dump_unit.value), dump_unit.value_len));
     Cache::CacheItemHelper* helper = nullptr;
     Statistics* statistics = nullptr;
     Status s = Status::OK();
     // according to the block type, get the helper callback function and create
     // the corresponding block
     switch (dump_unit.type) {
-      case CacheDumpUnitType::kDeprecatedFilterBlock: {
-        helper = BlocklikeTraits<BlockContents>::GetCacheItemHelper(
-            BlockType::kFilter);
-        std::unique_ptr<BlockContents> block_holder;
-        block_holder.reset(BlocklikeTraits<BlockContents>::Create(
-            std::move(raw_block_contents), 0, statistics, false,
-            toptions_.filter_policy.get()));
-        // Insert the block to secondary cache.
-        // Note that, if we cannot get the correct helper callback, the block
-        // will not be inserted.
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
       case CacheDumpUnitType::kFilter: {
         helper = BlocklikeTraits<ParsedFullFilterBlock>::GetCacheItemHelper(
             BlockType::kFilter);
         std::unique_ptr<ParsedFullFilterBlock> block_holder;
         block_holder.reset(BlocklikeTraits<ParsedFullFilterBlock>::Create(
-            std::move(raw_block_contents), toptions_.read_amp_bytes_per_bit,
+            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get()));
         if (helper != nullptr) {
           s = secondary_cache_->Insert(dump_unit.key,
@@ -355,7 +316,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kData);
         std::unique_ptr<Block> block_holder;
         block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(raw_block_contents), toptions_.read_amp_bytes_per_bit,
+            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get()));
         if (helper != nullptr) {
           s = secondary_cache_->Insert(dump_unit.key,
@@ -367,7 +328,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kIndex);
         std::unique_ptr<Block> block_holder;
         block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(raw_block_contents), 0, statistics, false,
+            std::move(uncompressed_block), 0, statistics, false,
             toptions_.filter_policy.get()));
         if (helper != nullptr) {
           s = secondary_cache_->Insert(dump_unit.key,
@@ -376,10 +337,11 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         break;
       }
       case CacheDumpUnitType::kFilterMetaBlock: {
-        helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kFilter);
+        helper = BlocklikeTraits<Block>::GetCacheItemHelper(
+            BlockType::kFilterPartitionIndex);
         std::unique_ptr<Block> block_holder;
         block_holder.reset(BlocklikeTraits<Block>::Create(
-            std::move(raw_block_contents), toptions_.read_amp_bytes_per_bit,
+            std::move(uncompressed_block), toptions_.read_amp_bytes_per_bit,
             statistics, false, toptions_.filter_policy.get()));
         if (helper != nullptr) {
           s = secondary_cache_->Insert(dump_unit.key,
@@ -388,6 +350,9 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         break;
       }
       case CacheDumpUnitType::kFooter:
+        break;
+      case CacheDumpUnitType::kDeprecatedFilterBlock:
+        // Obsolete
         break;
       default:
         continue;
@@ -452,7 +417,7 @@ IOStatus CacheDumpedLoaderImpl::ReadHeader(std::string* data,
   if (!io_s.ok()) {
     return io_s;
   }
-  uint32_t unit_checksum = crc32c::Value(data->c_str(), data->size());
+  uint32_t unit_checksum = crc32c::Value(data->data(), data->size());
   if (unit_checksum != header_meta.dump_unit_checksum) {
     return IOStatus::Corruption("Read header unit corrupted!");
   }
@@ -477,7 +442,7 @@ IOStatus CacheDumpedLoaderImpl::ReadCacheBlock(std::string* data,
   if (!io_s.ok()) {
     return io_s;
   }
-  uint32_t unit_checksum = crc32c::Value(data->c_str(), data->size());
+  uint32_t unit_checksum = crc32c::Value(data->data(), data->size());
   if (unit_checksum != unit_meta.dump_unit_checksum) {
     return IOStatus::Corruption(
         "Checksum does not match! Read dumped unit corrupted!");

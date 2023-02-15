@@ -887,9 +887,9 @@ IOStatus CloudFileSystemImpl::LoadLocalCloudManifest(
     const std::string& cookie, std::unique_ptr<CloudManifest>* cloud_manifest) {
   std::unique_ptr<SequentialFileReader> reader;
   auto cloud_manifest_file_name = MakeCloudManifestFile(dbname, cookie);
-  auto s =
-      SequentialFileReader::Create(base_fs, cloud_manifest_file_name,
-                                   FileOptions(), &reader, nullptr /*dbg*/);
+  auto s = SequentialFileReader::Create(base_fs, cloud_manifest_file_name,
+                                        FileOptions(), &reader, nullptr /*dbg*/,
+                                        nullptr /* rate_limiter */);
   if (s.ok()) {
     s = CloudManifest::LoadFromLog(std::move(reader), cloud_manifest);
   }

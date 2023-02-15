@@ -3232,6 +3232,28 @@ TEST_F(DBIteratorTest, BackwardIterationOnInplaceUpdateMemtable) {
   }
 }
 
+TEST_F(DBIteratorTest, IteratorRefreshReturnSV) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
+  SyncPoint::GetInstance()->SetCallBack(
+      "ArenaWrappedDBIter::Refresh:SV", [&](void*) {
+        ASSERT_OK(db_->Put(WriteOptions(), "dummy", "new SV"));
+        // This makes the local SV obselete.
+        ASSERT_OK(Flush());
+        SyncPoint::GetInstance()->DisableProcessing();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(iter->Refresh());
+  iter.reset();
+  // iter used to not cleanup SV, so the Close() below would hit an assertion
+  // error.
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

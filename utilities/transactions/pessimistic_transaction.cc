@@ -100,6 +100,9 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   use_only_the_last_commit_time_batch_for_recovery_ =
       txn_options.use_only_the_last_commit_time_batch_for_recovery;
   skip_prepare_ = txn_options.skip_prepare;
+
+  read_timestamp_ = kMaxTxnTimestamp;
+  commit_timestamp_ = kMaxTxnTimestamp;
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -176,8 +179,8 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
                                                value, exclusive, do_validate);
     }
   } else {
-    Status s = db_impl_->FailIfTsSizesMismatch(column_family,
-                                               *(read_options.timestamp));
+    Status s = db_impl_->FailIfTsMismatchCf(
+        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -689,10 +692,21 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   }
 
   uint64_t seq_used = kMaxSequenceNumber;
-  auto s =
-      db_impl_->WriteImpl(write_options_, wb,
-                          /*callback*/ nullptr, /*log_used*/ nullptr,
-                          /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used);
+  SnapshotCreationCallback snapshot_creation_cb(db_impl_, commit_timestamp_,
+                                                snapshot_notifier_, snapshot_);
+  PostMemTableCallback* post_mem_cb = nullptr;
+  if (snapshot_needed_) {
+    if (commit_timestamp_ == kMaxTxnTimestamp) {
+      return Status::InvalidArgument("Must set transaction commit timestamp");
+    } else {
+      post_mem_cb = &snapshot_creation_cb;
+    }
+  }
+  auto s = db_impl_->WriteImpl(write_options_, wb,
+                               /*callback*/ nullptr, /*log_used*/ nullptr,
+                               /*log_ref*/ 0, /*disable_memtable*/ false,
+                               &seq_used, /*batch_cnt=*/0,
+                               /*pre_release_callback=*/nullptr, post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -764,9 +778,22 @@ Status WriteCommittedTxn::CommitInternal() {
   assert(s.ok());
 
   uint64_t seq_used = kMaxSequenceNumber;
+  SnapshotCreationCallback snapshot_creation_cb(db_impl_, commit_timestamp_,
+                                                snapshot_notifier_, snapshot_);
+  PostMemTableCallback* post_mem_cb = nullptr;
+  if (snapshot_needed_) {
+    if (commit_timestamp_ == kMaxTxnTimestamp) {
+      s = Status::InvalidArgument("Must set transaction commit timestamp");
+      return s;
+    } else {
+      post_mem_cb = &snapshot_creation_cb;
+    }
+  }
   s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
                           /*log_used*/ nullptr, /*log_ref*/ log_number_,
-                          /*disable_memtable*/ false, &seq_used);
+                          /*disable_memtable*/ false, &seq_used,
+                          /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
+                          post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);

@@ -246,7 +246,7 @@ class WBWIBaseTest : public testing::Test {
         MergeOperators::CreateFromStringId("stringappend");
     options_.create_if_missing = true;
     dbname_ = test::PerThreadDBPath("write_batch_with_index_test");
-    DestroyDB(dbname_, options_);
+    EXPECT_OK(DestroyDB(dbname_, options_));
     batch_.reset(new WriteBatchWithIndex(BytewiseComparator(), 20, overwrite));
   }
 
@@ -254,7 +254,7 @@ class WBWIBaseTest : public testing::Test {
     if (db_ != nullptr) {
       ReleaseSnapshot();
       delete db_;
-      DestroyDB(dbname_, options_);
+      EXPECT_OK(DestroyDB(dbname_, options_));
     }
   }
 
@@ -2384,6 +2384,26 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
         ASSERT_EQ(WriteType::kSingleDeleteRecord, it->Entry().type);
       }
     }
+  }
+}
+
+TEST_P(WriteBatchWithIndexTest, IndexNoTs) {
+  const Comparator* const ucmp = test::BytewiseComparatorWithU64TsWrapper();
+  ColumnFamilyHandleImplDummy cf(1, ucmp);
+  WriteBatchWithIndex wbwi;
+  ASSERT_OK(wbwi.Put(&cf, "a", "a0"));
+  ASSERT_OK(wbwi.Put(&cf, "a", "a1"));
+  {
+    std::string ts;
+    PutFixed64(&ts, 10000);
+    ASSERT_OK(wbwi.GetWriteBatch()->UpdateTimestamps(
+        ts, [](uint32_t cf_id) { return cf_id == 1 ? 8 : 0; }));
+  }
+  {
+    std::string value;
+    Status s = wbwi.GetFromBatch(&cf, options_, "a", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("a1", value);
   }
 }
 

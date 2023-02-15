@@ -184,9 +184,11 @@ int db_stress_tool(int argc, char** argv) {
         "Error: nooverwritepercent must not be 100 when using merge operands");
     exit(1);
   }
-  if (FLAGS_ingest_external_file_one_in > 0 && FLAGS_nooverwritepercent > 0) {
-    fprintf(stderr,
-            "Error: nooverwritepercent must be 0 when using file ingestion\n");
+  if (FLAGS_ingest_external_file_one_in > 0 &&
+      FLAGS_nooverwritepercent == 100) {
+    fprintf(
+        stderr,
+        "Error: nooverwritepercent must not be 100 when using file ingestion");
     exit(1);
   }
   if (FLAGS_clear_column_family_one_in > 0 && FLAGS_backup_one_in > 0) {
@@ -233,12 +235,6 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondaries_base = default_secondaries_path;
   }
 
-  if (!FLAGS_test_secondary && FLAGS_secondary_catch_up_one_in > 0) {
-    fprintf(
-        stderr,
-        "Must set -test_secondary=true if secondary_catch_up_one_in > 0.\n");
-    exit(1);
-  }
   if (FLAGS_best_efforts_recovery && !FLAGS_skip_verifydb &&
       !FLAGS_disable_wal) {
     fprintf(stderr,
@@ -269,15 +265,43 @@ int db_stress_tool(int argc, char** argv) {
         "test_batches_snapshots  must all be 0 when using compaction filter\n");
     exit(1);
   }
-  if (FLAGS_batch_protection_bytes_per_key > 0 &&
-      !FLAGS_test_batches_snapshots) {
-    fprintf(stderr,
-            "Error: test_batches_snapshots must be enabled when "
-            "batch_protection_bytes_per_key > 0\n");
-    exit(1);
-  }
   if (FLAGS_test_multi_ops_txns) {
     CheckAndSetOptionsForMultiOpsTxnStressTest();
+  }
+
+  if (FLAGS_create_timestamped_snapshot_one_in > 0) {
+    if (!FLAGS_use_txn) {
+      fprintf(stderr, "timestamped snapshot supported only in TransactionDB\n");
+      exit(1);
+    } else if (FLAGS_txn_write_policy != 0) {
+      fprintf(stderr,
+              "timestamped snapshot supported only in write-committed\n");
+      exit(1);
+    }
+  }
+
+  if (FLAGS_preserve_unverified_changes && FLAGS_reopen != 0) {
+    fprintf(stderr,
+            "Reopen DB is incompatible with preserving unverified changes\n");
+    exit(1);
+  }
+
+  if (FLAGS_use_txn && FLAGS_sync_fault_injection &&
+      FLAGS_txn_write_policy != 0) {
+    fprintf(stderr,
+            "For TransactionDB, correctness testing with unsync data loss is "
+            "currently compatible with only write committed policy\n");
+    exit(1);
+  }
+
+  if (FLAGS_use_put_entity_one_in > 0 &&
+      (FLAGS_ingest_external_file_one_in > 0 || FLAGS_use_merge ||
+       FLAGS_use_full_merge_v1 || FLAGS_use_txn || FLAGS_test_multi_ops_txns ||
+       FLAGS_user_timestamp_size > 0)) {
+    fprintf(stderr,
+            "PutEntity is currently incompatible with SstFileWriter, Merge,"
+            " transactions, and user-defined timestamps\n");
+    exit(1);
   }
 
 #ifndef NDEBUG

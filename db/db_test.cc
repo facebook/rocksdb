@@ -321,7 +321,7 @@ TEST_F(DBTest, MixedSlowdownOptions) {
   // We need the 2nd write to trigger delay. This is because delay is
   // estimated based on the last write size which is 0 for the first write.
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
-          token.reset();
+  token.reset();
 
   for (auto& t : threads) {
     t.join();
@@ -379,7 +379,7 @@ TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
   // We need the 2nd write to trigger delay. This is because delay is
   // estimated based on the last write size which is 0 for the first write.
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
-          token.reset();
+  token.reset();
 
   for (auto& t : threads) {
     t.join();
@@ -448,7 +448,7 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
   // We need the 2nd write to trigger delay. This is because delay is
   // estimated based on the last write size which is 0 for the first write.
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
-          token.reset();
+  token.reset();
 
   for (auto& t : threads) {
     t.join();
@@ -483,6 +483,134 @@ TEST_F(DBTest, LevelLimitReopen) {
 }
 #endif  // ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest, LevelReopenWithFIFO) {
+  const int kLevelCount = 4;
+  const int kKeyCount = 5;
+  const int kTotalSstFileCount = kLevelCount * kKeyCount;
+  const int kCF = 1;
+
+  Options options = CurrentOptions();
+  // Config level0_file_num_compaction_trigger to prevent L0 files being
+  // automatically compacted while we are constructing a LSM tree structure
+  // to test multi-level FIFO compaction.
+  options.level0_file_num_compaction_trigger = kKeyCount + 1;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // The expected number of files per level after each file creation.
+  const std::string expected_files_per_level[kLevelCount][kKeyCount] = {
+      {"0,0,0,1", "0,0,0,2", "0,0,0,3", "0,0,0,4", "0,0,0,5"},
+      {"0,0,1,5", "0,0,2,5", "0,0,3,5", "0,0,4,5", "0,0,5,5"},
+      {"0,1,5,5", "0,2,5,5", "0,3,5,5", "0,4,5,5", "0,5,5,5"},
+      {"1,5,5,5", "2,5,5,5", "3,5,5,5", "4,5,5,5", "5,5,5,5"},
+  };
+
+  const std::string expected_entries[kKeyCount][kLevelCount + 1] = {
+      {"[ ]", "[ a3 ]", "[ a2, a3 ]", "[ a1, a2, a3 ]", "[ a0, a1, a2, a3 ]"},
+      {"[ ]", "[ b3 ]", "[ b2, b3 ]", "[ b1, b2, b3 ]", "[ b0, b1, b2, b3 ]"},
+      {"[ ]", "[ c3 ]", "[ c2, c3 ]", "[ c1, c2, c3 ]", "[ c0, c1, c2, c3 ]"},
+      {"[ ]", "[ d3 ]", "[ d2, d3 ]", "[ d1, d2, d3 ]", "[ d0, d1, d2, d3 ]"},
+      {"[ ]", "[ e3 ]", "[ e2, e3 ]", "[ e1, e2, e3 ]", "[ e0, e1, e2, e3 ]"},
+  };
+
+  // The loop below creates the following LSM tree where each (k, v) pair
+  // represents a file that contains that entry.  When a file is created,
+  // the db is reopend with FIFO compaction and verified the LSM tree
+  // structure is still the same.
+  //
+  // The resulting LSM tree will contain 5 different keys.  Each key as
+  // 4 different versions, located in different level.
+  //
+  // L0:  (e, e0) (d, d0) (c, c0) (b, b0) (a, a0)
+  // L1:  (a, a1) (b, b1) (c, c1) (d, d1) (e, e1)
+  // L2:  (a, a2) (b, b2) (c, c2) (d, d2) (e, e2)
+  // L3:  (a, a3) (b, b3) (c, c3) (d, d3) (e, e3)
+  for (int l = 0; l < kLevelCount; ++l) {
+    int level = kLevelCount - 1 - l;
+    for (int p = 0; p < kKeyCount; ++p) {
+      std::string put_key = std::string(1, char('a' + p));
+      ASSERT_OK(Put(kCF, put_key, put_key + std::to_string(level)));
+      ASSERT_OK(Flush(kCF));
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+      for (int g = 0; g < kKeyCount; ++g) {
+        int entry_count = (p >= g) ? l + 1 : l;
+        std::string get_key = std::string(1, char('a' + g));
+        CheckAllEntriesWithFifoReopen(expected_entries[g][entry_count], get_key,
+                                      kCF, {"pikachu"}, options);
+      }
+      if (level != 0) {
+        MoveFilesToLevel(level, kCF);
+        for (int g = 0; g < kKeyCount; ++g) {
+          int entry_count = (p >= g) ? l + 1 : l;
+          std::string get_key = std::string(1, char('a' + g));
+          CheckAllEntriesWithFifoReopen(expected_entries[g][entry_count],
+                                        get_key, kCF, {"pikachu"}, options);
+        }
+      }
+      ASSERT_EQ(expected_files_per_level[l][p], FilesPerLevel(kCF));
+    }
+  }
+
+  // The expected number of sst files in each level after each FIFO compaction
+  // that deletes the oldest sst file.
+  const std::string expected_files_per_level_after_fifo[] = {
+      "5,5,5,4", "5,5,5,3", "5,5,5,2", "5,5,5,1", "5,5,5", "5,5,4", "5,5,3",
+      "5,5,2",   "5,5,1",   "5,5",     "5,4",     "5,3",   "5,2",   "5,1",
+      "5",       "4",       "3",       "2",       "1",     "",
+  };
+
+  // The expected value entries of each key after each FIFO compaction.
+  // This verifies whether FIFO removes the file with the smallest key in non-L0
+  // files first then the oldest files in L0.
+  const std::string expected_entries_after_fifo[kKeyCount][kLevelCount + 1] = {
+      {"[ a0, a1, a2, a3 ]", "[ a0, a1, a2 ]", "[ a0, a1 ]", "[ a0 ]", "[ ]"},
+      {"[ b0, b1, b2, b3 ]", "[ b0, b1, b2 ]", "[ b0, b1 ]", "[ b0 ]", "[ ]"},
+      {"[ c0, c1, c2, c3 ]", "[ c0, c1, c2 ]", "[ c0, c1 ]", "[ c0 ]", "[ ]"},
+      {"[ d0, d1, d2, d3 ]", "[ d0, d1, d2 ]", "[ d0, d1 ]", "[ d0 ]", "[ ]"},
+      {"[ e0, e1, e2, e3 ]", "[ e0, e1, e2 ]", "[ e0, e1 ]", "[ e0 ]", "[ ]"},
+  };
+
+  // In the 2nd phase, we reopen the DB with FIFO compaction.  In each reopen,
+  // we config max_table_files_size so that FIFO will remove exactly one file
+  // at a time upon compaction, and we will use it to verify whether the sst
+  // files are deleted in the correct order.
+  for (int i = 0; i < kTotalSstFileCount; ++i) {
+    uint64_t total_sst_files_size = 0;
+    ASSERT_TRUE(dbfull()->GetIntProperty(
+        handles_[1], "rocksdb.total-sst-files-size", &total_sst_files_size));
+    ASSERT_TRUE(total_sst_files_size > 0);
+
+    Options fifo_options(options);
+    fifo_options.compaction_style = kCompactionStyleFIFO;
+    options.create_if_missing = false;
+    fifo_options.max_open_files = -1;
+    fifo_options.disable_auto_compactions = false;
+    // Config max_table_files_size to be total_sst_files_size - 1 so that
+    // FIFO will delete one file.
+    fifo_options.compaction_options_fifo.max_table_files_size =
+        total_sst_files_size - 1;
+    ASSERT_OK(
+        TryReopenWithColumnFamilies({"default", "pikachu"}, fifo_options));
+    // For FIFO to pick a compaction
+    ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
+    ASSERT_OK(dbfull()->TEST_WaitForCompact(false));
+    for (int g = 0; g < kKeyCount; ++g) {
+      std::string get_key = std::string(1, char('a' + g));
+      int status_index = i / kKeyCount;
+      if ((i % kKeyCount) >= g) {
+        // If true, then it means the sst file containing the get_key in the
+        // current level has already been deleted, so we need to move the
+        // status_index for checking the expected value.
+        status_index++;
+      }
+      CheckAllEntriesWithFifoReopen(
+          expected_entries_after_fifo[g][status_index], get_key, kCF,
+          {"pikachu"}, options);
+    }
+    ASSERT_EQ(expected_files_per_level_after_fifo[i], FilesPerLevel(kCF));
+  }
+}
+#endif  // !ROCKSDB_LITE
 
 TEST_F(DBTest, PutSingleDeleteGet) {
   do {
@@ -493,7 +621,7 @@ TEST_F(DBTest, PutSingleDeleteGet) {
     ASSERT_EQ("v2", Get(1, "foo2"));
     ASSERT_OK(SingleDelete(1, "foo"));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -648,7 +776,7 @@ TEST_F(DBTest, SingleDeleteFlush) {
 
     ASSERT_EQ("NOT_FOUND", Get(1, "bar"));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction beccaus they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -671,7 +799,7 @@ TEST_F(DBTest, SingleDeletePutFlush) {
     ASSERT_OK(Flush(1));
 
     ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -783,7 +911,6 @@ TEST_F(DBTest, GetFromImmutableLayer) {
     env_->delay_sstable_sync_.store(false, std::memory_order_release);
   } while (ChangeOptions());
 }
-
 
 TEST_F(DBTest, GetLevel0Ordering) {
   do {
@@ -1846,6 +1973,8 @@ TEST_F(DBTest, Snapshot) {
     uint64_t time_snap1 = GetTimeOldestSnapshots();
     ASSERT_GT(time_snap1, 0U);
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(),
+              static_cast<uint64_t>(s1->GetUnixTime()));
     ASSERT_OK(Put(0, "foo", "0v2"));
     ASSERT_OK(Put(1, "foo", "1v2"));
 
@@ -1855,6 +1984,8 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(),
+              static_cast<uint64_t>(s1->GetUnixTime()));
     ASSERT_OK(Put(0, "foo", "0v3"));
     ASSERT_OK(Put(1, "foo", "1v3"));
 
@@ -1863,6 +1994,8 @@ TEST_F(DBTest, Snapshot) {
       ASSERT_EQ(3U, GetNumSnapshots());
       ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
       ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+      ASSERT_EQ(GetTimeOldestSnapshots(),
+                static_cast<uint64_t>(s1->GetUnixTime()));
 
       ASSERT_OK(Put(0, "foo", "0v4"));
       ASSERT_OK(Put(1, "foo", "1v4"));
@@ -1879,6 +2012,8 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(),
+              static_cast<uint64_t>(s1->GetUnixTime()));
     ASSERT_EQ("0v1", Get(0, "foo", s1));
     ASSERT_EQ("1v1", Get(1, "foo", s1));
     ASSERT_EQ("0v2", Get(0, "foo", s2));
@@ -1894,6 +2029,8 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(1U, GetNumSnapshots());
     ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s2->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(),
+              static_cast<uint64_t>(s2->GetUnixTime()));
 
     db_->ReleaseSnapshot(s2);
     ASSERT_EQ(0U, GetNumSnapshots());
@@ -1987,7 +2124,7 @@ TEST_F(DBTest, UnremovableSingleDelete) {
     ASSERT_EQ("first", Get(1, "foo", snapshot));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
     db_->ReleaseSnapshot(snapshot);
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -2767,7 +2904,7 @@ INSTANTIATE_TEST_CASE_P(
 #endif  // ROCKSDB_LITE
 
 // Group commit test:
-#if !defined(TRAVIS) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 // Disable this test temporarily on Travis and appveyor as it fails
 // intermittently. Github issue: #4151
 namespace {
@@ -2844,7 +2981,7 @@ TEST_F(DBTest, GroupCommitTest) {
     ASSERT_GT(hist_data.average, 0.0);
   } while (ChangeOptions(kSkipNoSeekToLast));
 }
-#endif  // TRAVIS
+#endif  // OS_WIN
 
 namespace {
 using KVMap = std::map<std::string, std::string>;
@@ -2857,6 +2994,18 @@ class ModelDB : public DB {
     KVMap map_;
 
     SequenceNumber GetSequenceNumber() const override {
+      // no need to call this
+      assert(false);
+      return 0;
+    }
+
+    int64_t GetUnixTime() const override {
+      // no need to call this
+      assert(false);
+      return 0;
+    }
+
+    uint64_t GetTimestamp() const override {
       // no need to call this
       assert(false);
       return 0;
@@ -2879,6 +3028,15 @@ class ModelDB : public DB {
              const Slice& /*v*/) override {
     return Status::NotSupported();
   }
+
+  using DB::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported();
+  }
+
   using DB::Close;
   Status Close() override { return Status::OK(); }
   using DB::Delete;
@@ -3474,7 +3632,40 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_OK(Flush());
   ASSERT_OK(Put("k2", "v2"));
 
-  // Reopen it without prefix extractor, make sure everything still works.
+  // Reopen with different prefix extractor, make sure everything still works.
+  // RocksDB should just fall back to the binary index.
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+
+  Reopen(options);
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ("v2", Get("k2"));
+
+#ifndef ROCKSDB_LITE
+  // Back to original
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:1"}}));
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ("v2", Get("k2"));
+#endif  // !ROCKSDB_LITE
+
+  // Same if there's a problem initally loading prefix transform
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
+      [&](void* arg) { *static_cast<bool*>(arg) = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ("v2", Get("k2"));
+
+#ifndef ROCKSDB_LITE
+  // Change again
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ("v2", Get("k2"));
+#endif  // !ROCKSDB_LITE
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Reopen with no prefix extractor, make sure everything still works.
   // RocksDB should just fall back to the binary index.
   table_options.index_type = BlockBasedTableOptions::kBinarySearch;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -3484,6 +3675,7 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
 }
+
 TEST_F(DBTest, BlockBasedTablePrefixHashIndexTest) {
   // create a DB with block prefix index
   BlockBasedTableOptions table_options;
@@ -3774,7 +3966,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
 
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
-    options.ttl = 1 * 60 * 60 ;  // 1 hour
+    options.ttl = 1 * 60 * 60;  // 1 hour
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -3848,7 +4040,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     options.write_buffer_size = 10 << 10;                              // 10KB
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
-    options.ttl =  1 * 60 * 60;  // 1 hour
+    options.ttl = 1 * 60 * 60;  // 1 hour
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -4063,9 +4255,6 @@ class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
 
   ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
 
-  const char* Name() const override {
-    return "MockedRateLimiterWithNoOptionalAPI";
-  }
   void SetBytesPerSecond(int64_t bytes_per_second) override {
     (void)bytes_per_second;
   }
@@ -4242,7 +4431,9 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
         threads.emplace_back([&] {
           for (size_t i = cnt; i < 2 * cnt; i++) {
             auto istr = std::to_string(i);
-            WriteBatch batch;
+            WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                             wopt.protection_bytes_per_key,
+                             0 /* default_cf_ts_sz */);
             ASSERT_OK(batch.Put("a" + istr, "b" + istr));
             ASSERT_OK(
                 dbfull()->WriteImpl(wopt, &batch, nullptr, nullptr, 0, true));
@@ -5934,7 +6125,7 @@ TEST_F(DBTest, EmptyCompactedDB) {
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
+TEST_F(DBTest, SuggestCompactRangeTest) {
   class CompactionFilterFactoryGetContext : public CompactionFilterFactory {
    public:
     std::unique_ptr<CompactionFilter> CreateCompactionFilter(
@@ -5973,41 +6164,17 @@ TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
 
   Random rnd(301);
 
-  for (int num = 0; num < 3; num++) {
+  for (int num = 0; num < 10; num++) {
     GenerateNewRandomFile(&rnd);
   }
 
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("0,4", FilesPerLevel(0));
   ASSERT_TRUE(!CompactionFilterFactoryGetContext::IsManual(
       options.compaction_filter_factory.get()));
 
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("2,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("3,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("0,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("2,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("3,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("0,4,8", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,4,8", FilesPerLevel(0));
+  // make sure either L0 or L1 has file
+  while (NumTableFilesAtLevel(0) == 0 && NumTableFilesAtLevel(1) == 0) {
+    GenerateNewRandomFile(&rnd);
+  }
 
   // compact it three times
   for (int i = 0; i < 3; ++i) {
@@ -6034,14 +6201,70 @@ TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
   end = Slice("m");
   ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_TRUE(CompactionFilterFactoryGetContext::IsManual(
+  // SuggestCompactRange() is not going to be reported as manual compaction
+  ASSERT_TRUE(!CompactionFilterFactoryGetContext::IsManual(
       options.compaction_filter_factory.get()));
 
   // now it should compact the level 0 file
+  // as it's a trivial move to L1, it triggers another one to compact to L2
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
 }
 
+TEST_F(DBTest, SuggestCompactRangeUniversal) {
+  Options options = CurrentOptions();
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 200 << 10;
+  options.arena_block_size = 4 << 10;
+  options.level0_file_num_compaction_trigger = 4;
+  options.num_levels = 4;
+  options.compression = kNoCompression;
+  options.max_bytes_for_level_base = 450 << 10;
+  options.target_file_size_base = 98 << 10;
+  options.max_compaction_bytes = static_cast<uint64_t>(1) << 60;  // inf
+
+  Reopen(options);
+
+  Random rnd(301);
+
+  for (int num = 0; num < 10; num++) {
+    GenerateNewRandomFile(&rnd);
+  }
+
+  ASSERT_EQ("1,2,3,4", FilesPerLevel());
+  for (int i = 0; i < 3; i++) {
+    ASSERT_OK(
+        db_->SuggestCompactRange(db_->DefaultColumnFamily(), nullptr, nullptr));
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+
+  // All files are compacted
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+  ASSERT_EQ(0, NumTableFilesAtLevel(2));
+
+  GenerateNewRandomFile(&rnd);
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // nonoverlapping with the file on level 0
+  Slice start("a"), end("b");
+  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // should not compact the level 0 file
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  start = Slice("j");
+  end = Slice("m");
+  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // now it should compact the level 0 file to the last level
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+}
 
 TEST_F(DBTest, PromoteL0) {
   Options options = CurrentOptions();
@@ -6223,13 +6446,12 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   port::Thread manual_compaction_thread([&]() {
-      auto s = db_->CompactFiles(CompactionOptions(),
-          db_->DefaultColumnFamily(), input_files, 0);
-      ASSERT_OK(s);
+    auto s = db_->CompactFiles(CompactionOptions(), db_->DefaultColumnFamily(),
+                               input_files, 0);
+    ASSERT_OK(s);
   });
 
-  TEST_SYNC_POINT(
-          "DBTest::CompactFilesShouldTriggerAutoCompaction:Begin");
+  TEST_SYNC_POINT("DBTest::CompactFilesShouldTriggerAutoCompaction:Begin");
   // generate enough files to trigger compaction
   for (int i = 0; i < 20; ++i) {
     for (int j = 0; j < 2; ++j) {
@@ -6239,16 +6461,15 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   }
   db_->GetColumnFamilyMetaData(db_->DefaultColumnFamily(), &cf_meta_data);
   ASSERT_GT(cf_meta_data.levels[0].files.size(),
-      options.level0_file_num_compaction_trigger);
-  TEST_SYNC_POINT(
-          "DBTest::CompactFilesShouldTriggerAutoCompaction:End");
+            options.level0_file_num_compaction_trigger);
+  TEST_SYNC_POINT("DBTest::CompactFilesShouldTriggerAutoCompaction:End");
 
   manual_compaction_thread.join();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   db_->GetColumnFamilyMetaData(db_->DefaultColumnFamily(), &cf_meta_data);
   ASSERT_LE(cf_meta_data.levels[0].files.size(),
-      options.level0_file_num_compaction_trigger);
+            options.level0_file_num_compaction_trigger);
 }
 #endif  // ROCKSDB_LITE
 
@@ -6473,8 +6694,9 @@ class WriteStallListener : public EventListener {
     MutexLock l(&mutex_);
     return expected == condition_;
   }
+
  private:
-  port::Mutex   mutex_;
+  port::Mutex mutex_;
   WriteStallCondition condition_;
 };
 
@@ -6702,7 +6924,8 @@ TEST_F(DBTest, LastWriteBufferDelay) {
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
 }
-#endif  // !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+#endif  // !defined(ROCKSDB_LITE) &&
+        // !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
 
 TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
   CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
@@ -6776,6 +6999,89 @@ TEST_F(DBTest, PinnableSliceAndRowCache) {
     PinnableSlice pin_slice;
     ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
     ASSERT_EQ(pin_slice.ToString(), "bar");
+    // Entry is already in cache, lookup will remove the element from lru
+    ASSERT_EQ(
+        reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+        0);
+  }
+  // After PinnableSlice destruction element is added back in LRU
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+}
+
+TEST_F(DBTest, ReusePinnableSlice) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.row_cache = NewLRUCache(8192);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+
+  {
+    PinnableSlice pin_slice;
+    ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
+    ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
+    ASSERT_EQ(pin_slice.ToString(), "bar");
+
+    // Entry is already in cache, lookup will remove the element from lru
+    ASSERT_EQ(
+        reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+        0);
+  }
+  // After PinnableSlice destruction element is added back in LRU
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+
+  {
+    std::vector<Slice> multiget_keys;
+    multiget_keys.push_back("foo");
+    std::vector<PinnableSlice> multiget_values(1);
+    std::vector<Status> statuses({Status::NotFound()});
+    ReadOptions ropt;
+    dbfull()->MultiGet(ropt, dbfull()->DefaultColumnFamily(),
+                       multiget_keys.size(), multiget_keys.data(),
+                       multiget_values.data(), statuses.data());
+    ASSERT_EQ(Status::OK(), statuses[0]);
+    dbfull()->MultiGet(ropt, dbfull()->DefaultColumnFamily(),
+                       multiget_keys.size(), multiget_keys.data(),
+                       multiget_values.data(), statuses.data());
+    ASSERT_EQ(Status::OK(), statuses[0]);
+
+    // Entry is already in cache, lookup will remove the element from lru
+    ASSERT_EQ(
+        reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+        0);
+  }
+  // After PinnableSlice destruction element is added back in LRU
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+
+  {
+    std::vector<ColumnFamilyHandle*> multiget_cfs;
+    multiget_cfs.push_back(dbfull()->DefaultColumnFamily());
+    std::vector<Slice> multiget_keys;
+    multiget_keys.push_back("foo");
+    std::vector<PinnableSlice> multiget_values(1);
+    std::vector<Status> statuses({Status::NotFound()});
+    ReadOptions ropt;
+    dbfull()->MultiGet(ropt, multiget_keys.size(), multiget_cfs.data(),
+                       multiget_keys.data(), multiget_values.data(),
+                       statuses.data());
+    ASSERT_EQ(Status::OK(), statuses[0]);
+    dbfull()->MultiGet(ropt, multiget_keys.size(), multiget_cfs.data(),
+                       multiget_keys.data(), multiget_values.data(),
+                       statuses.data());
+    ASSERT_EQ(Status::OK(), statuses[0]);
+
     // Entry is already in cache, lookup will remove the element from lru
     ASSERT_EQ(
         reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
@@ -6866,9 +7172,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
 TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   std::atomic<int> flushes_done{0};
   std::atomic<int> threads_destroyed{0};
-  auto done = [&] {
-    return flushes_done.load() > 10;
-  };
+  auto done = [&] { return flushes_done.load() > 10; };
 
   port::Thread flushing_thread([&] {
     for (int i = 0; !done(); ++i) {
@@ -6881,7 +7185,7 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   });
 
   std::vector<port::Thread> thread_spawning_threads(10);
-  for (auto& t: thread_spawning_threads) {
+  for (auto& t : thread_spawning_threads) {
     t = port::Thread([&] {
       while (!done()) {
         {
@@ -6897,7 +7201,7 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
     });
   }
 
-  for (auto& t: thread_spawning_threads) {
+  for (auto& t : thread_spawning_threads) {
     t.join();
   }
   flushing_thread.join();
@@ -7064,6 +7368,46 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
   }
 }
 
+TEST_F(DBTest, ShuttingDownNotBlockStalledWrites) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  Random rnd(403);
+
+  for (int i = 0; i < 20; i++) {
+    ASSERT_OK(Put("key_" + std::to_string(i), rnd.RandomString(10)));
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ(GetSstFileCount(dbname_), 20);
+
+  // We need !disable_auto_compactions for writes to stall but also want to
+  // delay compaction so stalled writes unblocked due to kShutdownInProgress. BG
+  // compaction will first wait for the sync point
+  // DBTest::ShuttingDownNotBlockStalledWrites. Then it waits extra 2 sec to
+  // allow CancelAllBackgroundWork() to set shutting_down_.
+  SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0",
+      [&](void* /* arg */) { env_->SleepForMicroseconds(2 * 1000 * 1000); });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::DelayWrite:Wait", "DBTest::ShuttingDownNotBlockStalledWrites"},
+       {"DBTest::ShuttingDownNotBlockStalledWrites",
+        "BackgroundCallCompaction:0"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  options.level0_stop_writes_trigger = 20;
+  options.disable_auto_compactions = false;
+  Reopen(options);
+
+  std::thread thd([&]() {
+    Status s = Put("key_" + std::to_string(101), "101");
+    ASSERT_EQ(s.code(), Status::kShutdownInProgress);
+  });
+
+  TEST_SYNC_POINT("DBTest::ShuttingDownNotBlockStalledWrites");
+  CancelAllBackgroundWork(db_, true);
+
+  thd.join();
+}
 #endif
 
 }  // namespace ROCKSDB_NAMESPACE

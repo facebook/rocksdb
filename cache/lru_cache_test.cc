@@ -9,6 +9,8 @@
 #include <vector>
 
 #include "cache/cache_key.h"
+#include "cache/clock_cache.h"
+#include "cache/fast_lru_cache.h"
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
@@ -39,14 +41,16 @@ class LRUCacheTest : public testing::Test {
   }
 
   void NewCache(size_t capacity, double high_pri_pool_ratio = 0.0,
+                double low_pri_pool_ratio = 1.0,
                 bool use_adaptive_mutex = kDefaultToAdaptiveMutex) {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
-    new (cache_) LRUCacheShard(
-        capacity, false /*strict_capcity_limit*/, high_pri_pool_ratio,
-        use_adaptive_mutex, kDontChargeCacheMetadata,
-        24 /*max_upper_hash_bits*/, nullptr /*secondary_cache*/);
+    new (cache_) LRUCacheShard(capacity, /*strict_capacity_limit=*/false,
+                               high_pri_pool_ratio, low_pri_pool_ratio,
+                               use_adaptive_mutex, kDontChargeCacheMetadata,
+                               /*max_upper_hash_bits=*/24,
+                               /*secondary_cache=*/nullptr);
   }
 
   void Insert(const std::string& key,
@@ -63,7 +67,7 @@ class LRUCacheTest : public testing::Test {
   bool Lookup(const std::string& key) {
     auto handle = cache_->Lookup(key, 0 /*hash*/);
     if (handle) {
-      cache_->Release(handle);
+      cache_->Release(handle, true /*useful*/, false /*erase*/);
       return true;
     }
     return false;
@@ -74,32 +78,66 @@ class LRUCacheTest : public testing::Test {
   void Erase(const std::string& key) { cache_->Erase(key, 0 /*hash*/); }
 
   void ValidateLRUList(std::vector<std::string> keys,
-                       size_t num_high_pri_pool_keys = 0) {
+                       size_t num_high_pri_pool_keys = 0,
+                       size_t num_low_pri_pool_keys = 0,
+                       size_t num_bottom_pri_pool_keys = 0) {
     LRUHandle* lru;
     LRUHandle* lru_low_pri;
-    cache_->TEST_GetLRUList(&lru, &lru_low_pri);
+    LRUHandle* lru_bottom_pri;
+    cache_->TEST_GetLRUList(&lru, &lru_low_pri, &lru_bottom_pri);
+
     LRUHandle* iter = lru;
+
+    bool in_low_pri_pool = false;
     bool in_high_pri_pool = false;
+
     size_t high_pri_pool_keys = 0;
+    size_t low_pri_pool_keys = 0;
+    size_t bottom_pri_pool_keys = 0;
+
+    if (iter == lru_bottom_pri) {
+      in_low_pri_pool = true;
+      in_high_pri_pool = false;
+    }
     if (iter == lru_low_pri) {
+      in_low_pri_pool = false;
       in_high_pri_pool = true;
     }
+
     for (const auto& key : keys) {
       iter = iter->next;
       ASSERT_NE(lru, iter);
       ASSERT_EQ(key, iter->key().ToString());
       ASSERT_EQ(in_high_pri_pool, iter->InHighPriPool());
+      ASSERT_EQ(in_low_pri_pool, iter->InLowPriPool());
       if (in_high_pri_pool) {
+        ASSERT_FALSE(iter->InLowPriPool());
         high_pri_pool_keys++;
+      } else if (in_low_pri_pool) {
+        ASSERT_FALSE(iter->InHighPriPool());
+        low_pri_pool_keys++;
+      } else {
+        bottom_pri_pool_keys++;
+      }
+      if (iter == lru_bottom_pri) {
+        ASSERT_FALSE(in_low_pri_pool);
+        ASSERT_FALSE(in_high_pri_pool);
+        in_low_pri_pool = true;
+        in_high_pri_pool = false;
       }
       if (iter == lru_low_pri) {
+        ASSERT_TRUE(in_low_pri_pool);
         ASSERT_FALSE(in_high_pri_pool);
+        in_low_pri_pool = false;
         in_high_pri_pool = true;
       }
     }
     ASSERT_EQ(lru, iter->next);
+    ASSERT_FALSE(in_low_pri_pool);
     ASSERT_TRUE(in_high_pri_pool);
     ASSERT_EQ(num_high_pri_pool_keys, high_pri_pool_keys);
+    ASSERT_EQ(num_low_pri_pool_keys, low_pri_pool_keys);
+    ASSERT_EQ(num_bottom_pri_pool_keys, bottom_pri_pool_keys);
   }
 
  private:
@@ -111,99 +149,857 @@ TEST_F(LRUCacheTest, BasicLRU) {
   for (char ch = 'a'; ch <= 'e'; ch++) {
     Insert(ch);
   }
-  ValidateLRUList({"a", "b", "c", "d", "e"});
+  ValidateLRUList({"a", "b", "c", "d", "e"}, 0, 5);
   for (char ch = 'x'; ch <= 'z'; ch++) {
     Insert(ch);
   }
-  ValidateLRUList({"d", "e", "x", "y", "z"});
+  ValidateLRUList({"d", "e", "x", "y", "z"}, 0, 5);
   ASSERT_FALSE(Lookup("b"));
-  ValidateLRUList({"d", "e", "x", "y", "z"});
+  ValidateLRUList({"d", "e", "x", "y", "z"}, 0, 5);
   ASSERT_TRUE(Lookup("e"));
-  ValidateLRUList({"d", "x", "y", "z", "e"});
+  ValidateLRUList({"d", "x", "y", "z", "e"}, 0, 5);
   ASSERT_TRUE(Lookup("z"));
-  ValidateLRUList({"d", "x", "y", "e", "z"});
+  ValidateLRUList({"d", "x", "y", "e", "z"}, 0, 5);
   Erase("x");
-  ValidateLRUList({"d", "y", "e", "z"});
+  ValidateLRUList({"d", "y", "e", "z"}, 0, 4);
   ASSERT_TRUE(Lookup("d"));
-  ValidateLRUList({"y", "e", "z", "d"});
+  ValidateLRUList({"y", "e", "z", "d"}, 0, 4);
   Insert("u");
-  ValidateLRUList({"y", "e", "z", "d", "u"});
+  ValidateLRUList({"y", "e", "z", "d", "u"}, 0, 5);
   Insert("v");
-  ValidateLRUList({"e", "z", "d", "u", "v"});
+  ValidateLRUList({"e", "z", "d", "u", "v"}, 0, 5);
 }
 
-TEST_F(LRUCacheTest, MidpointInsertion) {
-  // Allocate 2 cache entries to high-pri pool.
-  NewCache(5, 0.45);
+TEST_F(LRUCacheTest, LowPriorityMidpointInsertion) {
+  // Allocate 2 cache entries to high-pri pool and 3 to low-pri pool.
+  NewCache(5, /* high_pri_pool_ratio */ 0.40, /* low_pri_pool_ratio */ 0.60);
 
   Insert("a", Cache::Priority::LOW);
   Insert("b", Cache::Priority::LOW);
   Insert("c", Cache::Priority::LOW);
   Insert("x", Cache::Priority::HIGH);
   Insert("y", Cache::Priority::HIGH);
-  ValidateLRUList({"a", "b", "c", "x", "y"}, 2);
+  ValidateLRUList({"a", "b", "c", "x", "y"}, 2, 3);
 
   // Low-pri entries inserted to the tail of low-pri list (the midpoint).
   // After lookup, it will move to the tail of the full list.
   Insert("d", Cache::Priority::LOW);
-  ValidateLRUList({"b", "c", "d", "x", "y"}, 2);
+  ValidateLRUList({"b", "c", "d", "x", "y"}, 2, 3);
   ASSERT_TRUE(Lookup("d"));
-  ValidateLRUList({"b", "c", "x", "y", "d"}, 2);
+  ValidateLRUList({"b", "c", "x", "y", "d"}, 2, 3);
 
   // High-pri entries will be inserted to the tail of full list.
   Insert("z", Cache::Priority::HIGH);
-  ValidateLRUList({"c", "x", "y", "d", "z"}, 2);
+  ValidateLRUList({"c", "x", "y", "d", "z"}, 2, 3);
+}
+
+TEST_F(LRUCacheTest, BottomPriorityMidpointInsertion) {
+  // Allocate 2 cache entries to high-pri pool and 2 to low-pri pool.
+  NewCache(6, /* high_pri_pool_ratio */ 0.35, /* low_pri_pool_ratio */ 0.35);
+
+  Insert("a", Cache::Priority::BOTTOM);
+  Insert("b", Cache::Priority::BOTTOM);
+  Insert("i", Cache::Priority::LOW);
+  Insert("j", Cache::Priority::LOW);
+  Insert("x", Cache::Priority::HIGH);
+  Insert("y", Cache::Priority::HIGH);
+  ValidateLRUList({"a", "b", "i", "j", "x", "y"}, 2, 2, 2);
+
+  // Low-pri entries will be inserted to the tail of low-pri list (the
+  // midpoint). After lookup, 'k' will move to the tail of the full list, and
+  // 'x' will spill over to the low-pri pool.
+  Insert("k", Cache::Priority::LOW);
+  ValidateLRUList({"b", "i", "j", "k", "x", "y"}, 2, 2, 2);
+  ASSERT_TRUE(Lookup("k"));
+  ValidateLRUList({"b", "i", "j", "x", "y", "k"}, 2, 2, 2);
+
+  // High-pri entries will be inserted to the tail of full list. Although y was
+  // inserted with high priority, it got spilled over to the low-pri pool. As
+  // a result, j also got spilled over to the bottom-pri pool.
+  Insert("z", Cache::Priority::HIGH);
+  ValidateLRUList({"i", "j", "x", "y", "k", "z"}, 2, 2, 2);
+  Erase("x");
+  ValidateLRUList({"i", "j", "y", "k", "z"}, 2, 1, 2);
+  Erase("y");
+  ValidateLRUList({"i", "j", "k", "z"}, 2, 0, 2);
+
+  // Bottom-pri entries will be inserted to the tail of bottom-pri list.
+  Insert("c", Cache::Priority::BOTTOM);
+  ValidateLRUList({"i", "j", "c", "k", "z"}, 2, 0, 3);
+  Insert("d", Cache::Priority::BOTTOM);
+  ValidateLRUList({"i", "j", "c", "d", "k", "z"}, 2, 0, 4);
+  Insert("e", Cache::Priority::BOTTOM);
+  ValidateLRUList({"j", "c", "d", "e", "k", "z"}, 2, 0, 4);
+
+  // Low-pri entries will be inserted to the tail of low-pri list (the
+  // midpoint).
+  Insert("l", Cache::Priority::LOW);
+  ValidateLRUList({"c", "d", "e", "l", "k", "z"}, 2, 1, 3);
+  Insert("m", Cache::Priority::LOW);
+  ValidateLRUList({"d", "e", "l", "m", "k", "z"}, 2, 2, 2);
+
+  Erase("k");
+  ValidateLRUList({"d", "e", "l", "m", "z"}, 1, 2, 2);
+  Erase("z");
+  ValidateLRUList({"d", "e", "l", "m"}, 0, 2, 2);
+
+  // Bottom-pri entries will be inserted to the tail of bottom-pri list.
+  Insert("f", Cache::Priority::BOTTOM);
+  ValidateLRUList({"d", "e", "f", "l", "m"}, 0, 2, 3);
+  Insert("g", Cache::Priority::BOTTOM);
+  ValidateLRUList({"d", "e", "f", "g", "l", "m"}, 0, 2, 4);
+
+  // High-pri entries will be inserted to the tail of full list.
+  Insert("o", Cache::Priority::HIGH);
+  ValidateLRUList({"e", "f", "g", "l", "m", "o"}, 1, 2, 3);
+  Insert("p", Cache::Priority::HIGH);
+  ValidateLRUList({"f", "g", "l", "m", "o", "p"}, 2, 2, 2);
 }
 
 TEST_F(LRUCacheTest, EntriesWithPriority) {
-  // Allocate 2 cache entries to high-pri pool.
-  NewCache(5, 0.45);
+  // Allocate 2 cache entries to high-pri pool and 2 to low-pri pool.
+  NewCache(6, /* high_pri_pool_ratio */ 0.35, /* low_pri_pool_ratio */ 0.35);
 
   Insert("a", Cache::Priority::LOW);
   Insert("b", Cache::Priority::LOW);
+  ValidateLRUList({"a", "b"}, 0, 2, 0);
+  // Low-pri entries can overflow to bottom-pri pool.
   Insert("c", Cache::Priority::LOW);
-  ValidateLRUList({"a", "b", "c"}, 0);
+  ValidateLRUList({"a", "b", "c"}, 0, 2, 1);
 
-  // Low-pri entries can take high-pri pool capacity if available
+  // Bottom-pri entries can take high-pri pool capacity if available
+  Insert("t", Cache::Priority::LOW);
   Insert("u", Cache::Priority::LOW);
+  ValidateLRUList({"a", "b", "c", "t", "u"}, 0, 2, 3);
   Insert("v", Cache::Priority::LOW);
-  ValidateLRUList({"a", "b", "c", "u", "v"}, 0);
+  ValidateLRUList({"a", "b", "c", "t", "u", "v"}, 0, 2, 4);
+  Insert("w", Cache::Priority::LOW);
+  ValidateLRUList({"b", "c", "t", "u", "v", "w"}, 0, 2, 4);
 
   Insert("X", Cache::Priority::HIGH);
   Insert("Y", Cache::Priority::HIGH);
-  ValidateLRUList({"c", "u", "v", "X", "Y"}, 2);
+  ValidateLRUList({"t", "u", "v", "w", "X", "Y"}, 2, 2, 2);
 
-  // High-pri entries can overflow to low-pri pool.
+  // After lookup, the high-pri entry 'X' got spilled over to the low-pri pool.
+  // The low-pri entry 'v' got spilled over to the bottom-pri pool.
   Insert("Z", Cache::Priority::HIGH);
-  ValidateLRUList({"u", "v", "X", "Y", "Z"}, 2);
+  ValidateLRUList({"u", "v", "w", "X", "Y", "Z"}, 2, 2, 2);
 
   // Low-pri entries will be inserted to head of low-pri pool.
   Insert("a", Cache::Priority::LOW);
-  ValidateLRUList({"v", "X", "a", "Y", "Z"}, 2);
+  ValidateLRUList({"v", "w", "X", "a", "Y", "Z"}, 2, 2, 2);
 
-  // Low-pri entries will be inserted to head of high-pri pool after lookup.
+  // After lookup, the high-pri entry 'Y' got spilled over to the low-pri pool.
+  // The low-pri entry 'X' got spilled over to the bottom-pri pool.
   ASSERT_TRUE(Lookup("v"));
-  ValidateLRUList({"X", "a", "Y", "Z", "v"}, 2);
+  ValidateLRUList({"w", "X", "a", "Y", "Z", "v"}, 2, 2, 2);
 
-  // High-pri entries will be inserted to the head of the list after lookup.
+  // After lookup, the high-pri entry 'Z' got spilled over to the low-pri pool.
+  // The low-pri entry 'a' got spilled over to the bottom-pri pool.
   ASSERT_TRUE(Lookup("X"));
-  ValidateLRUList({"a", "Y", "Z", "v", "X"}, 2);
+  ValidateLRUList({"w", "a", "Y", "Z", "v", "X"}, 2, 2, 2);
+
+  // After lookup, the low pri entry 'Z' got promoted back to high-pri pool. The
+  // high-pri entry 'v' got spilled over to the low-pri pool.
   ASSERT_TRUE(Lookup("Z"));
-  ValidateLRUList({"a", "Y", "v", "X", "Z"}, 2);
+  ValidateLRUList({"w", "a", "Y", "v", "X", "Z"}, 2, 2, 2);
 
   Erase("Y");
-  ValidateLRUList({"a", "v", "X", "Z"}, 2);
+  ValidateLRUList({"w", "a", "v", "X", "Z"}, 2, 1, 2);
   Erase("X");
-  ValidateLRUList({"a", "v", "Z"}, 1);
+  ValidateLRUList({"w", "a", "v", "Z"}, 1, 1, 2);
+
   Insert("d", Cache::Priority::LOW);
   Insert("e", Cache::Priority::LOW);
-  ValidateLRUList({"a", "v", "d", "e", "Z"}, 1);
+  ValidateLRUList({"w", "a", "v", "d", "e", "Z"}, 1, 2, 3);
+
   Insert("f", Cache::Priority::LOW);
   Insert("g", Cache::Priority::LOW);
-  ValidateLRUList({"d", "e", "f", "g", "Z"}, 1);
+  ValidateLRUList({"v", "d", "e", "f", "g", "Z"}, 1, 2, 3);
   ASSERT_TRUE(Lookup("d"));
-  ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
+  ValidateLRUList({"v", "e", "f", "g", "Z", "d"}, 2, 2, 2);
+
+  // Erase some entries.
+  Erase("e");
+  Erase("f");
+  Erase("Z");
+  ValidateLRUList({"v", "g", "d"}, 1, 1, 1);
+
+  // Bottom-pri entries can take low- and high-pri pool capacity if available
+  Insert("o", Cache::Priority::BOTTOM);
+  ValidateLRUList({"v", "o", "g", "d"}, 1, 1, 2);
+  Insert("p", Cache::Priority::BOTTOM);
+  ValidateLRUList({"v", "o", "p", "g", "d"}, 1, 1, 3);
+  Insert("q", Cache::Priority::BOTTOM);
+  ValidateLRUList({"v", "o", "p", "q", "g", "d"}, 1, 1, 4);
+
+  // High-pri entries can overflow to low-pri pool, and bottom-pri entries will
+  // be evicted.
+  Insert("x", Cache::Priority::HIGH);
+  ValidateLRUList({"o", "p", "q", "g", "d", "x"}, 2, 1, 3);
+  Insert("y", Cache::Priority::HIGH);
+  ValidateLRUList({"p", "q", "g", "d", "x", "y"}, 2, 2, 2);
+  Insert("z", Cache::Priority::HIGH);
+  ValidateLRUList({"q", "g", "d", "x", "y", "z"}, 2, 2, 2);
+
+  // 'g' is bottom-pri before this lookup, it will be inserted to head of
+  // high-pri pool after lookup.
+  ASSERT_TRUE(Lookup("g"));
+  ValidateLRUList({"q", "d", "x", "y", "z", "g"}, 2, 2, 2);
+
+  // High-pri entries will be inserted to head of high-pri pool after lookup.
+  ASSERT_TRUE(Lookup("z"));
+  ValidateLRUList({"q", "d", "x", "y", "g", "z"}, 2, 2, 2);
+
+  // Bottom-pri entries will be inserted to head of high-pri pool after lookup.
+  ASSERT_TRUE(Lookup("d"));
+  ValidateLRUList({"q", "x", "y", "g", "z", "d"}, 2, 2, 2);
+
+  // Bottom-pri entries will be inserted to the tail of bottom-pri list.
+  Insert("m", Cache::Priority::BOTTOM);
+  ValidateLRUList({"x", "m", "y", "g", "z", "d"}, 2, 2, 2);
+
+  // Bottom-pri entries will be inserted to head of high-pri pool after lookup.
+  ASSERT_TRUE(Lookup("m"));
+  ValidateLRUList({"x", "y", "g", "z", "d", "m"}, 2, 2, 2);
 }
+
+// TODO: FastLRUCache and ClockCache use the same tests. We can probably remove
+// them from FastLRUCache after ClockCache becomes productive, and we don't plan
+// to use or maintain FastLRUCache any more.
+namespace fast_lru_cache {
+
+// TODO(guido) Replicate LRU policy tests from LRUCache here.
+class FastLRUCacheTest : public testing::Test {
+ public:
+  FastLRUCacheTest() {}
+  ~FastLRUCacheTest() override { DeleteCache(); }
+
+  void DeleteCache() {
+    if (cache_ != nullptr) {
+      cache_->~LRUCacheShard();
+      port::cacheline_aligned_free(cache_);
+      cache_ = nullptr;
+    }
+  }
+
+  void NewCache(size_t capacity) {
+    DeleteCache();
+    cache_ = reinterpret_cast<LRUCacheShard*>(
+        port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
+    new (cache_) LRUCacheShard(capacity, 1 /*estimated_value_size*/,
+                               false /*strict_capacity_limit*/,
+                               kDontChargeCacheMetadata);
+  }
+
+  Status Insert(const std::string& key) {
+    return cache_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
+                          nullptr /*deleter*/, nullptr /*handle*/,
+                          Cache::Priority::LOW);
+  }
+
+  Status Insert(char key, size_t len) { return Insert(std::string(len, key)); }
+
+  size_t CalcEstimatedHandleChargeWrapper(
+      size_t estimated_value_size,
+      CacheMetadataChargePolicy metadata_charge_policy) {
+    return LRUCacheShard::CalcEstimatedHandleCharge(estimated_value_size,
+                                                    metadata_charge_policy);
+  }
+
+  int CalcHashBitsWrapper(size_t capacity, size_t estimated_value_size,
+                          CacheMetadataChargePolicy metadata_charge_policy) {
+    return LRUCacheShard::CalcHashBits(capacity, estimated_value_size,
+                                       metadata_charge_policy);
+  }
+
+  // Maximum number of items that a shard can hold.
+  double CalcMaxOccupancy(size_t capacity, size_t estimated_value_size,
+                          CacheMetadataChargePolicy metadata_charge_policy) {
+    size_t handle_charge = LRUCacheShard::CalcEstimatedHandleCharge(
+        estimated_value_size, metadata_charge_policy);
+    return capacity / (kLoadFactor * handle_charge);
+  }
+  bool TableSizeIsAppropriate(int hash_bits, double max_occupancy) {
+    if (hash_bits == 0) {
+      return max_occupancy <= 1;
+    } else {
+      return (1 << hash_bits >= max_occupancy) &&
+             (1 << (hash_bits - 1) <= max_occupancy);
+    }
+  }
+
+ private:
+  LRUCacheShard* cache_ = nullptr;
+};
+
+TEST_F(FastLRUCacheTest, ValidateKeySize) {
+  NewCache(3);
+  EXPECT_OK(Insert('a', 16));
+  EXPECT_NOK(Insert('b', 15));
+  EXPECT_OK(Insert('b', 16));
+  EXPECT_NOK(Insert('c', 17));
+  EXPECT_NOK(Insert('d', 1000));
+  EXPECT_NOK(Insert('e', 11));
+  EXPECT_NOK(Insert('f', 0));
+}
+
+TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
+  size_t capacity;
+  size_t estimated_value_size;
+  double max_occupancy;
+  int hash_bits;
+  CacheMetadataChargePolicy metadata_charge_policy;
+  // Vary the cache capacity, fix the element charge.
+  for (int i = 0; i < 2048; i++) {
+    capacity = i;
+    estimated_value_size = 0;
+    metadata_charge_policy = kFullChargeCacheMetadata;
+    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
+                                     metadata_charge_policy);
+    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                    metadata_charge_policy);
+    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+  }
+  // Fix the cache capacity, vary the element charge.
+  for (int i = 0; i < 1024; i++) {
+    capacity = 1024;
+    estimated_value_size = i;
+    metadata_charge_policy = kFullChargeCacheMetadata;
+    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
+                                     metadata_charge_policy);
+    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                    metadata_charge_policy);
+    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+  }
+  // Zero-capacity cache, and only values have charge.
+  capacity = 0;
+  estimated_value_size = 1;
+  metadata_charge_policy = kDontChargeCacheMetadata;
+  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                  metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
+  // Zero-capacity cache, and only metadata has charge.
+  capacity = 0;
+  estimated_value_size = 0;
+  metadata_charge_policy = kFullChargeCacheMetadata;
+  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                  metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
+  // Small cache, large elements.
+  capacity = 1024;
+  estimated_value_size = 8192;
+  metadata_charge_policy = kFullChargeCacheMetadata;
+  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                  metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
+  // Large capacity.
+  capacity = 31924172;
+  estimated_value_size = 8192;
+  metadata_charge_policy = kFullChargeCacheMetadata;
+  max_occupancy =
+      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
+  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                  metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+}
+
+}  // namespace fast_lru_cache
+
+namespace hyper_clock_cache {
+
+class ClockCacheTest : public testing::Test {
+ public:
+  ClockCacheTest() {}
+  ~ClockCacheTest() override { DeleteShard(); }
+
+  void DeleteShard() {
+    if (shard_ != nullptr) {
+      shard_->~ClockCacheShard();
+      port::cacheline_aligned_free(shard_);
+      shard_ = nullptr;
+    }
+  }
+
+  void NewShard(size_t capacity, bool strict_capacity_limit = true) {
+    DeleteShard();
+    shard_ = reinterpret_cast<ClockCacheShard*>(
+        port::cacheline_aligned_alloc(sizeof(ClockCacheShard)));
+    new (shard_) ClockCacheShard(capacity, 1, strict_capacity_limit,
+                                 kDontChargeCacheMetadata);
+  }
+
+  Status Insert(const UniqueId64x2& hashed_key,
+                Cache::Priority priority = Cache::Priority::LOW) {
+    return shard_->Insert(TestKey(hashed_key), hashed_key, nullptr /*value*/,
+                          1 /*charge*/, nullptr /*deleter*/, nullptr /*handle*/,
+                          priority);
+  }
+
+  Status Insert(char key, Cache::Priority priority = Cache::Priority::LOW) {
+    return Insert(TestHashedKey(key), priority);
+  }
+
+  Status InsertWithLen(char key, size_t len) {
+    std::string skey(len, key);
+    return shard_->Insert(skey, TestHashedKey(key), nullptr /*value*/,
+                          1 /*charge*/, nullptr /*deleter*/, nullptr /*handle*/,
+                          Cache::Priority::LOW);
+  }
+
+  bool Lookup(const Slice& key, const UniqueId64x2& hashed_key,
+              bool useful = true) {
+    auto handle = shard_->Lookup(key, hashed_key);
+    if (handle) {
+      shard_->Release(handle, useful, /*erase_if_last_ref=*/false);
+      return true;
+    }
+    return false;
+  }
+
+  bool Lookup(const UniqueId64x2& hashed_key, bool useful = true) {
+    return Lookup(TestKey(hashed_key), hashed_key, useful);
+  }
+
+  bool Lookup(char key, bool useful = true) {
+    return Lookup(TestHashedKey(key), useful);
+  }
+
+  void Erase(char key) {
+    UniqueId64x2 hashed_key = TestHashedKey(key);
+    shard_->Erase(TestKey(hashed_key), hashed_key);
+  }
+
+  static inline Slice TestKey(const UniqueId64x2& hashed_key) {
+    return Slice(reinterpret_cast<const char*>(&hashed_key), 16U);
+  }
+
+  static inline UniqueId64x2 TestHashedKey(char key) {
+    // For testing hash near-collision behavior, put the variance in
+    // hashed_key in bits that are unlikely to be used as hash bits.
+    return {(static_cast<uint64_t>(key) << 56) + 1234U, 5678U};
+  }
+
+  ClockCacheShard* shard_ = nullptr;
+};
+
+TEST_F(ClockCacheTest, Misc) {
+  NewShard(3);
+
+  // Key size stuff
+  EXPECT_OK(InsertWithLen('a', 16));
+  EXPECT_NOK(InsertWithLen('b', 15));
+  EXPECT_OK(InsertWithLen('b', 16));
+  EXPECT_NOK(InsertWithLen('c', 17));
+  EXPECT_NOK(InsertWithLen('d', 1000));
+  EXPECT_NOK(InsertWithLen('e', 11));
+  EXPECT_NOK(InsertWithLen('f', 0));
+
+  // Some of this is motivated by code coverage
+  std::string wrong_size_key(15, 'x');
+  EXPECT_FALSE(Lookup(wrong_size_key, TestHashedKey('x')));
+  EXPECT_FALSE(shard_->Ref(nullptr));
+  EXPECT_FALSE(shard_->Release(nullptr));
+  shard_->Erase(wrong_size_key, TestHashedKey('x'));  // no-op
+}
+
+TEST_F(ClockCacheTest, Limits) {
+  NewShard(3, false /*strict_capacity_limit*/);
+  for (bool strict_capacity_limit : {false, true, false}) {
+    SCOPED_TRACE("strict_capacity_limit = " +
+                 std::to_string(strict_capacity_limit));
+
+    // Also tests switching between strict limit and not
+    shard_->SetStrictCapacityLimit(strict_capacity_limit);
+
+    UniqueId64x2 hkey = TestHashedKey('x');
+
+    // Single entry charge beyond capacity
+    {
+      Status s = shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/,
+                                5 /*charge*/, nullptr /*deleter*/,
+                                nullptr /*handle*/, Cache::Priority::LOW);
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+    }
+
+    // Single entry fills capacity
+    {
+      ClockHandle* h;
+      ASSERT_OK(shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/,
+                               3 /*charge*/, nullptr /*deleter*/, &h,
+                               Cache::Priority::LOW));
+      // Try to insert more
+      Status s = Insert('a');
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+      // Release entry filling capacity.
+      // Cover useful = false case.
+      shard_->Release(h, false /*useful*/, false /*erase_if_last_ref*/);
+    }
+
+    // Insert more than table size can handle (cleverly using zero-charge
+    // entries) to exceed occupancy limit.
+    {
+      size_t n = shard_->GetTableAddressCount() + 1;
+      std::unique_ptr<ClockHandle* []> ha { new ClockHandle* [n] {} };
+      Status s;
+      for (size_t i = 0; i < n && s.ok(); ++i) {
+        hkey[1] = i;
+        s = shard_->Insert(TestKey(hkey), hkey, nullptr /*value*/, 0 /*charge*/,
+                           nullptr /*deleter*/, &ha[i], Cache::Priority::LOW);
+        if (i == 0) {
+          EXPECT_OK(s);
+        }
+      }
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+      // Same result if not keeping a reference
+      s = Insert('a');
+      if (strict_capacity_limit) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+      } else {
+        EXPECT_OK(s);
+      }
+
+      // Regardless, we didn't allow table to actually get full
+      EXPECT_LT(shard_->GetOccupancyCount(), shard_->GetTableAddressCount());
+
+      // Release handles
+      for (size_t i = 0; i < n; ++i) {
+        if (ha[i]) {
+          shard_->Release(ha[i]);
+        }
+      }
+    }
+  }
+}
+
+TEST_F(ClockCacheTest, ClockEvictionTest) {
+  for (bool strict_capacity_limit : {false, true}) {
+    SCOPED_TRACE("strict_capacity_limit = " +
+                 std::to_string(strict_capacity_limit));
+
+    NewShard(6, strict_capacity_limit);
+    EXPECT_OK(Insert('a', Cache::Priority::BOTTOM));
+    EXPECT_OK(Insert('b', Cache::Priority::LOW));
+    EXPECT_OK(Insert('c', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('d', Cache::Priority::BOTTOM));
+    EXPECT_OK(Insert('e', Cache::Priority::LOW));
+    EXPECT_OK(Insert('f', Cache::Priority::HIGH));
+
+    EXPECT_TRUE(Lookup('a', /*use*/ false));
+    EXPECT_TRUE(Lookup('b', /*use*/ false));
+    EXPECT_TRUE(Lookup('c', /*use*/ false));
+    EXPECT_TRUE(Lookup('d', /*use*/ false));
+    EXPECT_TRUE(Lookup('e', /*use*/ false));
+    EXPECT_TRUE(Lookup('f', /*use*/ false));
+
+    // Ensure bottom are evicted first, even if new entries are low
+    EXPECT_OK(Insert('g', Cache::Priority::LOW));
+    EXPECT_OK(Insert('h', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('a', /*use*/ false));
+    EXPECT_TRUE(Lookup('b', /*use*/ false));
+    EXPECT_TRUE(Lookup('c', /*use*/ false));
+    EXPECT_FALSE(Lookup('d', /*use*/ false));
+    EXPECT_TRUE(Lookup('e', /*use*/ false));
+    EXPECT_TRUE(Lookup('f', /*use*/ false));
+    // Mark g & h useful
+    EXPECT_TRUE(Lookup('g', /*use*/ true));
+    EXPECT_TRUE(Lookup('h', /*use*/ true));
+
+    // Then old LOW entries
+    EXPECT_OK(Insert('i', Cache::Priority::LOW));
+    EXPECT_OK(Insert('j', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('b', /*use*/ false));
+    EXPECT_TRUE(Lookup('c', /*use*/ false));
+    EXPECT_FALSE(Lookup('e', /*use*/ false));
+    EXPECT_TRUE(Lookup('f', /*use*/ false));
+    // Mark g & h useful once again
+    EXPECT_TRUE(Lookup('g', /*use*/ true));
+    EXPECT_TRUE(Lookup('h', /*use*/ true));
+    EXPECT_TRUE(Lookup('i', /*use*/ false));
+    EXPECT_TRUE(Lookup('j', /*use*/ false));
+
+    // Then old HIGH entries
+    EXPECT_OK(Insert('k', Cache::Priority::LOW));
+    EXPECT_OK(Insert('l', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('c', /*use*/ false));
+    EXPECT_FALSE(Lookup('f', /*use*/ false));
+    EXPECT_TRUE(Lookup('g', /*use*/ false));
+    EXPECT_TRUE(Lookup('h', /*use*/ false));
+    EXPECT_TRUE(Lookup('i', /*use*/ false));
+    EXPECT_TRUE(Lookup('j', /*use*/ false));
+    EXPECT_TRUE(Lookup('k', /*use*/ false));
+    EXPECT_TRUE(Lookup('l', /*use*/ false));
+
+    // Then the (roughly) least recently useful
+    EXPECT_OK(Insert('m', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('n', Cache::Priority::HIGH));
+
+    EXPECT_TRUE(Lookup('g', /*use*/ false));
+    EXPECT_TRUE(Lookup('h', /*use*/ false));
+    EXPECT_FALSE(Lookup('i', /*use*/ false));
+    EXPECT_FALSE(Lookup('j', /*use*/ false));
+    EXPECT_TRUE(Lookup('k', /*use*/ false));
+    EXPECT_TRUE(Lookup('l', /*use*/ false));
+
+    // Now try changing capacity down
+    shard_->SetCapacity(4);
+    // Insert to ensure evictions happen
+    EXPECT_OK(Insert('o', Cache::Priority::LOW));
+    EXPECT_OK(Insert('p', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('g', /*use*/ false));
+    EXPECT_FALSE(Lookup('h', /*use*/ false));
+    EXPECT_FALSE(Lookup('k', /*use*/ false));
+    EXPECT_FALSE(Lookup('l', /*use*/ false));
+    EXPECT_TRUE(Lookup('m', /*use*/ false));
+    EXPECT_TRUE(Lookup('n', /*use*/ false));
+    EXPECT_TRUE(Lookup('o', /*use*/ false));
+    EXPECT_TRUE(Lookup('p', /*use*/ false));
+
+    // Now try changing capacity up
+    EXPECT_TRUE(Lookup('m', /*use*/ true));
+    EXPECT_TRUE(Lookup('n', /*use*/ true));
+    shard_->SetCapacity(6);
+    EXPECT_OK(Insert('q', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('r', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('s', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('t', Cache::Priority::HIGH));
+
+    EXPECT_FALSE(Lookup('o', /*use*/ false));
+    EXPECT_FALSE(Lookup('p', /*use*/ false));
+    EXPECT_TRUE(Lookup('m', /*use*/ false));
+    EXPECT_TRUE(Lookup('n', /*use*/ false));
+    EXPECT_TRUE(Lookup('q', /*use*/ false));
+    EXPECT_TRUE(Lookup('r', /*use*/ false));
+    EXPECT_TRUE(Lookup('s', /*use*/ false));
+    EXPECT_TRUE(Lookup('t', /*use*/ false));
+  }
+}
+
+void IncrementIntDeleter(const Slice& /*key*/, void* value) {
+  *reinterpret_cast<int*>(value) += 1;
+}
+
+// Testing calls to CorrectNearOverflow in Release
+TEST_F(ClockCacheTest, ClockCounterOverflowTest) {
+  NewShard(6, /*strict_capacity_limit*/ false);
+  ClockHandle* h;
+  int deleted = 0;
+  UniqueId64x2 hkey = TestHashedKey('x');
+  ASSERT_OK(shard_->Insert(TestKey(hkey), hkey, &deleted, 1,
+                           IncrementIntDeleter, &h, Cache::Priority::HIGH));
+
+  // Some large number outstanding
+  shard_->TEST_RefN(h, 123456789);
+  // Simulate many lookup/ref + release, plenty to overflow counters
+  for (int i = 0; i < 10000; ++i) {
+    shard_->TEST_RefN(h, 1234567);
+    shard_->TEST_ReleaseN(h, 1234567);
+  }
+  // Mark it invisible (to reach a different CorrectNearOverflow() in Release)
+  shard_->Erase(TestKey(hkey), hkey);
+  // Simulate many more lookup/ref + release (one-by-one would be too
+  // expensive for unit test)
+  for (int i = 0; i < 10000; ++i) {
+    shard_->TEST_RefN(h, 1234567);
+    shard_->TEST_ReleaseN(h, 1234567);
+  }
+  // Free all but last 1
+  shard_->TEST_ReleaseN(h, 123456789);
+  // Still alive
+  ASSERT_EQ(deleted, 0);
+  // Free last ref, which will finalize erasure
+  shard_->Release(h);
+  // Deleted
+  ASSERT_EQ(deleted, 1);
+}
+
+// This test is mostly to exercise some corner case logic, by forcing two
+// keys to have the same hash, and more
+TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
+  NewShard(6, /*strict_capacity_limit*/ false);
+  int deleted = 0;
+  UniqueId64x2 hkey1 = TestHashedKey('x');
+  Slice key1 = TestKey(hkey1);
+  UniqueId64x2 hkey2 = TestHashedKey('y');
+  Slice key2 = TestKey(hkey2);
+  UniqueId64x2 hkey3 = TestHashedKey('z');
+  Slice key3 = TestKey(hkey3);
+  ClockHandle* h1;
+  ASSERT_OK(shard_->Insert(key1, hkey1, &deleted, 1, IncrementIntDeleter, &h1,
+                           Cache::Priority::HIGH));
+  ClockHandle* h2;
+  ASSERT_OK(shard_->Insert(key2, hkey2, &deleted, 1, IncrementIntDeleter, &h2,
+                           Cache::Priority::HIGH));
+  ClockHandle* h3;
+  ASSERT_OK(shard_->Insert(key3, hkey3, &deleted, 1, IncrementIntDeleter, &h3,
+                           Cache::Priority::HIGH));
+
+  // Can repeatedly lookup+release despite the hash collision
+  ClockHandle* tmp_h;
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key1, hkey1);
+    ASSERT_EQ(h1, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key2, hkey2);
+    ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key3, hkey3);
+    ASSERT_EQ(h3, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Make h1 invisible
+  shard_->Erase(key1, hkey1);
+  // Redundant erase
+  shard_->Erase(key1, hkey1);
+
+  // All still alive
+  ASSERT_EQ(deleted, 0);
+
+  // Invisible to Lookup
+  tmp_h = shard_->Lookup(key1, hkey1);
+  ASSERT_EQ(nullptr, tmp_h);
+
+  // Can still find h2, h3
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key2, hkey2);
+    ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key3, hkey3);
+    ASSERT_EQ(h3, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Also Insert with invisible entry there
+  ASSERT_OK(shard_->Insert(key1, hkey1, &deleted, 1, IncrementIntDeleter,
+                           nullptr, Cache::Priority::HIGH));
+  tmp_h = shard_->Lookup(key1, hkey1);
+  // Found but distinct handle
+  ASSERT_NE(nullptr, tmp_h);
+  ASSERT_NE(h1, tmp_h);
+  ASSERT_TRUE(shard_->Release(tmp_h, /*erase_if_last_ref*/ true));
+
+  // tmp_h deleted
+  ASSERT_EQ(deleted--, 1);
+
+  // Release last ref on h1 (already invisible)
+  ASSERT_TRUE(shard_->Release(h1, /*erase_if_last_ref*/ false));
+
+  // h1 deleted
+  ASSERT_EQ(deleted--, 1);
+  h1 = nullptr;
+
+  // Can still find h2, h3
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key2, hkey2);
+    ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key3, hkey3);
+    ASSERT_EQ(h3, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Release last ref on h2
+  ASSERT_FALSE(shard_->Release(h2, /*erase_if_last_ref*/ false));
+
+  // h2 still not deleted (unreferenced in cache)
+  ASSERT_EQ(deleted, 0);
+
+  // Can still find it
+  tmp_h = shard_->Lookup(key2, hkey2);
+  ASSERT_EQ(h2, tmp_h);
+
+  // Release last ref on h2, with erase
+  ASSERT_TRUE(shard_->Release(h2, /*erase_if_last_ref*/ true));
+
+  // h2 deleted
+  ASSERT_EQ(deleted--, 1);
+  tmp_h = shard_->Lookup(key2, hkey2);
+  ASSERT_EQ(nullptr, tmp_h);
+
+  // Can still find h3
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key3, hkey3);
+    ASSERT_EQ(h3, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Release last ref on h3, without erase
+  ASSERT_FALSE(shard_->Release(h3, /*erase_if_last_ref*/ false));
+
+  // h3 still not deleted (unreferenced in cache)
+  ASSERT_EQ(deleted, 0);
+
+  // Explicit erase
+  shard_->Erase(key3, hkey3);
+
+  // h3 deleted
+  ASSERT_EQ(deleted--, 1);
+  tmp_h = shard_->Lookup(key3, hkey3);
+  ASSERT_EQ(nullptr, tmp_h);
+}
+
+// This uses the public API to effectively test CalcHashBits etc.
+TEST_F(ClockCacheTest, TableSizesTest) {
+  for (size_t est_val_size : {1U, 5U, 123U, 2345U, 345678U}) {
+    SCOPED_TRACE("est_val_size = " + std::to_string(est_val_size));
+    for (double est_count : {1.1, 2.2, 511.9, 512.1, 2345.0}) {
+      SCOPED_TRACE("est_count = " + std::to_string(est_count));
+      size_t capacity = static_cast<size_t>(est_val_size * est_count);
+      // kDontChargeCacheMetadata
+      auto cache = HyperClockCacheOptions(
+                       capacity, est_val_size, /*num shard_bits*/ -1,
+                       /*strict_capacity_limit*/ false,
+                       /*memory_allocator*/ nullptr, kDontChargeCacheMetadata)
+                       .MakeSharedCache();
+      // Table sizes are currently only powers of two
+      EXPECT_GE(cache->GetTableAddressCount(), est_count / kLoadFactor);
+      EXPECT_LE(cache->GetTableAddressCount(), est_count / kLoadFactor * 2.0);
+      EXPECT_EQ(cache->GetUsage(), 0);
+
+      // kFullChargeMetaData
+      // Because table sizes are currently only powers of two, sizes get
+      // really weird when metadata is a huge portion of capacity. For example,
+      // doubling the table size could cut by 90% the space available to
+      // values. Therefore, we omit those weird cases for now.
+      if (est_val_size >= 512) {
+        cache = HyperClockCacheOptions(
+                    capacity, est_val_size, /*num shard_bits*/ -1,
+                    /*strict_capacity_limit*/ false,
+                    /*memory_allocator*/ nullptr, kFullChargeCacheMetadata)
+                    .MakeSharedCache();
+        double est_count_after_meta =
+            (capacity - cache->GetUsage()) * 1.0 / est_val_size;
+        EXPECT_GE(cache->GetTableAddressCount(),
+                  est_count_after_meta / kLoadFactor);
+        EXPECT_LE(cache->GetTableAddressCount(),
+                  est_count_after_meta / kLoadFactor * 2.0);
+      }
+    }
+  }
+}
+
+}  // namespace hyper_clock_cache
 
 class TestSecondaryCache : public SecondaryCache {
  public:
@@ -222,8 +1018,9 @@ class TestSecondaryCache : public SecondaryCache {
 
   explicit TestSecondaryCache(size_t capacity)
       : num_inserts_(0), num_lookups_(0), inject_failure_(false) {
-    cache_ = NewLRUCache(capacity, 0, false, 0.5, nullptr,
-                         kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+    cache_ =
+        NewLRUCache(capacity, 0, false, 0.5 /* high_pri_pool_ratio */, nullptr,
+                    kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   }
   ~TestSecondaryCache() override { cache_.reset(); }
 
@@ -233,19 +1030,12 @@ class TestSecondaryCache : public SecondaryCache {
 
   void ResetInjectFailure() { inject_failure_ = false; }
 
-  void SetDbSessionId(const std::string& db_session_id) {
-    // NOTE: we assume the file is smaller than kMaxFileSizeStandardEncoding
-    // for this to work, but that's safe in a test.
-    auto base = OffsetableCacheKey("unknown", db_session_id, 1, 1);
-    ckey_prefix_ = base.CommonPrefixSlice().ToString();
-  }
-
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override {
     if (inject_failure_) {
       return Status::Corruption("Insertion Data Corrupted");
     }
-    EXPECT_TRUE(IsDbSessionLowerAsKeyPrefix(key));
+    CheckCacheKeyCommonPrefix(key);
     size_t size;
     char* buf;
     Status s;
@@ -267,7 +1057,7 @@ class TestSecondaryCache : public SecondaryCache {
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-      bool& is_in_sec_cache) override {
+      bool /*advise_erase*/, bool& is_in_sec_cache) override {
     std::string key_str = key.ToString();
     TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
 
@@ -305,6 +1095,8 @@ class TestSecondaryCache : public SecondaryCache {
     return secondary_handle;
   }
 
+  bool SupportForceErase() const override { return false; }
+
   void Erase(const Slice& /*key*/) override {}
 
   void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) override {
@@ -323,8 +1115,13 @@ class TestSecondaryCache : public SecondaryCache {
 
   uint32_t num_lookups() { return num_lookups_; }
 
-  bool IsDbSessionLowerAsKeyPrefix(const Slice& key) {
-    return key.starts_with(ckey_prefix_);
+  void CheckCacheKeyCommonPrefix(const Slice& key) {
+    Slice current_prefix(key.data(), OffsetableCacheKey::kCommonPrefixSize);
+    if (ckey_prefix_.empty()) {
+      ckey_prefix_ = current_prefix.ToString();
+    } else {
+      EXPECT_EQ(ckey_prefix_, current_prefix.ToString());
+    }
   }
 
  private:
@@ -462,35 +1259,40 @@ Cache::CacheItemHelper LRUCacheSecondaryCacheTest::helper_fail_(
     LRUCacheSecondaryCacheTest::DeletionCallback);
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
   std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, &LRUCacheSecondaryCacheTest::helper_,
-                          str1.length()));
-  std::string str2 = rnd.RandomString(1020);
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
+                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
+  std::string str2 = rnd.RandomString(1021);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, &LRUCacheSecondaryCacheTest::helper_,
-                          str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
+                          &LRUCacheSecondaryCacheTest::helper_, str2.length()));
 
   get_perf_context()->Reset();
   Cache::Handle* handle;
   handle =
-      cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+      cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                     test_item_creator, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should promote k1 and demote k2
   handle =
-      cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_,
+      cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                     test_item_creator, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
@@ -506,27 +1308,32 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   auto item1 = std::make_unique<TestItem>(str1.data(), str1.length());
-  ASSERT_TRUE(cache->Insert("k1", item1.get(), nullptr, str1.length())
+  ASSERT_TRUE(cache->Insert(k1.AsSlice(), item1.get(), nullptr, str1.length())
                   .IsInvalidArgument());
-  ASSERT_OK(cache->Insert("k1", item1.get(),
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1.get(),
                           &LRUCacheSecondaryCacheTest::helper_, str1.length()));
   item1.release();  // Appease clang-analyze "potential memory leak"
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", nullptr, test_item_creator, Cache::Priority::LOW,
-                         true);
+  handle = cache->Lookup(k2.AsSlice(), nullptr, test_item_creator,
+                         Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, false);
   ASSERT_EQ(handle, nullptr);
 
@@ -535,36 +1342,48 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert(
-      "k1", item1, &LRUCacheSecondaryCacheTest::helper_fail_, str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
+                          &LRUCacheSecondaryCacheTest::helper_fail_,
+                          str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert(
-      "k2", item2, &LRUCacheSecondaryCacheTest::helper_fail_, str2.length()));
+  ASSERT_EQ(secondary_cache->num_inserts(), 0u);
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
+                          &LRUCacheSecondaryCacheTest::helper_fail_,
+                          str2.length()));
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_fail_,
-                         test_item_creator, Cache::Priority::LOW, true);
+  handle =
+      cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_fail_,
+                    test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 demotion would have failed
-  handle = cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_fail_,
-                         test_item_creator, Cache::Priority::LOW, true);
+  handle =
+      cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_fail_,
+                    test_item_creator, Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_fail_,
-                         test_item_creator, Cache::Priority::LOW, true);
+  handle =
+      cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_fail_,
+                    test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
@@ -575,36 +1394,41 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, &LRUCacheSecondaryCacheTest::helper_,
-                          str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
+                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, &LRUCacheSecondaryCacheTest::helper_,
-                          str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
+                          &LRUCacheSecondaryCacheTest::helper_, str2.length()));
 
   Cache::Handle* handle;
   SetFailCreate(true);
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 creation would have failed
-  handle = cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
@@ -616,38 +1440,43 @@ TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
-  LRUCacheOptions opts(1024, 0, /*_strict_capacity_limit=*/true, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       true /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, &LRUCacheSecondaryCacheTest::helper_,
-                          str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
+                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, &LRUCacheSecondaryCacheTest::helper_,
-                          str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
+                          &LRUCacheSecondaryCacheTest::helper_, str2.length()));
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   // k1 promotion should fail due to the block cache being at capacity,
   // but the lookup should still succeed
   Cache::Handle* handle2;
-  handle2 = cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_,
+  handle2 = cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                           test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle2, nullptr);
   // Since k1 didn't get inserted, k2 should still be in cache
   cache->Release(handle);
   cache->Release(handle2);
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
@@ -665,8 +1494,11 @@ TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -684,9 +1516,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   // all the blocks will be accessed.
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -762,7 +1591,10 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
 // insert and cache block_1 in the block cache (this is the different place
 // from TestSecondaryCacheCorrectness1)
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
-  LRUCacheOptions opts(6100, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+  LRUCacheOptions opts(6100 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
@@ -778,9 +1610,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   options.env = fault_env_.get();
   fault_fs_->SetFailGetUniqueId(true);
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -855,8 +1684,11 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
 // cache all the blocks in the block cache and there is not secondary cache
 // insertion. 2 lookup is needed for the blocks.
 TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
-  LRUCacheOptions opts(1024 * 1024, 0, false, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -872,9 +1704,6 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   fault_fs_->SetFailGetUniqueId(true);
 
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -909,8 +1738,11 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
 }
 
 TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
-  LRUCacheOptions opts(8 * 1024, 0, false, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(8 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -924,9 +1756,6 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
   options.env = fault_env_.get();
   fault_fs_->SetFailGetUniqueId(true);
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 256;
   for (int i = 0; i < N; i++) {
@@ -958,8 +1787,11 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
 TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -974,9 +1806,6 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   options.env = fault_env_.get();
   fault_fs_->SetFailGetUniqueId(true);
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -1050,13 +1879,17 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
-  LRUCacheOptions opts(1024, 2, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+  LRUCacheOptions opts(1024 /* capacity */, 2 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(32 * 1024);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
   const int num_keys = 32;
+  OffsetableCacheKey ock{"foo", "bar", 1};
 
   Random rnd(301);
   std::vector<std::string> values;
@@ -1064,7 +1897,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
     std::string str = rnd.RandomString(1020);
     values.emplace_back(str);
     TestItem* item = new TestItem(str.data(), str.length());
-    ASSERT_OK(cache->Insert("k" + std::to_string(i), item,
+    ASSERT_OK(cache->Insert(ock.WithOffset(i).AsSlice(), item,
                             &LRUCacheSecondaryCacheTest::helper_,
                             str.length()));
   }
@@ -1074,13 +1907,16 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
   cache->SetCapacity(32 * 1024);
 
   secondary_cache->SetResultMap(
-      {{"k3", TestSecondaryCache::ResultType::DEFER},
-       {"k4", TestSecondaryCache::ResultType::DEFER_AND_FAIL},
-       {"k5", TestSecondaryCache::ResultType::FAIL}});
+      {{ock.WithOffset(3).AsSlice().ToString(),
+        TestSecondaryCache::ResultType::DEFER},
+       {ock.WithOffset(4).AsSlice().ToString(),
+        TestSecondaryCache::ResultType::DEFER_AND_FAIL},
+       {ock.WithOffset(5).AsSlice().ToString(),
+        TestSecondaryCache::ResultType::FAIL}});
   std::vector<Cache::Handle*> results;
   for (int i = 0; i < 6; ++i) {
     results.emplace_back(cache->Lookup(
-        "k" + std::to_string(i), &LRUCacheSecondaryCacheTest::helper_,
+        ock.WithOffset(i).AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
         test_item_creator, Cache::Priority::LOW, false));
   }
   cache->WaitAll(results);
@@ -1106,7 +1942,10 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
 // a sync point callback in TestSecondaryCache::Lookup. We then control the
 // lookup result by setting the ResultMap.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
-  LRUCacheOptions opts(1 << 20, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+  LRUCacheOptions opts(1 << 20 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
@@ -1189,15 +2028,16 @@ class LRUCacheWithStat : public LRUCache {
  public:
   LRUCacheWithStat(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
-      double _high_pri_pool_ratio,
+      double _high_pri_pool_ratio, double _low_pri_pool_ratio,
       std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
       bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDontChargeCacheMetadata,
       const std::shared_ptr<SecondaryCache>& _secondary_cache = nullptr)
       : LRUCache(_capacity, _num_shard_bits, _strict_capacity_limit,
-                 _high_pri_pool_ratio, _memory_allocator, _use_adaptive_mutex,
-                 _metadata_charge_policy, _secondary_cache) {
+                 _high_pri_pool_ratio, _low_pri_pool_ratio, _memory_allocator,
+                 _use_adaptive_mutex, _metadata_charge_policy,
+                 _secondary_cache) {
     insert_count_ = 0;
     lookup_count_ = 0;
   }
@@ -1209,10 +2049,10 @@ class LRUCacheWithStat : public LRUCache {
     return LRUCache::Insert(key, value, charge, deleter, handle, priority);
   }
   Status Insert(const Slice& key, void* value, const CacheItemHelper* helper,
-                size_t chargge, Handle** handle = nullptr,
+                size_t charge, Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
     insert_count_++;
-    return LRUCache::Insert(key, value, helper, chargge, handle, priority);
+    return LRUCache::Insert(key, value, helper, charge, handle, priority);
   }
   Handle* Lookup(const Slice& key, Statistics* stats) override {
     lookup_count_++;
@@ -1240,13 +2080,17 @@ class LRUCacheWithStat : public LRUCache {
 #ifndef ROCKSDB_LITE
 
 TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
-  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions cache_opts(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                             false /* strict_capacity_limit */,
+                             0.5 /* high_pri_pool_ratio */,
+                             nullptr /* memory_allocator */,
                              kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
+      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
+      cache_opts.secondary_cache);
   std::shared_ptr<Cache> cache(tmp_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
@@ -1317,8 +2161,9 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
+      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
+      cache_opts.secondary_cache);
   std::shared_ptr<Cache> cache_new(tmp_cache);
   table_options.block_cache = cache_new;
   table_options.block_size = 4 * 1024;
@@ -1375,13 +2220,17 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
 }
 
 TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
-  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions cache_opts(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                             false /* strict_capacity_limit */,
+                             0.5 /* high_pri_pool_ratio */,
+                             nullptr /* memory_allocator */,
                              kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
+      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
+      cache_opts.secondary_cache);
   std::shared_ptr<Cache> cache(tmp_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
@@ -1479,8 +2328,9 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
+      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
+      cache_opts.secondary_cache);
   std::shared_ptr<Cache> cache_new(tmp_cache);
   table_options.block_cache = cache_new;
   table_options.block_size = 4 * 1024;
@@ -1546,8 +2396,11 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
 
 // Test the option not to use the secondary cache in a certain DB.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1566,9 +2419,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   // all the blocks will be accessed.
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -1641,8 +2491,11 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
 // with new options, which set the lowest_used_cache_tier to
 // kNonVolatileBlockTier. So secondary cache will be used.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1661,9 +2514,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   // all the blocks will be accessed.
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -1736,8 +2586,11 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
 // Two DB test. We create 2 DBs sharing the same block cache and secondary
 // cache. We diable the secondary cache option for DB2.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1761,12 +2614,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   options2.lowest_used_cache_tier = CacheTier::kVolatileTier;
   ASSERT_OK(DB::Open(options2, dbname2, &db2));
   fault_fs_->SetFailGetUniqueId(true);
-
-  // Set the file paranoid check, so after flush, the file will be read
-  // all the blocks will be accessed.
-  std::string session_id;
-  ASSERT_OK(db1->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
 
   WriteOptions wo;
   Random rnd(301);
@@ -1850,6 +2697,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

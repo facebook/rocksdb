@@ -1568,7 +1568,7 @@ Status BlockCacheTraceAnalyzer::Analyze() {
     trace_end_timestamp_in_seconds_ = access.access_timestamp / kMicrosInSecond;
     miss_ratio_stats_.UpdateMetrics(access.access_timestamp,
                                     is_user_access(access.caller),
-                                    access.is_cache_hit == Boolean::kFalse);
+                                    !access.is_cache_hit);
     if (cache_simulator_) {
       cache_simulator_->Access(access);
     }

@@ -147,7 +147,8 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   ASSERT_EQ(histogramWindowing.num(), 100);
   ASSERT_EQ(histogramWindowing.min(), 1);
   ASSERT_EQ(histogramWindowing.max(), 1);
-  ASSERT_EQ(histogramWindowing.Average(), 1);
+  ASSERT_EQ(histogramWindowing.Average(), 1.0);
+  ASSERT_EQ(histogramWindowing.StandardDeviation(), 0.0);
 
   PopulateHistogram(histogramWindowing, 2, 2, 100);
   clock->SleepForMicroseconds(micros_per_window);
@@ -155,6 +156,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   ASSERT_EQ(histogramWindowing.min(), 1);
   ASSERT_EQ(histogramWindowing.max(), 2);
   ASSERT_EQ(histogramWindowing.Average(), 1.5);
+  ASSERT_GT(histogramWindowing.StandardDeviation(), 0.0);
 
   PopulateHistogram(histogramWindowing, 3, 3, 100);
   clock->SleepForMicroseconds(micros_per_window);
@@ -162,6 +164,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   ASSERT_EQ(histogramWindowing.min(), 1);
   ASSERT_EQ(histogramWindowing.max(), 3);
   ASSERT_EQ(histogramWindowing.Average(), 2.0);
+  ASSERT_GT(histogramWindowing.StandardDeviation(), 0.0);
 
   // dropping oldest window with value 1, remaining 2 ~ 4
   PopulateHistogram(histogramWindowing, 4, 4, 100);
@@ -170,6 +173,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   ASSERT_EQ(histogramWindowing.min(), 2);
   ASSERT_EQ(histogramWindowing.max(), 4);
   ASSERT_EQ(histogramWindowing.Average(), 3.0);
+  ASSERT_GT(histogramWindowing.StandardDeviation(), 0.0);
 
   // dropping oldest window with value 2, remaining 3 ~ 5
   PopulateHistogram(histogramWindowing, 5, 5, 100);
@@ -178,6 +182,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   ASSERT_EQ(histogramWindowing.min(), 3);
   ASSERT_EQ(histogramWindowing.max(), 5);
   ASSERT_EQ(histogramWindowing.Average(), 4.0);
+  ASSERT_GT(histogramWindowing.StandardDeviation(), 0.0);
 }
 
 TEST_F(HistogramTest, HistogramWindowingMerge) {
@@ -225,9 +230,25 @@ TEST_F(HistogramTest, HistogramWindowingMerge) {
   ASSERT_EQ(histogramWindowing.max(), 5);
 }
 
+TEST_F(HistogramTest, LargeStandardDeviation) {
+  HistogramImpl histogram;
+  PopulateHistogram(histogram, 1, 1000000);
+  ASSERT_LT(fabs(histogram.StandardDeviation() - 288675), 1);
+}
+
+TEST_F(HistogramTest, LostUpdateStandardDeviation) {
+  HistogramImpl histogram;
+  PopulateHistogram(histogram, 100, 100, 100);
+  // Simulate a possible lost update (since they are not atomic)
+  histogram.TEST_GetStats().sum_squares_ -= 10000;
+  // Ideally zero, but should never be negative or NaN
+  ASSERT_GE(histogram.StandardDeviation(), 0.0);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

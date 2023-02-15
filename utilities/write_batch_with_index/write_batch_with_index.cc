@@ -25,8 +25,9 @@
 namespace ROCKSDB_NAMESPACE {
 struct WriteBatchWithIndex::Rep {
   explicit Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
-               size_t max_bytes = 0, bool _overwrite_key = false)
-      : write_batch(reserved_bytes, max_bytes, /*protection_bytes_per_key=*/0,
+               size_t max_bytes = 0, bool _overwrite_key = false,
+               size_t protection_bytes_per_key = 0)
+      : write_batch(reserved_bytes, max_bytes, protection_bytes_per_key,
                     index_comparator ? index_comparator->timestamp_size() : 0),
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
@@ -152,6 +153,13 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
 #endif
   assert(success);
 
+  const Comparator* const ucmp = comparator.GetComparator(column_family_id);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+
+  if (ts_sz > 0) {
+    key.remove_suffix(ts_sz);
+  }
+
   auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
   auto* index_entry =
       new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
@@ -262,9 +270,9 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
 
 WriteBatchWithIndex::WriteBatchWithIndex(
     const Comparator* default_index_comparator, size_t reserved_bytes,
-    bool overwrite_key, size_t max_bytes)
+    bool overwrite_key, size_t max_bytes, size_t protection_bytes_per_key)
     : rep(new Rep(default_index_comparator, reserved_bytes, max_bytes,
-                  overwrite_key)) {}
+                  overwrite_key, protection_bytes_per_key)) {}
 
 WriteBatchWithIndex::~WriteBatchWithIndex() {}
 

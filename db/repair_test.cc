@@ -16,6 +16,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/transaction_log.h"
+#include "table/unique_id_impl.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -47,10 +48,10 @@ class RepairTest : public DBTestBase {
   void ReopenWithSstIdVerify() {
     std::atomic_int verify_passed{0};
     SyncPoint::GetInstance()->SetCallBack(
-        "Version::VerifySstUniqueIds::Passed", [&](void* arg) {
+        "BlockBasedTable::Open::PassedVerifyUniqueId", [&](void* arg) {
           // override job status
-          auto id = static_cast<std::string*>(arg);
-          assert(!id->empty());
+          auto id = static_cast<UniqueId64x2*>(arg);
+          assert(*id != kNullUniqueId64x2);
           verify_passed++;
         });
     SyncPoint::GetInstance()->EnableProcessing();
@@ -59,6 +60,7 @@ class RepairTest : public DBTestBase {
     Reopen(options);
 
     ASSERT_GT(verify_passed, 0);
+    SyncPoint::GetInstance()->DisableProcessing();
   }
 };
 
@@ -384,9 +386,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
   ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[1], &fname_to_props));
   ASSERT_EQ(fname_to_props.size(), 2U);
   for (const auto& fname_and_props : fname_to_props) {
-    std::string comparator_name (
-      InternalKeyComparator(rev_opts.comparator).Name());
-    comparator_name = comparator_name.substr(comparator_name.find(':') + 1);
+    std::string comparator_name(rev_opts.comparator->Name());
     ASSERT_EQ(comparator_name,
               fname_and_props.second->comparator_name);
   }
@@ -427,6 +427,7 @@ TEST_F(RepairTest, DbNameContainsTrailingSlash) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

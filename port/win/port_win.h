@@ -70,20 +70,6 @@ extern const bool kDefaultToAdaptiveMutex;
 
 namespace port {
 
-// VS < 2015
-#if defined(_MSC_VER) && (_MSC_VER < 1900)
-
-// VS 15 has snprintf
-#define snprintf _snprintf
-
-#define ROCKSDB_NOEXCEPT
-
-#else // VS >= 2015 or MinGW
-
-#define ROCKSDB_NOEXCEPT noexcept
-
-#endif //_MSC_VER
-
 // "Windows is designed to run on little-endian computer architectures."
 // https://docs.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types
 constexpr bool kLittleEndian = true;
@@ -93,12 +79,15 @@ class CondVar;
 
 class Mutex {
  public:
+  static const char* kName() { return "std::mutex"; }
 
-   /* implicit */ Mutex(bool adaptive = kDefaultToAdaptiveMutex)
+  explicit Mutex(bool IGNORED_adaptive = kDefaultToAdaptiveMutex)
 #ifndef NDEBUG
-     : locked_(false)
+      : locked_(false)
 #endif
-   { }
+  {
+    (void)IGNORED_adaptive;
+  }
 
   ~Mutex();
 
@@ -133,6 +122,11 @@ class Mutex {
     assert(locked_);
 #endif
   }
+
+  // Also implement std Lockable
+  inline void lock() { Lock(); }
+  inline void unlock() { Unlock(); }
+  inline bool try_lock() { return TryLock(); }
 
   // Mutex is move only with lock ownership transfer
   Mutex(const Mutex&) = delete;
@@ -230,8 +224,8 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifdef ROCKSDB_JEMALLOC
 // Separate inlines so they can be replaced if needed
-void* jemalloc_aligned_alloc(size_t size, size_t alignment) ROCKSDB_NOEXCEPT;
-void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT;
+void* jemalloc_aligned_alloc(size_t size, size_t alignment) noexcept;
+void jemalloc_aligned_free(void* p) noexcept;
 #endif
 
 inline void *cacheline_aligned_alloc(size_t size) {
@@ -252,13 +246,8 @@ inline void cacheline_aligned_free(void *memblock) {
 
 extern const size_t kPageSize;
 
-// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52991 for MINGW32
-// could not be worked around with by -mno-ms-bitfields
-#ifndef __MINGW32__
-#define ALIGN_AS(n) __declspec(align(n))
-#else
-#define ALIGN_AS(n)
-#endif
+// Part of C++11
+#define ALIGN_AS(n) alignas(n)
 
 static inline void AsmVolatilePause() {
 #if defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64) || defined(_M_ARM)

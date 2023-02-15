@@ -16,7 +16,7 @@ Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
     const ReadOptions& read_options, bool use_cache, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<TBlocklike>* filter_block) {
+    CachableEntry<TBlocklike>* filter_block, BlockType block_type) {
   PERF_TIMER_GUARD(read_filter_block_nanos);
 
   assert(table);
@@ -29,7 +29,7 @@ Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
   const Status s =
       table->RetrieveBlock(prefetch_buffer, read_options, rep->filter_handle,
                            UncompressionDict::GetEmptyDict(), filter_block,
-                           BlockType::kFilter, get_context, lookup_context,
+                           block_type, get_context, lookup_context,
                            /* for_compaction */ false, use_cache,
                            /* wait_for_cache */ true, /* async_read */ false);
 
@@ -67,7 +67,8 @@ template <typename TBlocklike>
 Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<TBlocklike>* filter_block) const {
+    CachableEntry<TBlocklike>* filter_block, BlockType block_type,
+    Env::IOPriority rate_limiter_priority) const {
   assert(filter_block);
 
   if (!filter_block_.IsEmpty()) {
@@ -76,13 +77,14 @@ Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
   }
 
   ReadOptions read_options;
+  read_options.rate_limiter_priority = rate_limiter_priority;
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }
 
   return ReadFilterBlock(table_, nullptr /* prefetch_buffer */, read_options,
                          cache_filter_blocks(), get_context, lookup_context,
-                         filter_block);
+                         filter_block, block_type);
 }
 
 template <typename TBlocklike>
@@ -100,7 +102,8 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     const SliceTransform* prefix_extractor, const Comparator* comparator,
     const Slice* const const_ikey_ptr, bool* filter_checked,
     bool need_upper_bound_check, bool no_io,
-    BlockCacheLookupContext* lookup_context) {
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) {
   if (!prefix_extractor || !prefix_extractor->InDomain(user_key_without_ts)) {
     *filter_checked = false;
     return true;
@@ -112,9 +115,9 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     return true;
   } else {
     *filter_checked = true;
-    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, no_io,
-                          const_ikey_ptr, /* get_context */ nullptr,
-                          lookup_context);
+    return PrefixMayMatch(prefix, no_io, const_ikey_ptr,
+                          /* get_context */ nullptr, lookup_context,
+                          rate_limiter_priority);
   }
 }
 

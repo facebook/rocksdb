@@ -180,4 +180,6 @@ template class CacheReservationManagerImpl<
 template class CacheReservationManagerImpl<CacheEntryRole::kFilterConstruction>;
 template class CacheReservationManagerImpl<CacheEntryRole::kMisc>;
 template class CacheReservationManagerImpl<CacheEntryRole::kWriteBuffer>;
+template class CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>;
+template class CacheReservationManagerImpl<CacheEntryRole::kBlobCache>;
 }  // namespace ROCKSDB_NAMESPACE

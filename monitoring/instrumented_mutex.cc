@@ -35,6 +35,23 @@ void InstrumentedMutex::LockInternal() {
 #ifndef NDEBUG
   ThreadStatusUtil::TEST_StateDelay(ThreadStatus::STATE_MUTEX_WAIT);
 #endif
+#ifdef COERCE_CONTEXT_SWITCH
+  if (stats_code_ == DB_MUTEX_WAIT_MICROS) {
+    thread_local Random rnd(301);
+    if (rnd.OneIn(2)) {
+      if (bg_cv_) {
+        bg_cv_->SignalAll();
+      }
+      sched_yield();
+    } else {
+      uint32_t sleep_us = rnd.Uniform(11) * 1000;
+      if (bg_cv_) {
+        bg_cv_->SignalAll();
+      }
+      SystemClock::Default()->SleepForMicroseconds(sleep_us);
+    }
+  }
+#endif
   mutex_.Lock();
 }
 

@@ -147,8 +147,8 @@ struct BlockBasedTableOptions {
 
   // If cache_index_and_filter_blocks is enabled, cache index and filter
   // blocks with high priority. If set to true, depending on implementation of
-  // block cache, index and filter blocks may be less likely to be evicted
-  // than data blocks.
+  // block cache, index, filter, and other metadata blocks may be less likely
+  // to be evicted than data blocks.
   bool cache_index_and_filter_blocks_with_high_priority = true;
 
   // DEPRECATED: This option will be removed in a future version. For now, this
@@ -251,7 +251,7 @@ struct BlockBasedTableOptions {
   // Use the specified checksum type. Newly created table files will be
   // protected with this checksum type. Old table files will still be readable,
   // even though they have different checksum type.
-  ChecksumType checksum = kCRC32c;
+  ChecksumType checksum = kXXH3;
 
   // Disable block cache. If this is set to true,
   // then no block cache should be used, and the block_cache should
@@ -370,7 +370,20 @@ struct BlockBasedTableOptions {
   // (iii) Compatible existing behavior:
   // Same as kDisabled.
   //
-  // (d) Other CacheEntryRole
+  // (d) CacheEntryRole::kFileMetadata
+  // (i) If kEnabled:
+  // Charge memory usage of file metadata. RocksDB holds one file metadata
+  // structure in-memory per on-disk table file.
+  // If such file metadata's
+  // memory exceeds the avaible space left in the block cache at some point
+  // (i.e, causing a cache full under `LRUCacheOptions::strict_capacity_limit` =
+  // true), creation will fail with Status::MemoryLimit().
+  // (ii) If kDisabled:
+  // Does not charge the memory usage mentioned above.
+  // (iii) Compatible existing behavior:
+  // Same as kDisabled.
+  //
+  // (e) Other CacheEntryRole
   // Not supported.
   // `Status::kNotSupported` will be returned if
   // `CacheEntryRoleOptions::charged` is set to {`kEnabled`, `kDisabled`}.
@@ -628,6 +641,26 @@ struct BlockBasedTableOptions {
   //
   // Default: 8 KB (8 * 1024).
   size_t initial_auto_readahead_size = 8 * 1024;
+
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file if user doesn't provide readahead_size and reads are
+  // sequential.
+  // num_file_reads_for_auto_readahead indicates after how many
+  // sequential reads internal auto prefetching should be start.
+  //
+  // For example, if value is 2 then after reading 2 sequential data blocks on
+  // third data block prefetching will start.
+  // If set 0, it will start prefetching from the first read.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{num_file_reads_for_auto_readahead=0;}"}}));
+  //
+  // Changing the value dynamically will only affect files opened after the
+  // change.
+  //
+  // Default: 2
+  uint64_t num_file_reads_for_auto_readahead = 2;
 };
 
 // Table Properties that are specific to block-based table properties.

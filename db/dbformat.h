@@ -66,7 +66,11 @@ enum ValueType : unsigned char {
   kTypeBeginUnprepareXID = 0x13,  // WAL only.
   kTypeDeletionWithTimestamp = 0x14,
   kTypeCommitXIDAndTimestamp = 0x15,  // WAL only
-  kMaxValue = 0x7F                    // Not used for storing records.
+  kTypeWideColumnEntity = 0x16,
+  kTypeColumnFamilyWideColumnEntity = 0x17,  // WAL only
+  kTypeMaxValid,    // Should be after the last valid type, only used for
+                    // validation
+  kMaxValue = 0x7F  // Not used for storing records.
 };
 
 // Defined in dbformat.cc
@@ -76,8 +80,8 @@ extern const ValueType kValueTypeForSeekForPrev;
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
-  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeBlobIndex ||
-         kTypeDeletionWithTimestamp == t;
+  return t <= kTypeMerge || kTypeSingleDeletion == t || kTypeBlobIndex == t ||
+         kTypeDeletionWithTimestamp == t || kTypeWideColumnEntity == t;
 }
 
 // Checks whether a type is from user operation
@@ -135,7 +139,8 @@ inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
 // Pack a sequence number and a ValueType into a uint64_t
 inline uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(t));
+  // kTypeMaxValid is used in TruncatedRangeDelIterator, see its constructor.
+  assert(IsExtendedValueType(t) || t == kTypeMaxValid);
   return (seq << 8) | t;
 }
 
@@ -176,6 +181,11 @@ extern void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
 // Append the key and a maximal timestamp to *result
 extern void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                       size_t ts_sz);
+
+// `key` is a user key with timestamp. Append the user key without timestamp
+// and the maximal timestamp to *result.
+extern void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                          size_t ts_sz);
 
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
@@ -233,10 +243,9 @@ class InternalKeyComparator
 #ifdef NDEBUG
     final
 #endif
-    : public Comparator {
+    : public CompareInterface {
  private:
   UserComparatorWrapper user_comparator_;
-  std::string name_;
 
  public:
   // `InternalKeyComparator`s constructed with the default constructor are not
@@ -248,22 +257,19 @@ class InternalKeyComparator
   //    this constructor to precompute the result of `Name()`. To avoid this
   //    overhead, set `named` to false. In that case, `Name()` will return a
   //    generic name that is non-specific to the underlying comparator.
-  explicit InternalKeyComparator(const Comparator* c, bool named = true)
-      : Comparator(c->timestamp_size()), user_comparator_(c) {
-    if (named) {
-      name_ = "rocksdb.InternalKeyComparator:" +
-              std::string(user_comparator_.Name());
-    }
-  }
+  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
   virtual ~InternalKeyComparator() {}
 
-  virtual const char* Name() const override;
-  virtual int Compare(const Slice& a, const Slice& b) const override;
+  int Compare(const Slice& a, const Slice& b) const override;
+
+  bool Equal(const Slice& a, const Slice& b) const {
+    // TODO Use user_comparator_.Equal(). Perhaps compare seqno before
+    // comparing the user key too.
+    return Compare(a, b) == 0;
+  }
+
   // Same as Compare except that it excludes the value type from comparison
-  virtual int CompareKeySeq(const Slice& a, const Slice& b) const;
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override;
-  virtual void FindShortSuccessor(std::string* key) const override;
+  int CompareKeySeq(const Slice& a, const Slice& b) const;
 
   const Comparator* user_comparator() const {
     return user_comparator_.user_comparator();
@@ -277,9 +283,6 @@ class InternalKeyComparator
   // value `kDisableGlobalSequenceNumber`.
   int Compare(const Slice& a, SequenceNumber a_global_seqno, const Slice& b,
               SequenceNumber b_global_seqno) const;
-  virtual const Comparator* GetRootComparator() const override {
-    return user_comparator_.GetRootComparator();
-  }
 };
 
 // The class represent the internal key in encoded form.
@@ -291,6 +294,10 @@ class InternalKey {
   InternalKey() {}  // Leave rep_ as empty to indicate it is invalid
   InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t) {
     AppendInternalKey(&rep_, ParsedInternalKey(_user_key, s, t));
+  }
+  InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t, Slice ts) {
+    AppendInternalKeyWithDifferentTimestamp(
+        &rep_, ParsedInternalKey(_user_key, s, t), ts);
   }
 
   // sets the internal key to be bigger or equal to all internal keys with this
@@ -320,15 +327,28 @@ class InternalKey {
   }
 
   Slice user_key() const { return ExtractUserKey(rep_); }
-  size_t size() { return rep_.size(); }
+  size_t size() const { return rep_.size(); }
 
   void Set(const Slice& _user_key, SequenceNumber s, ValueType t) {
     SetFrom(ParsedInternalKey(_user_key, s, t));
   }
 
+  void Set(const Slice& _user_key_with_ts, SequenceNumber s, ValueType t,
+           const Slice& ts) {
+    ParsedInternalKey pik = ParsedInternalKey(_user_key_with_ts, s, t);
+    // Should not call pik.SetTimestamp() directly as it overwrites the buffer
+    // containing _user_key.
+    SetFrom(pik, ts);
+  }
+
   void SetFrom(const ParsedInternalKey& p) {
     rep_.clear();
     AppendInternalKey(&rep_, p);
+  }
+
+  void SetFrom(const ParsedInternalKey& p, const Slice& ts) {
+    rep_.clear();
+    AppendInternalKeyWithDifferentTimestamp(&rep_, p, ts);
   }
 
   void Clear() { rep_.clear(); }
@@ -520,7 +540,9 @@ class IterKey {
 
   bool IsKeyPinned() const { return (key_ != buf_); }
 
-  // user_key does not have timestamp.
+  // If `ts` is provided, user_key should not contain timestamp,
+  // and `ts` is appended after user_key.
+  // TODO: more efficient storage for timestamp.
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
                       SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,
@@ -625,7 +647,7 @@ class IterKey {
 };
 
 // Convert from a SliceTransform of user keys, to a SliceTransform of
-// user keys.
+// internal keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:
   explicit InternalKeySliceTransform(const SliceTransform* transform)
@@ -673,15 +695,37 @@ extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
 
 // When user call DeleteRange() to delete a range of keys,
 // we will store a serialized RangeTombstone in MemTable and SST.
-// the struct here is a easy-understood form
+// the struct here is an easy-understood form
 // start/end_key_ is the start/end user key of the range to be deleted
 struct RangeTombstone {
   Slice start_key_;
   Slice end_key_;
   SequenceNumber seq_;
+  // TODO: we should optimize the storage here when user-defined timestamp
+  //  is NOT enabled: they currently take up (16 + 32 + 32) bytes per tombstone.
+  Slice ts_;
+  std::string pinned_start_key_;
+  std::string pinned_end_key_;
+
   RangeTombstone() = default;
   RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
       : start_key_(sk), end_key_(ek), seq_(sn) {}
+
+  // User-defined timestamp is enabled, `sk` and `ek` should be user key
+  // with timestamp, `ts` will replace the timestamps in `sk` and
+  // `ek`.
+  RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts)
+      : seq_(sn), ts_(ts) {
+    assert(!ts.empty());
+    pinned_start_key_.reserve(sk.size());
+    pinned_start_key_.append(sk.data(), sk.size() - ts.size());
+    pinned_start_key_.append(ts.data(), ts.size());
+    pinned_end_key_.reserve(ek.size());
+    pinned_end_key_.append(ek.data(), ek.size() - ts.size());
+    pinned_end_key_.append(ts.data(), ts.size());
+    start_key_ = pinned_start_key_;
+    end_key_ = pinned_end_key_;
+  }
 
   RangeTombstone(ParsedInternalKey parsed_key, Slice value) {
     start_key_ = parsed_key.user_key;
@@ -692,8 +736,7 @@ struct RangeTombstone {
   // be careful to use Serialize(), allocates new memory
   std::pair<InternalKey, Slice> Serialize() const {
     auto key = InternalKey(start_key_, seq_, kTypeRangeDeletion);
-    Slice value = end_key_;
-    return std::make_pair(std::move(key), std::move(value));
+    return std::make_pair(std::move(key), end_key_);
   }
 
   // be careful to use SerializeKey(), allocates new memory
@@ -709,6 +752,16 @@ struct RangeTombstone {
   //
   // be careful to use SerializeEndKey(), allocates new memory
   InternalKey SerializeEndKey() const {
+    if (!ts_.empty()) {
+      static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+      if (ts_.size() <= strlen(kTsMax)) {
+        return InternalKey(end_key_, kMaxSequenceNumber, kTypeRangeDeletion,
+                           Slice(kTsMax, ts_.size()));
+      } else {
+        return InternalKey(end_key_, kMaxSequenceNumber, kTypeRangeDeletion,
+                           std::string(ts_.size(), '\xff'));
+      }
+    }
     return InternalKey(end_key_, kMaxSequenceNumber, kTypeRangeDeletion);
   }
 };

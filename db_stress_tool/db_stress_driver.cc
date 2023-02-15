@@ -58,7 +58,21 @@ void ThreadBody(void* v) {
 
 bool RunStressTest(StressTest* stress) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
+
   SharedState shared(db_stress_env, stress);
+
+  if (shared.ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes) {
+    Status s = InitUnverifiedSubdir(FLAGS_db);
+    if (s.ok() && !FLAGS_expected_values_dir.empty()) {
+      s = InitUnverifiedSubdir(FLAGS_expected_values_dir);
+    }
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to setup unverified state dir: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
+
   stress->InitDb(&shared);
   stress->FinishInitDb(&shared);
 
@@ -115,12 +129,23 @@ bool RunStressTest(StressTest* stress) {
         fprintf(stderr, "Crash-recovery verification failed :(\n");
       } else {
         fprintf(stdout, "Crash-recovery verification passed :)\n");
+        Status s = DestroyUnverifiedSubdir(FLAGS_db);
+        if (s.ok() && !FLAGS_expected_values_dir.empty()) {
+          s = DestroyUnverifiedSubdir(FLAGS_expected_values_dir);
+        }
+        if (!s.ok()) {
+          fprintf(stderr, "Failed to cleanup unverified state dir: %s\n",
+                  s.ToString().c_str());
+          exit(1);
+        }
       }
     }
 
     // This is after the verification step to avoid making all those `Get()`s
     // and `MultiGet()`s contend on the DB-wide trace mutex.
-    stress->TrackExpectedState(&shared);
+    if (!FLAGS_expected_values_dir.empty()) {
+      stress->TrackExpectedState(&shared);
+    }
 
     now = clock->NowMicros();
     fprintf(stdout, "%s Starting database operations\n",
@@ -175,10 +200,6 @@ bool RunStressTest(StressTest* stress) {
     while (!shared.BgThreadsFinished()) {
       shared.GetCondVar()->Wait();
     }
-  }
-
-  if (!stress->VerifySecondaries()) {
-    return false;
   }
 
   if (shared.HasVerificationFailedYet()) {

@@ -22,7 +22,7 @@ class ReduceLevelTest : public testing::Test {
 public:
   ReduceLevelTest() {
     dbname_ = test::PerThreadDBPath("db_reduce_levels_test");
-    DestroyDB(dbname_, Options());
+    EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
   }
 
@@ -206,6 +206,7 @@ TEST_F(ReduceLevelTest, All_Levels) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

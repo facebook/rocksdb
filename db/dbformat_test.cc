@@ -9,6 +9,7 @@
 
 #include "db/dbformat.h"
 
+#include "table/block_based/index_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
@@ -24,13 +25,15 @@ static std::string IKey(const std::string& user_key,
 
 static std::string Shorten(const std::string& s, const std::string& l) {
   std::string result = s;
-  InternalKeyComparator(BytewiseComparator()).FindShortestSeparator(&result, l);
+  ShortenedIndexBuilder::FindShortestInternalKeySeparator(*BytewiseComparator(),
+                                                          &result, l);
   return result;
 }
 
 static std::string ShortSuccessor(const std::string& s) {
   std::string result = s;
-  InternalKeyComparator(BytewiseComparator()).FindShortSuccessor(&result);
+  ShortenedIndexBuilder::FindShortInternalKeySuccessor(*BytewiseComparator(),
+                                                       &result);
   return result;
 }
 
@@ -203,6 +206,7 @@ TEST_F(FormatTest, RangeTombstoneSerializeEndKey) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();

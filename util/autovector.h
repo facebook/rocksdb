@@ -36,7 +36,7 @@ class autovector : public std::vector<T> {
 // full-fledged generic container.
 //
 // Currently we don't support:
-//  * reserve()/shrink_to_fit()
+//  * shrink_to_fit()
 //     If used correctly, in most cases, people should not touch the
 //     underlying vector at all.
 //  * random insert()/erase(), please only use push_back()/pop_back().
@@ -223,6 +223,16 @@ class autovector {
 
   bool empty() const { return size() == 0; }
 
+  size_type capacity() const { return kSize + vect_.capacity(); }
+
+  void reserve(size_t cap) {
+    if (cap > kSize) {
+      vect_.reserve(cap - kSize);
+    }
+
+    assert(cap <= capacity());
+  }
+
   const_reference operator[](size_type n) const {
     assert(n < size());
     if (n < kSize) {
@@ -289,6 +299,16 @@ class autovector {
   }
 
   template <class... Args>
+#if _LIBCPP_STD_VER > 14
+  reference emplace_back(Args&&... args) {
+    if (num_stack_items_ < kSize) {
+      return *(new ((void*)(&values_[num_stack_items_++]))
+          value_type(std::forward<Args>(args)...));
+    } else {
+      return vect_.emplace_back(std::forward<Args>(args)...);
+    }
+  }
+#else
   void emplace_back(Args&&... args) {
     if (num_stack_items_ < kSize) {
       new ((void*)(&values_[num_stack_items_++]))
@@ -297,6 +317,8 @@ class autovector {
       vect_.emplace_back(std::forward<Args>(args)...);
     }
   }
+#endif
+
 
   void pop_back() {
     assert(!empty());

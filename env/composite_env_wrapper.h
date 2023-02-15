@@ -322,6 +322,14 @@ class CompositeEnvWrapper : public CompositeEnv {
     return target_.env->GetThreadPoolQueueLen(pri);
   }
 
+  int ReserveThreads(int threads_to_be_reserved, Priority pri) override {
+    return target_.env->ReserveThreads(threads_to_be_reserved, pri);
+  }
+
+  int ReleaseThreads(int threads_to_be_released, Priority pri) override {
+    return target_.env->ReleaseThreads(threads_to_be_released, pri);
+  }
+
   Status GetHostName(char* name, uint64_t len) override {
     return target_.env->GetHostName(name, len);
   }

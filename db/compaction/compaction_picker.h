@@ -154,7 +154,8 @@ class CompactionPicker {
   // in *smallest, *largest.
   // REQUIRES: inputs is not empty (at least on entry have one file)
   void GetRange(const std::vector<CompactionInputFiles>& inputs,
-                InternalKey* smallest, InternalKey* largest) const;
+                InternalKey* smallest, InternalKey* largest,
+                int exclude_level) const;
 
   int NumberLevels() const { return ioptions_.num_levels; }
 
@@ -181,14 +182,16 @@ class CompactionPicker {
   // Returns true if the key range that `inputs` files cover overlap with the
   // key range of a currently running compaction.
   bool FilesRangeOverlapWithCompaction(
-      const std::vector<CompactionInputFiles>& inputs, int level) const;
+      const std::vector<CompactionInputFiles>& inputs, int level,
+      int penultimate_level) const;
 
   bool SetupOtherInputs(const std::string& cf_name,
                         const MutableCFOptions& mutable_cf_options,
                         VersionStorageInfo* vstorage,
                         CompactionInputFiles* inputs,
                         CompactionInputFiles* output_level_inputs,
-                        int* parent_index, int base_index);
+                        int* parent_index, int base_index,
+                        bool only_expand_towards_right = false);
 
   void GetGrandparents(VersionStorageInfo* vstorage,
                        const CompactionInputFiles& inputs,
@@ -216,6 +219,8 @@ class CompactionPicker {
   std::unordered_set<Compaction*>* compactions_in_progress() {
     return &compactions_in_progress_;
   }
+
+  const InternalKeyComparator* icmp() const { return icmp_; }
 
  protected:
   const ImmutableOptions& ioptions_;

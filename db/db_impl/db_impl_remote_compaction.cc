@@ -139,9 +139,10 @@ Status DBImpl::doCompact(const CompactionOptions& compact_options,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
-      &manual_compaction_paused_, nullptr, db_id_, db_session_id_,
+      kManualCompactionCanceledFalse_, db_id_, db_session_id_,
       c->column_family_data()->GetFullHistoryTsLow(), c->trim_ts(),
-      &blob_callback_);
+      &blob_callback_, &bg_compaction_scheduled_,
+      &bg_bottom_compaction_scheduled_);
 
   compaction_job.Prepare();
   mutex_.Unlock();

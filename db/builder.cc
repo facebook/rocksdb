@@ -66,7 +66,8 @@ Status BuildTable(
     SequenceNumber job_snapshot, SnapshotChecker* snapshot_checker,
     bool paranoid_file_checks, InternalStats* internal_stats,
     IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
-    BlobFileCreationReason blob_creation_reason, EventLogger* event_logger,
+    BlobFileCreationReason blob_creation_reason,
+    const SeqnoToTimeMapping& seqno_to_time_mapping, EventLogger* event_logger,
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
@@ -89,7 +90,7 @@ Status BuildTable(
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
-                                       snapshots));
+                                       snapshots, full_history_ts_low));
   uint64_t num_unfragmented_tombstones = 0;
   uint64_t total_tombstone_payload_bytes = 0;
   for (auto& range_del_iter : range_del_iters) {
@@ -181,15 +182,19 @@ Status BuildTable(
         snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
-        (mutable_cf_options.enable_blob_files && blob_file_additions)
+        (mutable_cf_options.enable_blob_files &&
+         tboptions.level_at_creation >=
+             mutable_cf_options.blob_file_starting_level &&
+         blob_file_additions)
             ? new BlobFileBuilder(
                   versions, fs, &ioptions, &mutable_cf_options, &file_options,
-                  job_id, tboptions.column_family_id,
-                  tboptions.column_family_name, io_priority, write_hint,
-                  io_tracer, blob_callback, blob_creation_reason,
-                  &blob_file_paths, blob_file_additions)
+                  tboptions.db_id, tboptions.db_session_id, job_id,
+                  tboptions.column_family_id, tboptions.column_family_name,
+                  io_priority, write_hint, io_tracer, blob_callback,
+                  blob_creation_reason, &blob_file_paths, blob_file_additions)
             : nullptr);
 
+    const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
         iter, tboptions.internal_comparator.user_comparator(), &merge,
         kMaxSequenceNumber, &snapshots, earliest_write_conflict_snapshot,
@@ -198,11 +203,9 @@ Status BuildTable(
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         ioptions.enforce_single_del_contracts,
+        /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
         /*compaction=*/nullptr, compaction_filter.get(),
-        /*shutting_down=*/nullptr,
-        /*manual_compaction_paused=*/nullptr,
-        /*manual_compaction_canceled=*/nullptr, db_options.info_log,
-        full_history_ts_low);
+        /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
@@ -258,6 +261,15 @@ Status BuildTable(
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
+      std::string seqno_time_mapping_str;
+      seqno_to_time_mapping.Encode(
+          seqno_time_mapping_str, meta->fd.smallest_seqno,
+          meta->fd.largest_seqno, meta->file_creation_time);
+      builder->SetSeqnoTimeTableProperties(
+          seqno_time_mapping_str,
+          ioptions.compaction_style == CompactionStyle::kCompactionStyleFIFO
+              ? meta->file_creation_time
+              : meta->oldest_ancester_time);
       s = builder->Finish();
     }
     if (io_status->ok()) {

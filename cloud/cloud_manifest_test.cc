@@ -36,8 +36,9 @@ class CloudManifestTest : public testing::Test {
   Status LoadFromFile(const std::string& filepath,
                       std::unique_ptr<CloudManifest>* manifest) {
     std::unique_ptr<SequentialFileReader> reader;
-    Status st = SequentialFileReader::Create(env_->GetFileSystem(), filepath,
-                                           FileOptions(), &reader, nullptr);
+    Status st =
+        SequentialFileReader::Create(env_->GetFileSystem(), filepath,
+                                     FileOptions(), &reader, nullptr, nullptr);
     if (!st.ok()) {
       return st;
     }

@@ -33,18 +33,6 @@ namespace ROCKSDB_NAMESPACE {
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
-
- protected:
-#ifndef ROCKSDB_LITE
-  uint64_t GetSstSizeHelper(Temperature temperature) {
-    std::string prop;
-    EXPECT_TRUE(dbfull()->GetProperty(
-        DB::Properties::kLiveSstFilesSizeAtTemperature +
-            std::to_string(static_cast<uint8_t>(temperature)),
-        &prop));
-    return static_cast<uint64_t>(std::atoi(prop.c_str()));
-  }
-#endif  // ROCKSDB_LITE
 };
 
 #ifndef ROCKSDB_LITE
@@ -663,8 +651,12 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
 TEST_F(DBTest2, TestWriteBufferNoLimitWithCache) {
   Options options = CurrentOptions();
   options.arena_block_size = 4096;
-  std::shared_ptr<Cache> cache =
-      NewLRUCache(LRUCacheOptions(10000000, 1, false, 0.0));
+  std::shared_ptr<Cache> cache = NewLRUCache(LRUCacheOptions(
+      10000000 /* capacity */, 1 /* num_shard_bits */,
+      false /* strict_capacity_limit */, 0.0 /* high_pri_pool_ratio */,
+      nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+      kDontChargeCacheMetadata));
+
   options.write_buffer_size = 50000;  // this is never hit
   // Use a write buffer total size so that the soft limit is about
   // 105000.
@@ -1326,7 +1318,8 @@ TEST_F(DBTest2, PresetCompressionDict) {
           options.compression_opts.zstd_max_train_bytes = 0;
           break;
         case kWithZSTDfinalizeDict:
-          if (compression_type != kZSTD) {
+          if (compression_type != kZSTD ||
+              !ZSTD_FinalizeDictionarySupported()) {
             continue;
           }
           options.compression_opts.max_dict_bytes = kBlockSizeBytes;
@@ -1334,7 +1327,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
           options.compression_opts.use_zstd_dict_trainer = false;
           break;
         case kWithZSTDTrainedDict:
-          if (compression_type != kZSTD) {
+          if (compression_type != kZSTD || !ZSTD_TrainDictionarySupported()) {
             continue;
           }
           options.compression_opts.max_dict_bytes = kBlockSizeBytes;
@@ -1803,15 +1796,14 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
         });
   } else if (compression_failure_type_ == kTestDecompressionFail) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "UncompressBlockContentsForCompressionType:TamperWithReturnValue",
-        [](void* arg) {
+        "UncompressBlockData:TamperWithReturnValue", [](void* arg) {
           Status* ret = static_cast<Status*>(arg);
           ASSERT_OK(*ret);
           *ret = Status::Corruption("kTestDecompressionFail");
         });
   } else if (compression_failure_type_ == kTestDecompressionCorruption) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "UncompressBlockContentsForCompressionType:"
+        "UncompressBlockData:"
         "TamperWithDecompressionOutput",
         [](void* arg) {
           BlockContents* contents = static_cast<BlockContents*>(arg);
@@ -1879,7 +1871,7 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
               "Could not decompress: kTestDecompressionFail");
   } else if (compression_failure_type_ == kTestDecompressionCorruption) {
     ASSERT_EQ(std::string(s.getState()),
-              "Decompressed block did not match raw block");
+              "Decompressed block did not match pre-compression block");
   }
 }
 
@@ -2370,7 +2362,7 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
     GenerateNewRandomFile(&rnd);
   }
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,8", FilesPerLevel(0));
 
@@ -2387,9 +2379,15 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // Output files to L1 are cut to three pieces, according to
-  // options.max_compaction_bytes
-  ASSERT_EQ("0,3,8", FilesPerLevel(0));
+  // Output files to L1 are cut to 4 pieces, according to
+  // options.max_compaction_bytes (300K)
+  // There are 8 files on L2 (grandparents level), each one is 100K. The first
+  // file overlaps with a, b which max_compaction_bytes is less than 300K, the
+  // second one overlaps with d, e, which is also less than 300K. Including any
+  // extra grandparent file will make the future compaction larger than 300K.
+  // L1: [  1  ] [  2 ]  [  3  ] [ 4 ]
+  // L2: [a] [b] [c] [d] [e] [f] [g] [h]
+  ASSERT_EQ("0,4,8", FilesPerLevel(0));
 }
 
 static void UniqueIdCallback(void* arg) {
@@ -3080,10 +3078,21 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   int manual_compactions_paused = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:1", [&](void* arg) {
+        auto canceled = static_cast<std::atomic<bool>*>(arg);
+        // CompactRange triggers manual compaction and cancel the compaction
+        // by set *canceled as true
+        if (canceled != nullptr) {
+          canceled->store(true, std::memory_order_release);
+        }
+        manual_compactions_paused += 1;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestCompactFiles:PausingManualCompaction:3", [&](void* arg) {
         auto paused = static_cast<std::atomic<int>*>(arg);
+        // CompactFiles() relies on manual_compactions_paused to
+        // determine if thie compaction should be paused or not
         ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         paused->fetch_add(1, std::memory_order_release);
-        manual_compactions_paused += 1;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3148,7 +3157,7 @@ TEST_F(DBTest2, PausingManualCompaction2) {
 
   Random rnd(301);
   for (int i = 0; i < 2; i++) {
-    // Generate a file containing 10 keys.
+    // Generate a file containing 100 keys.
     for (int j = 0; j < 100; j++) {
       ASSERT_OK(Put(Key(j), rnd.RandomString(50)));
     }
@@ -3247,10 +3256,21 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   int run_manual_compactions = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:2", [&](void* arg) {
+        auto canceled = static_cast<std::atomic<bool>*>(arg);
+        // CompactRange triggers manual compaction and cancel the compaction
+        // by set *canceled as true
+        if (canceled != nullptr) {
+          canceled->store(true, std::memory_order_release);
+        }
+        run_manual_compactions++;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestCompactFiles:PausingManualCompaction:3", [&](void* arg) {
         auto paused = static_cast<std::atomic<int>*>(arg);
+        // CompactFiles() relies on manual_compactions_paused to
+        // determine if thie compaction should be paused or not
         ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         paused->fetch_add(1, std::memory_order_release);
-        run_manual_compactions++;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3265,7 +3285,6 @@ TEST_F(DBTest2, PausingManualCompaction4) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionJob::Run():PausingManualCompaction:2");
-  dbfull()->EnableManualCompaction();
   ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 #ifndef ROCKSDB_LITE
@@ -3514,8 +3533,9 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
       "CompactionJob::FinishCompactionOutputFile1",
       [&](void* /*arg*/) { running_compaction++; });
 
-  // Case I: 1 Notify begin compaction, 2 DisableManualCompaction, 3 Compaction
-  // not run, 4 Notify compaction end.
+  // Case I: 1 Notify begin compaction, 2 Set *canceled as true to disable
+  // manual compaction in the callback function, 3 Compaction not run,
+  // 4 Notify compaction end.
   listener->code_ = Status::kIncomplete;
   listener->subcode_ = Status::SubCode::kManualCompactionPaused;
 
@@ -3532,8 +3552,9 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   listener->num_compaction_started_ = 0;
   listener->num_compaction_ended_ = 0;
 
-  // Case II: 1 DisableManualCompaction, 2 Notify begin compaction (return
-  // without notifying), 3 Notify compaction end (return without notifying).
+  // Case II: 1 Set *canceled as true in the callback function to disable manual
+  // compaction, 2 Notify begin compaction (return without notifying), 3 Notify
+  // compaction end (return without notifying).
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
@@ -3544,8 +3565,8 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   ASSERT_EQ(running_compaction, 0);
 
   // Case III: 1 Notify begin compaction, 2 Compaction in between
-  // 3. DisableManualCompaction, , 4 Notify compaction end.
-  // compact_options.canceled->store(false, std::memory_order_release);
+  // 3. Set *canceled as true in the callback function to disable manual
+  // compaction, 4 Notify compaction end.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionIterator:ProcessKV");
 
@@ -6352,86 +6373,85 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     ReadOptions ro;
     ro.total_order_seek = false;
     ro.auto_prefix_mode = true;
+
+    const auto stat = BLOOM_FILTER_PREFIX_CHECKED;
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
-    std::string ub_str = "b9";
-    Slice ub(ub_str);
+    Slice ub;
     ro.iterate_upper_bound = &ub;
 
+    ub = "b9";
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
-    ub_str = "z";
-    ub = Slice(ub_str);
+    ub = "z";
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
-    ub_str = "c";
-    ub = Slice(ub_str);
+    ub = "c";
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+    }
+
+    ub = "c1";
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek("b1");
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
     // The same queries without recreating iterator
     {
-      ub_str = "b9";
-      ub = Slice(ub_str);
-      ro.iterate_upper_bound = &ub;
-
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+
+      ub = "b9";
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
 
-      ub_str = "z";
-      ub = Slice(ub_str);
-
+      ub = "z";
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
 
-      ub_str = "c";
-      ub = Slice(ub_str);
-
+      ub = "c";
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
 
-      ub_str = "b9";
-      ub = Slice(ub_str);
-      ro.iterate_upper_bound = &ub;
+      ub = "b9";
       iterator->SeekForPrev("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("a1", iterator->key().ToString());
-      ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
 
-      ub_str = "zz";
-      ub = Slice(ub_str);
-      ro.iterate_upper_bound = &ub;
+      ub = "zz";
       iterator->SeekToLast();
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("y1", iterator->key().ToString());
@@ -6439,6 +6459,136 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       iterator->SeekToFirst();
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("a1", iterator->key().ToString());
+    }
+
+    // Similar, now with reverse comparator
+    // Technically, we are violating axiom 2 of prefix_extractors, but
+    // it should be revised because of major use-cases using
+    // ReverseBytewiseComparator with capped/fixed prefix Seek. (FIXME)
+    options.comparator = ReverseBytewiseComparator();
+    options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("a1", large_value));
+    ASSERT_OK(Put("x1", large_value));
+    ASSERT_OK(Put("y1", large_value));
+    ASSERT_OK(Flush());
+
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+
+      ub = "b1";
+      iterator->Seek("b9");
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+
+      ub = "b1";
+      iterator->Seek("z");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("y1", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b1";
+      iterator->Seek("c");
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b";
+      iterator->Seek("c9");
+      ASSERT_FALSE(iterator->Valid());
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // is "correctly" implemented.
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "a";
+      iterator->Seek("b9");
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // is "correctly" implemented.
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("a1", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b";
+      iterator->Seek("a");
+      ASSERT_FALSE(iterator->Valid());
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // matches BytewiseComparator::IsSameLengthImmediateSuccessor. Upper
+      // comparing before seek key prevents a real bug from surfacing.
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b1";
+      iterator->SeekForPrev("b9");
+      ASSERT_TRUE(iterator->Valid());
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // is "correctly" implemented.
+      ASSERT_EQ("x1", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "a";
+      iterator->SeekToLast();
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("a1", iterator->key().ToString());
+
+      iterator->SeekToFirst();
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("y1", iterator->key().ToString());
+    }
+
+    // Now something a bit different, related to "short" keys that
+    // auto_prefix_mode can omit. See "BUG" section of auto_prefix_mode.
+    options.comparator = BytewiseComparator();
+    for (const auto config : {"fixed:2", "capped:2"}) {
+      ASSERT_OK(SliceTransform::CreateFromString(ConfigOptions(), config,
+                                                 &options.prefix_extractor));
+
+      // FIXME: kHashSearch, etc. requires all keys be InDomain
+      if (StartsWith(config, "fixed") &&
+          (table_options.index_type == BlockBasedTableOptions::kHashSearch ||
+           StartsWith(options.memtable_factory->Name(), "Hash"))) {
+        continue;
+      }
+      DestroyAndReopen(options);
+
+      const char* a_end_stuff = "a\xffXYZ";
+      const char* b_begin_stuff = "b\x00XYZ";
+      ASSERT_OK(Put("a", large_value));
+      ASSERT_OK(Put("b", large_value));
+      ASSERT_OK(Put(Slice(b_begin_stuff, 3), large_value));
+      ASSERT_OK(Put("c", large_value));
+      ASSERT_OK(Flush());
+
+      // control showing valid optimization with auto_prefix mode
+      ub = Slice(a_end_stuff, 4);
+      ro.iterate_upper_bound = &ub;
+
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek(Slice(a_end_stuff, 2));
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+
+      // test, cannot be validly optimized with auto_prefix_mode
+      ub = Slice(b_begin_stuff, 2);
+      ro.iterate_upper_bound = &ub;
+
+      iterator->Seek(Slice(a_end_stuff, 2));
+      // !!! BUG !!! See "BUG" section of auto_prefix_mode.
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+
+      // To prove that is the wrong result, now use total order seek
+      ReadOptions tos_ro = ro;
+      tos_ro.total_order_seek = true;
+      tos_ro.auto_prefix_mode = false;
+      iterator.reset(db_->NewIterator(tos_ro));
+      iterator->Seek(Slice(a_end_stuff, 2));
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("b", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
     }
   } while (ChangeOptions(kSkipPlainTable));
 }
@@ -6535,7 +6685,7 @@ TEST_P(RenameCurrentTest, Compaction) {
   ASSERT_EQ("d_value", Get("d"));
 }
 
-TEST_F(DBTest2, BottommostTemperature) {
+TEST_F(DBTest2, LastLevelTemperature) {
   class TestListener : public EventListener {
    public:
     void OnFileReadFinish(const FileOperationInfo& info) override {
@@ -6589,11 +6739,16 @@ TEST_F(DBTest2, BottommostTemperature) {
     port::Mutex mutex_;
   };
 
+  const int kNumLevels = 7;
+  const int kLastLevel = kNumLevels - 1;
+
   auto* listener = new TestListener();
 
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
   options.level0_file_num_compaction_trigger = 2;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
   options.listeners.emplace_back(listener);
   Reopen(options);
@@ -6619,7 +6774,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ColumnFamilyMetaData metadata;
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
-  SstFileMetaData meta = metadata.levels[1].files[0];
+  SstFileMetaData meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   uint64_t number;
   FileType type;
@@ -6677,7 +6832,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 
-  meta = metadata.levels[1].files[0];
+  meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
@@ -6696,7 +6851,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 
-  meta = metadata.levels[1].files[0];
+  meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
@@ -6724,13 +6879,13 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 
-  meta = metadata.levels[1].files[0];
+  meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 }
 
-TEST_F(DBTest2, BottommostTemperatureUniversal) {
+TEST_F(DBTest2, LastLevelTemperatureUniversal) {
   const int kTriggerNum = 3;
   const int kNumLevels = 5;
   const int kBottommostLevel = kNumLevels - 1;
@@ -6768,7 +6923,7 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(size, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
   ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
-  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_read_count, 0);
   ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
@@ -6856,7 +7011,7 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
 
   // Update bottommost temperature dynamically with SetOptions
-  auto s = db_->SetOptions({{"bottommost_temperature", "kCold"}});
+  auto s = db_->SetOptions({{"last_level_temperature", "kCold"}});
   ASSERT_OK(s);
   ASSERT_EQ(db_->GetOptions().bottommost_temperature, Temperature::kCold);
   db_->GetColumnFamilyMetaData(&metadata);
@@ -6882,6 +7037,11 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kCold);
   ASSERT_GT(size, 0);
+
+  // kLastTemperature is an invalid temperature
+  options.bottommost_temperature = Temperature::kLastTemperature;
+  s = TryReopen(options);
+  ASSERT_TRUE(s.IsIOError());
 }
 
 TEST_F(DBTest2, LastLevelStatistics) {
@@ -6951,6 +7111,9 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
+  // set dynamic_level to true so the compaction would compact the data to the
+  // last level directly which will have the last_level_temperature
+  options.level_compaction_dynamic_level_bytes = true;
   options.level0_file_num_compaction_trigger = 2;
   options.env = env.get();
   Reopen(options);
@@ -7007,6 +7170,9 @@ TEST_F(DBTest2, FileTemperatureManifestFixup) {
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
+  // set dynamic_level to true so the compaction would compact the data to the
+  // last level directly which will have the last_level_temperature
+  options.level_compaction_dynamic_level_bytes = true;
   options.level0_file_num_compaction_trigger = 2;
   options.env = env.get();
   std::vector<std::string> cfs = {/*"default",*/ "test1", "test2"};
@@ -7178,18 +7344,18 @@ TEST_F(DBTest2, SstUniqueIdVerifyBackwardCompatible) {
   auto options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kLevel0Trigger;
   options.statistics = CreateDBStatistics();
+  // Skip for now
+  options.verify_sst_unique_id_in_manifest = false;
+  Reopen(options);
 
-  // Existing manifest doesn't have unique id
-  SyncPoint::GetInstance()->SetCallBack(
-      "VersionEdit::EncodeTo:UniqueId", [&](void* arg) {
-        auto unique_id = static_cast<UniqueId64x2*>(arg);
-        // remove id before writing it to manifest
-        (*unique_id)[0] = 0;
-        (*unique_id)[1] = 0;
-      });
   std::atomic_int skipped = 0;
-  SyncPoint::GetInstance()->SetCallBack("Version::VerifySstUniqueIds::Skipped",
-                                        [&](void* /*arg*/) { skipped++; });
+  std::atomic_int passed = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::Open::SkippedVerifyUniqueId",
+      [&](void* /*arg*/) { skipped++; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::Open::PassedVerifyUniqueId",
+      [&](void* /*arg*/) { passed++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // generate a few SSTs
@@ -7200,13 +7366,28 @@ TEST_F(DBTest2, SstUniqueIdVerifyBackwardCompatible) {
     ASSERT_OK(Flush());
   }
 
-  // Reopen without verification
-  Reopen(options);
+  // Verification has been skipped on files so far
+  EXPECT_EQ(skipped, kNumSst);
+  EXPECT_EQ(passed, 0);
 
-  // Reopen with verification, but it's skipped because manifest doesn't have id
+  // Reopen with verification
   options.verify_sst_unique_id_in_manifest = true;
+  skipped = 0;
+  passed = 0;
   Reopen(options);
-  ASSERT_EQ(skipped, kNumSst);
+  EXPECT_EQ(skipped, 0);
+  EXPECT_EQ(passed, kNumSst);
+
+  // Now simulate no unique id in manifest for next file
+  // NOTE: this only works for loading manifest from disk,
+  // not in-memory manifest, so we need to re-open below.
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEdit::EncodeTo:UniqueId", [&](void* arg) {
+        auto unique_id = static_cast<UniqueId64x2*>(arg);
+        // remove id before writing it to manifest
+        (*unique_id)[0] = 0;
+        (*unique_id)[1] = 0;
+      });
 
   // test compaction generated Sst
   for (int i = kNumSst; i < kLevel0Trigger; i++) {
@@ -7221,11 +7402,13 @@ TEST_F(DBTest2, SstUniqueIdVerifyBackwardCompatible) {
   ASSERT_EQ("0,1", FilesPerLevel(0));
 #endif  // ROCKSDB_LITE
 
-  // Reopen with verification should fail
-  options.verify_sst_unique_id_in_manifest = true;
+  // Reopen (with verification)
+  ASSERT_TRUE(options.verify_sst_unique_id_in_manifest);
   skipped = 0;
+  passed = 0;
   Reopen(options);
-  ASSERT_EQ(skipped, 1);
+  EXPECT_EQ(skipped, 1);
+  EXPECT_EQ(passed, 0);
 }
 
 TEST_F(DBTest2, SstUniqueIdVerify) {
@@ -7233,11 +7416,15 @@ TEST_F(DBTest2, SstUniqueIdVerify) {
   const int kLevel0Trigger = 4;
   auto options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kLevel0Trigger;
+  // Allow mismatch for now
+  options.verify_sst_unique_id_in_manifest = false;
+  Reopen(options);
 
   SyncPoint::GetInstance()->SetCallBack(
       "PropertyBlockBuilder::AddTableProperty:Start", [&](void* props_vs) {
         auto props = static_cast<TableProperties*>(props_vs);
-        // update table property session_id to a different one
+        // update table property session_id to a different one, which
+        // changes unique ID
         props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -7276,6 +7463,121 @@ TEST_F(DBTest2, SstUniqueIdVerify) {
   options.verify_sst_unique_id_in_manifest = true;
   s = TryReopen(options);
   ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(DBTest2, SstUniqueIdVerifyMultiCFs) {
+  const int kNumSst = 3;
+  const int kLevel0Trigger = 4;
+  auto options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kLevel0Trigger;
+  // Allow mismatch for now
+  options.verify_sst_unique_id_in_manifest = false;
+
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  // generate good SSTs
+  for (int cf_num : {0, 2}) {
+    for (int i = 0; i < kNumSst; i++) {
+      for (int j = 0; j < 100; j++) {
+        ASSERT_OK(Put(cf_num, Key(i * 10 + j), "value"));
+      }
+      ASSERT_OK(Flush(cf_num));
+    }
+  }
+
+  // generate SSTs with bad unique id
+  SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* props_vs) {
+        auto props = static_cast<TableProperties*>(props_vs);
+        // update table property session_id to a different one
+        props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  for (int i = 0; i < kNumSst; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(1, Key(i * 10 + j), "value"));
+    }
+    ASSERT_OK(Flush(1));
+  }
+
+  // Reopen with verification should report corruption
+  options.verify_sst_unique_id_in_manifest = true;
+  auto s = TryReopenWithColumnFamilies({"default", "one", "two"}, options);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(DBTest2, BestEffortsRecoveryWithSstUniqueIdVerification) {
+  const auto tamper_with_uniq_id = [&](void* arg) {
+    auto props = static_cast<TableProperties*>(arg);
+    assert(props);
+    // update table property session_id to a different one
+    props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+  };
+
+  const auto assert_db = [&](size_t expected_count,
+                             const std::string& expected_v) {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    size_t cnt = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++cnt) {
+      ASSERT_EQ(std::to_string(cnt), it->key());
+      ASSERT_EQ(expected_v, it->value());
+    }
+    ASSERT_EQ(expected_count, cnt);
+  };
+
+  const int num_l0_compaction_trigger = 8;
+  const int num_l0 = num_l0_compaction_trigger - 1;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = num_l0_compaction_trigger;
+
+  for (int k = 0; k < num_l0; ++k) {
+    // Allow mismatch for now
+    options.verify_sst_unique_id_in_manifest = false;
+
+    DestroyAndReopen(options);
+
+    constexpr size_t num_keys_per_file = 10;
+    for (int i = 0; i < num_l0; ++i) {
+      for (size_t j = 0; j < num_keys_per_file; ++j) {
+        ASSERT_OK(Put(std::to_string(j), "v" + std::to_string(i)));
+      }
+      if (i == k) {
+        SyncPoint::GetInstance()->DisableProcessing();
+        SyncPoint::GetInstance()->SetCallBack(
+            "PropertyBlockBuilder::AddTableProperty:Start",
+            tamper_with_uniq_id);
+        SyncPoint::GetInstance()->EnableProcessing();
+      }
+      ASSERT_OK(Flush());
+    }
+
+    options.verify_sst_unique_id_in_manifest = true;
+    Status s = TryReopen(options);
+    ASSERT_TRUE(s.IsCorruption());
+
+    options.best_efforts_recovery = true;
+    Reopen(options);
+    assert_db(k == 0 ? 0 : num_keys_per_file, "v" + std::to_string(k - 1));
+
+    // Reopen with regular recovery
+    options.best_efforts_recovery = false;
+    Reopen(options);
+    assert_db(k == 0 ? 0 : num_keys_per_file, "v" + std::to_string(k - 1));
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    for (size_t i = 0; i < num_keys_per_file; ++i) {
+      ASSERT_OK(Put(std::to_string(i), "v"));
+    }
+    ASSERT_OK(Flush());
+    Reopen(options);
+    {
+      for (size_t i = 0; i < num_keys_per_file; ++i) {
+        ASSERT_EQ("v", Get(std::to_string(i)));
+      }
+    }
+  }
 }
 
 #ifndef ROCKSDB_LITE

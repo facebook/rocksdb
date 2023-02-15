@@ -3103,6 +3103,29 @@ void Java_org_rocksdb_Options_setMemtablePrefixBloomSizeRatio(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    experimentalMempurgeThreshold
+ * Signature: (J)I
+ */
+jdouble Java_org_rocksdb_Options_experimentalMempurgeThreshold(JNIEnv*, jobject,
+                                                               jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+      ->experimental_mempurge_threshold;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setExperimentalMempurgeThreshold
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setExperimentalMempurgeThreshold(
+    JNIEnv*, jobject, jlong jhandle, jdouble jexperimental_mempurge_threshold) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+      ->experimental_mempurge_threshold =
+      static_cast<double>(jexperimental_mempurge_threshold);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    memtableWholeKeyFiltering
  * Signature: (J)Z
  */
@@ -3838,6 +3861,53 @@ jlong Java_org_rocksdb_Options_blobCompactionReadaheadSize(JNIEnv*, jobject,
                                                            jlong jhandle) {
   auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   return static_cast<jlong>(opts->blob_compaction_readahead_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setBlobFileStartingLevel
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setBlobFileStartingLevel(
+    JNIEnv*, jobject, jlong jhandle, jint jblob_file_starting_level) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->blob_file_starting_level = jblob_file_starting_level;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    blobFileStartingLevel
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_blobFileStartingLevel(JNIEnv*, jobject,
+                                                    jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jint>(opts->blob_file_starting_level);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setPrepopulateBlobCache
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Options_setPrepopulateBlobCache(
+    JNIEnv*, jobject, jlong jhandle, jbyte jprepopulate_blob_cache_value) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->prepopulate_blob_cache =
+      ROCKSDB_NAMESPACE::PrepopulateBlobCacheJni::toCppPrepopulateBlobCache(
+          jprepopulate_blob_cache_value);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    prepopulateBlobCache
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_Options_prepopulateBlobCache(JNIEnv*, jobject,
+                                                    jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return ROCKSDB_NAMESPACE::PrepopulateBlobCacheJni::toJavaPrepopulateBlobCache(
+      opts->prepopulate_blob_cache);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -4935,6 +5005,29 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMemtablePrefixBloomSizeRatio(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    experimentalMempurgeThreshold
+ * Signature: (J)I
+ */
+jdouble Java_org_rocksdb_ColumnFamilyOptions_experimentalMempurgeThreshold(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
+      ->experimental_mempurge_threshold;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setExperimentalMempurgeThreshold
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setExperimentalMempurgeThreshold(
+    JNIEnv*, jobject, jlong jhandle, jdouble jexperimental_mempurge_threshold) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
+      ->experimental_mempurge_threshold =
+      static_cast<double>(jexperimental_mempurge_threshold);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    memtableWholeKeyFiltering
  * Signature: (J)Z
  */
@@ -5622,6 +5715,59 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_blobCompactionReadaheadSize(
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   return static_cast<jlong>(opts->blob_compaction_readahead_size);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setBlobFileStartingLevel
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setBlobFileStartingLevel(
+    JNIEnv*, jobject, jlong jhandle, jint jblob_file_starting_level) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->blob_file_starting_level = jblob_file_starting_level;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    blobFileStartingLevel
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_ColumnFamilyOptions_blobFileStartingLevel(JNIEnv*,
+                                                                jobject,
+                                                                jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jint>(opts->blob_file_starting_level);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setPrepopulateBlobCache
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setPrepopulateBlobCache(
+    JNIEnv*, jobject, jlong jhandle, jbyte jprepopulate_blob_cache_value) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->prepopulate_blob_cache =
+      ROCKSDB_NAMESPACE::PrepopulateBlobCacheJni::toCppPrepopulateBlobCache(
+          jprepopulate_blob_cache_value);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    prepopulateBlobCache
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_ColumnFamilyOptions_prepopulateBlobCache(JNIEnv*,
+                                                                jobject,
+                                                                jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return ROCKSDB_NAMESPACE::PrepopulateBlobCacheJni::toJavaPrepopulateBlobCache(
+      opts->prepopulate_blob_cache);
 }
 
 /////////////////////////////////////////////////////////////////////

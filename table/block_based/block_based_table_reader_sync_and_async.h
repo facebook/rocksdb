@@ -1,4 +1,5 @@
-//  Copyright (c) Meta Platforms, Inc. and its affiliates. All Rights Reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -177,9 +178,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     size_t& req_idx = req_idx_for_block[valid_batch_idx];
     size_t& req_offset = req_offset_for_block[valid_batch_idx];
     valid_batch_idx++;
-    if (mget_iter->get_context) {
-      ++(mget_iter->get_context->get_context_stats_.num_data_read);
-    }
     FSReadRequest& req = read_reqs[req_idx];
     Status s = req.status;
     if (s.ok()) {
@@ -193,7 +191,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       }
     }
 
-    BlockContents raw_block_contents;
+    BlockContents serialized_block;
     if (s.ok()) {
       if (!use_shared_buffer) {
         // We allocated a buffer for this block. Give ownership of it to
@@ -201,17 +199,17 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         assert(req.result.data() == req.scratch);
         assert(req.result.size() == BlockSizeWithTrailer(handle));
         assert(req_offset == 0);
-        std::unique_ptr<char[]> raw_block(req.scratch);
-        raw_block_contents = BlockContents(std::move(raw_block), handle.size());
+        serialized_block =
+            BlockContents(std::unique_ptr<char[]>(req.scratch), handle.size());
       } else {
         // We used the scratch buffer or direct io buffer
         // which are shared by the blocks.
-        // raw_block_contents does not have the ownership.
-        raw_block_contents =
+        // serialized_block does not have the ownership.
+        serialized_block =
             BlockContents(Slice(req.result.data() + req_offset, handle.size()));
       }
 #ifndef NDEBUG
-      raw_block_contents.is_raw_block = true;
+      serialized_block.has_trailer = true;
 #endif
 
       if (options.verify_checksums) {
@@ -234,28 +232,29 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
     if (s.ok()) {
       // When the blocks share the same underlying buffer (scratch or direct io
-      // buffer), we may need to manually copy the block into heap if the raw
-      // block has to be inserted into a cache. That falls into th following
-      // cases -
-      // 1. Raw block is not compressed, it needs to be inserted into the
-      //    uncompressed block cache if there is one
-      // 2. If the raw block is compressed, it needs to be inserted into the
-      //    compressed block cache if there is one
+      // buffer), we may need to manually copy the block into heap if the
+      // serialized block has to be inserted into a cache. That falls into the
+      // following cases -
+      // 1. serialized block is not compressed, it needs to be inserted into
+      //    the uncompressed block cache if there is one
+      // 2. If the serialized block is compressed, it needs to be inserted
+      //    into the compressed block cache if there is one
       //
-      // In all other cases, the raw block is either uncompressed into a heap
-      // buffer or there is no cache at all.
+      // In all other cases, the serialized block is either uncompressed into a
+      // heap buffer or there is no cache at all.
       CompressionType compression_type =
-          GetBlockCompressionType(raw_block_contents);
+          GetBlockCompressionType(serialized_block);
       if (use_shared_buffer && (compression_type == kNoCompression ||
                                 (compression_type != kNoCompression &&
                                  rep_->table_options.block_cache_compressed))) {
-        Slice raw =
+        Slice serialized =
             Slice(req.result.data() + req_offset, BlockSizeWithTrailer(handle));
-        raw_block_contents = BlockContents(
-            CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
+        serialized_block = BlockContents(
+            CopyBufferToHeap(GetMemoryAllocator(rep_->table_options),
+                             serialized),
             handle.size());
 #ifndef NDEBUG
-        raw_block_contents.is_raw_block = true;
+        serialized_block.has_trailer = true;
 #endif
       }
     }
@@ -266,13 +265,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
             TableReaderCaller::kUserMultiGet);
         CachableEntry<Block>* block_entry = &(*results)[idx_in_batch];
         // MaybeReadBlockAndLoadToCache will insert into the block caches if
-        // necessary. Since we're passing the raw block contents, it will
-        // avoid looking up the block cache
+        // necessary. Since we're passing the serialized block contents, it
+        // will avoid looking up the block cache
         s = MaybeReadBlockAndLoadToCache(
             nullptr, options, handle, uncompression_dict, /*wait=*/true,
             /*for_compaction=*/false, block_entry, BlockType::kData,
             mget_iter->get_context, &lookup_data_block_context,
-            &raw_block_contents, /*async_read=*/false);
+            &serialized_block, /*async_read=*/false);
 
         // block_entry value could be null if no block cache is present, i.e
         // BlockBasedTableOptions::no_block_cache is true and no compressed
@@ -285,12 +284,12 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       }
 
       CompressionType compression_type =
-          GetBlockCompressionType(raw_block_contents);
+          GetBlockCompressionType(serialized_block);
       BlockContents contents;
       if (compression_type != kNoCompression) {
         UncompressionContext context(compression_type);
         UncompressionInfo info(context, uncompression_dict, compression_type);
-        s = UncompressBlockContents(
+        s = UncompressSerializedBlock(
             info, req.result.data() + req_offset, handle.size(), &contents,
             footer.format_version(), rep_->ioptions, memory_allocator);
       } else {
@@ -298,13 +297,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // 1) caller uses the shared buffer (scratch or direct io buffer);
         // 2) we use the requst buffer.
         // If scratch buffer or direct io buffer is used, we ensure that
-        // all raw blocks are copyed to the heap as single blocks. If scratch
-        // buffer is not used, we also have no combined read, so the raw
-        // block can be used directly.
-        contents = std::move(raw_block_contents);
+        // all serialized blocks are copyed to the heap as single blocks. If
+        // scratch buffer is not used, we also have no combined read, so the
+        // serialized block can be used directly.
+        contents = std::move(serialized_block);
       }
       if (s.ok()) {
-        (*results)[idx_in_batch].SetOwnedValue(new Block(
+        (*results)[idx_in_batch].SetOwnedValue(std::make_unique<Block>(
             std::move(contents), read_amp_bytes_per_bit, ioptions.stats));
       }
     }
@@ -338,7 +337,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
   FullFilterKeysMayMatch(filter, &sst_file_range, no_io, prefix_extractor,
-                         &lookup_context);
+                         &lookup_context, read_options.rate_limiter_priority);
 
   if (!sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
@@ -487,14 +486,21 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           }
           results[i].UpdateCachedValue();
           void* val = results[i].GetValue();
+          Cache::Handle* handle = results[i].GetCacheHandle();
+          // GetContext for any key will do, as the stats will be aggregated
+          // anyway
+          GetContext* get_context = sst_file_range.begin()->get_context;
           if (!val) {
             // The async cache lookup failed - could be due to an error
             // or a false positive. We need to read the data block from
             // the SST file
             results[i].Reset();
             total_len += BlockSizeWithTrailer(block_handles[i]);
+            UpdateCacheMissMetrics(BlockType::kData, get_context);
           } else {
             block_handles[i] = BlockHandle::NullBlockHandle();
+            UpdateCacheHitMetrics(BlockType::kData, get_context,
+                                  block_cache->GetUsage(handle));
           }
         }
       }
@@ -613,15 +619,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           break;
         }
 
-        bool may_exist = biter->SeekForGet(key);
-        if (!may_exist) {
-          // HashSeek cannot find the key this block and the the iter is not
-          // the end of the block, i.e. cannot be in the following blocks
-          // either. In this case, the seek_key cannot be found, so we break
-          // from the top level for-loop.
-          break;
-        }
-
         // Reusing blocks complicates pinning/Cleanable, because the cache
         // entry referenced by biter can only be released once all returned
         // pinned values are released. This code previously did an extra
@@ -662,6 +659,15 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           value_pinner = biter;
         } else {
           value_pinner = nullptr;
+        }
+
+        bool may_exist = biter->SeekForGet(key);
+        if (!may_exist) {
+          // HashSeek cannot find the key this block and the the iter is not
+          // the end of the block, i.e. cannot be in the following blocks
+          // either. In this case, the seek_key cannot be found, so we break
+          // from the top level for-loop.
+          break;
         }
 
         // Call the *saver function on each entry/block until it returns false
@@ -732,7 +738,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         iiter->Next();
       } while (iiter->Valid());
 
-      if (matched && filter != nullptr && !filter->IsBlockBased()) {
+      if (matched && filter != nullptr) {
         RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
         PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
                                   rep_->level);

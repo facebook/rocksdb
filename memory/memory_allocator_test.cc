@@ -83,7 +83,7 @@ TEST_P(MemoryAllocatorTest, DatabaseBlockCache) {
 
   options.create_if_missing = true;
   BlockBasedTableOptions table_options;
-  auto cache = NewLRUCache(1024 * 1024, 6, false, false, allocator_);
+  auto cache = NewLRUCache(1024 * 1024, 6, false, 0.0, allocator_);
   table_options.block_cache = cache;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   DB* db = nullptr;
@@ -246,6 +246,7 @@ INSTANTIATE_TEST_CASE_P(
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

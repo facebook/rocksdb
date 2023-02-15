@@ -6,6 +6,8 @@
 
 #include "rocksdb/cloud/db_cloud.h"
 
+#include <aws/core/Aws.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>

@@ -447,6 +447,11 @@ class MockEnvDirectory : public FSDirectory {
                  IODebugContext* /*dbg*/) override {
     return IOStatus::OK();
   }
+
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return IOStatus::OK();
+  }
 };
 
 class MockEnvFileLock : public FileLock {
@@ -878,6 +883,7 @@ IOStatus MockFileSystem::GetFileSize(const std::string& fname,
                                      uint64_t* file_size,
                                      IODebugContext* /*dbg*/) {
   auto fn = NormalizeMockPath(fname);
+  TEST_SYNC_POINT_CALLBACK("MockFileSystem::GetFileSize:CheckFileType", &fn);
   MutexLock lock(&mutex_);
   auto iter = file_map_.find(fn);
   if (iter == file_map_.end()) {
