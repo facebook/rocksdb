@@ -244,7 +244,7 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
 
   // Kinds of entries that should not be compressed, but can be stored.
   // (Filter blocks are essentially non-compressible but others usually are.)
-  CacheEntryRoleSet exclude_compression_entry_types = {
+  CacheEntryRoleSet do_not_compress_roles = {
       CacheEntryRole::kFilterBlock};
 
   CompressedSecondaryCacheOptions() {}
@@ -268,7 +268,7 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
         compress_format_version(_compress_format_version),
         enable_custom_split_merge(_enable_custom_split_merge),
         include_entry_types(_include_entry_types),
-        exclude_compression_entry_types(_exclude_entry_types) {}
+        do_not_compress_roles(_exclude_entry_types) {}
 };
 
 // EXPERIMENTAL

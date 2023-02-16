@@ -925,7 +925,7 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
   IntegrationFullCapacityTest(sec_cache_is_compressed_);
 }
 
-TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryTypes) {
+TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
   CompressedSecondaryCacheOptions opts;
   opts.capacity = 2048;
   opts.num_shard_bits = 0;
@@ -956,7 +956,7 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryTypes) {
     }
   }
   opts.include_entry_types = include;
-  opts.exclude_compression_entry_types = exclude_compress;
+  opts.do_not_compress_roles = exclude_compress;
 
   std::shared_ptr<SecondaryCache> sec_cache = NewCompressedSecondaryCache(opts);
 

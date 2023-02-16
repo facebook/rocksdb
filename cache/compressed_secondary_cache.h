@@ -80,7 +80,7 @@ class CompressedSecondaryCache : public SecondaryCache {
       uint32_t compress_format_version = 2,
       bool enable_custom_split_merge = false,
       CacheEntryRoleSet include_entry_types = CacheEntryRoleSet::All(),
-      CacheEntryRoleSet exclude_compression_entry_types = {
+      CacheEntryRoleSet do_not_compress_roles = {
           CacheEntryRole::kFilterBlock});
   ~CompressedSecondaryCache() override;
 
