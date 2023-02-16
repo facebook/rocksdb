@@ -6557,7 +6557,7 @@ TEST_P(DBCompactionTestWithOngoingFileIngestionParam, RangeConflictCheck) {
     MoveFilesToLevel(6 /* level */);
     ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel(0));
   } else {
-    ASSERT_EQ("1,0,1", FilesPerLevel(0));
+    ASSERT_EQ("1,1", FilesPerLevel(0));
   }
 
   // To coerce following sequence of events
@@ -9107,7 +9107,6 @@ TEST_F(DBCompactionTest, BottommostFileCompactionAllowIngestBehind) {
   // it used to wait forever before the fix.
   // ASSERT_OK(dbfull()->TEST_WaitForCompact(true /* wait_unscheduled */));
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE
 
