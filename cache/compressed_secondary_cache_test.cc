@@ -941,22 +941,14 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
 
   // Select a random subset to include, for fast test
   Random& r = *Random::GetTLSInstance();
-  CacheEntryRoleSet include;
-  CacheEntryRoleSet exclude_compress;
-  include.Add(CacheEntryRole::kDataBlock);
+  CacheEntryRoleSet do_not_compress;
   for (uint32_t i = 0; i < kNumCacheEntryRoles; ++i) {
     // A few included on average, but decent chance of zero
     if (r.OneIn(5)) {
-      fprintf(stderr, "Include %u\n", i);
-      include.Add(static_cast<CacheEntryRole>(i));
-    }
-    if (r.OneIn(5)) {
-      fprintf(stderr, "Exclude_comp %u\n", i);
-      exclude_compress.Add(static_cast<CacheEntryRole>(i));
+      do_not_compress.Add(static_cast<CacheEntryRole>(i));
     }
   }
-  opts.include_entry_types = include;
-  opts.do_not_compress_roles = exclude_compress;
+  opts.do_not_compress_roles = do_not_compress;
 
   std::shared_ptr<SecondaryCache> sec_cache = NewCompressedSecondaryCache(opts);
 
@@ -964,7 +956,6 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
   std::string junk(Random(301).RandomString(1000));
 
   for (uint32_t i = 0; i < kNumCacheEntryRoles; ++i) {
-    fprintf(stderr, "Step %u\n", i);
     CacheEntryRole role = static_cast<CacheEntryRole>(i);
 
     // Uniquify `junk`
@@ -974,30 +965,25 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
 
     get_perf_context()->Reset();
     ASSERT_OK(sec_cache->Insert(ith_key, &item, &kHelperByRole[i]));
-    bool included = include.Contains(role);
-    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count,
-              included);
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 1U);
 
     ASSERT_OK(sec_cache->Insert(ith_key, &item, &kHelperByRole[i]));
-    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count,
-              included);
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1U);
 
     bool is_in_sec_cache{true};
     std::unique_ptr<SecondaryCacheResultHandle> handle =
         sec_cache->Lookup(ith_key, &kHelperByRole[i], this, true,
                           /*advise_erase=*/true, is_in_sec_cache);
-    ASSERT_EQ(handle != nullptr, included);
+    ASSERT_NE(handle, nullptr);
 
-    if (included) {
-      // Lookup returns the right data
-      std::unique_ptr<TestItem> val =
-          std::unique_ptr<TestItem>(static_cast<TestItem*>(handle->Value()));
-      ASSERT_NE(val, nullptr);
-      ASSERT_EQ(memcmp(val->Buf(), item.Buf(), item.Size()), 0);
-    }
+    // Lookup returns the right data
+    std::unique_ptr<TestItem> val =
+        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle->Value()));
+    ASSERT_NE(val, nullptr);
+    ASSERT_EQ(memcmp(val->Buf(), item.Buf(), item.Size()), 0);
 
-    bool compressed = included && sec_cache_is_compressed_ &&
-                      !exclude_compress.Contains(role);
+    bool compressed =
+        sec_cache_is_compressed_ && !do_not_compress.Contains(role);
     if (compressed) {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
                 1000);

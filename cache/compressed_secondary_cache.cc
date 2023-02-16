@@ -22,14 +22,12 @@ CompressedSecondaryCache::CompressedSecondaryCache(
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version,
-    bool enable_custom_split_merge, CacheEntryRoleSet include_entry_types,
-    CacheEntryRoleSet do_not_compress_roles)
+    bool enable_custom_split_merge, CacheEntryRoleSet do_not_compress_roles)
     : cache_options_(capacity, num_shard_bits, strict_capacity_limit,
                      high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
                      use_adaptive_mutex, metadata_charge_policy,
                      compression_type, compress_format_version,
-                     enable_custom_split_merge, include_entry_types,
-                     do_not_compress_roles) {
+                     enable_custom_split_merge, do_not_compress_roles) {
   cache_ =
       NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                   high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
@@ -43,10 +41,6 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
     bool& is_in_sec_cache) {
   assert(helper);
-  if (!cache_options_.include_entry_types.Contains(helper->role)) {
-    // We don't store this kind of block in the cache
-    return nullptr;
-  }
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
@@ -126,11 +120,6 @@ Status CompressedSecondaryCache::Insert(const Slice& key,
                                         const Cache::CacheItemHelper* helper) {
   if (value == nullptr) {
     return Status::InvalidArgument();
-  }
-  if (!cache_options_.include_entry_types.Contains(helper->role)) {
-    // We don't store this kind of block in the cache, but no error
-    // to report
-    return Status::OK();
   }
 
   Cache::Handle* lru_handle = cache_->Lookup(key);
@@ -327,14 +316,12 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version,
-    bool enable_custom_split_merge, CacheEntryRoleSet include_entry_types,
-    CacheEntryRoleSet do_not_compress_roles) {
+    bool enable_custom_split_merge, CacheEntryRoleSet do_not_compress_roles) {
   return std::make_shared<CompressedSecondaryCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       low_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
       metadata_charge_policy, compression_type, compress_format_version,
-      enable_custom_split_merge, include_entry_types,
-      do_not_compress_roles);
+      enable_custom_split_merge, do_not_compress_roles);
 }
 
 std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
@@ -346,8 +333,7 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
       opts.high_pri_pool_ratio, opts.low_pri_pool_ratio, opts.memory_allocator,
       opts.use_adaptive_mutex, opts.metadata_charge_policy,
       opts.compression_type, opts.compress_format_version,
-      opts.enable_custom_split_merge, opts.include_entry_types,
-      opts.do_not_compress_roles);
+      opts.enable_custom_split_merge, opts.do_not_compress_roles);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

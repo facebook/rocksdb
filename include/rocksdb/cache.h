@@ -239,13 +239,9 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // into chunks so that they may better fit jemalloc bins.
   bool enable_custom_split_merge = false;
 
-  // Kinds of entries to allow into the cache when evicted from primary cache.
-  CacheEntryRoleSet include_entry_types = CacheEntryRoleSet::All();
-
   // Kinds of entries that should not be compressed, but can be stored.
   // (Filter blocks are essentially non-compressible but others usually are.)
-  CacheEntryRoleSet do_not_compress_roles = {
-      CacheEntryRole::kFilterBlock};
+  CacheEntryRoleSet do_not_compress_roles = {CacheEntryRole::kFilterBlock};
 
   CompressedSecondaryCacheOptions() {}
   CompressedSecondaryCacheOptions(
@@ -258,7 +254,6 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
       CompressionType _compression_type = CompressionType::kLZ4Compression,
       uint32_t _compress_format_version = 2,
       bool _enable_custom_split_merge = false,
-      CacheEntryRoleSet _include_entry_types = CacheEntryRoleSet::All(),
       CacheEntryRoleSet _exclude_entry_types = {CacheEntryRole::kFilterBlock})
       : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
                         _high_pri_pool_ratio, std::move(_memory_allocator),
@@ -267,7 +262,6 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
         compression_type(_compression_type),
         compress_format_version(_compress_format_version),
         enable_custom_split_merge(_enable_custom_split_merge),
-        include_entry_types(_include_entry_types),
         do_not_compress_roles(_exclude_entry_types) {}
 };
 
