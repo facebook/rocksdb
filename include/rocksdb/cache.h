@@ -17,12 +17,12 @@
 
 #include "rocksdb/compression_type.h"
 #include "rocksdb/data_structure.h"
+#include "rocksdb/memory_allocator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Cache;  // defined in advanced_cache.h
 struct ConfigOptions;
-class MemoryAllocator;
 class SecondaryCache;
 
 // Classifications of block cache entries.
