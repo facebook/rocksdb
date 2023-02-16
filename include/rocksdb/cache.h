@@ -254,7 +254,8 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
       CompressionType _compression_type = CompressionType::kLZ4Compression,
       uint32_t _compress_format_version = 2,
       bool _enable_custom_split_merge = false,
-      CacheEntryRoleSet _exclude_entry_types = {CacheEntryRole::kFilterBlock})
+      const CacheEntryRoleSet& _do_not_compress_roles =
+          {CacheEntryRole::kFilterBlock})
       : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
                         _high_pri_pool_ratio, std::move(_memory_allocator),
                         _use_adaptive_mutex, _metadata_charge_policy,
@@ -262,7 +263,7 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
         compression_type(_compression_type),
         compress_format_version(_compress_format_version),
         enable_custom_split_merge(_enable_custom_split_merge),
-        do_not_compress_roles(_exclude_entry_types) {}
+        do_not_compress_roles(_do_not_compress_roles) {}
 };
 
 // EXPERIMENTAL
@@ -277,7 +278,9 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
         kDefaultCacheMetadataChargePolicy,
     CompressionType compression_type = CompressionType::kLZ4Compression,
     uint32_t compress_format_version = 2,
-    bool enable_custom_split_merge = false);
+    bool enable_custom_split_merge = false,
+    const CacheEntryRoleSet& _do_not_compress_roles = {
+        CacheEntryRole::kFilterBlock});
 
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);

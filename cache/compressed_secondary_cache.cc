@@ -22,7 +22,8 @@ CompressedSecondaryCache::CompressedSecondaryCache(
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version,
-    bool enable_custom_split_merge, CacheEntryRoleSet do_not_compress_roles)
+    bool enable_custom_split_merge,
+    const CacheEntryRoleSet& do_not_compress_roles)
     : cache_options_(capacity, num_shard_bits, strict_capacity_limit,
                      high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
                      use_adaptive_mutex, metadata_charge_policy,
@@ -316,7 +317,8 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version,
-    bool enable_custom_split_merge, CacheEntryRoleSet do_not_compress_roles) {
+    bool enable_custom_split_merge,
+    const CacheEntryRoleSet& do_not_compress_roles) {
   return std::make_shared<CompressedSecondaryCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       low_pri_pool_ratio, memory_allocator, use_adaptive_mutex,

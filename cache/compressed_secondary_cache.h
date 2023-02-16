@@ -79,7 +79,8 @@ class CompressedSecondaryCache : public SecondaryCache {
       CompressionType compression_type = CompressionType::kLZ4Compression,
       uint32_t compress_format_version = 2,
       bool enable_custom_split_merge = false,
-      CacheEntryRoleSet do_not_compress_roles = {CacheEntryRole::kFilterBlock});
+      const CacheEntryRoleSet& do_not_compress_roles = {
+          CacheEntryRole::kFilterBlock});
   ~CompressedSecondaryCache() override;
 
   const char* Name() const override { return "CompressedSecondaryCache"; }
