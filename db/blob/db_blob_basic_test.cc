@@ -1782,16 +1782,49 @@ TEST_F(DBBlobBasicTest, GetEntityBlob) {
   constexpr char key[] = "key";
   constexpr char blob_value[] = "blob_value";
 
+  constexpr char other_key[] = "other_key";
+  constexpr char other_blob_value[] = "other_blob_value";
+
   ASSERT_OK(Put(key, blob_value));
+  ASSERT_OK(Put(other_key, other_blob_value));
 
   ASSERT_OK(Flush());
 
-  PinnableWideColumns result;
-  ASSERT_OK(
-      db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key, &result));
-
   WideColumns expected_columns{{kDefaultWideColumnName, blob_value}};
-  ASSERT_EQ(result.columns(), expected_columns);
+  WideColumns other_expected_columns{
+      {kDefaultWideColumnName, other_blob_value}};
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), expected_columns);
+  }
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             other_key, &result));
+
+    ASSERT_EQ(result.columns(), other_expected_columns);
+  }
+
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{key, other_key}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                        &keys[0], &results[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(results[0].columns(), expected_columns);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(results[1].columns(), other_expected_columns);
+  }
 }
 
 class DBBlobWithTimestampTest : public DBBasicTestWithTimestampBase {

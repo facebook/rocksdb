@@ -909,82 +909,6 @@ class TestPutOperator : public MergeOperator {
   virtual const char* Name() const override { return "TestPutOperator"; }
 };
 
-// A wrapper around Cache that can easily be extended with instrumentation,
-// etc.
-class CacheWrapper : public Cache {
- public:
-  explicit CacheWrapper(std::shared_ptr<Cache> target)
-      : target_(std::move(target)) {}
-
-  const char* Name() const override { return target_->Name(); }
-
-  Status Insert(const Slice& key, ObjectPtr value,
-                const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
-    return target_->Insert(key, value, helper, charge, handle, priority);
-  }
-
-  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
-                 CreateContext* create_context,
-                 Priority priority = Priority::LOW, bool wait = true,
-                 Statistics* stats = nullptr) override {
-    return target_->Lookup(key, helper, create_context, priority, wait, stats);
-  }
-
-  bool Ref(Handle* handle) override { return target_->Ref(handle); }
-
-  using Cache::Release;
-  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
-    return target_->Release(handle, erase_if_last_ref);
-  }
-
-  ObjectPtr Value(Handle* handle) override { return target_->Value(handle); }
-
-  void Erase(const Slice& key) override { target_->Erase(key); }
-  uint64_t NewId() override { return target_->NewId(); }
-
-  void SetCapacity(size_t capacity) override { target_->SetCapacity(capacity); }
-
-  void SetStrictCapacityLimit(bool strict_capacity_limit) override {
-    target_->SetStrictCapacityLimit(strict_capacity_limit);
-  }
-
-  bool HasStrictCapacityLimit() const override {
-    return target_->HasStrictCapacityLimit();
-  }
-
-  size_t GetCapacity() const override { return target_->GetCapacity(); }
-
-  size_t GetUsage() const override { return target_->GetUsage(); }
-
-  size_t GetUsage(Handle* handle) const override {
-    return target_->GetUsage(handle);
-  }
-
-  size_t GetPinnedUsage() const override { return target_->GetPinnedUsage(); }
-
-  size_t GetCharge(Handle* handle) const override {
-    return target_->GetCharge(handle);
-  }
-
-  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override {
-    return target_->GetCacheItemHelper(handle);
-  }
-
-  void ApplyToAllEntries(
-      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
-                               const CacheItemHelper* helper)>& callback,
-      const ApplyToAllEntriesOptions& opts) override {
-    target_->ApplyToAllEntries(callback, opts);
-  }
-
-  void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
-
- protected:
-  std::shared_ptr<Cache> target_;
-};
-
 /*
  * A cache wrapper that tracks certain CacheEntryRole's cache charge, its
  * peaks and increments
@@ -1001,6 +925,8 @@ template <CacheEntryRole R>
 class TargetCacheChargeTrackingCache : public CacheWrapper {
  public:
   explicit TargetCacheChargeTrackingCache(std::shared_ptr<Cache> target);
+
+  const char* Name() const override { return "TargetCacheChargeTrackingCache"; }
 
   Status Insert(const Slice& key, ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,

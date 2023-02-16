@@ -2605,14 +2605,25 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, Status* statuses,
                       const bool sorted_input) {
-  return MultiGet(read_options, num_keys, column_families, keys, values,
-                  /*timestamps=*/nullptr, statuses, sorted_input);
+  MultiGet(read_options, num_keys, column_families, keys, values,
+           /* timestamps */ nullptr, statuses, sorted_input);
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, std::string* timestamps,
                       Status* statuses, const bool sorted_input) {
+  MultiGetCommon(read_options, num_keys, column_families, keys, values,
+                 /* columns */ nullptr, timestamps, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetCommon(const ReadOptions& read_options,
+                            const size_t num_keys,
+                            ColumnFamilyHandle** column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            PinnableWideColumns* columns,
+                            std::string* timestamps, Status* statuses,
+                            const bool sorted_input) {
   if (num_keys == 0) {
     return;
   }
@@ -2658,8 +2669,20 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    values[i].Reset();
-    key_context.emplace_back(column_families[i], keys[i], &values[i],
+    PinnableSlice* val = nullptr;
+    PinnableWideColumns* col = nullptr;
+
+    if (values) {
+      val = &values[i];
+      val->Reset();
+    } else {
+      assert(columns);
+
+      col = &columns[i];
+      col->Reset();
+    }
+
+    key_context.emplace_back(column_families[i], keys[i], val, col,
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
   }
@@ -2783,8 +2806,8 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
                       Status* statuses, const bool sorted_input) {
-  return MultiGet(read_options, column_family, num_keys, keys, values,
-                  /*timestamp=*/nullptr, statuses, sorted_input);
+  MultiGet(read_options, column_family, num_keys, keys, values,
+           /* timestamps */ nullptr, statuses, sorted_input);
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options,
@@ -2792,6 +2815,16 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       const Slice* keys, PinnableSlice* values,
                       std::string* timestamps, Status* statuses,
                       const bool sorted_input) {
+  MultiGetCommon(read_options, column_family, num_keys, keys, values,
+                 /* columns */ nullptr, timestamps, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetCommon(const ReadOptions& read_options,
+                            ColumnFamilyHandle* column_family,
+                            const size_t num_keys, const Slice* keys,
+                            PinnableSlice* values, PinnableWideColumns* columns,
+                            std::string* timestamps, Status* statuses,
+                            bool sorted_input) {
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.
@@ -2805,8 +2838,20 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    values[i].Reset();
-    key_context.emplace_back(column_family, keys[i], &values[i],
+    PinnableSlice* val = nullptr;
+    PinnableWideColumns* col = nullptr;
+
+    if (values) {
+      val = &values[i];
+      val->Reset();
+    } else {
+      assert(columns);
+
+      col = &columns[i];
+      col->Reset();
+    }
+
+    key_context.emplace_back(column_family, keys[i], val, col,
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
   }
@@ -2968,8 +3013,17 @@ Status DBImpl::MultiGetImpl(
   uint64_t bytes_read = 0;
   for (size_t i = start_key; i < start_key + num_keys - keys_left; ++i) {
     KeyContext* key = (*sorted_keys)[i];
+    assert(key);
+    assert(key->s);
+
     if (key->s->ok()) {
-      bytes_read += key->value->size();
+      if (key->value) {
+        bytes_read += key->value->size();
+      } else {
+        assert(key->columns);
+        bytes_read += key->columns->serialized_size();
+      }
+
       num_found++;
     }
   }
@@ -2991,6 +3045,22 @@ Status DBImpl::MultiGetImpl(
   PERF_TIMER_STOP(get_post_process_time);
 
   return s;
+}
+
+void DBImpl::MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                            ColumnFamilyHandle** column_families,
+                            const Slice* keys, PinnableWideColumns* results,
+                            Status* statuses, bool sorted_input) {
+  MultiGetCommon(options, num_keys, column_families, keys, /* values */ nullptr,
+                 results, /* timestamps */ nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetEntity(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, size_t num_keys,
+                            const Slice* keys, PinnableWideColumns* results,
+                            Status* statuses, bool sorted_input) {
+  MultiGetCommon(options, column_family, num_keys, keys, /* values */ nullptr,
+                 results, /* timestamps */ nullptr, statuses, sorted_input);
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
