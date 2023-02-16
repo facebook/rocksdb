@@ -29,8 +29,8 @@
 #include <type_traits>
 
 #include "cache/cache_helpers.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/advanced_options.h"
-#include "rocksdb/cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 

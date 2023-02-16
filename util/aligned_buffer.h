@@ -9,6 +9,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 
 #include "port/port.h"
 

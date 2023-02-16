@@ -15,7 +15,7 @@
 
 #include "port/lang.h"
 #include "port/port.h"
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
 

@@ -27,6 +27,7 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/functor_wrapper.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -68,13 +69,6 @@ class SystemClock;
 struct ConfigOptions;
 
 const size_t kDefaultPageSize = 4 * 1024;
-
-enum class CpuPriority {
-  kIdle = 0,
-  kLow = 1,
-  kNormal = 2,
-  kHigh = 3,
-};
 
 // Options while opening a file to read/write
 struct EnvOptions {
