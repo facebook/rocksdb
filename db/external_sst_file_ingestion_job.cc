@@ -865,8 +865,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
   int target_level = 0;
   auto* vstorage = cfd_->current()->storage_info();
 
-  // bottommost_level is either the bottommmost non-empty level plus one, or
-  // `num_level-1`.
+  // bottommost_level is the target level to ingest
   int bottommost_level = vstorage->num_non_empty_levels();
   if (bottommost_level < vstorage->base_level()) {
     bottommost_level = vstorage->base_level();

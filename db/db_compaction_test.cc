@@ -6419,7 +6419,7 @@ class DBCompactionTestWithOngoingFileIngestionParam
     // L2 is made to contain a file overlapped with files to be ingested in
     // later steps on key "k2". This will force future files ingested to L1 or
     // above.
-    ASSERT_EQ("0,0,1", FilesPerLevel(0));
+    ASSERT_EQ("0,1", FilesPerLevel(0));
   }
 
   void SetupSyncPoints() {

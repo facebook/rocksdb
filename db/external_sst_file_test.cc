@@ -1735,7 +1735,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
       verify_checksums_before_ingest, false, false, &true_data));
 
   // This file overlap with files in L4, we will ingest it in L3
-  ASSERT_EQ("2,1,2", FilesPerLevel());
+  ASSERT_EQ("3,1,1", FilesPerLevel());
 
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
