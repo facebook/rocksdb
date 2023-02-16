@@ -1452,18 +1452,24 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     }
     SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
-                 callback, &iter->is_blob_index, iter->value->GetSelf(),
-                 /*columns=*/nullptr, iter->timestamp, iter->s,
-                 &(iter->merge_context), &dummy_seq, &found_final_value,
-                 &merge_in_progress);
+                 callback, &iter->is_blob_index,
+                 iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
+                 iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
+                 &found_final_value, &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
       *(iter->s) = Status::MergeInProgress();
     }
 
     if (found_final_value) {
-      iter->value->PinSelf();
-      range->AddValueSize(iter->value->size());
+      if (iter->value) {
+        iter->value->PinSelf();
+        range->AddValueSize(iter->value->size());
+      } else {
+        assert(iter->columns);
+        range->AddValueSize(iter->columns->serialized_size());
+      }
+
       range->MarkKeyDone(iter);
       RecordTick(moptions_.statistics, MEMTABLE_HIT);
       if (range->GetValueSize() > read_options.value_size_soft_limit) {

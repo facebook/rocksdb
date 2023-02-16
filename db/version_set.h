@@ -33,6 +33,7 @@
 
 #include "cache/cache_helpers.h"
 #include "db/blob/blob_file_meta.h"
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/compaction_picker.h"
@@ -889,8 +890,15 @@ class Version {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
-  using BlobReadContext =
-      std::pair<BlobIndex, std::reference_wrapper<const KeyContext>>;
+  struct BlobReadContext {
+    BlobReadContext(const BlobIndex& blob_idx, const KeyContext* key_ctx)
+        : blob_index(blob_idx), key_context(key_ctx) {}
+
+    BlobIndex blob_index;
+    const KeyContext* key_context;
+    PinnableSlice result;
+  };
+
   using BlobReadContexts = std::vector<BlobReadContext>;
   void MultiGetBlob(const ReadOptions& read_options, MultiGetRange& range,
                     std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs);
