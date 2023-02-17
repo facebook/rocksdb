@@ -2022,15 +2022,12 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
   assert(!immutable_db_options_.replication_log_listener);
-
-#if 0 // RocksDB-Cloud disabled
   if (!flush_options.wait && write_controller_.IsStopped()) {
     std::ostringstream oss;
     oss << "Writes have been stopped, thus unable to perform manual flush. "
            "Please try again later after writes are resumed";
     return Status::TryAgain(oss.str());
   }
-#endif
   Status s;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
@@ -2171,14 +2168,12 @@ Status DBImpl::AtomicFlushMemTables(
     const FlushOptions& flush_options, FlushReason flush_reason,
     bool entered_write_thread) {
   assert(immutable_db_options_.atomic_flush);
-#if 0 // RocksDB-Cloud disabled
   if (!flush_options.wait && write_controller_.IsStopped()) {
     std::ostringstream oss;
     oss << "Writes have been stopped, thus unable to perform manual flush. "
            "Please try again later after writes are resumed";
     return Status::TryAgain(oss.str());
   }
-#endif
   Status s;
   if (!flush_options.allow_write_stall) {
     int num_cfs_to_flush = 0;

@@ -1342,7 +1342,9 @@ void ColumnFamilyData::InstallSuperVersion(
   super_version_->version_number = super_version_number_;
   if (old_superversion == nullptr || old_superversion->current != current() ||
       old_superversion->mem != mem_ ||
-      old_superversion->imm != imm_.current()) {
+      old_superversion->imm != imm_.current() ||
+      old_superversion->mutable_cf_options.disable_write_stall !=
+          mutable_cf_options.disable_write_stall) {
     // Should not recalculate slow down condition if nothing has changed, since
     // currently RecalculateWriteStallConditions() treats it as further slowing
     // down is needed.
