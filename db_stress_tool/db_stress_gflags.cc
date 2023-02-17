@@ -1073,4 +1073,6 @@ DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 
+extern "C" bool RocksDbIOUringEnable() { return true; }
+
 #endif  // GFLAGS
