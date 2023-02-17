@@ -16,6 +16,7 @@
 #include <string>
 
 #include "rocksdb/compression_type.h"
+#include "rocksdb/data_structure.h"
 #include "rocksdb/memory_allocator.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -69,6 +70,9 @@ constexpr uint32_t kNumCacheEntryRoles =
 
 // Obtain a hyphen-separated, lowercase name of a `CacheEntryRole`.
 const std::string& GetCacheEntryRoleName(CacheEntryRole);
+
+// A fast bit set for CacheEntryRoles
+using CacheEntryRoleSet = SmallEnumSet<CacheEntryRole, CacheEntryRole::kMisc>;
 
 // For use with `GetMapProperty()` for property
 // `DB::Properties::kBlockCacheEntryStats`. On success, the map will
@@ -235,6 +239,10 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // into chunks so that they may better fit jemalloc bins.
   bool enable_custom_split_merge = false;
 
+  // Kinds of entries that should not be compressed, but can be stored.
+  // (Filter blocks are essentially non-compressible but others usually are.)
+  CacheEntryRoleSet do_not_compress_roles = {CacheEntryRole::kFilterBlock};
+
   CompressedSecondaryCacheOptions() {}
   CompressedSecondaryCacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
@@ -245,14 +253,17 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
           kDefaultCacheMetadataChargePolicy,
       CompressionType _compression_type = CompressionType::kLZ4Compression,
       uint32_t _compress_format_version = 2,
-      bool _enable_custom_split_merge = false)
+      bool _enable_custom_split_merge = false,
+      const CacheEntryRoleSet& _do_not_compress_roles =
+          {CacheEntryRole::kFilterBlock})
       : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
                         _high_pri_pool_ratio, std::move(_memory_allocator),
                         _use_adaptive_mutex, _metadata_charge_policy,
                         _low_pri_pool_ratio),
         compression_type(_compression_type),
         compress_format_version(_compress_format_version),
-        enable_custom_split_merge(_enable_custom_split_merge) {}
+        enable_custom_split_merge(_enable_custom_split_merge),
+        do_not_compress_roles(_do_not_compress_roles) {}
 };
 
 // EXPERIMENTAL
@@ -267,7 +278,9 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
         kDefaultCacheMetadataChargePolicy,
     CompressionType compression_type = CompressionType::kLZ4Compression,
     uint32_t compress_format_version = 2,
-    bool enable_custom_split_merge = false);
+    bool enable_custom_split_merge = false,
+    const CacheEntryRoleSet& _do_not_compress_roles = {
+        CacheEntryRole::kFilterBlock});
 
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
