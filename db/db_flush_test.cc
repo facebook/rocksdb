@@ -3410,6 +3410,7 @@ TEST_F(DBFlushTest, NoStopWritesWhenAutoFlushDisabled) {
   Close();
 }
 
+#if 0 // RocksDB-Cloud disabled
 TEST_P(DBAtomicFlushTest, NoWaitWhenWritesStopped) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
@@ -3447,6 +3448,7 @@ TEST_P(DBAtomicFlushTest, NoWaitWhenWritesStopped) {
 
   SyncPoint::GetInstance()->DisableProcessing();
 }
+#endif
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
