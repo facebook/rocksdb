@@ -12,8 +12,6 @@
  *
  */
 
-#ifndef ROCKSDB_LITE
-
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "test_util/testharness.h"
@@ -244,5 +242,3 @@ INSTANTIATE_TEST_CASE_P(
                      testing::Values(-255, -2, -1, 0, 1, 2, 255)));
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // !ROCKSDB_LITE
