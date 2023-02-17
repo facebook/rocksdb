@@ -32,6 +32,7 @@
 
 ### New Features
 * Compaction filters are now supported for wide-column entities by means of the `FilterV3` API. See the comment of the API for more details.
+* Added `do_not_compress_roles` to `CompressedSecondaryCacheOptions` to disable compression on certain kinds of block. Filter blocks are now not compressed by CompressedSecondaryCache by default.
 * Added a new `MultiGetEntity` API that enables batched wide-column point lookups. See the API comments for more details.
 
 ## 7.10.0 (01/23/2023)
