@@ -253,7 +253,7 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
                              nullptr, nullptr, nullptr, nullptr,
                              true /* do_merge */, nullptr, nullptr, nullptr,
                              nullptr, nullptr, nullptr);
-    key_context.emplace_back(nullptr, keys[i], &values[i], nullptr,
+    key_context.emplace_back(nullptr, keys[i], &values[i], nullptr, nullptr,
                              &statuses.back());
     key_context.back().get_context = &get_context.back();
   }

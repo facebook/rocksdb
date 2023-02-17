@@ -1633,6 +1633,8 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
 
 TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
   Options options = CurrentOptions();
+  // Small size to force manifest creation
+  options.max_manifest_file_size = 1;
   options.track_and_verify_wals_in_manifest = true;
   DestroyAndReopen(options);
 
@@ -1649,53 +1651,33 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
   // (2) SyncWAL() proceeds with the lock. It
   // creates a new manifest and syncs all the inactive wals before the latest
   // (i.e, active log), which is 4.log. Note that SyncWAL() is not aware of the
-  // fact that 4.log has marked as to be obseleted. Prior to the fix, such wal
+  // fact that 4.log has marked as to be obseleted. Such wal
   // sync will then add a WAL addition record of 4.log to the new manifest
-  // without any special treatment.
-  // (3) BackgroundFlush() will eventually purge 4.log.
+  // without any special treatment. Prior to the fix, there is no WAL deletion
+  // record to offset it. (3) BackgroundFlush() will eventually purge 4.log.
+
   bool wal_synced = false;
   SyncPoint::GetInstance()->SetCallBack(
       "FindObsoleteFiles::PostMutexUnlock", [&](void*) {
         ASSERT_OK(env_->FileExists(wal_file_path));
-
-        SyncPoint::GetInstance()->SetCallBack(
-            "VersionSet::ProcessManifestWrites:"
-            "PostDecidingCreateNewManifestOrNot",
-            [&](void* arg) {
-              bool* new_descriptor_log = (bool*)arg;
-              *new_descriptor_log = true;
-            });
-
+        uint64_t pre_sync_wal_manifest_no =
+            dbfull()->TEST_Current_Manifest_FileNo();
         ASSERT_OK(db_->SyncWAL());
+        uint64_t post_sync_wal_manifest_no =
+            dbfull()->TEST_Current_Manifest_FileNo();
+        bool new_manifest_created =
+            post_sync_wal_manifest_no == pre_sync_wal_manifest_no + 1;
+        ASSERT_TRUE(new_manifest_created);
         wal_synced = true;
       });
 
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::DeleteObsoleteFileImpl:AfterDeletion2", [&](void* arg) {
-        std::string* file_name = (std::string*)arg;
-        if (*file_name == wal_file_path) {
-          TEST_SYNC_POINT(
-              "DBWALTest::"
-              "FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
-              "PostDeleteWAL");
-        }
-      });
-
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BackgroundCallFlush:FilesFound",
-        "PreConfrimObsoletedWALSynced"},
-       {"DBWALTest::FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL::"
-        "PostDeleteWAL",
-        "PreConfrimWALDeleted"}});
 
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
 
-  TEST_SYNC_POINT("PreConfrimObsoletedWALSynced");
   ASSERT_TRUE(wal_synced);
-
-  TEST_SYNC_POINT("PreConfrimWALDeleted");
   // BackgroundFlush() purged 4.log
   // because the memtable associated with the WAL was flushed and new WAL was
   // created (i.e, 8.log)

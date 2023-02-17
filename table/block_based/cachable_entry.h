@@ -13,7 +13,7 @@
 #include <type_traits>
 
 #include "port/likely.h"
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/cleanable.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -578,14 +578,15 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
   }
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
-  auto ret = compaction_filter_->FilterV2(
-      level_, user_key, CompactionFilter::ValueType::kMergeOperand, value_slice,
-      &compaction_filter_value_, compaction_filter_skip_until_.rep());
+  auto ret = compaction_filter_->FilterV3(
+      level_, user_key, CompactionFilter::ValueType::kMergeOperand,
+      &value_slice, /* existing_columns */ nullptr, &compaction_filter_value_,
+      /* new_columns */ nullptr, compaction_filter_skip_until_.rep());
   if (ret == CompactionFilter::Decision::kRemoveAndSkipUntil) {
     if (user_comparator_->Compare(*compaction_filter_skip_until_.rep(),
                                   user_key) <= 0) {
       // Invalid skip_until returned from compaction filter.
-      // Keep the key as per FilterV2 documentation.
+      // Keep the key as per FilterV2/FilterV3 documentation.
       ret = CompactionFilter::Decision::kKeep;
     } else {
       compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
