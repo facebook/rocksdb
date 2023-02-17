@@ -1933,7 +1933,11 @@ Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
   // `CacheDependencies()` brings all the blocks into cache using one I/O. That
   // way the full index scan usually finds the index data it is looking for in
   // cache rather than doing an I/O for each "dependency" (partition).
-  rep_->index_reader->CacheDependencies(read_options, false /* pin */);
+  Status s =
+      rep_->index_reader->CacheDependencies(read_options, false /* pin */);
+  if (!s.ok()) {
+    return s;
+  }
 
   IndexBlockIter iiter_on_stack;
   auto iiter = NewIndexIterator(
