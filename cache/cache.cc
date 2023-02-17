@@ -87,8 +87,7 @@ Status SecondaryCache::CreateFromString(
     }
     return status;
   } else {
-    return LoadSharedObject<SecondaryCache>(config_options, value, nullptr,
-                                            result);
+    return LoadSharedObject<SecondaryCache>(config_options, value, result);
   }
 }
 

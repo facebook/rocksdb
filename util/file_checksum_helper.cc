@@ -160,8 +160,7 @@ Status FileChecksumGenFactory::CreateFromString(
     *result = GetFileChecksumGenCrc32cFactory();
     return Status::OK();
   } else {
-    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, nullptr,
-                                                        result);
+    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, result);
     return s;
   }
 }

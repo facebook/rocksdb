@@ -21,6 +21,7 @@
 * Remove deprecated Env::LoadEnv(). Use Env::CreateFromString() instead.
 * Remove deprecated FileSystem::Load(). Use FileSystem::CreateFromString() instead.
 * Removed the deprecated version of these utility functions and the corresponding Java bindings: `LoadOptionsFromFile`, `LoadLatestOptions`, `CheckOptionsCompatibility`.
+* Remove the FactoryFunc from the LoadObject method from the Customizable helper methods.
 
 ### Public API Changes
 * Moved rarely-needed Cache class definition to new advanced_cache.h, and added a CacheWrapper class to advanced_cache.h. Minor changes to SimCache API definitions.

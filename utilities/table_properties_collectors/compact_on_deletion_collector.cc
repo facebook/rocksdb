@@ -215,7 +215,7 @@ Status TablePropertiesCollectorFactory::CreateFromString(
                                               "");
   });
   return LoadSharedObject<TablePropertiesCollectorFactory>(options, value,
-                                                           nullptr, result);
+                                                           result);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
