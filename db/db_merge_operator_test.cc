@@ -243,6 +243,8 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
         ASSERT_EQ("k0", iter->key());
         iter->Next();
         ASSERT_TRUE(iter->status().IsCorruption());
+        ASSERT_EQ(Status::SubCode::kMergeOperatorFailed,
+                  iter->status().subcode());
 
         iter->SeekToLast();
         ASSERT_TRUE(iter->Valid());
