@@ -647,6 +647,9 @@ class CloudFileSystem : public FileSystem {
                                  const std::string& cookie,
                                  const CloudManifestDelta& delta) const = 0;
 
+  virtual IOStatus GetMaxFileNumberFromCurrentManifest(
+      const std::string& local_dbname, uint64_t* max_file_number) = 0;
+
   virtual IOStatus DeleteCloudInvisibleFiles(
       const std::vector<std::string>& active_cookies) = 0;
 

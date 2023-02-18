@@ -1985,6 +1985,12 @@ IOStatus CloudFileSystemImpl::CreateCloudManifest(
   return st;
 }
 
+IOStatus CloudFileSystemImpl::GetMaxFileNumberFromCurrentManifest(
+    const std::string& local_dbname, uint64_t* max_file_number) {
+  return ManifestReader::GetMaxFileNumberFromManifest(
+      this, local_dbname + "/MANIFEST-000001", max_file_number);
+}
+
 // REQ: This is an existing database.
 IOStatus CloudFileSystemImpl::RollNewEpoch(const std::string& local_dbname) {
   assert(cloud_fs_options.roll_cloud_manifest_on_open);

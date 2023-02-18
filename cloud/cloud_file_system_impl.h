@@ -261,6 +261,10 @@ class CloudFileSystemImpl : public CloudFileSystem {
                          const std::string& cookie,
                          const CloudManifestDelta& delta) const override;
 
+  IOStatus GetMaxFileNumberFromCurrentManifest(
+      const std::string& local_dbname,
+      uint64_t* max_file_number) override;
+
   // Upload MANIFEST-epoch  to the cloud
   IOStatus UploadManifest(const std::string& local_dbname,
                           const std::string& epoch) const;
