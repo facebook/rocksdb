@@ -97,7 +97,7 @@ class WinClock : public SystemClock {
 
   Status GetCurrentTime(int64_t* unix_time) override;
   // Converts seconds-since-Jan-01-1970 to a printable string
-  virtual std::string TimeToString(uint64_t time) override;
+  std::string TimeToString(uint64_t time) override;
 
   uint64_t GetPerfCounterFrequency() const { return perf_counter_frequency_; }
 
