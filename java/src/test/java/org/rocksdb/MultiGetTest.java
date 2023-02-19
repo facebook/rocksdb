@@ -11,12 +11,17 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.util.TestUtil;
 
 public class MultiGetTest {
+  @ClassRule
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
+
   @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test

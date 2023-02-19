@@ -1,4 +1,5 @@
-//  Copyright (c) Meta Platforms, Inc. and its affiliates. All Rights Reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -19,17 +20,20 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
   awaiter->io_handle_.resize(awaiter->num_reqs_);
   awaiter->del_fn_.resize(awaiter->num_reqs_);
   for (size_t i = 0; i < awaiter->num_reqs_; ++i) {
-    awaiter->file_
-        ->ReadAsync(
-            awaiter->read_reqs_[i], awaiter->opts_,
-            [](const FSReadRequest& req, void* cb_arg) {
-              FSReadRequest* read_req = static_cast<FSReadRequest*>(cb_arg);
-              read_req->status = req.status;
-              read_req->result = req.result;
-            },
-            &awaiter->read_reqs_[i], &awaiter->io_handle_[i],
-            &awaiter->del_fn_[i], Env::IOPriority::IO_TOTAL)
-        .PermitUncheckedError();
+    IOStatus s = awaiter->file_->ReadAsync(
+        awaiter->read_reqs_[i], awaiter->opts_,
+        [](const FSReadRequest& req, void* cb_arg) {
+          FSReadRequest* read_req = static_cast<FSReadRequest*>(cb_arg);
+          read_req->status = req.status;
+          read_req->result = req.result;
+        },
+        &awaiter->read_reqs_[i], &awaiter->io_handle_[i], &awaiter->del_fn_[i],
+        /*aligned_buf=*/nullptr);
+    if (!s.ok()) {
+      // For any non-ok status, the FileSystem will not call the callback
+      // So let's update the status ourselves
+      awaiter->read_reqs_[i].status = s;
+    }
   }
   return true;
 }
@@ -40,6 +44,7 @@ void AsyncFileReader::Wait() {
   }
   ReadAwaiter* waiter;
   std::vector<void*> io_handles;
+  IOStatus s;
   io_handles.reserve(num_reqs_);
   waiter = head_;
   do {
@@ -51,7 +56,7 @@ void AsyncFileReader::Wait() {
   } while (waiter != tail_ && (waiter = waiter->next_));
   if (io_handles.size() > 0) {
     StopWatch sw(SystemClock::Default().get(), stats_, POLL_WAIT_MICROS);
-    fs_->Poll(io_handles, io_handles.size()).PermitUncheckedError();
+    s = fs_->Poll(io_handles, io_handles.size());
   }
   do {
     waiter = head_;
@@ -60,6 +65,10 @@ void AsyncFileReader::Wait() {
     for (size_t i = 0; i < waiter->num_reqs_; ++i) {
       if (waiter->io_handle_[i] && waiter->del_fn_[i]) {
         waiter->del_fn_[i](waiter->io_handle_[i]);
+      }
+      if (waiter->read_reqs_[i].status.ok() && !s.ok()) {
+        // Override the request status with the Poll error
+        waiter->read_reqs_[i].status = s;
       }
     }
     waiter->awaiting_coro_.resume();

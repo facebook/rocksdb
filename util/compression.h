@@ -23,6 +23,7 @@
 #include "memory/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block_type.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
@@ -47,10 +48,12 @@
 
 #if defined(ZSTD)
 #include <zstd.h>
-#if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
+// v1.1.3+
+#if ZSTD_VERSION_NUMBER >= 10103
 #include <zdict.h>
 #endif  // ZSTD_VERSION_NUMBER >= 10103
-#if ZSTD_VERSION_NUMBER >= 10400  // v1.4.0+
+// v1.4.0+
+#if ZSTD_VERSION_NUMBER >= 10400
 #define ZSTD_STREAMING
 #endif  // ZSTD_VERSION_NUMBER >= 10400
 namespace ROCKSDB_NAMESPACE {
@@ -86,12 +89,11 @@ class ZSTDUncompressCachedData {
   // Init from cache
   ZSTDUncompressCachedData(const ZSTDUncompressCachedData& o) = delete;
   ZSTDUncompressCachedData& operator=(const ZSTDUncompressCachedData&) = delete;
-  ZSTDUncompressCachedData(ZSTDUncompressCachedData&& o) ROCKSDB_NOEXCEPT
+  ZSTDUncompressCachedData(ZSTDUncompressCachedData&& o) noexcept
       : ZSTDUncompressCachedData() {
     *this = std::move(o);
   }
-  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&& o)
-      ROCKSDB_NOEXCEPT {
+  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&& o) noexcept {
     assert(zstd_ctx_ == nullptr);
     std::swap(zstd_ctx_, o.zstd_ctx_);
     std::swap(cache_idx_, o.cache_idx_);
@@ -137,14 +139,14 @@ class ZSTDUncompressCachedData {
   ZSTDUncompressCachedData() {}
   ZSTDUncompressCachedData(const ZSTDUncompressCachedData&) {}
   ZSTDUncompressCachedData& operator=(const ZSTDUncompressCachedData&) = delete;
-  ZSTDUncompressCachedData(ZSTDUncompressCachedData&&)
-      ROCKSDB_NOEXCEPT = default;
-  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&&)
-      ROCKSDB_NOEXCEPT = default;
+  ZSTDUncompressCachedData(ZSTDUncompressCachedData&&) noexcept = default;
+  ZSTDUncompressCachedData& operator=(ZSTDUncompressCachedData&&) noexcept =
+      default;
   ZSTDNativeContext Get() const { return nullptr; }
   int64_t GetCacheIndex() const { return -1; }
   void CreateIfNeeded() {}
   void InitFromCache(const ZSTDUncompressCachedData&, int64_t) {}
+
  private:
   void ignore_padding__() { padding = nullptr; }
 };
@@ -319,6 +321,11 @@ struct UncompressionDict {
   bool own_bytes() const { return !dict_.empty() || allocation_; }
 
   const Slice& GetRawDict() const { return slice_; }
+
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return slice_; }
+  static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kOtherBlock;
+  static constexpr BlockType kBlockType = BlockType::kCompressionDictionary;
 
 #ifdef ROCKSDB_ZSTD_DDICT
   const ZSTD_DDict* GetDigestedZstdDDict() const { return zstd_ddict_; }
@@ -1258,7 +1265,7 @@ inline bool LZ4HC_Compress(const CompressionInfo& info,
   size_t compression_dict_size = compression_dict.size();
   if (compression_dict_data != nullptr) {
     LZ4_loadDictHC(stream, compression_dict_data,
-                  static_cast<int>(compression_dict_size));
+                   static_cast<int>(compression_dict_size));
   }
 
 #if LZ4_VERSION_NUMBER >= 10700  // r129+
@@ -1704,8 +1711,11 @@ class StreamingUncompress {
         compress_format_version_(compress_format_version),
         max_output_len_(max_output_len) {}
   virtual ~StreamingUncompress() = default;
-  // uncompress should be called again with the same input if output_size is
-  // equal to max_output_len or with the next input fragment.
+  // Uncompress can be called repeatedly to progressively process the same
+  // input buffer, or can be called with a new input buffer. When the input
+  // buffer is not fully consumed, the return value is > 0 or output_size
+  // == max_output_len. When calling uncompress to continue processing the
+  // same input buffer, the input argument should be nullptr.
   // Parameters:
   // input - buffer to uncompress
   // input_size - size of input buffer
@@ -1735,6 +1745,8 @@ class ZSTDStreamingCompress final : public StreamingCompress {
                           max_output_len) {
 #ifdef ZSTD_STREAMING
     cctx_ = ZSTD_createCCtx();
+    // Each compressed frame will have a checksum
+    ZSTD_CCtx_setParameter(cctx_, ZSTD_c_checksumFlag, 1);
     assert(cctx_ != nullptr);
     input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif

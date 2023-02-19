@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -23,7 +24,6 @@ class DBSSTTest : public DBTestBase {
   DBSSTTest() : DBTestBase("db_sst_test", /*env_do_fsync=*/true) {}
 };
 
-#ifndef ROCKSDB_LITE
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
@@ -52,7 +52,6 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> flushed_files_;
   std::mutex mutex_;
 };
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBSSTTest, DontDeletePendingOutputs) {
   Options options;
@@ -150,7 +149,6 @@ TEST_F(DBSSTTest, SkipCheckingSSTFileSizesOnDBOpen) {
   ASSERT_EQ("choo", Get("pika"));
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBSSTTest, DontDeleteMovedFile) {
   // This test triggers move compaction and verifies that the file is not
   // deleted when it's part of move compaction
@@ -694,10 +692,10 @@ TEST_P(DBSSTTestRateLimit, RateLimitedDelete) {
         *abs_time_us = Env::Default()->NowMicros();
       });
 
-  // Disable PeriodicWorkScheduler as it also has TimedWait, which could update
+  // Disable PeriodicTaskScheduler as it also has TimedWait, which could update
   // the simulated sleep time
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::StartPeriodicWorkScheduler:DisableScheduler", [&](void* arg) {
+      "DBImpl::StartPeriodicTaskScheduler:DisableScheduler", [&](void* arg) {
         bool* disable_scheduler = static_cast<bool*>(arg);
         *disable_scheduler = true;
       });
@@ -960,7 +958,6 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "002.sst.trash"));
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "003.sst.trash"));
 }
-
 
 // Create a DB with 2 db_paths, and generate multiple files in the 2
 // db_paths using CompactRangeOptions, make sure that files that were
@@ -1233,7 +1230,9 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   ASSERT_GT(completed_compactions, 0);
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
-  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 0);
+  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                COMPACTION_CANCELLED),
+            0);
   ASSERT_EQ(0,
             dbfull()->immutable_db_options().statistics.get()->getTickerCount(
                 FILES_MARKED_TRASH));
@@ -1629,6 +1628,45 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
+  Options options = CurrentOptions();
+  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
+  options.env = env.get();
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+  options.enable_blob_files = true;
+  options.blob_file_size = 32;  // create one blob per file
+  options.skip_checking_sst_file_sizes_on_db_open = true;
+
+  DestroyAndReopen(options);
+  // Generate 5 files in L0
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 10; j++) {
+      std::string val = "val_file_" + std::to_string(i);
+      ASSERT_OK(Put(Key(j), val));
+    }
+    ASSERT_OK(Flush());
+  }
+  Close();
+
+  bool is_get_file_size_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "MockFileSystem::GetFileSize:CheckFileType", [&](void* arg) {
+        std::string* filename = reinterpret_cast<std::string*>(arg);
+        if (filename->find(".blob") != std::string::npos) {
+          is_get_file_size_called = true;
+        }
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_FALSE(is_get_file_size_called);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Destroy(options);
+}
+
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -1815,7 +1853,6 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

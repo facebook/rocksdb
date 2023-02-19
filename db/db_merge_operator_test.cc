@@ -84,8 +84,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   Options options;
   options.create_if_missing = true;
   // Use only the latest two merge operands.
-  options.merge_operator =
-      std::make_shared<LimitedStringAppendMergeOp>(2, ',');
+  options.merge_operator = std::make_shared<LimitedStringAppendMergeOp>(2, ',');
   options.env = env_;
   Reopen(options);
   // All K1 values are in memtable.
@@ -204,6 +203,162 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
 }
 
 
+TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
+  // This is like a mini-stress test dedicated to `OpFailureScope::kMustMerge`.
+  // Some or most of it might be deleted upon adding that option to the actual
+  // stress test.
+  //
+  // "k0" and "k2" are stable (uncorrupted) keys before and after a corrupted
+  // key ("k1"). The outer loop (`i`) varies which write (`j`) to "k1" triggers
+  // the corruption. Inside that loop there are three cases:
+  //
+  // - Case 1: pure `Merge()`s
+  // - Case 2: `Merge()`s on top of a `Put()`
+  // - Case 3: `Merge()`s on top of a `Delete()`
+  //
+  // For each case we test query results before flush, after flush, and after
+  // compaction, as well as cleanup after deletion+compaction. The queries
+  // expect "k0" and "k2" to always be readable. "k1" is expected to be readable
+  // only by APIs that do not require merging, such as `GetMergeOperands()`.
+  const int kNumOperands = 3;
+  Options options;
+  options.merge_operator.reset(new TestPutOperator());
+  options.env = env_;
+  Reopen(options);
+
+  for (int i = 0; i < kNumOperands; ++i) {
+    auto check_query = [&]() {
+      {
+        std::string value;
+        ASSERT_OK(db_->Get(ReadOptions(), "k0", &value));
+        Status s = db_->Get(ReadOptions(), "k1", &value);
+        ASSERT_TRUE(s.IsCorruption());
+        ASSERT_EQ(Status::SubCode::kMergeOperatorFailed, s.subcode());
+        ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
+      }
+
+      {
+        std::unique_ptr<Iterator> iter;
+        iter.reset(db_->NewIterator(ReadOptions()));
+        iter->SeekToFirst();
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("k0", iter->key());
+        iter->Next();
+        ASSERT_TRUE(iter->status().IsCorruption());
+        ASSERT_EQ(Status::SubCode::kMergeOperatorFailed,
+                  iter->status().subcode());
+
+        iter->SeekToLast();
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("k2", iter->key());
+        iter->Prev();
+        ASSERT_TRUE(iter->status().IsCorruption());
+
+        iter->Seek("k2");
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("k2", iter->key());
+      }
+
+      std::vector<PinnableSlice> values(kNumOperands);
+      GetMergeOperandsOptions merge_operands_info;
+      merge_operands_info.expected_max_number_of_operands = kNumOperands;
+      int num_operands_found = 0;
+      ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                      "k1", values.data(), &merge_operands_info,
+                                      &num_operands_found));
+      ASSERT_EQ(kNumOperands, num_operands_found);
+      for (int j = 0; j < num_operands_found; ++j) {
+        if (i == j) {
+          ASSERT_EQ(values[j], "corrupted_must_merge");
+        } else {
+          ASSERT_EQ(values[j], "ok");
+        }
+      }
+    };
+
+    ASSERT_OK(Put("k0", "val"));
+    ASSERT_OK(Put("k2", "val"));
+
+    // Case 1
+    for (int j = 0; j < kNumOperands; ++j) {
+      if (j == i) {
+        ASSERT_OK(Merge("k1", "corrupted_must_merge"));
+      } else {
+        ASSERT_OK(Merge("k1", "ok"));
+      }
+    }
+    check_query();
+    ASSERT_OK(Flush());
+    check_query();
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction =
+          BottommostLevelCompaction::kForceOptimized;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    }
+    check_query();
+
+    // Case 2
+    for (int j = 0; j < kNumOperands; ++j) {
+      Slice val;
+      if (j == i) {
+        val = "corrupted_must_merge";
+      } else {
+        val = "ok";
+      }
+      if (j == 0) {
+        ASSERT_OK(Put("k1", val));
+      } else {
+        ASSERT_OK(Merge("k1", val));
+      }
+    }
+    check_query();
+    ASSERT_OK(Flush());
+    check_query();
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction =
+          BottommostLevelCompaction::kForceOptimized;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    }
+    check_query();
+
+    // Case 3
+    ASSERT_OK(Delete("k1"));
+    for (int j = 0; j < kNumOperands; ++j) {
+      if (i == j) {
+        ASSERT_OK(Merge("k1", "corrupted_must_merge"));
+      } else {
+        ASSERT_OK(Merge("k1", "ok"));
+      }
+    }
+    check_query();
+    ASSERT_OK(Flush());
+    check_query();
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction =
+          BottommostLevelCompaction::kForceOptimized;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    }
+    check_query();
+
+    // Verify obsolete data removal still happens
+    ASSERT_OK(Delete("k0"));
+    ASSERT_OK(Delete("k1"));
+    ASSERT_OK(Delete("k2"));
+    ASSERT_EQ("NOT_FOUND", Get("k0"));
+    ASSERT_EQ("NOT_FOUND", Get("k1"));
+    ASSERT_EQ("NOT_FOUND", Get("k2"));
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction =
+        BottommostLevelCompaction::kForceOptimized;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    ASSERT_EQ("", FilesPerLevel());
+  }
+}
+
+
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
                                  public testing::WithParamInterface<bool> {
  public:
@@ -215,7 +370,6 @@ class MergeOperatorPinningTest : public DBMergeOperatorTest,
 INSTANTIATE_TEST_CASE_P(MergeOperatorPinningTest, MergeOperatorPinningTest,
                         ::testing::Bool());
 
-#ifndef ROCKSDB_LITE
 TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   Options options = CurrentOptions();
   BlockBasedTableOptions table_options;
@@ -471,7 +625,7 @@ TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
       "DBIter::MergeValuesNewToOld:SteppedToNextOperand", [&](void*) {
         EXPECT_FALSE(stepped_to_next_operand);
         stepped_to_next_operand = true;
-        someone_else.reset(); // Unpin SuperVersion A
+        someone_else.reset();  // Unpin SuperVersion A
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -486,7 +640,6 @@ TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
   EXPECT_TRUE(pushed_first_operand);
   EXPECT_TRUE(stepped_to_next_operand);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   Options options = CurrentOptions();

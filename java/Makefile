@@ -96,9 +96,9 @@ NATIVE_JAVA_TEST_CLASSES = \
     org.rocksdb.WriteBatchTest\
     org.rocksdb.WriteBatchTestInternalHelper
 
-ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
-ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
-ROCKSDB_PATCH = $(shell egrep "ROCKSDB_PATCH.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
+ROCKSDB_MAJOR = $(shell grep -E "ROCKSDB_MAJOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
+ROCKSDB_MINOR = $(shell grep -E "ROCKSDB_MINOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
+ROCKSDB_PATCH = $(shell grep -E "ROCKSDB_PATCH.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
 
 NATIVE_INCLUDE = ./include
 ARCH := $(shell getconf LONG_BIT)
@@ -110,6 +110,7 @@ JAVA_TESTS = \
 	org.rocksdb.BlobOptionsTest\
 	org.rocksdb.BlockBasedTableConfigTest\
 	org.rocksdb.BuiltinComparatorTest\
+	org.rocksdb.ByteBufferUnsupportedOperationTest\
 	org.rocksdb.BytewiseComparatorRegressionTest\
 	org.rocksdb.util.BytewiseComparatorTest\
 	org.rocksdb.util.BytewiseComparatorIntTest\
@@ -146,6 +147,7 @@ JAVA_TESTS = \
 	org.rocksdb.MemoryUtilTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
+	org.rocksdb.MultiColumnRegressionTest \
 	org.rocksdb.MultiGetManyKeysTest\
 	org.rocksdb.MultiGetTest\
 	org.rocksdb.MixedOptionsTest\
@@ -437,7 +439,8 @@ java_test: java resolve_test_deps
 	$(AM_V_at) $(JAVAC_CMD) $(JAVAC_ARGS) -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -h $(NATIVE_INCLUDE) -d $(TEST_CLASSES)\
 		$(TEST_SOURCES)
 
-test: java java_test run_test
+test: java java_test
+	$(MAKE) run_test
 
 run_test:
 	$(JAVA_CMD) $(JAVA_ARGS) -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(ALL_JAVA_TESTS)

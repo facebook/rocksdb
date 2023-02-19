@@ -11,6 +11,7 @@
 #include <cstddef>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -40,6 +41,11 @@ class WriteBatchBase {
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
                      const SliceParts& value);
   virtual Status Put(const SliceParts& key, const SliceParts& value);
+
+  // Store the mapping "key->{column1:value1, column2:value2, ...}" in the
+  // column family specified by "column_family".
+  virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
+                           const WideColumns& columns) = 0;
 
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"

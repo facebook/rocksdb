@@ -1,4 +1,5 @@
-//  Copyright (c) Meta Platforms, Inc. and its affiliates. All Rights Reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -17,14 +18,16 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
 (const ReadOptions& options, const InternalKeyComparator& internal_comparator,
  const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
  const std::shared_ptr<const SliceTransform>& prefix_extractor,
- HistogramImpl* file_read_hist, bool skip_filters, int level) {
+ HistogramImpl* file_read_hist, bool skip_filters, bool skip_range_deletions,
+ int level, TypedHandle* handle) {
   auto& fd = file_meta.fd;
   Status s;
   TableReader* t = fd.table_reader;
-  Cache::Handle* handle = nullptr;
   MultiGetRange table_range(*mget_range, mget_range->begin(),
                             mget_range->end());
-#ifndef ROCKSDB_LITE
+  if (handle != nullptr && t == nullptr) {
+    t = cache_.Value(handle);
+  }
   autovector<std::string, MultiGetContext::MAX_BATCH_SIZE> row_cache_entries;
   IterKey row_cache_key;
   size_t row_cache_key_prefix_size = 0;
@@ -55,37 +58,26 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       }
     }
   }
-#endif  // ROCKSDB_LITE
 
   // Check that table_range is not empty. Its possible all keys may have been
   // found in the row cache and thus the range may now be empty
   if (s.ok() && !table_range.empty()) {
     if (t == nullptr) {
-      s = FindTable(options, file_options_, internal_comparator, fd, &handle,
-                    prefix_extractor,
+      assert(handle == nullptr);
+      s = FindTable(options, file_options_, internal_comparator, file_meta,
+                    &handle, prefix_extractor,
                     options.read_tier == kBlockCacheTier /* no_io */,
                     true /* record_read_stats */, file_read_hist, skip_filters,
                     level, true /* prefetch_index_and_filter_in_cache */,
                     0 /*max_file_size_for_l0_meta_pin*/, file_meta.temperature);
       TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
       if (s.ok()) {
-        t = GetTableReaderFromHandle(handle);
+        t = cache_.Value(handle);
         assert(t);
       }
     }
-    if (s.ok() && !options.ignore_range_deletions) {
-      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-          t->NewRangeTombstoneIterator(options));
-      if (range_del_iter != nullptr) {
-        for (auto iter = table_range.begin(); iter != table_range.end();
-             ++iter) {
-          SequenceNumber* max_covering_tombstone_seq =
-              iter->get_context->max_covering_tombstone_seq();
-          *max_covering_tombstone_seq = std::max(
-              *max_covering_tombstone_seq,
-              range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
-        }
-      }
+    if (s.ok() && !options.ignore_range_deletions && !skip_range_deletions) {
+      UpdateRangeTombstoneSeqnums(options, t, table_range);
     }
     if (s.ok()) {
       CO_AWAIT(t->MultiGet)
@@ -102,9 +94,9 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
     }
   }
 
-#ifndef ROCKSDB_LITE
   if (lookup_row_cache) {
     size_t row_idx = 0;
+    RowCacheInterface row_cache{ioptions_.row_cache.get()};
 
     for (auto miter = table_range.begin(); miter != table_range.end();
          ++miter) {
@@ -120,19 +112,16 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       // Put the replay log in row cache only if something was found.
       if (s.ok() && !row_cache_entry.empty()) {
         size_t charge = row_cache_entry.capacity() + sizeof(std::string);
-        void* row_ptr = new std::string(std::move(row_cache_entry));
+        auto row_ptr = new std::string(std::move(row_cache_entry));
         // If row cache is full, it's OK.
-        ioptions_.row_cache
-            ->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
-                     &DeleteEntry<std::string>)
+        row_cache.Insert(row_cache_key.GetUserKey(), row_ptr, charge)
             .PermitUncheckedError();
       }
     }
   }
-#endif  // ROCKSDB_LITE
 
   if (handle != nullptr) {
-    ReleaseHandle(handle);
+    cache_.Release(handle);
   }
   CO_RETURN s;
 }

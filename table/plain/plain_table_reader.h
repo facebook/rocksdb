@@ -5,12 +5,12 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-#include <unordered_map>
-#include <memory>
-#include <vector>
-#include <string>
 #include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "file/random_access_file_reader.h"
 #include "memory/arena.h"
@@ -58,14 +58,14 @@ struct PlainTableReaderFileInfo {
 // The reader class of PlainTable. For description of PlainTable format
 // See comments of class PlainTableFactory, where instances of
 // PlainTableReader are created.
-class PlainTableReader: public TableReader {
+class PlainTableReader : public TableReader {
  public:
-// Based on following output file format shown in plain_table_factory.h
-// When opening the output file, PlainTableReader creates a hash table
-// from key prefixes to offset of the output file. PlainTable will decide
-// whether it points to the data offset of the first key with the key prefix
-// or the offset of it. If there are too many keys share this prefix, it will
-// create a binary search-able index from the suffix to offset on disk.
+  // Based on following output file format shown in plain_table_factory.h
+  // When opening the output file, PlainTableReader creates a hash table
+  // from key prefixes to offset of the output file. PlainTable will decide
+  // whether it points to the data offset of the first key with the key prefix
+  // or the offset of it. If there are too many keys share this prefix, it will
+  // create a binary search-able index from the suffix to offset on disk.
   static Status Open(const ImmutableOptions& ioptions,
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
@@ -165,10 +165,11 @@ class PlainTableReader: public TableReader {
   const ImmutableOptions& ioptions_;
   std::unique_ptr<Cleanable> dummy_cleanable_;
   uint64_t file_size_;
- protected: // for testing
-  std::shared_ptr<const TableProperties> table_properties_;
- private:
 
+ protected:  // for testing
+  std::shared_ptr<const TableProperties> table_properties_;
+
+ private:
   bool IsFixedLength() const {
     return user_key_len_ != kPlainTableVariableLength;
   }
@@ -239,4 +240,3 @@ class PlainTableReader: public TableReader {
   void operator=(const TableReader&) = delete;
 };
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

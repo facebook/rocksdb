@@ -2,7 +2,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#ifndef ROCKSDB_LITE
 
 #include "utilities/ttl/db_ttl_impl.h"
 
@@ -68,6 +67,7 @@ bool TtlMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
                             merge_in.logger),
         &user_merge_out);
   }
+  merge_out->op_failure_scope = user_merge_out.op_failure_scope;
 
   // Return false if the user merge operator returned false
   if (!good) {
@@ -595,16 +595,14 @@ Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
   return new TtlIterator(db_->NewIterator(opts, column_family));
 }
 
-void DBWithTTLImpl::SetTtl(ColumnFamilyHandle *h, int32_t ttl) {
+void DBWithTTLImpl::SetTtl(ColumnFamilyHandle* h, int32_t ttl) {
   std::shared_ptr<TtlCompactionFilterFactory> filter;
   Options opts;
   opts = GetOptions(h);
   filter = std::static_pointer_cast<TtlCompactionFilterFactory>(
-                                       opts.compaction_filter_factory);
-  if (!filter)
-    return;
+      opts.compaction_filter_factory);
+  if (!filter) return;
   filter->SetTtl(ttl);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -32,7 +32,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 
 const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
     {
@@ -247,6 +246,8 @@ static const std::string cf_file_histogram = "cf-file-histogram";
 static const std::string dbstats = "dbstats";
 static const std::string levelstats = "levelstats";
 static const std::string block_cache_entry_stats = "block-cache-entry-stats";
+static const std::string fast_block_cache_entry_stats =
+    "fast-block-cache-entry-stats";
 static const std::string num_immutable_mem_table = "num-immutable-mem-table";
 static const std::string num_immutable_mem_table_flushed =
     "num-immutable-mem-table-flushed";
@@ -307,6 +308,9 @@ static const std::string total_blob_file_size = "total-blob-file-size";
 static const std::string live_blob_file_size = "live-blob-file-size";
 static const std::string live_blob_file_garbage_size =
     "live-blob-file-garbage-size";
+static const std::string blob_cache_capacity = "blob-cache-capacity";
+static const std::string blob_cache_usage = "blob-cache-usage";
+static const std::string blob_cache_pinned_usage = "blob-cache-pinned-usage";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -323,6 +327,8 @@ const std::string DB::Properties::kDBStats = rocksdb_prefix + dbstats;
 const std::string DB::Properties::kLevelStats = rocksdb_prefix + levelstats;
 const std::string DB::Properties::kBlockCacheEntryStats =
     rocksdb_prefix + block_cache_entry_stats;
+const std::string DB::Properties::kFastBlockCacheEntryStats =
+    rocksdb_prefix + fast_block_cache_entry_stats;
 const std::string DB::Properties::kNumImmutableMemTable =
     rocksdb_prefix + num_immutable_mem_table;
 const std::string DB::Properties::kNumImmutableMemTableFlushed =
@@ -409,6 +415,16 @@ const std::string DB::Properties::kLiveBlobFileSize =
     rocksdb_prefix + live_blob_file_size;
 const std::string DB::Properties::kLiveBlobFileGarbageSize =
     rocksdb_prefix + live_blob_file_garbage_size;
+const std::string DB::Properties::kBlobCacheCapacity =
+    rocksdb_prefix + blob_cache_capacity;
+const std::string DB::Properties::kBlobCacheUsage =
+    rocksdb_prefix + blob_cache_usage;
+const std::string DB::Properties::kBlobCachePinnedUsage =
+    rocksdb_prefix + blob_cache_pinned_usage;
+
+const std::string InternalStats::kPeriodicCFStats =
+    DB::Properties::kCFStats + ".periodic";
+const int InternalStats::kMaxNoChangePeriodSinceDump = 8;
 
 const UnorderedMap<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -425,6 +441,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kCFStats,
          {false, &InternalStats::HandleCFStats, nullptr,
           &InternalStats::HandleCFMapStats, nullptr}},
+        {InternalStats::kPeriodicCFStats,
+         {false, &InternalStats::HandleCFStatsPeriodic, nullptr, nullptr,
+          nullptr}},
         {DB::Properties::kCFStatsNoFileHistogram,
          {false, &InternalStats::HandleCFStatsNoFileHistogram, nullptr, nullptr,
           nullptr}},
@@ -437,6 +456,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kBlockCacheEntryStats,
          {true, &InternalStats::HandleBlockCacheEntryStats, nullptr,
           &InternalStats::HandleBlockCacheEntryStatsMap, nullptr}},
+        {DB::Properties::kFastBlockCacheEntryStats,
+         {true, &InternalStats::HandleFastBlockCacheEntryStats, nullptr,
+          &InternalStats::HandleFastBlockCacheEntryStatsMap, nullptr}},
         {DB::Properties::kSSTables,
          {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
         {DB::Properties::kAggregatedTableProperties,
@@ -570,6 +592,15 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kLiveBlobFileGarbageSize,
          {false, nullptr, &InternalStats::HandleLiveBlobFileGarbageSize,
           nullptr, nullptr}},
+        {DB::Properties::kBlobCacheCapacity,
+         {false, nullptr, &InternalStats::HandleBlobCacheCapacity, nullptr,
+          nullptr}},
+        {DB::Properties::kBlobCacheUsage,
+         {false, nullptr, &InternalStats::HandleBlobCacheUsage, nullptr,
+          nullptr}},
+        {DB::Properties::kBlobCachePinnedUsage,
+         {false, nullptr, &InternalStats::HandleBlobCachePinnedUsage, nullptr,
+          nullptr}},
 };
 
 InternalStats::InternalStats(int num_levels, SystemClock* clock,
@@ -580,15 +611,14 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
       comp_stats_(num_levels),
       comp_stats_by_pri_(Env::Priority::TOTAL),
       file_read_latency_(num_levels),
+      has_cf_change_since_dump_(true),
       bg_error_count_(0),
       number_levels_(num_levels),
       clock_(clock),
       cfd_(cfd),
       started_at_(clock->NowMicros()) {
-  Cache* block_cache = nullptr;
-  bool ok = GetBlockCacheForStats(&block_cache);
-  if (ok) {
-    assert(block_cache);
+  Cache* block_cache = GetBlockCacheForStats();
+  if (block_cache) {
     // Extract or create stats collector. Could fail in rare cases.
     Status s = CacheEntryStatsCollector<CacheEntryRoleStats>::GetShared(
         block_cache, clock_, &cache_entry_stats_collector_);
@@ -597,8 +627,6 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
     } else {
       assert(!cache_entry_stats_collector_);
     }
-  } else {
-    assert(!block_cache);
   }
 }
 
@@ -630,17 +658,18 @@ void InternalStats::CollectCacheEntryStats(bool foreground) {
                                              min_interval_factor);
 }
 
-std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
+std::function<void()> Blah() {
+  static int x = 42;
+  return [&]() { ++x; };
+}
+
+std::function<void(const Slice& key, Cache::ObjectPtr value, size_t charge,
+                   const Cache::CacheItemHelper* helper)>
 InternalStats::CacheEntryRoleStats::GetEntryCallback() {
-  return [&](const Slice& /*key*/, void* /*value*/, size_t charge,
-             Cache::DeleterFn deleter) {
-    auto e = role_map_.find(deleter);
-    size_t role_idx;
-    if (e == role_map_.end()) {
-      role_idx = static_cast<size_t>(CacheEntryRole::kMisc);
-    } else {
-      role_idx = static_cast<size_t>(e->second);
-    }
+  return [&](const Slice& /*key*/, Cache::ObjectPtr /*value*/, size_t charge,
+             const Cache::CacheItemHelper* helper) -> void {
+    size_t role_idx =
+        static_cast<size_t>(helper ? helper->role : CacheEntryRole::kMisc);
     entry_counts[role_idx]++;
     total_charges[role_idx] += charge;
   };
@@ -651,12 +680,14 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   Clear();
   last_start_time_micros_ = start_time_micros;
   ++collection_count;
-  role_map_ = CopyCacheDeleterRoleMap();
   std::ostringstream str;
   str << cache->Name() << "@" << static_cast<void*>(cache) << "#"
       << port::GetProcessID();
   cache_id = str.str();
   cache_capacity = cache->GetCapacity();
+  cache_usage = cache->GetUsage();
+  table_size = cache->GetTableAddressCount();
+  occupancy = cache->GetOccupancyCount();
 }
 
 void InternalStats::CacheEntryRoleStats::EndCollection(
@@ -681,6 +712,8 @@ std::string InternalStats::CacheEntryRoleStats::ToString(
   std::ostringstream str;
   str << "Block cache " << cache_id
       << " capacity: " << BytesToHumanString(cache_capacity)
+      << " usage: " << BytesToHumanString(cache_usage)
+      << " table_size: " << table_size << " occupancy: " << occupancy
       << " collections: " << collection_count
       << " last_copies: " << copies_of_last_collection
       << " last_secs: " << (GetLastDurationMicros() / 1000000.0)
@@ -720,28 +753,48 @@ void InternalStats::CacheEntryRoleStats::ToMap(
   }
 }
 
-bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
-                                               Slice /*suffix*/) {
+bool InternalStats::HandleBlockCacheEntryStatsInternal(std::string* value,
+                                                       bool fast) {
   if (!cache_entry_stats_collector_) {
     return false;
   }
-  CollectCacheEntryStats(/*foreground*/ true);
+  CollectCacheEntryStats(!fast /* foreground */);
   CacheEntryRoleStats stats;
   cache_entry_stats_collector_->GetStats(&stats);
   *value = stats.ToString(clock_);
   return true;
 }
 
-bool InternalStats::HandleBlockCacheEntryStatsMap(
-    std::map<std::string, std::string>* values, Slice /*suffix*/) {
+bool InternalStats::HandleBlockCacheEntryStatsMapInternal(
+    std::map<std::string, std::string>* values, bool fast) {
   if (!cache_entry_stats_collector_) {
     return false;
   }
-  CollectCacheEntryStats(/*foreground*/ true);
+  CollectCacheEntryStats(!fast /* foreground */);
   CacheEntryRoleStats stats;
   cache_entry_stats_collector_->GetStats(&stats);
   stats.ToMap(values, clock_);
   return true;
+}
+
+bool InternalStats::HandleBlockCacheEntryStats(std::string* value,
+                                               Slice /*suffix*/) {
+  return HandleBlockCacheEntryStatsInternal(value, false /* fast */);
+}
+
+bool InternalStats::HandleBlockCacheEntryStatsMap(
+    std::map<std::string, std::string>* values, Slice /*suffix*/) {
+  return HandleBlockCacheEntryStatsMapInternal(values, false /* fast */);
+}
+
+bool InternalStats::HandleFastBlockCacheEntryStats(std::string* value,
+                                                   Slice /*suffix*/) {
+  return HandleBlockCacheEntryStatsInternal(value, true /* fast */);
+}
+
+bool InternalStats::HandleFastBlockCacheEntryStatsMap(
+    std::map<std::string, std::string>* values, Slice /*suffix*/) {
+  return HandleBlockCacheEntryStatsMapInternal(values, true /* fast */);
 }
 
 bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
@@ -849,6 +902,40 @@ bool InternalStats::HandleLiveBlobFileGarbageSize(uint64_t* value,
   *value = vstorage->GetBlobStats().total_garbage_size;
 
   return true;
+}
+
+Cache* InternalStats::GetBlobCacheForStats() {
+  return cfd_->ioptions()->blob_cache.get();
+}
+
+bool InternalStats::HandleBlobCacheCapacity(uint64_t* value, DBImpl* /*db*/,
+                                            Version* /*version*/) {
+  Cache* blob_cache = GetBlobCacheForStats();
+  if (blob_cache) {
+    *value = static_cast<uint64_t>(blob_cache->GetCapacity());
+    return true;
+  }
+  return false;
+}
+
+bool InternalStats::HandleBlobCacheUsage(uint64_t* value, DBImpl* /*db*/,
+                                         Version* /*version*/) {
+  Cache* blob_cache = GetBlobCacheForStats();
+  if (blob_cache) {
+    *value = static_cast<uint64_t>(blob_cache->GetUsage());
+    return true;
+  }
+  return false;
+}
+
+bool InternalStats::HandleBlobCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
+                                               Version* /*version*/) {
+  Cache* blob_cache = GetBlobCacheForStats();
+  if (blob_cache) {
+    *value = static_cast<uint64_t>(blob_cache->GetPinnedUsage());
+    return true;
+  }
+  return false;
 }
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {
@@ -961,9 +1048,41 @@ bool InternalStats::HandleCFStats(std::string* value, Slice /*suffix*/) {
   return true;
 }
 
+bool InternalStats::HandleCFStatsPeriodic(std::string* value,
+                                          Slice /*suffix*/) {
+  bool has_change = has_cf_change_since_dump_;
+  if (!has_change) {
+    // If file histogram changes, there is activity in this period too.
+    uint64_t new_histogram_num = 0;
+    for (int level = 0; level < number_levels_; level++) {
+      new_histogram_num += file_read_latency_[level].num();
+    }
+    new_histogram_num += blob_file_read_latency_.num();
+    if (new_histogram_num != last_histogram_num) {
+      has_change = true;
+      last_histogram_num = new_histogram_num;
+    }
+  }
+  if (has_change) {
+    no_cf_change_period_since_dump_ = 0;
+    has_cf_change_since_dump_ = false;
+  } else if (no_cf_change_period_since_dump_++ > 0) {
+    // Not ready to sync
+    if (no_cf_change_period_since_dump_ == kMaxNoChangePeriodSinceDump) {
+      // Next periodic, we need to dump stats even if there is no change.
+      no_cf_change_period_since_dump_ = 0;
+    }
+    return true;
+  }
+
+  DumpCFStatsNoFileHistogram(/*is_periodic=*/true, value);
+  DumpCFFileHistogram(value);
+  return true;
+}
+
 bool InternalStats::HandleCFStatsNoFileHistogram(std::string* value,
                                                  Slice /*suffix*/) {
-  DumpCFStatsNoFileHistogram(value);
+  DumpCFStatsNoFileHistogram(/*is_periodic=*/false, value);
   return true;
 }
 
@@ -1313,46 +1432,40 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
   return *value > 0 && *value < std::numeric_limits<uint64_t>::max();
 }
 
-bool InternalStats::GetBlockCacheForStats(Cache** block_cache) {
-  assert(block_cache != nullptr);
+Cache* InternalStats::GetBlockCacheForStats() {
   auto* table_factory = cfd_->ioptions()->table_factory.get();
   assert(table_factory != nullptr);
-  *block_cache =
-      table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
-  return *block_cache != nullptr;
+  return table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
 }
 
 bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
                                              Version* /*version*/) {
-  Cache* block_cache;
-  bool ok = GetBlockCacheForStats(&block_cache);
-  if (!ok) {
-    return false;
+  Cache* block_cache = GetBlockCacheForStats();
+  if (block_cache) {
+    *value = static_cast<uint64_t>(block_cache->GetCapacity());
+    return true;
   }
-  *value = static_cast<uint64_t>(block_cache->GetCapacity());
-  return true;
+  return false;
 }
 
 bool InternalStats::HandleBlockCacheUsage(uint64_t* value, DBImpl* /*db*/,
                                           Version* /*version*/) {
-  Cache* block_cache;
-  bool ok = GetBlockCacheForStats(&block_cache);
-  if (!ok) {
-    return false;
+  Cache* block_cache = GetBlockCacheForStats();
+  if (block_cache) {
+    *value = static_cast<uint64_t>(block_cache->GetUsage());
+    return true;
   }
-  *value = static_cast<uint64_t>(block_cache->GetUsage());
-  return true;
+  return false;
 }
 
 bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
                                                 Version* /*version*/) {
-  Cache* block_cache;
-  bool ok = GetBlockCacheForStats(&block_cache);
-  if (!ok) {
-    return false;
+  Cache* block_cache = GetBlockCacheForStats();
+  if (block_cache) {
+    *value = static_cast<uint64_t>(block_cache->GetPinnedUsage());
+    return true;
   }
-  *value = static_cast<uint64_t>(block_cache->GetPinnedUsage());
-  return true;
+  return false;
 }
 
 void InternalStats::DumpDBMapStats(
@@ -1550,7 +1663,8 @@ void InternalStats::DumpCFMapStats(
     int files = vstorage->NumLevelFiles(level);
     total_files += files;
     total_files_being_compacted += files_being_compacted[level];
-    if (comp_stats_[level].micros > 0 || files > 0) {
+    if (comp_stats_[level].micros > 0 || comp_stats_[level].cpu_micros > 0 ||
+        files > 0) {
       compaction_stats_sum->Add(comp_stats_[level]);
       total_file_size += vstorage->NumLevelBytes(level);
       uint64_t input_bytes;
@@ -1633,11 +1747,12 @@ void InternalStats::DumpCFMapStatsIOStalls(
 }
 
 void InternalStats::DumpCFStats(std::string* value) {
-  DumpCFStatsNoFileHistogram(value);
+  DumpCFStatsNoFileHistogram(/*is_periodic=*/false, value);
   DumpCFFileHistogram(value);
 }
 
-void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
+void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
+                                               std::string* value) {
   char buf[2000];
   // Per-ColumnFamily stats
   PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName(), "Level");
@@ -1789,9 +1904,11 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
       interval_compact_bytes_read / kMB / std::max(interval_seconds_up, 0.001),
       interval_compact_micros / kMicrosInSec);
   value->append(buf);
-  cf_stats_snapshot_.compact_bytes_write = compact_bytes_write;
-  cf_stats_snapshot_.compact_bytes_read = compact_bytes_read;
-  cf_stats_snapshot_.compact_micros = compact_micros;
+  if (is_periodic) {
+    cf_stats_snapshot_.compact_bytes_write = compact_bytes_write;
+    cf_stats_snapshot_.compact_bytes_read = compact_bytes_read;
+    cf_stats_snapshot_.compact_micros = compact_micros;
+  }
 
   snprintf(buf, sizeof(buf),
            "Stalls(count): %" PRIu64
@@ -1822,14 +1939,16 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
            total_stall_count - cf_stats_snapshot_.stall_count);
   value->append(buf);
 
-  cf_stats_snapshot_.seconds_up = seconds_up;
-  cf_stats_snapshot_.ingest_bytes_flush = flush_ingest;
-  cf_stats_snapshot_.ingest_bytes_addfile = add_file_ingest;
-  cf_stats_snapshot_.ingest_files_addfile = ingest_files_addfile;
-  cf_stats_snapshot_.ingest_l0_files_addfile = ingest_l0_files_addfile;
-  cf_stats_snapshot_.ingest_keys_addfile = ingest_keys_addfile;
-  cf_stats_snapshot_.comp_stats = compaction_stats_sum;
-  cf_stats_snapshot_.stall_count = total_stall_count;
+  if (is_periodic) {
+    cf_stats_snapshot_.seconds_up = seconds_up;
+    cf_stats_snapshot_.ingest_bytes_flush = flush_ingest;
+    cf_stats_snapshot_.ingest_bytes_addfile = add_file_ingest;
+    cf_stats_snapshot_.ingest_files_addfile = ingest_files_addfile;
+    cf_stats_snapshot_.ingest_l0_files_addfile = ingest_l0_files_addfile;
+    cf_stats_snapshot_.ingest_keys_addfile = ingest_keys_addfile;
+    cf_stats_snapshot_.comp_stats = compaction_stats_sum;
+    cf_stats_snapshot_.stall_count = total_stall_count;
+  }
 
   // Do not gather cache entry stats during CFStats because DB
   // mutex is held. Only dump last cached collection (rely on DB
@@ -1871,12 +1990,5 @@ void InternalStats::DumpCFFileHistogram(std::string* value) {
   value->append(oss.str());
 }
 
-#else
-
-const DBPropertyInfo* GetPropertyInfo(const Slice& /*property*/) {
-  return nullptr;
-}
-
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

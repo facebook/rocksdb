@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <mutex>
 #include <queue>
@@ -71,20 +70,27 @@ class PessimisticTransactionDB : public TransactionDB {
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
   inline Status WriteWithConcurrencyControl(const WriteOptions& opts,
                                             WriteBatch* updates) {
-    // Need to lock all keys in this batch to prevent write conflicts with
-    // concurrent transactions.
-    Transaction* txn = BeginInternalTransaction(opts);
-    txn->DisableIndexing();
+    Status s;
+    if (opts.protection_bytes_per_key > 0) {
+      s = WriteBatchInternal::UpdateProtectionInfo(
+          updates, opts.protection_bytes_per_key);
+    }
+    if (s.ok()) {
+      // Need to lock all keys in this batch to prevent write conflicts with
+      // concurrent transactions.
+      Transaction* txn = BeginInternalTransaction(opts);
+      txn->DisableIndexing();
 
-    auto txn_impl = static_cast_with_check<PessimisticTransaction>(txn);
+      auto txn_impl = static_cast_with_check<PessimisticTransaction>(txn);
 
-    // Since commitBatch sorts the keys before locking, concurrent Write()
-    // operations will not cause a deadlock.
-    // In order to avoid a deadlock with a concurrent Transaction, Transactions
-    // should use a lock timeout.
-    Status s = txn_impl->CommitBatch(updates);
+      // Since commitBatch sorts the keys before locking, concurrent Write()
+      // operations will not cause a deadlock.
+      // In order to avoid a deadlock with a concurrent Transaction,
+      // Transactions should use a lock timeout.
+      s = txn_impl->CommitBatch(updates);
 
-    delete txn;
+      delete txn;
+    }
 
     return s;
   }
@@ -94,8 +100,20 @@ class PessimisticTransactionDB : public TransactionDB {
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle) override;
 
+  Status CreateColumnFamilies(
+      const ColumnFamilyOptions& options,
+      const std::vector<std::string>& column_family_names,
+      std::vector<ColumnFamilyHandle*>* handles) override;
+
+  Status CreateColumnFamilies(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles) override;
+
   using StackableDB::DropColumnFamily;
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
+
+  Status DropColumnFamilies(
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
 
   Status TryLock(PessimisticTransaction* txn, uint32_t cfh_id,
                  const std::string& key, bool exclusive);
@@ -149,6 +167,18 @@ class PessimisticTransactionDB : public TransactionDB {
   const LockTrackerFactory& GetLockTrackerFactory() const {
     return lock_manager_->GetLockTrackerFactory();
   }
+
+  std::pair<Status, std::shared_ptr<const Snapshot>> CreateTimestampedSnapshot(
+      TxnTimestamp ts) override;
+
+  std::shared_ptr<const Snapshot> GetTimestampedSnapshot(
+      TxnTimestamp ts) const override;
+
+  void ReleaseTimestampedSnapshotsOlderThan(TxnTimestamp ts) override;
+
+  Status GetTimestampedSnapshots(TxnTimestamp ts_lb, TxnTimestamp ts_ub,
+                                 std::vector<std::shared_ptr<const Snapshot>>&
+                                     timestamped_snapshots) const override;
 
  protected:
   DBImpl* db_impl_;
@@ -255,5 +285,32 @@ inline Status PessimisticTransactionDB::FailIfCfEnablesTs(
   return Status::OK();
 }
 
+class SnapshotCreationCallback : public PostMemTableCallback {
+ public:
+  explicit SnapshotCreationCallback(
+      DBImpl* dbi, TxnTimestamp commit_ts,
+      const std::shared_ptr<TransactionNotifier>& notifier,
+      std::shared_ptr<const Snapshot>& snapshot)
+      : db_impl_(dbi),
+        commit_ts_(commit_ts),
+        snapshot_notifier_(notifier),
+        snapshot_(snapshot) {
+    assert(db_impl_);
+  }
+
+  ~SnapshotCreationCallback() override {
+    snapshot_creation_status_.PermitUncheckedError();
+  }
+
+  Status operator()(SequenceNumber seq, bool disable_memtable) override;
+
+ private:
+  DBImpl* const db_impl_;
+  const TxnTimestamp commit_ts_;
+  std::shared_ptr<TransactionNotifier> snapshot_notifier_;
+  std::shared_ptr<const Snapshot>& snapshot_;
+
+  Status snapshot_creation_status_;
+};
+
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

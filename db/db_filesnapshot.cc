@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <cstdint>
@@ -65,8 +64,7 @@ Status DBImpl::FlushForGetLiveFiles() {
 }
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
-                            uint64_t* manifest_file_size,
-                            bool flush_memtable) {
+                            uint64_t* manifest_file_size, bool flush_memtable) {
   *manifest_file_size = 0;
 
   mutex_.Lock();
@@ -124,6 +122,9 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
+  // Record tracked WALs as a (minimum) cross-check for directory scan
+  std::vector<uint64_t> required_by_manifest;
+
   // If caller disabled deletions, this function should return files that are
   // guaranteed not to be deleted until deletions are re-enabled. We need to
   // wait for pending purges to finish since WalManager doesn't know which
@@ -137,6 +138,13 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     while (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0) {
       bg_cv_.Wait();
     }
+
+    // Record tracked WALs as a (minimum) cross-check for directory scan
+    const auto& manifest_wals = versions_->GetWalSet().GetWals();
+    required_by_manifest.reserve(manifest_wals.size());
+    for (const auto& wal : manifest_wals) {
+      required_by_manifest.push_back(wal.first);
+    }
   }
 
   Status s = wal_manager_.GetSortedWalFiles(files);
@@ -148,6 +156,29 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     s2.PermitUncheckedError();
   } else {
     assert(deletions_disabled.IsNotSupported());
+  }
+
+  if (s.ok()) {
+    // Verify includes those required by manifest (one sorted list is superset
+    // of the other)
+    auto required = required_by_manifest.begin();
+    auto included = files.begin();
+
+    while (required != required_by_manifest.end()) {
+      if (included == files.end() || *required < (*included)->LogNumber()) {
+        // FAIL - did not find
+        return Status::Corruption(
+            "WAL file " + std::to_string(*required) +
+            " required by manifest but not in directory list");
+      }
+      if (*required == (*included)->LogNumber()) {
+        ++required;
+        ++included;
+      } else {
+        assert(*required > (*included)->LogNumber());
+        ++included;
+      }
+    }
   }
 
   return s;
@@ -349,7 +380,13 @@ Status DBImpl::GetLiveFilesStorageInfo(
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
 
   if (s.ok()) {
-    s = FlushWAL(false /* sync */);
+    // To maximize the effectiveness of track_and_verify_wals_in_manifest,
+    // sync WAL when it is enabled.
+    s = FlushWAL(
+        immutable_db_options_.track_and_verify_wals_in_manifest /* sync */);
+    if (s.IsNotSupported()) {  // read-only DB or similar
+      s = Status::OK();
+    }
   }
 
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
@@ -401,4 +438,3 @@ Status DBImpl::GetLiveFilesStorageInfo(
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

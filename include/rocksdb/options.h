@@ -82,7 +82,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Use this if you don't need to keep the data sorted, i.e. you'll never use
   // an iterator, only Put() and Get() API calls
   //
-  // Not supported in ROCKSDB_LITE
   ColumnFamilyOptions* OptimizeForPointLookup(uint64_t block_cache_size_mb);
 
   // Default values for some parameters in ColumnFamilyOptions are not
@@ -99,8 +98,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // biggest performance gains.
   // Note: we might use more memory than memtable_memory_budget during high
   // write rate period
-  //
-  // OptimizeUniversalStyleCompaction is not supported in ROCKSDB_LITE
   ColumnFamilyOptions* OptimizeLevelStyleCompaction(
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
   ColumnFamilyOptions* OptimizeUniversalStyleCompaction(
@@ -240,18 +237,36 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int level0_file_num_compaction_trigger = 4;
 
-  // If non-nullptr, use the specified function to determine the
-  // prefixes for keys.  These prefixes will be placed in the filter.
-  // Depending on the workload, this can reduce the number of read-IOP
-  // cost for scans when a prefix is passed via ReadOptions to
-  // db.NewIterator().  For prefix filtering to work properly,
-  // "prefix_extractor" and "comparator" must be such that the following
-  // properties hold:
+  // If non-nullptr, use the specified function to put keys in contiguous
+  // groups called "prefixes". These prefixes are used to place one
+  // representative entry for the group into the Bloom filter
+  // rather than an entry for each key (see whole_key_filtering).
+  // Under certain conditions, this enables optimizing some range queries
+  // (Iterators) in addition to some point lookups (Get/MultiGet).
   //
-  // 1) key.starts_with(prefix(key))
-  // 2) Compare(prefix(key), key) <= 0.
-  // 3) If Compare(k1, k2) <= 0, then Compare(prefix(k1), prefix(k2)) <= 0
-  // 4) prefix(prefix(key)) == prefix(key)
+  // Together `prefix_extractor` and `comparator` must satisfy one essential
+  // property for valid prefix filtering of range queries:
+  //   If Compare(k1, k2) <= 0 and Compare(k2, k3) <= 0 and
+  //      InDomain(k1) and InDomain(k3) and prefix(k1) == prefix(k3),
+  //   Then InDomain(k2) and prefix(k2) == prefix(k1)
+  //
+  // In other words, all keys with the same prefix must be in a contiguous
+  // group by comparator order, and cannot be interrupted by keys with no
+  // prefix ("out of domain"). (This makes it valid to conclude that no
+  // entries within some bounds are present if the upper and lower bounds
+  // have a common prefix and no entries with that same prefix are present.)
+  //
+  // Some other properties are recommended but not strictly required. Under
+  // most sensible comparators, the following will need to hold true to
+  // satisfy the essential property above:
+  // * "Prefix is a prefix": key.starts_with(prefix(key))
+  // * "Prefixes preserve ordering": If Compare(k1, k2) <= 0, then
+  //   Compare(prefix(k1), prefix(k2)) <= 0
+  //
+  // The next two properties ensure that seeking to a prefix allows
+  // enumerating all entries with that prefix:
+  // * "Prefix starts the group": Compare(prefix(key), key) <= 0
+  // * "Prefix idempotent": prefix(prefix(key)) == prefix(key)
   //
   // Default: nullptr
   std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;
@@ -446,14 +461,12 @@ struct DBOptions {
   // memtable to cost to
   DBOptions* OptimizeForSmallDb(std::shared_ptr<Cache>* cache = nullptr);
 
-#ifndef ROCKSDB_LITE
   // By default, RocksDB uses only one background thread for flush and
   // compaction. Calling this function will set it up such that total of
   // `total_threads` is used. Good value for `total_threads` is the number of
   // cores. You almost definitely want to call this function if your system is
   // bottlenecked by RocksDB.
   DBOptions* IncreaseParallelism(int total_threads = 16);
-#endif  // ROCKSDB_LITE
 
   // If true, the database will be created if it is missing.
   // Default: false
@@ -483,31 +496,40 @@ struct DBOptions {
   bool flush_verify_memtable_count = true;
 
   // If true, the log numbers and sizes of the synced WALs are tracked
-  // in MANIFEST, then during DB recovery, if a synced WAL is missing
+  // in MANIFEST. During DB recovery, if a synced WAL is missing
   // from disk, or the WAL's size does not match the recorded size in
   // MANIFEST, an error will be reported and the recovery will be aborted.
   //
+  // This is one additional protection against WAL corruption besides the
+  // per-WAL-entry checksum.
+  //
   // Note that this option does not work with secondary instance.
+  // Currently, only syncing closed WALs are tracked. Calling `DB::SyncWAL()`,
+  // etc. or writing with `WriteOptions::sync=true` to sync the live WAL is not
+  // tracked for performance/efficiency reasons.
   //
   // Default: false
   bool track_and_verify_wals_in_manifest = false;
 
-  // EXPERIMENTAL: This API/behavior is subject to change
-  // If true, during DB-open it verifies the SST unique id between MANIFEST
-  // and SST properties, which is to make sure the SST is not overwritten or
-  // misplaced. A corruption error will be reported if mismatch detected, but
-  // only when MANIFEST tracks the unique id, which starts from version 7.3.
-  // The unique id is an internal unique id and subject to change.
+  // If true, verifies the SST unique id between MANIFEST and actual file
+  // each time an SST file is opened. This check ensures an SST file is not
+  // overwritten or misplaced. A corruption error will be reported if mismatch
+  // detected, but only when MANIFEST tracks the unique id, which starts from
+  // RocksDB version 7.3. Although the tracked internal unique id is related
+  // to the one returned by GetUniqueIdFromTableProperties, that is subject to
+  // change.
+  // NOTE: verification is currently only done on SST files using block-based
+  // table format.
   //
-  // Note:
-  // 1. if enabled, it opens every SST files during DB open to read the unique
-  //    id from SST properties, so it's recommended to have `max_open_files=-1`
-  //    to pre-open the SST files before the verification.
-  // 2. existing SST files won't have its unique_id tracked in MANIFEST, then
-  //    verification will be skipped.
+  // Setting to false should only be needed in case of unexpected problems.
   //
-  // Default: false
-  bool verify_sst_unique_id_in_manifest = false;
+  // Although an early version of this option opened all SST files for
+  // verification on DB::Open, that is no longer guaranteed. However, as
+  // documented in an above option, if max_open_files is -1, DB will open all
+  // files on DB::Open().
+  //
+  // Default: true
+  bool verify_sst_unique_id_in_manifest = true;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
@@ -735,7 +757,6 @@ struct DBOptions {
   // If specified with non-zero value, log file will be rolled
   // if it has been active longer than `log_file_time_to_roll`.
   // Default: 0 (disabled)
-  // Not supported in ROCKSDB_LITE mode!
   size_t log_file_time_to_roll = 0;
 
   // Maximal info log files to be kept.
@@ -810,12 +831,10 @@ struct DBOptions {
 
   // Use O_DIRECT for user and compaction reads.
   // Default: false
-  // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
 
   // Use O_DIRECT for writes in background flush and compactions.
   // Default: false
-  // Not supported in ROCKSDB_LITE mode!
   bool use_direct_io_for_flush_and_compaction = false;
 
   // If false, fallocate() calls are bypassed, which disables file
@@ -865,23 +884,6 @@ struct DBOptions {
   // Default: true
   bool advise_random_on_open = true;
 
-  // [experimental]
-  // Used to activate or deactive the Mempurge feature (memtable garbage
-  // collection). (deactivated by default). At every flush, the total useful
-  // payload (total entries minus garbage entries) is estimated as a ratio
-  // [useful payload bytes]/[size of a memtable (in bytes)]. This ratio is then
-  // compared to this `threshold` value:
-  //     - if ratio<threshold: the flush is replaced by a mempurge operation
-  //     - else: a regular flush operation takes place.
-  // Threshold values:
-  //   0.0: mempurge deactivated (default).
-  //   1.0: recommended threshold value.
-  //   >1.0 : aggressive mempurge.
-  //   0 < threshold < 1.0: mempurge triggered only for very low useful payload
-  //   ratios.
-  // [experimental]
-  double experimental_mempurge_threshold = 0.0;
-
   // Amount of data to build up in memtables across all column
   // families before writing to disk.
   //
@@ -898,7 +900,8 @@ struct DBOptions {
   // can be passed into multiple DBs and it will track the sum of size of all
   // the DBs. If the total size of all live memtables of all the DBs exceeds
   // a limit, a flush will be triggered in the next DB to which the next write
-  // is issued.
+  // is issued, as long as there is one or more column family not already
+  // flushing.
   //
   // If the object is only passed to one DB, the behavior is the same as
   // db_write_buffer_size. When write_buffer_manager is set, the value set will
@@ -1154,17 +1157,14 @@ struct DBOptions {
 
   // A global cache for table-level rows.
   // Default: nullptr (disabled)
-  // Not supported in ROCKSDB_LITE mode!
   std::shared_ptr<Cache> row_cache = nullptr;
 
-#ifndef ROCKSDB_LITE
   // A filter object supplied to be invoked while processing write-ahead-logs
   // (WALs) during recovery. The filter provides a way to inspect log
   // records, ignoring a particular record or skipping replay.
   // The filter is invoked at startup and is invoked from a single-thread
   // currently.
   WalFilter* wal_filter = nullptr;
-#endif  // ROCKSDB_LITE
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
   // SetOptions will fail if options file is not properly persisted.
@@ -1201,7 +1201,10 @@ struct DBOptions {
   // Setting this option to true will affect 2 things:
   // 1) Disable some internal optimizations around SST file compression
   // 2) Reserve bottom-most level for ingested files only.
-  // 3) Note that num_levels should be >= 3 if this option is turned on.
+  // Note that only universal compaction supports reserving last level
+  // for file ingestion only.
+  // `num_levels` should be >= 3 if this option is turned on.
+  //
   //
   // DEFAULT: false
   // Immutable.
@@ -1274,13 +1277,37 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 
-  // By default, RocksDB recovery fails if any table file referenced in
-  // MANIFEST are missing after scanning the MANIFEST.
-  // Best-efforts recovery is another recovery mode that
-  // tries to restore the database to the most recent point in time without
-  // missing file.
-  // Currently not compatible with atomic flush. Furthermore, WAL files will
-  // not be used for recovery if best_efforts_recovery is true.
+  // By default, RocksDB will attempt to detect any data losses or corruptions
+  // in DB files and return an error to the user, either at DB::Open time or
+  // later during DB operation. The exception to this policy is the WAL file,
+  // whose recovery is controlled by the wal_recovery_mode option.
+  //
+  // Best-efforts recovery (this option set to true) signals a preference for
+  // opening the DB to any point-in-time valid state for each column family,
+  // including the empty/new state, versus the default of returning non-WAL
+  // data losses to the user as errors. In terms of RocksDB user data, this
+  // is like applying WALRecoveryMode::kPointInTimeRecovery to each column
+  // family rather than just the WAL.
+  //
+  // Best-efforts recovery (BER) is specifically designed to recover a DB with
+  // files that are missing or truncated to some smaller size, such as the
+  // result of an incomplete DB "physical" (FileSystem) copy. BER can also
+  // detect when an SST file has been replaced with a different one of the
+  // same size (assuming SST unique IDs are tracked in DB manifest).
+  // BER is not yet designed to produce a usable DB from other corruptions to
+  // DB files (which should generally be detectable by DB::VerifyChecksum()),
+  // and BER does not yet attempt to recover any WAL files.
+  //
+  // For example, if an SST or blob file referenced by the MANIFEST is missing,
+  // BER might be able to find a set of files corresponding to an old "point in
+  // time" version of the column family, possibly from an older MANIFEST
+  // file. Some other kinds of DB files (e.g. CURRENT, LOCK, IDENTITY) are
+  // either ignored or replaced with BER, or quietly fixed regardless of BER
+  // setting. BER does require at least one valid MANIFEST to recover to a
+  // non-trivial DB state, unlike `ldb repair`.
+  //
+  // Currently, best_efforts_recovery=true is not compatible with atomic flush.
+  //
   // Default: false
   bool best_efforts_recovery = false;
 
@@ -1412,7 +1439,6 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   Options* DisableExtraChecks();
 };
 
-//
 // An application can issue a read request (via Get/Iterators) and specify
 // if that read should process data that ALREADY resides on a specified cache
 // level. For example, if an application specifies kBlockCacheTier then the
@@ -1447,11 +1473,13 @@ struct ReadOptions {
   // need to have the same prefix. This is because ordering is not guaranteed
   // outside of prefix domain.
   //
+  // In case of user_defined timestamp, if enabled, iterate_lower_bound should
+  // point to key without timestamp part.
   // Default: nullptr
   const Slice* iterate_lower_bound;
 
   // "iterate_upper_bound" defines the extent up to which the forward iterator
-  // can returns entries. Once the bound is reached, Valid() will be false.
+  // can return entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry. If prefix_extractor is not null:
   // 1. If options.auto_prefix_mode = true, iterate_upper_bound will be used
@@ -1466,6 +1494,8 @@ struct ReadOptions {
   // If iterate_upper_bound is not null, SeekToLast() will position the iterator
   // at the first key smaller than iterate_upper_bound.
   //
+  // In case of user_defined timestamp, if enabled, iterate_upper_bound should
+  // point to key without timestamp part.
   // Default: nullptr
   const Slice* iterate_upper_bound;
 
@@ -1510,7 +1540,6 @@ struct ReadOptions {
   // added data) and is optimized for sequential reads. It will return records
   // that were inserted into the database after the creation of the iterator.
   // Default: false
-  // Not supported in ROCKSDB_LITE mode!
   bool tailing;
 
   // This options is not used anymore. It was to turn on a functionality that
@@ -1528,8 +1557,17 @@ struct ReadOptions {
   // When true, by default use total_order_seek = true, and RocksDB can
   // selectively enable prefix seek mode if won't generate a different result
   // from total_order_seek, based on seek key, and iterator upper bound.
-  // Not supported in ROCKSDB_LITE mode, in the way that even with value true
-  // prefix mode is not used.
+  // BUG: Using Comparator::IsSameLengthImmediateSuccessor and
+  // SliceTransform::FullLengthEnabled to enable prefix mode in cases where
+  // prefix of upper bound differs from prefix of seek key has a flaw.
+  // If present in the DB, "short keys" (shorter than "full length" prefix)
+  // can be omitted from auto_prefix_mode iteration when they would be present
+  // in total_order_seek iteration, regardless of whether the short keys are
+  // "in domain" of the prefix extractor. This is not an issue if no short
+  // keys are added to DB or are not expected to be returned by such
+  // iterators. (We are also assuming the new condition on
+  // IsSameLengthImmediateSuccessor is satisfied; see its BUG section).
+  // A bug example is in DBTest2::AutoPrefixMode1, search for "BUG".
   // Default: false
   bool auto_prefix_mode;
 
@@ -1631,10 +1669,6 @@ struct ReadOptions {
   // is a `PlainTableFactory`) and cuckoo tables (these can exist when
   // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`).
   //
-  // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
-  // `Status::NotSupported` when that operation requires file read(s) and
-  // `rate_limiter_priority != Env::IO_TOTAL`.
-  //
   // The bytes charged to rate limiter may not exactly match the file read bytes
   // since there are some seemingly insignificant reads, like for file
   // headers/footers, that we currently do not charge to rate limiter.
@@ -1650,6 +1684,17 @@ struct ReadOptions {
   //
   // Default: false
   bool async_io;
+
+  // Experimental
+  //
+  // If async_io is set, then this flag controls whether we read SST files
+  // in multiple levels asynchronously. Enabling this flag can help reduce
+  // MultiGet latency by maximizing the number of SST files read in
+  // parallel if the keys in the MultiGet batch are in different levels. It
+  // comes at the expense of slightly higher CPU overhead.
+  //
+  // Default: true
+  bool optimize_multiget_for_io;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
@@ -1727,6 +1772,13 @@ struct WriteOptions {
   // Default: `Env::IO_TOTAL`
   Env::IOPriority rate_limiter_priority;
 
+  // `protection_bytes_per_key` is the number of bytes used to store
+  // protection information for each key entry. Currently supported values are
+  // zero (disabled) and eight.
+  //
+  // Default: zero (disabled).
+  size_t protection_bytes_per_key;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
@@ -1734,7 +1786,8 @@ struct WriteOptions {
         no_slowdown(false),
         low_pri(false),
         memtable_insert_hint_per_batch(false),
-        rate_limiter_priority(Env::IO_TOTAL) {}
+        rate_limiter_priority(Env::IO_TOTAL),
+        protection_bytes_per_key(0) {}
 };
 
 // Options that control flush operations
@@ -1791,11 +1844,25 @@ enum class BottommostLevelCompaction {
   kForceOptimized,
 };
 
+// For manual compaction, we can configure if we want to skip/force garbage
+// collection of blob files.
+enum class BlobGarbageCollectionPolicy {
+  // Force blob file garbage collection.
+  kForce,
+  // Skip blob file garbage collection.
+  kDisable,
+  // Inherit blob file garbage collection policy from ColumnFamilyOptions.
+  kUseDefault,
+};
+
 // CompactRangeOptions is used by CompactRange() call.
 struct CompactRangeOptions {
   // If true, no other compaction will run at the same time as this
-  // manual compaction
-  bool exclusive_manual_compaction = true;
+  // manual compaction.
+  //
+  // Default: false
+  bool exclusive_manual_compaction = false;
+
   // If true, compacted files will be moved to the minimum level capable
   // of holding the data or given level (specified non-negative target_level).
   bool change_level = false;
@@ -1816,13 +1883,33 @@ struct CompactRangeOptions {
   uint32_t max_subcompactions = 0;
   // Set user-defined timestamp low bound, the data with older timestamp than
   // low bound maybe GCed by compaction. Default: nullptr
-  Slice* full_history_ts_low = nullptr;
+  const Slice* full_history_ts_low = nullptr;
 
   // Allows cancellation of an in-progress manual compaction.
   //
   // Cancellation can be delayed waiting on automatic compactions when used
   // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled = nullptr;
+  // NOTE: Calling DisableManualCompaction() overwrites the uer-provided
+  // canceled variable in CompactRangeOptions.
+  // Typically, when CompactRange is being called in one thread (t1) with
+  // canceled = false, and DisableManualCompaction is being called in the
+  // other thread (t2), manual compaction is disabled normally, even if the
+  // compaction iterator may still scan a few items before *canceled is
+  // set to true
+
+  // If set to kForce, RocksDB will override enable_blob_file_garbage_collection
+  // to true; if set to kDisable, RocksDB will override it to false, and
+  // kUseDefault leaves the setting in effect. This enables customers to both
+  // force-enable and force-disable GC when calling CompactRange.
+  BlobGarbageCollectionPolicy blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kUseDefault;
+
+  // If set to < 0 or > 1, RocksDB leaves blob_garbage_collection_age_cutoff
+  // from ColumnFamilyOptions in effect. Otherwise, it will override the
+  // user-provided setting. This enables customers to selectively override the
+  // age cutoff.
+  double blob_garbage_collection_age_cutoff = -1;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()
@@ -1835,7 +1922,9 @@ struct IngestExternalFileOptions {
   // that where created before the file was ingested.
   bool snapshot_consistency = true;
   // If set to false, IngestExternalFile() will fail if the file key range
-  // overlaps with existing keys or tombstones in the DB.
+  // overlaps with existing keys or tombstones or output of ongoing compaction
+  // during file ingestion in the DB (the conditions under which a global_seqno
+  // must be assigned to the ingested file).
   bool allow_global_seqno = true;
   // If set to false and the file key range overlaps with the memtable key range
   // (memtable flush required), IngestExternalFile will fail.
@@ -1848,18 +1937,14 @@ struct IngestExternalFileOptions {
   // with allow_ingest_behind=true since the dawn of time.
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
-  // Set to true if you would like to write global_seqno to a given offset in
-  // the external SST file for backward compatibility. Older versions of
-  // RocksDB writes a global_seqno to a given offset within ingested SST files,
-  // and new versions of RocksDB do not. If you ingest an external SST using
-  // new version of RocksDB and would like to be able to downgrade to an
-  // older version of RocksDB, you should set 'write_global_seqno' to true. If
-  // your service is just starting to use the new RocksDB, we recommend that
-  // you set this option to false, which brings two benefits:
-  // 1. No extra random write for global_seqno during ingestion.
-  // 2. Without writing external SST file, it's possible to do checksum.
-  // We have a plan to set this option to false by default in the future.
-  bool write_global_seqno = true;
+  // DEPRECATED - Set to true if you would like to write global_seqno to
+  // the external SST file on ingestion for backward compatibility before
+  // RocksDB 5.16.0. Such old versions of RocksDB expect any global_seqno to
+  // be written to the SST file rather than recorded in the DB manifest.
+  // This functionality was deprecated because (a) random writes might be
+  // costly or unsupported on some FileSystems, and (b) the file checksum
+  // changes with such a write.
+  bool write_global_seqno = false;
   // Set to true if you would like to verify the checksums of each block of the
   // external SST file before ingestion.
   // Warning: setting this to true causes slowdown in file ingestion because
@@ -2001,14 +2086,13 @@ struct OpenAndCompactOptions {
   std::atomic<bool>* canceled = nullptr;
 };
 
-#ifndef ROCKSDB_LITE
 struct LiveFilesStorageInfoOptions {
   // Whether to populate FileStorageInfo::file_checksum* or leave blank
   bool include_checksum_info = false;
   // Flushes memtables if total size in bytes of live WAL files is >= this
-  // number. Default: always force a flush without checking sizes.
+  // number (and DB is not read-only).
+  // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
 };
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -5,10 +5,11 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include <stdint.h>
+
 #include <string>
 #include <vector>
+
 #include "db/version_edit.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -29,7 +30,7 @@ class TableBuilder;
 // The builder class of PlainTable. For description of PlainTable format
 // See comments of class PlainTableFactory, where instances of
 // PlainTableReader are created.
-class PlainTableBuilder: public TableBuilder {
+class PlainTableBuilder : public TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
@@ -94,6 +95,9 @@ class PlainTableBuilder: public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
+  void SetSeqnoTimeTableProperties(const std::string& string,
+                                   uint64_t uint_64) override;
+
  private:
   Arena arena_;
   const ImmutableOptions& ioptions_;
@@ -146,4 +150,3 @@ class PlainTableBuilder: public TableBuilder {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <atomic>
@@ -277,6 +276,7 @@ class WriteCommittedTxn : public PessimisticTransaction {
 
   Status SetReadTimestampForValidation(TxnTimestamp ts) override;
   Status SetCommitTimestamp(TxnTimestamp ts) override;
+  TxnTimestamp GetCommitTimestamp() const override { return commit_timestamp_; }
 
  private:
   template <typename TValue>
@@ -309,4 +309,3 @@ class WriteCommittedTxn : public PessimisticTransaction {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

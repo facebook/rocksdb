@@ -16,6 +16,7 @@
 
 #include "db/pinned_iterators_manager.h"
 #include "port/malloc.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -137,18 +138,19 @@ class BlockReadAmpBitmap {
   uint32_t rnd_;
 };
 
-// This Block class is not for any old block: it is designed to hold only
-// uncompressed blocks containing sorted key-value pairs. It is thus
-// suitable for storing uncompressed data blocks, index blocks (including
-// partitions), range deletion blocks, properties blocks, metaindex blocks,
-// as well as the top level of the partitioned filter structure (which is
-// actually an index of the filter partitions). It is NOT suitable for
+// class Block is the uncompressed and "parsed" form for blocks containing
+// key-value pairs. (See BlockContents comments for more on terminology.)
+// This includes the in-memory representation of data blocks, index blocks
+// (including partitions), range deletion blocks, properties blocks, metaindex
+// blocks, as well as the top level of the partitioned filter structure (which
+// is actually an index of the filter partitions). It is NOT suitable for
 // compressed blocks in general, filter blocks/partitions, or compression
-// dictionaries (since the latter do not contain sorted key-value pairs).
-// Use BlockContents directly for those.
+// dictionaries.
 //
 // See https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format
 // for details of the format and the various block types.
+//
+// TODO: Rename to ParsedKvBlock?
 class Block {
  public:
   // Initialize the block with the specified contents.
@@ -234,6 +236,9 @@ class Block {
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
+
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return contents_.data; }
 
  private:
   BlockContents contents_;
@@ -396,8 +401,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     assert(data_ == nullptr);  // Ensure it is called only once
     assert(num_restarts > 0);  // Ensure the param is valid
 
-    icmp_ =
-        std::make_unique<InternalKeyComparator>(raw_ucmp, false /* named */);
+    icmp_ = std::make_unique<InternalKeyComparator>(raw_ucmp);
     data_ = data;
     restarts_ = restarts;
     num_restarts_ = num_restarts;

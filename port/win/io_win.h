@@ -27,9 +27,9 @@ std::string GetWindowsErrSz(DWORD err);
 inline IOStatus IOErrorFromWindowsError(const std::string& context, DWORD err) {
   return ((err == ERROR_HANDLE_DISK_FULL) || (err == ERROR_DISK_FULL))
              ? IOStatus::NoSpace(context, GetWindowsErrSz(err))
-             : ((err == ERROR_FILE_NOT_FOUND) || (err == ERROR_PATH_NOT_FOUND))
-                   ? IOStatus::PathNotFound(context, GetWindowsErrSz(err))
-                   : IOStatus::IOError(context, GetWindowsErrSz(err));
+         : ((err == ERROR_FILE_NOT_FOUND) || (err == ERROR_PATH_NOT_FOUND))
+             ? IOStatus::PathNotFound(context, GetWindowsErrSz(err))
+             : IOStatus::IOError(context, GetWindowsErrSz(err));
 }
 
 inline IOStatus IOErrorFromLastWindowsError(const std::string& context) {
@@ -39,10 +39,9 @@ inline IOStatus IOErrorFromLastWindowsError(const std::string& context) {
 inline IOStatus IOError(const std::string& context, int err_number) {
   return (err_number == ENOSPC)
              ? IOStatus::NoSpace(context, errnoStr(err_number).c_str())
-             : (err_number == ENOENT)
-                   ? IOStatus::PathNotFound(context,
-                                            errnoStr(err_number).c_str())
-                   : IOStatus::IOError(context, errnoStr(err_number).c_str());
+         : (err_number == ENOENT)
+             ? IOStatus::PathNotFound(context, errnoStr(err_number).c_str())
+             : IOStatus::IOError(context, errnoStr(err_number).c_str());
 }
 
 class WinFileData;
@@ -472,14 +471,23 @@ class WinMemoryMappedBuffer : public MemoryMappedFileBuffer {
 };
 
 class WinDirectory : public FSDirectory {
+  const std::string filename_;
   HANDLE handle_;
 
  public:
-  explicit WinDirectory(HANDLE h) noexcept : handle_(h) {
+  explicit WinDirectory(const std::string& filename, HANDLE h) noexcept
+      : filename_(filename), handle_(h) {
     assert(handle_ != INVALID_HANDLE_VALUE);
   }
-  ~WinDirectory() { ::CloseHandle(handle_); }
+  ~WinDirectory() {
+    if (handle_ != NULL) {
+      IOStatus s = WinDirectory::Close(IOOptions(), nullptr);
+      s.PermitUncheckedError();
+    }
+  }
+  const std::string& GetName() const { return filename_; }
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override;
 
   size_t GetUniqueId(char* id, size_t max_size) const override;
 };

@@ -20,7 +20,6 @@ namespace ROCKSDB_NAMESPACE {
 
 // TODO: the tests do not work in LITE mode due to relying on
 // `CreateFromString()` to create non-default memory allocators.
-#ifndef ROCKSDB_LITE
 
 class MemoryAllocatorTest
     : public testing::Test,
@@ -63,11 +62,9 @@ TEST_P(MemoryAllocatorTest, CreateAllocator) {
   } else {
     ASSERT_OK(s);
     ASSERT_NE(orig, nullptr);
-#ifndef ROCKSDB_LITE
     std::string str = orig->ToString(config_options);
     ASSERT_OK(MemoryAllocator::CreateFromString(config_options, str, &copy));
     ASSERT_EQ(orig, copy);
-#endif  // ROCKSDB_LITE
   }
 }
 
@@ -83,7 +80,7 @@ TEST_P(MemoryAllocatorTest, DatabaseBlockCache) {
 
   options.create_if_missing = true;
   BlockBasedTableOptions table_options;
-  auto cache = NewLRUCache(1024 * 1024, 6, false, false, allocator_);
+  auto cache = NewLRUCache(1024 * 1024, 6, false, 0.0, allocator_);
   table_options.block_cache = cache;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   DB* db = nullptr;
@@ -229,11 +226,11 @@ INSTANTIATE_TEST_CASE_P(
                                       JemallocNodumpAllocator::IsSupported())));
 #endif  // ROCKSDB_JEMALLOC
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

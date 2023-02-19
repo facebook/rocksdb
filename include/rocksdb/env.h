@@ -27,6 +27,7 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/functor_wrapper.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -68,13 +69,6 @@ class SystemClock;
 struct ConfigOptions;
 
 const size_t kDefaultPageSize = 4 * 1024;
-
-enum class CpuPriority {
-  kIdle = 0,
-  kLow = 1,
-  kNormal = 2,
-  kHigh = 3,
-};
 
 // Options while opening a file to read/write
 struct EnvOptions {
@@ -178,17 +172,6 @@ class Env : public Customizable {
   // Deprecated. Will be removed in a major release. Derived classes
   // should implement this method.
   const char* Name() const override { return ""; }
-
-  // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result);
-
-  // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result,
-                        std::shared_ptr<Env>* guard);
 
   // Loads the environment specified by the input value into the result
   // @see Customizable for a more detailed description of the parameters and
@@ -492,6 +475,17 @@ class Env : public Customizable {
 
   // Wait for all threads started by StartThread to terminate.
   virtual void WaitForJoin() {}
+
+  // Reserve available background threads in the specified thread pool.
+  virtual int ReserveThreads(int /*threads_to_be_reserved*/, Priority /*pri*/) {
+    return 0;
+  }
+
+  // Release a specific number of reserved threads from the specified thread
+  // pool
+  virtual int ReleaseThreads(int /*threads_to_be_released*/, Priority /*pri*/) {
+    return 0;
+  }
 
   // Get thread pool queue length for specific thread pool.
   virtual unsigned int GetThreadPoolQueueLen(Priority /*pri*/ = LOW) const {
@@ -876,7 +870,7 @@ class WritableFile {
   virtual ~WritableFile();
 
   // Append data to the end of the file
-  // Note: A WriteableFile object must support either Append or
+  // Note: A WritableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual Status Append(const Slice& data) = 0;
 
@@ -1148,6 +1142,8 @@ class Directory {
   virtual ~Directory() {}
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
+  // Close directory.
+  virtual Status Close() { return Status::NotSupported("Close"); }
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
@@ -1531,6 +1527,15 @@ class EnvWrapper : public Env {
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
     return target_.env->GetThreadPoolQueueLen(pri);
   }
+
+  int ReserveThreads(int threads_to_be_reserved, Priority pri) override {
+    return target_.env->ReserveThreads(threads_to_be_reserved, pri);
+  }
+
+  int ReleaseThreads(int threads_to_be_released, Priority pri) override {
+    return target_.env->ReleaseThreads(threads_to_be_released, pri);
+  }
+
   Status GetTestDirectory(std::string* path) override {
     return target_.env->GetTestDirectory(path);
   }
@@ -1638,10 +1643,8 @@ class EnvWrapper : public Env {
     target_.env->SanitizeEnvOptions(env_opts);
   }
   Status PrepareOptions(const ConfigOptions& options) override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
-#endif  // ROCKSDB_LITE
 
  private:
   Target target_;
@@ -1810,6 +1813,7 @@ class DirectoryWrapper : public Directory {
   explicit DirectoryWrapper(Directory* target) : target_(target) {}
 
   Status Fsync() override { return target_->Fsync(); }
+  Status Close() override { return target_->Close(); }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
   }

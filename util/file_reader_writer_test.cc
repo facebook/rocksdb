@@ -206,11 +206,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
         (attempt < kNumAttempts / 2) ? 512 * 1024 : 700 * 1024;
     std::string actual;
     std::unique_ptr<FakeWF> wf(new FakeWF(&actual,
-#ifndef ROCKSDB_LITE
                                           attempt % 2 == 1,
-#else
-                                          false,
-#endif
                                           no_flush));
     std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
         std::move(wf), "" /* don't care */, env_options));
@@ -421,7 +417,6 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
   Destroy(options);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   class FakeWF : public FSWritableFile {
    public:
@@ -477,7 +472,6 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   fwf->SetIOError(true);
   ASSERT_NOK(writer->Append(std::string(2 * kMb, 'b')));
 }
-#endif
 
 class ReadaheadRandomAccessFileTest
     : public testing::Test,
@@ -597,7 +591,8 @@ class ReadaheadSequentialFileTest : public testing::Test,
   ReadaheadSequentialFileTest() {}
   std::string Read(size_t n) {
     Slice result;
-    Status s = test_read_holder_->Read(n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(
+        n, &result, scratch_.get(), Env::IO_TOTAL /* rate_limiter_priority*/);
     EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
@@ -724,10 +719,11 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   {
     std::unique_ptr<LineFileReader> reader;
     ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
-                                     nullptr));
+                                     nullptr /* dbg */,
+                                     nullptr /* rate_limiter */));
     std::string line;
     int count = 0;
-    while (reader->ReadLine(&line)) {
+    while (reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
       ASSERT_EQ(line, GenerateLine(count));
       ++count;
       ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
@@ -736,7 +732,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     ASSERT_EQ(count, nlines);
     ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
     // And still
-    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_FALSE(
+        reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */));
     ASSERT_OK(reader->GetStatus());
     ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
   }
@@ -745,12 +742,14 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   {
     std::unique_ptr<LineFileReader> reader;
     ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
-                                     nullptr));
+                                     nullptr /* dbg */,
+                                     nullptr /* rate_limiter */));
     std::string line;
     int count = 0;
     // Read part way through the file
     while (count < nlines / 4) {
-      ASSERT_TRUE(reader->ReadLine(&line));
+      ASSERT_TRUE(
+          reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */));
       ASSERT_EQ(line, GenerateLine(count));
       ++count;
       ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
@@ -767,7 +766,7 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
-    while (reader->ReadLine(&line)) {
+    while (reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
       ASSERT_EQ(line, GenerateLine(count));
       ++count;
       ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
@@ -777,7 +776,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     ASSERT_EQ(callback_count, 1);
 
     // Still get error & no retry
-    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_FALSE(
+        reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */));
     ASSERT_TRUE(reader->GetStatus().IsCorruption());
     ASSERT_EQ(callback_count, 1);
 
@@ -786,7 +786,6 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 class IOErrorEventListener : public EventListener {
  public:
   IOErrorEventListener() { notify_error_.store(0); }
@@ -889,18 +888,19 @@ TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
   fwf->CheckCounters(1, 0);
   ASSERT_EQ(listener->NotifyErrorCount(), 1);
 
+  file_writer->reset_seen_error();
   fwf->SetIOError(true);
   ASSERT_NOK(file_writer->Flush());
   fwf->CheckCounters(1, 1);
   ASSERT_EQ(listener->NotifyErrorCount(), 2);
 
   /* No error generation */
+  file_writer->reset_seen_error();
   fwf->SetIOError(false);
   ASSERT_OK(file_writer->Append(std::string(2 * kMb, 'b')));
   ASSERT_EQ(listener->NotifyErrorCount(), 2);
   fwf->CheckCounters(1, 1);
 }
-#endif  // ROCKSDB_LITE
 
 class WritableFileWriterIOPriorityTest : public testing::Test {
  protected:
@@ -1052,6 +1052,7 @@ TEST_F(WritableFileWriterIOPriorityTest, BasicOp) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

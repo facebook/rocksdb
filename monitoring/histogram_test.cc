@@ -18,14 +18,14 @@ namespace ROCKSDB_NAMESPACE {
 class HistogramTest : public testing::Test {};
 
 namespace {
-  const double kIota = 0.1;
-  const HistogramBucketMapper bucketMapper;
-  std::shared_ptr<MockSystemClock> clock =
-      std::make_shared<MockSystemClock>(SystemClock::Default());
-}
+const double kIota = 0.1;
+const HistogramBucketMapper bucketMapper;
+std::shared_ptr<MockSystemClock> clock =
+    std::make_shared<MockSystemClock>(SystemClock::Default());
+}  // namespace
 
-void PopulateHistogram(Histogram& histogram,
-             uint64_t low, uint64_t high, uint64_t loop = 1) {
+void PopulateHistogram(Histogram& histogram, uint64_t low, uint64_t high,
+                       uint64_t loop = 1) {
   Random rnd(test::RandomSeed());
   for (; loop > 0; loop--) {
     for (uint64_t i = low; i <= high; i++) {
@@ -39,7 +39,7 @@ void PopulateHistogram(Histogram& histogram,
 }
 
 void BasicOperation(Histogram& histogram) {
-  PopulateHistogram(histogram, 1, 110, 10); // fill up to bucket [70, 110)
+  PopulateHistogram(histogram, 1, 110, 10);  // fill up to bucket [70, 110)
 
   HistogramData data;
   histogram.Data(&data);
@@ -47,8 +47,8 @@ void BasicOperation(Histogram& histogram) {
   ASSERT_LE(fabs(histogram.Percentile(100.0) - 110.0), kIota);
   ASSERT_LE(fabs(data.percentile99 - 108.9), kIota);  // 99 * 110 / 100
   ASSERT_LE(fabs(data.percentile95 - 104.5), kIota);  // 95 * 110 / 100
-  ASSERT_LE(fabs(data.median - 55.0), kIota);  // 50 * 110 / 100
-  ASSERT_EQ(data.average, 55.5);  // (1 + 110) / 2
+  ASSERT_LE(fabs(data.median - 55.0), kIota);         // 50 * 110 / 100
+  ASSERT_EQ(data.average, 55.5);                      // (1 + 110) / 2
 }
 
 void MergeHistogram(Histogram& histogram, Histogram& other) {
@@ -62,8 +62,8 @@ void MergeHistogram(Histogram& histogram, Histogram& other) {
   ASSERT_LE(fabs(histogram.Percentile(100.0) - 250.0), kIota);
   ASSERT_LE(fabs(data.percentile99 - 247.5), kIota);  // 99 * 250 / 100
   ASSERT_LE(fabs(data.percentile95 - 237.5), kIota);  // 95 * 250 / 100
-  ASSERT_LE(fabs(data.median - 125.0), kIota);  // 50 * 250 / 100
-  ASSERT_EQ(data.average, 125.5);  // (1 + 250) / 2
+  ASSERT_LE(fabs(data.median - 125.0), kIota);        // 50 * 250 / 100
+  ASSERT_EQ(data.average, 125.5);                     // (1 + 250) / 2
 }
 
 void EmptyHistogram(Histogram& histogram) {
@@ -139,15 +139,16 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   int micros_per_window = 1000000;
   uint64_t min_num_per_window = 0;
 
-  HistogramWindowingImpl
-      histogramWindowing(num_windows, micros_per_window, min_num_per_window);
+  HistogramWindowingImpl histogramWindowing(num_windows, micros_per_window,
+                                            min_num_per_window);
   histogramWindowing.TEST_UpdateClock(clock);
   PopulateHistogram(histogramWindowing, 1, 1, 100);
   clock->SleepForMicroseconds(micros_per_window);
   ASSERT_EQ(histogramWindowing.num(), 100);
   ASSERT_EQ(histogramWindowing.min(), 1);
   ASSERT_EQ(histogramWindowing.max(), 1);
-  ASSERT_EQ(histogramWindowing.Average(), 1);
+  ASSERT_EQ(histogramWindowing.Average(), 1.0);
+  ASSERT_EQ(histogramWindowing.StandardDeviation(), 0.0);
 
   PopulateHistogram(histogramWindowing, 2, 2, 100);
   clock->SleepForMicroseconds(micros_per_window);
@@ -155,6 +156,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   ASSERT_EQ(histogramWindowing.min(), 1);
   ASSERT_EQ(histogramWindowing.max(), 2);
   ASSERT_EQ(histogramWindowing.Average(), 1.5);
+  ASSERT_GT(histogramWindowing.StandardDeviation(), 0.0);
 
   PopulateHistogram(histogramWindowing, 3, 3, 100);
   clock->SleepForMicroseconds(micros_per_window);
@@ -162,6 +164,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   ASSERT_EQ(histogramWindowing.min(), 1);
   ASSERT_EQ(histogramWindowing.max(), 3);
   ASSERT_EQ(histogramWindowing.Average(), 2.0);
+  ASSERT_GT(histogramWindowing.StandardDeviation(), 0.0);
 
   // dropping oldest window with value 1, remaining 2 ~ 4
   PopulateHistogram(histogramWindowing, 4, 4, 100);
@@ -170,6 +173,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   ASSERT_EQ(histogramWindowing.min(), 2);
   ASSERT_EQ(histogramWindowing.max(), 4);
   ASSERT_EQ(histogramWindowing.Average(), 3.0);
+  ASSERT_GT(histogramWindowing.StandardDeviation(), 0.0);
 
   // dropping oldest window with value 2, remaining 3 ~ 5
   PopulateHistogram(histogramWindowing, 5, 5, 100);
@@ -178,6 +182,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
   ASSERT_EQ(histogramWindowing.min(), 3);
   ASSERT_EQ(histogramWindowing.max(), 5);
   ASSERT_EQ(histogramWindowing.Average(), 4.0);
+  ASSERT_GT(histogramWindowing.StandardDeviation(), 0.0);
 }
 
 TEST_F(HistogramTest, HistogramWindowingMerge) {
@@ -185,10 +190,10 @@ TEST_F(HistogramTest, HistogramWindowingMerge) {
   int micros_per_window = 1000000;
   uint64_t min_num_per_window = 0;
 
-  HistogramWindowingImpl
-      histogramWindowing(num_windows, micros_per_window, min_num_per_window);
-  HistogramWindowingImpl
-      otherWindowing(num_windows, micros_per_window, min_num_per_window);
+  HistogramWindowingImpl histogramWindowing(num_windows, micros_per_window,
+                                            min_num_per_window);
+  HistogramWindowingImpl otherWindowing(num_windows, micros_per_window,
+                                        min_num_per_window);
   histogramWindowing.TEST_UpdateClock(clock);
   otherWindowing.TEST_UpdateClock(clock);
 
@@ -225,9 +230,25 @@ TEST_F(HistogramTest, HistogramWindowingMerge) {
   ASSERT_EQ(histogramWindowing.max(), 5);
 }
 
+TEST_F(HistogramTest, LargeStandardDeviation) {
+  HistogramImpl histogram;
+  PopulateHistogram(histogram, 1, 1000000);
+  ASSERT_LT(fabs(histogram.StandardDeviation() - 288675), 1);
+}
+
+TEST_F(HistogramTest, LostUpdateStandardDeviation) {
+  HistogramImpl histogram;
+  PopulateHistogram(histogram, 100, 100, 100);
+  // Simulate a possible lost update (since they are not atomic)
+  histogram.TEST_GetStats().sum_squares_ -= 10000;
+  // Ideally zero, but should never be negative or NaN
+  ASSERT_GE(histogram.StandardDeviation(), 0.0);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

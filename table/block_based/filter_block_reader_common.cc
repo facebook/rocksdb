@@ -5,6 +5,8 @@
 //
 
 #include "table/block_based/filter_block_reader_common.h"
+
+#include "block_cache.h"
 #include "monitoring/perf_context_imp.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/parsed_full_filter_block.h"
@@ -29,7 +31,7 @@ Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
   const Status s =
       table->RetrieveBlock(prefetch_buffer, read_options, rep->filter_handle,
                            UncompressionDict::GetEmptyDict(), filter_block,
-                           BlockType::kFilter, get_context, lookup_context,
+                           get_context, lookup_context,
                            /* for_compaction */ false, use_cache,
                            /* wait_for_cache */ true, /* async_read */ false);
 
@@ -67,7 +69,8 @@ template <typename TBlocklike>
 Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<TBlocklike>* filter_block) const {
+    CachableEntry<TBlocklike>* filter_block,
+    Env::IOPriority rate_limiter_priority) const {
   assert(filter_block);
 
   if (!filter_block_.IsEmpty()) {
@@ -76,6 +79,7 @@ Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
   }
 
   ReadOptions read_options;
+  read_options.rate_limiter_priority = rate_limiter_priority;
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }
@@ -100,7 +104,8 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     const SliceTransform* prefix_extractor, const Comparator* comparator,
     const Slice* const const_ikey_ptr, bool* filter_checked,
     bool need_upper_bound_check, bool no_io,
-    BlockCacheLookupContext* lookup_context) {
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) {
   if (!prefix_extractor || !prefix_extractor->InDomain(user_key_without_ts)) {
     *filter_checked = false;
     return true;
@@ -112,9 +117,9 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     return true;
   } else {
     *filter_checked = true;
-    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, no_io,
-                          const_ikey_ptr, /* get_context */ nullptr,
-                          lookup_context);
+    return PrefixMayMatch(prefix, no_io, const_ikey_ptr,
+                          /* get_context */ nullptr, lookup_context,
+                          rate_limiter_priority);
   }
 }
 
@@ -154,8 +159,7 @@ bool FilterBlockReaderCommon<TBlocklike>::IsFilterCompatible(
 
 // Explicitly instantiate templates for both "blocklike" types we use.
 // This makes it possible to keep the template definitions in the .cc file.
-template class FilterBlockReaderCommon<BlockContents>;
-template class FilterBlockReaderCommon<Block>;
+template class FilterBlockReaderCommon<Block_kFilterPartitionIndex>;
 template class FilterBlockReaderCommon<ParsedFullFilterBlock>;
 
 }  // namespace ROCKSDB_NAMESPACE

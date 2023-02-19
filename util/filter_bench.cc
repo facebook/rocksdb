@@ -3,10 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#if !defined(GFLAGS) || defined(ROCKSDB_LITE)
+#if !defined(GFLAGS)
 #include <cstdio>
 int main() {
-  fprintf(stderr, "filter_bench requires gflags and !ROCKSDB_LITE\n");
+  fprintf(stderr, "filter_bench requires gflags\n");
   return 1;
 }
 #else
@@ -20,6 +20,7 @@ int main() {
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/env.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "table/block_based/filter_policy_internal.h"
@@ -84,8 +85,8 @@ DEFINE_bool(new_builder, false,
 
 DEFINE_uint32(impl, 0,
               "Select filter implementation. Without -use_plain_table_bloom:"
-              "0 = legacy full Bloom filter, 1 = block-based Bloom filter, "
-              "2 = format_version 5 Bloom filter, 3 = Ribbon128 filter. With "
+              "0 = legacy full Bloom filter, "
+              "1 = format_version 5 Bloom filter, 2 = Ribbon128 filter. With "
               "-use_plain_table_bloom: 0 = no locality, 1 = locality.");
 
 DEFINE_bool(net_includes_hashing, false,
@@ -150,6 +151,7 @@ using ROCKSDB_NAMESPACE::Cache;
 using ROCKSDB_NAMESPACE::CacheEntryRole;
 using ROCKSDB_NAMESPACE::CacheEntryRoleOptions;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
+using ROCKSDB_NAMESPACE::Env;
 using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
 using ROCKSDB_NAMESPACE::FilterBuildingContext;
@@ -193,7 +195,7 @@ struct KeyMaker {
       len += FastRange32(
           (val_num >> FLAGS_vary_key_size_log2_interval) * 1234567891, 5);
     }
-    char * data = buf_.get() + start;
+    char *data = buf_.get() + start;
     // Populate key data such that all data makes it into a key of at
     // least 8 bytes. We also don't want all the within-filter key
     // variance confined to a contiguous 32 bits, because then a 32 bit
@@ -358,13 +360,9 @@ void FilterBench::Go() {
           "-impl must currently be >= 0 and <= 1 for Plain table");
     }
   } else {
-    if (FLAGS_impl == 1) {
+    if (FLAGS_impl > 2) {
       throw std::runtime_error(
-          "Block-based filter not currently supported by filter_bench");
-    }
-    if (FLAGS_impl > 3) {
-      throw std::runtime_error(
-          "-impl must currently be 0, 2, or 3 for Block-based table");
+          "-impl must currently be >= 0 and <= 2 for Block-based table");
     }
   }
 
@@ -380,9 +378,9 @@ void FilterBench::Go() {
                                     FLAGS_average_keys_per_filter);
   const uint32_t variance_offset = variance_range / 2;
 
-  const std::vector<TestMode> &testModes =
-      FLAGS_best_case ? bestCaseTestModes
-                      : FLAGS_quick ? quickTestModes : allTestModes;
+  const std::vector<TestMode> &testModes = FLAGS_best_case ? bestCaseTestModes
+                                           : FLAGS_quick   ? quickTestModes
+                                                           : allTestModes;
 
   m_queries_ = FLAGS_m_queries;
   double working_mem_size_mb = FLAGS_working_mem_size_mb;
@@ -603,7 +601,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
 
   auto dry_run_hash_fn = DryRunNoHash;
   if (!FLAGS_net_includes_hashing) {
-    if (FLAGS_impl < 2 || FLAGS_use_plain_table_bloom) {
+    if (FLAGS_impl == 0 || FLAGS_use_plain_table_bloom) {
       dry_run_hash_fn = DryRunHash32;
     } else {
       dry_run_hash_fn = DryRunHash64;
@@ -728,11 +726,9 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
           } else {
             may_match = info.full_block_reader_->KeyMayMatch(
                 batch_slices[i],
-                /*prefix_extractor=*/nullptr,
-                /*block_offset=*/ROCKSDB_NAMESPACE::kNotValid,
                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                 /*get_context=*/nullptr,
-                /*lookup_context=*/nullptr);
+                /*lookup_context=*/nullptr, Env::IO_TOTAL);
           }
         } else {
           if (dry_run) {
@@ -841,4 +837,4 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-#endif  // !defined(GFLAGS) || defined(ROCKSDB_LITE)
+#endif  // !defined(GFLAGS)

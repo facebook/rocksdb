@@ -5,7 +5,7 @@
 
 #pragma once
 
-#if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 
 #include <string>
 
@@ -52,4 +52,4 @@ std::shared_ptr<FileSystem> NewChrootFileSystem(
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+#endif  // !defined(OS_WIN)

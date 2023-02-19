@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include "table/block_based/block_based_table_reader.h"
-
 #include "table/block_based/block_based_table_reader_impl.h"
 #include "table/block_based/block_prefetcher.h"
 #include "table/block_based/reader_common.h"
@@ -265,9 +264,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       // check.
       return true;
     }
-    if (check_filter_ &&
-        !table_->PrefixMayMatch(ikey, read_options_, prefix_extractor_,
-                                need_upper_bound_check_, &lookup_context_)) {
+    if (check_filter_ && !table_->PrefixRangeMayMatch(
+                             ikey, read_options_, prefix_extractor_,
+                             need_upper_bound_check_, &lookup_context_)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
       // believe the position is the end of the SST file and move to

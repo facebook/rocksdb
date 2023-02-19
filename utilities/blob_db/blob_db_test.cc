@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_db.h"
 
@@ -58,8 +57,7 @@ class BlobDBTest : public testing::Test {
   };
 
   BlobDBTest()
-      : dbname_(test::PerThreadDBPath("blob_db_test")),
-        blob_db_(nullptr) {
+      : dbname_(test::PerThreadDBPath("blob_db_test")), blob_db_(nullptr) {
     mock_clock_ = std::make_shared<MockSystemClock>(SystemClock::Default());
     mock_env_.reset(new CompositeEnvWrapper(Env::Default(), mock_clock_));
     fault_injection_env_.reset(new FaultInjectionTestEnv(Env::Default()));
@@ -209,7 +207,7 @@ class BlobDBTest : public testing::Test {
 
   void VerifyDB(DB *db, const std::map<std::string, std::string> &data) {
     // Verify normal Get
-    auto* cfh = db->DefaultColumnFamily();
+    auto *cfh = db->DefaultColumnFamily();
     for (auto &p : data) {
       PinnableSlice value_slice;
       ASSERT_OK(db->Get(ReadOptions(), cfh, p.first, &value_slice));
@@ -2391,17 +2389,9 @@ TEST_F(BlobDBTest, SyncBlobFileBeforeCloseIOError) {
 }  // namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the ttl wrapper around rocksdb
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as BlobDB is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

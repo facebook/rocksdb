@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "test_util/transaction_test_util.h"
 
@@ -13,14 +12,13 @@
 #include <string>
 #include <thread>
 
+#include "db/dbformat.h"
+#include "db/snapshot_impl.h"
+#include "logging/logging.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
-
-#include "db/dbformat.h"
-#include "db/snapshot_impl.h"
-#include "logging/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -400,4 +398,3 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

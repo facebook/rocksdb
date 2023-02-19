@@ -11,8 +11,8 @@ import java.util.*;
 /**
  * ColumnFamilyOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
- *
- * As a descendent of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
+ * <p>
+ * As a descendant of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
  * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class ColumnFamilyOptions extends RocksObject
@@ -24,7 +24,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   /**
    * Construct ColumnFamilyOptions.
-   *
+   * <p>
    * This constructor will create (by allocating a block of memory)
    * an {@code rocksdb::ColumnFamilyOptions} in the c++ side.
    */
@@ -34,13 +34,13 @@ public class ColumnFamilyOptions extends RocksObject
 
   /**
    * Copy constructor for ColumnFamilyOptions.
-   *
+   * <p>
    * NOTE: This does a shallow copy, which means comparator, merge_operator, compaction_filter,
    * compaction_filter_factory and other pointers will be cloned!
    *
    * @param other The ColumnFamilyOptions to copy.
    */
-  public ColumnFamilyOptions(ColumnFamilyOptions other) {
+  public ColumnFamilyOptions(final ColumnFamilyOptions other) {
     super(copyColumnFamilyOptions(other.nativeHandle_));
     this.memTableConfig_ = other.memTableConfig_;
     this.tableFormatConfig_ = other.tableFormatConfig_;
@@ -684,6 +684,18 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions setExperimentalMempurgeThreshold(
+      final double experimentalMempurgeThreshold) {
+    setExperimentalMempurgeThreshold(nativeHandle_, experimentalMempurgeThreshold);
+    return this;
+  }
+
+  @Override
+  public double experimentalMempurgeThreshold() {
+    return experimentalMempurgeThreshold(nativeHandle_);
+  }
+
+  @Override
   public ColumnFamilyOptions setMemtableWholeKeyFiltering(final boolean memtableWholeKeyFiltering) {
     setMemtableWholeKeyFiltering(nativeHandle_, memtableWholeKeyFiltering);
     return this;
@@ -695,7 +707,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setBloomLocality(int bloomLocality) {
+  public ColumnFamilyOptions setBloomLocality(final int bloomLocality) {
     setBloomLocality(nativeHandle_, bloomLocality);
     return this;
   }
@@ -730,9 +742,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions
-  setMemtableHugePageSize(
-      long memtableHugePageSize) {
+  public ColumnFamilyOptions setMemtableHugePageSize(final long memtableHugePageSize) {
     setMemtableHugePageSize(nativeHandle_,
         memtableHugePageSize);
     return this;
@@ -744,7 +754,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setSoftPendingCompactionBytesLimit(long softPendingCompactionBytesLimit) {
+  public ColumnFamilyOptions setSoftPendingCompactionBytesLimit(
+      final long softPendingCompactionBytesLimit) {
     setSoftPendingCompactionBytesLimit(nativeHandle_,
         softPendingCompactionBytesLimit);
     return this;
@@ -756,7 +767,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setHardPendingCompactionBytesLimit(long hardPendingCompactionBytesLimit) {
+  public ColumnFamilyOptions setHardPendingCompactionBytesLimit(
+      final long hardPendingCompactionBytesLimit) {
     setHardPendingCompactionBytesLimit(nativeHandle_, hardPendingCompactionBytesLimit);
     return this;
   }
@@ -767,7 +779,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setLevel0FileNumCompactionTrigger(int level0FileNumCompactionTrigger) {
+  public ColumnFamilyOptions setLevel0FileNumCompactionTrigger(
+      final int level0FileNumCompactionTrigger) {
     setLevel0FileNumCompactionTrigger(nativeHandle_, level0FileNumCompactionTrigger);
     return this;
   }
@@ -778,7 +791,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setLevel0SlowdownWritesTrigger(int level0SlowdownWritesTrigger) {
+  public ColumnFamilyOptions setLevel0SlowdownWritesTrigger(final int level0SlowdownWritesTrigger) {
     setLevel0SlowdownWritesTrigger(nativeHandle_, level0SlowdownWritesTrigger);
     return this;
   }
@@ -789,7 +802,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setLevel0StopWritesTrigger(int level0StopWritesTrigger) {
+  public ColumnFamilyOptions setLevel0StopWritesTrigger(final int level0StopWritesTrigger) {
     setLevel0StopWritesTrigger(nativeHandle_, level0StopWritesTrigger);
     return this;
   }
@@ -800,7 +813,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMaxBytesForLevelMultiplierAdditional(int[] maxBytesForLevelMultiplierAdditional) {
+  public ColumnFamilyOptions setMaxBytesForLevelMultiplierAdditional(
+      final int[] maxBytesForLevelMultiplierAdditional) {
     setMaxBytesForLevelMultiplierAdditional(nativeHandle_, maxBytesForLevelMultiplierAdditional);
     return this;
   }
@@ -811,7 +825,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setParanoidFileChecks(boolean paranoidFileChecks) {
+  public ColumnFamilyOptions setParanoidFileChecks(final boolean paranoidFileChecks) {
     setParanoidFileChecks(nativeHandle_, paranoidFileChecks);
     return this;
   }
@@ -919,7 +933,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setSstPartitionerFactory(SstPartitionerFactory sstPartitionerFactory) {
+  public ColumnFamilyOptions setSstPartitionerFactory(
+      final SstPartitionerFactory sstPartitionerFactory) {
     setSstPartitionerFactory(nativeHandle_, sstPartitionerFactory.nativeHandle_);
     this.sstPartitionerFactory_ = sstPartitionerFactory;
     return this;
@@ -955,9 +970,9 @@ public class ColumnFamilyOptions extends RocksObject
    * for reads. See also the options min_blob_size, blob_file_size,
    * blob_compression_type, enable_blob_garbage_collection, and
    * blob_garbage_collection_age_cutoff below.
-   *
+   * <p>
    * Default: false
-   *
+   * <p>
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
@@ -978,9 +993,9 @@ public class ColumnFamilyOptions extends RocksObject
    * for reads. See also the options min_blob_size, blob_file_size,
    * blob_compression_type, enable_blob_garbage_collection, and
    * blob_garbage_collection_age_cutoff below.
-   *
+   * <p>
    * Default: false
-   *
+   * <p>
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
@@ -996,9 +1011,9 @@ public class ColumnFamilyOptions extends RocksObject
    * alongside the keys in SST files in the usual fashion. A value of zero for
    * this option means that all values are stored in blob files. Note that
    * enable_blob_files has to be set in order for this option to have any effect.
-   *
+   * <p>
    * Default: 0
-   *
+   * <p>
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
@@ -1017,9 +1032,9 @@ public class ColumnFamilyOptions extends RocksObject
    * alongside the keys in SST files in the usual fashion. A value of zero for
    * this option means that all values are stored in blob files. Note that
    * enable_blob_files has to be set in order for this option to have any effect.
-   *
+   * <p>
    * Default: 0
-   *
+   * <p>
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
@@ -1034,9 +1049,9 @@ public class ColumnFamilyOptions extends RocksObject
    * Set the size limit for blob files. When writing blob files, a new file is opened
    * once this limit is reached. Note that enable_blob_files has to be set in
    * order for this option to have any effect.
-   *
+   * <p>
    * Default: 256 MB
-   *
+   * <p>
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
@@ -1054,9 +1069,9 @@ public class ColumnFamilyOptions extends RocksObject
    * Get the size limit for blob files. When writing blob files, a new file is opened
    * once this limit is reached. Note that enable_blob_files has to be set in
    * order for this option to have any effect.
-   *
+   * <p>
    * Default: 256 MB
-   *
+   * <p>
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
@@ -1071,9 +1086,9 @@ public class ColumnFamilyOptions extends RocksObject
    * Set the compression algorithm to use for large values stored in blob files. Note
    * that enable_blob_files has to be set in order for this option to have any
    * effect.
-   *
+   * <p>
    * Default: no compression
-   *
+   * <p>
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
@@ -1091,9 +1106,9 @@ public class ColumnFamilyOptions extends RocksObject
    * Get the compression algorithm to use for large values stored in blob files. Note
    * that enable_blob_files has to be set in order for this option to have any
    * effect.
-   *
+   * <p>
    * Default: no compression
-   *
+   * <p>
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
@@ -1110,7 +1125,7 @@ public class ColumnFamilyOptions extends RocksObject
    * relocated to new files as they are encountered during compaction, which makes
    * it possible to clean up blob files once they contain nothing but
    * obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
-   *
+   * <p>
    * Default: false
    *
    * @param enableBlobGarbageCollection true iff blob garbage collection is to be enabled
@@ -1130,7 +1145,7 @@ public class ColumnFamilyOptions extends RocksObject
    * relocated to new files as they are encountered during compaction, which makes
    * it possible to clean up blob files once they contain nothing but
    * obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
-   *
+   * <p>
    * Default: false
    *
    * @return true iff blob garbage collection is currently enabled
@@ -1146,7 +1161,7 @@ public class ColumnFamilyOptions extends RocksObject
    * where N = garbage_collection_cutoff * number_of_blob_files. Note that
    * enable_blob_garbage_collection has to be set in order for this option to have
    * any effect.
-   *
+   * <p>
    * Default: 0.25
    *
    * @param blobGarbageCollectionAgeCutoff the new blob garbage collection age cutoff
@@ -1166,7 +1181,7 @@ public class ColumnFamilyOptions extends RocksObject
    * where N = garbage_collection_cutoff * number_of_blob_files. Note that
    * enable_blob_garbage_collection has to be set in order for this option to have
    * any effect.
-   *
+   * <p>
    * Default: 0.25
    *
    * @return the current blob garbage collection age cutoff
@@ -1182,12 +1197,12 @@ public class ColumnFamilyOptions extends RocksObject
    *  the blob files in question, assuming they are all eligible based on the
    *  value of {@link #blobGarbageCollectionAgeCutoff} above. This option is
    *  currently only supported with leveled compactions.
-   *
+   * <p>
    *  Note that {@link #enableBlobGarbageCollection} has to be set in order for this
    *  option to have any effect.
-   *
+   * <p>
    *  Default: 1.0
-   *
+   * <p>
    * Dynamically changeable through the SetOptions() API
    *
    * @param blobGarbageCollectionForceThreshold new value for the threshold
@@ -1211,9 +1226,9 @@ public class ColumnFamilyOptions extends RocksObject
 
   /**
    * Set compaction readahead for blob files.
-   *
+   * <p>
    * Default: 0
-   *
+   * <p>
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
@@ -1236,6 +1251,67 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public long blobCompactionReadaheadSize() {
     return blobCompactionReadaheadSize(nativeHandle_);
+  }
+
+  /**
+   * Set a certain LSM tree level to enable blob files.
+   * <p>
+   * Default: 0
+   * <p>
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param blobFileStartingLevel the starting level to enable blob files
+   *
+   * @return the reference to the current options.
+   */
+  @Override
+  public ColumnFamilyOptions setBlobFileStartingLevel(final int blobFileStartingLevel) {
+    setBlobFileStartingLevel(nativeHandle_, blobFileStartingLevel);
+    return this;
+  }
+
+  /**
+   * Get the starting LSM tree level to enable blob files.
+   * <p>
+   * Default: 0
+   *
+   * @return the current LSM tree level to enable blob files.
+   */
+  @Override
+  public int blobFileStartingLevel() {
+    return blobFileStartingLevel(nativeHandle_);
+  }
+
+  /**
+   * Set a certain prepopulate blob cache option.
+   * <p>
+   * Default: 0
+   * <p>
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param prepopulateBlobCache the prepopulate blob cache option
+   *
+   * @return the reference to the current options.
+   */
+  @Override
+  public ColumnFamilyOptions setPrepopulateBlobCache(
+      final PrepopulateBlobCache prepopulateBlobCache) {
+    setPrepopulateBlobCache(nativeHandle_, prepopulateBlobCache.getValue());
+    return this;
+  }
+
+  /**
+   * Get the prepopulate blob cache option.
+   * <p>
+   * Default: 0
+   *
+   * @return the current prepopulate blob cache option.
+   */
+  @Override
+  public PrepopulateBlobCache prepopulateBlobCache() {
+    return PrepopulateBlobCache.getPrepopulateBlobCache(prepopulateBlobCache(nativeHandle_));
   }
 
   //
@@ -1359,6 +1435,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setMemtablePrefixBloomSizeRatio(
       long handle, double memtablePrefixBloomSizeRatio);
   private native double memtablePrefixBloomSizeRatio(long handle);
+  private native void setExperimentalMempurgeThreshold(
+      long handle, double experimentalMempurgeThreshold);
+  private native double experimentalMempurgeThreshold(long handle);
   private native void setMemtableWholeKeyFiltering(long handle, boolean memtableWholeKeyFiltering);
   private native boolean memtableWholeKeyFiltering(long handle);
   private native void setBloomLocality(
@@ -1440,6 +1519,12 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setBlobCompactionReadaheadSize(
       final long nativeHandle_, final long blobCompactionReadaheadSize);
   private native long blobCompactionReadaheadSize(final long nativeHandle_);
+  private native void setBlobFileStartingLevel(
+      final long nativeHandle_, final int blobFileStartingLevel);
+  private native int blobFileStartingLevel(final long nativeHandle_);
+  private native void setPrepopulateBlobCache(
+      final long nativeHandle_, final byte prepopulateBlobCache);
+  private native byte prepopulateBlobCache(final long nativeHandle_);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

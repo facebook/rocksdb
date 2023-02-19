@@ -46,6 +46,7 @@
 #       Default: 1
 #   TEST_PATH: the root directory of the regression test.
 #       Default: "/tmp/rocksdb/regression_test"
+#       !!! NOTE !!! - a DB will also be saved in $TEST_PATH/../db
 #   RESULT_PATH: the directory where the regression results will be generated.
 #       Default: "$TEST_PATH/current_time"
 #   REMOTE_USER_AT_HOST: If set, then test will run on the specified host under
@@ -125,24 +126,26 @@ function main {
 
   setup_test_directory
   if [ $TEST_MODE -le 1 ]; then
-      tmp=$DB_PATH
-      DB_PATH=$ORIGIN_PATH
-      test_remote "test -d $DB_PATH"
+      test_remote "test -d $ORIGIN_PATH"
       if [[ $? -ne 0 ]]; then
           echo "Building DB..."
           # compactall alone will not print ops or threads, which will fail update_report
           run_db_bench "fillseq,compactall" $NUM_KEYS 1 0 0
+          # only save for future use on success
+          test_remote "mv $DB_PATH $ORIGIN_PATH"
       fi
-      DB_PATH=$tmp
   fi
   if [ $TEST_MODE -ge 1 ]; then
       build_checkpoint
       run_db_bench "readrandom"
       run_db_bench "readwhilewriting"
-      run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
+      run_db_bench "deleterandom"
       run_db_bench "seekrandom"
       run_db_bench "seekrandomwhilewriting"
-      run_db_bench "multireadrandom" 
+      run_db_bench "multireadrandom"
+      # run_db_bench benchmark_name NUM_OPS NUM_THREADS USED_EXISTING_DB UPDATE_REPORT ASYNC_IO
+      run_db_bench "seekrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
+      run_db_bench "multireadrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
   fi
 
   cleanup_test_directory $TEST_ROOT_DIR
@@ -192,6 +195,7 @@ function init_arguments {
   NUM_LOW_PRI_THREADS=${NUM_LOW_PRI_THREADS:-16}
   DELETE_TEST_PATH=${DELETE_TEST_PATH:-0}
   SEEK_NEXTS=${SEEK_NEXTS:-10}
+  SEEK_NEXTS_ASYNCIO=${SEEK_NEXTS_ASYNC_IO:-10}
   SEED=${SEED:-$( date +%s )}
   MULTIREAD_BATCH_SIZE=${MULTIREAD_BATCH_SIZE:-128}
   MULTIREAD_STRIDE=${MULTIREAD_STRIDE:-12}
@@ -199,18 +203,50 @@ function init_arguments {
 }
 
 # $1 --- benchmark name
-# $2 --- number of operations.  Default: $NUM_KEYS
+# $2 --- number of operations.  Default: $NUM_OPS
 # $3 --- number of threads.  Default $NUM_THREADS
 # $4 --- use_existing_db.  Default: 1
 # $5 --- update_report. Default: 1
+# $6 --- async_io. Default: False
 function run_db_bench {
-  # this will terminate all currently-running db_bench
-  find_db_bench_cmd="ps aux | grep db_bench | grep -v grep | grep -v aux | awk '{print \$2}'"
+  # Make sure no other db_bench is running. (Make sure command succeeds if pidof
+  # command exists but finds nothing.)
+  pids_cmd='pidof db_bench || pidof --version > /dev/null'
+  # But first, make best effort to kill any db_bench that have run for more
+  # than 12 hours, as that indicates a hung or runaway process.
+  kill_old_cmd='for PID in $(pidof db_bench); do [ "$(($(stat -c %Y /proc/$PID) + 43200))" -lt "$(date +%s)" ] && echo "Killing old db_bench $PID" && kill $PID && sleep 5 && kill -9 $PID && sleep 5; done; pidof --version > /dev/null'
+  if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
+    pids_cmd="$SSH $REMOTE_USER_AT_HOST '$pids_cmd'"
+    kill_old_cmd="$SSH $REMOTE_USER_AT_HOST '$kill_old_cmd'"
+  fi
 
+  eval $kill_old_cmd
+  exit_on_error $? "$kill_old_cmd"
+
+  pids_output="$(eval $pids_cmd)"
+  exit_on_error $? "$pids_cmd"
+
+  if [ "$pids_output" != "" ]; then
+    echo "Stopped regression_test.sh as there're still recent db_bench "
+    echo "processes running: $pids_output"
+    echo "Clean up test directory"
+    cleanup_test_directory $TEST_ROOT_DIR
+    exit 2
+  fi
+
+  # Build db_bench command
   ops=${2:-$NUM_OPS}
   threads=${3:-$NUM_THREADS}
   USE_EXISTING_DB=${4:-1}
   UPDATE_REPORT=${5:-1}
+  async_io=${6:-false}
+
+  seek_nexts=$SEEK_NEXTS
+  if [ "$async_io" == "true" ]; then
+    seek_nexts=$SEEK_NEXTS_ASYNCIO
+  fi
+
+
   echo ""
   echo "======================================================================="
   echo "Benchmark $1"
@@ -219,9 +255,13 @@ function run_db_bench {
   db_bench_error=0
   options_file_arg=$(setup_options_file)
   echo "$options_file_arg"
+
+  # In case of async_io, benchmark is benchmark_asyncio
+  db_bench_type=${1%%_*}
+
   # use `which time` to avoid using bash's internal time command
-  db_bench_cmd="("'\$(which time)'" -p $DB_BENCH_DIR/db_bench \
-      --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
+  db_bench_cmd="\$(which time) -p $DB_BENCH_DIR/db_bench \
+      --benchmarks=$db_bench_type --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
       --perf_level=$PERF_LEVEL \
       --disable_auto_compactions \
@@ -237,7 +277,7 @@ function run_db_bench {
       $options_file_arg \
       --compression_ratio=$COMPRESSION_RATIO \
       --histogram=$HISTOGRAM \
-      --seek_nexts=$SEEK_NEXTS \
+      --seek_nexts=$seek_nexts \
       --stats_per_interval=$STATS_PER_INTERVAL \
       --stats_interval_seconds=$STATS_INTERVAL_SECONDS \
       --max_background_flushes=$MAX_BACKGROUND_FLUSHES \
@@ -248,38 +288,17 @@ function run_db_bench {
       --seed=$SEED \
       --multiread_batched=true \
       --batch_size=$MULTIREAD_BATCH_SIZE \
-      --multiread_stride=$MULTIREAD_STRIDE) 2>&1"
-  ps_cmd="ps aux"
+      --multiread_stride=$MULTIREAD_STRIDE \
+      --async_io=$async_io 2>&1"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
     echo "Running benchmark remotely on $REMOTE_USER_AT_HOST"
-    db_bench_cmd="$SSH $REMOTE_USER_AT_HOST \"$db_bench_cmd\""
-    ps_cmd="$SSH $REMOTE_USER_AT_HOST $ps_cmd"
+    db_bench_cmd="$SSH $REMOTE_USER_AT_HOST '$db_bench_cmd'"
   fi
+  echo db_bench_cmd="$db_bench_cmd"
 
-  ## make sure no db_bench is running
-  # The following statement is necessary make sure "eval $ps_cmd" will success.
-  # Otherwise, if we simply check whether "$(eval $ps_cmd | grep db_bench)" is
-  # successful or not, then it will always be false since grep will return
-  # non-zero status when there's no matching output.
-  ps_output="$(eval $ps_cmd)"
-  exit_on_error $? "$ps_cmd"
-
-  # perform the actual command to check whether db_bench is running
-  grep_output="$(eval $ps_cmd | grep db_bench | grep -v grep)"
-  if [ "$grep_output" != "" ]; then
-    echo "Stopped regression_test.sh as there're still db_bench processes running:"
-    echo $grep_output
-    echo "Clean up test directory"
-    cleanup_test_directory $TEST_ROOT_DIR
-    exit 2
-  fi
-
-  ## run the db_bench
-  cmd="($db_bench_cmd || db_bench_error=1) | tee -a $RESULT_PATH/$1"
-  exit_on_error $?
-  echo $cmd
-  eval $cmd
-  exit_on_error $db_bench_error
+  # Run the db_bench command
+  eval $db_bench_cmd | tee -a "$RESULT_PATH/$1"
+  exit_on_error ${PIPESTATUS[0]} db_bench
   if [ $UPDATE_REPORT -ne 0 ]; then
     update_report "$1" "$RESULT_PATH/$1" $ops $threads
   fi
@@ -297,6 +316,7 @@ function build_checkpoint {
             echo "Building checkpoints: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
             $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
                         --db=$ORIGIN_PATH/$db_index --try_load_options 2>&1
+            exit_on_error $?
         done
     else
         # checkpoint cannot build in directory already exists
@@ -304,6 +324,7 @@ function build_checkpoint {
         echo "Building checkpoint: $ORIGIN_PATH -> $DB_PATH ..."
         $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH \
                     --db=$ORIGIN_PATH --try_load_options 2>&1
+        exit_on_error $?
     fi
 }
 
@@ -314,7 +335,10 @@ function multiply {
 # $1 --- name of the benchmark
 # $2 --- the filename of the output log of db_bench
 function update_report {
-  main_result=`cat $2 | grep $1`
+  # In case of async_io, benchmark is benchmark_asyncio
+  db_bench_type=${1%%_*}
+
+  main_result=`cat $2 | grep $db_bench_type`
   exit_on_error $?
   perc_statement=`cat $2 | grep Percentile`
   exit_on_error $?
@@ -395,7 +419,7 @@ function test_remote {
 
 function run_local {
   eval "$1"
-  exit_on_error $?
+  exit_on_error $? "$1"
 }
 
 function setup_options_file {
@@ -414,8 +438,14 @@ function setup_options_file {
 function setup_test_directory {
   echo "Deleting old regression test directories and creating new ones"
 
+  run_local 'test "$DB_PATH" != "."'
   run_remote "rm -rf $DB_PATH"
-  run_remote "rm -rf $DB_BENCH_DIR"
+
+  if [ "$DB_BENCH_DIR" != "." ]; then
+    run_remote "rm -rf $DB_BENCH_DIR"
+  fi
+
+  run_local 'test "$RESULT_PATH" != "."'
   run_local "rm -rf $RESULT_PATH"
 
   if ! [ -z "$WAL_PATH" ]; then
@@ -429,8 +459,9 @@ function setup_test_directory {
   run_remote "ls -l $DB_BENCH_DIR"
 
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-      run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
-      run_local "$SCP ./ldb $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/ldb"
+      shopt -s nullglob # allow missing librocksdb*.so* for static lib build
+      run_local "tar cz db_bench ldb librocksdb*.so* | $SSH $REMOTE_USER_AT_HOST 'cd $DB_BENCH_DIR/ && tar xzv'"
+      shopt -u nullglob
   fi
 
   run_local "mkdir -p $RESULT_PATH"

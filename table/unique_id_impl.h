@@ -47,7 +47,8 @@ struct UniqueIdPtr {
 // is long term stable.
 Status GetSstInternalUniqueId(const std::string &db_id,
                               const std::string &db_session_id,
-                              uint64_t file_number, UniqueIdPtr out);
+                              uint64_t file_number, UniqueIdPtr out,
+                              bool force = false);
 
 // Helper for GetUniqueIdFromTableProperties. External unique ids go through
 // this extra hashing layer so that prefixes of the unique id have predictable

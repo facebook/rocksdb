@@ -99,7 +99,6 @@ IOStatus RandomAccessFileReader::Read(
     auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
-#ifndef ROCKSDB_LITE
       size_t alignment = file_->GetRequiredBufferAlignment();
       size_t aligned_offset =
           TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
@@ -165,7 +164,6 @@ IOStatus RandomAccessFileReader::Read(
         }
       }
       *result = Slice(scratch, res_len);
-#endif  // !ROCKSDB_LITE
     } else {
       size_t pos = 0;
       const char* res_scratch = nullptr;
@@ -187,12 +185,10 @@ IOStatus RandomAccessFileReader::Read(
         }
         Slice tmp_result;
 
-#ifndef ROCKSDB_LITE
         FileOperationInfo::StartTimePoint start_ts;
         if (ShouldNotifyListeners()) {
           start_ts = FileOperationInfo::StartNow();
         }
-#endif
 
         {
           IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
@@ -204,7 +200,6 @@ IOStatus RandomAccessFileReader::Read(
           io_s = file_->Read(offset + pos, allowed, opts, &tmp_result,
                              scratch + pos, nullptr);
         }
-#ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
@@ -215,7 +210,6 @@ IOStatus RandomAccessFileReader::Read(
                             tmp_result.size(), offset + pos);
           }
         }
-#endif
         if (res_scratch == nullptr) {
           // we can't simply use `scratch` because reads of mmap'd files return
           // data in a different buffer.
@@ -248,7 +242,7 @@ size_t End(const FSReadRequest& r) {
 FSReadRequest Align(const FSReadRequest& r, size_t alignment) {
   FSReadRequest req;
   req.offset = static_cast<uint64_t>(
-    TruncateToPageBoundary(alignment, static_cast<size_t>(r.offset)));
+      TruncateToPageBoundary(alignment, static_cast<size_t>(r.offset)));
   req.len = Roundup(End(r), alignment) - req.offset;
   req.scratch = nullptr;
   return req;
@@ -270,9 +264,6 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
 IOStatus RandomAccessFileReader::MultiRead(
     const IOOptions& opts, FSReadRequest* read_reqs, size_t num_reqs,
     AlignedBuf* aligned_buf, Env::IOPriority rate_limiter_priority) const {
-  if (rate_limiter_priority != Env::IO_TOTAL) {
-    return IOStatus::NotSupported("Unable to rate limit MultiRead()");
-  }
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
 
@@ -283,7 +274,7 @@ IOStatus RandomAccessFileReader::MultiRead(
 #endif  // !NDEBUG
 
   // To be paranoid modify scratch a little bit, so in case underlying
-  // FileSystem doesn't fill the buffer but return succee and `scratch` returns
+  // FileSystem doesn't fill the buffer but return success and `scratch` returns
   // contains a previous block, returned value will not pass checksum.
   // This byte might not change anything for direct I/O case, but it's OK.
   for (size_t i = 0; i < num_reqs; i++) {
@@ -304,7 +295,6 @@ IOStatus RandomAccessFileReader::MultiRead(
 
     FSReadRequest* fs_reqs = read_reqs;
     size_t num_fs_reqs = num_reqs;
-#ifndef ROCKSDB_LITE
     std::vector<FSReadRequest> aligned_reqs;
     if (use_direct_io()) {
       // num_reqs is the max possible size,
@@ -348,21 +338,42 @@ IOStatus RandomAccessFileReader::MultiRead(
       fs_reqs = aligned_reqs.data();
       num_fs_reqs = aligned_reqs.size();
     }
-#endif  // ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE
     FileOperationInfo::StartTimePoint start_ts;
     if (ShouldNotifyListeners()) {
       start_ts = FileOperationInfo::StartNow();
     }
-#endif  // ROCKSDB_LITE
 
     {
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
+      if (rate_limiter_priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
+        // TODO: ideally we should call `RateLimiter::RequestToken()` for
+        // allowed bytes to multi-read and then consume those bytes by
+        // satisfying as many requests in `MultiRead()` as possible, instead of
+        // what we do here, which can cause burst when the
+        // `total_multi_read_size` is big.
+        size_t total_multi_read_size = 0;
+        assert(fs_reqs != nullptr);
+        for (size_t i = 0; i < num_fs_reqs; ++i) {
+          FSReadRequest& req = fs_reqs[i];
+          total_multi_read_size += req.len;
+        }
+        size_t remaining_bytes = total_multi_read_size;
+        size_t request_bytes = 0;
+        while (remaining_bytes > 0) {
+          request_bytes = std::min(
+              static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()),
+              remaining_bytes);
+          rate_limiter_->Request(request_bytes, rate_limiter_priority,
+                                 nullptr /* stats */,
+                                 RateLimiter::OpType::kRead);
+          remaining_bytes -= request_bytes;
+        }
+      }
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
+      RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
-#ifndef ROCKSDB_LITE
     if (use_direct_io()) {
       // Populate results in the unaligned read requests.
       size_t aligned_i = 0;
@@ -388,10 +399,8 @@ IOStatus RandomAccessFileReader::MultiRead(
         }
       }
     }
-#endif  // ROCKSDB_LITE
 
     for (size_t i = 0; i < num_reqs; ++i) {
-#ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
         auto finish_ts = FileOperationInfo::FinishNow();
         NotifyOnFileReadFinish(read_reqs[i].offset, read_reqs[i].result.size(),
@@ -403,7 +412,6 @@ IOStatus RandomAccessFileReader::MultiRead(
                         read_reqs[i].offset);
       }
 
-#endif  // ROCKSDB_LITE
       RecordIOStats(stats_, file_temperature_, is_last_level_,
                     read_reqs[i].result.size());
     }
@@ -425,41 +433,71 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
   }
 }
 
-// TODO akanksha:
-// 1. Handle use_direct_io case which currently calls Read API.
 IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
-    void** io_handle, IOHandleDeleter* del_fn,
-    Env::IOPriority rate_limiter_priority) {
-  if (use_direct_io()) {
-    // For direct_io, it calls Read API.
-    req.status = Read(opts, req.offset, req.len, &(req.result), req.scratch,
-                      nullptr /*dbg*/, rate_limiter_priority);
-    cb(req, cb_arg);
-    return IOStatus::OK();
-  }
-
+    void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf) {
+  IOStatus s;
   // Create a callback and populate info.
   auto read_async_callback =
       std::bind(&RandomAccessFileReader::ReadAsyncCallback, this,
                 std::placeholders::_1, std::placeholders::_2);
-  ReadAsyncInfo* read_async_info = new ReadAsyncInfo;
-  read_async_info->cb_ = cb;
-  read_async_info->cb_arg_ = cb_arg;
-  read_async_info->start_time_ = clock_->NowMicros();
+  ReadAsyncInfo* read_async_info =
+      new ReadAsyncInfo(cb, cb_arg, clock_->NowMicros());
 
-#ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
     read_async_info->fs_start_ts_ = FileOperationInfo::StartNow();
   }
-#endif
 
-  IOStatus s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
-                                io_handle, del_fn, nullptr /*dbg*/);
+  size_t alignment = file_->GetRequiredBufferAlignment();
+  bool is_aligned = (req.offset & (alignment - 1)) == 0 &&
+                    (req.len & (alignment - 1)) == 0 &&
+                    (uintptr_t(req.scratch) & (alignment - 1)) == 0;
+  read_async_info->is_aligned_ = is_aligned;
+
+  uint64_t elapsed = 0;
+  if (use_direct_io() && is_aligned == false) {
+    FSReadRequest aligned_req = Align(req, alignment);
+    aligned_req.status.PermitUncheckedError();
+
+    // Allocate aligned buffer.
+    read_async_info->buf_.Alignment(alignment);
+    read_async_info->buf_.AllocateNewBuffer(aligned_req.len);
+
+    // Set rem fields in aligned FSReadRequest.
+    aligned_req.scratch = read_async_info->buf_.BufferStart();
+
+    // Set user provided fields to populate back in callback.
+    read_async_info->user_scratch_ = req.scratch;
+    read_async_info->user_aligned_buf_ = aligned_buf;
+    read_async_info->user_len_ = req.len;
+    read_async_info->user_offset_ = req.offset;
+    read_async_info->user_result_ = req.result;
+
+    assert(read_async_info->buf_.CurrentSize() == 0);
+
+    StopWatch sw(clock_, nullptr /*stats*/, 0 /*hist_type*/, &elapsed,
+                 true /*overwrite*/, true /*delay_enabled*/);
+    s = file_->ReadAsync(aligned_req, opts, read_async_callback,
+                         read_async_info, io_handle, del_fn, nullptr /*dbg*/);
+  } else {
+    StopWatch sw(clock_, nullptr /*stats*/, 0 /*hist_type*/, &elapsed,
+                 true /*overwrite*/, true /*delay_enabled*/);
+    s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
+                         io_handle, del_fn, nullptr /*dbg*/);
+  }
+  RecordTick(stats_, READ_ASYNC_MICROS, elapsed);
+
+// Suppress false positive clang analyzer warnings.
+// Memory is not released if file_->ReadAsync returns !s.ok(), because
+// ReadAsyncCallback is never called in that case. If ReadAsyncCallback is
+// called then ReadAsync should always return IOStatus::OK().
+#ifndef __clang_analyzer__
   if (!s.ok()) {
     delete read_async_info;
   }
+#endif  // __clang_analyzer__
+
   return s;
 }
 
@@ -469,7 +507,54 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
   assert(read_async_info);
   assert(read_async_info->cb_);
 
-  read_async_info->cb_(req, read_async_info->cb_arg_);
+  if (use_direct_io() && read_async_info->is_aligned_ == false) {
+    // Create FSReadRequest with user provided fields.
+    FSReadRequest user_req;
+    user_req.scratch = read_async_info->user_scratch_;
+    user_req.offset = read_async_info->user_offset_;
+    user_req.len = read_async_info->user_len_;
+
+    // Update results in user_req.
+    user_req.result = req.result;
+    user_req.status = req.status;
+
+    read_async_info->buf_.Size(read_async_info->buf_.CurrentSize() +
+                               req.result.size());
+
+    size_t offset_advance_len = static_cast<size_t>(
+        /*offset_passed_by_user=*/read_async_info->user_offset_ -
+        /*aligned_offset=*/req.offset);
+
+    size_t res_len = 0;
+    if (req.status.ok() &&
+        offset_advance_len < read_async_info->buf_.CurrentSize()) {
+      res_len =
+          std::min(read_async_info->buf_.CurrentSize() - offset_advance_len,
+                   read_async_info->user_len_);
+      if (read_async_info->user_aligned_buf_ == nullptr) {
+        // Copy the data into user's scratch.
+// Clang analyzer assumes that it will take use_direct_io() == false in
+// ReadAsync and use_direct_io() == true in Callback which cannot be true.
+#ifndef __clang_analyzer__
+        read_async_info->buf_.Read(user_req.scratch, offset_advance_len,
+                                   res_len);
+#endif  // __clang_analyzer__
+      } else {
+        // Set aligned_buf provided by user without additional copy.
+        user_req.scratch =
+            read_async_info->buf_.BufferStart() + offset_advance_len;
+        read_async_info->user_aligned_buf_->reset(
+            read_async_info->buf_.Release());
+      }
+      user_req.result = Slice(user_req.scratch, res_len);
+    } else {
+      // Either req.status is not ok or data was not read.
+      user_req.result = Slice();
+    }
+    read_async_info->cb_(user_req, read_async_info->cb_arg_);
+  } else {
+    read_async_info->cb_(req, read_async_info->cb_arg_);
+  }
 
   // Update stats and notify listeners.
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
@@ -480,8 +565,9 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
   }
   if (req.status.ok()) {
     RecordInHistogram(stats_, ASYNC_READ_BYTES, req.result.size());
+  } else if (!req.status.IsAborted()) {
+    RecordTick(stats_, ASYNC_READ_ERROR_COUNT, 1);
   }
-#ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
     auto finish_ts = FileOperationInfo::FinishNow();
     NotifyOnFileReadFinish(req.offset, req.result.size(),
@@ -492,7 +578,6 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
     NotifyOnIOError(req.status, FileOperationType::kRead, file_name(),
                     req.result.size(), req.offset);
   }
-#endif
   RecordIOStats(stats_, file_temperature_, is_last_level_, req.result.size());
   delete read_async_info;
 }

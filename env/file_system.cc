@@ -10,6 +10,7 @@
 #include "env/env_encryption_ctr.h"
 #include "env/fs_readonly.h"
 #include "env/mock_env.h"
+#include "logging/env_logger.h"
 #include "options/db_options.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/customizable_util.h"
@@ -25,12 +26,6 @@ FileSystem::FileSystem() {}
 
 FileSystem::~FileSystem() {}
 
-Status FileSystem::Load(const std::string& value,
-                        std::shared_ptr<FileSystem>* result) {
-  return CreateFromString(ConfigOptions(), value, result);
-}
-
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinFileSystems(ObjectLibrary& library,
                                       const std::string& /*arg*/) {
   library.AddFactory<FileSystem>(
@@ -83,7 +78,6 @@ static int RegisterBuiltinFileSystems(ObjectLibrary& library,
   size_t num_types;
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 Status FileSystem::CreateFromString(const ConfigOptions& config_options,
                                     const std::string& value,
@@ -93,13 +87,11 @@ Status FileSystem::CreateFromString(const ConfigOptions& config_options,
     *result = default_fs;
     return Status::OK();
   } else {
-#ifndef ROCKSDB_LITE
     static std::once_flag once;
     std::call_once(once, [&]() {
       RegisterBuiltinFileSystems(*(ObjectLibrary::Default().get()), "");
     });
-#endif  // ROCKSDB_LITE
-    return LoadSharedObject<FileSystem>(config_options, value, nullptr, result);
+    return LoadSharedObject<FileSystem>(config_options, value, result);
   }
 }
 
@@ -115,8 +107,27 @@ IOStatus FileSystem::ReuseWritableFile(const std::string& fname,
   return NewWritableFile(fname, opts, result, dbg);
 }
 
+IOStatus FileSystem::NewLogger(const std::string& fname,
+                               const IOOptions& io_opts,
+                               std::shared_ptr<Logger>* result,
+                               IODebugContext* dbg) {
+  FileOptions options;
+  options.io_options = io_opts;
+  // TODO: Tune the buffer size.
+  options.writable_file_max_buffer_size = 1024 * 1024;
+  std::unique_ptr<FSWritableFile> writable_file;
+  const IOStatus status = NewWritableFile(fname, options, &writable_file, dbg);
+  if (!status.ok()) {
+    return status;
+  }
+
+  *result = std::make_shared<EnvLogger>(std::move(writable_file), fname,
+                                        options, Env::Default());
+  return IOStatus::OK();
+}
+
 FileOptions FileSystem::OptimizeForLogRead(
-              const FileOptions& file_options) const {
+    const FileOptions& file_options) const {
   FileOptions optimized_file_options(file_options);
   optimized_file_options.use_direct_reads = false;
   return optimized_file_options;
@@ -130,7 +141,7 @@ FileOptions FileSystem::OptimizeForManifestRead(
 }
 
 FileOptions FileSystem::OptimizeForLogWrite(const FileOptions& file_options,
-                                           const DBOptions& db_options) const {
+                                            const DBOptions& db_options) const {
   FileOptions optimized_file_options(file_options);
   optimized_file_options.bytes_per_sync = db_options.wal_bytes_per_sync;
   optimized_file_options.writable_file_max_buffer_size =
@@ -200,8 +211,7 @@ IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
   char* space = new char[kBufferSize];
   while (true) {
     Slice fragment;
-    s = file->Read(kBufferSize, IOOptions(), &fragment, space,
-                   nullptr);
+    s = file->Read(kBufferSize, IOOptions(), &fragment, space, nullptr);
     if (!s.ok()) {
       break;
     }
@@ -216,11 +226,9 @@ IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
 
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> fs_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
     {"target",
      OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
          0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
-#endif  // ROCKSDB_LITE
 };
 }  // namespace
 FileSystemWrapper::FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
@@ -235,7 +243,6 @@ Status FileSystemWrapper::PrepareOptions(const ConfigOptions& options) {
   return FileSystem::PrepareOptions(options);
 }
 
-#ifndef ROCKSDB_LITE
 std::string FileSystemWrapper::SerializeOptions(
     const ConfigOptions& config_options, const std::string& header) const {
   auto parent = FileSystem::SerializeOptions(config_options, "");
@@ -255,7 +262,6 @@ std::string FileSystemWrapper::SerializeOptions(
     return result;
   }
 }
-#endif  // ROCKSDB_LITE
 
 DirFsyncOptions::DirFsyncOptions() { reason = kDefault; }
 

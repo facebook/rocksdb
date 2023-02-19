@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+
 #include "rocksdb/db.h"
 
 #ifdef _WIN32
@@ -85,11 +86,25 @@ class StackableDB : public DB {
     return db_->Put(options, column_family, key, ts, val);
   }
 
+  using DB::PutEntity;
+  Status PutEntity(const WriteOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns) override {
+    return db_->PutEntity(options, column_family, key, columns);
+  }
+
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override {
     return db_->Get(options, column_family, key, value);
+  }
+
+  using DB::GetEntity;
+  Status GetEntity(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableWideColumns* columns) override {
+    return db_->GetEntity(options, column_family, key, columns);
   }
 
   using DB::GetMergeOperands;
@@ -117,8 +132,26 @@ class StackableDB : public DB {
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
                         const bool sorted_input = false) override {
-    return db_->MultiGet(options, column_family, num_keys, keys,
-                         values, statuses, sorted_input);
+    return db_->MultiGet(options, column_family, num_keys, keys, values,
+                         statuses, sorted_input);
+  }
+
+  using DB::MultiGetEntity;
+
+  void MultiGetEntity(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, size_t num_keys,
+                      const Slice* keys, PinnableWideColumns* results,
+                      Status* statuses, bool sorted_input) override {
+    db_->MultiGetEntity(options, column_family, num_keys, keys, results,
+                        statuses, sorted_input);
+  }
+
+  void MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                      ColumnFamilyHandle** column_families, const Slice* keys,
+                      PinnableWideColumns* results, Status* statuses,
+                      bool sorted_input) override {
+    db_->MultiGetEntity(options, num_keys, column_families, keys, results,
+                        statuses, sorted_input);
   }
 
   using DB::IngestExternalFile;
@@ -199,6 +232,10 @@ class StackableDB : public DB {
                        ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) override {
     return db_->Merge(options, column_family, key, value);
+  }
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& ts, const Slice& value) override {
+    return db_->Merge(options, column_family, key, ts, value);
   }
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override {
@@ -357,7 +394,6 @@ class StackableDB : public DB {
 
   virtual Status UnlockWAL() override { return db_->UnlockWAL(); }
 
-#ifndef ROCKSDB_LITE
 
   virtual Status DisableFileDeletions() override {
     return db_->DisableFileDeletions();
@@ -390,8 +426,14 @@ class StackableDB : public DB {
 
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
-      const TraceOptions& options,
+      const TraceOptions& trace_options,
       std::unique_ptr<TraceWriter>&& trace_writer) override {
+    return db_->StartBlockCacheTrace(trace_options, std::move(trace_writer));
+  }
+
+  Status StartBlockCacheTrace(
+      const BlockCacheTraceOptions& options,
+      std::unique_ptr<BlockCacheTraceWriter>&& trace_writer) override {
     return db_->StartBlockCacheTrace(options, std::move(trace_writer));
   }
 
@@ -423,7 +465,6 @@ class StackableDB : public DB {
     return db_->NewDefaultReplayer(handles, std::move(reader), replayer);
   }
 
-#endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
@@ -453,8 +494,7 @@ class StackableDB : public DB {
     return db_->GetCurrentWalFile(current_log_file);
   }
 
-  virtual Status GetCreationTimeOfOldestFile(
-      uint64_t* creation_time) override {
+  virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override {
     return db_->GetCreationTimeOfOldestFile(creation_time);
   }
 
@@ -528,11 +568,9 @@ class StackableDB : public DB {
     return db_->DefaultColumnFamily();
   }
 
-#ifndef ROCKSDB_LITE
   Status TryCatchUpWithPrimary() override {
     return db_->TryCatchUpWithPrimary();
   }
-#endif  // ROCKSDB_LITE
 
  protected:
   DB* db_;

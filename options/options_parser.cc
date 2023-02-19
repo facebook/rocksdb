@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "options/options_parser.h"
 
@@ -271,7 +270,7 @@ Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
   std::unordered_map<std::string, std::string> opt_map;
   std::string line;
   // we only support single-lined statement.
-  while (lf_reader.ReadLine(&line)) {
+  while (lf_reader.ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
     int line_num = static_cast<int>(lf_reader.GetLineNumber());
     line = TrimAndRemoveComment(line);
     if (line.empty()) {
@@ -453,12 +452,13 @@ Status RocksDBOptionsParser::EndSection(
           section_arg);
     }
     // Ignore error as table factory deserialization is optional
+    cf_opt->table_factory.reset();
     s = TableFactory::CreateFromString(
         config_options,
         section_title.substr(
             opt_section_titles[kOptionSectionTableOptions].size()),
         &(cf_opt->table_factory));
-    if (s.ok()) {
+    if (s.ok() && cf_opt->table_factory != nullptr) {
       s = cf_opt->table_factory->ConfigureFromMap(config_options, opt_map);
       // Translate any errors (NotFound, NotSupported, to InvalidArgument
       if (s.ok() || s.IsInvalidArgument()) {
@@ -723,4 +723,3 @@ Status RocksDBOptionsParser::VerifyTableFactory(
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

@@ -151,22 +151,24 @@ class SimCacheImpl : public SimCache {
   // capacity for real cache (ShardedLRUCache)
   // test_capacity for key only cache
   SimCacheImpl(std::shared_ptr<Cache> sim_cache, std::shared_ptr<Cache> cache)
-      : cache_(cache),
+      : SimCache(cache),
         key_only_cache_(sim_cache),
         miss_times_(0),
         hit_times_(0),
         stats_(nullptr) {}
 
   ~SimCacheImpl() override {}
-  void SetCapacity(size_t capacity) override { cache_->SetCapacity(capacity); }
+
+  const char* Name() const override { return "SimCache"; }
+
+  void SetCapacity(size_t capacity) override { target_->SetCapacity(capacity); }
 
   void SetStrictCapacityLimit(bool strict_capacity_limit) override {
-    cache_->SetStrictCapacityLimit(strict_capacity_limit);
+    target_->SetStrictCapacityLimit(strict_capacity_limit);
   }
 
-  using Cache::Insert;
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value), Handle** handle,
+  Status Insert(const Slice& key, Cache::ObjectPtr value,
+                const CacheItemHelper* helper, size_t charge, Handle** handle,
                 Priority priority) override {
     // The handle and value passed in are for real cache, so we pass nullptr
     // to key_only_cache_ for both instead. Also, the deleter function pointer
@@ -176,98 +178,85 @@ class SimCacheImpl : public SimCache {
     Handle* h = key_only_cache_->Lookup(key);
     if (h == nullptr) {
       // TODO: Check for error here?
-      auto s = key_only_cache_->Insert(
-          key, nullptr, charge, [](const Slice& /*k*/, void* /*v*/) {}, nullptr,
-          priority);
+      auto s = key_only_cache_->Insert(key, nullptr, &kNoopCacheItemHelper,
+                                       charge, nullptr, priority);
       s.PermitUncheckedError();
     } else {
       key_only_cache_->Release(h);
     }
 
     cache_activity_logger_.ReportAdd(key, charge);
-    if (!cache_) {
+    if (!target_) {
       return Status::OK();
     }
-    return cache_->Insert(key, value, charge, deleter, handle, priority);
+    return target_->Insert(key, value, helper, charge, handle, priority);
   }
 
-  using Cache::Lookup;
-  Handle* Lookup(const Slice& key, Statistics* stats) override {
-    Handle* h = key_only_cache_->Lookup(key);
-    if (h != nullptr) {
-      key_only_cache_->Release(h);
-      inc_hit_counter();
-      RecordTick(stats, SIM_BLOCK_CACHE_HIT);
-    } else {
-      inc_miss_counter();
-      RecordTick(stats, SIM_BLOCK_CACHE_MISS);
-    }
-
-    cache_activity_logger_.ReportLookup(key);
-    if (!cache_) {
+  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
+                 CreateContext* create_context,
+                 Priority priority = Priority::LOW, bool wait = true,
+                 Statistics* stats = nullptr) override {
+    HandleLookup(key, stats);
+    if (!target_) {
       return nullptr;
     }
-    return cache_->Lookup(key, stats);
+    return target_->Lookup(key, helper, create_context, priority, wait, stats);
   }
 
-  bool Ref(Handle* handle) override { return cache_->Ref(handle); }
+  bool Ref(Handle* handle) override { return target_->Ref(handle); }
 
   using Cache::Release;
   bool Release(Handle* handle, bool erase_if_last_ref = false) override {
-    return cache_->Release(handle, erase_if_last_ref);
+    return target_->Release(handle, erase_if_last_ref);
   }
 
   void Erase(const Slice& key) override {
-    cache_->Erase(key);
+    target_->Erase(key);
     key_only_cache_->Erase(key);
   }
 
-  void* Value(Handle* handle) override { return cache_->Value(handle); }
-
-  uint64_t NewId() override { return cache_->NewId(); }
-
-  size_t GetCapacity() const override { return cache_->GetCapacity(); }
-
-  bool HasStrictCapacityLimit() const override {
-    return cache_->HasStrictCapacityLimit();
+  Cache::ObjectPtr Value(Handle* handle) override {
+    return target_->Value(handle);
   }
 
-  size_t GetUsage() const override { return cache_->GetUsage(); }
+  uint64_t NewId() override { return target_->NewId(); }
+
+  size_t GetCapacity() const override { return target_->GetCapacity(); }
+
+  bool HasStrictCapacityLimit() const override {
+    return target_->HasStrictCapacityLimit();
+  }
+
+  size_t GetUsage() const override { return target_->GetUsage(); }
 
   size_t GetUsage(Handle* handle) const override {
-    return cache_->GetUsage(handle);
+    return target_->GetUsage(handle);
   }
 
   size_t GetCharge(Handle* handle) const override {
-    return cache_->GetCharge(handle);
+    return target_->GetCharge(handle);
   }
 
-  DeleterFn GetDeleter(Handle* handle) const override {
-    return cache_->GetDeleter(handle);
+  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override {
+    return target_->GetCacheItemHelper(handle);
   }
 
-  size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
+  size_t GetPinnedUsage() const override { return target_->GetPinnedUsage(); }
 
   void DisownData() override {
-    cache_->DisownData();
+    target_->DisownData();
     key_only_cache_->DisownData();
   }
 
-  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                              bool thread_safe) override {
-    // only apply to _cache since key_only_cache doesn't hold value
-    cache_->ApplyToAllCacheEntries(callback, thread_safe);
-  }
-
   void ApplyToAllEntries(
-      const std::function<void(const Slice& key, void* value, size_t charge,
-                               DeleterFn deleter)>& callback,
+      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
+                               const CacheItemHelper* helper)>& callback,
       const ApplyToAllEntriesOptions& opts) override {
-    cache_->ApplyToAllEntries(callback, opts);
+    target_->ApplyToAllEntries(callback, opts);
   }
 
   void EraseUnRefEntries() override {
-    cache_->EraseUnRefEntries();
+    target_->EraseUnRefEntries();
     key_only_cache_->EraseUnRefEntries();
   }
 
@@ -308,7 +297,7 @@ class SimCacheImpl : public SimCache {
   std::string GetPrintableOptions() const override {
     std::ostringstream oss;
     oss << "    cache_options:" << std::endl;
-    oss << cache_->GetPrintableOptions();
+    oss << target_->GetPrintableOptions();
     oss << "    sim_cache_options:" << std::endl;
     oss << key_only_cache_->GetPrintableOptions();
     return oss.str();
@@ -327,7 +316,6 @@ class SimCacheImpl : public SimCache {
   }
 
  private:
-  std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> key_only_cache_;
   std::atomic<uint64_t> miss_times_;
   std::atomic<uint64_t> hit_times_;
@@ -338,6 +326,19 @@ class SimCacheImpl : public SimCache {
     miss_times_.fetch_add(1, std::memory_order_relaxed);
   }
   void inc_hit_counter() { hit_times_.fetch_add(1, std::memory_order_relaxed); }
+
+  void HandleLookup(const Slice& key, Statistics* stats) {
+    Handle* h = key_only_cache_->Lookup(key);
+    if (h != nullptr) {
+      key_only_cache_->Release(h);
+      inc_hit_counter();
+      RecordTick(stats, SIM_BLOCK_CACHE_HIT);
+    } else {
+      inc_miss_counter();
+      RecordTick(stats, SIM_BLOCK_CACHE_MISS);
+    }
+    cache_activity_logger_.ReportLookup(key);
+  }
 };
 
 }  // end anonymous namespace

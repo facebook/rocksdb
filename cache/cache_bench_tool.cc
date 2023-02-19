@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "cache_key.h"
 #ifdef GFLAGS
 #include <cinttypes>
 #include <cstddef>
@@ -15,7 +16,7 @@
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -25,6 +26,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/cachable_entry.h"
 #include "util/coding.h"
+#include "util/distributed_mutex.h"
 #include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
@@ -70,13 +72,16 @@ DEFINE_uint32(
 DEFINE_uint32(gather_stats_entries_per_lock, 256,
               "For Cache::ApplyToAllEntries");
 DEFINE_bool(skewed, false, "If true, skew the key access distribution");
-#ifndef ROCKSDB_LITE
+
+DEFINE_bool(lean, false,
+            "If true, no additional computation is performed besides cache "
+            "operations.");
+
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
-#endif  // ROCKSDB_LITE
 
-DEFINE_bool(use_clock_cache, false, "");
+DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
 // ## BEGIN stress_cache_key sub-tool options ##
 // See class StressCacheKey below.
@@ -105,6 +110,8 @@ DEFINE_uint32(
     "(-stress_cache_key) Simulated file size in MiB, for accounting purposes");
 DEFINE_uint32(sck_reopen_nfiles, 100,
               "(-stress_cache_key) Simulate DB re-open average every n files");
+DEFINE_uint32(sck_newdb_nreopen, 1000,
+              "(-stress_cache_key) Simulate new DB average every n re-opens");
 DEFINE_uint32(sck_restarts_per_day, 24,
               "(-stress_cache_key) Average simulated process restarts per day "
               "(across DBs)");
@@ -212,11 +219,12 @@ struct KeyGen {
     EncodeFixed64(key_data + 10, key);
     key_data[18] = char{4};
     EncodeFixed64(key_data + 19, key);
-    return Slice(&key_data[off], sizeof(key_data) - off);
+    assert(27 >= kCacheKeySize);
+    return Slice(&key_data[off], kCacheKeySize);
   }
 };
 
-char* createValue(Random64& rnd) {
+Cache::ObjectPtr createValue(Random64& rnd) {
   char* rv = new char[FLAGS_value_bytes];
   // Fill with some filler data, and take some CPU time
   for (uint32_t i = 0; i < FLAGS_value_bytes; i += 8) {
@@ -226,28 +234,33 @@ char* createValue(Random64& rnd) {
 }
 
 // Callbacks for secondary cache
-size_t SizeFn(void* /*obj*/) { return FLAGS_value_bytes; }
+size_t SizeFn(Cache::ObjectPtr /*obj*/) { return FLAGS_value_bytes; }
 
-Status SaveToFn(void* obj, size_t /*offset*/, size_t size, void* out) {
-  memcpy(out, obj, size);
+Status SaveToFn(Cache::ObjectPtr from_obj, size_t /*from_offset*/,
+                size_t length, char* out) {
+  memcpy(out, from_obj, length);
   return Status::OK();
 }
 
-// Different deleters to simulate using deleter to gather
-// stats on the code origin and kind of cache entries.
-void deleter1(const Slice& /*key*/, void* value) {
-  delete[] static_cast<char*>(value);
-}
-void deleter2(const Slice& /*key*/, void* value) {
-  delete[] static_cast<char*>(value);
-}
-void deleter3(const Slice& /*key*/, void* value) {
+Status CreateFn(const Slice& data, Cache::CreateContext* /*context*/,
+                MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
+                size_t* out_charge) {
+  *out_obj = new char[data.size()];
+  memcpy(*out_obj, data.data(), data.size());
+  *out_charge = data.size();
+  return Status::OK();
+};
+
+void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
   delete[] static_cast<char*>(value);
 }
 
-Cache::CacheItemHelper helper1(SizeFn, SaveToFn, deleter1);
-Cache::CacheItemHelper helper2(SizeFn, SaveToFn, deleter2);
-Cache::CacheItemHelper helper3(SizeFn, SaveToFn, deleter3);
+Cache::CacheItemHelper helper1(CacheEntryRole::kDataBlock, DeleteFn, SizeFn,
+                               SaveToFn, CreateFn);
+Cache::CacheItemHelper helper2(CacheEntryRole::kIndexBlock, DeleteFn, SizeFn,
+                               SaveToFn, CreateFn);
+Cache::CacheItemHelper helper3(CacheEntryRole::kFilterBlock, DeleteFn, SizeFn,
+                               SaveToFn, CreateFn);
 }  // namespace
 
 class CacheBench {
@@ -279,15 +292,17 @@ class CacheBench {
       if (max_key > (static_cast<uint64_t>(1) << max_log_)) max_log_++;
     }
 
-    if (FLAGS_use_clock_cache) {
-      cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
-      if (!cache_) {
-        fprintf(stderr, "Clock cache not supported.\n");
-        exit(1);
-      }
-    } else {
-      LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
-#ifndef ROCKSDB_LITE
+    if (FLAGS_cache_type == "clock_cache") {
+      fprintf(stderr, "Old clock cache implementation has been removed.\n");
+      exit(1);
+    } else if (FLAGS_cache_type == "hyper_clock_cache") {
+      cache_ = HyperClockCacheOptions(FLAGS_cache_size, FLAGS_value_bytes,
+                                      FLAGS_num_shard_bits)
+                   .MakeSharedCache();
+    } else if (FLAGS_cache_type == "lru_cache") {
+      LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
+                           false /* strict_capacity_limit */,
+                           0.5 /* high_pri_pool_ratio */);
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
             ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
@@ -300,9 +315,11 @@ class CacheBench {
         }
         opts.secondary_cache = secondary_cache;
       }
-#endif  // ROCKSDB_LITE
 
       cache_ = NewLRUCache(opts);
+    } else {
+      fprintf(stderr, "Cache type not supported.");
+      exit(1);
     }
   }
 
@@ -312,8 +329,9 @@ class CacheBench {
     Random64 rnd(1);
     KeyGen keygen;
     for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
-      cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_), createValue(rnd),
-                     &helper1, FLAGS_value_bytes);
+      Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_),
+                                createValue(rnd), &helper1, FLAGS_value_bytes);
+      assert(s.ok());
     }
   }
 
@@ -417,7 +435,9 @@ class CacheBench {
     uint64_t total_key_size = 0;
     uint64_t total_charge = 0;
     uint64_t total_entry_count = 0;
-    std::set<Cache::DeleterFn> deleters;
+    uint64_t table_occupancy = 0;
+    uint64_t table_size = 0;
+    std::set<const Cache::CacheItemHelper*> helpers;
     StopWatchNano timer(clock);
 
     for (;;) {
@@ -432,6 +452,9 @@ class CacheBench {
             std::ostringstream ostr;
             ostr << "Most recent cache entry stats:\n"
                  << "Number of entries: " << total_entry_count << "\n"
+                 << "Table occupancy: " << table_occupancy << " / "
+                 << table_size << " = "
+                 << (100.0 * table_occupancy / table_size) << "%\n"
                  << "Total charge: " << BytesToHumanString(total_charge) << "\n"
                  << "Average key size: "
                  << (1.0 * total_key_size / total_entry_count) << "\n"
@@ -439,7 +462,7 @@ class CacheBench {
                  << BytesToHumanString(static_cast<uint64_t>(
                         1.0 * total_charge / total_entry_count))
                  << "\n"
-                 << "Unique deleters: " << deleters.size() << "\n";
+                 << "Unique helpers: " << helpers.size() << "\n";
             *stats_report = ostr.str();
             return;
           }
@@ -455,19 +478,21 @@ class CacheBench {
       total_key_size = 0;
       total_charge = 0;
       total_entry_count = 0;
-      deleters.clear();
-      auto fn = [&](const Slice& key, void* /*value*/, size_t charge,
-                    Cache::DeleterFn deleter) {
+      helpers.clear();
+      auto fn = [&](const Slice& key, Cache::ObjectPtr /*value*/, size_t charge,
+                    const Cache::CacheItemHelper* helper) {
         total_key_size += key.size();
         total_charge += charge;
         ++total_entry_count;
-        // Something slightly more expensive as in (future) stats by category
-        deleters.insert(deleter);
+        // Something slightly more expensive as in stats by category
+        helpers.insert(helper);
       };
       timer.Start();
       Cache::ApplyToAllEntriesOptions opts;
       opts.average_entries_per_lock = FLAGS_gather_stats_entries_per_lock;
       shared->GetCacheBench()->cache_->ApplyToAllEntries(fn, opts);
+      table_occupancy = shared->GetCacheBench()->cache_->GetOccupancyCount();
+      table_size = shared->GetCacheBench()->cache_->GetTableAddressCount();
       stats_hist->Add(timer.ElapsedNanos() / 1000);
     }
   }
@@ -507,17 +532,10 @@ class CacheBench {
     StopWatchNano timer(clock);
 
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
-      timer.Start();
       Slice key = gen.GetRand(thread->rnd, max_key_, max_log_);
       uint64_t random_op = thread->rnd.Next();
-      Cache::CreateCallback create_cb = [](const void* buf, size_t size,
-                                           void** out_obj,
-                                           size_t* charge) -> Status {
-        *out_obj = reinterpret_cast<void*>(new char[size]);
-        memcpy(*out_obj, buf, size);
-        *charge = size;
-        return Status::OK();
-      };
+
+      timer.Start();
 
       if (random_op < lookup_insert_threshold_) {
         if (handle) {
@@ -525,16 +543,19 @@ class CacheBench {
           handle = nullptr;
         }
         // do lookup
-        handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
-                                true);
+        handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
+                                Cache::Priority::LOW, true);
         if (handle) {
-          // do something with the data
-          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                             FLAGS_value_bytes);
+          if (!FLAGS_lean) {
+            // do something with the data
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
+                               FLAGS_value_bytes);
+          }
         } else {
           // do insert
-          cache_->Insert(key, createValue(thread->rnd), &helper2,
-                         FLAGS_value_bytes, &handle);
+          Status s = cache_->Insert(key, createValue(thread->rnd), &helper2,
+                                    FLAGS_value_bytes, &handle);
+          assert(s.ok());
         }
       } else if (random_op < insert_threshold_) {
         if (handle) {
@@ -542,20 +563,23 @@ class CacheBench {
           handle = nullptr;
         }
         // do insert
-        cache_->Insert(key, createValue(thread->rnd), &helper3,
-                       FLAGS_value_bytes, &handle);
+        Status s = cache_->Insert(key, createValue(thread->rnd), &helper3,
+                                  FLAGS_value_bytes, &handle);
+        assert(s.ok());
       } else if (random_op < lookup_threshold_) {
         if (handle) {
           cache_->Release(handle);
           handle = nullptr;
         }
         // do lookup
-        handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
-                                true);
+        handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
+                                Cache::Priority::LOW, true);
         if (handle) {
-          // do something with the data
-          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                             FLAGS_value_bytes);
+          if (!FLAGS_lean) {
+            // do something with the data
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
+                               FLAGS_value_bytes);
+          }
         }
       } else if (random_op < erase_threshold_) {
         // do erase
@@ -579,7 +603,15 @@ class CacheBench {
   }
 
   void PrintEnv() const {
+#if defined(__GNUC__) && !defined(__OPTIMIZE__)
+    printf(
+        "WARNING: Optimization is disabled: benchmarks unnecessarily slow\n");
+#endif
+#ifndef NDEBUG
+    printf("WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
+#endif
     printf("RocksDB version     : %d.%d\n", kMajorVersion, kMinorVersion);
+    printf("DMutex impl name    : %s\n", DMutex::kName());
     printf("Number of threads   : %u\n", FLAGS_threads);
     printf("Ops per thread      : %" PRIu64 "\n", FLAGS_ops_per_thread);
     printf("Cache size          : %s\n",
@@ -745,7 +777,7 @@ class StressCacheKey {
 
   void RunOnce() {
     // Re-initialized simulated state
-    const size_t db_count = FLAGS_sck_db_count;
+    const size_t db_count = std::max(size_t{FLAGS_sck_db_count}, size_t{1});
     dbs_.reset(new TableProperties[db_count]{});
     const size_t table_mask = (size_t{1} << FLAGS_sck_table_bits) - 1;
     table_.reset(new uint64_t[table_mask + 1]{});
@@ -762,13 +794,13 @@ class StressCacheKey {
 
     process_count_ = 0;
     session_count_ = 0;
-    ResetProcess();
+    newdb_count_ = 0;
+    ResetProcess(/*newdbs*/ true);
 
     Random64 r{std::random_device{}()};
 
     uint64_t max_file_count =
         uint64_t{FLAGS_sck_files_per_day} * FLAGS_sck_days_per_run;
-    uint64_t file_size = FLAGS_sck_file_size_mb * uint64_t{1024} * 1024U;
     uint32_t report_count = 0;
     uint32_t collisions_this_run = 0;
     size_t db_i = 0;
@@ -781,9 +813,9 @@ class StressCacheKey {
       }
       // Any other periodic actions before simulating next file
       if (!FLAGS_sck_footer_unique_id && r.OneIn(FLAGS_sck_reopen_nfiles)) {
-        ResetSession(db_i);
+        ResetSession(db_i, /*newdb*/ r.OneIn(FLAGS_sck_newdb_nreopen));
       } else if (r.OneIn(restart_nfiles_)) {
-        ResetProcess();
+        ResetProcess(/*newdbs*/ false);
       }
       // Simulate next file
       OffsetableCacheKey ock;
@@ -796,8 +828,7 @@ class StressCacheKey {
       }
       bool is_stable;
       BlockBasedTable::SetupBaseCacheKey(&dbs_[db_i], /* ignored */ "",
-                                         /* ignored */ 42, file_size, &ock,
-                                         &is_stable);
+                                         /* ignored */ 42, &ock, &is_stable);
       assert(is_stable);
       // Get a representative cache key, which later we analytically generalize
       // to a range.
@@ -807,13 +838,11 @@ class StressCacheKey {
         reduced_key = GetSliceHash64(ck.AsSlice()) >> shift_away;
       } else if (FLAGS_sck_footer_unique_id) {
         // Special case: keep only file number, not session counter
-        uint32_t a = DecodeFixed32(ck.AsSlice().data() + 4) >> shift_away_a;
-        uint32_t b = DecodeFixed32(ck.AsSlice().data() + 12) >> shift_away_b;
-        reduced_key = (uint64_t{a} << 32) + b;
+        reduced_key = DecodeFixed64(ck.AsSlice().data()) >> shift_away;
       } else {
         // Try to keep file number and session counter (shift away other bits)
         uint32_t a = DecodeFixed32(ck.AsSlice().data()) << shift_away_a;
-        uint32_t b = DecodeFixed32(ck.AsSlice().data() + 12) >> shift_away_b;
+        uint32_t b = DecodeFixed32(ck.AsSlice().data() + 4) >> shift_away_b;
         reduced_key = (uint64_t{a} << 32) + b;
       }
       if (reduced_key == 0) {
@@ -835,7 +864,7 @@ class StressCacheKey {
         // Our goal is to predict probability of no collisions, not expected
         // number of collisions. To make the distinction, we have to get rid
         // of observing correlated collisions, which this takes care of:
-        ResetProcess();
+        ResetProcess(/*newdbs*/ false);
       } else {
         // Replace (end of lifetime for file that was in this slot)
         table_[pos] = reduced_key;
@@ -853,10 +882,11 @@ class StressCacheKey {
         }
         // Report
         printf(
-            "%" PRIu64 " days, %" PRIu64 " proc, %" PRIu64
-            " sess, %u coll, occ %g%%, ejected %g%%   \r",
+            "%" PRIu64 " days, %" PRIu64 " proc, %" PRIu64 " sess, %" PRIu64
+            " newdb, %u coll, occ %g%%, ejected %g%%      \r",
             file_count / FLAGS_sck_files_per_day, process_count_,
-            session_count_, collisions_this_run, 100.0 * sampled_count / 1000.0,
+            session_count_, newdb_count_ - FLAGS_sck_db_count,
+            collisions_this_run, 100.0 * sampled_count / 1000.0,
             100.0 * (1.0 - sampled_count / 1000.0 * table_mask / file_count));
         fflush(stdout);
       }
@@ -864,16 +894,27 @@ class StressCacheKey {
     collisions_ += collisions_this_run;
   }
 
-  void ResetSession(size_t i) {
+  void ResetSession(size_t i, bool newdb) {
     dbs_[i].db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+    if (newdb) {
+      ++newdb_count_;
+      if (FLAGS_sck_footer_unique_id) {
+        // Simulate how footer id would behave
+        dbs_[i].db_id = "none";
+      } else {
+        // db_id might be ignored, depending on the implementation details
+        dbs_[i].db_id = std::to_string(newdb_count_);
+        dbs_[i].orig_file_number = 0;
+      }
+    }
     session_count_++;
   }
 
-  void ResetProcess() {
+  void ResetProcess(bool newdbs) {
     process_count_++;
     DBImpl::TEST_ResetDbSessionIdGen();
     for (size_t i = 0; i < FLAGS_sck_db_count; ++i) {
-      ResetSession(i);
+      ResetSession(i, newdbs);
     }
     if (FLAGS_sck_footer_unique_id) {
       // For footer unique ID, this tracks process-wide generated SST file
@@ -888,6 +929,7 @@ class StressCacheKey {
   std::unique_ptr<uint64_t[]> table_;
   uint64_t process_count_ = 0;
   uint64_t session_count_ = 0;
+  uint64_t newdb_count_ = 0;
   uint64_t collisions_ = 0;
   uint32_t restart_nfiles_ = 0;
   double multiplier_ = 0.0;

@@ -5,10 +5,13 @@
 
 #include <array>
 #include <sstream>
+#include <string>
 
+#include "cache/compressed_secondary_cache.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
+#include "db/db_with_timestamp_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
 #include "utilities/fault_injection_env.h"
@@ -46,6 +49,326 @@ TEST_F(DBBlobBasicTest, GetBlob) {
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
                   .IsIncomplete());
+}
+
+TEST_F(DBBlobBasicTest, GetBlobFromCache) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 2 << 20;  // 2MB
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.enable_blob_files = true;
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+
+  read_options.fill_cache = false;
+
+  {
+    PinnableSlice result;
+
+    read_options.read_tier = kReadAllTier;
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, blob_value);
+
+    result.Reset();
+    read_options.read_tier = kBlockCacheTier;
+
+    // Try again with no I/O allowed. Since we didn't re-fill the cache, the
+    // blob itself can only be read from the blob file, so the read should
+    // return Incomplete.
+    ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
+                    .IsIncomplete());
+    ASSERT_TRUE(result.empty());
+  }
+
+  read_options.fill_cache = true;
+
+  {
+    PinnableSlice result;
+
+    read_options.read_tier = kReadAllTier;
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, blob_value);
+
+    result.Reset();
+    read_options.read_tier = kBlockCacheTier;
+
+    // Try again with no I/O allowed. The table and the necessary blocks/blobs
+    // should already be in their respective caches.
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, blob_value);
+  }
+}
+
+TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 2 << 20;  // 2MB
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.enable_blob_files = true;
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  options.statistics = CreateDBStatistics();
+
+  Reopen(options);
+
+  int num_blobs = 5;
+  std::vector<std::string> keys;
+  std::vector<std::string> blobs;
+
+  for (int i = 0; i < num_blobs; ++i) {
+    keys.push_back("key" + std::to_string(i));
+    blobs.push_back("blob" + std::to_string(i));
+    ASSERT_OK(Put(keys[i], blobs[i]));
+  }
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+
+  {
+    read_options.fill_cache = false;
+    read_options.read_tier = kReadAllTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    int i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key().ToString(), keys[i]);
+      ASSERT_EQ(iter->value().ToString(), blobs[i]);
+      ++i;
+    }
+    ASSERT_EQ(i, num_blobs);
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
+  }
+
+  {
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    // Try again with no I/O allowed. Since we didn't re-fill the cache,
+    // the blob itself can only be read from the blob file, so iter->Valid()
+    // should be false.
+    iter->SeekToFirst();
+    ASSERT_NOK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
+  }
+
+  {
+    read_options.fill_cache = true;
+    read_options.read_tier = kReadAllTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    // Read blobs from the file and refill the cache.
+    int i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key().ToString(), keys[i]);
+      ASSERT_EQ(iter->value().ToString(), blobs[i]);
+      ++i;
+    }
+    ASSERT_EQ(i, num_blobs);
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD),
+              num_blobs);
+  }
+
+  {
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    // Try again with no I/O allowed. The table and the necessary blocks/blobs
+    // should already be in their respective caches.
+    int i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key().ToString(), keys[i]);
+      ASSERT_EQ(iter->value().ToString(), blobs[i]);
+      ++i;
+    }
+    ASSERT_EQ(i, num_blobs);
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
+  }
+}
+
+TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
+  constexpr size_t min_blob_size = 6;
+
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 2048;
+  cache_options.num_shard_bits = 0;
+  cache_options.metadata_charge_policy = kDontChargeCacheMetadata;
+
+  options.blob_cache = NewLRUCache(cache_options);
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+
+  Reopen(options);
+
+  // Put then iterate over three key-values. The second value is below the size
+  // limit and is thus stored inline; the other two are stored separately as
+  // blobs. We expect to have something pinned in the cache iff we are
+  // positioned on a blob.
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "long_value";
+  static_assert(sizeof(first_value) - 1 >= min_blob_size,
+                "first_value too short to be stored as blob");
+
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "short";
+  static_assert(sizeof(second_value) - 1 < min_blob_size,
+                "second_value too long to be inlined");
+
+  ASSERT_OK(Put(second_key, second_value));
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "other_long_value";
+  static_assert(sizeof(third_value) - 1 >= min_blob_size,
+                "third_value too short to be stored as blob");
+
+  ASSERT_OK(Put(third_key, third_value));
+
+  ASSERT_OK(Flush());
+
+  {
+    ReadOptions read_options;
+    read_options.fill_cache = true;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), first_key);
+    ASSERT_EQ(iter->value(), first_value);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), second_key);
+    ASSERT_EQ(iter->value(), second_value);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), third_key);
+    ASSERT_EQ(iter->value(), third_value);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), first_key);
+    ASSERT_EQ(iter->value(), first_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), second_key);
+    ASSERT_EQ(iter->value(), second_value);
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), third_key);
+    ASSERT_EQ(iter->value(), third_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), third_key);
+    ASSERT_EQ(iter->value(), third_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), second_key);
+    ASSERT_EQ(iter->value(), second_value);
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), first_key);
+    ASSERT_EQ(iter->value(), first_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+  }
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlobs) {
@@ -127,7 +450,141 @@ TEST_F(DBBlobBasicTest, MultiGetBlobs) {
   }
 }
 
-#ifndef ROCKSDB_LITE
+TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 2 << 20;  // 2MB
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  constexpr size_t min_blob_size = 6;
+  options.min_blob_size = min_blob_size;
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  DestroyAndReopen(options);
+
+  // Put then retrieve three key-values. The first value is below the size limit
+  // and is thus stored inline; the other two are stored separately as blobs.
+  constexpr size_t num_keys = 3;
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "short";
+  static_assert(sizeof(first_value) - 1 < min_blob_size,
+                "first_value too long to be inlined");
+
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "long_value";
+  static_assert(sizeof(second_value) - 1 >= min_blob_size,
+                "second_value too short to be stored as blob");
+
+  ASSERT_OK(Put(second_key, second_value));
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "other_long_value";
+  static_assert(sizeof(third_value) - 1 >= min_blob_size,
+                "third_value too short to be stored as blob");
+
+  ASSERT_OK(Put(third_key, third_value));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  read_options.fill_cache = false;
+
+  std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
+
+  {
+    std::array<PinnableSlice, num_keys> values;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(values[0], first_value);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(values[1], second_value);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(values[2], third_value);
+  }
+
+  // Try again with no I/O allowed. The first (inlined) value should be
+  // successfully read; however, the two blob values could only be read from the
+  // blob file, so for those the read should return Incomplete.
+  read_options.read_tier = kBlockCacheTier;
+
+  {
+    std::array<PinnableSlice, num_keys> values;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(values[0], first_value);
+
+    ASSERT_TRUE(statuses[1].IsIncomplete());
+
+    ASSERT_TRUE(statuses[2].IsIncomplete());
+  }
+
+  // Fill the cache when reading blobs from the blob file.
+  read_options.read_tier = kReadAllTier;
+  read_options.fill_cache = true;
+
+  {
+    std::array<PinnableSlice, num_keys> values;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(values[0], first_value);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(values[1], second_value);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(values[2], third_value);
+  }
+
+  // Try again with no I/O allowed. All blobs should be successfully read from
+  // the cache.
+  read_options.read_tier = kBlockCacheTier;
+
+  {
+    std::array<PinnableSlice, num_keys> values;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(values[0], first_value);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(values[1], second_value);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(values[2], third_value);
+  }
+}
+
 TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
   Options options = GetDefaultOptions();
 
@@ -316,12 +773,26 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
     ASSERT_EQ(values[2], second_blob);
   }
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   Options options = GetDefaultOptions();
-  options.enable_blob_files = true;
+
+  LRUCacheOptions co;
+  co.capacity = 2 << 20;  // 2MB
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
   options.min_blob_size = 0;
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
 
   Reopen(options);
 
@@ -347,14 +818,64 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   for (size_t i = 0; i < keys.size(); ++i) {
     keys[i] = key_strs[i];
   }
-  std::array<PinnableSlice, kNumKeys> values;
-  std::array<Status, kNumKeys> statuses;
-  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), kNumKeys, &keys[0],
-                &values[0], &statuses[0]);
 
-  for (size_t i = 0; i < kNumKeys; ++i) {
-    ASSERT_OK(statuses[i]);
-    ASSERT_EQ(value_strs[i], values[i]);
+  ReadOptions read_options;
+  read_options.read_tier = kReadAllTier;
+  read_options.fill_cache = false;
+
+  {
+    std::array<PinnableSlice, kNumKeys> values;
+    std::array<Status, kNumKeys> statuses;
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(value_strs[i], values[i]);
+    }
+  }
+
+  read_options.read_tier = kBlockCacheTier;
+
+  {
+    std::array<PinnableSlice, kNumKeys> values;
+    std::array<Status, kNumKeys> statuses;
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_TRUE(statuses[i].IsIncomplete());
+      ASSERT_TRUE(values[i].empty());
+    }
+  }
+
+  read_options.read_tier = kReadAllTier;
+  read_options.fill_cache = true;
+
+  {
+    std::array<PinnableSlice, kNumKeys> values;
+    std::array<Status, kNumKeys> statuses;
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(value_strs[i], values[i]);
+    }
+  }
+
+  read_options.read_tier = kBlockCacheTier;
+
+  {
+    std::array<PinnableSlice, kNumKeys> values;
+    std::array<Status, kNumKeys> statuses;
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(value_strs[i], values[i]);
+    }
   }
 }
 
@@ -540,7 +1061,6 @@ TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
                   .IsCorruption());
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBlobBasicTest, GenerateIOTracing) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -595,7 +1115,6 @@ TEST_F(DBBlobBasicTest, GenerateIOTracing) {
     ASSERT_GT(blob_files_op_count, 2);
   }
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
   Options options = GetDefaultOptions();
@@ -697,7 +1216,6 @@ TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
   ASSERT_EQ(values[2], "v2_0");
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBlobBasicTest, Properties) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -860,7 +1378,6 @@ TEST_F(DBBlobBasicTest, PropertiesMultiVersion) {
                  BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size) +
                  blob_size + BlobLogFooter::kSize));
 }
-#endif  // !ROCKSDB_LITE
 
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
@@ -1058,6 +1575,440 @@ TEST_P(DBBlobBasicIOErrorTest, CompactionFilterReadBlob_IOError) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBBlobBasicTest, WarmCacheWithBlobsDuringFlush) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 1 << 25;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  constexpr size_t kNumBlobs = 10;
+  constexpr size_t kValueSize = 100;
+
+  std::string value(kValueSize, 'a');
+
+  for (size_t i = 1; i <= kNumBlobs; i++) {
+    ASSERT_OK(Put(std::to_string(i), value));
+    ASSERT_OK(Put(std::to_string(i + kNumBlobs), value));  // Add some overlap
+    ASSERT_OK(Flush());
+    ASSERT_EQ(i * 2, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
+    ASSERT_EQ(value, Get(std::to_string(i)));
+    ASSERT_EQ(value, Get(std::to_string(i + kNumBlobs)));
+    ASSERT_EQ(0, options.statistics->getTickerCount(BLOB_DB_CACHE_MISS));
+    ASSERT_EQ(i * 2, options.statistics->getTickerCount(BLOB_DB_CACHE_HIT));
+  }
+
+  // Verify compaction not counted
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  EXPECT_EQ(kNumBlobs * 2,
+            options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
+}
+
+TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 1 << 25;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  constexpr size_t kNumBlobs = 10;
+  constexpr size_t kValueSize = 100;
+
+  std::string value(kValueSize, 'a');
+
+  for (size_t i = 1; i <= 5; i++) {
+    ASSERT_OK(Put(std::to_string(i), value));
+    ASSERT_OK(Put(std::to_string(i + kNumBlobs), value));  // Add some overlap
+    ASSERT_OK(Flush());
+    ASSERT_EQ(2, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+
+    ASSERT_EQ(value, Get(std::to_string(i)));
+    ASSERT_EQ(value, Get(std::to_string(i + kNumBlobs)));
+    ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+    ASSERT_EQ(0,
+              options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS));
+    ASSERT_EQ(2, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
+  }
+
+  ASSERT_OK(dbfull()->SetOptions({{"prepopulate_blob_cache", "kDisable"}}));
+
+  for (size_t i = 6; i <= kNumBlobs; i++) {
+    ASSERT_OK(Put(std::to_string(i), value));
+    ASSERT_OK(Put(std::to_string(i + kNumBlobs), value));  // Add some overlap
+    ASSERT_OK(Flush());
+    ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+
+    ASSERT_EQ(value, Get(std::to_string(i)));
+    ASSERT_EQ(value, Get(std::to_string(i + kNumBlobs)));
+    ASSERT_EQ(2, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+    ASSERT_EQ(2,
+              options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS));
+    ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
+  }
+
+  // Verify compaction not counted
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  EXPECT_EQ(0, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
+}
+
+TEST_F(DBBlobBasicTest, WarmCacheWithBlobsSecondary) {
+  CompressedSecondaryCacheOptions secondary_cache_opts;
+  secondary_cache_opts.capacity = 1 << 20;
+  secondary_cache_opts.num_shard_bits = 0;
+  secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  secondary_cache_opts.compression_type = kNoCompression;
+
+  LRUCacheOptions primary_cache_opts;
+  primary_cache_opts.capacity = 1024;
+  primary_cache_opts.num_shard_bits = 0;
+  primary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  primary_cache_opts.secondary_cache =
+      NewCompressedSecondaryCache(secondary_cache_opts);
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  options.enable_blob_files = true;
+  options.blob_cache = NewLRUCache(primary_cache_opts);
+  options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+
+  DestroyAndReopen(options);
+
+  // Note: only one of the two blobs fit in the primary cache at any given time.
+  constexpr char first_key[] = "foo";
+  constexpr size_t first_blob_size = 512;
+  const std::string first_blob(first_blob_size, 'a');
+
+  constexpr char second_key[] = "bar";
+  constexpr size_t second_blob_size = 768;
+  const std::string second_blob(second_blob_size, 'b');
+
+  // First blob is inserted into primary cache during flush.
+  ASSERT_OK(Put(first_key, first_blob));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
+
+  // Second blob is inserted into primary cache during flush,
+  // First blob is evicted but only a dummy handle is inserted into secondary
+  // cache.
+  ASSERT_OK(Put(second_key, second_blob));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
+
+  // First blob is inserted into primary cache.
+  // Second blob is evicted but only a dummy handle is inserted into secondary
+  // cache.
+  ASSERT_EQ(Get(first_key), first_blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            0);
+  // Second blob is inserted into primary cache,
+  // First blob is evicted and is inserted into secondary cache.
+  ASSERT_EQ(Get(second_key), second_blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            0);
+
+  // First blob's dummy item is inserted into primary cache b/c of lookup.
+  // Second blob is still in primary cache.
+  ASSERT_EQ(Get(first_key), first_blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            1);
+
+  // First blob's item is inserted into primary cache b/c of lookup.
+  // Second blob is evicted and inserted into secondary cache.
+  ASSERT_EQ(Get(first_key), first_blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            1);
+}
+
+TEST_F(DBBlobBasicTest, GetEntityBlob) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  constexpr char other_key[] = "other_key";
+  constexpr char other_blob_value[] = "other_blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+  ASSERT_OK(Put(other_key, other_blob_value));
+
+  ASSERT_OK(Flush());
+
+  WideColumns expected_columns{{kDefaultWideColumnName, blob_value}};
+  WideColumns other_expected_columns{
+      {kDefaultWideColumnName, other_blob_value}};
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                             &result));
+    ASSERT_EQ(result.columns(), expected_columns);
+  }
+
+  {
+    PinnableWideColumns result;
+    ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                             other_key, &result));
+
+    ASSERT_EQ(result.columns(), other_expected_columns);
+  }
+
+  {
+    constexpr size_t num_keys = 2;
+
+    std::array<Slice, num_keys> keys{{key, other_key}};
+    std::array<PinnableWideColumns, num_keys> results;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGetEntity(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                        &keys[0], &results[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(results[0].columns(), expected_columns);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(results[1].columns(), other_expected_columns);
+  }
+}
+
+class DBBlobWithTimestampTest : public DBBasicTestWithTimestampBase {
+ protected:
+  DBBlobWithTimestampTest()
+      : DBBasicTestWithTimestampBase("db_blob_with_timestamp_test") {}
+};
+
+TEST_F(DBBlobWithTimestampTest, GetBlob) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(db_->Put(write_opts, key, ts, blob_value));
+
+  ASSERT_OK(Flush());
+
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+  std::string value;
+  ASSERT_OK(db_->Get(read_opts, key, &value));
+  ASSERT_EQ(value, blob_value);
+}
+
+TEST_F(DBBlobWithTimestampTest, MultiGetBlobs) {
+  constexpr size_t min_blob_size = 6;
+
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+
+  // Put then retrieve three key-values. The first value is below the size limit
+  // and is thus stored inline; the other two are stored separately as blobs.
+  constexpr size_t num_keys = 3;
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "short";
+  static_assert(sizeof(first_value) - 1 < min_blob_size,
+                "first_value too long to be inlined");
+
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+  ASSERT_OK(db_->Put(write_opts, first_key, ts, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "long_value";
+  static_assert(sizeof(second_value) - 1 >= min_blob_size,
+                "second_value too short to be stored as blob");
+
+  ASSERT_OK(db_->Put(write_opts, second_key, ts, second_value));
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "other_long_value";
+  static_assert(sizeof(third_value) - 1 >= min_blob_size,
+                "third_value too short to be stored as blob");
+
+  ASSERT_OK(db_->Put(write_opts, third_key, ts, third_value));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  read_options.timestamp = &read_ts_slice;
+  std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
+
+  {
+    std::array<PinnableSlice, num_keys> values;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(values[0], first_value);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(values[1], second_value);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(values[2], third_value);
+  }
+}
+
+TEST_F(DBBlobWithTimestampTest, GetMergeBlobWithPut) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+  ASSERT_OK(db_->Put(write_opts, "Key1", ts, "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key1", ts, "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key1", ts, "v3"));
+  ASSERT_OK(Flush());
+
+  std::string value;
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+  ASSERT_OK(db_->Get(read_opts, "Key1", &value));
+  ASSERT_EQ(value, "v1,v2,v3");
+}
+
+TEST_F(DBBlobWithTimestampTest, MultiGetMergeBlobWithPut) {
+  constexpr size_t num_keys = 3;
+
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  const std::string ts = Timestamp(1, 0);
+
+  ASSERT_OK(db_->Put(write_opts, "Key0", ts, "v0_0"));
+  ASSERT_OK(db_->Put(write_opts, "Key1", ts, "v1_0"));
+  ASSERT_OK(db_->Put(write_opts, "Key2", ts, "v2_0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key0", ts, "v0_1"));
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key1", ts, "v1_1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(
+      db_->Merge(write_opts, db_->DefaultColumnFamily(), "Key0", ts, "v0_2"));
+  ASSERT_OK(Flush());
+
+  const std::string read_ts = Timestamp(2, 0);
+  Slice read_ts_slice(read_ts);
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts_slice;
+  std::array<Slice, num_keys> keys{{"Key0", "Key1", "Key2"}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+
+  db_->MultiGet(read_opts, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                &values[0], &statuses[0]);
+
+  ASSERT_OK(statuses[0]);
+  ASSERT_EQ(values[0], "v0_0,v0_1,v0_2");
+
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(values[1], "v1_0,v1_1");
+
+  ASSERT_OK(statuses[2]);
+  ASSERT_EQ(values[2], "v2_0");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

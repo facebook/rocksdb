@@ -289,10 +289,8 @@ class CompositeEnvWrapper : public CompositeEnv {
   const Customizable* Inner() const override { return target_.env; }
 
   Status PrepareOptions(const ConfigOptions& options) override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
-#endif  // ROCKSDB_LITE
 
   // Return the target to which this Env forwards all calls
   Env* env_target() const { return target_.env; }
@@ -320,6 +318,14 @@ class CompositeEnvWrapper : public CompositeEnv {
   void WaitForJoin() override { return target_.env->WaitForJoin(); }
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
     return target_.env->GetThreadPoolQueueLen(pri);
+  }
+
+  int ReserveThreads(int threads_to_be_reserved, Priority pri) override {
+    return target_.env->ReserveThreads(threads_to_be_reserved, pri);
+  }
+
+  int ReleaseThreads(int threads_to_be_released, Priority pri) override {
+    return target_.env->ReleaseThreads(threads_to_be_released, pri);
   }
 
   Status GetHostName(char* name, uint64_t len) override {

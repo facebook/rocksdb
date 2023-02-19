@@ -14,11 +14,13 @@
 #pragma once
 
 #include <string>
+
 #include "rocksdb/slice.h"
 #ifdef OS_WIN
 #include <string.h>
 #endif
 #include <cstring>
+
 #include "status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -42,16 +44,8 @@ class IOStatus : public Status {
   // Copy the specified status.
   IOStatus(const IOStatus& s);
   IOStatus& operator=(const IOStatus& s);
-  IOStatus(IOStatus&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-      noexcept
-#endif
-      ;
-  IOStatus& operator=(IOStatus&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-      noexcept
-#endif
-      ;
+  IOStatus(IOStatus&& s) noexcept;
+  IOStatus& operator=(IOStatus&& s) noexcept;
   bool operator==(const IOStatus& rhs) const;
   bool operator!=(const IOStatus& rhs) const;
 
@@ -133,6 +127,13 @@ class IOStatus : public Status {
     return IOStatus(kIOError, kIOFenced, msg, msg2);
   }
 
+  static IOStatus Aborted(SubCode msg = kNone) {
+    return IOStatus(kAborted, msg);
+  }
+  static IOStatus Aborted(const Slice& msg, const Slice& msg2 = Slice()) {
+    return IOStatus(kAborted, msg, msg2);
+  }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   // std::string ToString() const;
@@ -194,19 +195,11 @@ inline IOStatus& IOStatus::operator=(const IOStatus& s) {
   return *this;
 }
 
-inline IOStatus::IOStatus(IOStatus&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
-#endif
-    : IOStatus() {
+inline IOStatus::IOStatus(IOStatus&& s) noexcept : IOStatus() {
   *this = std::move(s);
 }
 
-inline IOStatus& IOStatus::operator=(IOStatus&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
-#endif
-{
+inline IOStatus& IOStatus::operator=(IOStatus&& s) noexcept {
   if (this != &s) {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     s.checked_ = true;

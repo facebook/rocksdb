@@ -57,19 +57,21 @@ class MemTableListVersion {
   // If any operation was found for this key, its most recent sequence number
   // will be stored in *seq on success (regardless of whether true/false is
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
-  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
-           Status* s, MergeContext* merge_context,
+  bool Get(const LookupKey& key, std::string* value,
+           PinnableWideColumns* columns, std::string* timestamp, Status* s,
+           MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr);
 
-  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
-           Status* s, MergeContext* merge_context,
+  bool Get(const LookupKey& key, std::string* value,
+           PinnableWideColumns* columns, std::string* timestamp, Status* s,
+           MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr) {
     SequenceNumber seq;
-    return Get(key, value, timestamp, s, merge_context,
+    return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, callback,
                is_blob_index);
   }
@@ -89,19 +91,19 @@ class MemTableListVersion {
   // queries (such as Transaction validation) as the history may contain
   // writes that are also present in the SST files.
   bool GetFromHistory(const LookupKey& key, std::string* value,
-                      std::string* timestamp, Status* s,
-                      MergeContext* merge_context,
+                      PinnableWideColumns* columns, std::string* timestamp,
+                      Status* s, MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,
                       SequenceNumber* seq, const ReadOptions& read_opts,
                       bool* is_blob_index = nullptr);
   bool GetFromHistory(const LookupKey& key, std::string* value,
-                      std::string* timestamp, Status* s,
-                      MergeContext* merge_context,
+                      PinnableWideColumns* columns, std::string* timestamp,
+                      Status* s, MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,
                       const ReadOptions& read_opts,
                       bool* is_blob_index = nullptr) {
     SequenceNumber seq;
-    return GetFromHistory(key, value, timestamp, s, merge_context,
+    return GetFromHistory(key, value, columns, timestamp, s, merge_context,
                           max_covering_tombstone_seq, &seq, read_opts,
                           is_blob_index);
   }
@@ -114,7 +116,8 @@ class MemTableListVersion {
                     Arena* arena);
 
   void AddIterators(const ReadOptions& options,
-                    MergeIteratorBuilder* merge_iter_builder);
+                    MergeIteratorBuilder* merge_iter_builder,
+                    bool add_range_tombstone_iter);
 
   uint64_t GetTotalNumEntries() const;
 
@@ -128,6 +131,11 @@ class MemTableListVersion {
   // If include_history=true, will also search Memtables in MemTableList
   // History.
   SequenceNumber GetEarliestSequenceNumber(bool include_history = false) const;
+
+  // Return the first sequence number from the memtable list, which is the
+  // smallest sequence number of all FirstSequenceNumber.
+  // Return kMaxSequenceNumber if the list is empty.
+  SequenceNumber GetFirstSequenceNumber() const;
 
  private:
   friend class MemTableList;
@@ -153,7 +161,8 @@ class MemTableListVersion {
   bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
-                   std::string* value, std::string* timestamp, Status* s,
+                   std::string* value, PinnableWideColumns* columns,
+                   std::string* timestamp, Status* s,
                    MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
@@ -249,6 +258,10 @@ class MemTableList {
   // Returns true if there is at least one memtable on which flush has
   // not yet started.
   bool IsFlushPending() const;
+
+  // Returns true if there is at least one memtable that is pending flush or
+  // flushing.
+  bool IsFlushPendingOrRunning() const;
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.

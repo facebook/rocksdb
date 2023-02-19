@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
@@ -382,6 +381,51 @@ Status PessimisticTransactionDB::CreateColumnFamily(
   return s;
 }
 
+Status PessimisticTransactionDB::CreateColumnFamilies(
+    const ColumnFamilyOptions& options,
+    const std::vector<std::string>& column_family_names,
+    std::vector<ColumnFamilyHandle*>* handles) {
+  InstrumentedMutexLock l(&column_family_mutex_);
+
+  Status s = VerifyCFOptions(options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = db_->CreateColumnFamilies(options, column_family_names, handles);
+  if (s.ok()) {
+    for (auto* handle : *handles) {
+      lock_manager_->AddColumnFamily(handle);
+      UpdateCFComparatorMap(handle);
+    }
+  }
+
+  return s;
+}
+
+Status PessimisticTransactionDB::CreateColumnFamilies(
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles) {
+  InstrumentedMutexLock l(&column_family_mutex_);
+
+  for (auto& cf_desc : column_families) {
+    Status s = VerifyCFOptions(cf_desc.options);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  Status s = db_->CreateColumnFamilies(column_families, handles);
+  if (s.ok()) {
+    for (auto* handle : *handles) {
+      lock_manager_->AddColumnFamily(handle);
+      UpdateCFComparatorMap(handle);
+    }
+  }
+
+  return s;
+}
+
 // Let LockManager know that it can deallocate the LockMap for this
 // column family.
 Status PessimisticTransactionDB::DropColumnFamily(
@@ -391,6 +435,20 @@ Status PessimisticTransactionDB::DropColumnFamily(
   Status s = db_->DropColumnFamily(column_family);
   if (s.ok()) {
     lock_manager_->RemoveColumnFamily(column_family);
+  }
+
+  return s;
+}
+
+Status PessimisticTransactionDB::DropColumnFamilies(
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  InstrumentedMutexLock l(&column_family_mutex_);
+
+  Status s = db_->DropColumnFamilies(column_families);
+  if (s.ok()) {
+    for (auto* handle : column_families) {
+      lock_manager_->RemoveColumnFamily(handle);
+    }
   }
 
   return s;
@@ -656,5 +714,67 @@ void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
   transactions_.erase(it);
 }
 
+std::pair<Status, std::shared_ptr<const Snapshot>>
+PessimisticTransactionDB::CreateTimestampedSnapshot(TxnTimestamp ts) {
+  if (kMaxTxnTimestamp == ts) {
+    return std::make_pair(Status::InvalidArgument("invalid ts"), nullptr);
+  }
+  assert(db_impl_);
+  return db_impl_->CreateTimestampedSnapshot(kMaxSequenceNumber, ts);
+}
+
+std::shared_ptr<const Snapshot>
+PessimisticTransactionDB::GetTimestampedSnapshot(TxnTimestamp ts) const {
+  assert(db_impl_);
+  return db_impl_->GetTimestampedSnapshot(ts);
+}
+
+void PessimisticTransactionDB::ReleaseTimestampedSnapshotsOlderThan(
+    TxnTimestamp ts) {
+  assert(db_impl_);
+  db_impl_->ReleaseTimestampedSnapshotsOlderThan(ts);
+}
+
+Status PessimisticTransactionDB::GetTimestampedSnapshots(
+    TxnTimestamp ts_lb, TxnTimestamp ts_ub,
+    std::vector<std::shared_ptr<const Snapshot>>& timestamped_snapshots) const {
+  assert(db_impl_);
+  return db_impl_->GetTimestampedSnapshots(ts_lb, ts_ub, timestamped_snapshots);
+}
+
+Status SnapshotCreationCallback::operator()(SequenceNumber seq,
+                                            bool disable_memtable) {
+  assert(db_impl_);
+  assert(commit_ts_ != kMaxTxnTimestamp);
+
+  const bool two_write_queues =
+      db_impl_->immutable_db_options().two_write_queues;
+  assert(!two_write_queues || !disable_memtable);
+#ifdef NDEBUG
+  (void)two_write_queues;
+  (void)disable_memtable;
+#endif
+
+  const bool seq_per_batch = db_impl_->seq_per_batch();
+  if (!seq_per_batch) {
+    assert(db_impl_->GetLastPublishedSequence() <= seq);
+  } else {
+    assert(db_impl_->GetLastPublishedSequence() < seq);
+  }
+
+  // Create a snapshot which can also be used for write conflict checking.
+  auto ret = db_impl_->CreateTimestampedSnapshot(seq, commit_ts_);
+  snapshot_creation_status_ = ret.first;
+  snapshot_ = ret.second;
+  if (snapshot_creation_status_.ok()) {
+    assert(snapshot_);
+  } else {
+    assert(!snapshot_);
+  }
+  if (snapshot_ && snapshot_notifier_) {
+    snapshot_notifier_->SnapshotCreated(snapshot_.get());
+  }
+  return Status::OK();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

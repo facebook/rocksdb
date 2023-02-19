@@ -6,16 +6,13 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#ifndef ROCKSDB_LITE
 
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/stack_trace.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/sst_file_manager.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
@@ -1308,6 +1305,10 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     ASSERT_EQ(s, s.NoSpace());
   }
   SyncPoint::GetInstance()->DisableProcessing();
+  // `ClearAllCallBacks()` is needed in addition to `DisableProcessing()` to
+  // drain all callbacks. Otherwise, a pending callback in the background
+  // could re-disable `fault_fs_` after we enable it below.
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   fault_fs_->SetFilesystemActive(true);
   ASSERT_EQ(listener->WaitForRecovery(5000000), true);
   for (auto i = 0; i < 199; ++i) {
@@ -1474,6 +1475,10 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
     ASSERT_TRUE(s.IsNoSpace());
   }
   SyncPoint::GetInstance()->DisableProcessing();
+  // `ClearAllCallBacks()` is needed in addition to `DisableProcessing()` to
+  // drain all callbacks. Otherwise, a pending callback in the background
+  // could re-disable `fault_fs_` after we enable it below.
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   fault_fs_->SetFilesystemActive(true);
   ASSERT_EQ(listener->WaitForRecovery(5000000), true);
 
@@ -2856,12 +2861,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

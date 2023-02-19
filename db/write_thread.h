@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "db/post_memtable_callback.h"
 #include "db/pre_release_callback.h"
 #include "db/write_callback.h"
 #include "monitoring/instrumented_mutex.h"
@@ -122,6 +123,7 @@ class WriteThread {
     size_t batch_cnt;  // if non-zero, number of sub-batches in the write batch
     size_t protection_bytes_per_key;
     PreReleaseCallback* pre_release_callback;
+    PostMemTableCallback* post_memtable_callback;
     uint64_t log_used;  // log number that this batch was inserted into
     uint64_t log_ref;   // log number that memtable insert should reference
     WriteCallback* callback;
@@ -147,6 +149,7 @@ class WriteThread {
           batch_cnt(0),
           protection_bytes_per_key(0),
           pre_release_callback(nullptr),
+          post_memtable_callback(nullptr),
           log_used(0),
           log_ref(0),
           callback(nullptr),
@@ -160,7 +163,8 @@ class WriteThread {
     Writer(const WriteOptions& write_options, WriteBatch* _batch,
            WriteCallback* _callback, uint64_t _log_ref, bool _disable_memtable,
            size_t _batch_cnt = 0,
-           PreReleaseCallback* _pre_release_callback = nullptr)
+           PreReleaseCallback* _pre_release_callback = nullptr,
+           PostMemTableCallback* _post_memtable_callback = nullptr)
         : batch(_batch),
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
@@ -170,6 +174,7 @@ class WriteThread {
           batch_cnt(_batch_cnt),
           protection_bytes_per_key(_batch->GetProtectionBytesPerKey()),
           pre_release_callback(_pre_release_callback),
+          post_memtable_callback(_post_memtable_callback),
           log_used(0),
           log_ref(_log_ref),
           callback(_callback),
@@ -352,10 +357,22 @@ class WriteThread {
 
   // Insert a dummy writer at the tail of the write queue to indicate a write
   // stall, and fail any writers in the queue with no_slowdown set to true
+  // REQUIRES: db mutex held, no other stall on this queue outstanding
   void BeginWriteStall();
 
   // Remove the dummy writer and wake up waiting writers
+  // REQUIRES: db mutex held
   void EndWriteStall();
+
+  // Number of BeginWriteStall(), or 0 if there is no active stall in the
+  // write queue.
+  // REQUIRES: db mutex held
+  uint64_t GetBegunCountOfOutstandingStall();
+
+  // Wait for number of completed EndWriteStall() to reach >= `stall_count`,
+  // which will generally have come from GetBegunCountOfOutstandingStall().
+  // (Does not require db mutex held)
+  void WaitForStallEndedCount(uint64_t stall_count);
 
  private:
   // See AwaitState.
@@ -396,6 +413,18 @@ class WriteThread {
   port::Mutex stall_mu_;
   port::CondVar stall_cv_;
 
+  // Count the number of stalls begun, so that we can check whether
+  // a particular stall has cleared (even if caught in another stall).
+  // Controlled by DB mutex.
+  // Because of the contract on BeginWriteStall() / EndWriteStall(),
+  // stall_ended_count_ <= stall_begun_count_ <= stall_ended_count_ + 1.
+  uint64_t stall_begun_count_ = 0;
+  // Count the number of stalls ended, so that we can check whether
+  // a particular stall has cleared (even if caught in another stall).
+  // Writes controlled by DB mutex + stall_mu_, signalled by stall_cv_.
+  // Read with stall_mu or DB mutex.
+  uint64_t stall_ended_count_ = 0;
+
   // Waits for w->state & goal_mask using w->StateMutex().  Returns
   // the state that satisfies goal_mask.
   uint8_t BlockingAwaitState(Writer* w, uint8_t goal_mask);
@@ -422,10 +451,6 @@ class WriteThread {
   // Computes any missing link_newer links.  Should not be called
   // concurrently with itself.
   void CreateMissingNewerLinks(Writer* head);
-
-  // Starting from a pending writer, follow link_older to search for next
-  // leader, until we hit boundary.
-  Writer* FindNextLeader(Writer* pending_writer, Writer* boundary);
 
   // Set the leader in write_group to completed state and remove it from the
   // write group.

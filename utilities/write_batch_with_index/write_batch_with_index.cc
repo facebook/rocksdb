@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 
@@ -25,8 +24,9 @@
 namespace ROCKSDB_NAMESPACE {
 struct WriteBatchWithIndex::Rep {
   explicit Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
-               size_t max_bytes = 0, bool _overwrite_key = false)
-      : write_batch(reserved_bytes, max_bytes, /*protection_bytes_per_key=*/0,
+               size_t max_bytes = 0, bool _overwrite_key = false,
+               size_t protection_bytes_per_key = 0)
+      : write_batch(reserved_bytes, max_bytes, protection_bytes_per_key,
                     index_comparator ? index_comparator->timestamp_size() : 0),
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
@@ -152,10 +152,17 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
 #endif
   assert(success);
 
+  const Comparator* const ucmp = comparator.GetComparator(column_family_id);
+  size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
+
+  if (ts_sz > 0) {
+    key.remove_suffix(ts_sz);
+  }
+
   auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
   auto* index_entry =
       new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
-                                      key.data() - wb_data.data(), key.size());
+                                     key.data() - wb_data.data(), key.size());
   skip_list.Insert(index_entry);
 }
 
@@ -199,8 +206,8 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
     // set offset of current entry for call to AddNewEntry()
     last_entry_offset = input.data() - write_batch.Data().data();
 
-    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
-                                  &value, &blob, &xid);
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
+                                 &blob, &xid);
     if (!s.ok()) {
       break;
     }
@@ -262,9 +269,9 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
 
 WriteBatchWithIndex::WriteBatchWithIndex(
     const Comparator* default_index_comparator, size_t reserved_bytes,
-    bool overwrite_key, size_t max_bytes)
+    bool overwrite_key, size_t max_bytes, size_t protection_bytes_per_key)
     : rep(new Rep(default_index_comparator, reserved_bytes, max_bytes,
-                  overwrite_key)) {}
+                  overwrite_key, protection_bytes_per_key)) {}
 
 WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
@@ -610,7 +617,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     assert(result == WBWIIteratorImpl::kMergeInProgress ||
            result == WBWIIteratorImpl::kNotFound);
     key_context.emplace_back(column_family, keys[i], &values[i],
-                             /*timestamp*/ nullptr, &statuses[i]);
+                             /* columns */ nullptr, /* timestamp */ nullptr,
+                             &statuses[i]);
     merges.emplace_back(result, std::move(merge_context));
   }
 
@@ -684,4 +692,3 @@ const Comparator* WriteBatchWithIndexInternal::GetUserComparator(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

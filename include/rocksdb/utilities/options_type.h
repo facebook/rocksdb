@@ -111,14 +111,14 @@ enum class OptionTypeFlags : uint32_t {
   kStringNameOnly = 0x8000,  // The option serializes to a name only
 };
 
-inline OptionTypeFlags operator|(const OptionTypeFlags &a,
-                                 const OptionTypeFlags &b) {
+inline OptionTypeFlags operator|(const OptionTypeFlags& a,
+                                 const OptionTypeFlags& b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) |
                                       static_cast<uint32_t>(b));
 }
 
-inline OptionTypeFlags operator&(const OptionTypeFlags &a,
-                                 const OptionTypeFlags &b) {
+inline OptionTypeFlags operator&(const OptionTypeFlags& a,
+                                 const OptionTypeFlags& b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) &
                                       static_cast<uint32_t>(b));
 }

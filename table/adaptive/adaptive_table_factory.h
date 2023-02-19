@@ -5,9 +5,9 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
+
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
@@ -54,4 +54,3 @@ class AdaptiveTableFactory : public TableFactory {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

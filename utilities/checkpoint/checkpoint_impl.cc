@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/checkpoint/checkpoint_impl.h"
 
@@ -382,6 +381,7 @@ Status CheckpointImpl::ExportColumnFamily(
         live_file_metadata.largestkey = std::move(file_metadata.largestkey);
         live_file_metadata.oldest_blob_file_number =
             file_metadata.oldest_blob_file_number;
+        live_file_metadata.epoch_number = file_metadata.epoch_number;
         live_file_metadata.level = level_metadata.level;
         result_metadata->files.push_back(live_file_metadata);
       }
@@ -466,4 +466,3 @@ Status CheckpointImpl::ExportFilesInMetaData(
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

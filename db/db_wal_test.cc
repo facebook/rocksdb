@@ -444,7 +444,6 @@ TEST_F(DBWALTest, RecoverWithBlob) {
 
   ASSERT_EQ(blob_file->GetTotalBlobCount(), 1);
 
-#ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
   ASSERT_NE(internal_stats, nullptr);
 
@@ -460,7 +459,6 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
-#endif  // ROCKSDB_LITE
 }
 
 TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
@@ -608,6 +606,41 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
     Destroy(options);
   } while (ChangeWalOptions());
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+}
+
+TEST_F(DBWALTest, LockWal) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("foo", "v"));
+    ASSERT_OK(Put("bar", "v"));
+
+    ASSERT_OK(db_->LockWAL());
+    // Verify writes are stopped
+    WriteOptions wopts;
+    wopts.no_slowdown = true;
+    Status s = db_->Put(wopts, "foo", "dontcare");
+    ASSERT_TRUE(s.IsIncomplete());
+    {
+      VectorLogPtr wals;
+      ASSERT_OK(db_->GetSortedWalFiles(wals));
+      ASSERT_FALSE(wals.empty());
+    }
+    port::Thread worker([&]() {
+      Status tmp_s = db_->Flush(FlushOptions());
+      ASSERT_OK(tmp_s);
+    });
+    FlushOptions flush_opts;
+    flush_opts.wait = false;
+    s = db_->Flush(flush_opts);
+    ASSERT_TRUE(s.IsTryAgain());
+    ASSERT_OK(db_->UnlockWAL());
+    ASSERT_OK(db_->Put(WriteOptions(), "foo", "dontcare"));
+
+    worker.join();
+  } while (ChangeWalOptions());
 }
 
 class DBRecoveryTestBlobError
@@ -846,7 +879,6 @@ TEST_F(DBWALTest, PreallocateBlock) {
 }
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBWALTest, DISABLED_FullPurgePreservesRecycledLog) {
   // TODO(ajkr): Disabled until WAL recycling is fixed for
   // `kPointInTimeRecovery`.
@@ -1261,11 +1293,11 @@ class RecoveryTestHelper {
     std::unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
-    versions.reset(new VersionSet(test->dbname_, &db_options, file_options,
-                                  table_cache.get(), &write_buffer_manager,
-                                  &write_controller,
-                                  /*block_cache_tracer=*/nullptr,
-                                  /*io_tracer=*/nullptr, /*db_session_id*/ ""));
+    versions.reset(new VersionSet(
+        test->dbname_, &db_options, file_options, table_cache.get(),
+        &write_buffer_manager, &write_controller,
+        /*block_cache_tracer=*/nullptr,
+        /*io_tracer=*/nullptr, /*db_id*/ "", /*db_session_id*/ ""));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));
@@ -1449,7 +1481,7 @@ TEST_P(DBWALTestWithParams, kAbsoluteConsistency) {
   // fill with new date
   RecoveryTestHelper::FillData(this, &options);
   // corrupt the wal
-  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .33,
                                  /*len%=*/.1, wal_file_id, trunc);
   // verify
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
@@ -1497,6 +1529,8 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   // The following make sure there are two bg flush threads.
   options.max_background_jobs = 8;
 
+  DestroyAndReopen(options);
+
   const std::string cf1_name("cf1");
   CreateAndReopenWithCF({cf1_name}, options);
   assert(handles_.size() == 2);
@@ -1512,14 +1546,34 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "foo", "value"));
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
 
-  ASSERT_OK(dbfull()->TEST_FlushMemTable(false, true, handles_[1]));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, handles_[1]));
 
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
-  ASSERT_OK(dbfull()->TEST_FlushMemTable(false, true, handles_[0]));
+
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, handles_[0]));
 
   bool called = false;
+  std::atomic<int> bg_flush_threads{0};
+  std::atomic<bool> wal_synced{false};
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCallFlush:start", [&](void* /*arg*/) {
+        int cur = bg_flush_threads.load();
+        int desired = cur + 1;
+        if (cur > 0 ||
+            !bg_flush_threads.compare_exchange_strong(cur, desired)) {
+          while (!wal_synced.load()) {
+            // Wait until the other bg flush thread finishes committing WAL sync
+            // operation to the MANIFEST.
+          }
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTableToOutputFile:CommitWal:1",
+      [&](void* /*arg*/) { wal_synced.store(true); });
   // This callback will be called when the first bg flush thread reaches the
   // point before entering the MANIFEST write queue after flushing the SST
   // file.
@@ -1577,6 +1631,71 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   delete db1;
 }
 
+TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
+  Options options = CurrentOptions();
+  // Small size to force manifest creation
+  options.max_manifest_file_size = 1;
+  options.track_and_verify_wals_in_manifest = true;
+  DestroyAndReopen(options);
+
+  // Accumulate memtable m1 and create the 1st wal (i.e, 4.log)
+  ASSERT_OK(Put(Key(1), ""));
+  ASSERT_OK(Put(Key(2), ""));
+  ASSERT_OK(Put(Key(3), ""));
+
+  const std::string wal_file_path = db_->GetName() + "/000004.log";
+
+  // Coerce the following sequence of events:
+  // (1) Flush() marks 4.log to be obsoleted, 8.log to be the latest (i.e,
+  // active) log and release the lock
+  // (2) SyncWAL() proceeds with the lock. It
+  // creates a new manifest and syncs all the inactive wals before the latest
+  // (i.e, active log), which is 4.log. Note that SyncWAL() is not aware of the
+  // fact that 4.log has marked as to be obseleted. Such wal
+  // sync will then add a WAL addition record of 4.log to the new manifest
+  // without any special treatment. Prior to the fix, there is no WAL deletion
+  // record to offset it. (3) BackgroundFlush() will eventually purge 4.log.
+
+  bool wal_synced = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "FindObsoleteFiles::PostMutexUnlock", [&](void*) {
+        ASSERT_OK(env_->FileExists(wal_file_path));
+        uint64_t pre_sync_wal_manifest_no =
+            dbfull()->TEST_Current_Manifest_FileNo();
+        ASSERT_OK(db_->SyncWAL());
+        uint64_t post_sync_wal_manifest_no =
+            dbfull()->TEST_Current_Manifest_FileNo();
+        bool new_manifest_created =
+            post_sync_wal_manifest_no == pre_sync_wal_manifest_no + 1;
+        ASSERT_TRUE(new_manifest_created);
+        wal_synced = true;
+      });
+
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+  ASSERT_TRUE(wal_synced);
+  // BackgroundFlush() purged 4.log
+  // because the memtable associated with the WAL was flushed and new WAL was
+  // created (i.e, 8.log)
+  ASSERT_TRUE(env_->FileExists(wal_file_path).IsNotFound());
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // To verify the corruption of "Missing WAL with log number: 4" under
+  // `options.track_and_verify_wals_in_manifest = true` is fixed.
+  //
+  // Before the fix, `db_->SyncWAL()` will sync and record WAL addtion of the
+  // obseleted WAL 4.log in a new manifest without any special treament.
+  // This will result in missing-wal corruption in DB::Reopen().
+  Status s = TryReopen(options);
+  EXPECT_OK(s);
+}
+
 // Test scope:
 // - We expect to open data store under all circumstances
 // - We expect only data upto the point where the first error was encountered
@@ -1597,7 +1716,10 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
   // Corrupt the wal
-  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+  // The offset here was 0.3 which cuts off right at the end of a
+  // valid fragment after wal zstd compression checksum is enabled,
+  // so changed the value to 0.33.
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .33,
                                  /*len%=*/.1, wal_file_id, trunc);
 
   // Verify
@@ -2165,7 +2287,59 @@ TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 #endif  // ROCKSDB_PLATFORM_POSIX
 
-#endif  // ROCKSDB_LITE
+TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
+  Options options = CurrentOptions();
+  options.track_and_verify_wals_in_manifest = true;
+  options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
+
+  // Build a way to make wal files selectively go missing
+  bool wals_go_missing = false;
+  struct MissingWalFs : public FileSystemWrapper {
+    MissingWalFs(const std::shared_ptr<FileSystem>& t,
+                 bool* _wals_go_missing_flag)
+        : FileSystemWrapper(t), wals_go_missing_flag(_wals_go_missing_flag) {}
+    bool* wals_go_missing_flag;
+    IOStatus GetChildren(const std::string& dir, const IOOptions& io_opts,
+                         std::vector<std::string>* r,
+                         IODebugContext* dbg) override {
+      IOStatus s = target_->GetChildren(dir, io_opts, r, dbg);
+      if (s.ok() && *wals_go_missing_flag) {
+        for (size_t i = 0; i < r->size();) {
+          if (EndsWith(r->at(i), ".log")) {
+            r->erase(r->begin() + i);
+          } else {
+            ++i;
+          }
+        }
+      }
+      return s;
+    }
+    const char* Name() const override { return "MissingWalFs"; }
+  };
+  auto my_fs =
+      std::make_shared<MissingWalFs>(env_->GetFileSystem(), &wals_go_missing);
+  std::unique_ptr<Env> my_env(NewCompositeEnv(my_fs));
+  options.env = my_env.get();
+
+  CreateAndReopenWithCF({"blah"}, options);
+
+  // Currently necessary to get a WAL tracked in manifest; see
+  // https://github.com/facebook/rocksdb/issues/10080
+  ASSERT_OK(Put(0, "x", "y"));
+  ASSERT_OK(db_->SyncWAL());
+  ASSERT_OK(Put(1, "x", "y"));
+  ASSERT_OK(db_->SyncWAL());
+  ASSERT_OK(Flush(1));
+
+  ASSERT_FALSE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
+  std::vector<std::unique_ptr<LogFile>> wals;
+  ASSERT_OK(db_->GetSortedWalFiles(wals));
+  wals_go_missing = true;
+  ASSERT_NOK(db_->GetSortedWalFiles(wals));
+  wals_go_missing = false;
+  Close();
+}
+
 
 TEST_F(DBWALTest, WalTermTest) {
   Options options = CurrentOptions();
@@ -2189,6 +2363,41 @@ TEST_F(DBWALTest, WalTermTest) {
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
   ASSERT_EQ("bar", Get(1, "foo"));
   ASSERT_EQ("NOT_FOUND", Get(1, "foo2"));
+}
+
+TEST_F(DBWALTest, GetCompressedWalsAfterSync) {
+  if (db_->GetOptions().wal_compression == kNoCompression) {
+    ROCKSDB_GTEST_BYPASS("stream compression not present");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.create_if_missing = true;
+  options.env = env_;
+  options.avoid_flush_during_recovery = true;
+  options.track_and_verify_wals_in_manifest = true;
+  // Enable WAL compression so that the newly-created WAL will be non-empty
+  // after DB open, even if point-in-time WAL recovery encounters no
+  // corruption.
+  options.wal_compression = kZSTD;
+  DestroyAndReopen(options);
+
+  // Write something to memtable and WAL so that log_empty_ will be false after
+  // next DB::Open().
+  ASSERT_OK(Put("a", "v"));
+
+  Reopen(options);
+
+  // New WAL is created, thanks to !log_empty_.
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+
+  ASSERT_OK(Put("b", "v"));
+
+  ASSERT_OK(db_->SyncWAL());
+
+  VectorLogPtr wals;
+  Status s = dbfull()->GetSortedWalFiles(wals);
+  ASSERT_OK(s);
 }
 }  // namespace ROCKSDB_NAMESPACE
 
