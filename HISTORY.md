@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
 
+## 8.0.0 (02/19/2023)
 ### Behavior changes
 * `ReadOptions::verify_checksums=false` disables checksum verification for more reads of non-`CacheEntryRole::kDataBlock` blocks.
 * In case of scan with async_io enabled, if posix doesn't support IOUring, Status::NotSupported error will be returned to the users. Initially that error was swallowed and reads were switched to synchronous reads.
