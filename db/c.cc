@@ -1805,6 +1805,17 @@ void rocksdb_flush_cf(rocksdb_t* db, const rocksdb_flushoptions_t* options,
   SaveError(errptr, db->rep->Flush(options->rep, column_family->rep));
 }
 
+void rocksdb_flush_cfs(rocksdb_t* db, const rocksdb_flushoptions_t* options,
+                       rocksdb_column_family_handle_t** column_families,
+                       int num_column_families, char** errptr) {
+  std::vector<ColumnFamilyHandle*> column_family_handles;
+  for (int i = 0; i < num_column_families; i++) {
+    column_family_handles.push_back(column_families[i]->rep);
+  }
+
+  SaveError(errptr, db->rep->Flush(options->rep, column_family_handles));
+}
+
 void rocksdb_flush_wal(rocksdb_t* db, unsigned char sync, char** errptr) {
   SaveError(errptr, db->rep->FlushWAL(sync));
 }
@@ -6107,6 +6118,18 @@ void rocksdb_transactiondb_flush_cf(
     rocksdb_transactiondb_t* txn_db, const rocksdb_flushoptions_t* options,
     rocksdb_column_family_handle_t* column_family, char** errptr) {
   SaveError(errptr, txn_db->rep->Flush(options->rep, column_family->rep));
+}
+
+void rocksdb_transactiondb_flush_cfs(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t** column_families, int num_column_families,
+    char** errptr) {
+  std::vector<ColumnFamilyHandle*> column_family_handles;
+  for (int i = 0; i < num_column_families; i++) {
+    column_family_handles.push_back(column_families[i]->rep);
+  }
+
+  SaveError(errptr, txn_db->rep->Flush(options->rep, column_family_handles));
 }
 
 rocksdb_checkpoint_t* rocksdb_transactiondb_checkpoint_object_create(

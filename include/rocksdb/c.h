@@ -662,6 +662,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_flush_cf(
     rocksdb_t* db, const rocksdb_flushoptions_t* options,
     rocksdb_column_family_handle_t* column_family, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_flush_cfs(
+    rocksdb_t* db, const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t** column_family, int num_column_families,
+    char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_flush_wal(rocksdb_t* db,
                                                   unsigned char sync,
                                                   char** errptr);
@@ -2621,6 +2626,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_flush(
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_flush_cf(
     rocksdb_transactiondb_t* txn_db, const rocksdb_flushoptions_t* options,
     rocksdb_column_family_handle_t* column_family, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_flush_cfs(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t** column_families, int num_column_families,
+    char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_flush_wal(
     rocksdb_transactiondb_t* txn_db, unsigned char sync, char** errptr);
