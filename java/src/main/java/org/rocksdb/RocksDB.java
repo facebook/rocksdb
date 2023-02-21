@@ -3769,7 +3769,7 @@ public class RocksDB extends RocksObject {
    */
   public void flush(final FlushOptions flushOptions)
       throws RocksDBException {
-    flush(flushOptions, (List<ColumnFamilyHandle>) null);
+    flush(flushOptions, Collections.singletonList(getDefaultColumnFamily()));
   }
 
   /**
@@ -4330,7 +4330,7 @@ public class RocksDB extends RocksObject {
   private /* @Nullable */ long[] toNativeHandleList(
       /* @Nullable */ final List<? extends RocksObject> objectList) {
     if (objectList == null) {
-      return null;
+      return new long[0];
     }
     final int len = objectList.size();
     final long[] handleList = new long[len];

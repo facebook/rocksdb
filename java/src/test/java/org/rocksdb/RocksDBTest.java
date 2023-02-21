@@ -1347,6 +1347,25 @@ public class RocksDBTest {
   }
 
   @Test
+  public void enableAutoCompactionNull() throws RocksDBException {
+    try (final DBOptions options = new DBOptions().setCreateIfMissing(true)) {
+      final List<ColumnFamilyDescriptor> cfDescs =
+          Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
+      final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath, cfDescs, cfHandles)) {
+        try {
+          db.enableAutoCompaction(null);
+        } finally {
+          for (final ColumnFamilyHandle cfHandle : cfHandles) {
+            cfHandle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   public void numberLevels() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true)) {
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
