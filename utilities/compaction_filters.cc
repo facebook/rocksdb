@@ -32,8 +32,8 @@ Status CompactionFilter::CreateFromString(const ConfigOptions& config_options,
     RegisterBuiltinCompactionFilters(*(ObjectLibrary::Default().get()), "");
   });
   CompactionFilter* filter = const_cast<CompactionFilter*>(*result);
-  Status status = LoadStaticObject<CompactionFilter>(config_options, value,
-                                                     nullptr, &filter);
+  Status status =
+      LoadStaticObject<CompactionFilter>(config_options, value, &filter);
   if (status.ok()) {
     *result = const_cast<CompactionFilter*>(filter);
   }
@@ -45,8 +45,8 @@ Status CompactionFilterFactory::CreateFromString(
     std::shared_ptr<CompactionFilterFactory>* result) {
   // Currently there are no builtin CompactionFilterFactories.
   // If any are introduced, they need to be registered here.
-  Status status = LoadSharedObject<CompactionFilterFactory>(
-      config_options, value, nullptr, result);
+  Status status =
+      LoadSharedObject<CompactionFilterFactory>(config_options, value, result);
   return status;
 }
 }  // namespace ROCKSDB_NAMESPACE

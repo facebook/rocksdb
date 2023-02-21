@@ -122,17 +122,6 @@ std::string PlainTableFactory::GetPrintableOptions() const {
   return ret;
 }
 
-Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
-                                      const std::string& opts_str,
-                                      PlainTableOptions* new_table_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-  config_options.invoke_prepare_options = false;
-  return GetPlainTableOptionsFromString(config_options, table_options, opts_str,
-                                        new_table_options);
-}
-
 Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
                                       const PlainTableOptions& table_options,
                                       const std::string& opts_str,
@@ -273,18 +262,6 @@ Status MemTableRepFactory::CreateFromString(
     result->reset(factory.release());
   }
   return s;
-}
-
-Status GetPlainTableOptionsFromMap(
-    const PlainTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    PlainTableOptions* new_table_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = input_strings_escaped;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  return GetPlainTableOptionsFromMap(config_options, table_options, opts_map,
-                                     new_table_options);
 }
 
 Status GetPlainTableOptionsFromMap(

@@ -9,7 +9,7 @@
 #include <memory>
 #include <string>
 
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"

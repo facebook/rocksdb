@@ -300,7 +300,7 @@ Status Statistics::CreateFromString(const ConfigOptions& config_options,
   } else if (id == kNullptrString) {
     result->reset();
   } else {
-    s = LoadSharedObject<Statistics>(config_options, id, nullptr, result);
+    s = LoadSharedObject<Statistics>(config_options, id, result);
   }
   return s;
 }

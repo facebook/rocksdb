@@ -1332,15 +1332,14 @@ Status BlockCipher::CreateFromString(const ConfigOptions& config_options,
                                      const std::string& value,
                                      std::shared_ptr<BlockCipher>* result) {
   RegisterEncryptionBuiltins();
-  return LoadSharedObject<BlockCipher>(config_options, value, nullptr, result);
+  return LoadSharedObject<BlockCipher>(config_options, value, result);
 }
 
 Status EncryptionProvider::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<EncryptionProvider>* result) {
   RegisterEncryptionBuiltins();
-  return LoadSharedObject<EncryptionProvider>(config_options, value, nullptr,
-                                              result);
+  return LoadSharedObject<EncryptionProvider>(config_options, value, result);
 }
 
 

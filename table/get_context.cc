@@ -474,7 +474,11 @@ void GetContext::Merge(const Slice* value) {
       /* update_num_ops_stats */ true,
       /* op_failure_scope */ nullptr);
   if (!s.ok()) {
-    state_ = kCorrupt;
+    if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+      state_ = kMergeOperatorFailed;
+    } else {
+      state_ = kCorrupt;
+    }
     return;
   }
 
@@ -514,7 +518,11 @@ void GetContext::MergeWithEntity(Slice entity) {
           /* update_num_ops_stats */ true,
           /* op_failure_scope */ nullptr);
       if (!s.ok()) {
-        state_ = kCorrupt;
+        if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+          state_ = kMergeOperatorFailed;
+        } else {
+          state_ = kCorrupt;
+        }
         return;
       }
     }
@@ -533,7 +541,11 @@ void GetContext::MergeWithEntity(Slice entity) {
         &result, logger_, statistics_, clock_, /* update_num_ops_stats */ true,
         /* op_failure_scope */ nullptr);
     if (!s.ok()) {
-      state_ = kCorrupt;
+      if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+        state_ = kMergeOperatorFailed;
+      } else {
+        state_ = kCorrupt;
+      }
       return;
     }
   }
