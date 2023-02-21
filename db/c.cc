@@ -4972,6 +4972,12 @@ void rocksdb_ingestexternalfileoptions_set_ingest_behind(
   opt->rep.ingest_behind = ingest_behind;
 }
 
+void rocksdb_ingestexternalfileoptions_set_fail_if_not_bottommost_level(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char fail_if_not_bottommost_level) {
+  opt->rep.fail_if_not_bottommost_level = fail_if_not_bottommost_level;
+}
+
 void rocksdb_ingestexternalfileoptions_destroy(
     rocksdb_ingestexternalfileoptions_t* opt) {
   delete opt;
