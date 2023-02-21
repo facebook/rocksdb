@@ -13,7 +13,6 @@
 // for more information on how to develop and use customizable objects
 
 #pragma once
-#include <functional>
 #include <memory>
 #include <unordered_map>
 
@@ -24,24 +23,6 @@
 #include "rocksdb/utilities/object_registry.h"
 
 namespace ROCKSDB_NAMESPACE {
-// The FactoryFunc functions are used to create a new customizable object
-// without going through the ObjectRegistry.  This methodology is especially
-// useful in LITE mode, where there is no ObjectRegistry.  The methods take
-// in an ID of the object to create and a pointer to store the created object.
-// If the factory successfully recognized the input ID, the method should return
-// success; otherwise false should be returned.  On success, the object
-// parameter contains the new object.
-template <typename T>
-using SharedFactoryFunc =
-    std::function<bool(const std::string&, std::shared_ptr<T>*)>;
-
-template <typename T>
-using UniqueFactoryFunc =
-    std::function<bool(const std::string&, std::unique_ptr<T>*)>;
-
-template <typename T>
-using StaticFactoryFunc = std::function<bool(const std::string&, T**)>;
-
 // Creates a new shared customizable instance object based on the
 // input parameters using the object registry.
 //
@@ -156,12 +137,10 @@ static Status NewManagedObject(
 // handled
 // @param value Either the simple name of the instance to create, or a set of
 // name-value pairs to create and initailize the object
-// @param func  Optional function to call to attempt to create an instance
 // @param result The newly created instance.
 template <typename T>
 static Status LoadSharedObject(const ConfigOptions& config_options,
                                const std::string& value,
-                               const SharedFactoryFunc<T>& func,
                                std::shared_ptr<T>* result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
@@ -170,12 +149,8 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
                                               value, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
-  } else if (func == nullptr ||
-             !func(id, result)) {  // No factory, or it failed
-    return NewSharedObject(config_options, id, opt_map, result);
   } else {
-    return Customizable::ConfigureNewObject(config_options, result->get(),
-                                            opt_map);
+    return NewSharedObject(config_options, id, opt_map, result);
   }
 }
 
@@ -204,7 +179,6 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
 // handled
 // @param value Either the simple name of the instance to create, or a set of
 // name-value pairs to create and initailize the object
-// @param func  Optional function to call to attempt to create an instance
 // @param result The newly created instance.
 template <typename T>
 static Status LoadManagedObject(const ConfigOptions& config_options,
@@ -270,12 +244,10 @@ static Status NewUniqueObject(
 // handled
 // @param value Either the simple name of the instance to create, or a set of
 // name-value pairs to create and initailize the object
-// @param func  Optional function to call to attempt to create an instance
 // @param result The newly created instance.
 template <typename T>
 static Status LoadUniqueObject(const ConfigOptions& config_options,
                                const std::string& value,
-                               const UniqueFactoryFunc<T>& func,
                                std::unique_ptr<T>* result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
@@ -283,12 +255,8 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
                                               value, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
-  } else if (func == nullptr ||
-             !func(id, result)) {  // No factory, or it failed
-    return NewUniqueObject(config_options, id, opt_map, result);
   } else {
-    return Customizable::ConfigureNewObject(config_options, result->get(),
-                                            opt_map);
+    return NewUniqueObject(config_options, id, opt_map, result);
   }
 }
 
@@ -337,23 +305,18 @@ static Status NewStaticObject(
 // handled
 // @param value Either the simple name of the instance to create, or a set of
 // name-value pairs to create and initailize the object
-// @param func  Optional function to call to attempt to create an instance
 // @param result The newly created instance.
 template <typename T>
 static Status LoadStaticObject(const ConfigOptions& config_options,
-                               const std::string& value,
-                               const StaticFactoryFunc<T>& func, T** result) {
+                               const std::string& value, T** result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
   Status status = Customizable::GetOptionsMap(config_options, *result, value,
                                               &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
-  } else if (func == nullptr ||
-             !func(id, result)) {  // No factory, or it failed
-    return NewStaticObject(config_options, id, opt_map, result);
   } else {
-    return Customizable::ConfigureNewObject(config_options, *result, opt_map);
+    return NewStaticObject(config_options, id, opt_map, result);
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

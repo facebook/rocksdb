@@ -91,7 +91,7 @@ Status FileSystem::CreateFromString(const ConfigOptions& config_options,
     std::call_once(once, [&]() {
       RegisterBuiltinFileSystems(*(ObjectLibrary::Default().get()), "");
     });
-    return LoadSharedObject<FileSystem>(config_options, value, nullptr, result);
+    return LoadSharedObject<FileSystem>(config_options, value, result);
   }
 }
 

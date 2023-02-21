@@ -13,7 +13,7 @@ namespace ROCKSDB_NAMESPACE {
 Status EventListener::CreateFromString(const ConfigOptions& config_options,
                                        const std::string& id,
                                        std::shared_ptr<EventListener>* result) {
-  return LoadSharedObject<EventListener>(config_options, id, nullptr, result);
+  return LoadSharedObject<EventListener>(config_options, id, result);
 }
 
 namespace {

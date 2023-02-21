@@ -1929,6 +1929,16 @@ Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
   // likely not to be a problem. We are compacting the whole file, so all
   // keys will be read out anyway. An extra read to index block might be
   // a small share of the overhead. We can try to optimize if needed.
+  //
+  // `CacheDependencies()` brings all the blocks into cache using one I/O. That
+  // way the full index scan usually finds the index data it is looking for in
+  // cache rather than doing an I/O for each "dependency" (partition).
+  Status s =
+      rep_->index_reader->CacheDependencies(read_options, false /* pin */);
+  if (!s.ok()) {
+    return s;
+  }
+
   IndexBlockIter iiter_on_stack;
   auto iiter = NewIndexIterator(
       read_options, /*disable_prefix_seek=*/false, &iiter_on_stack,
