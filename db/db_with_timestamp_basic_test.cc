@@ -3892,6 +3892,32 @@ TEST_F(DBBasicTestWithTimestamp, RangeTombstoneApproximateSize) {
       std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
       "" /*trim_ts*/));
 }
+
+TEST_F(DBBasicTestWithTimestamp, IterSeekToLastWithIterateUpperbound) {
+  // Test for a bug fix where DBIter::SeekToLast() could fail when
+  // iterate_upper_bound and iter_start_ts are both set.
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), Timestamp(2, 0), "val"));
+  ReadOptions ro;
+  std::string k = Key(1);
+  Slice k_slice = k;
+  ro.iterate_upper_bound = &k_slice;
+  std::string ts = Timestamp(3, 0);
+  Slice read_ts = ts;
+  ro.timestamp = &read_ts;
+  std::string start_ts = Timestamp(0, 0);
+  Slice start_ts_slice = start_ts;
+  ro.iter_start_ts = &start_ts_slice;
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ro)};
+  iter->SeekToLast();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
