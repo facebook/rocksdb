@@ -641,7 +641,7 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
   } else {
     RegisterSystemEnvs();
     Env* env = *result;
-    Status s = LoadStaticObject<Env>(config_options, value, nullptr, &env);
+    Status s = LoadStaticObject<Env>(config_options, value, &env);
     if (s.ok()) {
       *result = env;
     }
@@ -1227,8 +1227,7 @@ Status SystemClock::CreateFromString(const ConfigOptions& config_options,
     std::call_once(once, [&]() {
       RegisterBuiltinSystemClocks(*(ObjectLibrary::Default().get()), "");
     });
-    return LoadSharedObject<SystemClock>(config_options, value, nullptr,
-                                         result);
+    return LoadSharedObject<SystemClock>(config_options, value, result);
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -11,6 +11,7 @@
 #include <assert.h>
 
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <thread>
 

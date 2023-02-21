@@ -243,7 +243,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_, &event_logger_,
-                     immutable_db_options_.listeners, dbname_) {
+                     immutable_db_options_.listeners, dbname_),
+      lock_wal_count_(0) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -1429,15 +1430,10 @@ Status DBImpl::FlushWAL(bool sync) {
   return SyncWAL();
 }
 
-bool DBImpl::WALBufferIsEmpty(bool lock) {
-  if (lock) {
-    log_write_mutex_.Lock();
-  }
+bool DBImpl::WALBufferIsEmpty() {
+  InstrumentedMutexLock l(&log_write_mutex_);
   log::Writer* cur_log_writer = logs_.back().writer;
   auto res = cur_log_writer->BufferIsEmpty();
-  if (lock) {
-    log_write_mutex_.Unlock();
-  }
   return res;
 }
 
@@ -1539,29 +1535,83 @@ Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
 Status DBImpl::LockWAL() {
   {
     InstrumentedMutexLock lock(&mutex_);
-    WriteThread::Writer w;
-    write_thread_.EnterUnbatched(&w, &mutex_);
-    WriteThread::Writer nonmem_w;
-    if (two_write_queues_) {
-      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
-    }
+    if (lock_wal_count_ > 0) {
+      assert(lock_wal_write_token_);
+      ++lock_wal_count_;
+    } else {
+      // NOTE: this will "unnecessarily" wait for other non-LockWAL() write
+      // stalls to clear before LockWAL returns, however fixing that would
+      // not be simple because if we notice the primary queue is already
+      // stalled, that stall might clear while we release DB mutex in
+      // EnterUnbatched() for the nonmem queue. And if we work around that in
+      // the naive way, we could deadlock by locking the two queues in different
+      // orders.
 
-    lock_wal_write_token_ = write_controller_.GetStopToken();
+      WriteThread::Writer w;
+      write_thread_.EnterUnbatched(&w, &mutex_);
+      WriteThread::Writer nonmem_w;
+      if (two_write_queues_) {
+        nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      }
 
-    if (two_write_queues_) {
-      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      // NOTE: releasing mutex in EnterUnbatched might mean we are actually
+      // now lock_wal_count > 0
+      if (lock_wal_count_ == 0) {
+        assert(!lock_wal_write_token_);
+        lock_wal_write_token_ = write_controller_.GetStopToken();
+      }
+      ++lock_wal_count_;
+
+      if (two_write_queues_) {
+        nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      }
+      write_thread_.ExitUnbatched(&w);
     }
-    write_thread_.ExitUnbatched(&w);
   }
-  return FlushWAL(/*sync=*/false);
+  // NOTE: avoid I/O holding DB mutex
+  Status s = FlushWAL(/*sync=*/false);
+  if (!s.ok()) {
+    // Non-OK return should not be in locked state
+    UnlockWAL().PermitUncheckedError();
+  }
+  return s;
 }
 
 Status DBImpl::UnlockWAL() {
+  bool signal = false;
+  uint64_t maybe_stall_begun_count = 0;
+  uint64_t nonmem_maybe_stall_begun_count = 0;
   {
     InstrumentedMutexLock lock(&mutex_);
-    lock_wal_write_token_.reset();
+    if (lock_wal_count_ == 0) {
+      return Status::Aborted("No LockWAL() in effect");
+    }
+    --lock_wal_count_;
+    if (lock_wal_count_ == 0) {
+      lock_wal_write_token_.reset();
+      signal = true;
+      // For the last UnlockWAL, we don't want to return from UnlockWAL()
+      // until the thread(s) that called BeginWriteStall() have had a chance to
+      // call EndWriteStall(), so that no_slowdown writes after UnlockWAL() are
+      // guaranteed to succeed if there's no other source of stall.
+      maybe_stall_begun_count = write_thread_.GetBegunCountOfOutstandingStall();
+      if (two_write_queues_) {
+        nonmem_maybe_stall_begun_count =
+            nonmem_write_thread_.GetBegunCountOfOutstandingStall();
+      }
+    }
   }
-  bg_cv_.SignalAll();
+  if (signal) {
+    // SignalAll outside of mutex for efficiency
+    bg_cv_.SignalAll();
+  }
+  // Ensure stalls have cleared
+  if (maybe_stall_begun_count) {
+    write_thread_.WaitForStallEndedCount(maybe_stall_begun_count);
+  }
+  if (nonmem_maybe_stall_begun_count) {
+    nonmem_write_thread_.WaitForStallEndedCount(nonmem_maybe_stall_begun_count);
+  }
   return Status::OK();
 }
 
@@ -2555,14 +2605,25 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, Status* statuses,
                       const bool sorted_input) {
-  return MultiGet(read_options, num_keys, column_families, keys, values,
-                  /*timestamps=*/nullptr, statuses, sorted_input);
+  MultiGet(read_options, num_keys, column_families, keys, values,
+           /* timestamps */ nullptr, statuses, sorted_input);
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, std::string* timestamps,
                       Status* statuses, const bool sorted_input) {
+  MultiGetCommon(read_options, num_keys, column_families, keys, values,
+                 /* columns */ nullptr, timestamps, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetCommon(const ReadOptions& read_options,
+                            const size_t num_keys,
+                            ColumnFamilyHandle** column_families,
+                            const Slice* keys, PinnableSlice* values,
+                            PinnableWideColumns* columns,
+                            std::string* timestamps, Status* statuses,
+                            const bool sorted_input) {
   if (num_keys == 0) {
     return;
   }
@@ -2608,8 +2669,20 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    values[i].Reset();
-    key_context.emplace_back(column_families[i], keys[i], &values[i],
+    PinnableSlice* val = nullptr;
+    PinnableWideColumns* col = nullptr;
+
+    if (values) {
+      val = &values[i];
+      val->Reset();
+    } else {
+      assert(columns);
+
+      col = &columns[i];
+      col->Reset();
+    }
+
+    key_context.emplace_back(column_families[i], keys[i], val, col,
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
   }
@@ -2733,8 +2806,8 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
                       Status* statuses, const bool sorted_input) {
-  return MultiGet(read_options, column_family, num_keys, keys, values,
-                  /*timestamp=*/nullptr, statuses, sorted_input);
+  MultiGet(read_options, column_family, num_keys, keys, values,
+           /* timestamps */ nullptr, statuses, sorted_input);
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options,
@@ -2742,6 +2815,16 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       const Slice* keys, PinnableSlice* values,
                       std::string* timestamps, Status* statuses,
                       const bool sorted_input) {
+  MultiGetCommon(read_options, column_family, num_keys, keys, values,
+                 /* columns */ nullptr, timestamps, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetCommon(const ReadOptions& read_options,
+                            ColumnFamilyHandle* column_family,
+                            const size_t num_keys, const Slice* keys,
+                            PinnableSlice* values, PinnableWideColumns* columns,
+                            std::string* timestamps, Status* statuses,
+                            bool sorted_input) {
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.
@@ -2755,8 +2838,20 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    values[i].Reset();
-    key_context.emplace_back(column_family, keys[i], &values[i],
+    PinnableSlice* val = nullptr;
+    PinnableWideColumns* col = nullptr;
+
+    if (values) {
+      val = &values[i];
+      val->Reset();
+    } else {
+      assert(columns);
+
+      col = &columns[i];
+      col->Reset();
+    }
+
+    key_context.emplace_back(column_family, keys[i], val, col,
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
   }
@@ -2918,8 +3013,17 @@ Status DBImpl::MultiGetImpl(
   uint64_t bytes_read = 0;
   for (size_t i = start_key; i < start_key + num_keys - keys_left; ++i) {
     KeyContext* key = (*sorted_keys)[i];
+    assert(key);
+    assert(key->s);
+
     if (key->s->ok()) {
-      bytes_read += key->value->size();
+      if (key->value) {
+        bytes_read += key->value->size();
+      } else {
+        assert(key->columns);
+        bytes_read += key->columns->serialized_size();
+      }
+
       num_found++;
     }
   }
@@ -2941,6 +3045,22 @@ Status DBImpl::MultiGetImpl(
   PERF_TIMER_STOP(get_post_process_time);
 
   return s;
+}
+
+void DBImpl::MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                            ColumnFamilyHandle** column_families,
+                            const Slice* keys, PinnableWideColumns* results,
+                            Status* statuses, bool sorted_input) {
+  MultiGetCommon(options, num_keys, column_families, keys, /* values */ nullptr,
+                 results, /* timestamps */ nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGetEntity(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, size_t num_keys,
+                            const Slice* keys, PinnableWideColumns* results,
+                            Status* statuses, bool sorted_input) {
+  MultiGetCommon(options, column_family, num_keys, keys, /* values */ nullptr,
+                 results, /* timestamps */ nullptr, statuses, sorted_input);
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,

@@ -287,9 +287,11 @@ class PersistentCacheFromCache : public PersistentCache {
 };
 
 class ReadOnlyCacheWrapper : public CacheWrapper {
+ public:
   using CacheWrapper::CacheWrapper;
 
-  using Cache::Insert;
+  const char* Name() const override { return "ReadOnlyCacheWrapper"; }
+
   Status Insert(const Slice& /*key*/, Cache::ObjectPtr /*value*/,
                 const CacheItemHelper* /*helper*/, size_t /*charge*/,
                 Handle** /*handle*/, Priority /*priority*/) override {
@@ -711,7 +713,8 @@ class LookupLiarCache : public CacheWrapper {
   explicit LookupLiarCache(std::shared_ptr<Cache> target)
       : CacheWrapper(std::move(target)) {}
 
-  using Cache::Lookup;
+  const char* Name() const override { return "LookupLiarCache"; }
+
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper = nullptr,
                  CreateContext* create_context = nullptr,
                  Priority priority = Priority::LOW, bool wait = true,

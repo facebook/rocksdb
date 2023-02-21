@@ -9,6 +9,7 @@
 //
 
 #include <ios>
+#include <thread>
 
 #include "util/compression.h"
 #ifdef GFLAGS
@@ -825,6 +826,31 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (!s.ok() && !(sync && s.IsNotSupported())) {
           fprintf(stderr, "FlushWAL(sync=%s) failed: %s\n",
                   (sync ? "true" : "false"), s.ToString().c_str());
+        }
+      }
+
+      if (thread->rand.OneInOpt(FLAGS_lock_wal_one_in)) {
+        Status s = db_->LockWAL();
+        if (!s.ok()) {
+          fprintf(stderr, "LockWAL() failed: %s\n", s.ToString().c_str());
+        } else {
+          auto old_seqno = db_->GetLatestSequenceNumber();
+          // Yield for a while
+          do {
+            std::this_thread::yield();
+          } while (thread->rand.OneIn(2));
+          // Latest seqno should not have changed
+          auto new_seqno = db_->GetLatestSequenceNumber();
+          if (old_seqno != new_seqno) {
+            fprintf(
+                stderr,
+                "Failure: latest seqno changed from %u to %u with WAL locked\n",
+                (unsigned)old_seqno, (unsigned)new_seqno);
+          }
+          s = db_->UnlockWAL();
+          if (!s.ok()) {
+            fprintf(stderr, "UnlockWAL() failed: %s\n", s.ToString().c_str());
+          }
         }
       }
 
@@ -2792,8 +2818,10 @@ void StressTest::Reopen(ThreadState* thread) {
     }
     assert(s.ok());
   }
+  assert(txn_db_ == nullptr || db_ == txn_db_);
   delete db_;
   db_ = nullptr;
+  txn_db_ = nullptr;
 
   num_times_reopened_++;
   auto now = clock_->NowMicros();
@@ -2873,7 +2901,9 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
   read_opts.timestamp = &ts_slice;
 
   // TODO (yanqin): support Merge with iter_start_ts
-  if (!thread->rand.OneInOpt(3) || FLAGS_use_merge || FLAGS_use_full_merge_v1) {
+  // TODO (yuzhangyu): support BlobDB with iter_start_ts
+  if (!thread->rand.OneInOpt(3) || FLAGS_use_merge || FLAGS_use_full_merge_v1 ||
+      FLAGS_enable_blob_files) {
     return;
   }
 
@@ -2896,10 +2926,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
   }
   if (FLAGS_use_txn) {
     fprintf(stderr, "TransactionDB does not support timestamp yet.\n");
-    exit(1);
-  }
-  if (FLAGS_enable_blob_files || FLAGS_use_blob_db) {
-    fprintf(stderr, "BlobDB not supported with timestamp.\n");
     exit(1);
   }
   if (FLAGS_test_cf_consistency || FLAGS_test_batches_snapshots) {

@@ -5,6 +5,7 @@
 
 #include "cache/compressed_secondary_cache.h"
 
+#include <array>
 #include <iterator>
 #include <memory>
 #include <tuple>
@@ -75,12 +76,23 @@ class CompressedSecondaryCacheTest : public testing::Test,
     return Status::OK();
   }
 
-  static constexpr Cache::CacheItemHelper kHelper{
-      CacheEntryRole::kMisc, &DeletionCallback, &SizeCallback, &SaveToCallback,
-      &CreateCallback};
+  static constexpr auto GenerateHelpersByRole() {
+    std::array<Cache::CacheItemHelper, kNumCacheEntryRoles> a;
+    for (uint32_t i = 0; i < kNumCacheEntryRoles; ++i) {
+      a[i] = Cache::CacheItemHelper{static_cast<CacheEntryRole>(i),
+                                    &DeletionCallback, &SizeCallback,
+                                    &SaveToCallback, &CreateCallback};
+    }
+    return a;
+  }
+
+  static const std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
+      kHelperByRole;
+
+  static const Cache::CacheItemHelper& kHelper;
 
   static constexpr Cache::CacheItemHelper kHelperFail{
-      CacheEntryRole::kMisc, &DeletionCallback, &SizeCallback,
+      CacheEntryRole::kDataBlock, &DeletionCallback, &SizeCallback,
       &SaveToCallbackFail, &CreateCallback};
 
   void SetFailCreate(bool fail) { fail_create_ = fail; }
@@ -787,6 +799,13 @@ class CompressedSecondaryCacheTest : public testing::Test,
   bool fail_create_;
 };
 
+const std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
+    CompressedSecondaryCacheTest::kHelperByRole = GenerateHelpersByRole();
+
+const Cache::CacheItemHelper& CompressedSecondaryCacheTest::kHelper =
+    CompressedSecondaryCacheTest::kHelperByRole[static_cast<int>(
+        CacheEntryRole::kDataBlock)];
+
 class CompressedSecCacheTestWithCompressAndAllocatorParam
     : public CompressedSecondaryCacheTest,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
@@ -904,6 +923,77 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
 TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
        IntegrationFullCapacityTest) {
   IntegrationFullCapacityTest(sec_cache_is_compressed_);
+}
+
+TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
+  CompressedSecondaryCacheOptions opts;
+  opts.capacity = 2048;
+  opts.num_shard_bits = 0;
+
+  if (sec_cache_is_compressed_) {
+    if (!LZ4_Supported()) {
+      ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+      return;
+    }
+  } else {
+    opts.compression_type = CompressionType::kNoCompression;
+  }
+
+  // Select a random subset to include, for fast test
+  Random& r = *Random::GetTLSInstance();
+  CacheEntryRoleSet do_not_compress;
+  for (uint32_t i = 0; i < kNumCacheEntryRoles; ++i) {
+    // A few included on average, but decent chance of zero
+    if (r.OneIn(5)) {
+      do_not_compress.Add(static_cast<CacheEntryRole>(i));
+    }
+  }
+  opts.do_not_compress_roles = do_not_compress;
+
+  std::shared_ptr<SecondaryCache> sec_cache = NewCompressedSecondaryCache(opts);
+
+  // Fixed seed to ensure consistent compressibility (doesn't compress)
+  std::string junk(Random(301).RandomString(1000));
+
+  for (uint32_t i = 0; i < kNumCacheEntryRoles; ++i) {
+    CacheEntryRole role = static_cast<CacheEntryRole>(i);
+
+    // Uniquify `junk`
+    junk[0] = static_cast<char>(i);
+    TestItem item{junk.data(), junk.length()};
+    Slice ith_key = Slice(junk.data(), 5);
+
+    get_perf_context()->Reset();
+    ASSERT_OK(sec_cache->Insert(ith_key, &item, &kHelperByRole[i]));
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 1U);
+
+    ASSERT_OK(sec_cache->Insert(ith_key, &item, &kHelperByRole[i]));
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1U);
+
+    bool is_in_sec_cache{true};
+    std::unique_ptr<SecondaryCacheResultHandle> handle =
+        sec_cache->Lookup(ith_key, &kHelperByRole[i], this, true,
+                          /*advise_erase=*/true, is_in_sec_cache);
+    ASSERT_NE(handle, nullptr);
+
+    // Lookup returns the right data
+    std::unique_ptr<TestItem> val =
+        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle->Value()));
+    ASSERT_NE(val, nullptr);
+    ASSERT_EQ(memcmp(val->Buf(), item.Buf(), item.Size()), 0);
+
+    bool compressed =
+        sec_cache_is_compressed_ && !do_not_compress.Contains(role);
+    if (compressed) {
+      ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
+                1000);
+      ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes,
+                1007);
+    } else {
+      ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
+    }
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(CompressedSecCacheTests,

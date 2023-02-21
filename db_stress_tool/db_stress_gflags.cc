@@ -92,6 +92,10 @@ DEFINE_int32(
     "on average. Setting `manual_wal_flush_one_in` to be greater than 0 "
     "implies `Options::manual_wal_flush = true` is set.");
 
+DEFINE_int32(lock_wal_one_in, 1000000,
+             "If non-zero, then `LockWAL()` + `UnlockWAL()` will be called in "
+             "db_stress once for every N ops on average.");
+
 DEFINE_bool(test_cf_consistency, false,
             "If set, runs the stress test dedicated to verifying writes to "
             "multiple column families are consistent. Setting this implies "
@@ -1068,5 +1072,7 @@ DEFINE_bool(
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
+
+extern "C" bool RocksDbIOUringEnable() { return true; }
 
 #endif  // GFLAGS

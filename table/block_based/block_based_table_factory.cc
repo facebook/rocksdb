@@ -910,18 +910,6 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
 }
 
 Status GetBlockBasedTableOptionsFromString(
-    const BlockBasedTableOptions& table_options, const std::string& opts_str,
-    BlockBasedTableOptions* new_table_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-  config_options.invoke_prepare_options = false;
-  config_options.ignore_unsupported_options = false;
-
-  return GetBlockBasedTableOptionsFromString(config_options, table_options,
-                                             opts_str, new_table_options);
-}
-Status GetBlockBasedTableOptionsFromString(
     const ConfigOptions& config_options,
     const BlockBasedTableOptions& table_options, const std::string& opts_str,
     BlockBasedTableOptions* new_table_options) {
@@ -938,20 +926,6 @@ Status GetBlockBasedTableOptionsFromString(
   } else {
     return Status::InvalidArgument(s.getState());
   }
-}
-
-Status GetBlockBasedTableOptionsFromMap(
-    const BlockBasedTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    BlockBasedTableOptions* new_table_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = input_strings_escaped;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.invoke_prepare_options = false;
-
-  return GetBlockBasedTableOptionsFromMap(config_options, table_options,
-                                          opts_map, new_table_options);
 }
 
 Status GetBlockBasedTableOptionsFromMap(

@@ -1182,6 +1182,7 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     ASSERT_OK(sst_file_writer->Finish());
 
     IngestExternalFileOptions ingest_opt;
+    ASSERT_FALSE(ingest_opt.write_global_seqno);  // new default
     if (i == 0) {
       ingest_opt.move_files = true;
     }
