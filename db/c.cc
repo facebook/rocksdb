@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
 #include "rocksdb/c.h"
 
 #include <cstdlib>
@@ -78,6 +77,7 @@ using ROCKSDB_NAMESPACE::EnvOptions;
 using ROCKSDB_NAMESPACE::FileLock;
 using ROCKSDB_NAMESPACE::FilterPolicy;
 using ROCKSDB_NAMESPACE::FlushOptions;
+using ROCKSDB_NAMESPACE::HyperClockCacheOptions;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
 using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
 using ROCKSDB_NAMESPACE::Iterator;
@@ -207,6 +207,9 @@ struct rocksdb_logger_t {
 };
 struct rocksdb_lru_cache_options_t {
   LRUCacheOptions rep;
+};
+struct rocksdb_hyper_clock_cache_options_t {
+  HyperClockCacheOptions rep;
 };
 struct rocksdb_memory_allocator_t {
   std::shared_ptr<MemoryAllocator> rep;
@@ -4679,6 +4682,53 @@ rocksdb_cache_t* rocksdb_cache_create_lru_opts(
     rocksdb_lru_cache_options_t* opt) {
   rocksdb_cache_t* c = new rocksdb_cache_t;
   c->rep = NewLRUCache(opt->rep);
+  return c;
+}
+
+rocksdb_hyper_clock_cache_options_t* rocksdb_hyper_clock_cache_options_create(
+    size_t capacity, size_t estimated_entry_charge) {
+  return new rocksdb_hyper_clock_cache_options_t{
+      HyperClockCacheOptions(capacity, estimated_entry_charge)};
+}
+
+void rocksdb_hyper_clock_cache_options_destroy(
+    rocksdb_hyper_clock_cache_options_t* opt) {
+  delete opt;
+}
+
+void rocksdb_hyper_clock_cache_options_set_capacity(
+    rocksdb_hyper_clock_cache_options_t* opts, size_t capacity) {
+  opts->rep.capacity = capacity;
+}
+
+void rocksdb_hyper_clock_cache_options_set_estimated_entry_charge(
+    rocksdb_hyper_clock_cache_options_t* opts, size_t estimated_entry_charge) {
+  opts->rep.estimated_entry_charge = estimated_entry_charge;
+}
+
+void rocksdb_hyper_clock_cache_options_set_num_shard_bits(
+    rocksdb_hyper_clock_cache_options_t* opts, int num_shard_bits) {
+  opts->rep.num_shard_bits = num_shard_bits;
+}
+
+void rocksdb_hyper_clock_cache_options_set_memory_allocator(
+    rocksdb_hyper_clock_cache_options_t* opts,
+    rocksdb_memory_allocator_t* memory_allocator) {
+  opts->rep.memory_allocator = memory_allocator->rep;
+}
+
+rocksdb_cache_t* rocksdb_cache_create_hyper_clock(
+    size_t capacity, size_t estimated_entry_charge) {
+  HyperClockCacheOptions opts(capacity, estimated_entry_charge);
+  rocksdb_cache_t* c = new rocksdb_cache_t;
+  c->rep = opts.MakeSharedCache();
+  return c;
+}
+
+rocksdb_cache_t* rocksdb_cache_create_hyper_clock_opts(
+    rocksdb_hyper_clock_cache_options_t* opts) {
+  rocksdb_cache_t* c = new rocksdb_cache_t;
+  c->rep = opts->rep.MakeSharedCache();
   return c;
 }
 
