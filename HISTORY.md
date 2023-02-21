@@ -3,6 +3,7 @@
 
 ### Behavior changes
 * `ReadOptions::verify_checksums=false` disables checksum verification for more reads of non-`CacheEntryRole::kDataBlock` blocks.
+* In case of scan with async_io enabled, if posix doesn't support IOUring, Status::NotSupported error will be returned to the users. Initially that error was swallowed and reads were switched to synchronous reads.
 
 ### Bug Fixes
 * Fixed a data race on `ColumnFamilyData::flush_reason` caused by concurrent flushes.
@@ -20,18 +21,22 @@
 * Remove deprecated Env::LoadEnv(). Use Env::CreateFromString() instead.
 * Remove deprecated FileSystem::Load(). Use FileSystem::CreateFromString() instead.
 * Removed the deprecated version of these utility functions and the corresponding Java bindings: `LoadOptionsFromFile`, `LoadLatestOptions`, `CheckOptionsCompatibility`.
+* Remove the FactoryFunc from the LoadObject method from the Customizable helper methods.
 
 ### Public API Changes
 * Moved rarely-needed Cache class definition to new advanced_cache.h, and added a CacheWrapper class to advanced_cache.h. Minor changes to SimCache API definitions.
 * Completely removed the following deprecated/obsolete statistics: the tickers `BLOCK_CACHE_INDEX_BYTES_EVICT`, `BLOCK_CACHE_FILTER_BYTES_EVICT`, `BLOOM_FILTER_MICROS`, `NO_FILE_CLOSES`, `STALL_L0_SLOWDOWN_MICROS`, `STALL_MEMTABLE_COMPACTION_MICROS`, `STALL_L0_NUM_FILES_MICROS`, `RATE_LIMIT_DELAY_MILLIS`, `NO_ITERATORS`, `NUMBER_FILTERED_DELETES`, `WRITE_TIMEDOUT`, `BLOB_DB_GC_NUM_KEYS_OVERWRITTEN`, `BLOB_DB_GC_NUM_KEYS_EXPIRED`, `BLOB_DB_GC_BYTES_OVERWRITTEN`, `BLOB_DB_GC_BYTES_EXPIRED`, `BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT` as well as the histograms `STALL_L0_SLOWDOWN_COUNT`, `STALL_MEMTABLE_COMPACTION_COUNT`, `STALL_L0_NUM_FILES_COUNT`, `HARD_RATE_LIMIT_DELAY_COUNT`, `SOFT_RATE_LIMIT_DELAY_COUNT`, `BLOB_DB_GC_MICROS`, and `NUM_DATA_BLOCKS_READ_PER_LEVEL`. Note that as a result, the C++ enum values of the still supported statistics have changed. Developers are advised to not rely on the actual numeric values.
 * Deprecated IngestExternalFileOptions::write_global_seqno and change default to false. This option only needs to be set to true to generate a DB compatible with RocksDB versions before 5.16.0.
 * Remove deprecated APIs `GetColumnFamilyOptionsFrom{Map|String}(const ColumnFamilyOptions&, ..)`, `GetDBOptionsFrom{Map|String}(const DBOptions&, ..)`, `GetBlockBasedTableOptionsFrom{Map|String}(const BlockBasedTableOptions& table_options, ..)` and ` GetPlainTableOptionsFrom{Map|String}(const PlainTableOptions& table_options,..)`.
+* Added a subcode of `Status::Corruption`, `Status::SubCode::kMergeOperatorFailed`, for users to identify corruption failures originating in the merge operator, as opposed to RocksDB's internally identified data corruptions
 
 ### Build Changes
 * The `make` build now builds a shared library by default instead of a static library. Use `LIB_MODE=static` to override.
 
 ### New Features
 * Compaction filters are now supported for wide-column entities by means of the `FilterV3` API. See the comment of the API for more details.
+* Added `do_not_compress_roles` to `CompressedSecondaryCacheOptions` to disable compression on certain kinds of block. Filter blocks are now not compressed by CompressedSecondaryCache by default.
+* Added a new `MultiGetEntity` API that enables batched wide-column point lookups. See the API comments for more details.
 
 ## 7.10.0 (01/23/2023)
 ### Behavior changes

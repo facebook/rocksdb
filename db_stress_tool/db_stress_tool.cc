@@ -99,13 +99,6 @@ int db_stress_tool(int argc, char** argv) {
 
   env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
       raw_env, std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem()));
-  if (!env_opts) {
-    // If using the default Env (Posix), wrap DbStressEnvWrapper with the
-    // legacy EnvWrapper. This is a temporary fix for the ReadAsync interface
-    // not being properly supported with Posix and db_stress. The EnvWrapper
-    // has a default implementation of ReadAsync that redirects to Read.
-    env_wrapper_guard = std::make_shared<EnvWrapper>(env_wrapper_guard);
-  }
   db_stress_env = env_wrapper_guard.get();
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());

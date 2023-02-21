@@ -20,8 +20,8 @@ public abstract class AbstractComparator
     super();
   }
 
-  protected AbstractComparator(final ComparatorOptions copt) {
-    super(copt.nativeHandle_);
+  protected AbstractComparator(final ComparatorOptions comparatorOptions) {
+    super(comparatorOptions.nativeHandle_);
   }
 
   @Override
