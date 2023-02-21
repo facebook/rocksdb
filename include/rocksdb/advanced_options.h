@@ -863,7 +863,9 @@ struct AdvancedColumnFamilyOptions {
   // age is based on the file's last modified time (given by the underlying
   // Env).
   //
-  // Supported in Level and FIFO compaction.
+  // Supported in all compaction styles.
+  // In Universal compaction, rocksdb will try to do a full compaction when
+  // possible, see more in UniversalCompactionBuilder::PickPeriodicCompaction().
   // In FIFO compaction, this option has the same meaning as TTL and whichever
   // stricter will be used.
   // Pre-req: max_open_file == -1.
