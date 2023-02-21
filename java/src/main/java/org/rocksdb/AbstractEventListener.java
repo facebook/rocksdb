@@ -10,6 +10,7 @@ import static org.rocksdb.AbstractEventListener.EnabledEventCallback.*;
 /**
  * Base class for Event Listeners.
  */
+@SuppressWarnings("PMD.AvoidDuplicateLiterals")
 public abstract class AbstractEventListener extends RocksCallbackObject implements EventListener {
   public enum EnabledEventCallback {
     ON_FLUSH_COMPLETED((byte) 0x0),
@@ -124,6 +125,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param flushJobInfo the flush job info
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onFlushCompletedProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
     db.disOwnNativeHandle(); // we don't own this!
@@ -142,6 +144,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param flushJobInfo the flush job info
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onFlushBeginProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
     db.disOwnNativeHandle(); // we don't own this!
@@ -165,6 +168,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param compactionJobInfo the flush job info
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onCompactionBeginProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
@@ -184,6 +188,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param compactionJobInfo the flush job info
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onCompactionCompletedProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
@@ -225,6 +230,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param dbHandle native handle of the database
    * @param externalFileIngestionInfo the flush job info
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onExternalFileIngestedProxy(
       final long dbHandle, final ExternalFileIngestionInfo externalFileIngestionInfo) {
     final RocksDB db = new RocksDB(dbHandle);
@@ -245,6 +251,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param reasonByte byte value representing error reason
    * @param backgroundError status with error code
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onBackgroundErrorProxy(final byte reasonByte, final Status backgroundError) {
     onBackgroundError(BackgroundErrorReason.fromValue(reasonByte), backgroundError);
   }
@@ -307,6 +314,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param reasonByte byte value representing error reason
    * @param backgroundError status with error code
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private boolean onErrorRecoveryBeginProxy(final byte reasonByte, final Status backgroundError) {
     return onErrorRecoveryBegin(BackgroundErrorReason.fromValue(reasonByte), backgroundError);
   }

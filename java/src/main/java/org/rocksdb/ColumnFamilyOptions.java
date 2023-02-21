@@ -1013,6 +1013,7 @@ public class ColumnFamilyOptions extends RocksObject
    *
    * @return true iff blob files are currently enabled
    */
+  @Override
   public boolean enableBlobFiles() {
     return enableBlobFiles(nativeHandle_);
   }

@@ -80,6 +80,7 @@ public class BloomFilter extends Filter {
    * @param bitsPerKey number of bits to use
    * @param IGNORED_useBlockBasedMode obsolete, ignored parameter
    */
+  @SuppressWarnings("PMD.UnusedFormalParameter")
   public BloomFilter(final double bitsPerKey, final boolean IGNORED_useBlockBasedMode) {
     this(bitsPerKey);
   }

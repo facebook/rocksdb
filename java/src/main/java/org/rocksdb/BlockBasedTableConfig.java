@@ -11,7 +11,7 @@ package org.rocksdb;
  */
 // TODO(AR) should be renamed BlockBasedTableOptions
 public class BlockBasedTableConfig extends TableFormatConfig {
-
+  @SuppressWarnings("PMD.NullAssignment")
   public BlockBasedTableConfig() {
     //TODO(AR) flushBlockPolicyFactory
     cacheIndexAndFilterBlocks = false;

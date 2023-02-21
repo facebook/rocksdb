@@ -287,8 +287,8 @@ public class TransactionDB extends RocksDB
    *
    * @return The waiting transactions
    */
-  private DeadlockInfo newDeadlockInfo(
-      final long transactionID, final long columnFamilyId,
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
+  private DeadlockInfo newDeadlockInfo(final long transactionID, final long columnFamilyId,
       final String waitingKey, final boolean exclusive) {
     return new DeadlockInfo(transactionID, columnFamilyId,
         waitingKey, exclusive);

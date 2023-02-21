@@ -1980,9 +1980,9 @@ public class Transaction extends RocksObject {
    *
    * @return The waiting transactions
    */
+  @SuppressWarnings("PMD.UnusedPrivateMethod")
   private WaitingTransactions newWaitingTransactions(
-      final long columnFamilyId, final String key,
-      final long[] transactionIds) {
+      final long columnFamilyId, final String key, final long[] transactionIds) {
     return new WaitingTransactions(columnFamilyId, key, transactionIds);
   }
 

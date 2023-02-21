@@ -4360,12 +4360,6 @@ public class RocksDB extends RocksObject {
     }
   }
 
-  private static int computeCapacityHint(final int estimatedNumberOfItems) {
-    // Default load factor for HashMap is 0.75, so N * 1.5 will be at the load
-    // limit. We add +1 for a buffer.
-    return (int)Math.ceil(estimatedNumberOfItems * 1.5 + 1.0);
-  }
-
   // native methods
   private static native long open(final long optionsHandle, final String path)
       throws RocksDBException;
@@ -4711,12 +4705,10 @@ public class RocksDB extends RocksObject {
       return getMajor() + "." + getMinor() + "." + getPatch();
     }
 
-    private static Version fromEncodedVersion(int encodedVersion) {
+    private static Version fromEncodedVersion(final int encodedVersion) {
       final byte patch = (byte) (encodedVersion & 0xff);
-      encodedVersion >>= 8;
-      final byte minor = (byte) (encodedVersion & 0xff);
-      encodedVersion >>= 8;
-      final byte major = (byte) (encodedVersion & 0xff);
+      final byte minor = (byte) (encodedVersion >> 8 & 0xff);
+      final byte major = (byte) (encodedVersion >> 16 & 0xff);
 
       return new Version(major, minor, patch);
     }

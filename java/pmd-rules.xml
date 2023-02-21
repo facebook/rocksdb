@@ -10,7 +10,7 @@
     </description>
 
 
-    <!-- Use PMD rules from a few sets, and then make excpetions -->
+    <!-- Use PMD rules from a few sets, and then make exceptions -->
     <rule ref="category/java/codestyle.xml">
         <!-- These problems are acceptable in perpertuity -->
         <exclude name="AvoidUsingNativeCode"/>
@@ -38,6 +38,12 @@
     </rule>
     <rule ref="category/java/errorprone.xml">
         <exclude name="AvoidFieldNameMatchingMethodName"/>
+    </rule>
+    <rule ref="category/java/errorprone.xml/AvoidLiteralsInIfCondition">
+        <properties>
+            <property name="ignoreMagicNumbers" value="-1,0,1" />
+            <property name="ignoreExpressions" value="true,false" />
+        </properties>
     </rule>
     <rule ref="category/java/bestpractices.xml">
         <exclude name="UseVarargs"/>
