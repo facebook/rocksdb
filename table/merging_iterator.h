@@ -12,6 +12,7 @@
 #include "db/range_del_aggregator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/types.h"
+#include "table/iterator_wrapper.h"
 
 namespace ROCKSDB_NAMESPACE {
 

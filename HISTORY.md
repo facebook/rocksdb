@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Behavior changes
+* Compaction output file cutting logic now considers range tombstone start keys. For example, SST partitioner now may receive ParitionRequest for range tombstone start keys.
 
 ## 8.0.0 (02/19/2023)
 ### Behavior changes
