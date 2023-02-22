@@ -1073,6 +1073,7 @@ DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
 
-extern "C" bool RocksDbIOUringEnable() { return true; }
+DEFINE_bool(use_io_uring, false, "Enable the use of IO uring on Posix");
+extern "C" bool RocksDbIOUringEnable() { return FLAGS_use_io_uring; }
 
 #endif  // GFLAGS

@@ -321,6 +321,7 @@ DECLARE_uint64(readahead_size);
 DECLARE_uint64(initial_auto_readahead_size);
 DECLARE_uint64(max_auto_readahead_size);
 DECLARE_uint64(num_file_reads_for_auto_readahead);
+DECLARE_bool(use_io_uring);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
