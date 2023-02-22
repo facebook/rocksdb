@@ -136,6 +136,8 @@ typedef struct rocksdb_wal_iterator_t rocksdb_wal_iterator_t;
 typedef struct rocksdb_wal_readoptions_t rocksdb_wal_readoptions_t;
 typedef struct rocksdb_memory_consumers_t rocksdb_memory_consumers_t;
 typedef struct rocksdb_memory_usage_t rocksdb_memory_usage_t;
+typedef struct rocksdb_statistics_histogram_data_t
+    rocksdb_statistics_histogram_data_t;
 
 /* DB operations */
 
@@ -1252,6 +1254,10 @@ rocksdb_options_set_max_bytes_for_level_multiplier_additional(
     rocksdb_options_t*, int* level_values, size_t num_levels);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_enable_statistics(
     rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_statistics_level(
+    rocksdb_options_t*, int level);
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_statistics_level(
+    rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_skip_stats_update_on_db_open(rocksdb_options_t* opt,
                                                  unsigned char val);
@@ -1328,6 +1334,11 @@ extern ROCKSDB_LIBRARY_API int rocksdb_options_get_prepopulate_blob_cache(
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
     rocksdb_options_t* opt);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_options_statistics_get_ticker_count(
+    rocksdb_options_t* opt, uint32_t type);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_statistics_get_histogram_data(
+    rocksdb_options_t* opt, uint32_t type,
+    rocksdb_statistics_histogram_data_t* data);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_write_buffer_number(
     rocksdb_options_t*, int);
@@ -2879,6 +2890,29 @@ extern ROCKSDB_LIBRARY_API void rocksdb_disable_manual_compaction(
     rocksdb_t* db);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_enable_manual_compaction(rocksdb_t* db);
+
+extern ROCKSDB_LIBRARY_API rocksdb_statistics_histogram_data_t*
+rocksdb_statistics_histogram_data_create(void);
+extern ROCKSDB_LIBRARY_API void rocksdb_statistics_histogram_data_destroy(
+    rocksdb_statistics_histogram_data_t* data);
+extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_median(
+    rocksdb_statistics_histogram_data_t* data);
+extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_p95(
+    rocksdb_statistics_histogram_data_t* data);
+extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_p99(
+    rocksdb_statistics_histogram_data_t* data);
+extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_average(
+    rocksdb_statistics_histogram_data_t* data);
+extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_std_dev(
+    rocksdb_statistics_histogram_data_t* data);
+extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_max(
+    rocksdb_statistics_histogram_data_t* data);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_statistics_histogram_data_get_count(
+    rocksdb_statistics_histogram_data_t* data);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_statistics_histogram_data_get_sum(
+    rocksdb_statistics_histogram_data_t* data);
+extern ROCKSDB_LIBRARY_API double rocksdb_statistics_histogram_data_get_min(
+    rocksdb_statistics_histogram_data_t* data);
 
 #ifdef __cplusplus
 } /* end extern "C" */

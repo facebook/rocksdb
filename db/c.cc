@@ -279,6 +279,9 @@ struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
 };
 
+struct rocksdb_statistics_histogram_data_t : ROCKSDB_NAMESPACE::HistogramData {
+};
+
 struct rocksdb_compactionfilter_t : public CompactionFilter {
   void* state_;
   void (*destructor_)(void*);
@@ -3023,6 +3026,28 @@ void rocksdb_options_enable_statistics(rocksdb_options_t* opt) {
   opt->rep.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 }
 
+void rocksdb_options_set_statistics_level(rocksdb_options_t* opt, int level) {
+  if (!opt->rep.statistics) {
+    return;
+  }
+  if (level < ROCKSDB_NAMESPACE::StatsLevel::kDisableAll) {
+    level = ROCKSDB_NAMESPACE::StatsLevel::kDisableAll;
+  }
+  if (level > ROCKSDB_NAMESPACE::StatsLevel::kAll) {
+    level = ROCKSDB_NAMESPACE::StatsLevel::kAll;
+  }
+  opt->rep.statistics->set_stats_level(
+      static_cast<ROCKSDB_NAMESPACE::StatsLevel>(level));
+}
+
+int rocksdb_options_get_statistics_level(rocksdb_options_t* opt) {
+  if (!opt->rep.statistics) {
+    return ROCKSDB_NAMESPACE::StatsLevel::kDisableAll;
+  }
+
+  return static_cast<int>(opt->rep.statistics->get_stats_level());
+}
+
 void rocksdb_options_set_skip_stats_update_on_db_open(rocksdb_options_t* opt,
                                                       unsigned char val) {
   opt->rep.skip_stats_update_on_db_open = val;
@@ -3860,6 +3885,26 @@ char* rocksdb_options_statistics_get_string(rocksdb_options_t* opt) {
     return strdup(statistics->ToString().c_str());
   }
   return nullptr;
+}
+
+uint64_t rocksdb_options_statistics_get_ticker_count(rocksdb_options_t* opt,
+                                                     uint32_t type) {
+  ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
+  if (statistics) {
+    return statistics->getTickerCount(type);
+  }
+  return 0;
+}
+
+void rocksdb_options_statistics_get_histogram_data(
+    rocksdb_options_t* opt, uint32_t type,
+    rocksdb_statistics_histogram_data_t* data) {
+  ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
+  if (statistics) {
+    statistics->histogramData(type, data);
+  } else {
+    *data = rocksdb_statistics_histogram_data_t{};
+  }
 }
 
 void rocksdb_options_set_ratelimiter(rocksdb_options_t* opt,
@@ -6615,6 +6660,61 @@ void rocksdb_disable_manual_compaction(rocksdb_t* db) {
 
 void rocksdb_enable_manual_compaction(rocksdb_t* db) {
   db->rep->EnableManualCompaction();
+}
+
+rocksdb_statistics_histogram_data_t*
+rocksdb_statistics_histogram_data_create() {
+  return new rocksdb_statistics_histogram_data_t{};
+}
+
+void rocksdb_statistics_histogram_data_destroy(
+    rocksdb_statistics_histogram_data_t* data) {
+  delete data;
+}
+
+double rocksdb_statistics_histogram_data_get_median(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->median;
+}
+
+double rocksdb_statistics_histogram_data_get_p95(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->percentile95;
+}
+
+double rocksdb_statistics_histogram_data_get_p99(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->percentile99;
+}
+
+double rocksdb_statistics_histogram_data_get_average(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->average;
+}
+
+double rocksdb_statistics_histogram_data_get_std_dev(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->standard_deviation;
+}
+
+double rocksdb_statistics_histogram_data_get_max(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->max;
+}
+
+uint64_t rocksdb_statistics_histogram_data_get_count(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->count;
+}
+
+uint64_t rocksdb_statistics_histogram_data_get_sum(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->sum;
+}
+
+double rocksdb_statistics_histogram_data_get_min(
+    rocksdb_statistics_histogram_data_t* data) {
+  return data->min;
 }
 
 }  // end extern "C"

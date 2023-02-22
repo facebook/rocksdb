@@ -2061,6 +2061,12 @@ int main(int argc, char** argv) {
     CheckCondition(29.0 ==
                    rocksdb_options_get_experimental_mempurge_threshold(o));
 
+    CheckCondition(0 == rocksdb_options_get_statistics_level(o));
+    rocksdb_options_enable_statistics(o);
+    CheckCondition(0 != rocksdb_options_get_statistics_level(o));
+    rocksdb_options_set_statistics_level(o, 5);
+    CheckCondition(5 == rocksdb_options_get_statistics_level(o));
+
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
     CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));
@@ -3612,6 +3618,57 @@ int main(int argc, char** argv) {
 
     rocksdb_iter_destroy(iter);
     rocksdb_readoptions_destroy(ropts);
+  }
+
+  StartPhase("statistics");
+  {
+    const uint32_t BYTES_WRITTEN_TICKER = 40;
+    const uint32_t DB_WRITE_HIST = 1;
+
+    rocksdb_statistics_histogram_data_t* hist =
+        rocksdb_statistics_histogram_data_create();
+    {
+      // zero by default
+      CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_median(hist));
+      CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_p95(hist));
+      CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_p99(hist));
+      CheckCondition(0.0 ==
+                     rocksdb_statistics_histogram_data_get_average(hist));
+      CheckCondition(0.0 ==
+                     rocksdb_statistics_histogram_data_get_std_dev(hist));
+      CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_max(hist));
+      CheckCondition(0 == rocksdb_statistics_histogram_data_get_count(hist));
+      CheckCondition(0 == rocksdb_statistics_histogram_data_get_sum(hist));
+      CheckCondition(0.0 == rocksdb_statistics_histogram_data_get_min(hist));
+    }
+
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_enable_statistics(options);
+    rocksdb_options_set_statistics_level(options, 5);
+
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    CheckCondition(0 == rocksdb_options_statistics_get_ticker_count(
+                            options, BYTES_WRITTEN_TICKER));
+    rocksdb_options_statistics_get_histogram_data(options, DB_WRITE_HIST, hist);
+    CheckCondition(0 == rocksdb_statistics_histogram_data_get_sum(hist));
+
+    int i;
+    for (i = 0; i < 10; ++i) {
+      char key = '0' + (char)i;
+      rocksdb_put(db, woptions, &key, 1, "", 1, &err);
+      CheckNoError(err);
+    }
+    CheckCondition(0 != rocksdb_options_statistics_get_ticker_count(
+                            options, BYTES_WRITTEN_TICKER));
+    rocksdb_options_statistics_get_histogram_data(options, DB_WRITE_HIST, hist);
+    CheckCondition(0 != rocksdb_statistics_histogram_data_get_sum(hist));
+
+    rocksdb_statistics_histogram_data_destroy(hist);
   }
 
   StartPhase("cancel_all_background_work");
