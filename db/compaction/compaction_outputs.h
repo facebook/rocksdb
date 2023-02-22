@@ -173,7 +173,7 @@ class CompactionOutputs {
   // file metadata boundary if extended by range tombstones.
   //
   // @param comp_start_user_key and comp_end_user_key include timestamp if
-  // user-defined timestamp is enabled. Their timestamp should be kMaxTS.
+  // user-defined timestamp is enabled. Their timestamp should be max timestamp.
   // @param next_table_min_key internal key lower bound for the next compaction
   // output.
   // @param full_history_ts_low used for range tombstone garbage collection.

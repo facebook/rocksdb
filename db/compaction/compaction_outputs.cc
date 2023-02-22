@@ -548,7 +548,6 @@ Status CompactionOutputs::AddRangeDels(
       // as the upper_bound.
       upper_bound_guard = meta.largest.Encode();
     } else {
-      // TODO: unit test for this case, with/without timestamp
       SetMaxSeqAndTs(upper_bound_buf, next_table_min_key_parsed.user_key,
                      ts_sz);
       upper_bound_guard = upper_bound_buf.Encode();
@@ -669,15 +668,21 @@ Status CompactionOutputs::AddRangeDels(
     // To show meta.smallest <= meta.largest:
     // From the implementation of UpdateBoundariesForRange(), it suffices to
     // prove that when it is first called in this function, its parameters
-    // satisfy `start < end`, where start = max(tombstone_start*, lower_bound)
-    // and end = min(tombstone_end, upper_bound). Note that
-    // tombstone_start*.user_key = max(tombstone_start.user_key,
+    // satisfy `start <= end`, where start = max(tombstone_start*, lower_bound)
+    // and end = min(tombstone_end, upper_bound). From the above proof we have
+    // lower_bound <= tombstone_end and lower_bound <= upper_bound. We only need
+    // to show that tombstone_start* <= min(tombstone_end, upper_bound).
+    // Note that tombstone_start*.user_key = max(tombstone_start.user_key,
     // lower_bound.user_key). Assuming tombstone_end always has
     // kMaxSequenceNumber and lower_bound.seqno < kMaxSequenceNumber.
-    // Since lower_bound <= tombstone_end, and
-    // lower_bound.user_key < tombstone_end.user_key. So tombstone_start* <
-    // tombstone_end. Since tombstone_start* <= upper_bound and lower_bound <=
-    // tombstone_end, the two ranges overlap. So `start <= end`.
+    // Since lower_bound <= tombstone_end and lower_bound.seqno <
+    // tombstone_end.seqno (in absolute number order, not internal key order),
+    // lower_bound.user_key < tombstone_end.user_key.
+    // Since lower_bound.user_key < tombstone_end.user_key and
+    // tombstone_start.user_key < tombstone_end.user_key, tombstone_start* <
+    // tombstone_end. Since tombstone_start* <= upper_bound from the above proof
+    // and tombstone_start* < tombstone_end, tombstone_start* <=
+    // min(tombstone_end, upper_bound), so the two ranges overlap.
 
     // Range tombstone is not supported by output validator yet.
     builder_->Add(kv.first.Encode(), kv.second);

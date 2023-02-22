@@ -24,8 +24,9 @@ namespace ROCKSDB_NAMESPACE {
  *
  * CompactionMergingIterator emits range tombstone start keys from each LSM
  * level's range tombstone iterator, and for each range tombstone
- * [start,end)@seqno, the key will be start@kMaxSequenceNumber unless truncated
- * at file boundary (see detail TruncatedRangeDelIterator::start_key()).
+ * [start,end)@seqno, the key will be start@seqno with op_type
+ * kTypeRangeDeletion unless truncated at file boundary (see detail in
+ * TruncatedRangeDelIterator::start_key()).
  *
  * Caller should use CompactionMergingIterator::IsDeleteRangeSentinelKey() to
  * check if the current key is a range tombstone key.
