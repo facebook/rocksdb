@@ -2049,21 +2049,21 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
   read_options.iter_start_ts = &ts_lower_bound;
   read_options.timestamp = &ts_upper_bound;
 
-  auto check_iter_entry = [](const Iterator* iter, std::string expected_key,
-                             std::string expected_ts,
-                             std::string expected_value) {
-    ASSERT_OK(iter->status());
-    std::string expected_ukey_and_ts;
-    expected_ukey_and_ts.assign(expected_key.data(), expected_key.size());
-    expected_ukey_and_ts.append(expected_ts.data(), expected_ts.size());
+  auto check_iter_entry =
+      [](const Iterator* iter, const std::string& expected_key,
+         const std::string& expected_ts, const std::string& expected_value) {
+        ASSERT_OK(iter->status());
+        std::string expected_ukey_and_ts;
+        expected_ukey_and_ts.assign(expected_key.data(), expected_key.size());
+        expected_ukey_and_ts.append(expected_ts.data(), expected_ts.size());
 
-    ParsedInternalKey parsed_ikey;
-    ASSERT_OK(
-        ParseInternalKey(iter->key(), &parsed_ikey, true /* log_err_key */));
-    ASSERT_EQ(parsed_ikey.user_key, expected_ukey_and_ts);
-    ASSERT_EQ(iter->timestamp().ToString(), expected_ts);
-    ASSERT_EQ(iter->value().ToString(), expected_value);
-  };
+        ParsedInternalKey parsed_ikey;
+        ASSERT_OK(ParseInternalKey(iter->key(), &parsed_ikey,
+                                   true /* log_err_key */));
+        ASSERT_EQ(parsed_ikey.user_key, expected_ukey_and_ts);
+        ASSERT_EQ(iter->timestamp(), expected_ts);
+        ASSERT_EQ(iter->value(), expected_value);
+      };
 
   // Forward iterating multiple versions of the same key, get in this order:
   // [("key0", Timestamp(2, 0), "blob01"),
@@ -2129,7 +2129,7 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
     ASSERT_OK(iter->status());
 
     iter->SeekToLast();
-    for (int i = upper_bound_idx; i >= lower_bound_idx + 1; i--) {
+    for (int i = upper_bound_idx; i > lower_bound_idx; i--) {
       for (size_t j = 0; j < write_timestamps.size(); j++) {
         check_iter_entry(iter.get(), keys[i - 1], write_timestamps[j],
                          blobs[i - 1] + std::to_string(j));
