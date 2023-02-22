@@ -103,6 +103,7 @@ void LRUHandleTable::Resize() {
   std::unique_ptr<LRUHandle* []> new_list {
     new LRUHandle* [size_t{1} << new_length_bits] {}
   };
+  [[maybe_unused]] uint32_t count = 0;
   for (uint32_t i = 0; i < old_length; i++) {
     LRUHandle* h = list_[i];
     while (h != nullptr) {
@@ -112,6 +113,7 @@ void LRUHandleTable::Resize() {
       h->next_hash = *ptr;
       *ptr = h;
       h = next;
+      count++;
     }
   }
   assert(elems_ == count);
