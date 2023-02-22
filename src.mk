@@ -315,6 +315,13 @@ LIB_SOURCES =                                                   \
   utilities/wal_filter.cc                                       \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+  tools/io_tracer_parser_tool.cc                                \
+  tools/ldb_cmd.cc                                              \
+  tools/ldb_tool.cc                                             \
+  tools/sst_dump_tool.cc                                        \
+  utilities/blob_db/blob_dump_tool.cc                           \
+
+
 
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 LIB_SOURCES_ASM =\
@@ -680,6 +687,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/sst_file_manager.cc                           \
   java/rocksjni/sst_file_writerjni.cc                         \
   java/rocksjni/sst_file_readerjni.cc                         \
+  java/rocksjni/sst_dump_tooljni.cc                           \
   java/rocksjni/sst_file_reader_iterator.cc                   \
   java/rocksjni/sst_partitioner.cc                            \
   java/rocksjni/statistics.cc                                 \
