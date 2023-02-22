@@ -1018,6 +1018,9 @@ bool DBIter::FindValueForCurrentKey() {
 
       break;
     case kTypeBlobIndex:
+      if (timestamp_lb_ != nullptr) {
+        saved_key_.SetInternalKey(saved_ikey_);
+      }
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
         return false;
       }

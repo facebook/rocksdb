@@ -3,6 +3,9 @@
 ### Behavior changes
 * Compaction output file cutting logic now considers range tombstone start keys. For example, SST partitioner now may receive ParitionRequest for range tombstone start keys.
 
+### Bug Fixes
+* Fixed an issue for backward iteration when `ReadOptions::iter_start_ts` is specified in combination with BlobDB.
+
 ## 8.0.0 (02/19/2023)
 ### Behavior changes
 * `ReadOptions::verify_checksums=false` disables checksum verification for more reads of non-`CacheEntryRole::kDataBlock` blocks.
