@@ -341,11 +341,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       } else {
         assert(!skipping_saved_key ||
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
-        if (!iter_.PrepareValue()) {
-          assert(!iter_.status().ok());
-          valid_ = false;
-          return false;
-        }
         num_skipped = 0;
         reseek_done = false;
         switch (ikey_.type) {
@@ -369,6 +364,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeValue:
           case kTypeBlobIndex:
           case kTypeWideColumnEntity:
+            if (!iter_.PrepareValue()) {
+              assert(!iter_.status().ok());
+              valid_ = false;
+              return false;
+            }
             if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
             } else {
@@ -397,6 +397,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             return true;
             break;
           case kTypeMerge:
+            if (!iter_.PrepareValue()) {
+              assert(!iter_.status().ok());
+              valid_ = false;
+              return false;
+            }
             saved_key_.SetUserKey(
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
@@ -1013,6 +1018,9 @@ bool DBIter::FindValueForCurrentKey() {
 
       break;
     case kTypeBlobIndex:
+      if (timestamp_lb_ != nullptr) {
+        saved_key_.SetInternalKey(saved_ikey_);
+      }
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
         return false;
       }
@@ -1428,9 +1436,8 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
     if (timestamp_size_ > 0) {
       const std::string kTsMax(timestamp_size_, '\xff');
       Slice ts = kTsMax;
-      saved_key_.UpdateInternalKey(
-          kMaxSequenceNumber, kValueTypeForSeekForPrev,
-          timestamp_lb_ != nullptr ? timestamp_lb_ : &ts);
+      saved_key_.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeekForPrev,
+                                   &ts);
     }
   }
 }
@@ -1632,24 +1639,15 @@ void DBIter::SeekToLast() {
   if (iterate_upper_bound_ != nullptr) {
     // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
     SeekForPrev(*iterate_upper_bound_);
-    const bool is_ikey = (timestamp_size_ > 0 && timestamp_lb_ != nullptr);
+#ifndef NDEBUG
     Slice k = Valid() ? key() : Slice();
-    if (is_ikey && Valid()) {
+    if (Valid() && timestamp_size_ > 0 && timestamp_lb_) {
       k.remove_suffix(kNumInternalBytes + timestamp_size_);
     }
-    while (Valid() && 0 == user_comparator_.CompareWithoutTimestamp(
-                               *iterate_upper_bound_, /*a_has_ts=*/false, k,
-                               /*b_has_ts=*/false)) {
-      ReleaseTempPinnedData();
-      ResetBlobValue();
-      ResetValueAndColumns();
-      PrevInternal(nullptr);
-
-      k = key();
-      if (is_ikey) {
-        k.remove_suffix(kNumInternalBytes + timestamp_size_);
-      }
-    }
+    assert(!Valid() || user_comparator_.CompareWithoutTimestamp(
+                           k, /*a_has_ts=*/false, *iterate_upper_bound_,
+                           /*b_has_ts=*/false) < 0);
+#endif
     return;
   }
 

@@ -414,7 +414,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     assert(cfd->imm()->NumNotFlushed() != 0);
     assert(cfd->imm()->IsFlushPending());
   }
-  for (const auto bg_flush_arg : bg_flush_args) {
+  for (const auto& bg_flush_arg : bg_flush_args) {
     assert(bg_flush_arg.flush_reason_ == bg_flush_args[0].flush_reason_);
   }
 #endif /* !NDEBUG */
@@ -2908,7 +2908,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
 // All the CFD/bg_flush_arg in the FlushReq must have the same flush reason, so
 // just grab the first one
 #ifndef NDEBUG
-    for (const auto bg_flush_arg : bg_flush_args) {
+    for (const auto& bg_flush_arg : bg_flush_args) {
       assert(bg_flush_arg.flush_reason_ == bg_flush_args[0].flush_reason_);
     }
 #endif /* !NDEBUG */

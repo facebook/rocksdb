@@ -2011,6 +2011,134 @@ TEST_F(DBBlobWithTimestampTest, MultiGetMergeBlobWithPut) {
   ASSERT_EQ(values[2], "v2_0");
 }
 
+TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+
+  int num_blobs = 5;
+  std::vector<std::string> keys;
+  std::vector<std::string> blobs;
+
+  WriteOptions write_opts;
+  std::vector<std::string> write_timestamps = {Timestamp(1, 0),
+                                               Timestamp(2, 0)};
+
+  // For each key in ["key0", ... "keyi", ...], write two versions:
+  // Timestamp(1, 0), "blobi0"
+  // Timestamp(2, 0), "blobi1"
+  for (int i = 0; i < num_blobs; i++) {
+    keys.push_back("key" + std::to_string(i));
+    blobs.push_back("blob" + std::to_string(i));
+    for (size_t j = 0; j < write_timestamps.size(); j++) {
+      ASSERT_OK(db_->Put(write_opts, keys[i], write_timestamps[j],
+                         blobs[i] + std::to_string(j)));
+    }
+  }
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  std::vector<std::string> read_timestamps = {Timestamp(0, 0), Timestamp(3, 0)};
+  Slice ts_lower_bound(read_timestamps[0]);
+  Slice ts_upper_bound(read_timestamps[1]);
+  read_options.iter_start_ts = &ts_lower_bound;
+  read_options.timestamp = &ts_upper_bound;
+
+  auto check_iter_entry =
+      [](const Iterator* iter, const std::string& expected_key,
+         const std::string& expected_ts, const std::string& expected_value) {
+        ASSERT_OK(iter->status());
+        std::string expected_ukey_and_ts;
+        expected_ukey_and_ts.assign(expected_key.data(), expected_key.size());
+        expected_ukey_and_ts.append(expected_ts.data(), expected_ts.size());
+
+        ParsedInternalKey parsed_ikey;
+        ASSERT_OK(ParseInternalKey(iter->key(), &parsed_ikey,
+                                   true /* log_err_key */));
+        ASSERT_EQ(parsed_ikey.user_key, expected_ukey_and_ts);
+        ASSERT_EQ(iter->timestamp(), expected_ts);
+        ASSERT_EQ(iter->value(), expected_value);
+      };
+
+  // Forward iterating multiple versions of the same key, get in this order:
+  // [("key0", Timestamp(2, 0), "blob01"),
+  //  ("key0", Timestamp(1, 0), "blob00"),
+  //  ("key1", Timestamp(2, 0), "blob11")...]
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    iter->SeekToFirst();
+    for (int i = 0; i < num_blobs; i++) {
+      for (size_t j = write_timestamps.size(); j > 0; --j) {
+        check_iter_entry(iter.get(), keys[i], write_timestamps[j - 1],
+                         blobs[i] + std::to_string(j - 1));
+        iter->Next();
+      }
+    }
+  }
+
+  // Backward iterating multiple versions of the same key, get in this order:
+  // [("key4", Timestamp(1, 0), "blob00"),
+  //  ("key4", Timestamp(2, 0), "blob01"),
+  //  ("key3", Timestamp(1, 0), "blob10")...]
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    for (int i = num_blobs; i > 0; i--) {
+      for (size_t j = 0; j < write_timestamps.size(); j++) {
+        check_iter_entry(iter.get(), keys[i - 1], write_timestamps[j],
+                         blobs[i - 1] + std::to_string(j));
+        iter->Prev();
+      }
+    }
+  }
+
+  int upper_bound_idx = num_blobs - 2;
+  int lower_bound_idx = 1;
+  Slice upper_bound_slice(keys[upper_bound_idx]);
+  Slice lower_bound_slice(keys[lower_bound_idx]);
+  read_options.iterate_upper_bound = &upper_bound_slice;
+  read_options.iterate_lower_bound = &lower_bound_slice;
+
+  // Forward iteration with upper and lower bound.
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    iter->SeekToFirst();
+    for (int i = lower_bound_idx; i < upper_bound_idx; i++) {
+      for (size_t j = write_timestamps.size(); j > 0; --j) {
+        check_iter_entry(iter.get(), keys[i], write_timestamps[j - 1],
+                         blobs[i] + std::to_string(j - 1));
+        iter->Next();
+      }
+    }
+  }
+
+  // Backward iteration with upper and lower bound.
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    for (int i = upper_bound_idx; i > lower_bound_idx; i--) {
+      for (size_t j = 0; j < write_timestamps.size(); j++) {
+        check_iter_entry(iter.get(), keys[i - 1], write_timestamps[j],
+                         blobs[i - 1] + std::to_string(j));
+        iter->Prev();
+      }
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

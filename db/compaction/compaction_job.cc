@@ -1118,6 +1118,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   IterKey end_ikey;
   Slice start_slice;
   Slice end_slice;
+  Slice start_user_key{};
+  Slice end_user_key{};
 
   static constexpr char kMaxTs[] =
       "\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff";
@@ -1140,6 +1142,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                    &ts_slice);
     }
     start_slice = start_ikey.GetInternalKey();
+    start_user_key = start_ikey.GetUserKey();
   }
   if (end.has_value()) {
     end_ikey.SetInternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
@@ -1148,6 +1151,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                  &ts_slice);
     }
     end_slice = end_ikey.GetInternalKey();
+    end_user_key = end_ikey.GetUserKey();
   }
 
   std::unique_ptr<InternalIterator> clip;
@@ -1263,11 +1267,15 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       [this, sub_compact](CompactionOutputs& outputs) {
         return this->OpenCompactionOutputFile(sub_compact, outputs);
       };
+
   const CompactionFileCloseFunc close_file_func =
-      [this, sub_compact](CompactionOutputs& outputs, const Status& status,
-                          const Slice& next_table_min_key) {
-        return this->FinishCompactionOutputFile(status, sub_compact, outputs,
-                                                next_table_min_key);
+      [this, sub_compact, start_user_key, end_user_key](
+          CompactionOutputs& outputs, const Status& status,
+          const Slice& next_table_min_key) {
+        return this->FinishCompactionOutputFile(
+            status, sub_compact, outputs, next_table_min_key,
+            sub_compact->start.has_value() ? &start_user_key : nullptr,
+            sub_compact->end.has_value() ? &end_user_key : nullptr);
       };
 
   Status status;
@@ -1278,7 +1286,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
-
     assert(!end.has_value() || cfd->user_comparator()->Compare(
                                    c_iter->user_key(), end.value()) < 0);
 
@@ -1458,7 +1465,8 @@ void CompactionJob::RecordDroppedKeys(
 
 Status CompactionJob::FinishCompactionOutputFile(
     const Status& input_status, SubcompactionState* sub_compact,
-    CompactionOutputs& outputs, const Slice& next_table_min_key) {
+    CompactionOutputs& outputs, const Slice& next_table_min_key,
+    const Slice* comp_start_user_key, const Slice* comp_end_user_key) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_SYNC_FILE);
   assert(sub_compact != nullptr);
@@ -1488,12 +1496,10 @@ Status CompactionJob::FinishCompactionOutputFile(
     // output_to_penultimate_level compaction here, as it's only used to decide
     // if range dels could be dropped.
     if (outputs.HasRangeDel()) {
-      s = outputs.AddRangeDels(
-          sub_compact->start.has_value() ? &(sub_compact->start.value())
-                                         : nullptr,
-          sub_compact->end.has_value() ? &(sub_compact->end.value()) : nullptr,
-          range_del_out_stats, bottommost_level_, cfd->internal_comparator(),
-          earliest_snapshot, next_table_min_key, full_history_ts_low_);
+      s = outputs.AddRangeDels(comp_start_user_key, comp_end_user_key,
+                               range_del_out_stats, bottommost_level_,
+                               cfd->internal_comparator(), earliest_snapshot,
+                               next_table_min_key, full_history_ts_low_);
     }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
     TEST_SYNC_POINT("CompactionJob::FinishCompactionOutputFile1");
