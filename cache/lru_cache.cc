@@ -587,17 +587,29 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
             e->Unref();
             e->Free(table_.GetAllocator());
             e = nullptr;
-          } else {
-            PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
-            RecordTick(stats, SECONDARY_CACHE_HITS);
           }
         }
       } else {
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure.
         e->SetIsPending(true);
+      }
+      if (e) {
         // This may be slightly inaccurate, if the lookup eventually fails.
         // But the probability is very low.
+        switch (helper->role) {
+          case CacheEntryRole::kFilterBlock:
+            RecordTick(stats, SECONDARY_CACHE_FILTER_HITS);
+            break;
+          case CacheEntryRole::kIndexBlock:
+            RecordTick(stats, SECONDARY_CACHE_INDEX_HITS);
+            break;
+          case CacheEntryRole::kDataBlock:
+            RecordTick(stats, SECONDARY_CACHE_DATA_HITS);
+            break;
+          default:
+            break;
+        }
         PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
         RecordTick(stats, SECONDARY_CACHE_HITS);
       }
