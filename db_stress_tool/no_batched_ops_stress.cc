@@ -492,6 +492,11 @@ class NonBatchedOpsStressTest : public StressTest {
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
     Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
     bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
 
@@ -514,7 +519,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // found case
       thread->stats.AddGets(1, 1);
       // we only have the latest expected state
-      if (!FLAGS_skip_verifydb && !read_opts_copy.timestamp &&
+      if (!FLAGS_skip_verifydb && !read_older_ts &&
           thread->shared->Get(rand_column_families[0], rand_keys[0]) ==
               SharedState::DELETION_SENTINEL) {
         thread->shared->SetVerificationFailure();
