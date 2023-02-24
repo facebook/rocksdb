@@ -2233,7 +2233,7 @@ void Version::MultiGetBlob(
           range.AddValueSize(key_context->value->size());
         } else {
           assert(key_context->columns);
-          key_context->columns->SetPlainValue(blob.result);
+          key_context->columns->SetPlainValue(std::move(blob.result));
           range.AddValueSize(key_context->columns->serialized_size());
         }
 
@@ -2390,8 +2390,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
             *value = std::move(result);
           } else {
             assert(columns);
-            columns->Reset();
-            columns->SetPlainValue(result);
+            columns->SetPlainValue(std::move(result));
           }
         }
 
@@ -2445,7 +2444,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           value->PinSelf();
         } else {
           assert(columns != nullptr);
-          columns->SetPlainValue(result);
+          columns->SetPlainValue(std::move(result));
         }
       }
     }
@@ -2696,7 +2695,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         range->AddValueSize(iter->value->size());
       } else {
         assert(iter->columns);
-        iter->columns->SetPlainValue(result);
+        iter->columns->SetPlainValue(std::move(result));
         range->AddValueSize(iter->columns->serialized_size());
       }
 

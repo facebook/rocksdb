@@ -1078,7 +1078,7 @@ static bool SaveValue(void* arg, const char* entry) {
                 *(s->value) = std::move(result);
               } else {
                 assert(s->columns);
-                s->columns->SetPlainValue(result);
+                s->columns->SetPlainValue(std::move(result));
               }
             }
           }
@@ -1152,7 +1152,7 @@ static bool SaveValue(void* arg, const char* entry) {
                 /* op_failure_scope */ nullptr);
 
             if (s->status->ok()) {
-              *(s->status) = s->columns->SetWideColumnValue(result);
+              *(s->status) = s->columns->SetWideColumnValue(std::move(result));
             }
           }
         } else if (s->value) {
@@ -1200,7 +1200,7 @@ static bool SaveValue(void* arg, const char* entry) {
                 *(s->value) = std::move(result);
               } else {
                 assert(s->columns);
-                s->columns->SetPlainValue(result);
+                s->columns->SetPlainValue(std::move(result));
               }
             }
           } else {
@@ -1249,7 +1249,7 @@ static bool SaveValue(void* arg, const char* entry) {
                 *(s->value) = std::move(result);
               } else {
                 assert(s->columns);
-                s->columns->SetPlainValue(result);
+                s->columns->SetPlainValue(std::move(result));
               }
             }
           }
