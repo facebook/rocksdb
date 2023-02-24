@@ -153,9 +153,11 @@ class MemTableListVersion {
       LogBuffer* log_buffer);
 
   // REQUIRE: m is an immutable memtable
-  void Add(MemTable* m, autovector<MemTable*>* to_delete);
+  void Add(MemTable* m, autovector<MemTable*>* to_delete, MemTable *add_pos = nullptr);
   // REQUIRE: m is an immutable memtable
   void Remove(MemTable* m, autovector<MemTable*>* to_delete);
+  // REQUIRE: m is an immutable memtable
+  void RemoveMempurgeInput(MemTable* m, autovector<MemTable*>* to_delete);
 
   // Return true if memtable is trimmed
   bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
@@ -169,7 +171,7 @@ class MemTableListVersion {
                    ReadCallback* callback = nullptr,
                    bool* is_blob_index = nullptr);
 
-  void AddMemTable(MemTable* m);
+  void AddMemTable(MemTable* m, MemTable* add_pos = nullptr);
 
   void UnrefMemTable(autovector<MemTable*>* to_delete, MemTable* m);
 
@@ -186,6 +188,17 @@ class MemTableListVersion {
   bool MemtableLimitExceeded(size_t usage);
 
   // Immutable MemTables that have not yet been flushed.
+  // The key invariant is that this list is sorted by MemTable.GetID() in descending order
+  // but it may be non consecutive if mempurge is ever used.
+  //
+  // Many codes relies on this invariant, here is an unexhausted list:
+  // - MVCC read: MemTableListVersion::GetFromList()
+  // - MemTableListVersion::GetEarliestMemTableID() and GetLatestMemTableID()
+  // - Building iterator from a sublist of this list: FlushJob::WriteLevel0Table()
+  // - Picking which ones in this list to flush: FlushJob::PickMemTable()
+  //   and MemTableListVersion::PickMemtablesToFlush()
+  // - Deciding which entries in a sublist of this list can be considered
+  //   as MVCC garbage: FlushJob::MemPurgeDecider()
   std::list<MemTable*> memlist_;
 
   // MemTables that have already been flushed
@@ -266,8 +279,7 @@ class MemTableList {
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
   void PickMemtablesToFlush(uint64_t max_memtable_id,
-                            autovector<MemTable*>* mems,
-                            uint64_t* max_next_log_number = nullptr);
+                            autovector<MemTable*>* mems);
 
   // Reset status of the given memtable list back to pending state so that
   // they can get picked up again on the next round of flush.
@@ -283,14 +295,15 @@ class MemTableList {
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer,
       std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
-      bool write_edits = true);
+      MemTable* mempurge_output = nullptr);
 
-  // New memtables are inserted at the front of the list.
+  // Usually, new memtables are inserted at the front of the list.
+  // However, for the output of a mempurge, it is inserted before `add_pos`.
   // Takes ownership of the referenced held on *m by the caller of Add().
   // By default, adding memtables will flag that the memtable list needs to be
   // flushed, but in certain situations, like after a mempurge, we may want to
   // avoid flushing the memtable list upon addition of a memtable.
-  void Add(MemTable* m, autovector<MemTable*>* to_delete);
+  void Add(MemTable* m, autovector<MemTable*>* to_delete, MemTable *add_pos = nullptr);
 
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
@@ -421,11 +434,25 @@ class MemTableList {
   void InstallNewVersion();
 
   // DB mutex held
+  void LogMempurgeHelper(LogBuffer* log_buffer,
+    const char *cfd_name, const MemTable *m,
+    const uint64_t mem_cnt, const bool isSucc);
+
+  // DB mutex held
+  // Called to install result of a mempurge
+  void ReplaceMemTablesInPlace(ColumnFamilyData* cfd, autovector<MemTable*> mems,
+    MemTable* new_mem_table, LogBuffer* log_buffer, autovector<MemTable*>* to_delete,
+    InstrumentedMutex* mu);
+
+  // DB mutex held
   // Called after writing to MANIFEST
   void RemoveMemTablesOrRestoreFlags(const Status& s, ColumnFamilyData* cfd,
                                      size_t batch_count, LogBuffer* log_buffer,
                                      autovector<MemTable*>* to_delete,
                                      InstrumentedMutex* mu);
+                                     
+  // DB mutex held
+  void RestoreFlags(MemTable* m);
 
   const int min_write_buffer_number_to_merge_;
 

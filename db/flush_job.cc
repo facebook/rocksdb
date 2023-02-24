@@ -169,22 +169,13 @@ void FlushJob::PickMemTable() {
   assert(!pick_memtable_called);
   pick_memtable_called = true;
 
-  // Maximum "NextLogNumber" of the memtables to flush.
-  // When mempurge feature is turned off, this variable is useless
-  // because the memtables are implicitly sorted by increasing order of creation
-  // time. Therefore mems_->back()->GetNextLogNumber() is already equal to
-  // max_next_log_number. However when Mempurge is on, the memtables are no
-  // longer sorted by increasing order of creation time. Therefore this variable
-  // becomes necessary because mems_->back()->GetNextLogNumber() is no longer
-  // necessarily equal to max_next_log_number.
-  uint64_t max_next_log_number = 0;
-
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_,
-                                    &max_next_log_number);
+  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_);
   if (mems_.empty()) {
     return;
   }
+
+  uint64_t max_next_log_number = mems_.back()->GetNextLogNumber();
 
   ReportFlushInputSize(mems_);
 
@@ -192,16 +183,27 @@ void FlushJob::PickMemTable() {
   // time. We will use the first memtable's `edit` to keep the meta info for
   // this flush.
   MemTable* m = mems_[0];
-  edit_ = m->GetEdits();
-  edit_->SetPrevLogNumber(0);
-  // SetLogNumber(log_num) indicates logs with number smaller than log_num
-  // will no longer be picked up for recovery.
-  edit_->SetLogNumber(max_next_log_number);
-  edit_->SetColumnFamily(cfd_->GetID());
+    edit_ = m->GetEdits();
+    edit_->SetPrevLogNumber(0);
+    // SetLogNumber(log_num) indicates logs with number smaller than log_num
+    // will no longer be picked up for recovery.
+    edit_->SetLogNumber(max_next_log_number);
+    edit_->SetColumnFamily(cfd_->GetID());
 
-  // path 0 for level 0 file.
-  meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
-  meta_.epoch_number = cfd_->NewEpochNumber();
+
+  if (mems_[0]->IsMempurgeOutput()) {
+    // even IsMempurgeOutput() is held for any other MemTable in `mems_`,
+    // it's ok to use the file resource piggybacked by mems_[0]
+    const MemTable::MempurgePiggyback& mp = mems_[0]->GetMempurgePiggyback();
+    assert(!mp.IsEmpty());
+    // path 0 for level 0 file.
+    meta_.fd = FileDescriptor(mp.allocated_not_used_file_number, 0, 0);
+    meta_.epoch_number = mp.allocated_not_used_epoch_number;
+  } else {
+    // path 0 for level 0 file.
+    meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
+    meta_.epoch_number = cfd_->NewEpochNumber();
+  }
 
   base_ = cfd_->current();
   base_->Ref();  // it is likely that we do not need this reference
@@ -300,9 +302,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
         log_buffer_, &committed_flush_jobs_info_,
-        !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
-                              but 'false' if mempurge successful: no new min log number
-                              or new level 0 file path to write to manifest. */);
+        mempurge_output_);
   }
 
   if (s.ok() && file_meta != nullptr) {
@@ -364,6 +364,7 @@ Status FlushJob::MemPurge() {
   Status s;
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
+  TEST_SYNC_POINT("FlushJob::MemPurge::BeforeRelockDBMutex");
   assert(!mems_.empty());
 
   // Measure purging time.
@@ -591,15 +592,17 @@ Status FlushJob::MemPurge() {
 
         new_mem->SetID(new_mem_id);
         new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());
+        new_mem->SetMempurgePiggyback(MemTable::MempurgePiggyback{
+          meta_.fd.GetNumber(),
+          meta_.epoch_number,
+        });
 
-        // This addition will not trigger another flush, because
-        // we do not call SchedulePendingFlush().
-        cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free);
-        new_mem->Ref();
         // Piggyback FlushJobInfo on the first flushed memtable.
-        db_mutex_->AssertHeld();
         meta_.fd.file_size = 0;
         mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
+
+        new_mem->Ref();
+        mempurge_output_ = new_mem;
         db_mutex_->Unlock();
       } else {
         s = Status::Aborted(Slice("Mempurge filled more than one memtable."));

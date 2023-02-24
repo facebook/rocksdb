@@ -31,8 +31,19 @@ class InternalKeyComparator;
 class Mutex;
 class VersionSet;
 
-void MemTableListVersion::AddMemTable(MemTable* m) {
-  memlist_.push_front(m);
+void MemTableListVersion::AddMemTable(MemTable* m, MemTable* add_pos) {
+  if (add_pos == nullptr) {
+    memlist_.push_front(m);
+  } else {
+    auto it = memlist_.begin();
+    for (; it != memlist_.end(); it ++) {
+      if (*it == add_pos) {
+        memlist_.insert(it, m);
+        break;
+      }
+    }
+    assert(it != memlist_.end()); // assert found
+  }
   *parent_memtable_list_memory_usage_ += m->ApproximateMemoryUsage();
 }
 
@@ -296,9 +307,9 @@ SequenceNumber MemTableListVersion::GetFirstSequenceNumber() const {
 }
 
 // caller is responsible for referencing m
-void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
+void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete, MemTable *add_pos) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
-  AddMemTable(m);
+  AddMemTable(m, add_pos);
   // m->MemoryAllocatedBytes() is added in MemoryAllocatedBytesExcludingLast
   TrimHistory(to_delete, 0);
 }
@@ -319,6 +330,16 @@ void MemTableListVersion::Remove(MemTable* m,
   } else {
     UnrefMemTable(to_delete, m);
   }
+}
+
+// We do not need to save any input of a successful mempurge in history
+// because the output of that mempurge is identical to all of its input.
+void MemTableListVersion::RemoveMempurgeInput(MemTable* m,
+                                 autovector<MemTable*>* to_delete) {
+  assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
+  memlist_.remove(m);
+  m->MarkFlushed();
+  UnrefMemTable(to_delete, m);
 }
 
 // return the total memory usage assuming the oldest flushed memtable is dropped
@@ -386,8 +407,7 @@ bool MemTableList::IsFlushPendingOrRunning() const {
 
 // Returns the memtables that need to be flushed.
 void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
-                                        autovector<MemTable*>* ret,
-                                        uint64_t* max_next_log_number) {
+                                        autovector<MemTable*>* ret) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
@@ -397,8 +417,6 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
   // at the FRONT of the memlist (memlist.push_front(mem)). Therefore, by
   // iterating through the memlist starting at the end, the vector<MemTable*>
   // ret is filled with memtables already sorted in increasing MemTable ID.
-  // However, when the mempurge feature is activated, new memtables with older
-  // IDs will be added to the memlist.
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
     if (!atomic_flush && m->atomic_flush_seqno_ != kMaxSequenceNumber) {
@@ -414,10 +432,6 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
         imm_flush_needed.store(false, std::memory_order_release);
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
-      if (max_next_log_number) {
-        *max_next_log_number =
-            std::max(m->GetNextLogNumber(), *max_next_log_number);
-      }
       ret->push_back(m);
     } else if (!ret->empty()) {
       // This `break` is necessary to prevent picking non-consecutive memtables
@@ -462,7 +476,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer,
     std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
-    bool write_edits) {
+    MemTable* mempurge_output) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -478,8 +492,15 @@ Status MemTableList::TryInstallMemtableFlushResults(
     mems[i]->file_number_ = file_number;
   }
 
-  // if some other thread is already committing, then return
   Status s;
+  if (mempurge_output != nullptr) {
+    ReplaceMemTablesInPlace(cfd, mems, mempurge_output, log_buffer, to_delete, mu);
+    // After the above function is called, the commit condition below is guranteed to
+    // not be met, simply return here.
+    return s;
+  }
+
+  // if some other thread is already committing, then return
   if (commit_in_progress_) {
     TEST_SYNC_POINT("MemTableList::TryInstallMemtableFlushResults:InProgress");
     return s;
@@ -576,28 +597,11 @@ Status MemTableList::TryInstallMemtableFlushResults(
         RemoveMemTablesOrRestoreFlags(status, cfd, batch_count, log_buffer,
                                       to_delete, mu);
       };
-      if (write_edits) {
-        // this can release and reacquire the mutex.
-        s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
-                              db_directory, /*new_descriptor_log=*/false,
-                              /*column_family_options=*/nullptr,
-                              manifest_write_cb);
-      } else {
-        // If write_edit is false (e.g: successful mempurge),
-        // then remove old memtables, wake up manifest write queue threads,
-        // and don't commit anything to the manifest file.
-        RemoveMemTablesOrRestoreFlags(s, cfd, batch_count, log_buffer,
-                                      to_delete, mu);
-        // Note: cfd->SetLogNumber is only called when a VersionEdit
-        // is written to MANIFEST. When mempurge is succesful, we skip
-        // this step, therefore cfd->GetLogNumber is always is
-        // earliest log with data unflushed.
-        // Notify new head of manifest write queue.
-        // wake up all the waiting writers
-        // TODO(bjlemaire): explain full reason WakeUpWaitingManifestWriters
-        // needed or investigate more.
-        vset->WakeUpWaitingManifestWriters();
-      }
+      // this can release and reacquire the mutex.
+      s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
+                            db_directory, /*new_descriptor_log=*/false,
+                            /*column_family_options=*/nullptr,
+                            manifest_write_cb);
     }
   }
   commit_in_progress_ = false;
@@ -605,7 +609,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
 }
 
 // New memtables are inserted at the front of the list.
-void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
+void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete, MemTable* add_pos) {
   assert(static_cast<int>(current_->memlist_.size()) >= num_flush_not_started_);
   InstallNewVersion();
   // this method is used to move mutable memtable into an immutable list.
@@ -613,7 +617,7 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   // and when moving to the immutable list we don't unref it,
   // we don't have to ref the memtable here. we just take over the
   // reference from the DBImpl.
-  current_->Add(m, to_delete);
+  current_->Add(m, to_delete, add_pos);
   m->MarkImmutable();
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {
@@ -679,6 +683,51 @@ void MemTableList::InstallNewVersion() {
     current_ = new MemTableListVersion(&current_memory_usage_, *version);
     current_->Ref();
     version->Unref();
+  }
+}
+
+void MemTableList::LogMempurgeHelper(LogBuffer* log_buffer,
+                                     const char* cfd_name, const MemTable* m,
+                                     const uint64_t mem_cnt,
+                                     const bool isSucc) {
+  const char* status = isSucc ? "done" : "failed";
+  if (m->edit_.GetBlobFileAdditions().empty()) {
+    ROCKS_LOG_BUFFER(log_buffer, "[%s] Mempurge: memtable #%" PRIu64 " %s",
+                     cfd_name, mem_cnt, status);
+  } else {
+    ROCKS_LOG_BUFFER(
+        log_buffer, "[%s] Mempurge: memtable #%" PRIu64 " (+%zu blob files) %s",
+        cfd_name, mem_cnt, m->edit_.GetBlobFileAdditions().size(), status);
+  }
+}
+
+void MemTableList::ReplaceMemTablesInPlace(
+    ColumnFamilyData* cfd,
+    autovector<MemTable*> mems, MemTable* new_mem_table,
+    LogBuffer* log_buffer, autovector<MemTable*>* to_delete,
+    InstrumentedMutex* mu) {
+  mu->AssertHeld();
+  assert(new_mem_table->IsMempurgeOutput());
+  InstallNewVersion();
+
+  uint64_t mem_cnt = 1;  // how many memtables have been flushed.
+
+  if (!cfd->IsDropped()) {
+    Add(new_mem_table, to_delete, mems[0]);
+    UpdateCachedValuesFromMemTableListVersion();
+
+    for (auto m : mems) {
+      current_->RemoveMempurgeInput(m, to_delete);
+      LogMempurgeHelper(log_buffer, cfd->GetName().c_str(), m, mem_cnt, true);
+      UpdateCachedValuesFromMemTableListVersion();
+      mem_cnt++;
+    }
+  } else {
+    for (auto m : mems) {
+      RestoreFlags(m);
+      LogMempurgeHelper(log_buffer, cfd->GetName().c_str(), m, mem_cnt, false);
+      mem_cnt++;
+    }
   }
 }
 
@@ -752,15 +801,19 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
                          m->edit_.GetBlobFileAdditions().size(), mem_id);
       }
 
-      m->flush_completed_ = false;
-      m->flush_in_progress_ = false;
-      m->edit_.Clear();
-      num_flush_not_started_++;
-      m->file_number_ = 0;
-      imm_flush_needed.store(true, std::memory_order_release);
+      RestoreFlags(m);
       ++mem_id;
     }
   }
+}
+
+void MemTableList::RestoreFlags(MemTable* m) {
+  m->flush_completed_ = false;
+  m->flush_in_progress_ = false;
+  m->edit_.Clear();
+  num_flush_not_started_++;
+  m->file_number_ = 0;
+  imm_flush_needed.store(true, std::memory_order_release);
 }
 
 uint64_t MemTableList::PrecomputeMinLogContainingPrepSection(
