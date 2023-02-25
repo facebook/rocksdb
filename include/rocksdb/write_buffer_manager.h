@@ -22,23 +22,31 @@
 
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManager;
-
 // Interface to block and signal DB instances, intended for RocksDB
 // internal use only. Each DB instance contains ptr to StallInterface.
 class StallInterface {
  public:
+  enum State {
+    BLOCKED = 0,
+    RUNNING,
+  };
+
   virtual ~StallInterface() {}
 
   virtual void Block() = 0;
 
   virtual void Signal() = 0;
+
+  virtual void SetState(State /* state */) {}
 };
 
+// This class is thread-safe
 class WriteBufferManager final {
  public:
   // Parameters:
-  // _buffer_size: _buffer_size = 0 indicates no limit. Memory won't be capped.
-  // memory_usage() won't be valid and ShouldFlush() will always return true.
+  // _buffer_size: the memory limit. _buffer_size = 0 indicates no limit where
+  // memory won't be capped, memory_usage() won't be valid and ShouldFlush()
+  // will always return false.
   //
   // cache_: if `cache` is provided, we'll put dummy entries in the cache and
   // cost the memory allocated to the cache. It can be used even if _buffer_size
@@ -56,121 +64,132 @@ class WriteBufferManager final {
 
   ~WriteBufferManager();
 
-  // Returns true if buffer_limit is passed to limit the total memory usage and
-  // is greater than 0.
+  // Returns true if memory limit exixts (i.e, buffer size > 0);
+  //
+  // WARNING: If running without syncronization with `SetBufferSize()`, this
+  // function might not return the latest result changed by `SetBufferSize()`
+  // but an old result.
   bool enabled() const { return buffer_size() > 0; }
 
   // Returns true if pointer to cache is passed.
   bool cost_to_cache() const { return cache_res_mgr_ != nullptr; }
 
-  // Returns the total memory used by memtables.
-  // Only valid if enabled()
+  // Returns the total memory used by memtables.  Only valid if enabled()=true
+  //
+  // WARNING: If running without syncronization with `ReserveMem()/FreeMem()`,
+  // this function might not return the latest result changed by these functions
+  // but an old result.
   size_t memory_usage() const {
     return memory_used_.load(std::memory_order_relaxed);
   }
 
   // Returns the total memory used by active memtables.
+  //
+  // WARNING: If running without syncronization with
+  // `ReserveMem()/ScheduleFreeMem()`, this function might not return the latest
+  // result changed by these functions but an old result.
   size_t mutable_memtable_memory_usage() const {
     return memory_active_.load(std::memory_order_relaxed);
   }
 
+  // Return the number of dummy entries put in the cache used to cost the memory
+  // accounted by this WriteBufferManager to the cache
+  //
+  // WARNING: If running without syncronization with `ReserveMem()/FreeMem()`,
+  // this function might not return the latest result changed by these functions
+  // but an old result.
   size_t dummy_entries_in_cache_usage() const;
 
   // Returns the buffer_size.
+  //
+  // WARNING: If running without syncronization with `SetBufferSize()`, this
+  // function might not return the latest result changed by `SetBufferSize()`
+  // but an old result.
   size_t buffer_size() const {
     return buffer_size_.load(std::memory_order_relaxed);
   }
 
-  void SetBufferSize(size_t new_size) {
-    buffer_size_.store(new_size, std::memory_order_relaxed);
-    mutable_limit_.store(new_size * 7 / 8, std::memory_order_relaxed);
-    // Check if stall is active and can be ended.
-    MaybeEndWriteStall();
-  }
+  // REQUIRED: new_size != 0
+  void SetBufferSize(size_t new_size);
 
-  // Below functions should be called by RocksDB internally.
+  void SetAllowStall(bool new_allow_stall);
 
-  // Should only be called from write thread
-  bool ShouldFlush() const {
-    if (enabled()) {
-      if (mutable_memtable_memory_usage() >
-          mutable_limit_.load(std::memory_order_relaxed)) {
-        return true;
-      }
-      size_t local_size = buffer_size();
-      if (memory_usage() >= local_size &&
-          mutable_memtable_memory_usage() >= local_size / 2) {
-        // If the memory exceeds the buffer size, we trigger more aggressive
-        // flush. But if already more than half memory is being flushed,
-        // triggering more flush may not help. We will hold it instead.
-        return true;
-      }
-    }
-    return false;
-  }
+  // WARNING: Should only be called from write thread
+  bool ShouldFlush() const;
 
-  // Returns true if total memory usage exceeded buffer_size.
-  // We stall the writes untill memory_usage drops below buffer_size. When the
-  // function returns true, all writer threads (including one checking this
-  // condition) across all DBs will be stalled. Stall is allowed only if user
-  // pass allow_stall = true during WriteBufferManager instance creation.
+  // Returns true if stall conditions are met.
+  // Stall conditions: stall is allowed AND memory limit is set (i.e, buffer
+  // size > 0) AND total memory usage accounted by this WriteBufferManager
+  // exceeds the memory limit.
   //
-  // Should only be called by RocksDB internally .
+  // WARNING: Should only be called by RocksDB internally .
+  //
+  // WARNING: If running without syncronization with any functions that could
+  // change the stall conditions above, this function might not return the
+  // latest result changed by these functions but an old result.
   bool ShouldStall() const {
-    if (!allow_stall_ || !enabled()) {
+    if (allow_stall_.load(std::memory_order_relaxed) && enabled() &&
+        IsStallThresholdExceeded()) {
+      return true;
+    } else {
       return false;
     }
-
-    return IsStallActive() || IsStallThresholdExceeded();
   }
 
-  // Returns true if stall is active.
-  bool IsStallActive() const {
-    return stall_active_.load(std::memory_order_relaxed);
-  }
-
-  // Returns true if stalling condition is met.
-  bool IsStallThresholdExceeded() const {
-    return memory_usage() >= buffer_size_;
-  }
-
+  // WARNING: Should only be called by RocksDB internally.
   void ReserveMem(size_t mem);
 
   // We are in the process of freeing `mem` bytes, so it is not considered
   // when checking the soft limit.
+  //
+  // WARNING: Should only be called by RocksDB internally.
   void ScheduleFreeMem(size_t mem);
 
+  // WARNING: Should only be called by RocksDB internally.
   void FreeMem(size_t mem);
 
-  // Add the DB instance to the queue and block the DB.
-  // Should only be called by RocksDB internally.
-  void BeginWriteStall(StallInterface* wbm_stall);
+  // Return true if stall conditions have been met and WriteBufferManager has
+  // done its work to begin write stall. Return false otherwise.
+  //
+  // WARNING: Should only be called by RocksDB internally.
+  bool MaybeBeginWriteStall(StallInterface* wbm_stall);
 
-  // If stall conditions have resolved, remove DB instances from queue and
-  // signal them to continue.
-  void MaybeEndWriteStall();
-
+  // WARNING: Should only be called by RocksDB internally.
   void RemoveDBFromQueue(StallInterface* wbm_stall);
 
  private:
+  // If stall conditions have resolved, remove DB instances from queue and
+  // signal them to continue.
+  //
+  // Called when stall conditions (see `ShouldStall()` API) might have been
+  // changed
+  //
+  // REQUIRED: wbm_mutex_ held
+  void MaybeEndWriteStall();
+
+  // REQUIRED: wbm_mutex_ held
+  bool IsStallThresholdExceeded() const {
+    return memory_usage() >= buffer_size_;
+  }
+
+  // WARNING:  Should only be called from write thread
+  // REQUIRED: wbm_mutex_ held
+  void ReserveMemWithCache(size_t mem);
+
+  // REQUIRED: wbm_mutex_ held
+  void FreeMemWithCache(size_t mem);
+
+  // Mutex used to protect WriteBufferManager's data variables.
+  mutable std::mutex wbm_mutex_;
+
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
   std::shared_ptr<CacheReservationManager> cache_res_mgr_;
-  // Protects cache_res_mgr_
-  std::mutex cache_res_mgr_mu_;
 
   std::list<StallInterface*> queue_;
-  // Protects the queue_ and stall_active_.
-  std::mutex mu_;
-  bool allow_stall_;
-  // Value should only be changed by BeginWriteStall() and MaybeEndWriteStall()
-  // while holding mu_, but it can be read without a lock.
-  std::atomic<bool> stall_active_;
-
-  void ReserveMemWithCache(size_t mem);
-  void FreeMemWithCache(size_t mem);
+  std::atomic<bool> allow_stall_;
 };
 }  // namespace ROCKSDB_NAMESPACE

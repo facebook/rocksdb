@@ -9,6 +9,7 @@
 
 #include "rocksdb/write_buffer_manager.h"
 
+#include <atomic>
 #include <memory>
 
 #include "cache/cache_entry_roles.h"
@@ -26,8 +27,7 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
       memory_used_(0),
       memory_active_(0),
       cache_res_mgr_(nullptr),
-      allow_stall_(allow_stall),
-      stall_active_(false) {
+      allow_stall_(allow_stall) {
   if (cache) {
     // Memtable's memory usage tends to fluctuate frequently
     // therefore we set delayed_decrease = true to save some dummy entry
@@ -40,7 +40,7 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
 
 WriteBufferManager::~WriteBufferManager() {
 #ifndef NDEBUG
-  std::unique_lock<std::mutex> lock(mu_);
+  std::unique_lock<std::mutex> lock(wbm_mutex_);
   assert(queue_.empty());
 #endif
 }
@@ -53,7 +53,44 @@ std::size_t WriteBufferManager::dummy_entries_in_cache_usage() const {
   }
 }
 
+void WriteBufferManager::SetBufferSize(size_t new_size) {
+  if (new_size == 0) {
+    assert(false);
+    return;
+  }
+  std::unique_lock<std::mutex> lock(wbm_mutex_);
+  buffer_size_.store(new_size, std::memory_order_relaxed);
+  mutable_limit_.store(new_size * 7 / 8, std::memory_order_relaxed);
+  MaybeEndWriteStall();
+}
+
+void WriteBufferManager::SetAllowStall(bool new_allow_stall) {
+  std::unique_lock<std::mutex> lock(wbm_mutex_);
+  allow_stall_.store(new_allow_stall, std::memory_order_relaxed);
+  MaybeEndWriteStall();
+}
+
+bool WriteBufferManager::ShouldFlush() const {
+  std::unique_lock<std::mutex> lock(wbm_mutex_);
+  if (enabled()) {
+    if (mutable_memtable_memory_usage() >
+        mutable_limit_.load(std::memory_order_relaxed)) {
+      return true;
+    }
+    size_t local_size = buffer_size();
+    if (memory_usage() >= local_size &&
+        mutable_memtable_memory_usage() >= local_size / 2) {
+      // If the memory exceeds the buffer size, we trigger more aggressive
+      // flush. But if already more than half memory is being flushed,
+      // triggering more flush may not help. We will hold it instead.
+      return true;
+    }
+  }
+  return false;
+}
+
 void WriteBufferManager::ReserveMem(size_t mem) {
+  std::unique_lock<std::mutex> lock(wbm_mutex_);
   if (cache_res_mgr_ != nullptr) {
     ReserveMemWithCache(mem);
   } else if (enabled()) {
@@ -64,12 +101,8 @@ void WriteBufferManager::ReserveMem(size_t mem) {
   }
 }
 
-// Should only be called from write thread
 void WriteBufferManager::ReserveMemWithCache(size_t mem) {
   assert(cache_res_mgr_ != nullptr);
-  // Use a mutex to protect various data structures. Can be optimized to a
-  // lock-free solution if it ends up with a performance bottleneck.
-  std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
 
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) + mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
@@ -84,26 +117,25 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 }
 
 void WriteBufferManager::ScheduleFreeMem(size_t mem) {
+  std::unique_lock<std::mutex> lock(wbm_mutex_);
   if (enabled()) {
     memory_active_.fetch_sub(mem, std::memory_order_relaxed);
   }
 }
 
 void WriteBufferManager::FreeMem(size_t mem) {
+  std::unique_lock<std::mutex> lock(wbm_mutex_);
   if (cache_res_mgr_ != nullptr) {
     FreeMemWithCache(mem);
   } else if (enabled()) {
     memory_used_.fetch_sub(mem, std::memory_order_relaxed);
   }
-  // Check if stall is active and can be ended.
   MaybeEndWriteStall();
 }
 
 void WriteBufferManager::FreeMemWithCache(size_t mem) {
   assert(cache_res_mgr_ != nullptr);
-  // Use a mutex to protect various data structures. Can be optimized to a
-  // lock-free solution if it ends up with a performance bottleneck.
-  std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
+
   size_t new_mem_used = memory_used_.load(std::memory_order_relaxed) - mem;
   memory_used_.store(new_mem_used, std::memory_order_relaxed);
   Status s = cache_res_mgr_->UpdateCacheReservation(new_mem_used);
@@ -115,51 +147,25 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
   s.PermitUncheckedError();
 }
 
-void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
+bool WriteBufferManager::MaybeBeginWriteStall(StallInterface* wbm_stall) {
   assert(wbm_stall != nullptr);
-  assert(allow_stall_);
-
-  // Allocate outside of the lock.
   std::list<StallInterface*> new_node = {wbm_stall};
-
-  {
-    std::unique_lock<std::mutex> lock(mu_);
-    // Verify if the stall conditions are stil active.
-    if (ShouldStall()) {
-      stall_active_.store(true, std::memory_order_relaxed);
-      queue_.splice(queue_.end(), std::move(new_node));
-    }
-  }
-
-  // If the node was not consumed, the stall has ended already and we can signal
-  // the caller.
-  if (!new_node.empty()) {
-    new_node.front()->Signal();
+  std::unique_lock<std::mutex> lock(wbm_mutex_);
+  if (ShouldStall()) {
+    wbm_stall->SetState(StallInterface::State::BLOCKED);
+    queue_.splice(queue_.end(), std::move(new_node));
+    return true;
+  } else {
+    return false;
   }
 }
 
-// Called when memory is freed in FreeMem or the buffer size has changed.
 void WriteBufferManager::MaybeEndWriteStall() {
-  // Cannot early-exit on !enabled() because SetBufferSize(0) needs to unblock
-  // the writers.
-  if (!allow_stall_) {
+  if (ShouldStall()) {
     return;
   }
 
-  if (IsStallThresholdExceeded()) {
-    return;  // Stall conditions have not resolved.
-  }
-
-  // Perform all deallocations outside of the lock.
   std::list<StallInterface*> cleanup;
-
-  std::unique_lock<std::mutex> lock(mu_);
-  if (!stall_active_.load(std::memory_order_relaxed)) {
-    return;  // Nothing to do.
-  }
-
-  // Unblock new writers.
-  stall_active_.store(false, std::memory_order_relaxed);
 
   // Unblock the writers in the queue.
   for (StallInterface* wbm_stall : queue_) {
@@ -173,9 +179,8 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
 
   // Deallocate the removed nodes outside of the lock.
   std::list<StallInterface*> cleanup;
-
-  if (enabled() && allow_stall_) {
-    std::unique_lock<std::mutex> lock(mu_);
+  {
+    std::unique_lock<std::mutex> lock(wbm_mutex_);
     for (auto it = queue_.begin(); it != queue_.end();) {
       auto next = std::next(it);
       if (*it == wbm_stall) {
@@ -186,5 +191,4 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
   }
   wbm_stall->Signal();
 }
-
 }  // namespace ROCKSDB_NAMESPACE

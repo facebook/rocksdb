@@ -846,6 +846,59 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   delete shared_wbm_db;
 }
 
+TEST_F(DBWriteBufferManagerTest, RuntimeChangeableThreadSafeParameters) {
+  for (std::string test_parameter : {"buffer_size", "allow_stall"}) {
+    Options options = CurrentOptions();
+    options.write_buffer_manager.reset(new WriteBufferManager(
+        10000, nullptr /* cahce */, true /* allow_stall */));
+    DestroyAndReopen(options);
+
+    // Pause flush thread so that the only way to exist write stall
+    // below is to change the `test_parameter` in the runtime successfully
+    std::unique_ptr<test::SleepingBackgroundTask> sleeping_task(
+        new test::SleepingBackgroundTask());
+    env_->SetBackgroundThreads(1, Env::HIGH);
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   sleeping_task.get(), Env::Priority::HIGH);
+    sleeping_task->WaitUntilSleeping();
+
+    // After completing this write, any future write will be stalled by
+    // WriteBufferManager
+    ASSERT_OK(Put(Key(0), DummyString(10000)));
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+        {{"WBMStallInterface::BlockDB",
+          "DBWriteBufferManagerTest::RuntimeChangeableThreadSafeParameters::"
+          "ChangeParameter"}});
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+    port::Thread thread1([&] { ASSERT_OK(Put(Key(0), DummyString(10000))); });
+
+    port::Thread thread2([&] {
+      TEST_SYNC_POINT(
+          "DBWriteBufferManagerTest::RuntimeChangeableThreadSafeParameters::"
+          "ChangeParameter");
+      if (test_parameter == "buffer_size") {
+        options.write_buffer_manager->SetBufferSize(
+            options.write_buffer_manager->buffer_size() * 200);
+      } else if (test_parameter == "allow_stall") {
+        options.write_buffer_manager->SetAllowStall(false);
+      }
+    });
+
+    // If `test_parameter` is successfully changed in thread2, the write stall
+    // encountered in thread1 will stop and the test will finish. Othwerwise,
+    // thread1 will hang forever.
+    thread1.join();
+    thread2.join();
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+    sleeping_task->WakeUp();
+    sleeping_task->WaitUntilDone();
+  }
+}
 
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());

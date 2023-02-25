@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* Allow setting `WriteBufferManager::allow_stall` in runtime by `SetAllowStall()`, which was previously fixed after passed into `WriteBufferManager`'s constructor
 
 ## 8.1.0 (03/18/2023)
 ### Behavior changes

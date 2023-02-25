@@ -1217,8 +1217,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     if (write_options.no_slowdown) {
       status = Status::Incomplete("Write stall");
     } else {
-      InstrumentedMutexLock l(&mutex_);
-      WriteBufferManagerStallWrites();
+      MaybeWriteBufferManagerStallWrites();
     }
   }
   InstrumentedMutexLock l(&log_write_mutex_);
@@ -1898,27 +1897,26 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
   return s;
 }
 
-// REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-void DBImpl::WriteBufferManagerStallWrites() {
-  mutex_.AssertHeld();
-  // First block future writer threads who want to add themselves to the queue
-  // of WriteThread.
-  write_thread_.BeginWriteStall();
-  mutex_.Unlock();
-
-  // Change the state to State::Blocked.
-  static_cast<WBMStallInterface*>(wbm_stall_.get())
-      ->SetState(WBMStallInterface::State::BLOCKED);
-  // Then WriteBufferManager will add DB instance to its queue
-  // and block this thread by calling WBMStallInterface::Block().
-  write_buffer_manager_->BeginWriteStall(wbm_stall_.get());
-  wbm_stall_->Block();
-
-  mutex_.Lock();
-  // Stall has ended. Signal writer threads so that they can add
-  // themselves to the WriteThread queue for writes.
-  write_thread_.EndWriteStall();
+void DBImpl::MaybeWriteBufferManagerStallWrites() {
+  bool begin_stall =
+      write_buffer_manager_->MaybeBeginWriteStall(wbm_stall_.get());
+  if (begin_stall) {
+    mutex_.Lock();
+    // Block future writer threads who want to add themselves to the queue
+    // of WriteThread.
+    write_thread_.BeginWriteStall();
+    mutex_.Unlock();
+    // Block this thread by calling WBMStallInterface::Block().
+    wbm_stall_->Block();
+    mutex_.Lock();
+    // Stall has ended. Signal writer threads so that they can add
+    // themselves to the WriteThread queue for writes.
+    write_thread_.EndWriteStall();
+    mutex_.Unlock();
+  } else {
+    return;
+  }
 }
 
 Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,

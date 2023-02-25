@@ -1200,17 +1200,13 @@ class DBImpl : public DB {
   // state_ is changed accordingly.
   class WBMStallInterface : public StallInterface {
    public:
-    enum State {
-      BLOCKED = 0,
-      RUNNING,
-    };
 
     WBMStallInterface() : state_cv_(&state_mutex_) {
       MutexLock lock(&state_mutex_);
       state_ = State::RUNNING;
     }
 
-    void SetState(State state) {
+    void SetState(State state) override {
       MutexLock lock(&state_mutex_);
       state_ = state;
     }
@@ -1871,9 +1867,9 @@ class DBImpl : public DB {
   Status DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
                     const WriteOptions& write_options);
 
-  // Begin stalling of writes when memory usage increases beyond a certain
-  // threshold.
-  void WriteBufferManagerStallWrites();
+  // If stall conditions are met, begin stalling of writes with help of
+  // `WriteBufferManager`
+  void MaybeWriteBufferManagerStallWrites();
 
   Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
                                       WriteBatch* my_batch);
