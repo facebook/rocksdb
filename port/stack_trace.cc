@@ -54,7 +54,7 @@ namespace port {
 
 namespace {
 
-#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD) || defined(OS_GNU_KFREEBSD)
 const char* GetExecutableName() {
   static char name[1024];
 
