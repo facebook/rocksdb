@@ -234,7 +234,7 @@ void PrintStack(int first_frames_to_skip) {
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
-  auto num_frames = backtrace(frames, kMaxFrames);
+  int num_frames = (int) backtrace(frames, kMaxFrames);
   PrintStack(&frames[first_frames_to_skip], num_frames - first_frames_to_skip);
 }
 
@@ -247,7 +247,7 @@ void* SaveStack(int* num_frames, int first_frames_to_skip) {
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
-  auto count = backtrace(frames, kMaxFrames);
+  int count = (int) backtrace(frames, kMaxFrames);
   *num_frames = count - first_frames_to_skip;
   void* callstack = malloc(sizeof(void*) * *num_frames);
   memcpy(callstack, &frames[first_frames_to_skip], sizeof(void*) * *num_frames);
