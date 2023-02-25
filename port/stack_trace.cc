@@ -31,6 +31,9 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #include <string.h>
 #include <unistd.h>
 
+#ifdef OS_OPENBSD
+#include <sys/wait.h>
+#endif  // OS_OPENBSD
 #ifdef OS_FREEBSD
 #include <sys/sysctl.h>
 #endif  // OS_FREEBSD
