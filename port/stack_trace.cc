@@ -33,6 +33,7 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 
 #ifdef OS_OPENBSD
 #include <sys/wait.h>
+#include <sys/sysctl.h>
 #endif  // OS_OPENBSD
 #ifdef OS_FREEBSD
 #include <sys/sysctl.h>
@@ -66,6 +67,18 @@ const char* GetExecutableName() {
   if (-1 == ret) {
     return nullptr;
   } else {
+    return name;
+  }
+#elif defined(OS_OPENBSD)
+  int mib[4] = {CTL_KERN, KERN_PROC_ARGS, getpid(), KERN_PROC_ARGV};
+  size_t namesz = sizeof(name);
+  char* bin[namesz];
+
+  auto ret = sysctl(mib, 4, bin, &namesz, nullptr, 0);
+  if (ret == -1) {
+    return nullptr;
+  } else {
+    snprintf(name, namesz, "%s", realpath(bin[0], nullptr));
     return name;
   }
 #else
