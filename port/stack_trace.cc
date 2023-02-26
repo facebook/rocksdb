@@ -55,17 +55,7 @@ namespace {
 const char* GetExecutableName() {
   static char name[1024];
 
-#if !defined(OS_FREEBSD)
-  char link[1024];
-  snprintf(link, sizeof(link), "/proc/%d/exe", getpid());
-  auto read = readlink(link, name, sizeof(name) - 1);
-  if (-1 == read) {
-    return nullptr;
-  } else {
-    name[read] = 0;
-    return name;
-  }
-#else
+#if defined(OS_FREEBSD)
   int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
   size_t namesz = sizeof(name);
 
@@ -73,6 +63,16 @@ const char* GetExecutableName() {
   if (-1 == ret) {
     return nullptr;
   } else {
+    return name;
+  }
+#else
+  char link[1024];
+  snprintf(link, sizeof(link), "/proc/%d/exe", getpid());
+  auto read = readlink(link, name, sizeof(name) - 1);
+  if (-1 == read) {
+    return nullptr;
+  } else {
+    name[read] = 0;
     return name;
   }
 #endif
