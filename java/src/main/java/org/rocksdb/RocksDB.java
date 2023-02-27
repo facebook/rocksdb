@@ -315,7 +315,8 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]); //NOPMD - CloseResource
+      final ColumnFamilyHandle columnFamilyHandle =
+          new ColumnFamilyHandle(db, handles[i]); // NOPMD - CloseResource
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -498,7 +499,8 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]); //NOPMD - CloseResource
+      final ColumnFamilyHandle columnFamilyHandle =
+          new ColumnFamilyHandle(db, handles[i]); // NOPMD - CloseResource
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -594,7 +596,8 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]); //NOPMD - CloseResource
+      final ColumnFamilyHandle columnFamilyHandle =
+          new ColumnFamilyHandle(db, handles[i]); // NOPMD - CloseResource
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -617,7 +620,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if an error occurs whilst closing.
    */
   public void closeE() throws RocksDBException {
-    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) { //NOPMD - CloseResource
+    for (final ColumnFamilyHandle columnFamilyHandle :
+        ownedColumnFamilyHandles) { // NOPMD - CloseResource
       columnFamilyHandle.close();
     }
     ownedColumnFamilyHandles.clear();
@@ -645,7 +649,8 @@ public class RocksDB extends RocksObject {
   @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
-    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) { //NOPMD - CloseResource
+    for (final ColumnFamilyHandle columnFamilyHandle :
+        ownedColumnFamilyHandles) { // NOPMD - CloseResource
       columnFamilyHandle.close();
     }
     ownedColumnFamilyHandles.clear();
@@ -721,7 +726,7 @@ public class RocksDB extends RocksObject {
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (final long cfHandle : cfHandles) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle); //NOPMD
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle); // NOPMD
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -754,7 +759,7 @@ public class RocksDB extends RocksObject {
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (final long cfHandle : cfHandles) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle); //NOPMD
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle); // NOPMD
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -798,7 +803,7 @@ public class RocksDB extends RocksObject {
    */
   public void destroyColumnFamilyHandle(final ColumnFamilyHandle columnFamilyHandle) {
     for (int i = 0; i < ownedColumnFamilyHandles.size(); ++i) {
-      final ColumnFamilyHandle ownedHandle = ownedColumnFamilyHandles.get(i); //NOPMD
+      final ColumnFamilyHandle ownedHandle = ownedColumnFamilyHandles.get(i); // NOPMD
       if (ownedHandle.equals(columnFamilyHandle)) {
         columnFamilyHandle.close();
         ownedColumnFamilyHandles.remove(i);
