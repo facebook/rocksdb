@@ -196,6 +196,7 @@ public class SstFileWriter extends RocksObject {
     return fileSize(nativeHandle_);
   }
 
+  @SuppressWarnings("PMD.UnusedPrivateMethod") // (AP) Should we expose a constructor wrapping this ?
   private static native long newSstFileWriter(final long envOptionsHandle, final long optionsHandle,
       final long userComparatorHandle, final byte comparatorType);
 
