@@ -181,9 +181,10 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB open(final String path) throws RocksDBException {
     RocksDB.loadLibrary();
-    final Options options = new Options();
-    options.setCreateIfMissing(true);
-    return open(options, path);
+    try (Options options = new Options()) {
+      options.setCreateIfMissing(true);
+      return open(options, path);
+    }
   }
 
   /**
@@ -219,8 +220,9 @@ public class RocksDB extends RocksObject {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
-    final DBOptions options = new DBOptions();
-    return open(options, path, columnFamilyDescriptors, columnFamilyHandles);
+    try (DBOptions options = new DBOptions()) {
+      return open(options, path, columnFamilyDescriptors, columnFamilyHandles);
+    }
   }
 
   /**
@@ -313,7 +315,7 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]);
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]); //NOPMD - CloseResource
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -339,8 +341,9 @@ public class RocksDB extends RocksObject {
     RocksDB.loadLibrary();
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
-    final Options options = new Options();
-    return openReadOnly(options, path);
+    try (Options options = new Options()) {
+      return openReadOnly(options, path);
+    }
   }
 
   /**
@@ -415,8 +418,9 @@ public class RocksDB extends RocksObject {
       throws RocksDBException {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
-    final DBOptions options = new DBOptions();
-    return openReadOnly(options, path, columnFamilyDescriptors, columnFamilyHandles, false);
+    try (DBOptions options = new DBOptions()) {
+      return openReadOnly(options, path, columnFamilyDescriptors, columnFamilyHandles, false);
+    }
   }
 
   /**
@@ -494,7 +498,7 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]);
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]); //NOPMD - CloseResource
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -590,7 +594,7 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]);
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]); //NOPMD - CloseResource
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -613,7 +617,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if an error occurs whilst closing.
    */
   public void closeE() throws RocksDBException {
-    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) {
+    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) { //NOPMD - CloseResource
       columnFamilyHandle.close();
     }
     ownedColumnFamilyHandles.clear();
@@ -641,7 +645,7 @@ public class RocksDB extends RocksObject {
   @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
-    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) {
+    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) { //NOPMD - CloseResource
       columnFamilyHandle.close();
     }
     ownedColumnFamilyHandles.clear();
@@ -717,7 +721,7 @@ public class RocksDB extends RocksObject {
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (final long cfHandle : cfHandles) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle);
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle); //NOPMD
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -750,7 +754,7 @@ public class RocksDB extends RocksObject {
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (final long cfHandle : cfHandles) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle);
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle); //NOPMD
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -794,7 +798,7 @@ public class RocksDB extends RocksObject {
    */
   public void destroyColumnFamilyHandle(final ColumnFamilyHandle columnFamilyHandle) {
     for (int i = 0; i < ownedColumnFamilyHandles.size(); ++i) {
-      final ColumnFamilyHandle ownedHandle = ownedColumnFamilyHandles.get(i);
+      final ColumnFamilyHandle ownedHandle = ownedColumnFamilyHandles.get(i); //NOPMD
       if (ownedHandle.equals(columnFamilyHandle)) {
         columnFamilyHandle.close();
         ownedColumnFamilyHandles.remove(i);
@@ -2287,10 +2291,11 @@ public class RocksDB extends RocksObject {
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(
       final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
-    final ReadOptions readOptions = new ReadOptions();
-    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>(1);
-    columnFamilyHandleList.add(getDefaultColumnFamily());
-    return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+    try (ReadOptions readOptions = new ReadOptions()) {
+      final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>(1);
+      columnFamilyHandleList.add(getDefaultColumnFamily());
+      return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+    }
   }
 
   /**
@@ -2330,8 +2335,9 @@ public class RocksDB extends RocksObject {
   public List<ByteBufferGetStatus> multiGetByteBuffers(
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
       final List<ByteBuffer> values) throws RocksDBException {
-    final ReadOptions readOptions = new ReadOptions();
-    return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+    try (ReadOptions readOptions = new ReadOptions()) {
+      return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+    }
   }
 
   /**

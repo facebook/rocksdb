@@ -178,6 +178,7 @@ public class WBWIRocksIterator
       return (key == null) ? 0 : key.hashCode();
     }
 
+    @SuppressWarnings("PMD.CloseResource")
     @Override
     public boolean equals(final Object other) {
       if(other == null) {

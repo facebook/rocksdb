@@ -49,4 +49,14 @@
         <exclude name="UseVarargs"/>
     </rule>
 
+    <rule ref="category/java/errorprone.xml/CloseResource">
+        <properties>
+            <property name="types" value="java.lang.AutoCloseable,java.sql.Connection,java.sql.Statement,java.sql.ResultSet" />
+            <property name="closeAsDefaultTarget" value="true" />
+            <!-- we allow these org.rocksdb types as generally our API is opening them for the user. -->
+            <property name="allowedResourceTypes" value="java.io.ByteArrayOutputStream|java.io.ByteArrayInputStream|java.io.StringWriter|java.io.CharArrayWriter|java.util.stream.Stream|java.util.stream.IntStream|java.util.stream.LongStream|java.util.stream.DoubleStream" />
+            <property name="closeNotInFinally" value="false" />
+        </properties>
+    </rule>
+
 </ruleset>

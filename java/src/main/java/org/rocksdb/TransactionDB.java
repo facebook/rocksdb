@@ -220,7 +220,7 @@ public class TransactionDB extends RocksDB
 
     final List<Transaction> txns = new ArrayList<>();
     for(final long jtxnHandle : jtxnHandles) {
-      final Transaction txn = new Transaction(this, jtxnHandle);
+      final Transaction txn = new Transaction(this, jtxnHandle); //NOPMD - CloseResource
 
       // this instance doesn't own the underlying C++ object
       txn.disOwnNativeHandle();

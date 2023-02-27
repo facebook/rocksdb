@@ -127,7 +127,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onFlushCompletedProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
+    final RocksDB db = new RocksDB(dbHandle); //NOPMD - CloseResource
     db.disOwnNativeHandle(); // we don't own this!
     onFlushCompleted(db, flushJobInfo);
   }
@@ -146,7 +146,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onFlushBeginProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
+    final RocksDB db = new RocksDB(dbHandle); //NOPMD - CloseResource
     db.disOwnNativeHandle(); // we don't own this!
     onFlushBegin(db, flushJobInfo);
   }
@@ -171,7 +171,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
   @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onCompactionBeginProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
+    final RocksDB db = new RocksDB(dbHandle); //NOPMD - CloseResource
     db.disOwnNativeHandle(); // we don't own this!
     onCompactionBegin(db, compactionJobInfo);
   }
@@ -191,7 +191,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
   @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onCompactionCompletedProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
+    final RocksDB db = new RocksDB(dbHandle); //NOPMD - CloseResource
     db.disOwnNativeHandle(); // we don't own this!
     onCompactionCompleted(db, compactionJobInfo);
   }
@@ -233,7 +233,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
   @SuppressWarnings("PMD.UnusedPrivateMethod")
   private void onExternalFileIngestedProxy(
       final long dbHandle, final ExternalFileIngestionInfo externalFileIngestionInfo) {
-    final RocksDB db = new RocksDB(dbHandle);
+    final RocksDB db = new RocksDB(dbHandle); //NOPMD - CloseResource
     db.disOwnNativeHandle(); // we don't own this!
     onExternalFileIngested(db, externalFileIngestionInfo);
   }
