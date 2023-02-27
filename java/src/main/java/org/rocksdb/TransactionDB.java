@@ -14,8 +14,8 @@ import java.util.Map;
  */
 public class TransactionDB extends RocksDB
     implements TransactionalDB<TransactionOptions> {
-
-  private TransactionDBOptions transactionDbOptions_;
+  // Field is "used" to prevent GC of the
+  @SuppressWarnings("PMD.UnusedPrivateField") private TransactionDBOptions transactionDbOptions_;
 
   /**
    * Private constructor.
@@ -116,6 +116,7 @@ public class TransactionDB extends RocksDB
    *
    * @throws RocksDBException if an error occurs whilst closing.
    */
+  @Override
   public void closeE() throws RocksDBException {
     if (owningHandle_.compareAndSet(true, false)) {
       try {
@@ -137,6 +138,7 @@ public class TransactionDB extends RocksDB
    * <p>
    * See also {@link #close()}.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
     if (owningHandle_.compareAndSet(true, false)) {
@@ -233,6 +235,7 @@ public class TransactionDB extends RocksDB
     private final long[] transactionIDs;
     private final boolean exclusive;
 
+    @SuppressWarnings("PMD.ArrayIsStoredDirectly")
     public KeyLockInfo(final String key, final long[] transactionIDs, final boolean exclusive) {
       this.key = key;
       this.transactionIDs = transactionIDs;
@@ -253,6 +256,7 @@ public class TransactionDB extends RocksDB
      *
      * @return the Transaction IDs.
      */
+    @SuppressWarnings("PMD.MethodReturnsInternalArray")
     public long[] getTransactionIDs() {
       return transactionIDs;
     }
@@ -349,6 +353,7 @@ public class TransactionDB extends RocksDB
     final DeadlockInfo[] path;
     final boolean limitExceeded;
 
+    @SuppressWarnings("PMD.ArrayIsStoredDirectly")
     public DeadlockPath(final DeadlockInfo[] path, final boolean limitExceeded) {
       this.path = path;
       this.limitExceeded = limitExceeded;

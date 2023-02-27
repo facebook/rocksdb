@@ -301,6 +301,7 @@ public class TableProperties {
    * @return the name of the column family, or null if the
    *     column family is unknown.
    */
+  @SuppressWarnings("PMD.MethodReturnsInternalArray")
   /*@Nullable*/ public byte[] getColumnFamilyName() {
     return columnFamilyName;
   }

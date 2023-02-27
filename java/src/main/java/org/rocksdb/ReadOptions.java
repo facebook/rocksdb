@@ -577,11 +577,10 @@ public class ReadOptions extends RocksObject {
   public Slice timestamp() {
     assert (isOwningHandle());
     final long timestampSliceHandle = timestamp(nativeHandle_);
-    if (timestampSliceHandle != 0) {
-      return new Slice(timestampSliceHandle);
-    } else {
+    if (timestampSliceHandle == 0) {
       return null;
     }
+    return new Slice(timestampSliceHandle);
   }
 
   /**
@@ -628,11 +627,10 @@ public class ReadOptions extends RocksObject {
   public Slice iterStartTs() {
     assert (isOwningHandle());
     final long iterStartTsHandle = iterStartTs(nativeHandle_);
-    if (iterStartTsHandle != 0) {
-      return new Slice(iterStartTsHandle);
-    } else {
+    if (iterStartTsHandle == 0) {
       return null;
     }
+    return new Slice(iterStartTsHandle);
   }
 
   /**

@@ -159,10 +159,10 @@ public class WBWIRocksIterator
      * no value
      */
     public DirectSlice getValue() {
-      if(!value.isOwningHandle()) {
-        return null; //TODO(AR) migrate to JDK8 java.util.Optional#empty()
-      } else {
+      if (value.isOwningHandle()) {
         return value;
+      } else {
+        return null; // TODO(AR) migrate to JDK8 java.util.Optional#empty()
       }
     }
 

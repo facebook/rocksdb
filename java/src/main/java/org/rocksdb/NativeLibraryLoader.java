@@ -16,13 +16,17 @@ public class NativeLibraryLoader {
   private static final NativeLibraryLoader instance = new NativeLibraryLoader();
   private static boolean initialized = false;
 
-  private static final String sharedLibraryName = Environment.getSharedLibraryName("rocksdb");
-  private static final String jniLibraryName = Environment.getJniLibraryName("rocksdb");
+  private static String ROCKSDB_LIBRARY_NAME = "rocksdb";
+
+  private static final String sharedLibraryName =
+      Environment.getSharedLibraryName(ROCKSDB_LIBRARY_NAME);
+  private static final String jniLibraryName = Environment.getJniLibraryName(ROCKSDB_LIBRARY_NAME);
   private static final /* @Nullable */ String fallbackJniLibraryName =
-      Environment.getFallbackJniLibraryName("rocksdb");
-  private static final String jniLibraryFileName = Environment.getJniLibraryFileName("rocksdb");
+      Environment.getFallbackJniLibraryName(ROCKSDB_LIBRARY_NAME);
+  private static final String jniLibraryFileName =
+      Environment.getJniLibraryFileName(ROCKSDB_LIBRARY_NAME);
   private static final /* @Nullable */ String fallbackJniLibraryFileName =
-      Environment.getFallbackJniLibraryFileName("rocksdb");
+      Environment.getFallbackJniLibraryFileName(ROCKSDB_LIBRARY_NAME);
   private static final String tempFilePrefix = "librocksdbjni";
   private static final String tempFileSuffix = Environment.getJniLibraryExtension();
 
@@ -51,6 +55,7 @@ public class NativeLibraryLoader {
    *
    * @throws java.io.IOException if a filesystem operation fails.
    */
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   public synchronized void loadLibrary(final String tmpDir) throws IOException {
     try {
       // try dynamic library
@@ -104,8 +109,8 @@ public class NativeLibraryLoader {
     }
   }
 
-  File loadLibraryFromJarToTemp(final String tmpDir)
-          throws IOException {
+  @SuppressWarnings("PMD.UseProperClassLoader")
+  File loadLibraryFromJarToTemp(final String tmpDir) throws IOException {
     InputStream is = null;
     try {
       // attempt to look up the static library in the jar file
@@ -145,10 +150,10 @@ public class NativeLibraryLoader {
           throw new RuntimeException("File: " + temp.getAbsolutePath() + " could not be created.");
         }
       }
-      if (!temp.exists()) {
-        throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
-      } else {
+      if (temp.exists()) {
         temp.deleteOnExit();
+      } else {
+        throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
       }
 
       // copy the library from the Jar file to the temp destination

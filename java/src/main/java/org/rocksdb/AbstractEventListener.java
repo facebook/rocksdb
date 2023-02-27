@@ -59,7 +59,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
      * @throws IllegalArgumentException if the value is unknown.
      */
     static EnabledEventCallback fromValue(final byte value) {
-      for (final EnabledEventCallback enabledEventCallback : EnabledEventCallback.values()) {
+      for (final EnabledEventCallback enabledEventCallback : values()) {
         if (enabledEventCallback.value == value) {
           return enabledEventCallback;
         }
