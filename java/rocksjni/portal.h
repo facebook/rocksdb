@@ -5119,6 +5119,12 @@ class TickerTypeJni {
         return -0x35;
       case ROCKSDB_NAMESPACE::Tickers::ASYNC_READ_ERROR_COUNT:
         return -0x36;
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_FILTER_HITS:
+        return -0x37;
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_INDEX_HITS:
+        return -0x38;
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS:
+        return -0x39;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5470,6 +5476,12 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::READ_ASYNC_MICROS;
       case -0x36:
         return ROCKSDB_NAMESPACE::Tickers::ASYNC_READ_ERROR_COUNT;
+      case -0x37:
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_FILTER_HITS;
+      case -0x38:
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_INDEX_HITS;
+      case -0x39:
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_DATA_HITS;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
