@@ -1409,7 +1409,7 @@ void MergingIterator::InitMaxHeap() {
 // is not covered by any range tombstone.
 // Post-condition:
 // - Invariants (2)-(10) hold
-// - minHeap_->top()->key() == NextVisible(k)
+// - (*) minHeap_->top()->key() == NextVisible(k)
 //
 // Loop invariants:
 // - Invariant (4)-(10)
@@ -1426,6 +1426,7 @@ void MergingIterator::InitMaxHeap() {
 //  progress condition can be made simpler: iterator only moves forward.
 //
 // Proof sketch:
+// Post-condition:
 // Invariant (2) holds when this method returns:
 // Ignoring the empty minHeap_ case, there are two cases:
 // Case 1: active_ is empty and !minHeap_.top()->IsDeleteRangeSentinelKey().
@@ -1469,6 +1470,12 @@ void MergingIterator::InitMaxHeap() {
 // If j == i, children_[i]->Next() would have been called.
 // So it is impossible for children_[i].iter.key() to be covered by a range
 // tombstone.
+//
+// Post-condition (*) holds when the function returns:
+// From loop invariant (*) that k <= children_[i].iter.key() <=
+// LevelNextVisible(i, k) and Invariant (3) above, when the function returns,
+// minHeap_.top()->key() is the smallest LevelNextVisible(i, k) among all levels
+// i. This is equal to NextVisible(k).
 //
 // Invariant (4) holds after each iteration:
 // In i-th iteration, SkipNextDeleted() touches children_ by calling SeekImpl()
