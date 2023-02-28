@@ -315,8 +315,8 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle =
-          new ColumnFamilyHandle(db, handles[i]); // NOPMD - CloseResource
+      final ColumnFamilyHandle columnFamilyHandle = // NOPMD - CloseResource
+          new ColumnFamilyHandle(db, handles[i]);
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -499,8 +499,8 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle =
-          new ColumnFamilyHandle(db, handles[i]); // NOPMD - CloseResource
+      final ColumnFamilyHandle columnFamilyHandle = // NOPMD - CloseResource
+          new ColumnFamilyHandle(db, handles[i]);
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -596,8 +596,8 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle =
-          new ColumnFamilyHandle(db, handles[i]); // NOPMD - CloseResource
+      final ColumnFamilyHandle columnFamilyHandle = // NOPMD - CloseResource
+          new ColumnFamilyHandle(db, handles[i]);
       columnFamilyHandles.add(columnFamilyHandle);
     }
 
@@ -620,8 +620,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if an error occurs whilst closing.
    */
   public void closeE() throws RocksDBException {
-    for (final ColumnFamilyHandle columnFamilyHandle :
-        ownedColumnFamilyHandles) { // NOPMD - CloseResource
+    for (final ColumnFamilyHandle columnFamilyHandle : // NOPMD - CloseResource
+        ownedColumnFamilyHandles) {
       columnFamilyHandle.close();
     }
     ownedColumnFamilyHandles.clear();
@@ -649,8 +649,8 @@ public class RocksDB extends RocksObject {
   @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
-    for (final ColumnFamilyHandle columnFamilyHandle :
-        ownedColumnFamilyHandles) { // NOPMD - CloseResource
+    for (final ColumnFamilyHandle columnFamilyHandle : // NOPMD - CloseResource
+        ownedColumnFamilyHandles) {
       columnFamilyHandle.close();
     }
     ownedColumnFamilyHandles.clear();
