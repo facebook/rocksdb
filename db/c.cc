@@ -4754,6 +4754,14 @@ size_t rocksdb_cache_get_pinned_usage(rocksdb_cache_t* cache) {
   return cache->rep->GetPinnedUsage();
 }
 
+size_t rocksdb_cache_get_table_address_count(const rocksdb_cache_t* cache) {
+  return cache->rep->GetTableAddressCount();
+}
+
+size_t rocksdb_cache_get_occupancy_count(const rocksdb_cache_t* cache) {
+  return cache->rep->GetOccupancyCount();
+}
+
 rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path,
                                         uint64_t target_size) {
   rocksdb_dbpath_t* result = new rocksdb_dbpath_t;
