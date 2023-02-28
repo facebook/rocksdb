@@ -6,6 +6,9 @@
 ### Bug Fixes
 * Fixed an issue for backward iteration when `ReadOptions::iter_start_ts` is specified in combination with BlobDB.
 
+### New Features
+* Add statistics rocksdb.secondary.cache.filter.hits, rocksdb.secondary.cache.index.hits, and rocksdb.secondary.cache.filter.hits
+
 ## 8.0.0 (02/19/2023)
 ### Behavior changes
 * `ReadOptions::verify_checksums=false` disables checksum verification for more reads of non-`CacheEntryRole::kDataBlock` blocks.
