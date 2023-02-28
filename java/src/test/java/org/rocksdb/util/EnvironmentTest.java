@@ -4,13 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb.util;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.lang.reflect.Field;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import java.lang.reflect.Field;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class EnvironmentTest {
   private static final String ARCH_FIELD_NAME = "ARCH";
@@ -255,8 +254,7 @@ public class EnvironmentTest {
     assertThat(Environment.initIsMuslLibc()).isFalse();
   }
 
-  private void setEnvironmentClassFields(final String osName,
-                                         final String osArch) {
+  private void setEnvironmentClassFields(final String osName, final String osArch) {
     setEnvironmentClassField(OS_FIELD_NAME, osName);
     setEnvironmentClassField(ARCH_FIELD_NAME, osArch);
   }
