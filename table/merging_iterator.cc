@@ -31,17 +31,18 @@ namespace ROCKSDB_NAMESPACE {
 // The following (non-exhaustive) list of invariants are maintained by
 // MergingIterator during forward scanning. After each InternalIterator API,
 // i.e., Seek*() and Next(), and FindNextVisibleKey() for all levels i, if
-// minHeap_ is not empty: (1) minHeap_.top().type == ITERATOR (2)
-// minHeap_.top()->key() is not covered by any range tombstone.
+// minHeap_ is not empty:
+// (1) minHeap_.top().type == ITERATOR
+// (2) minHeap_.top()->key() is not covered by any range tombstone.
 //
 // After each call to SeekImpl() besides the functions mentioned above:
 // When referring to range tombstone start/end keys, assume it is the value set
 // to HeapItem::tombstone_pik. This value has op_type = kMaxValid, which makes
 // range tombstone keys have distinct values from point keys.
-// (3) For all j <= i, range_tombstone_iters_[j] is at or before the first
-// range tombstone from level j with end_key() > children_[j].iter.key().
-// TODO: new version as below:
-//   range_tombstone_iters_[j].prev.end_key() < children_[j].iter.key()
+// (3) For all j <= i, range_tombstone_iters_[j].prev.end_key() <
+// children_[j].iter.key(). That is, range_tombstone_iters_[j] is at or before
+// the first range tombstone from level j with end_key() >
+// children_[j].iter.key().
 // (4) If i is in active_, range_tombstone_iters_[i]->start_key() <
 // children_[j].iter.key() for j >= i.
 //
@@ -621,20 +622,12 @@ class MergingIterator : public InternalIterator {
 
   bool SkipPrevDeleted();
 
-<<<<<<< HEAD
-  // Cached pointer to child iterator with the current key, or nullptr if no
-  // child iterators are valid.  This is the top of minHeap_ or maxHeap_
-  // depending on the direction.
-  IteratorWrapper *current_;
-=======
-  // Cached pointer to child iterator with the current key.
   // Invariant: at the end of each InternalIterator API,
   // current_ points to minHeap_.top().iter (maxHeap_ if backward scanning)
   // or nullptr if no child iterator is valid.
   // This follows from that current_ = CurrentForward()/CurrentReverse() is
   // called at the end of each InternalIterator API.
   IteratorWrapper* current_;
->>>>>>> 02ac8a94c (separate class variable invariants)
   // If any of the children have non-ok status, this is one of them.
   Status status_;
   // Invariant: min heap property is maintained (parent is always <= child).
@@ -696,28 +689,7 @@ class MergingIterator : public InternalIterator {
 // range_tombstone_iters_[i].Valid()
 //
 // Proof sketch:
-<<<<<<< HEAD
-// Invariant (4): minHeap_ is cleared. Each children_[i] is added to minHeap_
-// through AddToMinHeapOrCheckStatus() which checks children_[i].iter.Valid().
-//
-// Invariant (5): minHeap_ is cleared. Each pinned_heap_item_[i] is added to
-// minHeap_ after checking range_tombstone_iters_[i]->Valid().
-//
-// Invariant (6): For i < starting_level, since
-// range_tombstone_iters_[i]->Valid(), by Invariant (9), i is in active_ iff
-// pinned_heap_item_[i].type == DELETE_RANGE_END. If i in active_,
-// pinned_heap_item_[i] is not updated and this follows from the pre-condition
-// that (6) holds. If i not in active_, InsertRangeTombstoneToMinHeap(i) is
-// called to set type and tombstone_pik. For i >= starting_level,
-// InsertRangeTombstoneToMinHeap() is called which maintains (6).
-//
-// Invariant (7): after minHeap_ is cleared, item is added to heap_ through
-// BinaryHeap API push().
-//
-// Invariant (8) holds for starting_level <= j <= i:
-=======
 // Invariant (3) holds for starting_level <= j <= i:
->>>>>>> 02ac8a94c (separate class variable invariants)
 // children_[i].iter.Seek(k1) and range_tombstone_iters_[j]->SeekInternalKey(k2)
 // are called in SeekImpl(). Seek(k1) positions children_[i] at the first key >=
 // k1 from level i. SeekInternalKey(k2) positions range_tombstone_iters_[j] at
@@ -845,7 +817,8 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
       }
       auto range_tombstone_iter = range_tombstone_iters_[level];
       if (range_tombstone_iter) {
-        range_tombstone_iter->Seek(current_search_key.GetUserKey());
+        range_tombstone_iter->SeekInternalKey(
+            current_search_key.GetInternalKey());
         // Invariants (rti) and (phi)
         if (range_tombstone_iter->Valid()) {
           // If range tombstone starts after `current_search_key`,
@@ -1482,27 +1455,31 @@ void MergingIterator::InitMaxHeap() {
 // children_[i] for some i. Suppose that children_[i].iter.key() is covered by
 // some range tombstone. This means there is a j <= i and a range tombstone from
 // level j with start_key() < children_[i].iter.key() < end_key(). We assume
-// that in each level, range tombstones cover non-overlapping ranges. By
-// Invariant (3), range_tombstone_iters_[j] is at or before this range
-// tombstone. Suppose range_tombstone_iters_[j] is before this range tombstone.
+// that in each level, range tombstones cover non-overlapping ranges.
 // - If range_tombstone_iters_[j]->Valid(), by Invariant(rti),
-// pinned_heap_item_[j] is in minHeap_, and pinned_heap_item_[j].tombstone_pik
-// is either start or end key value of this range tombstone, which is less than
-// children_[i].iter.key(). This key must be popped from minHeap_ before
-// children_[i] by min heap property.
-// - If !range_tombstone_iters_[j]->Valid(), then range_tombstone_iters_[j] is
-// at an SST file with all range tombstones from that file exhausted. The file
-// is in level j and must come before the file containing the first
+// pinned_heap_item_[j] is in minHeap_, and pinned_heap_item_[j].parsed_ikey
+// is either start or end key value of this range tombstone. If
+// pinned_heap_item_[j].parsed_ikey < children_[i].iter.key(), it would be at
+// top of minHeap_ which would contradict Invariant (1). So
+// pinned_heap_item_[j].parsed_ikey > children_[i].iter.key().
+// By Invariant (3), range_tombstone_iters_[j].prev.end_key() <
+// children_[i].iter.key(). range_tombstone_iters_[j] is at
+// the range tombstone with start_key() < children_[i].iter.key() < end_key()
+// and has its end_key() in minHeap_.
+// - If !range_tombstone_iters_[j]->Valid(). Then range_tombstone_iters_[j]
+// points to an SST file with all range tombstones from that file exhausted.
+// The file must come before the file containing the first
 // range tombstone with start_key() < children_[i].iter.key() < end_key().
 // Assume files have non-overlapping ranges, the current file's meta.largest is
 // less than children_[i].iter.key(). So the file boundary key, which has value
-// meta.largest must have been processed before children_[i].iter.key(). So
-// range_tombstone_iters_[j] would not point to this SST file.
+// meta.largest must have been popped from minHeap_ before
+// children_[i].iter.key(). So range_tombstone_iters_[j] would not point to
+// this SST file.
 // So we can assume range_tombstone_[j] is **at** the first range tombstone
-// with start_key() < children_[i].iter.key() < end_key(). By a similar
-// reasoning as above, the range tombstone's end_key is in minHeap_. By
-// Invariants (phi) and (active_), j is in active_. From while loop condition,
-// SkipNextDeleted() must have returned false for this method to return.
+// with start_key() < children_[i].iter.key() < end_key() and has its end_key
+// is in minHeap_. By Invariants (phi) and (active_), j is in active_.
+// From while loop condition, SkipNextDeleted() must have returned false for
+// this method to return.
 // If j < i, then SeekImpl(range_tombstone_iters_[j']->end_key(), i) was
 // called for some j' < i and children_[i] would be at a key >
 // children_[i].iter.key().
@@ -1520,21 +1497,20 @@ void MergingIterator::InitMaxHeap() {
 // PopDeleteRangeStart() does not change range tombstone position.
 // In SkipNextDeleted():
 //   - If DELETE_RANGE_END is popped from minHeap_, it means the range
-//   tombstone's end key is <= all other point keys, so it is safe to advance to
+//   tombstone's end key is < all other point keys, so it is safe to advance to
 //   next range tombstone.
 //   - If file boundary is popped (current->iter.IsDeleteRangeSentinelKey()),
 //   we assume that file's last range tombstone's
-//   end_key <= file boundary key <= all other point keys. So it is safe to
+//   end_key <= file boundary key < all other point keys. So it is safe to
 //   move to the first range tombstone in the next SST file.
 //   - If children_[i]->Next() is called, then it is fine as it is advancing a
 //   point iterator.
 //   - If SeekImpl(k, l) is called, it moves all children_[j] for j >= l to some
 //   key >= k > children_[l].key(). Since (3) holds at beginning of the
-//   iteration, for all i < l, range_tombstone_iters_[i] is at or before the
-//   first range tombstone with end_key() > children_[l].key(). So for i < l
-//   and j >= l (3) still hold. Since children_[<l] is not updated in
-//   SeekImpl(), (3) holds for all i < l and j >= i.
-//   For i >= l, (3) follows from SeekImpl()'s contract.
+//   iteration, for all i < l, range_tombstone_iters_[i].prev.end_key() <
+//   children_[l].key() So for i < l and j >= l (3) still hold.
+//   Since children_[<l] is not updated in SeekImpl(), (3) holds for all i < l
+//   and j >= i. For i >= l, (3) follows from SeekImpl()'s contract.
 //
 // Invariant (4) holds after each iteration:
 // A level i is inserted into active_ during calls to PopDeleteRangeStart().
