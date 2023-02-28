@@ -6,9 +6,12 @@ import java.io.IOException;
 import java.util.Locale;
 
 public class Environment {
-  private static final String OS = System.getProperty("os.name").toLowerCase(Locale.getDefault());
-  private static final String ARCH = System.getProperty("os.arch").toLowerCase(Locale.getDefault());
-  private static final String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
+  @SuppressWarnings("FieldMayBeFinal")
+  private static String OS = System.getProperty("os.name").toLowerCase(Locale.getDefault());
+  @SuppressWarnings("FieldMayBeFinal")
+  private static String ARCH = System.getProperty("os.arch").toLowerCase(Locale.getDefault());
+  @SuppressWarnings("FieldMayBeFinal")
+  private static String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_MUSL_LIBC");
 
   private static final String LIBC_MUSL_PREFIX = "libc.musl";
 
