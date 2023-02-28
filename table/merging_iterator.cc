@@ -52,10 +52,7 @@ namespace ROCKSDB_NAMESPACE {
 // pinned_heap_item_).
 // 7) heap property is maintained: parent is always <= child in minHeap_.
 // The value used for ordering is children_[i].iter.key() for each children_[i],
-// and pinned_heap_item_[i].tombstone_pik) for each pinned_heap_item_[i].
-//
-// Define LevelNextVisible(i, k) to be the first key >= k in level i that is
-// not covered by any range tombstone.
+// and pinned_heap_item_[i].parsed_ikey) for each pinned_heap_item_[i].
 // 8) For all j <= i, range_tombstone_iters_[j] is at or before the first
 // range tombstone from level j that has end_key() > children_[j].iter.key().
 // 9) i is in active_ iff range_tombstone_iters_[i]->Valid() and
@@ -307,12 +304,14 @@ class MergingIterator : public InternalIterator {
   // the target key is `end`. This optimization is applied at each level and
   // hence the name "cascading seek".
   void Seek(const Slice& target) override {
-    SeekImpl(target);
+    // Define LevelNextVisible(i, k) to be the first key >= k in level i that is
+    // not covered by any range tombstone.
     // After SeekImpl(target, 0), invariants (4)-(10) hold.
     // For all level i, target <= children_[i].iter.key() <= LevelNextVisible(i,
     // target). By the contract of FindNextVisibleKey(), Invariants (2)-(10)
     // hold after this call, and minHeap_.top().iter points to
     // NextVisible(target).
+    SeekImpl(target);
     FindNextVisibleKey();
 
     direction_ = kForward;
