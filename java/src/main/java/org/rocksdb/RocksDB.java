@@ -4320,7 +4320,7 @@ public class RocksDB extends RocksObject {
       final List<byte[]> ranges, final boolean includeEnd)
       throws RocksDBException {
     if (ranges.isEmpty()) {
-       return;
+      return;
     }
     if ((ranges.size() % 2) != 0) {
       throw new IllegalArgumentException("Ranges size needs to be multiple of 2 "
