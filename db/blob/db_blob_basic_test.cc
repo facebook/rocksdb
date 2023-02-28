@@ -2044,27 +2044,115 @@ TEST_F(DBBlobWithTimestampTest, IterateBlobs) {
 
   ReadOptions read_options;
   std::vector<std::string> read_timestamps = {Timestamp(0, 0), Timestamp(3, 0)};
-  Slice ts_lower_bound(read_timestamps[0]);
   Slice ts_upper_bound(read_timestamps[1]);
-  read_options.iter_start_ts = &ts_lower_bound;
   read_options.timestamp = &ts_upper_bound;
 
   auto check_iter_entry =
       [](const Iterator* iter, const std::string& expected_key,
-         const std::string& expected_ts, const std::string& expected_value) {
+         const std::string& expected_ts, const std::string& expected_value,
+         bool key_is_internal = true) {
         ASSERT_OK(iter->status());
-        std::string expected_ukey_and_ts;
-        expected_ukey_and_ts.assign(expected_key.data(), expected_key.size());
-        expected_ukey_and_ts.append(expected_ts.data(), expected_ts.size());
+        if (key_is_internal) {
+          std::string expected_ukey_and_ts;
+          expected_ukey_and_ts.assign(expected_key.data(), expected_key.size());
+          expected_ukey_and_ts.append(expected_ts.data(), expected_ts.size());
 
-        ParsedInternalKey parsed_ikey;
-        ASSERT_OK(ParseInternalKey(iter->key(), &parsed_ikey,
-                                   true /* log_err_key */));
-        ASSERT_EQ(parsed_ikey.user_key, expected_ukey_and_ts);
+          ParsedInternalKey parsed_ikey;
+          ASSERT_OK(ParseInternalKey(iter->key(), &parsed_ikey,
+                                     true /* log_err_key */));
+          ASSERT_EQ(parsed_ikey.user_key, expected_ukey_and_ts);
+        } else {
+          ASSERT_EQ(iter->key(), expected_key);
+        }
         ASSERT_EQ(iter->timestamp(), expected_ts);
         ASSERT_EQ(iter->value(), expected_value);
       };
 
+  // Forward iterating one version of each key, get in this order:
+  // [("key0", Timestamp(2, 0), "blob01"),
+  //  ("key1", Timestamp(2, 0), "blob11")...]
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    iter->SeekToFirst();
+    for (int i = 0; i < num_blobs; i++) {
+      check_iter_entry(iter.get(), keys[i], write_timestamps[1],
+                       blobs[i] + std::to_string(1), /*key_is_internal*/ false);
+      iter->Next();
+    }
+  }
+
+  // Forward iteration, then reverse to backward.
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    iter->SeekToFirst();
+    for (int i = 0; i < num_blobs * 2 - 1; i++) {
+      if (i < num_blobs) {
+        check_iter_entry(iter.get(), keys[i], write_timestamps[1],
+                         blobs[i] + std::to_string(1),
+                         /*key_is_internal*/ false);
+        if (i != num_blobs - 1) {
+          iter->Next();
+        }
+      } else {
+        if (i != num_blobs) {
+          check_iter_entry(iter.get(), keys[num_blobs * 2 - 1 - i],
+                           write_timestamps[1],
+                           blobs[num_blobs * 2 - 1 - i] + std::to_string(1),
+                           /*key_is_internal*/ false);
+        }
+        iter->Prev();
+      }
+    }
+  }
+
+  // Backward iterating one versions of each key, get in this order:
+  // [("key4", Timestamp(2, 0), "blob41"),
+  //  ("key3", Timestamp(2, 0), "blob31")...]
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    for (int i = 0; i < num_blobs; i++) {
+      check_iter_entry(iter.get(), keys[num_blobs - 1 - i], write_timestamps[1],
+                       blobs[num_blobs - 1 - i] + std::to_string(1),
+                       /*key_is_internal*/ false);
+      iter->Prev();
+    }
+  }
+
+  // Backward iteration, then reverse to forward.
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    for (int i = 0; i < num_blobs * 2 - 1; i++) {
+      if (i < num_blobs) {
+        check_iter_entry(iter.get(), keys[num_blobs - 1 - i],
+                         write_timestamps[1],
+                         blobs[num_blobs - 1 - i] + std::to_string(1),
+                         /*key_is_internal*/ false);
+        if (i != num_blobs - 1) {
+          iter->Prev();
+        }
+      } else {
+        if (i != num_blobs) {
+          check_iter_entry(iter.get(), keys[i - num_blobs], write_timestamps[1],
+                           blobs[i - num_blobs] + std::to_string(1),
+                           /*key_is_internal*/ false);
+        }
+        iter->Next();
+      }
+    }
+  }
+
+  Slice ts_lower_bound(read_timestamps[0]);
+  read_options.iter_start_ts = &ts_lower_bound;
   // Forward iterating multiple versions of the same key, get in this order:
   // [("key0", Timestamp(2, 0), "blob01"),
   //  ("key0", Timestamp(1, 0), "blob00"),
