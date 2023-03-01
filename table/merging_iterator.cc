@@ -36,9 +36,9 @@ namespace ROCKSDB_NAMESPACE {
 //
 // After each call to SeekImpl() in addition to the functions mentioned above:
 // (3) For all level i and j <= i, range_tombstone_iters_[j].prev.end_key() <
-// children_[j].iter.key(). That is, range_tombstone_iters_[j] is at or before
+// children_[i].iter.key(). That is, range_tombstone_iters_[j] is at or before
 // the first range tombstone from level j with end_key() >
-// children_[j].iter.key().
+// children_[i].iter.key().
 // (4) For all level i and j <= i, if j in active_, then
 // range_tombstone_iters_[j]->start_key() < children_[i].iter.key().
 // - When range_tombstone_iters_[j] is !Valid(), we consider its `prev` to be
@@ -689,7 +689,7 @@ class MergingIterator : public InternalIterator {
 // Invariant (3) holds for all level i.
 // For j <= i < starting_level, it follows from Pre-condition that (3) holds
 // and that SeekImpl(-, starting_level) does not update children_[i] or
-// range_tombstone_iters_[i].
+// range_tombstone_iters_[j].
 // For j < starting_level and i >= starting_level, it follows from
 // - Pre-condition that range_tombstone_iters_[j].prev.end_key() < `target`
 // - range_tombstone_iters_[j] is not updated in SeekImpl(), and
