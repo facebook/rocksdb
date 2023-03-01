@@ -267,7 +267,7 @@ class MergingIterator : public InternalIterator {
     ClearHeaps();
     InitMaxHeap();
     status_ = Status::OK();
-    for (auto &child : children_) {
+    for (auto& child : children_) {
       child.iter.SeekToLast();
       AddToMaxHeapOrCheckStatus(&child);
     }
@@ -318,7 +318,7 @@ class MergingIterator : public InternalIterator {
     }
   }
 
-  void SeekForPrev(const Slice &target) override {
+  void SeekForPrev(const Slice& target) override {
     assert(range_tombstone_iters_.empty() ||
            range_tombstone_iters_.size() == children_.size());
     SeekForPrevImpl(target);
@@ -369,7 +369,7 @@ class MergingIterator : public InternalIterator {
     current_ = CurrentForward();
   }
 
-  bool NextAndGetResult(IterateResult *result) override {
+  bool NextAndGetResult(IterateResult* result) override {
     Next();
     bool is_valid = Valid();
     if (is_valid) {
@@ -445,9 +445,9 @@ class MergingIterator : public InternalIterator {
     return current_->UpperBoundCheckResult();
   }
 
-  void SetPinnedItersMgr(PinnedIteratorsManager *pinned_iters_mgr) override {
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
-    for (auto &child : children_) {
+    for (auto& child : children_) {
       child.iter.SetPinnedItersMgr(pinned_iters_mgr);
     }
   }
@@ -487,7 +487,7 @@ class MergingIterator : public InternalIterator {
       iter.Set(_iter);
     }
 
-    void SetTombstoneKey(ParsedInternalKey &&pik) {
+    void SetTombstoneKey(ParsedInternalKey&& pik) {
       // op_type is already initialized in MergingIterator::Finish().
       tombstone_pik.user_key = pik.user_key;
       tombstone_pik.sequence = pik.sequence;
@@ -571,7 +571,7 @@ class MergingIterator : public InternalIterator {
   // @param range_tombstone_reseek Whether target is some range tombstone
   // end, i.e., whether this SeekImpl() call is a part of a "cascading seek".
   // This is used only for recoding relevant perf_context.
-  void SeekImpl(const Slice &target, size_t starting_level = 0,
+  void SeekImpl(const Slice& target, size_t starting_level = 0,
                 bool range_tombstone_reseek = false);
 
   // Seek to fist key <= target key (internal key) for
