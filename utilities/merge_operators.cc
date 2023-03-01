@@ -18,28 +18,9 @@
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 #include "utilities/merge_operators/uint64add.h"
+#include "utilities/merge_operators/int64add/int64_add.h"
 
 namespace ROCKSDB_NAMESPACE {
-static bool LoadMergeOperator(const std::string& id,
-                              std::shared_ptr<MergeOperator>* result) {
-  bool success = true;
-  // TODO: Hook the "name" up to the actual Name() of the MergeOperators?
-  // Requires these classes be moved into a header file...
-  if (id == "put" || id == "PutOperator") {
-    *result = MergeOperators::CreatePutOperator();
-  } else if (id == "put_v1") {
-    *result = MergeOperators::CreateDeprecatedPutOperator();
-  } else if (id == "int64add" || id == "Int64AddOperator") {
-    *result = MergeOperators::CreateInt64AddOperator();
-  } else if (id == "uint64add" || id == "UInt64AddOperator") {
-    *result = MergeOperators::CreateUInt64AddOperator();
-  } else if (id == "max" || id == "MaxOperator") {
-    *result = MergeOperators::CreateMaxOperator();
-  } else {
-    success = false;
-  }
-  return success;
-}
 
 static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
@@ -82,6 +63,14 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new UInt64AddOperator());
+        return guard->get();
+      });
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(Int64AddOperator::kClassName())
+          .AnotherName(Int64AddOperator::kNickName()),
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new Int64AddOperator());
         return guard->get();
       });
   library.AddFactory<MergeOperator>(
