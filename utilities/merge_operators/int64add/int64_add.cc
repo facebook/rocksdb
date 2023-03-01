@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "utilities/merge_operators/int64add/int64_add.h"
+
 #include <memory>
 
 #include "logging/logging.h"
@@ -12,20 +14,13 @@
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
-namespace {  // anonymous namespace
-
-using ROCKSDB_NAMESPACE::AssociativeMergeOperator;
-using ROCKSDB_NAMESPACE::InfoLogLevel;
-using ROCKSDB_NAMESPACE::Logger;
-using ROCKSDB_NAMESPACE::Slice;
+namespace ROCKSDB_NAMESPACE {
 
 // A 'model' merge operator with int64 addition semantics
 // operands and database value should be variable length encoded
 // int64_t values, as encoded/decoded by `util/coding.h`.
-class Int64AddOperator : public ROCKSDB_NAMESPACE::AssociativeMergeOperator {
- public:
-  bool Merge(const Slice&, const Slice* existing_value, const Slice& value,
-             std::string* new_value, Logger* logger) const override {
+  bool Int64AddOperator::Merge(const Slice&, const Slice* existing_value, const Slice& value,
+             std::string* new_value, Logger* logger) const {
     int64_t orig_value = 0;
     if (existing_value) {
       Slice ev(*existing_value);
@@ -54,18 +49,8 @@ class Int64AddOperator : public ROCKSDB_NAMESPACE::AssociativeMergeOperator {
     return true;
   }
 
-  static const char* kClassName() { return "Int64AddOperator"; }
-  static const char* kNickName() { return "int64add"; }
-  const char* Name() const override { return kClassName(); }
-  const char* NickName() const override { return kNickName(); }
-};
+  std::shared_ptr<MergeOperator> MergeOperators::CreateInt64AddOperator() {
+    return std::make_shared<Int64AddOperator>();
+  }
 
-}  // namespace
-
-namespace ROCKSDB_NAMESPACE {
-
-std::shared_ptr<MergeOperator> MergeOperators::CreateInt64AddOperator() {
-  return std::make_shared<Int64AddOperator>();
-}
-
-}  // namespace ROCKSDB_NAMESPACE
+}; // namespace ROCKSDB_NAMESPACE
