@@ -44,12 +44,6 @@ class SliceTransform;
 // thread-safe.  However, multiple filters may be in existence and operating
 // concurrently.
 //
-// * If you are using a TransactionDB, it is not recommended to filter out
-// merge operands. If a Merge operation is filtered out, TransactionDB
-// may not realize there is a write conflict and may allow a Transaction to
-// Commit that should have failed. Instead, it is better to implement any
-// Merge filtering inside the MergeOperator.
-//
 // * The key passed to the filtering methods includes the timestamp if
 // user-defined timestamps are enabled.
 //
@@ -67,8 +61,8 @@ class CompactionFilter : public Customizable {
     kMergeOperand,
     // Used internally by the old stacked BlobDB implementation; this value type
     // is never passed to application code. Note that when using the new
-    // integrated BlobDB, values stored separately as blobs are presented with
-    // the type kValue above.
+    // integrated BlobDB, values stored separately as blobs are retrieved and
+    // presented to FilterV2/V3 with the type kValue above.
     kBlobIndex,
     // Wide-column entity
     kWideColumnEntity,
@@ -83,9 +77,14 @@ class CompactionFilter : public Customizable {
 
     // Remove the current key-value. Note that the semantics of removal are
     // dependent on the value type. If the current key-value is a plain
-    // key-value or a wide-column entity, it is converted to a tombstone,
-    // resulting in the deletion of any earlier versions of the key. If it is a
-    // merge operand, it is simply dropped.
+    // key-value or a wide-column entity, it is converted to a tombstone
+    // (Delete), resulting in the deletion of any earlier versions of the key.
+    // If it is a merge operand, it is simply dropped. Note: if you are using
+    // a TransactionDB, it is not recommended to filter out merge operands.
+    // If a Merge operation is filtered out, TransactionDB may not realize there
+    // is a write conflict and may allow a Transaction that should have failed
+    // to Commit. Instead, it is better to implement any Merge filtering inside
+    // the MergeOperator.
     kRemove,
 
     // Change the value of the current key-value. If the current key-value is a
@@ -94,12 +93,12 @@ class CompactionFilter : public Customizable {
     // it is converted to a plain key-value with the new value specified.
     kChangeValue,
 
-    // Remove the current key-value, and also remove all key-values with key in
-    // [key, *skip_until). This range of keys will be skipped in a way that
-    // potentially avoids some IO operations compared to removing the keys one
-    // by one. Note that removal in this case means dropping the key-value
-    // regardless of value type; in other words, in contrast with kRemove, plain
-    // values and entities are not converted to tombstones.
+    // Remove all key-values with key in [key, *skip_until). This range of keys
+    // will be skipped in a way that potentially avoids some IO operations
+    // compared to removing the keys one by one. Note that removal in this case
+    // means dropping the key-value regardless of value type; in other words, in
+    // contrast with kRemove, plain values and entities are not converted to
+    // tombstones.
     //
     // *skip_until <= key is treated the same as Decision::kKeep (since the
     // range [key, *skip_until) is empty).
@@ -133,10 +132,10 @@ class CompactionFilter : public Customizable {
     kPurge,
 
     // Change the current key-value to the wide-column entity specified. If the
-    // current key-value is already a wide-column entity, only its value is
-    // changed; if it is a plain key-value, it is converted to the wide-column
-    // entity specified. Not supported for merge operands. Only applicable to
-    // FilterV3.
+    // current key-value is already a wide-column entity, only its columns are
+    // updated; if it is a plain key-value, it is converted to a wide-column
+    // entity with the specified columns. Not supported for merge operands.
+    // Only applicable to FilterV3.
     kChangeWideColumnEntity,
 
     // When using the integrated BlobDB implementation, it may be possible for
@@ -198,6 +197,12 @@ class CompactionFilter : public Customizable {
   // The table file creation process invokes this method on every merge operand.
   // If this method returns true, the merge operand will be ignored and not
   // written out in the new table file.
+  //
+  // Note: If you are using a TransactionDB, it is not recommended to implement
+  // FilterMergeOperand().  If a Merge operation is filtered out, TransactionDB
+  // may not realize there is a write conflict and may allow a Transaction to
+  // Commit that should have failed.  Instead, it is better to implement any
+  // Merge filtering inside the MergeOperator.
   virtual bool FilterMergeOperand(int /*level*/, const Slice& /*key*/,
                                   const Slice& /*operand*/) const {
     return false;
@@ -210,9 +215,11 @@ class CompactionFilter : public Customizable {
   // parameter can be used to set the updated value or merge operand when the
   // kChangeValue decision is made by the filter. See the description of
   // kRemoveAndSkipUntil above for the semantics of the `skip_until` output
-  // parameter. The default implementation uses Filter() and
-  // FilterMergeOperand(). If you're overriding this method, no need to override
-  // the other two.
+  // parameter, and see Decision above for more information on the semantics of
+  // the potential return values.
+  //
+  // The default implementation uses Filter() and FilterMergeOperand().
+  // If you're overriding this method, no need to override the other two.
   virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
                             const Slice& existing_value, std::string* new_value,
                             std::string* /*skip_until*/) const {
@@ -247,10 +254,14 @@ class CompactionFilter : public Customizable {
   // `existing_columns` parameter is invalid (nullptr). When the key-value is a
   // wide-column entity, the `existing_columns` parameter contains the wide
   // columns of the existing entity and the `existing_value` parameter is
-  // invalid (nullptr). The output parameters `new_value` and `new_columns` can
-  // be used to change the value or wide columns of the key-value when
-  // `kChangeValue` or `kChangeWideColumnEntity` is returned. See above for more
-  // information on the semantics of the potential return values.
+  // invalid (nullptr). The `new_value` output parameter can be used to set the
+  // updated value or merge operand when the kChangeValue decision is made by
+  // the filter. The `new_columns` output parameter can be used to specify
+  // the pairs of column names and column values when the
+  // kChangeWideColumnEntity decision is returned. See the description of
+  // kRemoveAndSkipUntil above for the semantics of the `skip_until` output
+  // parameter, and see Decision above for more information on the semantics of
+  // the potential return values.
   //
   // For compatibility, the default implementation keeps all wide-column
   // entities, and falls back to FilterV2 for plain values and merge operands.
@@ -301,9 +312,14 @@ class CompactionFilter : public Customizable {
 
   // In the case of BlobDB, it may be possible to reach a decision with only
   // the key without reading the actual value, saving some I/O operations.
-  // Key-values where the value is stored separately in a blob file will be
-  // checked by this method. Returning kUndetermined will cause FilterV3() to be
-  // called to make a decision as usual.
+  // Keys where the value is stored separately in a blob file will be
+  // passed to this method. If the method returns a supported decision other
+  // than kUndetermined, it will be considered final and performed without
+  // reading the existing value. Returning kUndetermined will cause FilterV3()
+  // to be called to make a decision as usual. The output parameters
+  // `new_value` and `skip_until` are applicable to the decisions kChangeValue
+  // and kRemoveAndSkipUntil respectively, and have the same semantics as
+  // the corresponding parameters of FilterV2/V3.
   virtual Decision FilterBlobByKey(int /*level*/, const Slice& /*key*/,
                                    std::string* /*new_value*/,
                                    std::string* /*skip_until*/) const {
