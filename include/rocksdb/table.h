@@ -266,15 +266,6 @@ struct BlockBasedTableOptions {
   // IF NULL, no page cache is used
   std::shared_ptr<PersistentCache> persistent_cache = nullptr;
 
-  // DEPRECATED: This feature is planned for removal in a future release.
-  // Use SecondaryCache instead.
-  //
-  // If non-NULL use the specified cache for compressed blocks.
-  // If NULL, rocksdb will not use a compressed block cache.
-  // Note: though it looks similar to `block_cache`, RocksDB doesn't put the
-  //       same type of object there.
-  std::shared_ptr<Cache> block_cache_compressed = nullptr;
-
   // Approximate size of user data packed per block.  Note that the
   // block size specified here corresponds to uncompressed data.  The
   // actual size of the unit read from disk may be smaller if
@@ -680,7 +671,6 @@ struct BlockBasedTablePropertyNames {
 extern TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
 
-#ifndef ROCKSDB_LITE
 
 enum EncodingType : char {
   // Always write full keys without any special encoding.
@@ -837,7 +827,6 @@ struct CuckooTableOptions {
 extern TableFactory* NewCuckooTableFactory(
     const CuckooTableOptions& table_options = CuckooTableOptions());
 
-#endif  // ROCKSDB_LITE
 
 class RandomAccessFileReader;
 
@@ -919,7 +908,6 @@ class TableFactory : public Customizable {
   virtual bool IsDeleteRangeSupported() const { return false; }
 };
 
-#ifndef ROCKSDB_LITE
 // Create a special table factory that can open either of the supported
 // table formats, based on setting inside the SST files. It should be used to
 // convert a DB from one table format to another.
@@ -935,6 +923,5 @@ extern TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> plain_table_factory = nullptr,
     std::shared_ptr<TableFactory> cuckoo_table_factory = nullptr);
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

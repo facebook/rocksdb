@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#ifndef ROCKSDB_LITE
 #include <memory>
 #include <string>
 #include <utility>
@@ -97,4 +96,3 @@ class CuckooTableReader : public TableReader {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -3990,9 +3990,13 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps__Ljav
   }
 
   auto* cf_options = new ROCKSDB_NAMESPACE::ColumnFamilyOptions();
+  ROCKSDB_NAMESPACE::ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
   ROCKSDB_NAMESPACE::Status status =
       ROCKSDB_NAMESPACE::GetColumnFamilyOptionsFromString(
-          ROCKSDB_NAMESPACE::ColumnFamilyOptions(), opt_string, cf_options);
+          config_options, ROCKSDB_NAMESPACE::ColumnFamilyOptions(), opt_string,
+          cf_options);
 
   env->ReleaseStringUTFChars(jopt_string, opt_string);
 
@@ -5848,9 +5852,13 @@ jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps__Ljava_lang_String_2(
     return 0;
   }
 
+  const ROCKSDB_NAMESPACE::DBOptions base_options;
   auto* db_options = new ROCKSDB_NAMESPACE::DBOptions();
+  ROCKSDB_NAMESPACE::ConfigOptions config_options(base_options);
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
   ROCKSDB_NAMESPACE::Status status = ROCKSDB_NAMESPACE::GetDBOptionsFromString(
-      ROCKSDB_NAMESPACE::DBOptions(), opt_string, db_options);
+      config_options, base_options, opt_string, db_options);
 
   env->ReleaseStringUTFChars(jopt_string, opt_string);
 

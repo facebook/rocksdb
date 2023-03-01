@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/env_encryption.h"
 
@@ -25,9 +24,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 
-#endif
 namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
 std::shared_ptr<EncryptionProvider> EncryptionProvider::NewCTRProvider(
     const std::shared_ptr<BlockCipher>& cipher) {
   return std::make_shared<CTREncryptionProvider>(cipher);
@@ -1335,17 +1332,15 @@ Status BlockCipher::CreateFromString(const ConfigOptions& config_options,
                                      const std::string& value,
                                      std::shared_ptr<BlockCipher>* result) {
   RegisterEncryptionBuiltins();
-  return LoadSharedObject<BlockCipher>(config_options, value, nullptr, result);
+  return LoadSharedObject<BlockCipher>(config_options, value, result);
 }
 
 Status EncryptionProvider::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<EncryptionProvider>* result) {
   RegisterEncryptionBuiltins();
-  return LoadSharedObject<EncryptionProvider>(config_options, value, nullptr,
-                                              result);
+  return LoadSharedObject<EncryptionProvider>(config_options, value, result);
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

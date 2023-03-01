@@ -31,7 +31,6 @@ namespace ROCKSDB_NAMESPACE {
 // As a result, we only run the tests to verify new fields in options are
 // settable through string on limited platforms as it depends on behavior of
 // compilers.
-#ifndef ROCKSDB_LITE
 #if defined OS_LINUX || defined OS_WIN
 #ifndef __clang__
 #ifndef ROCKSDB_UBSAN_RUN
@@ -126,8 +125,6 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct BlockBasedTableOptions, persistent_cache),
        sizeof(std::shared_ptr<PersistentCache>)},
-      {offsetof(struct BlockBasedTableOptions, block_cache_compressed),
-       sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct BlockBasedTableOptions, cache_usage_options),
        sizeof(CacheUsageOptions)},
       {offsetof(struct BlockBasedTableOptions, filter_policy),
@@ -170,8 +167,13 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
                       kBbtoExcluded);
 
   // Need to update the option string if a new option is added.
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
+  config_options.invoke_prepare_options = false;
+  config_options.ignore_unsupported_options = false;
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      *bbto,
+      config_options, *bbto,
       "cache_index_and_filter_blocks=1;"
       "cache_index_and_filter_blocks_with_high_priority=true;"
       "metadata_cache_options={top_level_index_pinning=kFallback;"
@@ -207,7 +209,6 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
                           kBbtoExcluded));
 
   ASSERT_TRUE(new_bbto->block_cache.get() != nullptr);
-  ASSERT_TRUE(new_bbto->block_cache_compressed.get() != nullptr);
   ASSERT_TRUE(new_bbto->filter_policy.get() != nullptr);
 
   bbto->~BlockBasedTableOptions();
@@ -277,8 +278,11 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   FillWithSpecialChar(new_options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
 
   // Need to update the option string if a new option is added.
+  ConfigOptions config_options(*options);
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
   ASSERT_OK(
-      GetDBOptionsFromString(*options,
+      GetDBOptionsFromString(config_options, *options,
                              "wal_bytes_per_sync=4295048118;"
                              "delete_obsolete_files_period_micros=4294967758;"
                              "WAL_ttl_seconds=4295008036;"
@@ -465,8 +469,11 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
                       kColumnFamilyOptionsExcluded);
 
   // Need to update the option string if a new option is added.
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      *options,
+      config_options, *options,
       "compaction_filter_factory=mpudlojcujCompactionFilterFactory;"
       "table_factory=PlainTable;"
       "prefix_extractor=rocksdb.CappedPrefix.13;"
@@ -607,7 +614,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
 #endif  // !ROCKSDB_UBSAN_RUN
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

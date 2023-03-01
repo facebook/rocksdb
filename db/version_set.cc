@@ -23,7 +23,6 @@
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
-#include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_source.h"
 #include "db/compaction/compaction.h"
@@ -39,6 +38,8 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit_handler.h"
+#include "table/compaction_merging_iterator.h"
+
 #if USE_COROUTINES
 #include "folly/experimental/coro/BlockingWait.h"
 #include "folly/experimental/coro/Collect.h"
@@ -1771,8 +1772,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->temperature,
           file->oldest_blob_file_number, file->TryGetOldestAncesterTime(),
-          file->TryGetFileCreationTime(), file->file_checksum,
-          file->file_checksum_func_name);
+          file->TryGetFileCreationTime(), file->epoch_number,
+          file->file_checksum, file->file_checksum_func_name);
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -2036,7 +2037,8 @@ VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
-    bool _force_consistency_checks)
+    bool _force_consistency_checks,
+    EpochNumberRequirement epoch_number_requirement)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -2064,7 +2066,8 @@ VersionStorageInfo::VersionStorageInfo(
       current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
       finalized_(false),
-      force_consistency_checks_(_force_consistency_checks) {
+      force_consistency_checks_(_force_consistency_checks),
+      epoch_number_requirement_(epoch_number_requirement) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
     accumulated_raw_key_size_ = ref_vstorage->accumulated_raw_key_size_;
@@ -2085,7 +2088,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                  const FileOptions& file_opt,
                  const MutableCFOptions mutable_cf_options,
                  const std::shared_ptr<IOTracer>& io_tracer,
-                 uint64_t version_number)
+                 uint64_t version_number,
+                 EpochNumberRequirement epoch_number_requirement)
     : env_(vset->env_),
       clock_(vset->clock_),
       cfd_(column_family_data),
@@ -2104,7 +2108,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           (cfd_ == nullptr || cfd_->current() == nullptr)
               ? nullptr
               : cfd_->current()->storage_info(),
-          cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks),
+          cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks,
+          epoch_number_requirement),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -2173,25 +2178,35 @@ void Version::MultiGetBlob(
 
     autovector<BlobReadRequest> blob_reqs_in_file;
     BlobReadContexts& blobs_in_file = ctx.second;
-    for (const auto& blob : blobs_in_file) {
-      const BlobIndex& blob_index = blob.first;
-      const KeyContext& key_context = blob.second;
+    for (auto& blob : blobs_in_file) {
+      const BlobIndex& blob_index = blob.blob_index;
+      const KeyContext* const key_context = blob.key_context;
+      assert(key_context);
+      assert(key_context->get_context);
+      assert(key_context->s);
+
+      if (key_context->value) {
+        key_context->value->Reset();
+      } else {
+        assert(key_context->columns);
+        key_context->columns->Reset();
+      }
 
       if (!blob_file_meta) {
-        *key_context.s = Status::Corruption("Invalid blob file number");
+        *key_context->s = Status::Corruption("Invalid blob file number");
         continue;
       }
 
       if (blob_index.HasTTL() || blob_index.IsInlined()) {
-        *key_context.s =
+        *key_context->s =
             Status::Corruption("Unexpected TTL/inlined blob index");
         continue;
       }
 
-      key_context.value->Reset();
       blob_reqs_in_file.emplace_back(
-          key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
-          blob_index.compression(), key_context.value, key_context.s);
+          key_context->get_context->ukey_to_get_blob_value(),
+          blob_index.offset(), blob_index.size(), blob_index.compression(),
+          &blob.result, key_context->s);
     }
     if (blob_reqs_in_file.size() > 0) {
       const auto file_size = blob_file_meta->GetBlobFileSize();
@@ -2200,23 +2215,35 @@ void Version::MultiGetBlob(
   }
 
   if (blob_reqs.size() > 0) {
-    blob_source_->MultiGetBlob(read_options, blob_reqs, /*bytes_read=*/nullptr);
+    blob_source_->MultiGetBlob(read_options, blob_reqs,
+                               /*bytes_read=*/nullptr);
   }
 
   for (auto& ctx : blob_ctxs) {
     BlobReadContexts& blobs_in_file = ctx.second;
-    for (const auto& blob : blobs_in_file) {
-      const KeyContext& key_context = blob.second;
-      if (key_context.s->ok()) {
-        range.AddValueSize(key_context.value->size());
-        if (range.GetValueSize() > read_options.value_size_soft_limit) {
-          *key_context.s = Status::Aborted();
+    for (auto& blob : blobs_in_file) {
+      const KeyContext* const key_context = blob.key_context;
+      assert(key_context);
+      assert(key_context->get_context);
+      assert(key_context->s);
+
+      if (key_context->s->ok()) {
+        if (key_context->value) {
+          *key_context->value = std::move(blob.result);
+          range.AddValueSize(key_context->value->size());
+        } else {
+          assert(key_context->columns);
+          key_context->columns->SetPlainValue(std::move(blob.result));
+          range.AddValueSize(key_context->columns->serialized_size());
         }
-      } else if (key_context.s->IsIncomplete()) {
+
+        if (range.GetValueSize() > read_options.value_size_soft_limit) {
+          *key_context->s = Status::Aborted();
+        }
+      } else if (key_context->s->IsIncomplete()) {
         // read_options.read_tier == kBlockCacheTier
         // Cannot read blob(s): no disk I/O allowed
-        assert(key_context.get_context);
-        auto& get_context = *(key_context.get_context);
+        auto& get_context = *(key_context->get_context);
         get_context.MarkKeyMayExist();
       }
     }
@@ -2333,22 +2360,37 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
                                   fp.GetHitFileLevel());
 
-        if (is_blob_index) {
-          if (do_merge && value) {
-            TEST_SYNC_POINT_CALLBACK("Version::Get::TamperWithBlobIndex",
-                                     value);
+        if (is_blob_index && do_merge && (value || columns)) {
+          assert(!columns ||
+                 (!columns->columns().empty() &&
+                  columns->columns().front().name() == kDefaultWideColumnName));
 
-            constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-            constexpr uint64_t* bytes_read = nullptr;
+          Slice blob_index =
+              value ? *value : columns->columns().front().value();
 
-            *status = GetBlob(read_options, user_key, *value, prefetch_buffer,
-                              value, bytes_read);
-            if (!status->ok()) {
-              if (status->IsIncomplete()) {
-                get_context.MarkKeyMayExist();
-              }
-              return;
+          TEST_SYNC_POINT_CALLBACK("Version::Get::TamperWithBlobIndex",
+                                   &blob_index);
+
+          constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+
+          PinnableSlice result;
+
+          constexpr uint64_t* bytes_read = nullptr;
+
+          *status = GetBlob(read_options, get_context.ukey_to_get_blob_value(),
+                            blob_index, prefetch_buffer, &result, bytes_read);
+          if (!status->ok()) {
+            if (status->IsIncomplete()) {
+              get_context.MarkKeyMayExist();
             }
+            return;
+          }
+
+          if (value) {
+            *value = std::move(result);
+          } else {
+            assert(columns);
+            columns->SetPlainValue(std::move(result));
           }
         }
 
@@ -2365,6 +2407,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         *status = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
             "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
+        return;
+      case GetContext::kMergeOperatorFailed:
+        *status = Status::Corruption(Status::SubCode::kMergeOperatorFailed);
         return;
     }
     f = fp.GetNextFile();
@@ -2386,17 +2431,20 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     // do a final merge of nullptr and operands;
     if (value || columns) {
       std::string result;
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, merge_context->GetOperands(),
           &result, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
+          /* op_failure_scope */ nullptr);
       if (status->ok()) {
         if (LIKELY(value != nullptr)) {
           *(value->GetSelf()) = std::move(result);
           value->PinSelf();
         } else {
           assert(columns != nullptr);
-          columns->SetPlainValue(result);
+          columns->SetPlainValue(std::move(result));
         }
       }
     }
@@ -2432,7 +2480,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge,
-        iter->ukey_with_ts, iter->value, /*columns=*/nullptr, iter->timestamp,
+        iter->ukey_with_ts, iter->value, iter->columns, iter->timestamp,
         nullptr, &(iter->merge_context), true,
         &iter->max_covering_tombstone_seq, clock_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
@@ -2505,7 +2553,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         std::vector<folly::coro::Task<Status>> mget_tasks;
         while (f != nullptr) {
           MultiGetRange file_range = fp.CurrentFileRange();
-          Cache::Handle* table_handle = nullptr;
+          TableCache::TypedHandle* table_handle = nullptr;
           bool skip_filters =
               IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                               fp.IsHitFileLastInLevel());
@@ -2539,16 +2587,19 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           }
           f = fp.GetNextFileInLevel();
         }
-        if (s.ok() && mget_tasks.size() > 0) {
+        if (mget_tasks.size() > 0) {
           RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT,
                      mget_tasks.size());
           // Collect all results so far
           std::vector<Status> statuses = folly::coro::blockingWait(
               folly::coro::collectAllRange(std::move(mget_tasks))
                   .scheduleOn(&range->context()->executor()));
-          for (Status stat : statuses) {
-            if (!stat.ok()) {
-              s = stat;
+          if (s.ok()) {
+            for (Status stat : statuses) {
+              if (!stat.ok()) {
+                s = std::move(stat);
+                break;
+              }
             }
           }
 
@@ -2629,20 +2680,29 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
       // merge_operands are in saver and we hit the beginning of the key history
       // do a final merge of nullptr and operands;
-      std::string* str_value =
-          iter->value != nullptr ? iter->value->GetSelf() : nullptr;
+      std::string result;
+
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
-          str_value, info_log_, db_statistics_, clock_,
-          /* result_operand */ nullptr, /* update_num_ops_stats */ true);
+          &result, info_log_, db_statistics_, clock_,
+          /* result_operand */ nullptr, /* update_num_ops_stats */ true,
+          /* op_failure_scope */ nullptr);
       if (LIKELY(iter->value != nullptr)) {
+        *iter->value->GetSelf() = std::move(result);
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
-        range->MarkKeyDone(iter);
-        if (range->GetValueSize() > read_options.value_size_soft_limit) {
-          s = Status::Aborted();
-          break;
-        }
+      } else {
+        assert(iter->columns);
+        iter->columns->SetPlainValue(std::move(result));
+        range->AddValueSize(iter->columns->serialized_size());
+      }
+
+      range->MarkKeyDone(iter);
+      if (range->GetValueSize() > read_options.value_size_soft_limit) {
+        s = Status::Aborted();
+        break;
       }
     } else {
       range->MarkKeyDone(iter);
@@ -2684,7 +2744,7 @@ Status Version::ProcessBatch(
   }
   while (f) {
     MultiGetRange file_range = fp.CurrentFileRange();
-    Cache::Handle* table_handle = nullptr;
+    TableCache::TypedHandle* table_handle = nullptr;
     bool skip_filters = IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                                         fp.IsHitFileLastInLevel());
     bool skip_range_deletions = false;
@@ -2794,6 +2854,9 @@ Status Version::MultiGetAsync(
     unsigned int num_tasks_queued = 0;
     to_process.pop_front();
     if (batch->IsSearchEnded() || batch->GetRange().empty()) {
+      // If to_process is empty, i.e no more batches to look at, then we need
+      // schedule the enqueued coroutines and wait for them. Otherwise, we
+      // skip this batch and move to the next one in to_process.
       if (!to_process.empty()) {
         continue;
       }
@@ -2802,9 +2865,6 @@ Status Version::MultiGetAsync(
       // to_process
       s = ProcessBatch(options, batch, mget_tasks, blob_ctxs, batches, waiting,
                        to_process, num_tasks_queued, mget_stats);
-      if (!s.ok()) {
-        break;
-      }
       // If ProcessBatch didn't enqueue any coroutine tasks, it means all
       // keys were filtered out. So put the batch back in to_process to
       // lookup in the next level
@@ -2815,8 +2875,10 @@ Status Version::MultiGetAsync(
         waiting.emplace_back(idx);
       }
     }
-    if (to_process.empty()) {
-      if (s.ok() && mget_tasks.size() > 0) {
+    // If ProcessBatch() returned an error, then schedule the enqueued
+    // coroutines and wait for them, then abort the MultiGet.
+    if (to_process.empty() || !s.ok()) {
+      if (mget_tasks.size() > 0) {
         assert(waiting.size());
         RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT, mget_tasks.size());
         // Collect all results so far
@@ -2824,10 +2886,12 @@ Status Version::MultiGetAsync(
             folly::coro::collectAllRange(std::move(mget_tasks))
                 .scheduleOn(&range->context()->executor()));
         mget_tasks.clear();
-        for (Status stat : statuses) {
-          if (!stat.ok()) {
-            s = stat;
-            break;
+        if (s.ok()) {
+          for (Status stat : statuses) {
+            if (!stat.ok()) {
+              s = std::move(stat);
+              break;
+            }
           }
         }
 
@@ -2849,6 +2913,9 @@ Status Version::MultiGetAsync(
       } else {
         assert(!s.ok() || waiting.size() == 0);
       }
+    }
+    if (!s.ok()) {
+      break;
     }
   }
 
@@ -2944,7 +3011,7 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   file_meta->num_deletions = tp->num_deletions;
   file_meta->raw_value_size = tp->raw_value_size;
   file_meta->raw_key_size = tp->raw_key_size;
-
+  file_meta->num_range_deletions = tp->num_range_deletions;
   return true;
 }
 
@@ -3046,11 +3113,15 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
         // size of deletion entries in a stable workload, the deletion
         // compensation logic might introduce unwanted effet which changes the
         // shape of LSM tree.
-        if (file_meta->num_deletions * 2 >= file_meta->num_entries) {
+        if ((file_meta->num_deletions - file_meta->num_range_deletions) * 2 >=
+            file_meta->num_entries) {
           file_meta->compensated_file_size +=
-              (file_meta->num_deletions * 2 - file_meta->num_entries) *
+              ((file_meta->num_deletions - file_meta->num_range_deletions) * 2 -
+               file_meta->num_entries) *
               average_value_size * kDeletionWeightOnCompaction;
         }
+        file_meta->compensated_file_size +=
+            file_meta->compensated_range_deletion_size;
       }
     }
   }
@@ -4270,6 +4341,74 @@ const char* VersionStorageInfo::LevelFileSummary(FileSummaryStorage* scratch,
   return scratch->buffer;
 }
 
+bool VersionStorageInfo::HasMissingEpochNumber() const {
+  for (int level = 0; level < num_levels_; ++level) {
+    for (const FileMetaData* f : files_[level]) {
+      if (f->epoch_number == kUnknownEpochNumber) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+uint64_t VersionStorageInfo::GetMaxEpochNumberOfFiles() const {
+  uint64_t max_epoch_number = kUnknownEpochNumber;
+  for (int level = 0; level < num_levels_; ++level) {
+    for (const FileMetaData* f : files_[level]) {
+      max_epoch_number = std::max(max_epoch_number, f->epoch_number);
+    }
+  }
+  return max_epoch_number;
+}
+
+void VersionStorageInfo::RecoverEpochNumbers(ColumnFamilyData* cfd) {
+  cfd->ResetNextEpochNumber();
+
+  bool reserve_epoch_num_for_file_ingested_behind =
+      cfd->ioptions()->allow_ingest_behind;
+  if (reserve_epoch_num_for_file_ingested_behind) {
+    uint64_t reserved_epoch_number = cfd->NewEpochNumber();
+    assert(reserved_epoch_number == kReservedEpochNumberForFileIngestedBehind);
+    ROCKS_LOG_INFO(cfd->ioptions()->info_log.get(),
+                   "[%s]CF has reserved epoch number %" PRIu64
+                   " for files ingested "
+                   "behind since `Options::allow_ingest_behind` is true",
+                   cfd->GetName().c_str(), reserved_epoch_number);
+  }
+
+  if (HasMissingEpochNumber()) {
+    assert(epoch_number_requirement_ == EpochNumberRequirement::kMightMissing);
+    assert(num_levels_ >= 1);
+
+    for (int level = num_levels_ - 1; level >= 1; --level) {
+      auto& files_at_level = files_[level];
+      if (files_at_level.empty()) {
+        continue;
+      }
+      uint64_t next_epoch_number = cfd->NewEpochNumber();
+      for (FileMetaData* f : files_at_level) {
+        f->epoch_number = next_epoch_number;
+      }
+    }
+
+    for (auto file_meta_iter = files_[0].rbegin();
+         file_meta_iter != files_[0].rend(); file_meta_iter++) {
+      FileMetaData* f = *file_meta_iter;
+      f->epoch_number = cfd->NewEpochNumber();
+    }
+
+    ROCKS_LOG_WARN(cfd->ioptions()->info_log.get(),
+                   "[%s]CF's epoch numbers are inferred based on seqno",
+                   cfd->GetName().c_str());
+    epoch_number_requirement_ = EpochNumberRequirement::kMustPresent;
+  } else {
+    assert(epoch_number_requirement_ == EpochNumberRequirement::kMustPresent);
+    cfd->SetNextEpochNumber(
+        std::max(GetMaxEpochNumberOfFiles() + 1, cfd->GetNextEpochNumber()));
+  }
+}
+
 uint64_t VersionStorageInfo::MaxNextLevelOverlappingBytes() {
   uint64_t result = 0;
   std::vector<FileMetaData*> overlaps;
@@ -5099,6 +5238,7 @@ Status VersionSet::ProcessManifestWrites(
           break;
         }
       }
+
       if (s.ok()) {
         io_s = SyncManifest(db_options_, descriptor_log_->file());
         manifest_io_status = io_s;
@@ -5506,7 +5646,8 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool no_error_if_files_missing) {
-  // Read "CURRENT" file, which contains a pointer to the current manifest file
+  // Read "CURRENT" file, which contains a pointer to the current manifest
+  // file
   std::string manifest_path;
   Status s = GetCurrentManifestPath(dbname_, fs_.get(), &manifest_path,
                                     &manifest_file_number_);
@@ -5540,7 +5681,8 @@ Status VersionSet::Recover(
                        true /* checksum */, 0 /* log_number */);
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
-        /*track_missing_files=*/false, no_error_if_files_missing, io_tracer_);
+        /*track_missing_files=*/false, no_error_if_files_missing, io_tracer_,
+        EpochNumberRequirement::kMightMissing);
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
@@ -5548,6 +5690,9 @@ Status VersionSet::Recover(
       current_manifest_file_size = reader.GetReadOffset();
       assert(current_manifest_file_size != 0);
       handler.GetDbId(db_id);
+    }
+    if (s.ok()) {
+      RecoverEpochNumbers();
     }
   }
 
@@ -5708,7 +5853,8 @@ Status VersionSet::TryRecoverFromOneManifest(
   log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                      /*checksum=*/true, /*log_num=*/0);
   VersionEditHandlerPointInTime handler_pit(
-      read_only, column_families, const_cast<VersionSet*>(this), io_tracer_);
+      read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
+      EpochNumberRequirement::kMightMissing);
 
   handler_pit.Iterate(reader, &s);
 
@@ -5717,7 +5863,21 @@ Status VersionSet::TryRecoverFromOneManifest(
   assert(nullptr != has_missing_table_file);
   *has_missing_table_file = handler_pit.HasMissingFiles();
 
-  return handler_pit.status();
+  s = handler_pit.status();
+  if (s.ok()) {
+    RecoverEpochNumbers();
+  }
+  return s;
+}
+
+void VersionSet::RecoverEpochNumbers() {
+  for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    assert(cfd->initialized());
+    cfd->RecoverEpochNumbers();
+  }
 }
 
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
@@ -5770,7 +5930,6 @@ Status VersionSet::ListColumnFamiliesFromManifest(
   return handler.status();
 }
 
-#ifndef ROCKSDB_LITE
 Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         const Options* options,
                                         const FileOptions& file_options,
@@ -5978,7 +6137,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
   return handler.status();
 }
-#endif  // ROCKSDB_LITE
 
 void VersionSet::MarkFileNumberUsed(uint64_t number) {
   // only called during recovery and repair which are single threaded, so this
@@ -6037,6 +6195,22 @@ Status VersionSet::WriteCurrentStateToManifest(
     }
   }
 
+  // New manifest should rollover the WAL deletion record from previous
+  // manifest. Otherwise, when an addition record of a deleted WAL gets added to
+  // this new manifest later (which can happens in e.g, SyncWAL()), this new
+  // manifest creates an illusion that such WAL hasn't been deleted.
+  VersionEdit wal_deletions;
+  wal_deletions.DeleteWalsBefore(min_log_number_to_keep());
+  std::string wal_deletions_record;
+  if (!wal_deletions.EncodeTo(&wal_deletions_record)) {
+    return Status::Corruption("Unable to Encode VersionEdit: " +
+                              wal_deletions.DebugString(true));
+  }
+  io_s = log->AddRecord(wal_deletions_record);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
   for (auto cfd : *column_family_set_) {
     assert(cfd);
 
@@ -6088,8 +6262,9 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->temperature,
                        f->oldest_blob_file_number, f->oldest_ancester_time,
-                       f->file_creation_time, f->file_checksum,
-                       f->file_checksum_func_name, f->unique_id);
+                       f->file_creation_time, f->epoch_number, f->file_checksum,
+                       f->file_checksum_func_name, f->unique_id,
+                       f->compensated_range_deletion_size);
         }
       }
 
@@ -6167,8 +6342,9 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
   const int num_non_empty_levels = vstorage->num_non_empty_levels();
   end_level = (end_level == -1) ? num_non_empty_levels
                                 : std::min(end_level, num_non_empty_levels);
-
-  assert(start_level <= end_level);
+  if (end_level <= start_level) {
+    return 0;
+  }
 
   // Outline of the optimization that uses options.files_size_error_margin.
   // When approximating the files total size that is used to store a keys range,
@@ -6460,6 +6636,14 @@ InternalIterator* VersionSet::MakeInputIterator(
                                               c->num_input_levels() - 1
                                         : c->num_input_levels());
   InternalIterator** list = new InternalIterator*[space];
+  // First item in the pair is a pointer to range tombstones.
+  // Second item is a pointer to a member of a LevelIterator,
+  // that will be initialized to where CompactionMergingIterator stores
+  // pointer to its range tombstones. This is used by LevelIterator
+  // to update pointer to range tombstones as it traverse different SST files.
+  std::vector<
+      std::pair<TruncatedRangeDelIterator*, TruncatedRangeDelIterator***>>
+      range_tombstones;
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
@@ -6480,7 +6664,7 @@ InternalIterator* VersionSet::MakeInputIterator(
                   end.value(), fmd.smallest.user_key()) < 0) {
             continue;
           }
-
+          TruncatedRangeDelIterator* range_tombstone_iter = nullptr;
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
               cfd->internal_comparator(), fmd, range_del_agg,
@@ -6493,10 +6677,13 @@ InternalIterator* VersionSet::MakeInputIterator(
               MaxFileSizeForL0MetaPin(*c->mutable_cf_options()),
               /*smallest_compaction_key=*/nullptr,
               /*largest_compaction_key=*/nullptr,
-              /*allow_unprepared_value=*/false);
+              /*allow_unprepared_value=*/false,
+              /*range_del_iter=*/&range_tombstone_iter);
+          range_tombstones.emplace_back(range_tombstone_iter, nullptr);
         }
       } else {
         // Create concatenating iterator for the files from this level
+        TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr;
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
@@ -6505,14 +6692,15 @@ InternalIterator* VersionSet::MakeInputIterator(
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
             /*level=*/static_cast<int>(c->level(which)), range_del_agg,
-            c->boundaries(which));
+            c->boundaries(which), false, &tombstone_iter_ptr);
+        range_tombstones.emplace_back(nullptr, tombstone_iter_ptr);
       }
     }
   }
   assert(num <= space);
-  InternalIterator* result =
-      NewMergingIterator(&c->column_family_data()->internal_comparator(), list,
-                         static_cast<int>(num));
+  InternalIterator* result = NewCompactionMergingIterator(
+      &c->column_family_data()->internal_comparator(), list,
+      static_cast<int>(num), range_tombstones);
   delete[] list;
   return result;
 }
@@ -6579,6 +6767,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.temperature = file->temperature;
         filemetadata.oldest_ancester_time = file->TryGetOldestAncesterTime();
         filemetadata.file_creation_time = file->TryGetFileCreationTime();
+        filemetadata.epoch_number = file->epoch_number;
         metadata->push_back(filemetadata);
       }
     }
@@ -6704,13 +6893,46 @@ uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
   return all_versions_blob_file_size;
 }
 
-Status VersionSet::VerifyFileMetadata(const std::string& fpath,
-                                      const FileMetaData& meta) const {
+Status VersionSet::VerifyFileMetadata(ColumnFamilyData* cfd,
+                                      const std::string& fpath, int level,
+                                      const FileMetaData& meta) {
   uint64_t fsize = 0;
   Status status = fs_->GetFileSize(fpath, IOOptions(), &fsize, nullptr);
   if (status.ok()) {
     if (fsize != meta.fd.GetFileSize()) {
       status = Status::Corruption("File size mismatch: " + fpath);
+    }
+  }
+  if (status.ok() && db_options_->verify_sst_unique_id_in_manifest) {
+    assert(cfd);
+    TableCache* table_cache = cfd->table_cache();
+    assert(table_cache);
+
+    const MutableCFOptions* const cf_opts = cfd->GetLatestMutableCFOptions();
+    assert(cf_opts);
+    std::shared_ptr<const SliceTransform> pe = cf_opts->prefix_extractor;
+    size_t max_sz_for_l0_meta_pin = MaxFileSizeForL0MetaPin(*cf_opts);
+
+    const FileOptions& file_opts = file_options();
+
+    Version* version = cfd->current();
+    assert(version);
+    VersionStorageInfo& storage_info = version->storage_info_;
+    const InternalKeyComparator* icmp = storage_info.InternalComparator();
+    assert(icmp);
+
+    InternalStats* internal_stats = cfd->internal_stats();
+
+    TableCache::TypedHandle* handle = nullptr;
+    FileMetaData meta_copy = meta;
+    status = table_cache->FindTable(
+        ReadOptions(), file_opts, *icmp, meta_copy, &handle, pe,
+        /*no_io=*/false, /*record_read_stats=*/true,
+        internal_stats->GetFileReadHist(level), false, level,
+        /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
+        meta_copy.temperature);
+    if (handle) {
+      table_cache->get_cache().Release(handle);
     }
   }
   return status;
@@ -6748,12 +6970,17 @@ Status ReactiveVersionSet::Recover(
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
-  manifest_tailer_.reset(new ManifestTailer(
-      column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_));
+  manifest_tailer_.reset(
+      new ManifestTailer(column_families, const_cast<ReactiveVersionSet*>(this),
+                         io_tracer_, EpochNumberRequirement::kMightMissing));
 
   manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
 
-  return manifest_tailer_->status();
+  s = manifest_tailer_->status();
+  if (s.ok()) {
+    RecoverEpochNumbers();
+  }
+  return s;
 }
 
 Status ReactiveVersionSet::ReadAndApply(

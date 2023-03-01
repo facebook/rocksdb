@@ -44,13 +44,6 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # Set the default DEBUG_LEVEL to 1
 DEBUG_LEVEL?=1
 
-# LIB_MODE says whether or not to use/build "shared" or "static" libraries.
-# Mode "static" means to link against static libraries (.a)
-# Mode "shared" means to link against shared libraries (.so, .sl, .dylib, etc)
-#
-# Set the default LIB_MODE to static
-LIB_MODE?=static
-
 # OBJ_DIR is where the object files reside.  Default to the current directory
 OBJ_DIR?=.
 
@@ -81,29 +74,23 @@ else ifneq ($(filter jtest rocksdbjava%, $(MAKECMDGOALS)),)
 	endif
 endif
 
-$(info $$DEBUG_LEVEL is ${DEBUG_LEVEL})
+# LIB_MODE says whether or not to use/build "shared" or "static" libraries.
+# Mode "static" means to link against static libraries (.a)
+# Mode "shared" means to link against shared libraries (.so, .sl, .dylib, etc)
+#
+ifeq ($(DEBUG_LEVEL), 0)
+# For optimized, set the default LIB_MODE to static for code size/efficiency
+	LIB_MODE?=static
+else
+# For debug, set the default LIB_MODE to shared for efficient `make check` etc.
+	LIB_MODE?=shared
+endif
 
-# Lite build flag.
-LITE ?= 0
-ifeq ($(LITE), 0)
-ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
-  # Be backward compatible and support older format where OPT=-DROCKSDB_LITE is
-  # specified instead of LITE=1 on the command line.
-  LITE=1
-endif
-else ifeq ($(LITE), 1)
-ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
-	OPT += -DROCKSDB_LITE
-endif
-endif
+$(info $$DEBUG_LEVEL is $(DEBUG_LEVEL), $$LIB_MODE is $(LIB_MODE))
 
 # Figure out optimize level.
 ifneq ($(DEBUG_LEVEL), 2)
-ifeq ($(LITE), 0)
 	OPTIMIZE_LEVEL ?= -O2
-else
-	OPTIMIZE_LEVEL ?= -Os
-endif
 endif
 # `OPTIMIZE_LEVEL` is empty when the user does not set it and `DEBUG_LEVEL=2`.
 # In that case, the compiler default (`-O0` for gcc and clang) will be used.
@@ -266,6 +253,7 @@ ROCKSDB_PLUGIN_EXTERNS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), int $($(p)_FUNC
 ROCKSDB_PLUGIN_BUILTINS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), {\"$(p)\"\, $($(p)_FUNC)}\,)
 ROCKSDB_PLUGIN_LDFLAGS = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
 ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_PKGCONFIG_REQUIRES))
+ROCKSDB_PLUGIN_TESTS = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach test, $($(p)_TESTS), plugin/$(p)/$(test)))
 
 CXXFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_CXXFLAGS))
 PLATFORM_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
@@ -335,13 +323,6 @@ endif
 
 ifeq ($(PLATFORM), OS_SOLARIS)
 	PLATFORM_CXXFLAGS += -D _GLIBCXX_USE_C99
-endif
-ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
-	# found
-	CFLAGS += -fno-exceptions
-	CXXFLAGS += -fno-exceptions
-	# LUA is not supported under ROCKSDB_LITE
-	LUA_PATH =
 endif
 
 ifeq ($(LIB_MODE),shared)
@@ -647,10 +628,12 @@ STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
 ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
-ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES)
+ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES) $(ROCKSDB_PLUGIN_TESTS)
 
+PLUGIN_TESTS = $(patsubst %.cc, %, $(notdir $(ROCKSDB_PLUGIN_TESTS)))
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
 TESTS += $(patsubst %.c, %, $(notdir $(TEST_MAIN_SOURCES_C)))
+TESTS += $(PLUGIN_TESTS)
 
 # `make check-headers` to very that each header file includes its own
 # dependencies
@@ -702,6 +685,7 @@ NON_PARALLEL_TEST = \
 	env_test \
 	deletefile_test \
 	db_bloom_filter_test \
+	$(PLUGIN_TESTS) \
 
 PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
 
@@ -1078,11 +1062,9 @@ check: all
 	rm -rf $(TEST_TMPDIR)
 ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
-ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	$(PYTHON) tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
-endif
 endif
 endif
 ifndef SKIP_FORMAT_BUCK_CHECKS
@@ -1240,9 +1222,9 @@ clean: clean-ext-libraries-all clean-rocks clean-rocksjava
 clean-not-downloaded: clean-ext-libraries-bin clean-rocks clean-not-downloaded-rocksjava
 
 clean-rocks:
-	echo shared=$(ALL_SHARED_LIBS)
-	echo static=$(ALL_STATIC_LIBS)
-	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS) $(MICROBENCHS)
+# Not practical to exactly match all versions/variants in naming (e.g. debug or not)
+	rm -f ${LIBNAME}*.so* ${LIBNAME}*.a
+	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(MICROBENCHS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
@@ -1354,6 +1336,14 @@ db_sanity_test: $(OBJ_DIR)/tools/db_sanity_test.o $(LIBRARY)
 
 db_repl_stress: $(OBJ_DIR)/tools/db_repl_stress.o $(LIBRARY)
 	$(AM_LINK)
+
+define MakeTestRule
+$(notdir $(1:%.cc=%)): $(1:%.cc=$$(OBJ_DIR)/%.o) $$(TEST_LIBRARY) $$(LIBRARY)
+	$$(AM_LINK)
+endef
+
+# For each PLUGIN test, create a rule to generate the test executable
+$(foreach test, $(ROCKSDB_PLUGIN_TESTS), $(eval $(call MakeTestRule, $(test))))
 
 arena_test: $(OBJ_DIR)/memory/arena_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
@@ -2058,7 +2048,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter amd64 ppc64 ppc64le s390x arm64 aarch64 sparc64, $(MACHINE)))
+	ifneq (,$(filter amd64 ppc64 ppc64le s390x arm64 aarch64 sparc64 loongarch64, $(MACHINE)))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -2079,7 +2069,7 @@ ifneq ($(origin JNI_LIBC), undefined)
 endif
 
 ifeq (,$(ROCKSDBJNILIB))
-ifneq (,$(filter ppc% s390x arm64 aarch64 sparc64, $(MACHINE)))
+ifneq (,$(filter ppc% s390x arm64 aarch64 sparc64 loongarch64, $(MACHINE)))
 	ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE)$(JNI_LIBC_POSTFIX).so
 else
 	ROCKSDBJNILIB = librocksdbjni-linux$(ARCH)$(JNI_LIBC_POSTFIX).so
@@ -2477,18 +2467,6 @@ build_size:
 	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib $$(stat --printf="%s" `readlink -f librocksdb.so`)
 	strip `readlink -f librocksdb.so`
 	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_stripped $$(stat --printf="%s" `readlink -f librocksdb.so`)
-	# === lite build, static ===
-	$(MAKE) clean
-	$(MAKE) LITE=1 static_lib
-	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_lite $$(stat --printf="%s" librocksdb.a)
-	strip librocksdb.a
-	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_lite_stripped $$(stat --printf="%s" librocksdb.a)
-	# === lite build, shared ===
-	$(MAKE) clean
-	$(MAKE) LITE=1 shared_lib
-	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_lite $$(stat --printf="%s" `readlink -f librocksdb.so`)
-	strip `readlink -f librocksdb.so`
-	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_lite_stripped $$(stat --printf="%s" `readlink -f librocksdb.so`)
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation

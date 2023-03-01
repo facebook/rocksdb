@@ -7,8 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
-
 #include "rocksdb/c.h"
 
 #include <cstdlib>
@@ -17,7 +15,7 @@
 #include <vector>
 
 #include "port/port.h"
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
@@ -69,6 +67,7 @@ using ROCKSDB_NAMESPACE::CompactionOptionsFIFO;
 using ROCKSDB_NAMESPACE::CompactRangeOptions;
 using ROCKSDB_NAMESPACE::Comparator;
 using ROCKSDB_NAMESPACE::CompressionType;
+using ROCKSDB_NAMESPACE::ConfigOptions;
 using ROCKSDB_NAMESPACE::CuckooTableOptions;
 using ROCKSDB_NAMESPACE::DB;
 using ROCKSDB_NAMESPACE::DBOptions;
@@ -78,6 +77,7 @@ using ROCKSDB_NAMESPACE::EnvOptions;
 using ROCKSDB_NAMESPACE::FileLock;
 using ROCKSDB_NAMESPACE::FilterPolicy;
 using ROCKSDB_NAMESPACE::FlushOptions;
+using ROCKSDB_NAMESPACE::HyperClockCacheOptions;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
 using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
 using ROCKSDB_NAMESPACE::Iterator;
@@ -207,6 +207,9 @@ struct rocksdb_logger_t {
 };
 struct rocksdb_lru_cache_options_t {
   LRUCacheOptions rep;
+};
+struct rocksdb_hyper_clock_cache_options_t {
+  HyperClockCacheOptions rep;
 };
 struct rocksdb_memory_allocator_t {
   std::shared_ptr<MemoryAllocator> rep;
@@ -1805,6 +1808,17 @@ void rocksdb_flush_cf(rocksdb_t* db, const rocksdb_flushoptions_t* options,
   SaveError(errptr, db->rep->Flush(options->rep, column_family->rep));
 }
 
+void rocksdb_flush_cfs(rocksdb_t* db, const rocksdb_flushoptions_t* options,
+                       rocksdb_column_family_handle_t** column_families,
+                       int num_column_families, char** errptr) {
+  std::vector<ColumnFamilyHandle*> column_family_handles;
+  for (int i = 0; i < num_column_families; i++) {
+    column_family_handles.push_back(column_families[i]->rep);
+  }
+
+  SaveError(errptr, db->rep->Flush(options->rep, column_family_handles));
+}
+
 void rocksdb_flush_wal(rocksdb_t* db, unsigned char sync, char** errptr) {
   SaveError(errptr, db->rep->FlushWAL(sync));
 }
@@ -2498,8 +2512,12 @@ void rocksdb_load_latest_options(
     rocksdb_options_t*** list_column_family_options, char** errptr) {
   DBOptions db_opt;
   std::vector<ColumnFamilyDescriptor> cf_descs;
-  Status s = LoadLatestOptions(std::string(db_path), env->rep, &db_opt,
-                               &cf_descs, ignore_unknown_options, &cache->rep);
+  ConfigOptions config_opts;
+  config_opts.ignore_unknown_options = ignore_unknown_options;
+  config_opts.input_strings_escaped = true;
+  config_opts.env = env->rep;
+  Status s = LoadLatestOptions(config_opts, std::string(db_path), &db_opt,
+                               &cf_descs, &cache->rep);
   if (s.ok()) {
     char** cf_names = (char**)malloc(cf_descs.size() * sizeof(char*));
     rocksdb_options_t** cf_options = (rocksdb_options_t**)malloc(
@@ -2588,6 +2606,12 @@ void rocksdb_block_based_options_set_partition_filters(
   options->rep.partition_filters = partition_filters;
 }
 
+void rocksdb_block_based_options_set_optimize_filters_for_memory(
+    rocksdb_block_based_table_options_t* options,
+    unsigned char optimize_filters_for_memory) {
+  options->rep.optimize_filters_for_memory = optimize_filters_for_memory;
+}
+
 void rocksdb_block_based_options_set_use_delta_encoding(
     rocksdb_block_based_table_options_t* options,
     unsigned char use_delta_encoding) {
@@ -2611,14 +2635,6 @@ void rocksdb_block_based_options_set_block_cache(
     rocksdb_cache_t* block_cache) {
   if (block_cache) {
     options->rep.block_cache = block_cache->rep;
-  }
-}
-
-void rocksdb_block_based_options_set_block_cache_compressed(
-    rocksdb_block_based_table_options_t* options,
-    rocksdb_cache_t* block_cache_compressed) {
-  if (block_cache_compressed) {
-    options->rep.block_cache_compressed = block_cache_compressed->rep;
   }
 }
 
@@ -4443,6 +4459,15 @@ rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t* opt) {
   return opt->rep.io_timeout.count();
 }
 
+void rocksdb_readoptions_set_async_io(rocksdb_readoptions_t* opt,
+                                      unsigned char v) {
+  opt->rep.async_io = v;
+}
+
+unsigned char rocksdb_readoptions_get_async_io(rocksdb_readoptions_t* opt) {
+  return opt->rep.async_io;
+}
+
 void rocksdb_readoptions_set_timestamp(rocksdb_readoptions_t* opt,
                                        const char* ts, size_t tslen) {
   if (ts == nullptr) {
@@ -4657,6 +4682,53 @@ rocksdb_cache_t* rocksdb_cache_create_lru_opts(
     rocksdb_lru_cache_options_t* opt) {
   rocksdb_cache_t* c = new rocksdb_cache_t;
   c->rep = NewLRUCache(opt->rep);
+  return c;
+}
+
+rocksdb_hyper_clock_cache_options_t* rocksdb_hyper_clock_cache_options_create(
+    size_t capacity, size_t estimated_entry_charge) {
+  return new rocksdb_hyper_clock_cache_options_t{
+      HyperClockCacheOptions(capacity, estimated_entry_charge)};
+}
+
+void rocksdb_hyper_clock_cache_options_destroy(
+    rocksdb_hyper_clock_cache_options_t* opt) {
+  delete opt;
+}
+
+void rocksdb_hyper_clock_cache_options_set_capacity(
+    rocksdb_hyper_clock_cache_options_t* opts, size_t capacity) {
+  opts->rep.capacity = capacity;
+}
+
+void rocksdb_hyper_clock_cache_options_set_estimated_entry_charge(
+    rocksdb_hyper_clock_cache_options_t* opts, size_t estimated_entry_charge) {
+  opts->rep.estimated_entry_charge = estimated_entry_charge;
+}
+
+void rocksdb_hyper_clock_cache_options_set_num_shard_bits(
+    rocksdb_hyper_clock_cache_options_t* opts, int num_shard_bits) {
+  opts->rep.num_shard_bits = num_shard_bits;
+}
+
+void rocksdb_hyper_clock_cache_options_set_memory_allocator(
+    rocksdb_hyper_clock_cache_options_t* opts,
+    rocksdb_memory_allocator_t* memory_allocator) {
+  opts->rep.memory_allocator = memory_allocator->rep;
+}
+
+rocksdb_cache_t* rocksdb_cache_create_hyper_clock(
+    size_t capacity, size_t estimated_entry_charge) {
+  HyperClockCacheOptions opts(capacity, estimated_entry_charge);
+  rocksdb_cache_t* c = new rocksdb_cache_t;
+  c->rep = opts.MakeSharedCache();
+  return c;
+}
+
+rocksdb_cache_t* rocksdb_cache_create_hyper_clock_opts(
+    rocksdb_hyper_clock_cache_options_t* opts) {
+  rocksdb_cache_t* c = new rocksdb_cache_t;
+  c->rep = opts->rep.MakeSharedCache();
   return c;
 }
 
@@ -4898,6 +4970,12 @@ void rocksdb_ingestexternalfileoptions_set_allow_blocking_flush(
 void rocksdb_ingestexternalfileoptions_set_ingest_behind(
     rocksdb_ingestexternalfileoptions_t* opt, unsigned char ingest_behind) {
   opt->rep.ingest_behind = ingest_behind;
+}
+
+void rocksdb_ingestexternalfileoptions_set_fail_if_not_bottommost_level(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char fail_if_not_bottommost_level) {
+  opt->rep.fail_if_not_bottommost_level = fail_if_not_bottommost_level;
 }
 
 void rocksdb_ingestexternalfileoptions_destroy(
@@ -6098,6 +6176,18 @@ void rocksdb_transactiondb_flush_cf(
   SaveError(errptr, txn_db->rep->Flush(options->rep, column_family->rep));
 }
 
+void rocksdb_transactiondb_flush_cfs(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t** column_families, int num_column_families,
+    char** errptr) {
+  std::vector<ColumnFamilyHandle*> column_family_handles;
+  for (int i = 0; i < num_column_families; i++) {
+    column_family_handles.push_back(column_families[i]->rep);
+  }
+
+  SaveError(errptr, txn_db->rep->Flush(options->rep, column_family_handles));
+}
+
 rocksdb_checkpoint_t* rocksdb_transactiondb_checkpoint_object_create(
     rocksdb_transactiondb_t* txn_db, char** errptr) {
   Checkpoint* checkpoint;
@@ -6386,5 +6476,3 @@ void rocksdb_enable_manual_compaction(rocksdb_t* db) {
 }
 
 }  // end extern "C"
-
-#endif  // !ROCKSDB_LITE

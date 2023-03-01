@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "table/sst_file_dumper.h"
 
@@ -113,7 +112,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                  static_cast<size_t>(prefetch_size),
                                  Env::IO_TOTAL /* rate_limiter_priority */);
 
-    s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size,
+    s = ReadFooterFromFile(opts, file_.get(), *fs, &prefetch_buffer, file_size,
                            &footer);
   }
   if (s.ok()) {
@@ -516,4 +515,3 @@ Status SstFileDumper::ReadTableProperties(
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

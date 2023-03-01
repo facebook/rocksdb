@@ -14,6 +14,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/log_writer.h"
+#include "db/version_edit.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
@@ -49,8 +50,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
         largest_seq, /* marked_for_compact */ false, Temperature::kUnknown,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-        kUnknownFileCreationTime, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+        kUnknownFileCreationTime, kUnknownEpochNumber, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
     files_.push_back(f);
   }
 
@@ -142,24 +143,27 @@ class VersionStorageInfoTestBase : public testing::Test {
 
   void Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 0,
-           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber) {
+           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber,
+           uint64_t compensated_range_deletion_size = 0) {
     constexpr SequenceNumber dummy_seq = 0;
 
     Add(level, file_number, GetInternalKey(smallest, dummy_seq),
-        GetInternalKey(largest, dummy_seq), file_size, oldest_blob_file_number);
+        GetInternalKey(largest, dummy_seq), file_size, oldest_blob_file_number,
+        compensated_range_deletion_size);
   }
 
   void Add(int level, uint32_t file_number, const InternalKey& smallest,
            const InternalKey& largest, uint64_t file_size = 0,
-           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber) {
+           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber,
+           uint64_t compensated_range_deletion_size = 0) {
     assert(level < vstorage_.num_levels());
     FileMetaData* f = new FileMetaData(
         file_number, 0, file_size, smallest, largest, /* smallest_seq */ 0,
         /* largest_seq */ 0, /* marked_for_compact */ false,
         Temperature::kUnknown, oldest_blob_file_number,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
-    f->compensated_file_size = file_size;
+        kUnknownEpochNumber, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+        kNullUniqueId64x2, compensated_range_deletion_size);
     vstorage_.AddFile(level, f);
   }
 
@@ -2134,6 +2138,17 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
   }
 }
 
+TEST_F(VersionStorageInfoTest, AddRangeDeletionCompensatedFileSize) {
+  // Tests that compensated range deletion size is added to compensated file
+  // size.
+  Add(4, 100U, "1", "2", 100U, kInvalidBlobFileNumber, 1000U);
+
+  UpdateVersionStorageInfo();
+
+  auto meta = vstorage_.GetFileMetaDataByNumber(100U);
+  ASSERT_EQ(meta->compensated_file_size, 100U + 1000U);
+}
+
 class VersionSetWithTimestampTest : public VersionSetTest {
  public:
   static const std::string kNewCfName;
@@ -3191,15 +3206,19 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     std::string column_family;
     std::string key;  // the only key
     int level = 0;
+    uint64_t epoch_number;
     SstInfo(uint64_t file_num, const std::string& cf_name,
-            const std::string& _key)
-        : SstInfo(file_num, cf_name, _key, 0) {}
+            const std::string& _key,
+            uint64_t _epoch_number = kUnknownEpochNumber)
+        : SstInfo(file_num, cf_name, _key, 0, _epoch_number) {}
     SstInfo(uint64_t file_num, const std::string& cf_name,
-            const std::string& _key, int lvl)
+            const std::string& _key, int lvl,
+            uint64_t _epoch_number = kUnknownEpochNumber)
         : file_number(file_num),
           column_family(cf_name),
           key(_key),
-          level(lvl) {}
+          level(lvl),
+          epoch_number(_epoch_number) {}
   };
 
   // Create dummy sst, return their metadata. Note that only file name and size
@@ -3235,8 +3254,9 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_NE(0, file_size);
       file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
                                ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
-                               0, kUnknownFileChecksum,
-                               kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+                               0, info.epoch_number, kUnknownFileChecksum,
+                               kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+                               0);
     }
   }
 
@@ -3273,11 +3293,11 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
 
 TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
   std::vector<SstInfo> existing_files = {
-      SstInfo(100, kDefaultColumnFamilyName, "a"),
-      SstInfo(102, kDefaultColumnFamilyName, "b"),
-      SstInfo(103, kDefaultColumnFamilyName, "c"),
-      SstInfo(107, kDefaultColumnFamilyName, "d"),
-      SstInfo(110, kDefaultColumnFamilyName, "e")};
+      SstInfo(100, kDefaultColumnFamilyName, "a", 100 /* epoch_number */),
+      SstInfo(102, kDefaultColumnFamilyName, "b", 102 /* epoch_number */),
+      SstInfo(103, kDefaultColumnFamilyName, "c", 103 /* epoch_number */),
+      SstInfo(107, kDefaultColumnFamilyName, "d", 107 /* epoch_number */),
+      SstInfo(110, kDefaultColumnFamilyName, "e", 110 /* epoch_number */)};
   std::vector<FileMetaData> file_metas;
   CreateDummyTableFiles(existing_files, &file_metas);
 
@@ -3288,10 +3308,12 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
     std::string largest_ukey = "b";
     InternalKey smallest_ikey(smallest_ukey, 1, ValueType::kTypeValue);
     InternalKey largest_ikey(largest_ukey, 1, ValueType::kTypeValue);
+
     FileMetaData meta = FileMetaData(
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+        file_num /* epoch_number */, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3321,11 +3343,16 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
 
 TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
   std::vector<SstInfo> existing_files = {
-      SstInfo(100, kDefaultColumnFamilyName, "a"),
-      SstInfo(102, kDefaultColumnFamilyName, "b"),
-      SstInfo(103, kDefaultColumnFamilyName, "c"),
-      SstInfo(107, kDefaultColumnFamilyName, "d"),
-      SstInfo(110, kDefaultColumnFamilyName, "e")};
+      SstInfo(100, kDefaultColumnFamilyName, "a", 0 /* level */,
+              100 /* epoch_number */),
+      SstInfo(102, kDefaultColumnFamilyName, "b", 0 /* level */,
+              102 /* epoch_number */),
+      SstInfo(103, kDefaultColumnFamilyName, "c", 0 /* level */,
+              103 /* epoch_number */),
+      SstInfo(107, kDefaultColumnFamilyName, "d", 0 /* level */,
+              107 /* epoch_number */),
+      SstInfo(110, kDefaultColumnFamilyName, "e", 0 /* level */,
+              110 /* epoch_number */)};
   std::vector<FileMetaData> file_metas;
   CreateDummyTableFiles(existing_files, &file_metas);
 
@@ -3346,7 +3373,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
     FileMetaData meta = FileMetaData(
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+        file_num /* epoch_number */, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3381,11 +3409,16 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
 
 TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
   std::vector<SstInfo> existing_files = {
-      SstInfo(100, kDefaultColumnFamilyName, "a"),
-      SstInfo(102, kDefaultColumnFamilyName, "b"),
-      SstInfo(103, kDefaultColumnFamilyName, "c"),
-      SstInfo(107, kDefaultColumnFamilyName, "d"),
-      SstInfo(110, kDefaultColumnFamilyName, "e")};
+      SstInfo(100, kDefaultColumnFamilyName, "a", 0 /* level */,
+              100 /* epoch_number */),
+      SstInfo(102, kDefaultColumnFamilyName, "b", 0 /* level */,
+              102 /* epoch_number */),
+      SstInfo(103, kDefaultColumnFamilyName, "c", 0 /* level */,
+              103 /* epoch_number */),
+      SstInfo(107, kDefaultColumnFamilyName, "d", 0 /* level */,
+              107 /* epoch_number */),
+      SstInfo(110, kDefaultColumnFamilyName, "e", 0 /* level */,
+              110 /* epoch_number */)};
   std::vector<FileMetaData> file_metas;
   CreateDummyTableFiles(existing_files, &file_metas);
 
@@ -3435,7 +3468,8 @@ TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
   db_options_.allow_2pc = true;
   NewDB();
 
-  SstInfo sst(100, kDefaultColumnFamilyName, "a");
+  SstInfo sst(100, kDefaultColumnFamilyName, "a", 0 /* level */,
+              100 /* epoch_number */);
   std::vector<FileMetaData> file_metas;
   CreateDummyTableFiles({sst}, &file_metas);
 
@@ -3466,7 +3500,6 @@ class ChargeFileMetadataTestWithParam
   ChargeFileMetadataTestWithParam() {}
 };
 
-#ifndef ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(
     ChargeFileMetadataTestWithParam, ChargeFileMetadataTestWithParam,
     ::testing::Values(CacheEntryRoleOptions::Decision::kEnabled,
@@ -3577,7 +3610,6 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
     EXPECT_TRUE(s.ok());
   }
 }
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

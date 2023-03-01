@@ -20,7 +20,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 Status DBImpl::SuggestCompactRange(ColumnFamilyHandle* column_family,
                                    const Slice* begin, const Slice* end) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
@@ -136,8 +135,9 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                    f->fd.smallest_seqno, f->fd.largest_seqno,
                    f->marked_for_compaction, f->temperature,
                    f->oldest_blob_file_number, f->oldest_ancester_time,
-                   f->file_creation_time, f->file_checksum,
-                   f->file_checksum_func_name, f->unique_id);
+                   f->file_creation_time, f->epoch_number, f->file_checksum,
+                   f->file_checksum_func_name, f->unique_id,
+                   f->compensated_range_deletion_size);
     }
 
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
@@ -153,6 +153,5 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
 
   return status;
 }
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

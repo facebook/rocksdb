@@ -20,7 +20,6 @@ namespace ROCKSDB_NAMESPACE {
 
 // TODO: the tests do not work in LITE mode due to relying on
 // `CreateFromString()` to create non-default memory allocators.
-#ifndef ROCKSDB_LITE
 
 class MemoryAllocatorTest
     : public testing::Test,
@@ -63,11 +62,9 @@ TEST_P(MemoryAllocatorTest, CreateAllocator) {
   } else {
     ASSERT_OK(s);
     ASSERT_NE(orig, nullptr);
-#ifndef ROCKSDB_LITE
     std::string str = orig->ToString(config_options);
     ASSERT_OK(MemoryAllocator::CreateFromString(config_options, str, &copy));
     ASSERT_EQ(orig, copy);
-#endif  // ROCKSDB_LITE
   }
 }
 
@@ -229,7 +226,6 @@ INSTANTIATE_TEST_CASE_P(
                                       JemallocNodumpAllocator::IsSupported())));
 #endif  // ROCKSDB_JEMALLOC
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

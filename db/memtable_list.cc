@@ -529,14 +529,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
 
         edit_list.push_back(&m->edit_);
         memtables_to_flush.push_back(m);
-#ifndef ROCKSDB_LITE
         std::unique_ptr<FlushJobInfo> info = m->ReleaseFlushJobInfo();
         if (info != nullptr) {
           committed_flush_jobs_info->push_back(std::move(info));
         }
-#else
-        (void)committed_flush_jobs_info;
-#endif  // !ROCKSDB_LITE
       }
       batch_count++;
     }
@@ -825,7 +821,6 @@ Status InstallMemtableAtomicFlushResults(
       (*mems_list[k])[i]->SetFlushCompleted(true);
       (*mems_list[k])[i]->SetFileNumber(file_metas[k]->fd.GetNumber());
     }
-#ifndef ROCKSDB_LITE
     if (committed_flush_jobs_info[k]) {
       assert(!mems_list[k]->empty());
       assert((*mems_list[k])[0]);
@@ -833,9 +828,6 @@ Status InstallMemtableAtomicFlushResults(
           (*mems_list[k])[0]->ReleaseFlushJobInfo();
       committed_flush_jobs_info[k]->push_back(std::move(flush_job_info));
     }
-#else   //! ROCKSDB_LITE
-    (void)committed_flush_jobs_info;
-#endif  // ROCKSDB_LITE
   }
 
   Status s;

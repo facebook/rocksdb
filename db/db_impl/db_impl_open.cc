@@ -153,7 +153,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.avoid_flush_during_recovery = false;
   }
 
-#ifndef ROCKSDB_LITE
   ImmutableDBOptions immutable_db_options(result);
   if (!immutable_db_options.IsWalDirSameAsDBPath()) {
     // Either the WAL dir and db_paths[0]/db_name are not the same, or we
@@ -195,7 +194,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
         NewSstFileManager(result.env, result.info_log));
     result.sst_file_manager = sst_file_manager;
   }
-#endif  // !ROCKSDB_LITE
 
   // Supported wal compression types
   if (!StreamingCompressionTypeSupported(result.wal_compression)) {
@@ -845,7 +843,6 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
 }
 
 void DBImpl::InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap() {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.wal_filter == nullptr) {
     return;
   }
@@ -863,7 +860,6 @@ void DBImpl::InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap() {
   }
 
   wal_filter.ColumnFamilyLogNumberMap(cf_lognumber_map, cf_name_id_map);
-#endif  // !ROCKSDB_LITE
 }
 
 bool DBImpl::InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
@@ -872,7 +868,6 @@ bool DBImpl::InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
                                                 Status& status,
                                                 bool& stop_replay,
                                                 WriteBatch& batch) {
-#ifndef ROCKSDB_LITE
   if (immutable_db_options_.wal_filter == nullptr) {
     return true;
   }
@@ -958,15 +953,6 @@ bool DBImpl::InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
     batch = new_batch;
   }
   return true;
-#else   // !ROCKSDB_LITE
-  (void)wal_number;
-  (void)wal_fname;
-  (void)reporter;
-  (void)status;
-  (void)stop_replay;
-  (void)batch;
-  return true;
-#endif  // ROCKSDB_LITE
 }
 
 // REQUIRES: wal_numbers are sorted in ascending order
@@ -1515,7 +1501,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         .PermitUncheckedError();  // ignore error
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
     meta.oldest_ancester_time = current_time;
-
+    meta.epoch_number = cfd->NewEpochNumber();
     {
       auto write_hint = cfd->CalculateSSTWriteHint(0);
       mutex_.Unlock();
@@ -1550,6 +1536,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           0 /* file_creation_time */, db_id_, db_session_id_,
           0 /* target_file_size */, meta.fd.GetNumber());
       SeqnoToTimeMapping empty_seqno_time_mapping;
+      Version* version = cfd->current();
+      version->Ref();
       s = BuildTable(
           dbname_, versions_.get(), immutable_db_options_, tboptions,
           file_options_for_compaction_, cfd->table_cache(), iter.get(),
@@ -1559,7 +1547,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           io_tracer_, BlobFileCreationReason::kRecovery,
           empty_seqno_time_mapping, &event_logger_, job_id, Env::IO_HIGH,
           nullptr /* table_properties */, write_hint,
-          nullptr /*full_history_ts_low*/, &blob_callback_);
+          nullptr /*full_history_ts_low*/, &blob_callback_, version);
+      version->Unref();
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -1588,8 +1577,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
                   meta.marked_for_compaction, meta.temperature,
                   meta.oldest_blob_file_number, meta.oldest_ancester_time,
-                  meta.file_creation_time, meta.file_checksum,
-                  meta.file_checksum_func_name, meta.unique_id);
+                  meta.file_creation_time, meta.epoch_number,
+                  meta.file_checksum, meta.file_checksum_func_name,
+                  meta.unique_id, meta.compensated_range_deletion_size);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);
@@ -1977,7 +1967,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   impl->mutex_.Unlock();
 
-#ifndef ROCKSDB_LITE
   auto sfm = static_cast<SstFileManagerImpl*>(
       impl->immutable_db_options_.sst_file_manager.get());
   if (s.ok() && sfm) {
@@ -2061,7 +2050,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                            impl->immutable_db_options_.db_paths[0].path);
   }
 
-#endif  // !ROCKSDB_LITE
 
   if (s.ok()) {
     ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",

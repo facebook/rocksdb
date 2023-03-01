@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "db/compaction/compaction_job.h"
 
@@ -380,11 +379,14 @@ class CompactionJobTestBase : public testing::Test {
     }
 
     VersionEdit edit;
-    edit.AddFile(level, file_number, 0, file_size, smallest_key, largest_key,
-                 smallest_seqno, largest_seqno, false, Temperature::kUnknown,
-                 oldest_blob_file_number, kUnknownOldestAncesterTime,
-                 kUnknownFileCreationTime, kUnknownFileChecksum,
-                 kUnknownFileChecksumFuncName, kNullUniqueId64x2);
+    edit.AddFile(
+        level, file_number, 0, file_size, smallest_key, largest_key,
+        smallest_seqno, largest_seqno, false, Temperature::kUnknown,
+        oldest_blob_file_number, kUnknownOldestAncesterTime,
+        kUnknownFileCreationTime,
+        versions_->GetColumnFamilySet()->GetDefault()->NewEpochNumber(),
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2,
+        0);
 
     mutex_.Lock();
     EXPECT_OK(
@@ -1655,7 +1657,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
         rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
         rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
         rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX),
-        rnd64.Uniform(UINT64_MAX), rnd.OneIn(2), id);
+        rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX), rnd.OneIn(2), id);
   }
   result.output_level = rnd.Uniform(10);
   result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));
@@ -2439,13 +2441,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as CompactionJobStats is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

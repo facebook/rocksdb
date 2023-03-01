@@ -51,7 +51,6 @@ class StressTest {
 
   Status SetOptions(ThreadState* thread);
 
-#ifndef ROCKSDB_LITE
   // For transactionsDB, there can be txns prepared but not yet committeed
   // right before previous stress run crash.
   // They will be recovered and processed through
@@ -69,7 +68,6 @@ class StressTest {
   Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
 
   Status RollbackTxn(Transaction* txn);
-#endif
 
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
@@ -139,19 +137,11 @@ class StressTest {
     return column_families_[column_family_id];
   }
 
-#ifndef ROCKSDB_LITE
   // Generated a list of keys that close to boundaries of SST keys.
   // If there isn't any SST file in the DB, return empty list.
   std::vector<std::string> GetWhiteBoxKeys(ThreadState* thread, DB* db,
                                            ColumnFamilyHandle* cfh,
                                            size_t num_keys);
-#else   // !ROCKSDB_LITE
-  std::vector<std::string> GetWhiteBoxKeys(ThreadState*, DB*,
-                                           ColumnFamilyHandle*, size_t) {
-    // Not supported in LITE mode.
-    return {};
-  }
-#endif  // !ROCKSDB_LITE
 
   // Given a key K, this creates an iterator which scans to K and then
   // does a random sequence of Next/Prev operations.
@@ -205,7 +195,6 @@ class StressTest {
                            const std::string& keystr, uint64_t i);
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
-#ifndef ROCKSDB_LITE
   Status VerifyGetLiveFiles() const;
   Status VerifyGetSortedWalFiles() const;
   Status VerifyGetCurrentWalFile() const;
@@ -215,7 +204,6 @@ class StressTest {
       ThreadState* thread, uint64_t iteration,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys);
-#endif  // !ROCKSDB_LITE
 
   virtual Status TestCustomOperations(
       ThreadState* /*thread*/,
@@ -247,10 +235,8 @@ class StressTest {
 
   virtual void RegisterAdditionalListeners() {}
 
-#ifndef ROCKSDB_LITE
   virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
                                    TransactionDBOptions& /*txn_db_opts*/) {}
-#endif
 
   // Returns whether the timestamp of read_opts is updated.
   bool MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
@@ -266,9 +252,7 @@ class StressTest {
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
-#ifndef ROCKSDB_LITE
   TransactionDB* txn_db_;
-#endif
 
   // Currently only used in MultiOpsTxnsStressTest
   std::atomic<DB*> db_aptr_;
@@ -298,7 +282,6 @@ extern bool InitializeOptionsFromFile(Options& options);
 // input arguments.
 extern void InitializeOptionsFromFlags(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<Cache>& block_cache_compressed,
     const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
 
 // Initialize `options` on which `InitializeOptionsFromFile()` and
@@ -306,7 +289,7 @@ extern void InitializeOptionsFromFlags(
 // There are two cases.
 // Case 1: OPTIONS file is not specified. Command line arguments have been used
 //         to initialize `options`. InitializeOptionsGeneral() will use
-//         `cache`, `block_cache_compressed` and `filter_policy` to initialize
+//         `cache` and `filter_policy` to initialize
 //         corresponding fields of `options`. InitializeOptionsGeneral() will
 //         also set up other fields of `options` so that stress test can run.
 //         Examples include `create_if_missing` and
@@ -317,14 +300,13 @@ extern void InitializeOptionsFromFlags(
 //         case, if command line arguments indicate that the user wants to set
 //         up such shared objects, e.g. block cache, compressed block cache,
 //         row cache, filter policy, then InitializeOptionsGeneral() will honor
-//         the user's choice, thus passing `cache`, `block_cache_compressed`,
+//         the user's choice, thus passing `cache`,
 //         `filter_policy` as input arguments.
 //
 // InitializeOptionsGeneral() must not overwrite fields of `options` loaded
 // from OPTIONS file.
 extern void InitializeOptionsGeneral(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<Cache>& block_cache_compressed,
     const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
 
 // If no OPTIONS file is specified, set up `options` so that we can test

@@ -20,8 +20,8 @@
 #include "db/wal_edit.h"
 #include "memory/arena.h"
 #include "port/malloc.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/advanced_options.h"
-#include "rocksdb/cache.h"
 #include "table/table_reader.h"
 #include "table/unique_id_impl.h"
 #include "util/autovector.h"
@@ -88,6 +88,8 @@ enum NewFileCustomTag : uint32_t {
   kMinTimestamp = 10,
   kMaxTimestamp = 11,
   kUniqueId = 12,
+  kEpochNumber = 13,
+  kCompensatedRangeDeletionSize = 14,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -102,6 +104,10 @@ class VersionSet;
 constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
+constexpr uint64_t kUnknownEpochNumber = 0;
+// If `Options::allow_ingest_behind` is true, this epoch number
+// will be dedicated to files ingested behind.
+constexpr uint64_t kReservedEpochNumberForFileIngestedBehind = 1;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
@@ -177,15 +183,22 @@ struct FileMetaData {
   // Stats for compensating deletion entries during compaction
 
   // File size compensated by deletion entry.
-  // This is updated in Version::UpdateAccumulatedStats() first time when the
-  // file is created or loaded.  After it is updated (!= 0), it is immutable.
+  // This is used to compute a file's compaction priority, and is updated in
+  // Version::ComputeCompensatedSizes() first time when the file is created or
+  // loaded.  After it is updated (!= 0), it is immutable.
   uint64_t compensated_file_size = 0;
   // These values can mutate, but they can only be read or written from
   // single-threaded LogAndApply thread
   uint64_t num_entries = 0;     // the number of entries.
-  uint64_t num_deletions = 0;   // the number of deletion entries.
+  // The number of deletion entries, including range deletions.
+  uint64_t num_deletions = 0;
   uint64_t raw_key_size = 0;    // total uncompressed key size.
   uint64_t raw_value_size = 0;  // total uncompressed value size.
+  uint64_t num_range_deletions = 0;
+  // This is computed during Flush/Compaction, and is added to
+  // `compensated_file_size`. Currently, this estimates the size of keys in the
+  // next level covered by range tombstones in this file.
+  uint64_t compensated_range_deletion_size = 0;
 
   int refs = 0;  // Reference count
 
@@ -210,6 +223,12 @@ struct FileMetaData {
   // Unix time when the SST file is created.
   uint64_t file_creation_time = kUnknownFileCreationTime;
 
+  // The order of a file being flushed or ingested/imported.
+  // Compaction output file will be assigned with the minimum `epoch_number`
+  // among input files'.
+  // For L0, larger `epoch_number` indicates newer L0 file.
+  uint64_t epoch_number = kUnknownEpochNumber;
+
   // File checksum
   std::string file_checksum = kUnknownFileChecksum;
 
@@ -227,17 +246,20 @@ struct FileMetaData {
                const SequenceNumber& largest_seq, bool marked_for_compact,
                Temperature _temperature, uint64_t oldest_blob_file,
                uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
-               const std::string& _file_checksum,
+               uint64_t _epoch_number, const std::string& _file_checksum,
                const std::string& _file_checksum_func_name,
-               UniqueId64x2 _unique_id)
+               UniqueId64x2 _unique_id,
+               const uint64_t _compensated_range_deletion_size)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
+        compensated_range_deletion_size(_compensated_range_deletion_size),
         marked_for_compaction(marked_for_compact),
         temperature(_temperature),
         oldest_blob_file_number(oldest_blob_file),
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
+        epoch_number(_epoch_number),
         file_checksum(_file_checksum),
         file_checksum_func_name(_file_checksum_func_name),
         unique_id(std::move(_unique_id)) {
@@ -260,6 +282,7 @@ struct FileMetaData {
     if (largest.size() == 0 || icmp.Compare(largest, end) < 0) {
       largest = end;
     }
+    assert(icmp.Compare(smallest, largest) <= 0);
     fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
     fd.largest_seqno = std::max(fd.largest_seqno, seqno);
   }
@@ -420,17 +443,19 @@ class VersionEdit {
                const SequenceNumber& largest_seqno, bool marked_for_compaction,
                Temperature temperature, uint64_t oldest_blob_file_number,
                uint64_t oldest_ancester_time, uint64_t file_creation_time,
-               const std::string& file_checksum,
+               uint64_t epoch_number, const std::string& file_checksum,
                const std::string& file_checksum_func_name,
-               const UniqueId64x2& unique_id) {
+               const UniqueId64x2& unique_id,
+               const uint64_t compensated_range_deletion_size) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
         FileMetaData(file, file_path_id, file_size, smallest, largest,
                      smallest_seqno, largest_seqno, marked_for_compaction,
                      temperature, oldest_blob_file_number, oldest_ancester_time,
-                     file_creation_time, file_checksum, file_checksum_func_name,
-                     unique_id));
+                     file_creation_time, epoch_number, file_checksum,
+                     file_checksum_func_name, unique_id,
+                     compensated_range_deletion_size));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }

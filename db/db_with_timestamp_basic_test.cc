@@ -13,9 +13,7 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
@@ -645,7 +643,6 @@ TEST_F(DBBasicTestWithTimestamp, OpenAndTrimHistoryInvalidOptionTest) {
                   .IsInvalidArgument());
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
   Options options = CurrentOptions();
   const size_t kTimestampSize = Timestamp(0, 0).size();
@@ -675,7 +672,6 @@ TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
   }
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 class DBBasicTestWithTimestampTableOptions
     : public DBBasicTestWithTimestampBase,
@@ -2677,7 +2673,6 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {
  public:
@@ -2970,7 +2965,6 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetNoReturnTs) {
   Close();
 }
 
-#endif  // !ROCKSDB_LITE
 
 INSTANTIATE_TEST_CASE_P(
     Timestamp, DBBasicTestWithTimestampCompressionSettings,
@@ -3869,6 +3863,60 @@ TEST_F(DBBasicTestWithTimestamp, MergeAfterDeletion) {
   verify_db();
 
   Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, RangeTombstoneApproximateSize) {
+  // Test code path for calculating range tombstone compensated size
+  // during flush and compaction.
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  // So that the compaction below is non-bottommost and will calcualte
+  // compensated range tombstone size.
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), Timestamp(1, 0), "val"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(1), Timestamp(1, 0)));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(1),
+                             Key(2), Timestamp(2, 0)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->RunManualCompaction(
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd(),
+      0 /* input_level */, 1 /* output_level */, CompactRangeOptions(),
+      nullptr /* begin */, nullptr /* end */, true /* exclusive */,
+      true /* disallow_trivial_move */,
+      std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
+      "" /*trim_ts*/));
+}
+
+TEST_F(DBBasicTestWithTimestamp, IterSeekToLastWithIterateUpperbound) {
+  // Test for a bug fix where DBIter::SeekToLast() could fail when
+  // iterate_upper_bound and iter_start_ts are both set.
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), Timestamp(2, 0), "val"));
+  ReadOptions ro;
+  std::string k = Key(1);
+  Slice k_slice = k;
+  ro.iterate_upper_bound = &k_slice;
+  std::string ts = Timestamp(3, 0);
+  Slice read_ts = ts;
+  ro.timestamp = &read_ts;
+  std::string start_ts = Timestamp(0, 0);
+  Slice start_ts_slice = start_ts;
+  ro.iter_start_ts = &start_ts_slice;
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ro)};
+  iter->SeekToLast();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 }
 }  // namespace ROCKSDB_NAMESPACE
 

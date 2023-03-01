@@ -569,12 +569,7 @@ Status BlobFileReader::UncompressBlobIfNeeded(
   assert(result);
 
   if (compression_type == kNoCompression) {
-    CacheAllocationPtr allocation =
-        AllocateBlock(value_slice.size(), allocator);
-    memcpy(allocation.get(), value_slice.data(), value_slice.size());
-
-    *result = BlobContents::Create(std::move(allocation), value_slice.size());
-
+    BlobContentsCreator::Create(result, nullptr, value_slice, allocator);
     return Status::OK();
   }
 
@@ -602,7 +597,7 @@ Status BlobFileReader::UncompressBlobIfNeeded(
     return Status::Corruption("Unable to uncompress blob");
   }
 
-  *result = BlobContents::Create(std::move(output), uncompressed_size);
+  result->reset(new BlobContents(std::move(output), uncompressed_size));
 
   return Status::OK();
 }

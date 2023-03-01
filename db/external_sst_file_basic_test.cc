@@ -17,7 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 class ExternalSSTFileBasicTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
@@ -694,6 +693,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
   do {
     Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
 
@@ -800,6 +800,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMultipleValueType) {
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
   do {
     Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
     options.merge_operator.reset(new TestPutOperator());
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
@@ -927,6 +928,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithMixedValueType) {
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
   do {
     Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
     options.merge_operator.reset(new TestPutOperator());
     DestroyAndReopen(options);
     std::map<std::string, std::string> true_data;
@@ -1180,6 +1182,7 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     ASSERT_OK(sst_file_writer->Finish());
 
     IngestExternalFileOptions ingest_opt;
+    ASSERT_FALSE(ingest_opt.write_global_seqno);  // new default
     if (i == 0) {
       ingest_opt.move_files = true;
     }
@@ -1985,7 +1988,6 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                                         std::make_tuple(false, true),
                                         std::make_tuple(false, false)));
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -499,7 +499,6 @@ class MemTable {
     flush_in_progress_ = in_progress;
   }
 
-#ifndef ROCKSDB_LITE
   void SetFlushJobInfo(std::unique_ptr<FlushJobInfo>&& info) {
     flush_job_info_ = std::move(info);
   }
@@ -507,7 +506,6 @@ class MemTable {
   std::unique_ptr<FlushJobInfo> ReleaseFlushJobInfo() {
     return std::move(flush_job_info_);
   }
-#endif  // !ROCKSDB_LITE
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
@@ -616,10 +614,8 @@ class MemTable {
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
 
-#ifndef ROCKSDB_LITE
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
-#endif  // !ROCKSDB_LITE
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();

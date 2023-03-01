@@ -6,9 +6,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include <iostream>
 #include <string>
 
@@ -27,7 +25,6 @@ class DBEncryptionTest : public DBTestBase {
   }
 };
 
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBEncryptionTest, CheckEncrypted) {
   ASSERT_OK(Put("foo567", "v1.fetdq"));
@@ -119,7 +116,6 @@ TEST_F(DBEncryptionTest, ReadEmptyFile) {
   ASSERT_TRUE(data.empty());
 }
 
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

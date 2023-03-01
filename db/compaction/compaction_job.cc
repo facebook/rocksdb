@@ -99,6 +99,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ForcedBlobGC";
     case CompactionReason::kRoundRobinTtl:
       return "RoundRobinTtl";
+    case CompactionReason::kRefitLevel:
+      return "RefitLevel";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -976,7 +978,6 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
 void CompactionJob::NotifyOnSubcompactionBegin(
     SubcompactionState* sub_compact) {
-#ifndef ROCKSDB_LITE
   Compaction* c = compact_->compaction;
 
   if (db_options_.listeners.empty()) {
@@ -1002,14 +1003,10 @@ void CompactionJob::NotifyOnSubcompactionBegin(
   }
   info.status.PermitUncheckedError();
 
-#else
-  (void)sub_compact;
-#endif  // ROCKSDB_LITE
 }
 
 void CompactionJob::NotifyOnSubcompactionCompleted(
     SubcompactionState* sub_compact) {
-#ifndef ROCKSDB_LITE
 
   if (db_options_.listeners.empty()) {
     return;
@@ -1030,16 +1027,12 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
   for (const auto& listener : db_options_.listeners) {
     listener->OnSubcompactionCompleted(info);
   }
-#else
-  (void)sub_compact;
-#endif  // ROCKSDB_LITE
 }
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
 
-#ifndef ROCKSDB_LITE
   if (db_options_.compaction_service) {
     CompactionServiceJobStatus comp_status =
         ProcessKeyValueCompactionWithCompactionService(sub_compact);
@@ -1050,7 +1043,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // fallback to local compaction
     assert(comp_status == CompactionServiceJobStatus::kUseLocal);
   }
-#endif  // !ROCKSDB_LITE
 
   uint64_t prev_cpu_micros = db_options_.clock->CPUMicros();
 
@@ -1126,6 +1118,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   IterKey end_ikey;
   Slice start_slice;
   Slice end_slice;
+  Slice start_user_key{};
+  Slice end_user_key{};
 
   static constexpr char kMaxTs[] =
       "\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff";
@@ -1148,6 +1142,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                    &ts_slice);
     }
     start_slice = start_ikey.GetInternalKey();
+    start_user_key = start_ikey.GetUserKey();
   }
   if (end.has_value()) {
     end_ikey.SetInternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
@@ -1156,6 +1151,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                  &ts_slice);
     }
     end_slice = end_ikey.GetInternalKey();
+    end_user_key = end_ikey.GetUserKey();
   }
 
   std::unique_ptr<InternalIterator> clip;
@@ -1271,11 +1267,15 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       [this, sub_compact](CompactionOutputs& outputs) {
         return this->OpenCompactionOutputFile(sub_compact, outputs);
       };
+
   const CompactionFileCloseFunc close_file_func =
-      [this, sub_compact](CompactionOutputs& outputs, const Status& status,
-                          const Slice& next_table_min_key) {
-        return this->FinishCompactionOutputFile(status, sub_compact, outputs,
-                                                next_table_min_key);
+      [this, sub_compact, start_user_key, end_user_key](
+          CompactionOutputs& outputs, const Status& status,
+          const Slice& next_table_min_key) {
+        return this->FinishCompactionOutputFile(
+            status, sub_compact, outputs, next_table_min_key,
+            sub_compact->start.has_value() ? &start_user_key : nullptr,
+            sub_compact->end.has_value() ? &end_user_key : nullptr);
       };
 
   Status status;
@@ -1286,7 +1286,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
-
     assert(!end.has_value() || cfd->user_comparator()->Compare(
                                    c_iter->user_key(), end.value()) < 0);
 
@@ -1466,7 +1465,8 @@ void CompactionJob::RecordDroppedKeys(
 
 Status CompactionJob::FinishCompactionOutputFile(
     const Status& input_status, SubcompactionState* sub_compact,
-    CompactionOutputs& outputs, const Slice& next_table_min_key) {
+    CompactionOutputs& outputs, const Slice& next_table_min_key,
+    const Slice* comp_start_user_key, const Slice* comp_end_user_key) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_SYNC_FILE);
   assert(sub_compact != nullptr);
@@ -1496,12 +1496,10 @@ Status CompactionJob::FinishCompactionOutputFile(
     // output_to_penultimate_level compaction here, as it's only used to decide
     // if range dels could be dropped.
     if (outputs.HasRangeDel()) {
-      s = outputs.AddRangeDels(
-          sub_compact->start.has_value() ? &(sub_compact->start.value())
-                                         : nullptr,
-          sub_compact->end.has_value() ? &(sub_compact->end.value()) : nullptr,
-          range_del_out_stats, bottommost_level_, cfd->internal_comparator(),
-          earliest_snapshot, next_table_min_key, full_history_ts_low_);
+      s = outputs.AddRangeDels(comp_start_user_key, comp_end_user_key,
+                               range_del_out_stats, bottommost_level_,
+                               cfd->internal_comparator(), earliest_snapshot,
+                               next_table_min_key, full_history_ts_low_);
     }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
     TEST_SYNC_POINT("CompactionJob::FinishCompactionOutputFile1");
@@ -1613,7 +1611,6 @@ Status CompactionJob::FinishCompactionOutputFile(
       TableFileCreationReason::kCompaction, status_for_listener, file_checksum,
       file_checksum_func_name);
 
-#ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
@@ -1632,7 +1629,6 @@ Status CompactionJob::FinishCompactionOutputFile(
       db_error_handler_->SetBGError(s, BackgroundErrorReason::kCompaction);
     }
   }
-#endif
 
   outputs.ResetBuilder();
   return s;
@@ -1757,11 +1753,9 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   std::string fname = GetTableFileName(file_number);
   // Fire events.
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-#ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(
       cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, job_id_,
       TableFileCreationReason::kCompaction);
-#endif  // !ROCKSDB_LITE
   // Make the output file
   std::unique_ptr<FSWritableFile> writable_file;
 #ifndef NDEBUG
@@ -1834,12 +1828,14 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   }
 
   // Initialize a SubcompactionState::Output and add it to sub_compact->outputs
+  uint64_t epoch_number = sub_compact->compaction->MinInputFileEpochNumber();
   {
     FileMetaData meta;
     meta.fd = FileDescriptor(file_number,
                              sub_compact->compaction->output_path_id(), 0);
     meta.oldest_ancester_time = oldest_ancester_time;
     meta.file_creation_time = current_time;
+    meta.epoch_number = epoch_number;
     meta.temperature = temperature;
     assert(!db_id_.empty());
     assert(!db_session_id_.empty());
@@ -1896,7 +1892,6 @@ void CompactionJob::CleanupCompaction() {
   compact_ = nullptr;
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
   assert(prefix_length > 0);
@@ -1905,7 +1900,6 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 }
 }  // namespace
 
-#endif  // !ROCKSDB_LITE
 
 void CompactionJob::UpdateCompactionStats() {
   assert(compact_);
@@ -1952,7 +1946,6 @@ void CompactionJob::UpdateCompactionInputStatsHelper(int* num_files,
 
 void CompactionJob::UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const {
-#ifndef ROCKSDB_LITE
   compaction_job_stats_->elapsed_micros = stats.micros;
 
   // input information
@@ -1979,9 +1972,6 @@ void CompactionJob::UpdateCompactionJobStats(
     CopyPrefix(compact_->LargestUserKey(), CompactionJobStats::kMaxPrefixLength,
                &compaction_job_stats_->largest_output_key_prefix);
   }
-#else
-  (void)stats;
-#endif  // !ROCKSDB_LITE
 }
 
 void CompactionJob::LogCompaction() {

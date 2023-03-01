@@ -28,6 +28,7 @@
 #include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/table_cache.h"
+#include "db/version_edit.h"
 #include "db/version_set.h"
 #include "port/port.h"
 #include "table/table_reader.h"
@@ -36,25 +37,22 @@
 namespace ROCKSDB_NAMESPACE {
 
 class VersionBuilder::Rep {
-  class NewestFirstBySeqNo {
+  class NewestFirstByEpochNumber {
+   private:
+    inline static const NewestFirstBySeqNo seqno_cmp;
+
    public:
     bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
       assert(lhs);
       assert(rhs);
 
-      if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
-        return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
+      if (lhs->epoch_number != rhs->epoch_number) {
+        return lhs->epoch_number > rhs->epoch_number;
+      } else {
+        return seqno_cmp(lhs, rhs);
       }
-
-      if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
-        return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
-      }
-
-      // Break ties by file number
-      return lhs->fd.GetNumber() > rhs->fd.GetNumber();
     }
   };
-
   class BySmallestKey {
    public:
     explicit BySmallestKey(const InternalKeyComparator* cmp) : cmp_(cmp) {}
@@ -251,7 +249,8 @@ class VersionBuilder::Rep {
   std::unordered_map<uint64_t, int> table_file_levels_;
   // Current compact cursors that should be changed after the last compaction
   std::unordered_map<int, InternalKey> updated_compact_cursors_;
-  NewestFirstBySeqNo level_zero_cmp_;
+  NewestFirstByEpochNumber level_zero_cmp_by_epochno_;
+  NewestFirstBySeqNo level_zero_cmp_by_seqno_;
   BySmallestKey level_nonzero_cmp_;
 
   // Mutable metadata objects for all blob files affected by the series of
@@ -295,7 +294,9 @@ class VersionBuilder::Rep {
     if (f->refs <= 0) {
       if (f->table_reader_handle) {
         assert(table_cache_ != nullptr);
-        table_cache_->ReleaseHandle(f->table_reader_handle);
+        // NOTE: have to release in raw cache interface to avoid using a
+        // TypedHandle for FileMetaData::table_reader_handle
+        table_cache_->get_cache().get()->Release(f->table_reader_handle);
         f->table_reader_handle = nullptr;
       }
 
@@ -382,43 +383,60 @@ class VersionBuilder::Rep {
     ExpectedLinkedSsts expected_linked_ssts;
 
     if (num_levels_ > 0) {
+      const InternalKeyComparator* const icmp = vstorage->InternalComparator();
+      EpochNumberRequirement epoch_number_requirement =
+          vstorage->GetEpochNumberRequirement();
+      assert(icmp);
       // Check L0
       {
-        auto l0_checker = [this](const FileMetaData* lhs,
-                                 const FileMetaData* rhs) {
+        auto l0_checker = [this, epoch_number_requirement, icmp](
+                              const FileMetaData* lhs,
+                              const FileMetaData* rhs) {
           assert(lhs);
           assert(rhs);
 
-          if (!level_zero_cmp_(lhs, rhs)) {
-            std::ostringstream oss;
-            oss << "L0 files are not sorted properly: files #"
-                << lhs->fd.GetNumber() << ", #" << rhs->fd.GetNumber();
-
-            return Status::Corruption("VersionBuilder", oss.str());
-          }
-
-          if (rhs->fd.smallest_seqno == rhs->fd.largest_seqno) {
-            // This is an external file that we ingested
-            const SequenceNumber external_file_seqno = rhs->fd.smallest_seqno;
-
-            if (!(external_file_seqno < lhs->fd.largest_seqno ||
-                  external_file_seqno == 0)) {
+          if (epoch_number_requirement ==
+              EpochNumberRequirement::kMightMissing) {
+            if (!level_zero_cmp_by_seqno_(lhs, rhs)) {
               std::ostringstream oss;
-              oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
-                  << lhs->fd.smallest_seqno << ' ' << lhs->fd.largest_seqno
-                  << " vs. file #" << rhs->fd.GetNumber()
-                  << " with global_seqno " << external_file_seqno;
-
+              oss << "L0 files are not sorted properly: files #"
+                  << lhs->fd.GetNumber() << " with seqnos (largest, smallest) "
+                  << lhs->fd.largest_seqno << " , " << lhs->fd.smallest_seqno
+                  << ", #" << rhs->fd.GetNumber()
+                  << " with seqnos (largest, smallest) "
+                  << rhs->fd.largest_seqno << " , " << rhs->fd.smallest_seqno;
               return Status::Corruption("VersionBuilder", oss.str());
             }
-          } else if (lhs->fd.smallest_seqno <= rhs->fd.smallest_seqno) {
-            std::ostringstream oss;
-            oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
-                << lhs->fd.smallest_seqno << ' ' << lhs->fd.largest_seqno
-                << " vs. file #" << rhs->fd.GetNumber() << " with seqno "
-                << rhs->fd.smallest_seqno << ' ' << rhs->fd.largest_seqno;
+          } else if (epoch_number_requirement ==
+                     EpochNumberRequirement::kMustPresent) {
+            if (lhs->epoch_number == rhs->epoch_number) {
+              bool range_overlapped =
+                  icmp->Compare(lhs->smallest, rhs->largest) <= 0 &&
+                  icmp->Compare(lhs->largest, rhs->smallest) >= 0;
 
-            return Status::Corruption("VersionBuilder", oss.str());
+              if (range_overlapped) {
+                std::ostringstream oss;
+                oss << "L0 files of same epoch number but overlapping range #"
+                    << lhs->fd.GetNumber()
+                    << " , smallest key: " << lhs->smallest.DebugString(true)
+                    << " , largest key: " << lhs->largest.DebugString(true)
+                    << " , epoch number: " << lhs->epoch_number << " vs. file #"
+                    << rhs->fd.GetNumber()
+                    << " , smallest key: " << rhs->smallest.DebugString(true)
+                    << " , largest key: " << rhs->largest.DebugString(true)
+                    << " , epoch number: " << rhs->epoch_number;
+                return Status::Corruption("VersionBuilder", oss.str());
+              }
+            }
+
+            if (!level_zero_cmp_by_epochno_(lhs, rhs)) {
+              std::ostringstream oss;
+              oss << "L0 files are not sorted properly: files #"
+                  << lhs->fd.GetNumber() << " with epoch number "
+                  << lhs->epoch_number << ", #" << rhs->fd.GetNumber()
+                  << " with epoch number " << rhs->epoch_number;
+              return Status::Corruption("VersionBuilder", oss.str());
+            }
           }
 
           return Status::OK();
@@ -433,8 +451,6 @@ class VersionBuilder::Rep {
       }
 
       // Check L1 and up
-      const InternalKeyComparator* const icmp = vstorage->InternalComparator();
-      assert(icmp);
 
       for (int level = 1; level < num_levels_; ++level) {
         auto checker = [this, level, icmp](const FileMetaData* lhs,
@@ -1156,6 +1172,25 @@ class VersionBuilder::Rep {
     }
   }
 
+  bool PromoteEpochNumberRequirementIfNeeded(
+      VersionStorageInfo* vstorage) const {
+    if (vstorage->HasMissingEpochNumber()) {
+      return false;
+    }
+
+    for (int level = 0; level < num_levels_; ++level) {
+      for (const auto& pair : levels_[level].added_files) {
+        const FileMetaData* f = pair.second;
+        if (f->epoch_number == kUnknownEpochNumber) {
+          return false;
+        }
+      }
+    }
+
+    vstorage->SetEpochNumberRequirement(EpochNumberRequirement::kMustPresent);
+    return true;
+  }
+
   void SaveSSTFilesTo(VersionStorageInfo* vstorage) const {
     assert(vstorage);
 
@@ -1163,7 +1198,21 @@ class VersionBuilder::Rep {
       return;
     }
 
-    SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_);
+    EpochNumberRequirement epoch_number_requirement =
+        vstorage->GetEpochNumberRequirement();
+
+    if (epoch_number_requirement == EpochNumberRequirement::kMightMissing) {
+      bool promoted = PromoteEpochNumberRequirementIfNeeded(vstorage);
+      if (promoted) {
+        epoch_number_requirement = vstorage->GetEpochNumberRequirement();
+      }
+    }
+
+    if (epoch_number_requirement == EpochNumberRequirement::kMightMissing) {
+      SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_by_seqno_);
+    } else {
+      SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_by_epochno_);
+    }
 
     for (int level = 1; level < num_levels_; ++level) {
       SaveSSTFilesTo(vstorage, level, level_nonzero_cmp_);
@@ -1211,7 +1260,8 @@ class VersionBuilder::Rep {
       size_t max_file_size_for_l0_meta_pin) {
     assert(table_cache_ != nullptr);
 
-    size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
+    size_t table_cache_capacity =
+        table_cache_->get_cache().get()->GetCapacity();
     bool always_load = (table_cache_capacity == TableCache::kInfiniteCapacity);
     size_t max_load = std::numeric_limits<size_t>::max();
 
@@ -1233,7 +1283,7 @@ class VersionBuilder::Rep {
         load_limit = table_cache_capacity / 4;
       }
 
-      size_t table_cache_usage = table_cache_->get_cache()->GetUsage();
+      size_t table_cache_usage = table_cache_->get_cache().get()->GetUsage();
       if (table_cache_usage >= load_limit) {
         // TODO (yanqin) find a suitable status code.
         return Status::OK();
@@ -1272,18 +1322,18 @@ class VersionBuilder::Rep {
 
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
+        TableCache::TypedHandle* handle = nullptr;
         statuses[file_idx] = table_cache_->FindTable(
             ReadOptions(), file_options_,
-            *(base_vstorage_->InternalComparator()), *file_meta,
-            &file_meta->table_reader_handle, prefix_extractor, false /*no_io */,
-            true /* record_read_stats */,
+            *(base_vstorage_->InternalComparator()), *file_meta, &handle,
+            prefix_extractor, false /*no_io */, true /* record_read_stats */,
             internal_stats->GetFileReadHist(level), false, level,
             prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
             file_meta->temperature);
-        if (file_meta->table_reader_handle != nullptr) {
+        if (handle != nullptr) {
+          file_meta->table_reader_handle = handle;
           // Load table_reader
-          file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
-              file_meta->table_reader_handle);
+          file_meta->fd.table_reader = table_cache_->get_cache().Value(handle);
         }
       }
     });

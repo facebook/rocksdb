@@ -22,7 +22,7 @@
 
 #include "rocksdb/rocksdb_namespace.h"
 
-#if !defined(ROCKSDB_LITE) && !defined(NROCKSDB_THREAD_STATUS)
+#if !defined(NROCKSDB_THREAD_STATUS)
 #define ROCKSDB_USING_THREAD_STATUS
 #endif
 

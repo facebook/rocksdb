@@ -88,7 +88,23 @@ public enum CompactionReason {
   /**
    * Compaction in order to move files to temperature
    */
-  kChangeTemperature((byte) 0x0F);
+  kChangeTemperature((byte) 0x0F),
+
+  /**
+   * Compaction scheduled to force garbage collection of blob files
+   */
+  kForcedBlobGC((byte) 0x11),
+
+  /**
+   * A special TTL compaction for RoundRobin policy, which basically the same as
+   * kLevelMaxLevelSize, but the goal is to compact TTLed files.
+   */
+  kRoundRobinTtl((byte) 0x12),
+
+  /**
+   * Compaction by calling DBImpl::ReFitLevel
+   */
+  kRefitLevel((byte) 0x13);
 
   private final byte value;
 

@@ -16,6 +16,7 @@
 
 #include "db/pinned_iterators_manager.h"
 #include "port/malloc.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -235,6 +236,9 @@ class Block {
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
+
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return contents_.data; }
 
  private:
   BlockContents contents_;

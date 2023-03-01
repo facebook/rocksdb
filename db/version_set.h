@@ -33,6 +33,7 @@
 
 #include "cache/cache_helpers.h"
 #include "db/blob/blob_file_meta.h"
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/compaction_picker.h"
@@ -116,6 +117,10 @@ extern bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
 extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
                                       const std::vector<FileMetaData*>& files,
                                       Arena* arena);
+enum EpochNumberRequirement {
+  kMightMissing,
+  kMustPresent,
+};
 
 // Information of the storage associated with each Version, including number of
 // levels of LSM tree, files information at each level, files marked for
@@ -126,7 +131,9 @@ class VersionStorageInfo {
                      const Comparator* user_comparator, int num_levels,
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
-                     bool _force_consistency_checks);
+                     bool _force_consistency_checks,
+                     EpochNumberRequirement epoch_number_requirement =
+                         EpochNumberRequirement::kMustPresent);
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
@@ -319,6 +326,17 @@ class VersionStorageInfo {
     return files_[level];
   }
 
+  bool HasMissingEpochNumber() const;
+  uint64_t GetMaxEpochNumberOfFiles() const;
+  EpochNumberRequirement GetEpochNumberRequirement() const {
+    return epoch_number_requirement_;
+  }
+  void SetEpochNumberRequirement(
+      EpochNumberRequirement epoch_number_requirement) {
+    epoch_number_requirement_ = epoch_number_requirement;
+  }
+  void RecoverEpochNumbers(ColumnFamilyData* cfd);
+
   class FileLocation {
    public:
     FileLocation() = default;
@@ -438,6 +456,11 @@ class VersionStorageInfo {
       const {
     assert(finalized_);
     return files_marked_for_compaction_;
+  }
+
+  void TEST_AddFileMarkedForCompaction(int level, FileMetaData* f) {
+    f->marked_for_compaction = true;
+    files_marked_for_compaction_.emplace_back(level, f);
   }
 
   // REQUIRES: ComputeCompactionScore has been called
@@ -723,6 +746,8 @@ class VersionStorageInfo {
   // is compiled in release mode
   bool force_consistency_checks_;
 
+  EpochNumberRequirement epoch_number_requirement_;
+
   friend class Version;
   friend class VersionSet;
 };
@@ -865,8 +890,15 @@ class Version {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
-  using BlobReadContext =
-      std::pair<BlobIndex, std::reference_wrapper<const KeyContext>>;
+  struct BlobReadContext {
+    BlobReadContext(const BlobIndex& blob_idx, const KeyContext* key_ctx)
+        : blob_index(blob_idx), key_context(key_ctx) {}
+
+    BlobIndex blob_index;
+    const KeyContext* key_context;
+    PinnableSlice result;
+  };
+
   using BlobReadContexts = std::vector<BlobReadContext>;
   void MultiGetBlob(const ReadOptions& read_options, MultiGetRange& range,
                     std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs);
@@ -998,7 +1030,7 @@ class Version {
       int hit_file_level, bool skip_filters, bool skip_range_deletions,
       FdWithKeyRange* f,
       std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
-      Cache::Handle* table_handle, uint64_t& num_filter_read,
+      TableCache::TypedHandle* table_handle, uint64_t& num_filter_read,
       uint64_t& num_index_read, uint64_t& num_sst_read);
 
 #ifdef USE_COROUTINES
@@ -1047,7 +1079,9 @@ class Version {
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
           MutableCFOptions mutable_cf_options,
           const std::shared_ptr<IOTracer>& io_tracer,
-          uint64_t version_number = 0);
+          uint64_t version_number = 0,
+          EpochNumberRequirement epoch_number_requirement =
+              EpochNumberRequirement::kMustPresent);
 
   ~Version();
 
@@ -1188,6 +1222,10 @@ class VersionSet {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only, std::string* db_id, bool* has_missing_table_file);
 
+  // Recover the next epoch number of each CFs and epoch number
+  // of their files (if missing)
+  void RecoverEpochNumbers();
+
   // Reads a manifest file and returns a list of column families in
   // column_families.
   static Status ListColumnFamilies(std::vector<std::string>* column_families,
@@ -1196,7 +1234,6 @@ class VersionSet {
       const std::string& manifest_path, FileSystem* fs,
       std::vector<std::string>* column_families);
 
-#ifndef ROCKSDB_LITE
   // Try to reduce the number of levels. This call is valid when
   // only one level from the new max level to the old
   // max level containing files.
@@ -1218,7 +1255,6 @@ class VersionSet {
   Status DumpManifest(Options& options, std::string& manifestFileName,
                       bool verbose, bool hex = false, bool json = false);
 
-#endif  // ROCKSDB_LITE
 
   const std::string& DbSessionId() const { return db_session_id_; }
 
@@ -1401,7 +1437,7 @@ class VersionSet {
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
     assert(table_cache_);
 
-    table_cache_->Erase(GetSlice(&blob_file_number));
+    table_cache_->Erase(GetSliceForKey(&blob_file_number));
 
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }
@@ -1501,8 +1537,8 @@ class VersionSet {
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        const VersionEdit* edit);
 
-  Status VerifyFileMetadata(const std::string& fpath,
-                            const FileMetaData& meta) const;
+  Status VerifyFileMetadata(ColumnFamilyData* cfd, const std::string& fpath,
+                            int level, const FileMetaData& meta);
 
   // Protected by DB mutex.
   WalSet wals_;

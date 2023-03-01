@@ -92,6 +92,10 @@ DEFINE_int32(
     "on average. Setting `manual_wal_flush_one_in` to be greater than 0 "
     "implies `Options::manual_wal_flush = true` is set.");
 
+DEFINE_int32(lock_wal_one_in, 1000000,
+             "If non-zero, then `LockWAL()` + `UnlockWAL()` will be called in "
+             "db_stress once for every N ops on average.");
+
 DEFINE_bool(test_cf_consistency, false,
             "If set, runs the stress test dedicated to verifying writes to "
             "multiple column families are consistent. Setting this implies "
@@ -376,12 +380,12 @@ DEFINE_uint64(periodic_compaction_seconds, 1000,
 DEFINE_uint64(compaction_ttl, 1000,
               "Files older than TTL will be compacted to the next level.");
 
-DEFINE_bool(allow_concurrent_memtable_write, false,
-            "Allow multi-writers to update mem tables in parallel.");
-
 DEFINE_bool(fifo_allow_compaction, false,
             "If true, set `Options::compaction_options_fifo.allow_compaction = "
             "true`. It only take effect when FIFO compaction is used.");
+
+DEFINE_bool(allow_concurrent_memtable_write, false,
+            "Allow multi-writers to update mem tables in parallel.");
 
 DEFINE_double(experimental_mempurge_threshold, 0.0,
               "Maximum estimated useful payload that triggers a "
@@ -390,7 +394,6 @@ DEFINE_double(experimental_mempurge_threshold, 0.0,
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
-#ifndef ROCKSDB_LITE
 // Options for StackableDB-based BlobDB
 DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Use BlobDB.");
 
@@ -418,7 +421,6 @@ DEFINE_double(
     blob_db_gc_cutoff,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().garbage_collection_cutoff,
     "[Stacked BlobDB] Cutoff ratio for BlobDB garbage collection.");
-#endif  // !ROCKSDB_LITE
 
 // Options for integrated BlobDB
 DEFINE_bool(allow_setting_blob_options_dynamically, false,
@@ -983,13 +985,11 @@ DEFINE_int32(open_metadata_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file metadata write "
              "during DB reopen.");
 
-#ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a customized secondary cache object");
 DEFINE_int32(secondary_cache_fault_one_in, 0,
              "On non-zero, enables fault injection in secondary cache inserts"
              " and lookups");
-#endif  // ROCKSDB_LITE
 DEFINE_int32(open_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file writes "
              "during DB reopen.");
@@ -1008,7 +1008,6 @@ DEFINE_int32(prepopulate_block_cache,
 
 DEFINE_bool(two_write_queues, false,
             "Set to true to enable two write queues. Default: false");
-#ifndef ROCKSDB_LITE
 
 DEFINE_bool(use_only_the_last_commit_time_batch_for_recovery, false,
             "If true, the commit-time write batch will not be immediately "
@@ -1022,7 +1021,6 @@ DEFINE_uint64(
 DEFINE_uint64(wp_commit_cache_bits, 23ull,
               "Number of bits to represent write-prepared transaction db's "
               "commit cache. Default: 23 (8M entries)");
-#endif  // !ROCKSDB_LITE
 
 DEFINE_bool(adaptive_readahead, false,
             "Carry forward internal auto readahead size from one file to next "
@@ -1074,5 +1072,8 @@ DEFINE_bool(
 DEFINE_uint64(stats_dump_period_sec,
               ROCKSDB_NAMESPACE::Options().stats_dump_period_sec,
               "Gap between printing stats to log in seconds");
+
+DEFINE_bool(use_io_uring, false, "Enable the use of IO uring on Posix");
+extern "C" bool RocksDbIOUringEnable() { return FLAGS_use_io_uring; }
 
 #endif  // GFLAGS

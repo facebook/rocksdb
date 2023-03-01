@@ -3,6 +3,7 @@ LIB_SOURCES =                                                   \
   cache/cache.cc                                                \
   cache/cache_entry_roles.cc                                    \
   cache/cache_key.cc                                            \
+  cache/cache_helpers.cc                                        \
   cache/cache_reservation_manager.cc                            \
   cache/charged_cache.cc                                        \
   cache/clock_cache.cc                                          \
@@ -171,6 +172,7 @@ LIB_SOURCES =                                                   \
   table/block_based/block_based_table_iterator.cc               \
   table/block_based/block_based_table_reader.cc                 \
   table/block_based/block_builder.cc                            \
+  table/block_based/block_cache.cc                              \
   table/block_based/block_prefetcher.cc                         \
   table/block_based/block_prefix_index.cc                       \
   table/block_based/data_block_hash_index.cc                    \
@@ -196,6 +198,7 @@ LIB_SOURCES =                                                   \
   table/get_context.cc                                          \
   table/iterator.cc                                             \
   table/merging_iterator.cc                                     \
+  table/compaction_merging_iterator.cc                          \
   table/meta_blocks.cc                                          \
   table/persistent_cache_helper.cc                              \
   table/plain/plain_table_bloom.cc                              \
@@ -232,6 +235,7 @@ LIB_SOURCES =                                                   \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
   util/crc32c_arm64.cc                                          \
+  util/data_structure.cc                                        \
   util/dynamic_bloom.cc                                         \
   util/hash.cc                                                  \
   util/murmurhash.cc                                            \

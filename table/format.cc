@@ -38,14 +38,8 @@ namespace ROCKSDB_NAMESPACE {
 extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kBlockBasedTableMagicNumber;
 
-#ifndef ROCKSDB_LITE
 extern const uint64_t kLegacyPlainTableMagicNumber;
 extern const uint64_t kPlainTableMagicNumber;
-#else
-// ROCKSDB_LITE doesn't have plain table
-const uint64_t kLegacyPlainTableMagicNumber = 0;
-const uint64_t kPlainTableMagicNumber = 0;
-#endif
 const char* kHostnameForDbHostId = "__hostname__";
 
 bool ShouldReportDetailedTime(Env* env, Statistics* stats) {
@@ -264,7 +258,8 @@ void FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
   }
 }
 
-Status Footer::DecodeFrom(Slice input, uint64_t input_offset) {
+Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
+                          uint64_t enforce_table_magic_number) {
   (void)input_offset;  // Future use
 
   // Only decode to unused Footer
@@ -279,6 +274,11 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset) {
   bool legacy = IsLegacyFooterFormat(magic);
   if (legacy) {
     magic = UpconvertLegacyFooterFormat(magic);
+  }
+  if (enforce_table_magic_number != 0 && enforce_table_magic_number != magic) {
+    return Status::Corruption("Bad table magic number: expected " +
+                              std::to_string(enforce_table_magic_number) +
+                              ", found " + std::to_string(magic));
   }
   table_magic_number_ = magic;
   block_trailer_size_ = BlockTrailerSizeForMagicNumber(magic);
@@ -346,7 +346,7 @@ std::string Footer::ToString() const {
 }
 
 Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
-                          FilePrefetchBuffer* prefetch_buffer,
+                          FileSystem& fs, FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number) {
   if (file_size < Footer::kMinEncodedLength) {
@@ -390,28 +390,26 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    // FIXME: this error message is bad. We should be checking whether the
-    // provided file_size matches what's on disk, at least in this case.
-    // Unfortunately FileSystem/Env does not provide a way to get the size
-    // of an open file, so getting file size requires a full path seek.
-    return Status::Corruption("file is too short (" +
-                              std::to_string(file_size) +
-                              " bytes) to be an "
-                              "sstable" +
-                              file->file_name());
+    uint64_t size_on_disk = 0;
+    if (fs.GetFileSize(file->file_name(), IOOptions(), &size_on_disk, nullptr)
+            .ok()) {
+      // Similar to CheckConsistency message, but not completely sure the
+      // expected size always came from manifest.
+      return Status::Corruption("Sst file size mismatch: " + file->file_name() +
+                                ". Expected " + std::to_string(file_size) +
+                                ", actual size " +
+                                std::to_string(size_on_disk) + "\n");
+    } else {
+      return Status::Corruption(
+          "Missing SST footer data in file " + file->file_name() +
+          " File too short? Expected size: " + std::to_string(file_size));
+    }
   }
 
-  s = footer->DecodeFrom(footer_input, read_offset);
+  s = footer->DecodeFrom(footer_input, read_offset, enforce_table_magic_number);
   if (!s.ok()) {
+    s = Status::CopyAppendMessage(s, " in ", file->file_name());
     return s;
-  }
-  if (enforce_table_magic_number != 0 &&
-      enforce_table_magic_number != footer->table_magic_number()) {
-    return Status::Corruption("Bad table magic number: expected " +
-                              std::to_string(enforce_table_magic_number) +
-                              ", found " +
-                              std::to_string(footer->table_magic_number()) +
-                              " in " + file->file_name());
   }
   return Status::OK();
 }

@@ -70,7 +70,6 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   if (getenv("MEM_ENV")) {
     mem_env_ = MockEnv::Create(base_env, base_env->GetSystemClock());
   }
-#ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
     std::string provider_id = getenv("ENCRYPTED_ENV");
@@ -82,7 +81,6 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
                                                    &provider));
     encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
-#endif  // !ROCKSDB_LITE
   env_ = new SpecialEnv(encrypted_env_ ? encrypted_env_
                                        : (mem_env_ ? mem_env_ : base_env));
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -124,22 +122,6 @@ DBTestBase::~DBTestBase() {
 }
 
 bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
-#ifdef ROCKSDB_LITE
-  // These options are not supported in ROCKSDB_LITE
-  if (option_config == kHashSkipList ||
-      option_config == kPlainTableFirstBytePrefix ||
-      option_config == kPlainTableCappedPrefix ||
-      option_config == kPlainTableCappedPrefixNonMmap ||
-      option_config == kPlainTableAllBytesPrefix ||
-      option_config == kVectorRep || option_config == kHashLinkList ||
-      option_config == kUniversalCompaction ||
-      option_config == kUniversalCompactionMultiLevel ||
-      option_config == kUniversalSubcompactions ||
-      option_config == kFIFOCompaction ||
-      option_config == kConcurrentSkipList) {
-    return true;
-  }
-#endif
 
   if ((skip_mask & kSkipUniversalCompaction) &&
       (option_config == kUniversalCompaction ||
@@ -377,7 +359,6 @@ Options DBTestBase::GetOptions(
 
   bool can_allow_mmap = IsMemoryMappedAccessSupported();
   switch (option_config) {
-#ifndef ROCKSDB_LITE
     case kHashSkipList:
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));
       options.memtable_factory.reset(NewHashSkipListRepFactory(16));
@@ -431,7 +412,6 @@ Options DBTestBase::GetOptions(
       SetupSyncPointsToMockDirectIO();
       break;
     }
-#endif  // ROCKSDB_LITE
     case kMergePut:
       options.merge_operator = MergeOperators::CreatePutOperator();
       break;
@@ -479,10 +459,6 @@ Options DBTestBase::GetOptions(
     case kUniversalCompactionMultiLevel:
       options.compaction_style = kCompactionStyleUniversal;
       options.num_levels = 8;
-      break;
-    case kCompressedBlockCache:
-      options.allow_mmap_writes = can_allow_mmap;
-      table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
       break;
     case kInfiniteMaxOpenFiles:
       options.max_open_files = -1;
@@ -706,7 +682,6 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
   if (delete_cf_paths) {
     for (size_t i = 0; i < handles_.size(); ++i) {
       ColumnFamilyDescriptor cfdescriptor;
-      // GetDescriptor is not implemented for ROCKSDB_LITE
       handles_[i]->GetDescriptor(&cfdescriptor).PermitUncheckedError();
       column_families.push_back(cfdescriptor);
     }
@@ -1047,7 +1022,6 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   return result;
 }
 
-#ifndef ROCKSDB_LITE
 int DBTestBase::NumSortedRuns(int cf) {
   ColumnFamilyMetaData cf_meta;
   if (cf == 0) {
@@ -1166,7 +1140,6 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   return result;
 }
 
-#endif  // !ROCKSDB_LITE
 
 std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
   VersionSet* const versions = dbfull()->GetVersionSet();
@@ -1284,7 +1257,6 @@ void DBTestBase::MoveFilesToLevel(int level, int cf) {
   }
 }
 
-#ifndef ROCKSDB_LITE
 void DBTestBase::DumpFileCounts(const char* label) {
   fprintf(stderr, "---\n%s:\n", label);
   fprintf(stderr, "maxoverlap: %" PRIu64 "\n",
@@ -1296,7 +1268,6 @@ void DBTestBase::DumpFileCounts(const char* label) {
     }
   }
 }
-#endif  // !ROCKSDB_LITE
 
 std::string DBTestBase::DumpSSTableList() {
   std::string property;
@@ -1622,7 +1593,6 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
   }
 
   if (tailing_iter) {
-#ifndef ROCKSDB_LITE
     // Tailing iterator
     int iter_cnt = 0;
     ReadOptions ro;
@@ -1651,7 +1621,6 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
     }
 
     delete iter;
-#endif  // ROCKSDB_LITE
   }
 
   if (total_reads_res) {
@@ -1679,7 +1648,6 @@ void DBTestBase::VerifyDBInternal(
   iter->~InternalIterator();
 }
 
-#ifndef ROCKSDB_LITE
 
 uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
     DB* db, std::string column_family_name) {
@@ -1700,7 +1668,6 @@ uint64_t DBTestBase::GetSstSizeHelper(Temperature temperature) {
       &prop));
   return static_cast<uint64_t>(std::atoi(prop.c_str()));
 }
-#endif  // ROCKSDB_LITE
 
 void VerifySstUniqueIds(const TablePropertiesCollection& props) {
   ASSERT_FALSE(props.empty());  // suspicious test if empty
@@ -1723,12 +1690,13 @@ TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
       cache_charge_increments_sum_(0) {}
 
 template <CacheEntryRole R>
-Status TargetCacheChargeTrackingCache<R>::Insert(
-    const Slice& key, void* value, size_t charge,
-    void (*deleter)(const Slice& key, void* value), Handle** handle,
-    Priority priority) {
-  Status s = target_->Insert(key, value, charge, deleter, handle, priority);
-  if (deleter == kNoopDeleter) {
+Status TargetCacheChargeTrackingCache<R>::Insert(const Slice& key,
+                                                 ObjectPtr value,
+                                                 const CacheItemHelper* helper,
+                                                 size_t charge, Handle** handle,
+                                                 Priority priority) {
+  Status s = target_->Insert(key, value, helper, charge, handle, priority);
+  if (helper == kCrmHelper) {
     if (last_peak_tracked_) {
       cache_charge_peak_ = 0;
       cache_charge_increment_ = 0;
@@ -1747,8 +1715,8 @@ Status TargetCacheChargeTrackingCache<R>::Insert(
 template <CacheEntryRole R>
 bool TargetCacheChargeTrackingCache<R>::Release(Handle* handle,
                                                 bool erase_if_last_ref) {
-  auto deleter = GetDeleter(handle);
-  if (deleter == kNoopDeleter) {
+  auto helper = GetCacheItemHelper(handle);
+  if (helper == kCrmHelper) {
     if (!last_peak_tracked_) {
       cache_charge_peaks_.push_back(cache_charge_peak_);
       cache_charge_increments_sum_ += cache_charge_increment_;
@@ -1761,8 +1729,8 @@ bool TargetCacheChargeTrackingCache<R>::Release(Handle* handle,
 }
 
 template <CacheEntryRole R>
-const Cache::DeleterFn TargetCacheChargeTrackingCache<R>::kNoopDeleter =
-    CacheReservationManagerImpl<R>::TEST_GetNoopDeleterForRole();
+const Cache::CacheItemHelper* TargetCacheChargeTrackingCache<R>::kCrmHelper =
+    CacheReservationManagerImpl<R>::TEST_GetCacheItemHelperForRole();
 
 template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kFilterConstruction>;

@@ -452,16 +452,15 @@ class CompactionRangeDelAggregator : public RangeDelAggregator {
   }
 
   // Creates an iterator over all the range tombstones in the aggregator, for
-  // use in compaction. Nullptr arguments indicate that the iterator range is
-  // unbounded.
-  // NOTE: the boundaries are used for optimization purposes to reduce the
-  // number of tombstones that are passed to the fragmenter; they do not
-  // guarantee that the resulting iterator only contains range tombstones that
-  // cover keys in the provided range. If required, these bounds must be
+  // use in compaction.
+  //
+  // NOTE: the internal key boundaries are used for optimization purposes to
+  // reduce the number of tombstones that are passed to the fragmenter; they do
+  // not guarantee that the resulting iterator only contains range tombstones
+  // that cover keys in the provided range. If required, these bounds must be
   // enforced during iteration.
   std::unique_ptr<FragmentedRangeTombstoneIterator> NewIterator(
-      const Slice* lower_bound = nullptr, const Slice* upper_bound = nullptr,
-      bool upper_bound_inclusive = false);
+      const Slice* lower_bound = nullptr, const Slice* upper_bound = nullptr);
 
  private:
   std::vector<std::unique_ptr<TruncatedRangeDelIterator>> parent_iters_;

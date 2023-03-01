@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/backup_engine.h"
 
@@ -33,4 +32,3 @@ void TEST_SetDefaultRateLimitersClock(
     const std::shared_ptr<SystemClock>& backup_rate_limiter_clock = nullptr,
     const std::shared_ptr<SystemClock>& restore_rate_limiter_clock = nullptr);
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

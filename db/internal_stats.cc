@@ -32,7 +32,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 
 const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
     {
@@ -659,17 +658,18 @@ void InternalStats::CollectCacheEntryStats(bool foreground) {
                                              min_interval_factor);
 }
 
-std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
+std::function<void()> Blah() {
+  static int x = 42;
+  return [&]() { ++x; };
+}
+
+std::function<void(const Slice& key, Cache::ObjectPtr value, size_t charge,
+                   const Cache::CacheItemHelper* helper)>
 InternalStats::CacheEntryRoleStats::GetEntryCallback() {
-  return [&](const Slice& /*key*/, void* /*value*/, size_t charge,
-             Cache::DeleterFn deleter) {
-    auto e = role_map_.find(deleter);
-    size_t role_idx;
-    if (e == role_map_.end()) {
-      role_idx = static_cast<size_t>(CacheEntryRole::kMisc);
-    } else {
-      role_idx = static_cast<size_t>(e->second);
-    }
+  return [&](const Slice& /*key*/, Cache::ObjectPtr /*value*/, size_t charge,
+             const Cache::CacheItemHelper* helper) -> void {
+    size_t role_idx =
+        static_cast<size_t>(helper ? helper->role : CacheEntryRole::kMisc);
     entry_counts[role_idx]++;
     total_charges[role_idx] += charge;
   };
@@ -680,7 +680,6 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   Clear();
   last_start_time_micros_ = start_time_micros;
   ++collection_count;
-  role_map_ = CopyCacheDeleterRoleMap();
   std::ostringstream str;
   str << cache->Name() << "@" << static_cast<void*>(cache) << "#"
       << port::GetProcessID();
@@ -1991,12 +1990,5 @@ void InternalStats::DumpCFFileHistogram(std::string* value) {
   value->append(oss.str());
 }
 
-#else
-
-const DBPropertyInfo* GetPropertyInfo(const Slice& /*property*/) {
-  return nullptr;
-}
-
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

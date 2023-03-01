@@ -13,6 +13,7 @@
 
 #include "cache/sharded_cache.h"
 #include "port/lang.h"
+#include "port/likely.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/secondary_cache.h"
@@ -48,13 +49,8 @@ namespace lru_cache {
 // While refs > 0, public properties like value and deleter must not change.
 
 struct LRUHandle {
-  void* value;
-  union Info {
-    Info() {}
-    ~Info() {}
-    Cache::DeleterFn deleter;
-    const Cache::CacheItemHelper* helper;
-  } info_;
+  Cache::ObjectPtr value;
+  const Cache::CacheItemHelper* helper;
   // An entry is not added to the LRUHandleTable until the secondary cache
   // lookup is complete, so its safe to have this union.
   union {
@@ -93,14 +89,12 @@ struct LRUHandle {
     IM_IS_HIGH_PRI = (1 << 0),
     // Whether this entry is low priority entry.
     IM_IS_LOW_PRI = (1 << 1),
-    // Can this be inserted into the secondary cache.
-    IM_IS_SECONDARY_CACHE_COMPATIBLE = (1 << 2),
     // Is the handle still being read from a lower tier.
-    IM_IS_PENDING = (1 << 3),
+    IM_IS_PENDING = (1 << 2),
     // Whether this handle is still in a lower tier
-    IM_IS_IN_SECONDARY_CACHE = (1 << 4),
+    IM_IS_IN_SECONDARY_CACHE = (1 << 3),
     // Marks result handles that should not be inserted into cache
-    IM_IS_STANDALONE = (1 << 5),
+    IM_IS_STANDALONE = (1 << 4),
   };
 
   // Beginning of the key (MUST BE THE LAST FIELD IN THIS STRUCT!)
@@ -130,9 +124,7 @@ struct LRUHandle {
   bool IsLowPri() const { return im_flags & IM_IS_LOW_PRI; }
   bool InLowPriPool() const { return m_flags & M_IN_LOW_PRI_POOL; }
   bool HasHit() const { return m_flags & M_HAS_HIT; }
-  bool IsSecondaryCacheCompatible() const {
-    return im_flags & IM_IS_SECONDARY_CACHE_COMPATIBLE;
-  }
+  bool IsSecondaryCacheCompatible() const { return helper->size_cb != nullptr; }
   bool IsPending() const { return im_flags & IM_IS_PENDING; }
   bool IsInSecondaryCache() const {
     return im_flags & IM_IS_IN_SECONDARY_CACHE;
@@ -178,14 +170,6 @@ struct LRUHandle {
 
   void SetHit() { m_flags |= M_HAS_HIT; }
 
-  void SetSecondaryCacheCompatible(bool compat) {
-    if (compat) {
-      im_flags |= IM_IS_SECONDARY_CACHE_COMPATIBLE;
-    } else {
-      im_flags &= ~IM_IS_SECONDARY_CACHE_COMPATIBLE;
-    }
-  }
-
   void SetIsPending(bool pending) {
     if (pending) {
       im_flags |= IM_IS_PENDING;
@@ -210,22 +194,19 @@ struct LRUHandle {
     }
   }
 
-  void Free() {
+  void Free(MemoryAllocator* allocator) {
     assert(refs == 0);
 
-    if (!IsSecondaryCacheCompatible() && info_.deleter) {
-      (*info_.deleter)(key(), value);
-    } else if (IsSecondaryCacheCompatible()) {
-      if (IsPending()) {
-        assert(sec_handle != nullptr);
-        SecondaryCacheResultHandle* tmp_sec_handle = sec_handle;
-        tmp_sec_handle->Wait();
-        value = tmp_sec_handle->Value();
-        delete tmp_sec_handle;
-      }
-      if (value) {
-        (*info_.helper->del_cb)(key(), value);
-      }
+    if (UNLIKELY(IsPending())) {
+      assert(sec_handle != nullptr);
+      SecondaryCacheResultHandle* tmp_sec_handle = sec_handle;
+      tmp_sec_handle->Wait();
+      value = tmp_sec_handle->Value();
+      delete tmp_sec_handle;
+    }
+    assert(helper);
+    if (helper->del_cb) {
+      helper->del_cb(value, allocator);
     }
 
     free(this);
@@ -267,7 +248,7 @@ struct LRUHandle {
 // 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
-  explicit LRUHandleTable(int max_upper_hash_bits);
+  explicit LRUHandleTable(int max_upper_hash_bits, MemoryAllocator* allocator);
   ~LRUHandleTable();
 
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
@@ -291,6 +272,8 @@ class LRUHandleTable {
 
   size_t GetOccupancyCount() const { return elems_; }
 
+  MemoryAllocator* GetAllocator() const { return allocator_; }
+
  private:
   // Return a pointer to slot that points to a cache entry that
   // matches key/hash.  If there is no such cache entry, return a
@@ -312,6 +295,9 @@ class LRUHandleTable {
 
   // Set from max_upper_hash_bits (see constructor).
   const int max_length_bits_;
+
+  // From Cache, needed for delete
+  MemoryAllocator* const allocator_;
 };
 
 // A single shard of sharded cache.
@@ -321,7 +307,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
                 double high_pri_pool_ratio, double low_pri_pool_ratio,
                 bool use_adaptive_mutex,
                 CacheMetadataChargePolicy metadata_charge_policy,
-                int max_upper_hash_bits, SecondaryCache* secondary_cache);
+                int max_upper_hash_bits, MemoryAllocator* allocator,
+                SecondaryCache* secondary_cache);
 
  public:  // Type definitions expected as parameter to ShardedCache
   using HandleImpl = LRUHandle;
@@ -348,26 +335,15 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   void SetLowPriorityPoolRatio(double low_pri_pool_ratio);
 
   // Like Cache methods, but with an extra "hash" parameter.
-  inline Status Insert(const Slice& key, uint32_t hash, void* value,
-                       size_t charge, Cache::DeleterFn deleter,
-                       LRUHandle** handle, Cache::Priority priority) {
-    return Insert(key, hash, value, charge, deleter, nullptr, handle, priority);
-  }
-  inline Status Insert(const Slice& key, uint32_t hash, void* value,
-                       const Cache::CacheItemHelper* helper, size_t charge,
-                       LRUHandle** handle, Cache::Priority priority) {
-    assert(helper);
-    return Insert(key, hash, value, charge, nullptr, helper, handle, priority);
-  }
-  // If helper_cb is null, the values of the following arguments don't matter.
+  Status Insert(const Slice& key, uint32_t hash, Cache::ObjectPtr value,
+                const Cache::CacheItemHelper* helper, size_t charge,
+                LRUHandle** handle, Cache::Priority priority);
+
   LRUHandle* Lookup(const Slice& key, uint32_t hash,
                     const Cache::CacheItemHelper* helper,
-                    const Cache::CreateCallback& create_cb,
+                    Cache::CreateContext* create_context,
                     Cache::Priority priority, bool wait, Statistics* stats);
-  inline LRUHandle* Lookup(const Slice& key, uint32_t hash) {
-    return Lookup(key, hash, nullptr, nullptr, Cache::Priority::LOW, true,
-                  nullptr);
-  }
+
   bool Release(LRUHandle* handle, bool useful, bool erase_if_last_ref);
   bool IsReady(LRUHandle* /*handle*/);
   void Wait(LRUHandle* /*handle*/) {}
@@ -384,8 +360,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   size_t GetTableAddressCount() const;
 
   void ApplyToSomeEntries(
-      const std::function<void(const Slice& key, void* value, size_t charge,
-                               DeleterFn deleter)>& callback,
+      const std::function<void(const Slice& key, Cache::ObjectPtr value,
+                               size_t charge,
+                               const Cache::CacheItemHelper* helper)>& callback,
       size_t average_entries_per_lock, size_t* state);
 
   void EraseUnRefEntries();
@@ -414,9 +391,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShardBase {
   // nullptr.
   Status InsertItem(LRUHandle* item, LRUHandle** handle,
                     bool free_handle_on_fail);
-  Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
-                DeleterFn deleter, const Cache::CacheItemHelper* helper,
-                LRUHandle** handle, Cache::Priority priority);
   // Promote an item looked up from the secondary cache to the LRU cache.
   // The item may be still in the secondary cache.
   // It is only inserted into the hash table and not the LRU list, and only
@@ -521,9 +495,9 @@ class LRUCache
                kDontChargeCacheMetadata,
            std::shared_ptr<SecondaryCache> secondary_cache = nullptr);
   const char* Name() const override { return "LRUCache"; }
-  void* Value(Handle* handle) override;
+  ObjectPtr Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;
-  DeleterFn GetDeleter(Handle* handle) const override;
+  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
   void WaitAll(std::vector<Handle*>& handles) override;
 
   // Retrieves number of elements in LRU, for unit test purpose only.

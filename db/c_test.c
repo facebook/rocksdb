@@ -5,8 +5,6 @@
 
 #include <stdio.h>
 
-#ifndef ROCKSDB_LITE  // Lite does not support C API
-
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -2572,6 +2570,9 @@ int main(int argc, char** argv) {
     rocksdb_readoptions_set_io_timeout(ro, 400);
     CheckCondition(400 == rocksdb_readoptions_get_io_timeout(ro));
 
+    rocksdb_readoptions_set_async_io(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_async_io(ro));
+
     rocksdb_readoptions_destroy(ro);
   }
 
@@ -3465,12 +3466,3 @@ int main(int argc, char** argv) {
   fprintf(stderr, "PASS\n");
   return 0;
 }
-
-#else
-
-int main(void) {
-  fprintf(stderr, "SKIPPED\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

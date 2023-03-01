@@ -53,11 +53,9 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   if (cfd_ != nullptr) {
-#ifndef ROCKSDB_LITE
     for (auto& listener : cfd_->ioptions()->listeners) {
       listener->OnColumnFamilyHandleDeletionStarted(this);
     }
-#endif  // ROCKSDB_LITE
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     // Need to hold some shared pointers owned by the initial_cf_options
@@ -88,15 +86,10 @@ const std::string& ColumnFamilyHandleImpl::GetName() const {
 }
 
 Status ColumnFamilyHandleImpl::GetDescriptor(ColumnFamilyDescriptor* desc) {
-#ifndef ROCKSDB_LITE
   // accessing mutable cf-options requires db mutex.
   InstrumentedMutexLock l(mutex_);
   *desc = ColumnFamilyDescriptor(cfd()->GetName(), cfd()->GetLatestCFOptions());
   return Status::OK();
-#else
-  (void)desc;
-  return Status::NotSupported();
-#endif  // !ROCKSDB_LITE
 }
 
 const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
@@ -347,7 +340,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
         result.hard_pending_compaction_bytes_limit;
   }
 
-#ifndef ROCKSDB_LITE
   // When the DB is stopped, it's possible that there are some .trash files that
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted (or delete immediately if SstFileManager
@@ -359,7 +351,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                       result.cf_paths[i].path)
         .PermitUncheckedError();
   }
-#endif
 
   if (result.cf_paths.empty()) {
     result.cf_paths = db_options.db_paths;
@@ -557,7 +548,6 @@ ColumnFamilyData::ColumnFamilyData(
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      flush_reason_(FlushReason::kOthers),
       column_family_set_(column_family_set),
       queued_for_flush_(false),
       queued_for_compaction_(false),
@@ -565,7 +555,8 @@ ColumnFamilyData::ColumnFamilyData(
       allow_2pc_(db_options.allow_2pc),
       last_memtable_id_(0),
       db_paths_registered_(false),
-      mempurge_used_(false) {
+      mempurge_used_(false),
+      next_epoch_number_(1) {
   if (id_ != kDummyColumnFamilyDataId) {
     // TODO(cc): RegisterDbPaths can be expensive, considering moving it
     // outside of this constructor which might be called with db mutex held.
@@ -602,7 +593,6 @@ ColumnFamilyData::ColumnFamilyData(
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
-#ifndef ROCKSDB_LITE
     } else if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
           new UniversalCompactionPicker(ioptions_, &internal_comparator_));
@@ -616,7 +606,6 @@ ColumnFamilyData::ColumnFamilyData(
                      "Column family %s does not use any background compaction. "
                      "Compactions can only be done via CompactFiles\n",
                      GetName().c_str());
-#endif  // !ROCKSDB_LITE
     } else {
       ROCKS_LOG_ERROR(ioptions_.logger,
                       "Unable to recognize the specified compaction style %d. "
@@ -1128,12 +1117,9 @@ bool ColumnFamilyData::NeedsCompaction() const {
 Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
     const MutableDBOptions& mutable_db_options, LogBuffer* log_buffer) {
-  SequenceNumber earliest_mem_seqno =
-      std::min(mem_->GetEarliestSequenceNumber(),
-               imm_.current()->GetEarliestSequenceNumber(false));
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, current_->storage_info(),
-      log_buffer, earliest_mem_seqno);
+      log_buffer);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
@@ -1212,17 +1198,15 @@ Compaction* ColumnFamilyData::CompactRange(
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
     uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
-  SequenceNumber earliest_mem_seqno =
-      std::min(mem_->GetEarliestSequenceNumber(),
-               imm_.current()->GetEarliestSequenceNumber(false));
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, mutable_db_options,
       current_->storage_info(), input_level, output_level,
       compact_range_options, begin, end, compaction_end, conflict,
-      max_file_num_to_ignore, trim_ts, earliest_mem_seqno);
+      max_file_num_to_ignore, trim_ts);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
+  TEST_SYNC_POINT("ColumnFamilyData::CompactRange:Return");
   return result;
 }
 
@@ -1445,7 +1429,6 @@ Status ColumnFamilyData::ValidateOptions(
   return s;
 }
 
-#ifndef ROCKSDB_LITE
 Status ColumnFamilyData::SetOptions(
     const DBOptions& db_opts,
     const std::unordered_map<std::string, std::string>& options_map) {
@@ -1464,7 +1447,6 @@ Status ColumnFamilyData::SetOptions(
   }
   return s;
 }
-#endif  // ROCKSDB_LITE
 
 // REQUIRES: DB mutex held
 Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
@@ -1521,6 +1503,13 @@ FSDirectory* ColumnFamilyData::GetDataDir(size_t path_id) const {
 
   assert(path_id < data_dirs_.size());
   return data_dirs_[path_id].get();
+}
+
+void ColumnFamilyData::RecoverEpochNumbers() {
+  assert(current_);
+  auto* vstorage = current_->storage_info();
+  assert(vstorage);
+  vstorage->RecoverEpochNumbers(this);
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,

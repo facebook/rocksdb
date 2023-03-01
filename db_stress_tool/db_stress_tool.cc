@@ -20,6 +20,7 @@
 // NOTE that if FLAGS_test_batches_snapshots is set, the test will have
 // different behavior. See comment of the flag for details.
 
+#include "db_stress_tool/db_stress_shared_state.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
@@ -29,8 +30,8 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
-static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
-static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper>
+static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_wrapper_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::CompositeEnvWrapper>
     dbsl_env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 }  // namespace
@@ -77,7 +78,7 @@ int db_stress_tool(int argc, char** argv) {
             s.ToString().c_str());
     exit(1);
   }
-  dbsl_env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
+  dbsl_env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(raw_env);
   db_stress_listener_env = dbsl_env_wrapper_guard.get();
 
   if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
@@ -96,17 +97,16 @@ int db_stress_tool(int argc, char** argv) {
     raw_env = fault_env_guard.get();
   }
 
-  env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
-  db_stress_env = env_wrapper_guard.get();
-
-  if (FLAGS_write_fault_one_in) {
-    // In the write injection case, we need to use the FS interface and returns
-    // the IOStatus with different error and flags. Therefore,
-    // DbStressEnvWrapper cannot be used which will swallow the FS
-    // implementations. We should directly use the raw_env which is the
-    // CompositeEnvWrapper of env and fault_fs.
-    db_stress_env = raw_env;
+  env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
+      raw_env, std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem()));
+  if (!env_opts && !FLAGS_use_io_uring) {
+    // If using the default Env (Posix), wrap DbStressEnvWrapper with the
+    // legacy EnvWrapper. This is a workaround to prevent MultiGet and scans
+    // from failing when IO uring is disabled. The EnvWrapper
+    // has a default implementation of ReadAsync that redirects to Read.
+    env_wrapper_guard = std::make_shared<EnvWrapper>(env_wrapper_guard);
   }
+  db_stress_env = env_wrapper_guard.get();
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
@@ -341,7 +341,7 @@ int db_stress_tool(int argc, char** argv) {
     key_gen_ctx.weights.emplace_back(key_gen_ctx.window -
                                      keys_per_level * (levels - 1));
   }
-
+  std::unique_ptr<ROCKSDB_NAMESPACE::SharedState> shared;
   std::unique_ptr<ROCKSDB_NAMESPACE::StressTest> stress;
   if (FLAGS_test_cf_consistency) {
     stress.reset(CreateCfConsistencyStressTest());
@@ -354,7 +354,8 @@ int db_stress_tool(int argc, char** argv) {
   }
   // Initialize the Zipfian pre-calculated array
   InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
-  if (RunStressTest(stress.get())) {
+  shared.reset(new SharedState(db_stress_env, stress.get()));
+  if (RunStressTest(shared.get())) {
     return 0;
   } else {
     return 1;

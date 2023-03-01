@@ -198,6 +198,8 @@ void DBImpl::TEST_LockMutex() { mutex_.Lock(); }
 
 void DBImpl::TEST_UnlockMutex() { mutex_.Unlock(); }
 
+void DBImpl::TEST_SignalAllBgCv() { bg_cv_.SignalAll(); }
+
 void* DBImpl::TEST_BeginWrite() {
   auto w = new WriteThread::Writer();
   write_thread_.EnterUnbatched(w, &mutex_);
@@ -289,8 +291,7 @@ size_t DBImpl::TEST_GetWalPreallocateBlockSize(
   return GetWalPreallocateBlockSize(write_buffer_size);
 }
 
-#ifndef ROCKSDB_LITE
-void DBImpl::TEST_WaitForPeridicTaskRun(std::function<void()> callback) const {
+void DBImpl::TEST_WaitForPeriodicTaskRun(std::function<void()> callback) const {
   periodic_task_scheduler_.TEST_WaitForRun(callback);
 }
 
@@ -303,7 +304,6 @@ SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
   return seqno_time_mapping_;
 }
 
-#endif  // !ROCKSDB_LITE
 
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
   return EstimateInMemoryStatsHistorySize();

@@ -806,7 +806,7 @@ TEST_P(FullBloomTest, Schema) {
 struct RawFilterTester {
   // Buffer, from which we always return a tail Slice, so the
   // last five bytes are always the metadata bytes.
-  std::array<char, 3000> data_;
+  std::array<char, 3000> data_{};
   // Points five bytes from the end
   char* metadata_ptr_;
 

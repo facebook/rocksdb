@@ -780,7 +780,6 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#ifndef ROCKSDB_LITE
 
 // Tests a `WriteBufferManager` constructed with `allow_stall == false` does not
 // thrash memtable switching when full and a CF receives multiple writes.
@@ -847,7 +846,6 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   delete shared_wbm_db;
 }
 
-#endif  // ROCKSDB_LITE
 
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());

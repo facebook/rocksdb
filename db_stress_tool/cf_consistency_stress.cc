@@ -466,7 +466,6 @@ class CfConsistencyStressTest : public StressTest {
                   iters[i]->key().ToString(true /* hex */).c_str(),
                   iters[i]->value().ToString(true /* hex */).c_str());
 
-#ifndef ROCKSDB_LITE
           Slice begin_key;
           Slice end_key;
           if (cmp < 0) {
@@ -509,7 +508,6 @@ class CfConsistencyStressTest : public StressTest {
           }
 
           print_key_versions(column_families_[i]);
-#endif  // ROCKSDB_LITE
 
           shared->SetVerificationFailure();
         }
@@ -524,7 +522,6 @@ class CfConsistencyStressTest : public StressTest {
     } while (true);
   }
 
-#ifndef ROCKSDB_LITE
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
     assert(thread);
     Status status;
@@ -614,9 +611,6 @@ class CfConsistencyStressTest : public StressTest {
       }
     }
   }
-#else   // ROCKSDB_LITE
-  void ContinuouslyVerifyDb(ThreadState* /*thread*/) const override {}
-#endif  // !ROCKSDB_LITE
 
   std::vector<int> GenerateColumnFamilies(
       const int /* num_column_families */,

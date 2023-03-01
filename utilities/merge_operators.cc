@@ -12,46 +12,14 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/max_operator.h"
+#include "utilities/merge_operators/put_operator.h"
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
+#include "utilities/merge_operators/uint64add.h"
 
 namespace ROCKSDB_NAMESPACE {
-static bool LoadMergeOperator(const std::string& id,
-                              std::shared_ptr<MergeOperator>* result) {
-  bool success = true;
-  // TODO: Hook the "name" up to the actual Name() of the MergeOperators?
-  // Requires these classes be moved into a header file...
-  if (id == "put" || id == "PutOperator") {
-    *result = MergeOperators::CreatePutOperator();
-  } else if (id == "put_v1") {
-    *result = MergeOperators::CreateDeprecatedPutOperator();
-  } else if (id == "uint64add" || id == "UInt64AddOperator") {
-    *result = MergeOperators::CreateUInt64AddOperator();
-  } else if (id == "max" || id == "MaxOperator") {
-    *result = MergeOperators::CreateMaxOperator();
-#ifdef ROCKSDB_LITE
-    // The remainder of the classes are handled by the ObjectRegistry in
-    // non-LITE mode
-  } else if (id == StringAppendOperator::kNickName() ||
-             id == StringAppendOperator::kClassName()) {
-    *result = MergeOperators::CreateStringAppendOperator();
-  } else if (id == StringAppendTESTOperator::kNickName() ||
-             id == StringAppendTESTOperator::kClassName()) {
-    *result = MergeOperators::CreateStringAppendTESTOperator();
-  } else if (id == BytesXOROperator::kNickName() ||
-             id == BytesXOROperator::kClassName()) {
-    *result = MergeOperators::CreateBytesXOROperator();
-  } else if (id == SortList::kNickName() || id == SortList::kClassName()) {
-    *result = MergeOperators::CreateSortOperator();
-#endif  // ROCKSDB_LITE
-  } else {
-    success = false;
-  }
-  return success;
-}
-
-#ifndef ROCKSDB_LITE
 static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
   size_t num_types;
@@ -87,22 +55,49 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
         guard->reset(new BytesXOROperator());
         return guard->get();
       });
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(UInt64AddOperator::kClassName())
+          .AnotherName(UInt64AddOperator::kNickName()),
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new UInt64AddOperator());
+        return guard->get();
+      });
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(MaxOperator::kClassName())
+          .AnotherName(MaxOperator::kNickName()),
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new MaxOperator());
+        return guard->get();
+      });
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(PutOperatorV2::kClassName())
+          .AnotherName(PutOperatorV2::kNickName()),
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new PutOperatorV2());
+        return guard->get();
+      });
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(PutOperator::kNickName()),
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new PutOperator());
+        return guard->get();
+      });
 
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
-#endif  // ROCKSDB_LITE
 
 Status MergeOperator::CreateFromString(const ConfigOptions& config_options,
                                        const std::string& value,
                                        std::shared_ptr<MergeOperator>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterBuiltinMergeOperators(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
-  return LoadSharedObject<MergeOperator>(config_options, value,
-                                         LoadMergeOperator, result);
+  return LoadSharedObject<MergeOperator>(config_options, value, result);
 }
 
 std::shared_ptr<MergeOperator> MergeOperators::CreateFromStringId(

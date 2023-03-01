@@ -110,6 +110,7 @@ JAVA_TESTS = \
 	org.rocksdb.BlobOptionsTest\
 	org.rocksdb.BlockBasedTableConfigTest\
 	org.rocksdb.BuiltinComparatorTest\
+	org.rocksdb.ByteBufferUnsupportedOperationTest\
 	org.rocksdb.BytewiseComparatorRegressionTest\
 	org.rocksdb.util.BytewiseComparatorTest\
 	org.rocksdb.util.BytewiseComparatorIntTest\

@@ -338,11 +338,7 @@ int MemTable::KeyComparator::operator()(
 }
 
 void MemTableRep::InsertConcurrently(KeyHandle /*handle*/) {
-#ifndef ROCKSDB_LITE
   throw std::runtime_error("concurrent insert not supported");
-#else
-  abort();
-#endif
 }
 
 Slice MemTableRep::UserKey(const char* key) const {
@@ -1067,18 +1063,22 @@ static bool SaveValue(void* arg, const char* entry) {
 
           if (s->value || s->columns) {
             std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), &v,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
                 s->clock, /* result_operand */ nullptr,
-                /* update_num_ops_stats */ true);
+                /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
 
             if (s->status->ok()) {
               if (s->value) {
                 *(s->value) = std::move(result);
               } else {
                 assert(s->columns);
-                s->columns->SetPlainValue(result);
+                s->columns->SetPlainValue(std::move(result));
               }
             }
           }
@@ -1130,21 +1130,29 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = WideColumnSerialization::GetValueOfDefaultColumn(
                 v, value_of_default);
             if (s->status->ok()) {
+              // `op_failure_scope` (an output parameter) is not provided (set
+              // to nullptr) since a failure must be propagated regardless of
+              // its value.
               *(s->status) = MergeHelper::TimedFullMerge(
                   merge_operator, s->key->user_key(), &value_of_default,
                   merge_context->GetOperands(), s->value, s->logger,
                   s->statistics, s->clock, /* result_operand */ nullptr,
-                  /* update_num_ops_stats */ true);
+                  /* update_num_ops_stats */ true,
+                  /* op_failure_scope */ nullptr);
             }
           } else if (s->columns) {
             std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
             *(s->status) = MergeHelper::TimedFullMergeWithEntity(
                 merge_operator, s->key->user_key(), v,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true);
+                s->clock, /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
 
             if (s->status->ok()) {
-              *(s->status) = s->columns->SetWideColumnValue(result);
+              *(s->status) = s->columns->SetWideColumnValue(std::move(result));
             }
           }
         } else if (s->value) {
@@ -1177,20 +1185,29 @@ static bool SaveValue(void* arg, const char* entry) {
         if (*(s->merge_in_progress)) {
           if (s->value || s->columns) {
             std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
                 s->clock, /* result_operand */ nullptr,
-                /* update_num_ops_stats */ true);
+                /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
 
             if (s->status->ok()) {
               if (s->value) {
                 *(s->value) = std::move(result);
               } else {
                 assert(s->columns);
-                s->columns->SetPlainValue(result);
+                s->columns->SetPlainValue(std::move(result));
               }
             }
+          } else {
+            // We have found a final value (a base deletion) and have newer
+            // merge operands that we do not intend to merge. Nothing remains
+            // to be done so assign status to OK.
+            *(s->status) = Status::OK();
           }
         } else {
           *(s->status) = Status::NotFound();
@@ -1217,18 +1234,22 @@ static bool SaveValue(void* arg, const char* entry) {
                                merge_context->GetOperandsDirectionBackward())) {
           if (s->value || s->columns) {
             std::string result;
+            // `op_failure_scope` (an output parameter) is not provided (set to
+            // nullptr) since a failure must be propagated regardless of its
+            // value.
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), &result, s->logger, s->statistics,
                 s->clock, /* result_operand */ nullptr,
-                /* update_num_ops_stats */ true);
+                /* update_num_ops_stats */ true,
+                /* op_failure_scope */ nullptr);
 
             if (s->status->ok()) {
               if (s->value) {
                 *(s->value) = std::move(result);
               } else {
                 assert(s->columns);
-                s->columns->SetPlainValue(result);
+                s->columns->SetPlainValue(std::move(result));
               }
             }
           }
@@ -1431,18 +1452,24 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     }
     SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
-                 callback, &iter->is_blob_index, iter->value->GetSelf(),
-                 /*columns=*/nullptr, iter->timestamp, iter->s,
-                 &(iter->merge_context), &dummy_seq, &found_final_value,
-                 &merge_in_progress);
+                 callback, &iter->is_blob_index,
+                 iter->value ? iter->value->GetSelf() : nullptr, iter->columns,
+                 iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
+                 &found_final_value, &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
       *(iter->s) = Status::MergeInProgress();
     }
 
     if (found_final_value) {
-      iter->value->PinSelf();
-      range->AddValueSize(iter->value->size());
+      if (iter->value) {
+        iter->value->PinSelf();
+        range->AddValueSize(iter->value->size());
+      } else {
+        assert(iter->columns);
+        range->AddValueSize(iter->columns->serialized_size());
+      }
+
       range->MarkKeyDone(iter);
       RecordTick(moptions_.statistics, MEMTABLE_HIT);
       if (range->GetValueSize() > read_options.value_size_soft_limit) {

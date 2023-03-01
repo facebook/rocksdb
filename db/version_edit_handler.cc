@@ -14,6 +14,7 @@
 
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_source.h"
+#include "db/version_edit.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
 
@@ -154,7 +155,7 @@ VersionEditHandler::VersionEditHandler(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
     VersionSet* version_set, bool track_missing_files,
     bool no_error_if_files_missing, const std::shared_ptr<IOTracer>& io_tracer,
-    bool skip_load_table_files)
+    bool skip_load_table_files, EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandlerBase(),
       read_only_(read_only),
       column_families_(std::move(column_families)),
@@ -163,7 +164,8 @@ VersionEditHandler::VersionEditHandler(
       no_error_if_files_missing_(no_error_if_files_missing),
       io_tracer_(io_tracer),
       skip_load_table_files_(skip_load_table_files),
-      initialized_(false) {
+      initialized_(false),
+      epoch_number_requirement_(epoch_number_requirement) {
   assert(version_set_ != nullptr);
 }
 
@@ -431,6 +433,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       }
     }
   }
+
   if (s->ok()) {
     for (auto* cfd : *(version_set_->column_family_set_)) {
       if (cfd->IsDropped()) {
@@ -528,7 +531,8 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
     auto* builder = builder_iter->second->version_builder();
     auto* v = new Version(cfd, version_set_, version_set_->file_options_,
                           *cfd->GetLatestMutableCFOptions(), io_tracer_,
-                          version_set_->current_version_number_++);
+                          version_set_->current_version_number_++,
+                          epoch_number_requirement_);
     s = builder->SaveTo(v->storage_info());
     if (s.ok()) {
       // Install new version
@@ -642,10 +646,12 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
 
 VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
-    VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer)
+    VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
+    EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_missing_files=*/true,
-                         /*no_error_if_files_missing=*/true, io_tracer) {}
+                         /*no_error_if_files_missing=*/true, io_tracer,
+                         epoch_number_requirement) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& elem : versions_) {
@@ -734,12 +740,13 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   assert(!cfd->ioptions()->cf_paths.empty());
   Status s;
   for (const auto& elem : edit.GetNewFiles()) {
+    int level = elem.first;
     const FileMetaData& meta = elem.second;
     const FileDescriptor& fd = meta.fd;
     uint64_t file_num = fd.GetNumber();
     const std::string fpath =
         MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_num);
-    s = VerifyFile(fpath, meta);
+    s = VerifyFile(cfd, fpath, level, meta);
     if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
       missing_files.insert(file_num);
       s = Status::OK();
@@ -803,7 +810,20 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
 
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
                                 *cfd->GetLatestMutableCFOptions(), io_tracer_,
-                                version_set_->current_version_number_++);
+                                version_set_->current_version_number_++,
+                                epoch_number_requirement_);
+    s = builder->LoadTableHandlers(
+        cfd->internal_stats(),
+        version_set_->db_options_->max_file_opening_threads, false, true,
+        cfd->GetLatestMutableCFOptions()->prefix_extractor,
+        MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
+    if (!s.ok()) {
+      delete version;
+      if (s.IsCorruption()) {
+        s = Status::OK();
+      }
+      return s;
+    }
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {
       version->PrepareAppend(
@@ -823,9 +843,11 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   return s;
 }
 
-Status VersionEditHandlerPointInTime::VerifyFile(const std::string& fpath,
+Status VersionEditHandlerPointInTime::VerifyFile(ColumnFamilyData* cfd,
+                                                 const std::string& fpath,
+                                                 int level,
                                                  const FileMetaData& fmeta) {
-  return version_set_->VerifyFileMetadata(fpath, fmeta);
+  return version_set_->VerifyFileMetadata(cfd, fpath, level, fmeta);
 }
 
 Status VersionEditHandlerPointInTime::VerifyBlobFile(
@@ -841,6 +863,12 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
   // TODO: verify checksum
   (void)blob_addition;
   return s;
+}
+
+Status VersionEditHandlerPointInTime::LoadTables(
+    ColumnFamilyData* /*cfd*/, bool /*prefetch_index_and_filter_in_cache*/,
+    bool /*is_initial_load*/) {
+  return Status::OK();
 }
 
 Status ManifestTailer::Initialize() {
@@ -930,9 +958,11 @@ void ManifestTailer::CheckIterationResult(const log::Reader& reader,
   }
 }
 
-Status ManifestTailer::VerifyFile(const std::string& fpath,
+Status ManifestTailer::VerifyFile(ColumnFamilyData* cfd,
+                                  const std::string& fpath, int level,
                                   const FileMetaData& fmeta) {
-  Status s = VersionEditHandlerPointInTime::VerifyFile(fpath, fmeta);
+  Status s =
+      VersionEditHandlerPointInTime::VerifyFile(cfd, fpath, level, fmeta);
   // TODO: Open file or create hard link to prevent the file from being
   // deleted.
   return s;

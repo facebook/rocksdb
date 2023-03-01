@@ -56,13 +56,12 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
   }
 }
 
-Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
-                                   const Slice& key, const Slice* value,
-                                   const std::vector<Slice>& operands,
-                                   std::string* result, Logger* logger,
-                                   Statistics* statistics, SystemClock* clock,
-                                   Slice* result_operand,
-                                   bool update_num_ops_stats) {
+Status MergeHelper::TimedFullMerge(
+    const MergeOperator* merge_operator, const Slice& key, const Slice* value,
+    const std::vector<Slice>& operands, std::string* result, Logger* logger,
+    Statistics* statistics, SystemClock* clock, Slice* result_operand,
+    bool update_num_ops_stats,
+    MergeOperator::OpFailureScope* op_failure_scope) {
   assert(merge_operator != nullptr);
 
   if (operands.empty()) {
@@ -104,9 +103,17 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                statistics ? timer.ElapsedNanos() : 0);
   }
 
+  if (op_failure_scope != nullptr) {
+    *op_failure_scope = merge_out.op_failure_scope;
+    // Apply default per merge_operator.h
+    if (*op_failure_scope == MergeOperator::OpFailureScope::kDefault) {
+      *op_failure_scope = MergeOperator::OpFailureScope::kTryMerge;
+    }
+  }
+
   if (!success) {
     RecordTick(statistics, NUMBER_MERGE_FAILURES);
-    return Status::Corruption("Error: Could not perform merge.");
+    return Status::Corruption(Status::SubCode::kMergeOperatorFailed);
   }
 
   return Status::OK();
@@ -115,7 +122,8 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
 Status MergeHelper::TimedFullMergeWithEntity(
     const MergeOperator* merge_operator, const Slice& key, Slice base_entity,
     const std::vector<Slice>& operands, std::string* result, Logger* logger,
-    Statistics* statistics, SystemClock* clock, bool update_num_ops_stats) {
+    Statistics* statistics, SystemClock* clock, bool update_num_ops_stats,
+    MergeOperator::OpFailureScope* op_failure_scope) {
   WideColumns base_columns;
 
   {
@@ -137,11 +145,10 @@ Status MergeHelper::TimedFullMergeWithEntity(
   std::string merge_result;
 
   {
-    constexpr Slice* result_operand = nullptr;
-
-    const Status s = TimedFullMerge(
-        merge_operator, key, &value_of_default, operands, &merge_result, logger,
-        statistics, clock, result_operand, update_num_ops_stats);
+    const Status s = TimedFullMerge(merge_operator, key, &value_of_default,
+                                    operands, &merge_result, logger, statistics,
+                                    clock, nullptr /* result_operand */,
+                                    update_num_ops_stats, op_failure_scope);
     if (!s.ok()) {
       return s;
     }
@@ -224,6 +231,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       s = Status::ShutdownInProgress();
       return s;
     }
+    // Skip range tombstones emitted by the compaction iterator.
+    if (iter->IsDeleteRangeSentinelKey()) {
+      continue;
+    }
 
     ParsedInternalKey ikey;
     assert(keys_.size() == merge_context_.GetNumOperands());
@@ -286,11 +297,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         return s;
       }
 
-      // TODO(noetzli) If the merge operator returns false, we are currently
-      // (almost) silently dropping the put/delete. That's probably not what we
-      // want. Also if we're in compaction and it's a put, it would be nice to
-      // run compaction filter on it.
+      // TODO: if we're in compaction and it's a put, it would be nice to run
+      // compaction filter on it.
       std::string merge_result;
+      MergeOperator::OpFailureScope op_failure_scope;
 
       if (range_del_agg &&
           range_del_agg->ShouldDelete(
@@ -299,7 +309,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                            merge_context_.GetOperands(), &merge_result, logger_,
                            stats_, clock_,
                            /* result_operand */ nullptr,
-                           /* update_num_ops_stats */ false);
+                           /* update_num_ops_stats */ false, &op_failure_scope);
       } else if (ikey.type == kTypeValue) {
         const Slice val = iter->value();
 
@@ -307,7 +317,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                            merge_context_.GetOperands(), &merge_result, logger_,
                            stats_, clock_,
                            /* result_operand */ nullptr,
-                           /* update_num_ops_stats */ false);
+                           /* update_num_ops_stats */ false, &op_failure_scope);
       } else if (ikey.type == kTypeBlobIndex) {
         BlobIndex blob_index;
 
@@ -341,18 +351,18 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                            merge_context_.GetOperands(), &merge_result, logger_,
                            stats_, clock_,
                            /* result_operand */ nullptr,
-                           /* update_num_ops_stats */ false);
+                           /* update_num_ops_stats */ false, &op_failure_scope);
       } else if (ikey.type == kTypeWideColumnEntity) {
         s = TimedFullMergeWithEntity(
             user_merge_operator_, ikey.user_key, iter->value(),
             merge_context_.GetOperands(), &merge_result, logger_, stats_,
-            clock_, /* update_num_ops_stats */ false);
+            clock_, /* update_num_ops_stats */ false, &op_failure_scope);
       } else {
         s = TimedFullMerge(user_merge_operator_, ikey.user_key, nullptr,
                            merge_context_.GetOperands(), &merge_result, logger_,
                            stats_, clock_,
                            /* result_operand */ nullptr,
-                           /* update_num_ops_stats */ false);
+                           /* update_num_ops_stats */ false, &op_failure_scope);
       }
 
       // We store the result in keys_.back() and operands_.back()
@@ -368,10 +378,16 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         merge_context_.Clear();
         keys_.emplace_front(std::move(original_key));
         merge_context_.PushOperand(merge_result);
-      }
 
-      // move iter to the next entry
-      iter->Next();
+        // move iter to the next entry
+        iter->Next();
+      } else if (op_failure_scope ==
+                 MergeOperator::OpFailureScope::kMustMerge) {
+        // Change to `Status::MergeInProgress()` to denote output consists of
+        // merge operands only. Leave `iter` at the non-merge entry so it will
+        // be output after.
+        s = Status::MergeInProgress();
+      }
       return s;
     } else {
       // hit a merge
@@ -482,10 +498,12 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     assert(merge_context_.GetNumOperands() >= 1);
     assert(merge_context_.GetNumOperands() == keys_.size());
     std::string merge_result;
-    s = TimedFullMerge(
-        user_merge_operator_, orig_ikey.user_key, nullptr,
-        merge_context_.GetOperands(), &merge_result, logger_, stats_, clock_,
-        /* result_operand */ nullptr, /* update_num_ops_stats */ false);
+    MergeOperator::OpFailureScope op_failure_scope;
+    s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, nullptr,
+                       merge_context_.GetOperands(), &merge_result, logger_,
+                       stats_, clock_,
+                       /* result_operand */ nullptr,
+                       /* update_num_ops_stats */ false, &op_failure_scope);
     if (s.ok()) {
       // The original key encountered
       // We are certain that keys_ is not empty here (see assertions couple of
@@ -497,6 +515,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       merge_context_.Clear();
       keys_.emplace_front(std::move(original_key));
       merge_context_.PushOperand(merge_result);
+    } else if (op_failure_scope == MergeOperator::OpFailureScope::kMustMerge) {
+      // Change to `Status::MergeInProgress()` to denote output consists of
+      // merge operands only.
+      s = Status::MergeInProgress();
     }
   } else {
     // We haven't seen the beginning of the key nor a Put/Delete.
@@ -560,14 +582,15 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
   }
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
-  auto ret = compaction_filter_->FilterV2(
-      level_, user_key, CompactionFilter::ValueType::kMergeOperand, value_slice,
-      &compaction_filter_value_, compaction_filter_skip_until_.rep());
+  auto ret = compaction_filter_->FilterV3(
+      level_, user_key, CompactionFilter::ValueType::kMergeOperand,
+      &value_slice, /* existing_columns */ nullptr, &compaction_filter_value_,
+      /* new_columns */ nullptr, compaction_filter_skip_until_.rep());
   if (ret == CompactionFilter::Decision::kRemoveAndSkipUntil) {
     if (user_comparator_->Compare(*compaction_filter_skip_until_.rep(),
                                   user_key) <= 0) {
       // Invalid skip_until returned from compaction filter.
-      // Keep the key as per FilterV2 documentation.
+      // Keep the key as per FilterV2/FilterV3 documentation.
       ret = CompactionFilter::Decision::kKeep;
     } else {
       compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,

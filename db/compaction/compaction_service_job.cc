@@ -16,7 +16,6 @@
 #include "options/options_helper.h"
 #include "rocksdb/utilities/options_type.h"
 
-#ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {
 class SubcompactionState;
 
@@ -190,6 +189,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.largest.DecodeFrom(file.largest_internal_key);
     meta.oldest_ancester_time = file.oldest_ancester_time;
     meta.file_creation_time = file.file_creation_time;
+    meta.epoch_number = file.epoch_number;
     meta.marked_for_compaction = file.marked_for_compaction;
     meta.unique_id = file.unique_id;
 
@@ -333,8 +333,9 @@ Status CompactionServiceCompactionJob::Run() {
         MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
         meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
         meta.largest.Encode().ToString(), meta.oldest_ancester_time,
-        meta.file_creation_time, output_file.validator.GetHash(),
-        meta.marked_for_compaction, meta.unique_id);
+        meta.file_creation_time, meta.epoch_number,
+        output_file.validator.GetHash(), meta.marked_for_compaction,
+        meta.unique_id);
   }
   InternalStats::CompactionStatsFull compaction_stats;
   sub_compact->AggregateCompactionStats(compaction_stats);
@@ -487,6 +488,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"file_creation_time",
          {offsetof(struct CompactionServiceOutputFile, file_creation_time),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"epoch_number",
+         {offsetof(struct CompactionServiceOutputFile, epoch_number),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"paranoid_hash",
@@ -826,4 +831,3 @@ bool CompactionServiceInput::TEST_Equals(CompactionServiceInput* other,
 #endif  // NDEBUG
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

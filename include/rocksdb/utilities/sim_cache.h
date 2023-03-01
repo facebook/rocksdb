@@ -10,7 +10,7 @@
 #include <memory>
 #include <string>
 
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
@@ -42,13 +42,10 @@ extern std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> sim_cache,
                                              std::shared_ptr<Cache> cache,
                                              int num_shard_bits);
 
-class SimCache : public Cache {
+// An abstract base class (public interface) to the SimCache implementation
+class SimCache : public CacheWrapper {
  public:
-  SimCache() {}
-
-  ~SimCache() override {}
-
-  const char* Name() const override { return "SimCache"; }
+  using CacheWrapper::CacheWrapper;
 
   // returns the maximum configured capacity of the simcache for simulation
   virtual size_t GetSimCapacity() const = 0;
