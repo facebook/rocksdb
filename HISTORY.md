@@ -4,7 +4,7 @@
 * Compaction output file cutting logic now considers range tombstone start keys. For example, SST partitioner now may receive ParitionRequest for range tombstone start keys.
 
 ### Bug Fixes
-* Fixed an issue for backward iteration when `ReadOptions::iter_start_ts` is specified in combination with BlobDB.
+* Fixed an issue for backward iteration when user defined timestamp is enabled in combination with BlobDB.
 
 ### New Features
 * Add statistics rocksdb.secondary.cache.filter.hits, rocksdb.secondary.cache.index.hits, and rocksdb.secondary.cache.filter.hits
