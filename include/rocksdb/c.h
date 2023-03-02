@@ -599,13 +599,14 @@ extern ROCKSDB_LIBRARY_API void rocksdb_release_snapshot(
 extern ROCKSDB_LIBRARY_API char* rocksdb_property_value(rocksdb_t* db,
                                                         const char* propname);
 /* returns 0 on success, -1 otherwise */
-int rocksdb_property_int(rocksdb_t* db, const char* propname,
-                         uint64_t* out_val);
+extern ROCKSDB_LIBRARY_API int rocksdb_property_int(rocksdb_t* db,
+                                                    const char* propname,
+                                                    uint64_t* out_val);
 
 /* returns 0 on success, -1 otherwise */
-int rocksdb_property_int_cf(rocksdb_t* db,
-                            rocksdb_column_family_handle_t* column_family,
-                            const char* propname, uint64_t* out_val);
+extern ROCKSDB_LIBRARY_API int rocksdb_property_int_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    const char* propname, uint64_t* out_val);
 
 extern ROCKSDB_LIBRARY_API char* rocksdb_property_value_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* column_family,

@@ -415,6 +415,11 @@ enum Tickers : uint32_t {
   // Number of errors returned to the async read callback
   ASYNC_READ_ERROR_COUNT,
 
+  // Fine grained secondary cache stats
+  SECONDARY_CACHE_FILTER_HITS,
+  SECONDARY_CACHE_INDEX_HITS,
+  SECONDARY_CACHE_DATA_HITS,
+
   TICKER_ENUM_MAX
 };
 

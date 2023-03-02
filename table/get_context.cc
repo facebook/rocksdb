@@ -489,7 +489,7 @@ void GetContext::Merge(const Slice* value) {
   }
 
   assert(columns_);
-  columns_->SetPlainValue(result);
+  columns_->SetPlainValue(std::move(result));
 }
 
 void GetContext::MergeWithEntity(Slice entity) {
@@ -552,7 +552,7 @@ void GetContext::MergeWithEntity(Slice entity) {
 
   {
     assert(columns_);
-    const Status s = columns_->SetWideColumnValue(result);
+    const Status s = columns_->SetWideColumnValue(std::move(result));
     if (!s.ok()) {
       state_ = kCorrupt;
       return;

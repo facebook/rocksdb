@@ -1212,6 +1212,73 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   secondary_cache.reset();
 }
 
+TEST_F(LRUCacheSecondaryCacheTest, StatsTest) {
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
+  std::shared_ptr<TestSecondaryCache> secondary_cache =
+      std::make_shared<TestSecondaryCache>(4096);
+  opts.secondary_cache = secondary_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k3 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  Cache::CacheItemHelper filter_helper = helper_;
+  Cache::CacheItemHelper index_helper = helper_;
+  Cache::CacheItemHelper data_helper = helper_;
+  filter_helper.role = CacheEntryRole::kFilterBlock;
+  index_helper.role = CacheEntryRole::kIndexBlock;
+  data_helper.role = CacheEntryRole::kDataBlock;
+
+  Random rnd(301);
+  // Start with warming secondary cache
+  std::string str1 = rnd.RandomString(1020);
+  std::string str2 = rnd.RandomString(1020);
+  std::string str3 = rnd.RandomString(1020);
+  ASSERT_OK(secondary_cache->InsertSaved(k1.AsSlice(), str1));
+  ASSERT_OK(secondary_cache->InsertSaved(k2.AsSlice(), str2));
+  ASSERT_OK(secondary_cache->InsertSaved(k3.AsSlice(), str3));
+
+  get_perf_context()->Reset();
+  Cache::Handle* handle;
+  handle =
+      cache->Lookup(k1.AsSlice(), &filter_helper,
+                    /*context*/ this, Cache::Priority::LOW, true, stats.get());
+  ASSERT_NE(handle, nullptr);
+  ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str1.size());
+  cache->Release(handle);
+
+  handle =
+      cache->Lookup(k2.AsSlice(), &index_helper,
+                    /*context*/ this, Cache::Priority::LOW, true, stats.get());
+  ASSERT_NE(handle, nullptr);
+  ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str2.size());
+  cache->Release(handle);
+
+  handle =
+      cache->Lookup(k3.AsSlice(), &data_helper,
+                    /*context*/ this, Cache::Priority::LOW, true, stats.get());
+  ASSERT_NE(handle, nullptr);
+  ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str3.size());
+  cache->Release(handle);
+
+  ASSERT_EQ(secondary_cache->num_inserts(), 3u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 3u);
+  ASSERT_EQ(stats->getTickerCount(SECONDARY_CACHE_HITS),
+            secondary_cache->num_lookups());
+  ASSERT_EQ(stats->getTickerCount(SECONDARY_CACHE_FILTER_HITS), 1);
+  ASSERT_EQ(stats->getTickerCount(SECONDARY_CACHE_INDEX_HITS), 1);
+  ASSERT_EQ(stats->getTickerCount(SECONDARY_CACHE_DATA_HITS), 1);
+  PerfContext perf_ctx = *get_perf_context();
+  ASSERT_EQ(perf_ctx.secondary_cache_hit_count, secondary_cache->num_lookups());
+
+  cache.reset();
+  secondary_cache.reset();
+}
+
 TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
   LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
                        false /* strict_capacity_limit */,

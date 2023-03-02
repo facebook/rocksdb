@@ -2901,9 +2901,7 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
   read_opts.timestamp = &ts_slice;
 
   // TODO (yanqin): support Merge with iter_start_ts
-  // TODO (yuzhangyu): support BlobDB with iter_start_ts
-  if (!thread->rand.OneInOpt(3) || FLAGS_use_merge || FLAGS_use_full_merge_v1 ||
-      FLAGS_enable_blob_files) {
+  if (!thread->rand.OneInOpt(3) || FLAGS_use_merge || FLAGS_use_full_merge_v1) {
     return;
   }
 
