@@ -12,6 +12,8 @@ import static org.rocksdb.util.MergeEncodings.encodeVarint;
 
 import org.junit.Test;
 
+import java.util.Arrays;
+
 public class MergeEncodingsTest {
   @Test
   public void testZigzagEncoding() {
@@ -31,17 +33,22 @@ public class MergeEncodingsTest {
   public void testVarintEncoding() {
     byte[] bytes = encodeVarint(127);
     assertThat(bytes[0]).isEqualTo((byte) 127);
+    assertThat(bytes.length).isEqualTo(1);
     bytes = encodeVarint(128);
-    assertThat(bytes[0]).isEqualTo((byte) -128);
-    assertThat(bytes[1]).isEqualTo((byte) 1);
-    bytes = encodeVarint(129);
-    assertThat(bytes[0]).isEqualTo((byte) -127);
-    assertThat(bytes[1]).isEqualTo((byte) 1);
+    assertThat(bytes[0]).isEqualTo((byte) 128);
+    assertThat(bytes.length).isEqualTo(1);
+    bytes = encodeVarint(255);
+    assertThat(bytes[0]).isEqualTo((byte) 255);
+    assertThat(bytes.length).isEqualTo(1);
 
     bytes = new byte[2];
-    bytes[0] = -128;
+    bytes[0] = 127;
     bytes[1] = 1;
-    assertThat(decodeVarint(bytes)).isEqualTo(128);
+    assertThat(decodeVarint(bytes)).isEqualTo(383);
+    bytes[0] = -128;
+    assertThat(decodeVarint(bytes)).isEqualTo(384);
+    bytes[0] = -127;
+    assertThat(decodeVarint(bytes)).isEqualTo(385);
 
     assertThat(decodeVarint(encodeVarint(127))).isEqualTo(127);
     assertThat(decodeVarint(encodeVarint(128))).isEqualTo(128);
@@ -51,6 +58,28 @@ public class MergeEncodingsTest {
     assertThat(decodeVarint(encodeVarint(0))).isEqualTo(0);
     assertThat(decodeVarint(encodeVarint(1))).isEqualTo(1);
     assertThat(decodeVarint(encodeVarint(Long.MAX_VALUE))).isEqualTo(Long.MAX_VALUE);
+
+    assertThatThrownBy(() -> decodeVarint(encodeVarint(-65536)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Varint encoding cannot be applied to negative values");
+  }
+
+  /**
+   * Explicit check that we can read back fixed encodings correctly.
+   */
+  @Test
+  public void testVarintEncodingFromFixed() {
+
+    final byte[] bytes = new byte[Long.BYTES];
+    Arrays.fill(bytes, (byte) 0);
+    bytes[0] = 127;
+    bytes[1] = 1;
+    assertThat(decodeVarint(bytes)).isEqualTo(383);
+    bytes[0] = -128;
+    assertThat(decodeVarint(bytes)).isEqualTo(384);
+    bytes[0] = -127;
+    assertThat(decodeVarint(bytes)).isEqualTo(385);
+
   }
 
   @Test
