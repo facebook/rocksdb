@@ -194,6 +194,34 @@ inline void PutVarsignedint64(std::string* dst, int64_t v) {
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 
+/**
+ * @brief encode an unsigned int using 8 bits of every byte
+ *
+ * Efficient use of all 8 bits of as many bytes as necessary
+ * because the length of the encoding is known independently,
+ * e.g. as the length of the "value" in a (key,value)-pair
+ * 0..255 are the "obvious" single byte strings
+ * 256..65535 are
+ *
+ * @param dst buffer to encode into
+ * @param v value to encode
+ * @return char* holding the result
+ */
+inline void Encode8BitVarint64(std::string* dst, uint64_t v) {
+  static const unsigned int B = 0x100;
+  while (v >= B) {
+    unsigned char byte = v & B - 1;
+    dst->push_back(byte);
+    v >>= 8;
+  }
+  dst->push_back(static_cast<unsigned char>(v));
+}
+
+inline void Put8BitVarsignedint64(std::string* dst, int64_t v) {
+  // Using Zigzag format to convert signed to unsigned
+  Encode8BitVarint64(dst, i64ToZigzag(v));
+}
+
 inline void PutVarint64Varint64(std::string* dst, uint64_t v1, uint64_t v2) {
   char buf[20];
   char* ptr = EncodeVarint64(buf, v1);
@@ -251,6 +279,10 @@ inline int VarintLength(uint64_t v) {
     len++;
   }
   return len;
+}
+
+inline void Put8BitVarint64(std::string* dst, uint64_t v) {
+  Encode8BitVarint64(dst, v);
 }
 
 inline bool GetFixed64(Slice* input, uint64_t* value) {
@@ -314,6 +346,21 @@ inline bool GetVarsignedint64(Slice* input, int64_t* value) {
     *input = Slice(q, static_cast<size_t>(limit - q));
     return true;
   }
+}
+
+inline int64_t Get8BitVarunsignedint64(Slice* input) {
+  const char* start = input->data();
+  const char* p = start + input->size();
+  uint64_t u = 0;
+  while (start < p) {
+    uint64_t byte = *(reinterpret_cast<const unsigned char*>(--p));
+    u = (u << 8) | byte;
+  }
+  return u;
+}
+
+inline int64_t Get8BitVarsignedint64(Slice* input) {
+  return zigzagToI64(Get8BitVarunsignedint64(input));
 }
 
 inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
