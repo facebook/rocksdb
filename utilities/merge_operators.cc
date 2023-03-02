@@ -12,13 +12,13 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/int64add/int64_add.h"
 #include "utilities/merge_operators/max_operator.h"
 #include "utilities/merge_operators/put_operator.h"
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 #include "utilities/merge_operators/uint64add.h"
-#include "utilities/merge_operators/int64add/int64_add.h"
 
 namespace ROCKSDB_NAMESPACE {
 
