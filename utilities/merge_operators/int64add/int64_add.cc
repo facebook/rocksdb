@@ -39,8 +39,8 @@ bool Int64AddOperator::Merge(const Slice&, const Slice* existing_value,
   return true;
 }
 
-  std::shared_ptr<MergeOperator> MergeOperators::CreateInt64AddOperator() {
-    return std::make_shared<Int64AddOperator>();
-  }
+std::shared_ptr<MergeOperator> MergeOperators::CreateInt64AddOperator() {
+  return std::make_shared<Int64AddOperator>();
+}
 
-}; // namespace ROCKSDB_NAMESPACE
+};  // namespace ROCKSDB_NAMESPACE
