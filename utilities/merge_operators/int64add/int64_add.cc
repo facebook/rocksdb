@@ -19,35 +19,25 @@ namespace ROCKSDB_NAMESPACE {
 // A 'model' merge operator with int64 addition semantics
 // operands and database value should be variable length encoded
 // int64_t values, as encoded/decoded by `util/coding.h`.
-  bool Int64AddOperator::Merge(const Slice&, const Slice* existing_value, const Slice& value,
-             std::string* new_value, Logger* logger) const {
-    int64_t orig_value = 0;
-    if (existing_value) {
-      Slice ev(*existing_value);
-      if (!GetVarsignedint64(&ev, &orig_value)) {
-        ROCKS_LOG_ERROR(logger,
-                        "int64 value corruption, size: %" ROCKSDB_PRIszt,
-                        existing_value->size());
-        return false;
-      }
-    }
-
-    int64_t operand = 0;
-    Slice v(value);
-    if (!ROCKSDB_NAMESPACE::GetVarsignedint64(&v, &operand)) {
-      ROCKS_LOG_ERROR(logger,
-                      "int64 operand corruption, size: %" ROCKSDB_PRIszt,
-                      value.size());
-      return false;
-    }
-
-    assert(new_value);
-    new_value->clear();
-    const int64_t new_number = orig_value + operand;
-    ROCKSDB_NAMESPACE::PutVarsignedint64(new_value, new_number);
-
-    return true;
+bool Int64AddOperator::Merge(const Slice&, const Slice* existing_value,
+                             const Slice& value, std::string* new_value,
+                             Logger* /*logger*/) const {
+  int64_t orig_value = 0;
+  if (existing_value) {
+    Slice ev(*existing_value);
+    orig_value = Get8BitVarsignedint64(&ev);
   }
+
+  Slice v(value);
+  int64_t operand = Get8BitVarsignedint64(&v);
+
+  assert(new_value);
+  new_value->clear();
+  const int64_t new_number = orig_value + operand;
+  ROCKSDB_NAMESPACE::Put8BitVarsignedint64(new_value, new_number);
+
+  return true;
+}
 
   std::shared_ptr<MergeOperator> MergeOperators::CreateInt64AddOperator() {
     return std::make_shared<Int64AddOperator>();
