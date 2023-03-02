@@ -8,11 +8,9 @@ package org.rocksdb.util;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.rocksdb.util.MergeEncodings.*;
-import static org.rocksdb.util.MergeEncodings.encodeVarint;
-
-import org.junit.Test;
 
 import java.util.Arrays;
+import org.junit.Test;
 
 public class MergeEncodingsTest {
   @Test
@@ -69,7 +67,6 @@ public class MergeEncodingsTest {
    */
   @Test
   public void testVarintEncodingFromFixed() {
-
     final byte[] bytes = new byte[Long.BYTES];
     Arrays.fill(bytes, (byte) 0);
     bytes[0] = 127;
@@ -79,7 +76,6 @@ public class MergeEncodingsTest {
     assertThat(decodeVarint(bytes)).isEqualTo(384);
     bytes[0] = -127;
     assertThat(decodeVarint(bytes)).isEqualTo(385);
-
   }
 
   @Test
