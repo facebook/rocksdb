@@ -7,6 +7,7 @@ package org.rocksdb.util;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 
 /**
  * Java implementations of merge encodings for merge operators including {@link
@@ -46,40 +47,56 @@ public class MergeEncodings {
     return (value >= 0) ? twice : -twice - 1;
   }
 
-  public static int encodingSizeVarint(long value) {
-    int bytes = 0;
-    while (value >= 128) {
-      value = value >>> 7;
-      bytes++;
-    }
-    return bytes + 1;
-  }
-
+  /**
+   * Create a variable length encoding of an unsigned integer
+   * The encoding is little-endian (least significant byte first)
+   * and each byte encodes a full 8 bits of the supplied {@code value}
+   *
+   * This is possible because the length of the {@code byte[]} is known/stored elsewhere,
+   * such as in the value length of a {@code (key,value)}-pair, so we always know how many
+   * bytes to decode.
+   *
+   * @param value to encode as a sequence of bytes
+   * @return a byte array encoding the value, and which is just exactly as long as necessary
+   *
+   * @throws IllegalArgumentException when the input value is negative
+   */
   public static byte[] encodeVarint(long value) {
     if (value < 0) {
       throw new IllegalArgumentException(
           "Varint encoding cannot be applied to negative values, value is " + value);
     }
-    final byte[] bytes = new byte[encodingSizeVarint(value)];
+    final byte[] bytes = new byte[Long.BYTES];
     int i = 0;
-    while (value >= 128) {
-      bytes[i++] = (byte) (128 | (value & 127));
-      value = value >>> 7;
+
+    while (value >= 256) {
+      bytes[i++] = (byte) (256 | (value & 255));
+      value = value >>> 8;
     }
     bytes[i] = (byte) value;
 
-    return bytes;
+    return Arrays.copyOfRange(bytes, 0, i + 1);
   }
 
+  /**
+   * Decode a variable length encoding of an unsigned integer
+   * The encoding is little-endian (least significant byte first)
+   * and each byte encodes a full 8 bits of the supplied {@code value}
+   *
+   * This is possible because the length of {@code byte[] bytes} is known/stored elsewhere,
+   * such as in the value length of a {@code (key,value)}-pair, so we always know how many
+   * bytes to decode.
+   *
+   * @param bytes which encode the value as a sequence of bytes
+   * @return the value decoded from {@code bytes}
+   */
   public static long decodeVarint(final byte[] bytes) {
-    int i = 0;
     int shift = 0;
     long acc = 0;
-    while (bytes[i] < 0) { // continuation bit reads as -ve 2s complement
-      acc |= (long) (bytes[i++] & 127) << shift;
-      shift += 7;
+    for (final byte b : bytes) {
+      acc |= (long) (b & 255) << shift;
+      shift += 8;
     }
-    acc |= (long) (bytes[i++]) << shift;
 
     return acc;
   }

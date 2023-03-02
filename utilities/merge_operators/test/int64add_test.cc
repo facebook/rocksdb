@@ -59,6 +59,12 @@ class NonEmptyDbTest
   NonEmptyDbTest() : Int64AddMergeOperatorTest() {}
 };
 
+class EncodeDecodeTest : public Int64AddMergeOperatorTest,
+                         public testing::WithParamInterface<int64_t> {
+ public:
+  EncodeDecodeTest() : Int64AddMergeOperatorTest() {}
+};
+
 TEST_P(EmptyDbTest, MergeEmptyDb) {
   const int64_t merge_num = GetParam();
 
@@ -66,7 +72,7 @@ TEST_P(EmptyDbTest, MergeEmptyDb) {
 
   ASSERT_OK(OpenDB());
 
-  PutVarsignedint64(&value, merge_num);
+  Put8BitVarsignedint64(&value, merge_num);
   Status s =
       db_->Merge(write_opts_, "key", value);  // Merging merge_num under key
   ASSERT_OK(s);
@@ -76,10 +82,8 @@ TEST_P(EmptyDbTest, MergeEmptyDb) {
   s = db_->Get(read_opts_, "key", &value);
   ASSERT_OK(s);
   Slice read_slice(value);
-  int64_t read_value = 0;
-  const bool read_ok = GetVarsignedint64(&read_slice, &read_value);
+  int64_t read_value = Get8BitVarsignedint64(&read_slice);
 
-  ASSERT_TRUE(read_ok);
   const int64_t expected = 0 + merge_num;
   ASSERT_EQ(read_value,
             expected);  // Merge operators should have been applied on empty db,
@@ -98,7 +102,7 @@ TEST_P(EmptyDbTest, MergeEmptyDbCf) {
   Status s = db_->CreateColumnFamily(cf_opts, "cf1", &cf1);
   ASSERT_OK(s);
 
-  PutVarsignedint64(&value, merge_num);
+  Put8BitVarsignedint64(&value, merge_num);
   s = db_->Merge(write_opts_, cf1, "key",
                  value);  // Merging merge_num under key
   ASSERT_OK(s);
@@ -108,13 +112,11 @@ TEST_P(EmptyDbTest, MergeEmptyDbCf) {
   s = db_->Get(read_opts_, cf1, "key", &value);
   ASSERT_OK(s);
   Slice read_slice(value);
-  int64_t read_value = 0;
-  const bool read_ok = GetVarsignedint64(&read_slice, &read_value);
+  int64_t read_value = Get8BitVarsignedint64(&read_slice);
 
   ASSERT_OK(db_->DropColumnFamily(cf1));
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cf1));
 
-  ASSERT_TRUE(read_ok);
   const int64_t expected = 0 + merge_num;
   ASSERT_EQ(read_value,
             expected);  // Merge operators should have been applied on empty db,
@@ -129,14 +131,14 @@ TEST_P(NonEmptyDbTest, MergeNonEmptyDb) {
 
   ASSERT_OK(OpenDB());
 
-  PutVarsignedint64(&value, initial_db_num);
+  Put8BitVarsignedint64(&value, initial_db_num);
   Status s =
       db_->Put(write_opts_, "key", value);  // Put initial_db_num under key
   ASSERT_OK(s);
 
   value.clear();
 
-  PutVarsignedint64(&value, merge_num);
+  Put8BitVarsignedint64(&value, merge_num);
   s = db_->Merge(write_opts_, "key", value);  // Merging merge_num under key
   ASSERT_OK(s);
 
@@ -145,10 +147,8 @@ TEST_P(NonEmptyDbTest, MergeNonEmptyDb) {
   s = db_->Get(read_opts_, "key", &value);
   ASSERT_OK(s);
   Slice read_slice(value);
-  int64_t read_value = 0;
-  const bool read_ok = GetVarsignedint64(&read_slice, &read_value);
+  int64_t read_value = Get8BitVarsignedint64(&read_slice);
 
-  ASSERT_TRUE(read_ok);
   const int64_t expected = initial_db_num + merge_num;
   ASSERT_EQ(read_value,
             expected);  // Merge operators should have been applied on non-empty
@@ -167,13 +167,13 @@ TEST_P(NonEmptyDbTest, MergeNonEmptyDbCf) {
   ColumnFamilyHandle* cf1;
   Status s = db_->CreateColumnFamily(cf_opts, "cf1", &cf1);
 
-  PutVarsignedint64(&value, initial_db_num);
+  Put8BitVarsignedint64(&value, initial_db_num);
   s = db_->Put(write_opts_, cf1, "key", value);  // Put initial_db_num under key
   ASSERT_OK(s);
 
   value.clear();
 
-  PutVarsignedint64(&value, merge_num);
+  Put8BitVarsignedint64(&value, merge_num);
   s = db_->Merge(write_opts_, cf1, "key",
                  value);  // Merging merge_num under key
   ASSERT_OK(s);
@@ -183,17 +183,25 @@ TEST_P(NonEmptyDbTest, MergeNonEmptyDbCf) {
   s = db_->Get(read_opts_, cf1, "key", &value);
   ASSERT_OK(s);
   Slice read_slice(value);
-  int64_t read_value = 0;
-  const bool read_ok = GetVarsignedint64(&read_slice, &read_value);
+  int64_t read_value = Get8BitVarsignedint64(&read_slice);
 
   ASSERT_OK(db_->DropColumnFamily(cf1));
   ASSERT_OK(db_->DestroyColumnFamilyHandle(cf1));
 
-  ASSERT_TRUE(read_ok);
   const int64_t expected = initial_db_num + merge_num;
   ASSERT_EQ(read_value,
             expected);  // Merge operators should have been applied on non-empty
                         // db, and then merge added merge_num.
+}
+
+TEST_P(EncodeDecodeTest, EncodeDecode) {
+  std::string value;
+  const int64_t num = GetParam();
+
+  Put8BitVarsignedint64(&value, num);
+  Slice read_slice(value);
+  int64_t read_value = Get8BitVarsignedint64(&read_slice);
+  ASSERT_EQ(read_value, num);
 }
 
 TEST_F(Int64AddMergeOperatorTest, MergeMultipleValues) {
@@ -201,22 +209,22 @@ TEST_F(Int64AddMergeOperatorTest, MergeMultipleValues) {
 
   ASSERT_OK(OpenDB());
 
-  PutVarsignedint64(&value, 123);
+  Put8BitVarsignedint64(&value, 123);
   Status s = db_->Merge(write_opts_, "key", value);  // Merging 123 under key
   ASSERT_OK(s);
   value.clear();
 
-  PutVarsignedint64(&value, -1234);
+  Put8BitVarsignedint64(&value, -1234);
   s = db_->Merge(write_opts_, "key", value);  // Merging -1234 under key
   ASSERT_OK(s);
   value.clear();
 
-  PutVarsignedint64(&value, 99);
+  Put8BitVarsignedint64(&value, 99);
   s = db_->Merge(write_opts_, "key", value);  // Merging 99 under key
   ASSERT_OK(s);
   value.clear();
 
-  PutVarsignedint64(&value, -101);
+  Put8BitVarsignedint64(&value, -101);
   s = db_->Merge(write_opts_, "key", value);  // Merging -101 under key
   ASSERT_OK(s);
   value.clear();
@@ -224,16 +232,20 @@ TEST_F(Int64AddMergeOperatorTest, MergeMultipleValues) {
   s = db_->Get(read_opts_, "key", &value);
   ASSERT_OK(s);
   Slice read_slice(value);
-  int64_t read_value = 0;
-  const bool read_ok = GetVarsignedint64(&read_slice, &read_value);
+  int64_t read_value = Get8BitVarsignedint64(&read_slice);
 
-  ASSERT_TRUE(read_ok);
   const int64_t expected = 0 + 123 + (-1234) + 99 + (-101);
   ASSERT_EQ(read_value,
             expected);  // Merge operators should have been applied on non-empty
                         // db, and then merge added merge_num.
 }
 
+INSTANTIATE_TEST_CASE_P(Int64AddMergeOperatorTest, EncodeDecodeTest,
+                        testing::Values(0, 1, 2, -1, 2, 123, 254, -254, 255,
+                                        -255, 256, -256, 257, -257, 32767,
+                                        -32767, 32768, -32768, 65534, -65534,
+                                        65535, -65535, 65536, -65536, 65537,
+                                        -65537));
 INSTANTIATE_TEST_CASE_P(Int64AddMergeOperatorTest, EmptyDbTest,
                         testing::Values(-255, -2, -1, 0, 1, 2, 255));
 INSTANTIATE_TEST_CASE_P(
