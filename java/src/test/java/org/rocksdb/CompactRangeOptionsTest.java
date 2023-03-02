@@ -40,7 +40,7 @@ public class CompactRangeOptionsTest {
       assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
       value = BottommostLevelCompaction.kForceOptimized;
       opt.setBottommostLevelCompaction(value);
-      assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);  
+      assertThat(opt.bottommostLevelCompaction()).isEqualTo(value);
     }
   }
 

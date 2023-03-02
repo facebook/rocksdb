@@ -95,7 +95,7 @@ public class OptionsUtil {
   private static native void loadLatestOptions(long cfgHandle, String dbPath, long dbOptionsHandle,
       List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
   private static native void loadOptionsFromFile(long cfgHandle, String optionsFileName,
-                                                 long dbOptionsHandle, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
+      long dbOptionsHandle, List<ColumnFamilyDescriptor> cfDescs) throws RocksDBException;
   private static native String getLatestOptionsFileName(String dbPath, long envHandle)
       throws RocksDBException;
 }
