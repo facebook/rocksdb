@@ -210,7 +210,7 @@ inline void PutVarsignedint64(std::string* dst, int64_t v) {
 inline void Encode8BitVarint64(std::string* dst, uint64_t v) {
   static const unsigned int B = 0x100;
   while (v >= B) {
-    unsigned char byte = v & B - 1;
+    unsigned char byte = v & (B - 1);
     dst->push_back(byte);
     v >>= 8;
   }

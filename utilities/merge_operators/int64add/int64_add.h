@@ -26,7 +26,6 @@ class Int64AddOperator : public AssociativeMergeOperator {
   bool Merge(const Slice& /*key*/, const Slice* existing_value,
              const Slice& value, std::string* new_value,
              Logger* logger) const override;
-
 };
 
 }  // namespace ROCKSDB_NAMESPACE
