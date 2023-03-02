@@ -59,11 +59,8 @@ class NonEmptyDbTest
   NonEmptyDbTest() : Int64AddMergeOperatorTest() {}
 };
 
-class EncodeDecodeTest : public Int64AddMergeOperatorTest,
-                         public testing::WithParamInterface<int64_t> {
- public:
-  EncodeDecodeTest() : Int64AddMergeOperatorTest() {}
-};
+class EncodeDecodeTest : public testing::Test,
+                         public testing::WithParamInterface<int64_t> {};
 
 TEST_P(EmptyDbTest, MergeEmptyDb) {
   const int64_t merge_num = GetParam();
