@@ -745,35 +745,40 @@ TEST_F(
     FixUnrecoverableWriteDuringAtomicFlushWaitUntilFlushWouldNotStallWrites) {
   Options options = CurrentOptions();
   options.atomic_flush = true;
-  options.disable_auto_compactions = true;
+
   // To simulate a real-life crash where we can't flush during db's shutdown
   options.avoid_flush_during_shutdown = true;
+
+  // Set 3 low thresholds (while `disable_auto_compactions=false`) here so flush
+  // adding one more L0 file during `GetLiveFiles()` will have to wait till such
+  // flush will not stall writes
+  options.level0_stop_writes_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_file_num_compaction_trigger = -1;
+
   CreateAndReopenWithCF({"cf1"}, options);
 
-  // Write some initial data so we have something to atomic-flush later
+  // Manually pause compaction thread to ensure enough L0 files as
+  // `disable_auto_compactions=false`is needed, in order to meet the 3 low
+  // thresholds above
+  std::unique_ptr<test::SleepingBackgroundTask> sleeping_task_;
+  sleeping_task_.reset(new test::SleepingBackgroundTask());
+  env_->SetBackgroundThreads(1, Env::LOW);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 sleeping_task_.get(), Env::Priority::LOW);
+  sleeping_task_->WaitUntilSleeping();
+
+  // Create some initial file to help meet the 3 low thresholds above
+  ASSERT_OK(Put(1, "dontcare", "dontcare"));
+  ASSERT_OK(Flush(1));
+
+  // Insert some initial data so we have something to atomic-flush later
   // triggered by `GetLiveFiles()`
   WriteOptions write_opts;
   write_opts.disableWAL = true;
   ASSERT_OK(Put(1, "k1", "v1", write_opts));
 
-  // To mock a write stall condition where atomic flush will release the lock
-  // to wait, during which we can write to the db
-  bool mocked_write_stall_condition = false;
-  WriteStallCondition* write_stall_condition = nullptr;
-  InstrumentedCondVar* bg_cv = nullptr;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::WaitUntilFlushWouldNotStallWrites:MockWriteStallCondition",
-      [&](void* arg) {
-        if (mocked_write_stall_condition) {
-          return;
-        }
-        mocked_write_stall_condition = true;
-        auto pair = (std::pair<WriteStallCondition*, InstrumentedCondVar*>*)arg;
-        write_stall_condition = pair->first;
-        *write_stall_condition = WriteStallCondition::kDelayed;
-        bg_cv = pair->second;
-      });
-  SyncPoint::GetInstance()->LoadDependency({{
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({{
       "DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait",
       "DBFlushTest::"
       "UnrecoverableWriteInAtomicFlushWaitUntilFlushWouldNotStallWrites::Write",
@@ -781,7 +786,7 @@ TEST_F(
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Write to db when atomic flush releases the lock to wait on write stall
-  // condition mocked above in `WaitUntilFlushWouldNotStallWrites()`
+  // condition to be gone in `WaitUntilFlushWouldNotStallWrites()`
   port::Thread write_thread([&] {
     TEST_SYNC_POINT(
         "DBFlushTest::"
@@ -789,7 +794,7 @@ TEST_F(
         "Write");
     // Before the fix, the empty default CF would've been prematurely excluded
     // from this atomic flush. The following two writes together make default CF
-    // contain data that should've been included in the atomic flush.
+    // later contain data that should've been included in the atomic flush.
     ASSERT_OK(Put(0, "k2", "v2", write_opts));
     // The following write increases the max seqno of this atomic flush to be 3,
     // which is greater than the seqno of default CF's data. This then violates
@@ -798,12 +803,11 @@ TEST_F(
     // flush finishes.
     ASSERT_OK(Put(1, "k3", "v3", write_opts));
 
-    // Revert the mocked write stall condition so the rest of the test can
-    // proceed
-    assert(mocked_write_stall_condition && write_stall_condition && bg_cv);
-    InstrumentedMutexLock l(dbfull()->mutex());
-    *write_stall_condition = WriteStallCondition::kNormal;
-    bg_cv->SignalAll();
+    // Resume compaction threads and reduce L0 files so `GetLiveFiles()` can
+    // resume from the wait
+    sleeping_task_->WakeUp();
+    sleeping_task_->WaitUntilDone();
+    MoveFilesToLevel(1, 1);
   });
 
   // Trigger an atomic flush by `GetLiveFiles()`
@@ -818,7 +822,6 @@ TEST_F(
   // can't be recovered from a crash right after the atomic flush finishes. It's
   // due to the invariant violation described above.
   ASSERT_EQ(Get(0, "k2"), "v2");
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 

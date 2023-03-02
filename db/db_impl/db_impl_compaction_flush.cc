@@ -2342,12 +2342,6 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
     InstrumentedMutexLock l(&mutex_);
     uint64_t orig_active_memtable_id = cfd->mem()->GetID();
     WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
-#ifndef NDEBUG
-    auto pair = std::make_pair(&write_stall_condition, &bg_cv_);
-    TEST_SYNC_POINT_CALLBACK(
-        "DBImpl::WaitUntilFlushWouldNotStallWrites:MockWriteStallCondition",
-        &pair);
-#endif  // NDEBUG
     do {
       if (write_stall_condition != WriteStallCondition::kNormal) {
         // Same error handling as user writes: Don't wait if there's a
