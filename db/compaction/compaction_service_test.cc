@@ -263,10 +263,15 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   auto my_cs = GetCompactionService();
   ASSERT_GE(my_cs->GetCompactionNum(), 1);
 
-  // make sure the compaction statistics is only recorded on the remote side
+  // make sure the compaction statistics is only recorded on the remote side,
+  // except for COMPACT_INSTALLED_WRITE_BYTES since compaction result is
+  // installed in primary host.
   ASSERT_GE(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES), 1);
   ASSERT_GE(compactor_statistics->getTickerCount(COMPACT_READ_BYTES), 1);
   ASSERT_EQ(primary_statistics->getTickerCount(COMPACT_WRITE_BYTES), 0);
+  ASSERT_EQ(primary_statistics->getTickerCount(COMPACT_INSTALLED_WRITE_BYTES),
+            compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES));
+
   // even with remote compaction, primary host still needs to read SST files to
   // `verify_table()`.
   ASSERT_GE(primary_statistics->getTickerCount(COMPACT_READ_BYTES), 1);

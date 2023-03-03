@@ -176,11 +176,13 @@ enum Tickers : uint32_t {
   // Writes can be processed by requesting thread or by the thread at the
   // head of the writers queue.
   WRITE_DONE_BY_SELF,
-  WRITE_DONE_BY_OTHER,  // Equivalent to writes done for others
-  WRITE_WITH_WAL,       // Number of Write calls that request WAL
-  COMPACT_READ_BYTES,   // Bytes read during compaction
-  COMPACT_WRITE_BYTES,  // Bytes written during compaction
-  FLUSH_WRITE_BYTES,    // Bytes written during flush
+  WRITE_DONE_BY_OTHER,            // Equivalent to writes done for others
+  WRITE_WITH_WAL,                 // Number of Write calls that request WAL
+  COMPACT_READ_BYTES,             // Bytes read during compaction
+  COMPACT_WRITE_BYTES,            // Bytes written during compaction
+  COMPACT_INSTALLED_WRITE_BYTES,  // Bytes written during compaction that are
+                                  // installed to manifest
+  FLUSH_WRITE_BYTES,              // Bytes written during flush
 
   // Compaction read and write statistics broken down by CompactionReason
   COMPACT_READ_BYTES_MARKED,

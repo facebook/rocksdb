@@ -1605,7 +1605,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   cfd->internal_stats()->AddCFStats(
       InternalStats::BYTES_FLUSHED,
       stats.bytes_written + stats.bytes_written_blob);
-  RecordTick(stats_, COMPACT_WRITE_BYTES, meta.fd.GetFileSize());
+  RecordTick(stats_, FLUSH_WRITE_BYTES, meta.fd.GetFileSize());
   return s;
 }
 

@@ -740,6 +740,11 @@ public enum TickerType {
      */
     BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
 
+    /**
+     * # of bytes written during compaction that are installed to manifest
+     */
+    COMPACT_INSTALLED_WRITE_BYTES((byte) -0x3A),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

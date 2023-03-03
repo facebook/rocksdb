@@ -167,14 +167,19 @@ class SubcompactionState {
     return is_current_penultimate_level_;
   }
 
-  // Add all the new files from this compaction to version_edit
-  void AddOutputsEdit(VersionEdit* out_edit) const {
+  // Add and return the total size of all the new files from this compaction to
+  // version_edit
+  uint64_t AddOutputsEdit(VersionEdit* out_edit) const {
+    uint64_t total_output_file_size = 0;
     for (const auto& file : penultimate_level_outputs_.outputs_) {
       out_edit->AddFile(compaction->GetPenultimateLevel(), file.meta);
+      total_output_file_size += file.meta.fd.file_size;
     }
     for (const auto& file : compaction_outputs_.outputs_) {
       out_edit->AddFile(compaction->output_level(), file.meta);
+      total_output_file_size += file.meta.fd.file_size;
     }
+    return total_output_file_size;
   }
 
   void Cleanup(Cache* cache);

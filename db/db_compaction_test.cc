@@ -5192,10 +5192,18 @@ TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
 
 TEST_F(DBCompactionTest, CompactionStatsTest) {
   Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
   options.level0_file_num_compaction_trigger = 2;
   CompactionStatsCollector* collector = new CompactionStatsCollector();
   options.listeners.emplace_back(collector);
   DestroyAndReopen(options);
+
+  const uint64_t prev_compact_write_bytes =
+      options.statistics->getTickerCount(COMPACT_WRITE_BYTES);
+  const uint64_t prev_compact_installed_write_bytes =
+      options.statistics->getTickerCount(COMPACT_INSTALLED_WRITE_BYTES);
+  ASSERT_EQ(0, prev_compact_write_bytes);
+  ASSERT_EQ(prev_compact_write_bytes, prev_compact_installed_write_bytes);
 
   for (int i = 0; i < 32; i++) {
     for (int j = 0; j < 5000; j++) {
@@ -5205,6 +5213,16 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  const uint64_t cur_compact_write_bytes =
+      options.statistics->getTickerCount(COMPACT_WRITE_BYTES);
+  const uint64_t cur_compact_installed_write_bytes =
+      options.statistics->getTickerCount(COMPACT_INSTALLED_WRITE_BYTES);
+  ASSERT_LT(prev_compact_write_bytes, cur_compact_write_bytes);
+  ASSERT_LT(prev_compact_installed_write_bytes,
+            cur_compact_installed_write_bytes);
+  ASSERT_EQ(prev_compact_write_bytes, prev_compact_installed_write_bytes);
+
   ColumnFamilyHandleImpl* cfh =
       static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
   ColumnFamilyData* cfd = cfh->cfd();

@@ -8,6 +8,7 @@
 
 ### New Features
 * Add statistics rocksdb.secondary.cache.filter.hits, rocksdb.secondary.cache.index.hits, and rocksdb.secondary.cache.filter.hits
+* Add new statistics rocksdb.compact.installed.write.bytes to report number of bytes written during compaction that are installed to manifest
 
 ## 8.0.0 (02/19/2023)
 ### Behavior changes

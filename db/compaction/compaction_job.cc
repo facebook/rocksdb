@@ -1671,9 +1671,9 @@ Status CompactionJob::InstallCompactionResults(
   compaction->AddInputDeletions(edit);
 
   std::unordered_map<uint64_t, BlobGarbageMeter::BlobStats> blob_total_garbage;
-
+  uint64_t compaction_output_size_to_install = 0;
   for (const auto& sub_compact : compact_->sub_compact_states) {
-    sub_compact.AddOutputsEdit(edit);
+    compaction_output_size_to_install += sub_compact.AddOutputsEdit(edit);
 
     for (const auto& blob : sub_compact.Current().GetBlobFileAdditions()) {
       edit->AddBlobFile(blob);
@@ -1716,9 +1716,14 @@ Status CompactionJob::InstallCompactionResults(
     }
   }
 
-  return versions_->LogAndApply(compaction->column_family_data(),
-                                mutable_cf_options, edit, db_mutex_,
-                                db_directory_);
+  Status s = versions_->LogAndApply(compaction->column_family_data(),
+                                    mutable_cf_options, edit, db_mutex_,
+                                    db_directory_);
+  if (s.ok()) {
+    RecordTick(stats_, COMPACT_INSTALLED_WRITE_BYTES,
+               compaction_output_size_to_install);
+  }
+  return s;
 }
 
 void CompactionJob::RecordCompactionIOStats() {
