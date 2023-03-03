@@ -144,7 +144,7 @@ void PrintStack(int first_frames_to_skip) {
   // Default to getting stack traces with GDB, at least on Linux where we
   // know how to attach to a particular thread.
   //
-  // * Address space layout randomization (ASLR) intereferes with getting good
+  // * Address space layout randomization (ASLR) interferes with getting good
   //   stack information from backtrace+addr2line. This is more likely to show
   //   up with LIB_MODE=shared builds (when kernel.randomize_va_space >= 1)
   //   but can also show up with LIB_MODE=static builds ((when
@@ -152,12 +152,6 @@ void PrintStack(int first_frames_to_skip) {
   // * It doesn't appear easy to detect when ASLR is in use.
   // * With DEBUG_LEVEL < 2, backtrace() can skip frames that are not skipped
   //   in GDB.
-  // some frames with DEBUG_LEVEL=1 that are not skipped by a backtrace in
-  // GDB.
-  // Since it's not easy to detect when ASLR is in use,
-  // LIB_MODE=shared build produces mediocre information from the above
-  // backtrace+addr2line stack trace method. Try to use GDB in that case, but
-  // only on Linux where we know how to attach to a particular thread.
 #if defined(OS_LINUX)
   // Default true, override with ROCKSDB_BACKTRACE_STACK=1
   bool gdb_stack_trace = getenv("ROCKSDB_BACKTRACE_STACK") == nullptr;
