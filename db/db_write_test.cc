@@ -609,6 +609,10 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
 
 // Test that db->LockWAL() flushes the WAL after locking, which can fail
 TEST_P(DBWriteTest, LockWALInEffect) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   Options options = GetOptions();
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
