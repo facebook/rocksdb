@@ -272,6 +272,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {MULTIGET_IO_BATCH_SIZE, "rocksdb.multiget.io.batch.size"},
     {NUM_LEVEL_READ_PER_MULTIGET, "rocksdb.num.level.read.per.multiget"},
     {ASYNC_PREFETCH_ABORT_MICROS, "rocksdb.async.prefetch.abort.micros"},
+    {TABLE_PREFETCH_TAIL_READ_BYTES, "rocksdb.table.prefetch.tail.read.bytes"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

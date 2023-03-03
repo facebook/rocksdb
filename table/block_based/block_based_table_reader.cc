@@ -591,7 +591,7 @@ Status BlockBasedTable::Open(
   if (!ioptions.allow_mmap_reads) {
     s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
-                     &prefetch_buffer);
+                     &prefetch_buffer, ioptions.stats);
     // Return error in prefetch path to users.
     if (!s.ok()) {
       return s;
@@ -802,7 +802,7 @@ Status BlockBasedTable::PrefetchTail(
     const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
     bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
     const bool prefetch_all, const bool preload_all,
-    std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer) {
+    std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats) {
   size_t tail_prefetch_size = 0;
   if (tail_prefetch_stats != nullptr) {
     // Multiple threads may get a 0 (no history) when running in parallel,
@@ -834,6 +834,7 @@ Status BlockBasedTable::PrefetchTail(
   if (!file->use_direct_io() && !force_direct_prefetch) {
     if (!file->Prefetch(prefetch_off, prefetch_len, ro.rate_limiter_priority)
              .IsNotSupported()) {
+      RecordInHistogram(stats, TABLE_PREFETCH_TAIL_READ_BYTES, prefetch_len);
       prefetch_buffer->reset(new FilePrefetchBuffer(
           0 /* readahead_size */, 0 /* max_readahead_size */,
           false /* enable */, true /* track_min_offset */));
@@ -852,6 +853,7 @@ Status BlockBasedTable::PrefetchTail(
     s = (*prefetch_buffer)
             ->Prefetch(opts, file, prefetch_off, prefetch_len,
                        ro.rate_limiter_priority);
+    RecordInHistogram(stats, TABLE_PREFETCH_TAIL_READ_BYTES, prefetch_len);
   }
   return s;
 }

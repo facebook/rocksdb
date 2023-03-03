@@ -533,6 +533,10 @@ enum Histograms : uint32_t {
   // Wait time for aborting async read in FilePrefetchBuffer destructor
   ASYNC_PREFETCH_ABORT_MICROS,
 
+  // Number of bytes read in prefetching contents from the end of SST table
+  // during table open
+  TABLE_PREFETCH_TAIL_READ_BYTES,
+
   HISTOGRAM_ENUM_MAX
 };
 

@@ -12,6 +12,7 @@
 ### New Features
 * Add statistics rocksdb.secondary.cache.filter.hits, rocksdb.secondary.cache.index.hits, and rocksdb.secondary.cache.filter.hits
 * Added a new PerfContext counter `internal_merge_point_lookup_count` which tracks the number of Merge operands applied while serving point lookup queries.
+* Add new statistics rocksdb.table.prefetch.tail.read.bytes to report number of bytes read in prefetching contents from the end of SST table during table open
 
 ## 8.0.0 (02/19/2023)
 ### Behavior changes

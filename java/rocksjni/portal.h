@@ -5609,6 +5609,8 @@ class HistogramTypeJni {
         return 0x37;
       case ASYNC_PREFETCH_ABORT_MICROS:
         return 0x38;
+      case ROCKSDB_NAMESPACE::Histograms::TABLE_PREFETCH_TAIL_READ_BYTES:
+        return 0x39;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5725,6 +5727,8 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::NUM_LEVEL_READ_PER_MULTIGET;
       case 0x38:
         return ROCKSDB_NAMESPACE::Histograms::ASYNC_PREFETCH_ABORT_MICROS;
+      case 0x39:
+        return ROCKSDB_NAMESPACE::Histograms::TABLE_PREFETCH_TAIL_READ_BYTES;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;

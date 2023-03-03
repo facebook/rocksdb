@@ -444,7 +444,7 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
       const bool prefetch_all, const bool preload_all,
-      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
+      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats);
   Status ReadMetaIndexBlock(const ReadOptions& ro,
                             FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,
