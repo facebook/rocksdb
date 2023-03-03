@@ -31,7 +31,7 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       smallest_ikey_(smallest),
       largest_ikey_(largest) {
   // Set up bounds such that range tombstones from this iterator are
-  // truncated to range [smallest, largest).
+  // truncated to range [smallest_, largest_).
   if (smallest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_smallest = pinned_bounds_.back();
