@@ -95,8 +95,8 @@ class SstFileDumper {
   ReadOptions read_options_;
   InternalKeyComparator internal_comparator_;
   std::unique_ptr<TableProperties> table_properties_;
-  FILE* out;
-  FILE* err;
+  FILE* out_;
+  FILE* err_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
