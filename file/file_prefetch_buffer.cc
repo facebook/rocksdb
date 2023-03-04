@@ -613,6 +613,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
     min_offset_read_ = static_cast<size_t>(offset);
   }
   if (!enable_ || (offset < bufs_[curr_].offset_)) {
+    RecordTick(stats_, PREFETCH_BUFFER_MISS);
     return false;
   }
 
@@ -635,6 +636,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
           if (!IsEligibleForPrefetch(offset, n)) {
             // Ignore status as Prefetch is not called.
             s.PermitUncheckedError();
+            RecordTick(stats_, PREFETCH_BUFFER_MISS);
             return false;
           }
         }
@@ -648,10 +650,12 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 #ifndef NDEBUG
         IGNORE_STATUS_IF_ERROR(s);
 #endif
+        RecordTick(stats_, PREFETCH_BUFFER_MISS);
         return false;
       }
       readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
     } else {
+      RecordTick(stats_, PREFETCH_BUFFER_MISS);
       return false;
     }
   }
@@ -659,6 +663,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 
   uint64_t offset_in_buffer = offset - bufs_[curr_].offset_;
   *result = Slice(bufs_[curr_].buffer_.BufferStart() + offset_in_buffer, n);
+  RecordTick(stats_, PREFETCH_BUFFER_HIT);
   return true;
 }
 
@@ -671,6 +676,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   }
 
   if (!enable_) {
+    RecordTick(stats_, PREFETCH_BUFFER_MISS);
     return false;
   }
 
@@ -684,11 +690,13 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
       bufs_[curr_].buffer_.Clear();
       bufs_[curr_ ^ 1].buffer_.Clear();
       explicit_prefetch_submitted_ = false;
+      RecordTick(stats_, PREFETCH_BUFFER_MISS);
       return false;
     }
   }
 
   if (!explicit_prefetch_submitted_ && offset < bufs_[curr_].offset_) {
+    RecordTick(stats_, PREFETCH_BUFFER_MISS);
     return false;
   }
 
@@ -714,6 +722,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
         if (!IsEligibleForPrefetch(offset, n)) {
           // Ignore status as Prefetch is not called.
           s.PermitUncheckedError();
+          RecordTick(stats_, PREFETCH_BUFFER_MISS);
           return false;
         }
       }
@@ -729,10 +738,12 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
 #ifndef NDEBUG
         IGNORE_STATUS_IF_ERROR(s);
 #endif
+        RecordTick(stats_, PREFETCH_BUFFER_MISS);
         return false;
       }
       prefetched = explicit_prefetch_submitted_ ? false : true;
     } else {
+      RecordTick(stats_, PREFETCH_BUFFER_MISS);
       return false;
     }
   }
@@ -748,6 +759,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   if (prefetched) {
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
   }
+  RecordTick(stats_, PREFETCH_BUFFER_HIT);
   return true;
 }
 

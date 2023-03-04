@@ -216,7 +216,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {ASYNC_READ_ERROR_COUNT, "rocksdb.async.read.error.count"},
     {SECONDARY_CACHE_FILTER_HITS, "rocksdb.secondary.cache.filter.hits"},
     {SECONDARY_CACHE_INDEX_HITS, "rocksdb.secondary.cache.index.hits"},
-    {SECONDARY_CACHE_DATA_HITS, "rocksdb.secondary.cache.data.hits"}};
+    {SECONDARY_CACHE_DATA_HITS, "rocksdb.secondary.cache.data.hits"},
+    {PREFETCH_BUFFER_HIT, "rocksdb.prefetch.buffer.hit"},
+    {PREFETCH_BUFFER_MISS, "rocksdb.prefetch.buffer.miss"}};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},

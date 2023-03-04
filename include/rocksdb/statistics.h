@@ -420,6 +420,11 @@ enum Tickers : uint32_t {
   SECONDARY_CACHE_INDEX_HITS,
   SECONDARY_CACHE_DATA_HITS,
 
+  // Number of lookup in prefetch buffer that finds its data
+  PREFETCH_BUFFER_HIT,
+  // Number of lookup in prefetch buffer that doesn't find its data
+  PREFETCH_BUFFER_MISS,
+
   TICKER_ENUM_MAX
 };
 

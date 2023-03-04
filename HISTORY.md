@@ -8,6 +8,7 @@
 
 ### New Features
 * Add statistics rocksdb.secondary.cache.filter.hits, rocksdb.secondary.cache.index.hits, and rocksdb.secondary.cache.filter.hits
+* Add statistics rocksdb.prefetch.buffer.hit/rocksdb.prefetch.buffer.miss to report numbers of look up in prefetch buffer that find/doesn't find its data.
 
 ## 8.0.0 (02/19/2023)
 ### Behavior changes

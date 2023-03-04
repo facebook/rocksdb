@@ -125,6 +125,7 @@ TEST_P(PrefetchTest, Basic) {
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options;
   SetGenericOptions(env.get(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
 
   const int kNumKeys = 1100;
   int buff_prefetch_count = 0;
@@ -139,6 +140,11 @@ TEST_P(PrefetchTest, Basic) {
   } else {
     ASSERT_OK(s);
   }
+
+  const uint64_t prev_prefetch_buffer_hit =
+      options.statistics->getTickerCount(PREFETCH_BUFFER_HIT);
+  const uint64_t prev_prefetch_buffer_miss =
+      options.statistics->getTickerCount(PREFETCH_BUFFER_MISS);
 
   // create first key range
   WriteBatch batch;
@@ -204,6 +210,15 @@ TEST_P(PrefetchTest, Basic) {
     ASSERT_GT(buff_prefetch_count, 0);
     buff_prefetch_count = 0;
   }
+
+  if (support_prefetch && !use_direct_io) {
+    ASSERT_GT(options.statistics->getTickerCount(PREFETCH_BUFFER_MISS),
+              prev_prefetch_buffer_miss);
+  } else {
+    ASSERT_GT(options.statistics->getTickerCount(PREFETCH_BUFFER_HIT),
+              prev_prefetch_buffer_hit);
+  }
+
   Close();
 }
 
