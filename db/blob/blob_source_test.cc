@@ -1516,8 +1516,7 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
-  constexpr size_t blob_size =
-      kSizeDummyEntry / (kNumBlobs / 2) - 64;  // adjusting for cache overhead
+  constexpr size_t blob_size = 24 << 10;  // 24KB
   for (size_t i = 0; i < kNumBlobs; ++i) {
     blob_file_size_ -= blobs_[i].size();  // old blob size
     blob_strs_[i].resize(blob_size, '@');
@@ -1592,7 +1591,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
       blob_bytes += charge;
 
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
-                (i < kNumBlobs / 2) ? kSizeDummyEntry : (2 * kSizeDummyEntry));
+                (blob_bytes <= kSizeDummyEntry) ? kSizeDummyEntry
+                                                : (2 * kSizeDummyEntry));
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
