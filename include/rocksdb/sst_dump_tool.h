@@ -10,7 +10,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class SSTDumpTool {
  public:
-  int Run(int argc, char const* const* argv, Options options = Options());
+  int Run(int argc, char const* const* argv,Options options = Options(),
+          FILE* out = stdout, FILE* err = stderr);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

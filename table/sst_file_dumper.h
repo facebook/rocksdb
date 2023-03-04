@@ -21,7 +21,9 @@ class SstFileDumper {
                          bool verify_checksum, bool output_hex,
                          bool decode_blob_index,
                          const EnvOptions& soptions = EnvOptions(),
-                         bool silent = false);
+                         bool silent = false,
+                         FILE* out = stdout,
+                         FILE* err = stderr);
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,
@@ -93,6 +95,8 @@ class SstFileDumper {
   ReadOptions read_options_;
   InternalKeyComparator internal_comparator_;
   std::unique_ptr<TableProperties> table_properties_;
+  FILE* out;
+  FILE* err;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
