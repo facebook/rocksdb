@@ -6,6 +6,8 @@
  */
 package org.rocksdb.jmh;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
 import org.openjdk.jmh.annotations.*;
 import org.rocksdb.*;
 import org.rocksdb.util.FileUtils;
@@ -108,5 +110,20 @@ public class PutBenchmarks {
   public void put(final ComparatorBenchmarks.Counter counter) throws RocksDBException {
     final int i = counter.next();
     db.put(getColumnFamily(), ba("key" + i), ba("value" + i));
+  }
+
+  private static final ByteBuf keyBuffer = PooledByteBufAllocator.DEFAULT.directBuffer();
+  private static final ByteBuf valueBuffer = PooledByteBufAllocator.DEFAULT.directBuffer();
+
+  @Benchmark
+  public void putWithMemoryAddr(final ComparatorBenchmarks.Counter counter) throws RocksDBException {
+    final int i = counter.next();
+    keyBuffer.clear();
+    keyBuffer.writeBytes(ba("key" + i));
+    valueBuffer.clear();
+    valueBuffer.writeBytes(ba("value" + i));
+    db.put(getColumnFamily(),
+            keyBuffer.memoryAddress(), keyBuffer.readableBytes(),
+            valueBuffer.memoryAddress(), valueBuffer.readableBytes());
   }
 }

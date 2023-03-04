@@ -982,6 +982,55 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Set the database entry for "key" to "value" for the specified
+   * column family.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
+   * @param keyAddr the direct memory address of the key
+   * @param keyLen the length of the key
+   * @param valueAddr the direct memory address of the value
+   * @param valueLen the length of the value
+   *
+   * throws IllegalArgumentException if column family is not present
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @see IllegalArgumentException
+   */
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpts,
+      final long keyAddr, final int keyLen,
+      final long valueAddr, final int valueLen) throws RocksDBException {
+    putAddr(nativeHandle_, writeOpts.nativeHandle_, keyAddr, keyLen,
+      valueAddr, valueLen, columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Set the database entry for "key" to "value" for the specified
+   * column family.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param keyAddr the direct memory address of the key
+   * @param keyLen the length of the key
+   * @param valueAddr the direct memory address of the value
+   * @param valueLen the length of the value
+   *
+   * throws IllegalArgumentException if column family is not present
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @see IllegalArgumentException
+   */
+  public void put(final ColumnFamilyHandle columnFamilyHandle,
+      final long keyAddr, final int keyLen,
+      final long valueAddr, final int valueLen) throws RocksDBException {
+    putAddr(nativeHandle_, keyAddr, keyLen,
+      valueAddr, valueLen, columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
    * Set the database entry for "key" to "value".
    *
    * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
@@ -1004,6 +1053,29 @@ public class RocksDB extends RocksObject {
     key.position(key.limit());
     value.position(value.limit());
   }
+
+    /**
+     * Set the database entry for "key" to "value".
+     *
+     * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
+     * @param keyAddr the direct memory address of the key
+     * @param keyLen the length of the key
+     * @param valueAddr the direct memory address of the value
+     * @param valueLen the length of the value
+     *
+     * throws IllegalArgumentException if column family is not present
+     *
+     * @throws RocksDBException thrown if error happens in underlying
+     *    native library.
+     * @see IllegalArgumentException
+     */
+    public void put(final WriteOptions writeOpts,
+        final long keyAddr, final int keyLen,
+        final long valueAddr, final int valueLen)
+        throws RocksDBException {
+      putAddr(nativeHandle_, writeOpts.nativeHandle_, keyAddr, keyLen,
+              valueAddr, valueLen, 0);
+    }
 
   /**
    * Set the database entry for "key" to "value" for the specified
@@ -1224,6 +1296,34 @@ public class RocksDB extends RocksObject {
   /**
    * Get the value associated with the specified key within column family.
    *
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param keyAddr the direct memory address of the key
+   * @param keyLen the length of the key
+   * @param valueAddr the direct memory address where to write the retrieved
+   *     value.
+   * @param valueLen the max capacity of the valueAddr buffer
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public int get(final ReadOptions opt,
+            final long keyAddr, final int keyLen,
+            final long valueAddr, final int valueLen)
+      throws RocksDBException {
+    return getAddr(nativeHandle_, opt.nativeHandle_,
+            keyAddr, keyLen,
+            valueAddr, valueLen, 0);
+  }
+
+  /**
+   * Get the value associated with the specified key within column family.
+   *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
    * @param opt {@link org.rocksdb.ReadOptions} instance.
@@ -1253,6 +1353,36 @@ public class RocksDB extends RocksObject {
     }
     key.position(key.limit());
     return result;
+   }
+
+  /**
+   * Get the value associated with the specified key within column family.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param keyAddr the direct memory address of the key
+   * @param keyLen the length of the key
+   * @param valueAddr the direct memory address where to write the retrieved
+   *     value.
+   * @param valueLen the max capacity of the valueAddr buffer
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+        final long keyAddr, final int keyLen,
+        final long valueAddr, final int valueLen) throws RocksDBException {
+    return getAddr(nativeHandle_, opt.nativeHandle_,
+                keyAddr, keyLen,
+                valueAddr, valueLen,
+                columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -4522,6 +4652,12 @@ public class RocksDB extends RocksObject {
   private native void putDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
       int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
+  private native void putAddr(long handle, long writeOptHandle, long keyAddr, int keyLength,
+      long valueAddr, int valueLength, long cfHandle)
+        throws RocksDBException;
+  private native void putAddr(long handle, long keyAddr, int keyLength,
+      long valueAddr, int valueLength, long cfHandle)
+        throws RocksDBException;
   private native long iterator(final long handle);
   private native long iterator(final long handle, final long readOptHandle);
   private native long iteratorCF(final long handle, final long cfHandle);
@@ -4542,6 +4678,9 @@ public class RocksDB extends RocksObject {
   private native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
       int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
+  private native int getAddr(long handle, long readOptHandle, long keyAddr, int keyLength,
+      long valueAddr, int valueLength, long cfHandle)
+        throws RocksDBException;
   private native boolean keyMayExistDirect(final long handle, final long cfHhandle,
       final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength);
   private native int[] keyMayExistDirectFoundValue(final long handle, final long cfHhandle,
