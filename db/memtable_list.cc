@@ -840,6 +840,12 @@ Status InstallMemtableAtomicFlushResults(
 
   Status s;
 
+  // Begin RocksDB-Cloud
+  std::string max_replication_sequence;
+  uint64_t max_log_number = 0;
+  bool has_replication_sequence = false;
+  // End RocksDB-Cloud
+
   autovector<autovector<VersionEdit*>> edit_lists;
   uint32_t num_entries = 0;
   for (const auto mems : mems_list) {
@@ -849,6 +855,16 @@ Status InstallMemtableAtomicFlushResults(
     edits.emplace_back((*mems)[0]->GetEdits());
     ++num_entries;
     edit_lists.emplace_back(edits);
+
+    // Begin RocksDB-Cloud
+    auto& e = edit_lists.back()[0];
+    if (e->HasReplicationSequence() &&
+        (!has_replication_sequence || e->GetLogNumber() > max_log_number)) {
+      max_log_number = e->GetLogNumber();
+      max_replication_sequence = e->GetReplicationSequence();
+      has_replication_sequence = true;
+    }
+    // End RocksDB-Cloud
   }
 
   WalNumber min_wal_number_to_keep = 0;
@@ -876,6 +892,13 @@ Status InstallMemtableAtomicFlushResults(
       assert((edit_lists[i].size() == 1) ||
              ((edit_lists[i].size() == 2) && (i == edit_lists.size() - 1)));
       for (auto& e : edit_lists[i]) {
+        // Begin RocksDB-Cloud
+        if (e->HasReplicationSequence()) {
+          // Set replication sequence of all VersionEdits to be the replication
+          // sequence associated with the max log number (i.e. the latest one)
+          e->SetReplicationSequence(max_replication_sequence);
+        }
+        // End RocksDB-Cloud
         e->MarkAtomicGroup(--num_entries);
       }
     }

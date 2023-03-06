@@ -44,7 +44,9 @@ class Listener : public ReplicationLogListener {
     assert(state_ == TAILING);
     {
       MutexLock lock(log_records_mutex_);
-      std::string replication_sequence = std::to_string(log_records_->size());
+      std::string replication_sequence;
+      PutFixed32(&replication_sequence,
+                 static_cast<uint32_t>(log_records_->size()));
       log_records_->emplace_back(
         std::move(record),
         replication_sequence);
@@ -91,7 +93,11 @@ int getPersistedSequence(DB* db) {
   if (out.empty()) {
     return -1;
   }
-  return std::atoi(out.c_str());
+  auto outSlice = Slice(out);
+  uint32_t val{0};
+  auto ok = GetFixed32(&outSlice, &val);
+  assert(ok);
+  return (int)val;
 }
 
 int getMemtableEntries(DB* db) {
@@ -137,8 +143,12 @@ class ReplicationTest : public testing::Test {
     Env::Default()->CreateDirIfMissing(test_dir_);
   }
   ~ReplicationTest() {
-    DestroyDir(Env::Default(), test_dir_ + "/leader");
-    DestroyDir(Env::Default(), test_dir_ + "/follower");
+    if (getenv("KEEP_DB")) {
+      printf("DB is still at %s\n", test_dir_.c_str());
+    } else {
+      DestroyDir(Env::Default(), test_dir_ + "/leader");
+      DestroyDir(Env::Default(), test_dir_ + "/follower");
+    }
   }
 
   std::string leaderPath() const { return test_dir_ + "/leader"; }
@@ -708,6 +718,49 @@ TEST_F(ReplicationTest, FollowerDeletesMemtables) {
   ASSERT_TRUE(follower->GetAggregatedIntProperty(
       DB::Properties::kLiveSstFilesSize, &followerValue));
   EXPECT_EQ(leaderValue, followerValue);
+}
+
+// Reproduces SYS-4535
+TEST_F(ReplicationTest, MultiCFFlushCorrectReplicationSequence) {
+  auto leaderOpenOptions = leaderOptions();
+
+  leaderOpenOptions.write_buffer_size = 64 << 10;
+  leaderOpenOptions.max_write_buffer_number = 4;
+  auto leader = openLeader(leaderOpenOptions);
+
+  auto leaderFull = static_cast_with_check<DBImpl>(leader);
+  leaderFull->PauseBackgroundWork();
+
+  createColumnFamily("cf");
+
+  // Add one key to the non-default column family
+  ASSERT_OK(leader->Put(wo(), leaderCF("cf"), "cfkey", "cfvalue"));
+
+  constexpr auto kKeyCount = 4000;
+  for (size_t i = 0; i < kKeyCount; ++i) {
+    ASSERT_OK(leader->Put(wo(), "key" + std::to_string(i),
+                          "val" + std::to_string(i)));
+  }
+  closeLeader();
+
+  leaderOpenOptions.disable_auto_flush = true;
+  leader = openLeader(leaderOpenOptions);
+
+  leader->SetOptions({{"disable_auto_flush", "false"}});
+  FlushOptions fo;
+  fo.wait = true;
+  fo.allow_write_stall = true;
+  ASSERT_OK(leader->Flush(fo));
+
+  closeLeader();
+
+  leader = openLeader(leaderOpenOptions);
+
+  std::string val;
+  for (size_t i = 0; i < kKeyCount; ++i) {
+    ASSERT_OK(leader->Get(ReadOptions(), "key" + std::to_string(i), &val));
+    EXPECT_EQ(val, "val" + std::to_string(i));
+  }
 }
 
 class TestEventListener: public EventListener {
