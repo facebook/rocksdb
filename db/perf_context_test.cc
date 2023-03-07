@@ -964,6 +964,78 @@ TEST_F(PerfContextTest, CPUTimer) {
     ASSERT_EQ(count, get_perf_context()->iter_seek_cpu_nanos);
   }
 }
+
+TEST_F(PerfContextTest, MergeOperandCount) {
+  ASSERT_OK(DestroyDB(kDbName, Options()));
+
+  DB* db = nullptr;
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+  ASSERT_OK(DB::Open(options, kDbName, &db));
+  std::unique_ptr<DB> db_guard(db);
+
+  constexpr size_t num_keys = 3;
+  const std::string key_prefix("key");
+  const std::string value_prefix("value");
+
+  for (size_t i = 1; i <= num_keys; ++i) {
+    const std::string suffix = std::to_string(i);
+    const std::string key = key_prefix + suffix;
+    const std::string value = value_prefix + suffix;
+
+    ASSERT_OK(db->Put(WriteOptions(), key, value));
+
+    for (size_t j = 0; j < i; ++j) {
+      ASSERT_OK(db->Merge(WriteOptions(), key, value + std::to_string(j)));
+    }
+  }
+
+  get_perf_context()->Reset();
+
+  for (size_t i = 1; i <= num_keys; ++i) {
+    const std::string suffix = std::to_string(i);
+    const std::string key = key_prefix + suffix;
+
+    PinnableSlice result;
+    ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups, i);
+
+    get_perf_context()->Reset();
+  }
+
+  std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions()));
+
+  {
+    size_t i = 1;
+
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++i) {
+      const std::string suffix = std::to_string(i);
+      const std::string key = key_prefix + suffix;
+
+      ASSERT_EQ(it->key(), key);
+      ASSERT_EQ(get_perf_context()->internal_merge_count, i);
+
+      get_perf_context()->Reset();
+    }
+  }
+
+  {
+    size_t i = num_keys;
+
+    for (it->SeekToLast(); it->Valid(); it->Prev(), --i) {
+      const std::string suffix = std::to_string(i);
+      const std::string key = key_prefix + suffix;
+
+      ASSERT_EQ(it->key(), key);
+      ASSERT_EQ(get_perf_context()->internal_merge_count, i);
+
+      get_perf_context()->Reset();
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
