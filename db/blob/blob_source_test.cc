@@ -1372,7 +1372,7 @@ class BlobSourceCacheReservationTest : public DBTestBase {
 
   static constexpr std::size_t kSizeDummyEntry = CacheReservationManagerImpl<
       CacheEntryRole::kBlobCache>::GetDummyEntrySize();
-  static constexpr std::size_t kCacheCapacity = 1 * kSizeDummyEntry;
+  static constexpr std::size_t kCacheCapacity = 2 * kSizeDummyEntry;
   static constexpr int kNumShardBits = 0;  // 2^0 shard
 
   static constexpr uint32_t kColumnFamilyId = 1;
@@ -1505,11 +1505,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   }
 }
 
-TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
+TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
   options_.cf_paths.emplace_back(
       test::PerThreadDBPath(
-          env_,
-          "BlobSourceCacheReservationTest_IncreaseCacheReservationOnFullCache"),
+          env_, "BlobSourceCacheReservationTest_IncreaseCacheReservation"),
       0);
 
   GenerateKeysAndBlobs();
@@ -1517,7 +1516,7 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
-  constexpr size_t blob_size = kSizeDummyEntry / (kNumBlobs / 2);
+  constexpr size_t blob_size = 24 << 10;  // 24KB
   for (size_t i = 0; i < kNumBlobs; ++i) {
     blob_file_size_ -= blobs_[i].size();  // old blob size
     blob_strs_[i].resize(blob_size, '@');
@@ -1575,11 +1574,6 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
 
     std::vector<PinnableSlice> values(keys_.size());
 
-    // Since we resized each blob to be kSizeDummyEntry / (num_blobs / 2), we
-    // can't fit all the blobs in the cache at the same time, which means we
-    // should observe cache evictions once we reach the cache's capacity.
-    // Due to the overhead of the cache and the BlobContents objects, as well as
-    // jemalloc bin sizes, this happens after inserting seven blobs.
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
@@ -1590,15 +1584,15 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
       // Release cache handle
       values[i].Reset();
 
-      if (i < kNumBlobs / 2 - 1) {
-        size_t charge = 0;
-        ASSERT_TRUE(blob_source.TEST_BlobInCache(
-            kBlobFileNumber, blob_file_size_, blob_offsets[i], &charge));
+      size_t charge = 0;
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(kBlobFileNumber, blob_file_size_,
+                                               blob_offsets[i], &charge));
 
-        blob_bytes += charge;
-      }
+      blob_bytes += charge;
 
-      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
+      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(),
+                (blob_bytes <= kSizeDummyEntry) ? kSizeDummyEntry
+                                                : (2 * kSizeDummyEntry));
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
