@@ -313,7 +313,7 @@ function run_db_bench {
 }
 
 function set_async_io_parameters {
-  options=" --duration=800"
+  options=" --duration=50"
   # Below parameters are used in case of async_io only.
   # 1. If you want to run below parameters for all benchmarks, it should be
   #    specify in OPTIONS_FILE instead of exporting them.
