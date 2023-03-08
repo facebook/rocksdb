@@ -987,8 +987,12 @@ TEST_F(PerfContextTest, MergeOperandCount) {
     keys.emplace_back(key_prefix + std::to_string(i));
   }
 
+  // Write three keys with one Put each followed by 1, 2, and 3
+  // Merge operations respectively.
+  constexpr size_t total_merges = num_keys * (num_keys + 1) / 2;
+
   std::vector<ManagedSnapshot> snapshots;
-  snapshots.reserve(num_keys * (num_keys + 1) / 2);
+  snapshots.reserve(total_merges);
 
   for (size_t i = 0; i < num_keys; ++i) {
     const std::string suffix = std::to_string(i);
@@ -997,7 +1001,10 @@ TEST_F(PerfContextTest, MergeOperandCount) {
     ASSERT_OK(db->Put(WriteOptions(), keys[i], value));
 
     for (size_t j = 0; j <= i; ++j) {
+      // Take a snapshot before each Merge so they are preserved and not
+      // collapsed during flush.
       snapshots.emplace_back(db);
+
       ASSERT_OK(db->Merge(WriteOptions(), keys[i], value + std::to_string(j)));
     }
   }
@@ -1050,7 +1057,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         }
 
         ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
-                  num_keys * (num_keys + 1) / 2);
+                  total_merges);
 
         get_perf_context()->Reset();
       }
@@ -1068,7 +1075,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         }
 
         ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
-                  num_keys * (num_keys + 1) / 2);
+                  total_merges);
 
         get_perf_context()->Reset();
       }
@@ -1101,8 +1108,10 @@ TEST_F(PerfContextTest, MergeOperandCount) {
     }
   };
 
+  // Verify counters when reading from memtable
   verify();
 
+  // Verify counters when reading from table files
   db->Flush(FlushOptions());
 
   verify();
