@@ -987,6 +987,9 @@ TEST_F(PerfContextTest, MergeOperandCount) {
     keys.emplace_back(key_prefix + std::to_string(i));
   }
 
+  std::vector<ManagedSnapshot> snapshots;
+  snapshots.reserve(num_keys * (num_keys + 1) / 2);
+
   for (size_t i = 0; i < num_keys; ++i) {
     const std::string suffix = std::to_string(i);
     const std::string value = value_prefix + suffix;
@@ -994,98 +997,115 @@ TEST_F(PerfContextTest, MergeOperandCount) {
     ASSERT_OK(db->Put(WriteOptions(), keys[i], value));
 
     for (size_t j = 0; j <= i; ++j) {
+      snapshots.emplace_back(db);
       ASSERT_OK(db->Merge(WriteOptions(), keys[i], value + std::to_string(j)));
     }
   }
 
-  get_perf_context()->Reset();
-
-  for (size_t i = 0; i < num_keys; ++i) {
-    {
-      PinnableSlice result;
-      ASSERT_OK(
-          db->Get(ReadOptions(), db->DefaultColumnFamily(), keys[i], &result));
-      ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups, i + 1);
-
-      get_perf_context()->Reset();
-    }
-
-    {
-      PinnableWideColumns result;
-      ASSERT_OK(db->GetEntity(ReadOptions(), db->DefaultColumnFamily(), keys[i],
-                              &result));
-      ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups, i + 1);
-
-      get_perf_context()->Reset();
-    }
-  }
-
-  {
-    std::vector<Slice> key_slices;
-    key_slices.reserve(num_keys);
+  auto verify = [&]() {
+    get_perf_context()->Reset();
 
     for (size_t i = 0; i < num_keys; ++i) {
-      key_slices.emplace_back(keys[i]);
+      // Get
+      {
+        PinnableSlice result;
+        ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), keys[i],
+                          &result));
+        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
+                  i + 1);
+
+        get_perf_context()->Reset();
+      }
+
+      // GetEntity
+      {
+        PinnableWideColumns result;
+        ASSERT_OK(db->GetEntity(ReadOptions(), db->DefaultColumnFamily(),
+                                keys[i], &result));
+        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
+                  i + 1);
+
+        get_perf_context()->Reset();
+      }
     }
 
     {
-      std::vector<PinnableSlice> results(num_keys);
-      std::vector<Status> statuses(num_keys);
-
-      db->MultiGet(ReadOptions(), db->DefaultColumnFamily(), num_keys,
-                   &key_slices[0], &results[0], &statuses[0]);
+      std::vector<Slice> key_slices;
+      key_slices.reserve(num_keys);
 
       for (size_t i = 0; i < num_keys; ++i) {
-        ASSERT_OK(statuses[i]);
+        key_slices.emplace_back(keys[i]);
       }
 
-      ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
-                num_keys * (num_keys + 1) / 2);
+      // MultiGet
+      {
+        std::vector<PinnableSlice> results(num_keys);
+        std::vector<Status> statuses(num_keys);
 
-      get_perf_context()->Reset();
+        db->MultiGet(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                     &key_slices[0], &results[0], &statuses[0]);
+
+        for (size_t i = 0; i < num_keys; ++i) {
+          ASSERT_OK(statuses[i]);
+        }
+
+        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
+                  num_keys * (num_keys + 1) / 2);
+
+        get_perf_context()->Reset();
+      }
+
+      // MultiGetEntity
+      {
+        std::vector<PinnableWideColumns> results(num_keys);
+        std::vector<Status> statuses(num_keys);
+
+        db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
+                           &key_slices[0], &results[0], &statuses[0]);
+
+        for (size_t i = 0; i < num_keys; ++i) {
+          ASSERT_OK(statuses[i]);
+        }
+
+        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
+                  num_keys * (num_keys + 1) / 2);
+
+        get_perf_context()->Reset();
+      }
     }
 
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions()));
+
+    // Forward iteration
     {
-      std::vector<PinnableWideColumns> results(num_keys);
-      std::vector<Status> statuses(num_keys);
+      size_t i = 0;
 
-      db->MultiGetEntity(ReadOptions(), db->DefaultColumnFamily(), num_keys,
-                         &key_slices[0], &results[0], &statuses[0]);
+      for (it->SeekToFirst(); it->Valid(); it->Next(), ++i) {
+        ASSERT_EQ(it->key(), keys[i]);
+        ASSERT_EQ(get_perf_context()->internal_merge_count, i + 1);
 
-      for (size_t i = 0; i < num_keys; ++i) {
-        ASSERT_OK(statuses[i]);
+        get_perf_context()->Reset();
       }
-
-      ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
-                num_keys * (num_keys + 1) / 2);
-
-      get_perf_context()->Reset();
     }
-  }
 
-  std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions()));
+    // Backward iteration
+    {
+      size_t i = num_keys - 1;
 
-  {
-    size_t i = 0;
+      for (it->SeekToLast(); it->Valid(); it->Prev(), --i) {
+        ASSERT_EQ(it->key(), keys[i]);
+        ASSERT_EQ(get_perf_context()->internal_merge_count, i + 1);
 
-    for (it->SeekToFirst(); it->Valid(); it->Next(), ++i) {
-      ASSERT_EQ(it->key(), keys[i]);
-      ASSERT_EQ(get_perf_context()->internal_merge_count, i + 1);
-
-      get_perf_context()->Reset();
+        get_perf_context()->Reset();
+      }
     }
-  }
+  };
 
-  {
-    size_t i = num_keys - 1;
+  verify();
 
-    for (it->SeekToLast(); it->Valid(); it->Prev(), --i) {
-      ASSERT_EQ(it->key(), keys[i]);
-      ASSERT_EQ(get_perf_context()->internal_merge_count, i + 1);
+  db->Flush(FlushOptions());
 
-      get_perf_context()->Reset();
-    }
-  }
+  verify();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
