@@ -747,8 +747,7 @@ DEFINE_bool(long_running_snapshots, false,
 DEFINE_bool(use_multiget, false,
             "If set, use the batched MultiGet API for reads");
 
-DEFINE_bool(use_get_entity, false,
-            "If set, use the GetEntity API for reads");
+DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads");
 
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value > 100) {
