@@ -1485,9 +1485,6 @@ class VersionSet {
   }
 
  protected:
-  using VersionBuilderMap =
-      UnorderedMap<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>;
-
   struct ManifestWriter;
 
   friend class Version;
