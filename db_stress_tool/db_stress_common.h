@@ -597,6 +597,24 @@ extern inline std::string StringToHex(const std::string& str) {
   return result;
 }
 
+inline std::string WideColumnsToHex(const WideColumns& columns) {
+  if (columns.empty()) {
+    return std::string();
+  }
+
+  std::ostringstream oss;
+
+  oss << std::hex;
+
+  auto it = columns.begin();
+  oss << *it;
+  for (++it; it != columns.end(); ++it) {
+    oss << ' ' << *it;
+  }
+
+  return oss.str();
+}
+
 // Unified output format for double parameters
 extern inline std::string FormatDoubleParam(double param) {
   return std::to_string(param);

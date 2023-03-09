@@ -449,27 +449,9 @@ std::string StressTest::DebugString(const Slice& value,
                                     const WideColumns& expected_columns) {
   std::ostringstream oss;
 
-  oss << "value: " << value.ToString(/* hex */ true);
-
-  auto dump = [](const WideColumns& cols, std::ostream& os) {
-    if (cols.empty()) {
-      return;
-    }
-
-    os << std::hex;
-
-    auto it = cols.begin();
-    os << *it;
-    for (++it; it != cols.end(); ++it) {
-      os << ' ' << *it;
-    }
-  };
-
-  oss << ", columns: ";
-  dump(columns, oss);
-
-  oss << ", expected_columns: ";
-  dump(expected_columns, oss);
+  oss << "value: " << value.ToString(/* hex */ true)
+      << ", columns: " << WideColumnsToHex(columns)
+      << ", expected_columns: " << WideColumnsToHex(expected_columns);
 
   return oss.str();
 }
