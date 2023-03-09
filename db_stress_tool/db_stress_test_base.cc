@@ -987,6 +987,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         assert(0 <= prob_op);
         // OPERATION read
         if (FLAGS_use_get_entity) {
+          TestGetEntity(thread, read_opts, rand_column_families, rand_keys);
         } else if (FLAGS_use_multiget) {
           // Leave room for one more iteration of the loop with a single key
           // batch. This is to ensure that each thread does exactly the same

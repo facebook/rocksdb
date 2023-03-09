@@ -756,6 +756,94 @@ class NonBatchedOpsStressTest : public StressTest {
     return statuses;
   }
 
+  Status TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                       const std::vector<int>& rand_column_families,
+                       const std::vector<int64_t>& rand_keys) override {
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableErrorInjection();
+      SharedState::ignore_read_error = false;
+    }
+
+    std::unique_ptr<MutexLock> lock(new MutexLock(
+        thread->shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
+
+    assert(!rand_column_families.empty());
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    assert(!rand_keys.empty());
+
+    const std::string key = Key(rand_keys[0]);
+
+    PinnableWideColumns from_db;
+
+    Status s = db_->GetEntity(read_opts, cfh, key, &from_db);
+
+    int error_count = 0;
+
+    if (fault_fs_guard) {
+      error_count = fault_fs_guard->GetAndResetErrorCount();
+    }
+
+    if (s.ok()) {
+      if (fault_fs_guard) {
+        if (error_count && !SharedState::ignore_read_error) {
+          // Grab mutex so multiple threads don't try to print the
+          // stack trace at the same time
+          MutexLock l(thread->shared->GetMutex());
+          fprintf(stderr, "Didn't get expected error from GetEntity\n");
+          fprintf(stderr, "Call stack that injected the fault\n");
+          fault_fs_guard->PrintFaultBacktrace();
+          std::terminate();
+        }
+      }
+
+      // found case
+      thread->stats.AddGets(1, 1);
+
+      if (!FLAGS_skip_verifydb &&
+          thread->shared->Get(rand_column_families[0], rand_keys[0]) ==
+              SharedState::DELETION_SENTINEL) {
+        thread->shared->SetVerificationFailure();
+        fprintf(stderr,
+                "error : inconsistent values for key %s: GetEntity returns %s, "
+                "expected state does not have the key.\n",
+                StringToHex(key).c_str(),
+                WideColumnsToHex(from_db.columns()).c_str());
+      }
+    } else if (s.IsNotFound()) {
+      // not found case
+      thread->stats.AddGets(1, 0);
+
+      if (!FLAGS_skip_verifydb) {
+        auto expected =
+            thread->shared->Get(rand_column_families[0], rand_keys[0]);
+        if (expected != SharedState::DELETION_SENTINEL &&
+            expected != SharedState::UNKNOWN_SENTINEL) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "error : inconsistent values for key %s: expected state has "
+                  "the key, GetEntity returns NotFound.\n",
+                  StringToHex(key).c_str());
+        }
+      }
+    } else {
+      if (error_count == 0) {
+        // errors case
+        thread->stats.AddErrors(1);
+      } else {
+        thread->stats.AddVerifiedErrors(1);
+      }
+    }
+
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
+    }
+
+    return s;
+  }
+
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {

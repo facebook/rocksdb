@@ -94,6 +94,13 @@ class StressTest {
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) = 0;
 
+  virtual Status TestGetEntity(
+      ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */) {
+    return Status::OK();
+  };
+
   virtual Status TestPrefixScan(ThreadState* thread,
                                 const ReadOptions& read_opts,
                                 const std::vector<int>& rand_column_families,
