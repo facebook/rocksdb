@@ -137,15 +137,15 @@ function main {
   fi
   if [ $TEST_MODE -ge 1 ]; then
       build_checkpoint
+      # run_db_bench benchmark_name NUM_OPS NUM_THREADS USED_EXISTING_DB UPDATE_REPORT ASYNC_IO
+      run_db_bench "seekrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
+      run_db_bench "multireadrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
       run_db_bench "readrandom"
       run_db_bench "readwhilewriting"
       run_db_bench "deleterandom"
       run_db_bench "seekrandom"
       run_db_bench "seekrandomwhilewriting"
       run_db_bench "multireadrandom"
-      # run_db_bench benchmark_name NUM_OPS NUM_THREADS USED_EXISTING_DB UPDATE_REPORT ASYNC_IO
-      run_db_bench "seekrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
-      run_db_bench "multireadrandom_asyncio" $NUM_OPS $NUM_THREADS  1 1 true
   fi
 
   cleanup_test_directory $TEST_ROOT_DIR
@@ -313,7 +313,7 @@ function run_db_bench {
 }
 
 function set_async_io_parameters {
-  options=" --duration=50"
+  options=" --duration=500"
   # Below parameters are used in case of async_io only.
   # 1. If you want to run below parameters for all benchmarks, it should be
   #    specify in OPTIONS_FILE instead of exporting them.
