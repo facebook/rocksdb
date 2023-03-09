@@ -764,6 +764,9 @@ class NonBatchedOpsStressTest : public StressTest {
       SharedState::ignore_read_error = false;
     }
 
+    assert(thread);
+    assert(thread->shared);
+
     std::unique_ptr<MutexLock> lock(new MutexLock(
         thread->shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
 
