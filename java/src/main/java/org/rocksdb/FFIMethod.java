@@ -48,13 +48,13 @@ public class FFIMethod {
     }
   }
 
-  public static MethodHandle GetIntoPinnable;
+  public static final MethodHandle GetIntoPinnable;
 
-  public static MethodHandle NewPinnable;
-  public static MethodHandle ResetPinnable;
-  public static MethodHandle DeletePinnable;
+  public static final MethodHandle NewPinnable;
+  public static final MethodHandle ResetPinnable;
+  public static final MethodHandle DeletePinnable;
 
-  public static MethodHandle GetOutput;
+  public static final MethodHandle GetOutput;
 
-  public static MethodHandle Identity;
+  public static final MethodHandle Identity;
 }
