@@ -98,6 +98,7 @@ class BlockBasedTable : public TableReader {
       const BlockBasedTableOptions& table_options,
       const InternalKeyComparator& internal_key_comparator,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      uint8_t block_protection_bytes_per_key,
       std::unique_ptr<TableReader>* table_reader,
       std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
           nullptr,

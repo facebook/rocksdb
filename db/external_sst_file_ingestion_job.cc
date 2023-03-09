@@ -678,11 +678,13 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
+          sv->mutable_cf_options.block_protection_bytes_per_key,
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,
           /*block_cache_tracer*/ nullptr,
           /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
-          /*cur_file_num*/ new_file_number),
+          /*cur_file_num*/ new_file_number, /*unique_id*/ {},
+          /*largest_seqno*/ 0),
       std::move(sst_file_reader), file_to_ingest->file_size, &table_reader);
   if (!status.ok()) {
     return status;

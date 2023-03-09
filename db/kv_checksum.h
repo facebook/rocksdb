@@ -46,6 +46,8 @@ template <typename T>
 class ProtectionInfoKVOC;
 template <typename T>
 class ProtectionInfoKVOS;
+template <typename T>
+class ProtectionInfoKV;
 
 // Aliases for 64-bit protection infos.
 using ProtectionInfo64 = ProtectionInfo<uint64_t>;
@@ -64,6 +66,7 @@ class ProtectionInfo {
   ProtectionInfoKVO<T> ProtectKVO(const SliceParts& key,
                                   const SliceParts& value,
                                   ValueType op_type) const;
+  ProtectionInfoKV<T> ProtectKV(const Slice& key, const Slice& value) const;
 
   T GetVal() const { return val_; }
 
@@ -71,6 +74,7 @@ class ProtectionInfo {
   friend class ProtectionInfoKVO<T>;
   friend class ProtectionInfoKVOS<T>;
   friend class ProtectionInfoKVOC<T>;
+  friend class ProtectionInfoKV<T>;
 
   // Each field is hashed with an independent value so we can catch fields being
   // swapped. Per the `NPHash64()` docs, using consecutive seeds is a pitfall,
@@ -208,6 +212,23 @@ class ProtectionInfoKVOS {
 };
 
 template <typename T>
+class ProtectionInfoKV {
+ public:
+  ProtectionInfoKV() = default;
+
+  T GetVal() const { return info_.GetVal(); }
+
+ private:
+  friend class ProtectionInfo<T>;
+
+  explicit ProtectionInfoKV(T val) : info_(val) {
+    static_assert(sizeof(ProtectionInfoKV<T>) == sizeof(T));
+  }
+
+  ProtectionInfo<T> info_;
+};
+
+template <typename T>
 Status ProtectionInfo<T>::GetStatus() const {
   if (val_ != 0) {
     return Status::Corruption("ProtectionInfo mismatch");
@@ -242,6 +263,16 @@ ProtectionInfoKVO<T> ProtectionInfo<T>::ProtectKVO(const SliceParts& key,
         static_cast<T>(NPHash64(reinterpret_cast<char*>(&op_type),
                                 sizeof(op_type), ProtectionInfo<T>::kSeedO));
   return ProtectionInfoKVO<T>(val);
+}
+
+template <typename T>
+ProtectionInfoKV<T> ProtectionInfo<T>::ProtectKV(const Slice& key,
+                                                 const Slice& value) const {
+  T val = GetVal();
+  val = val ^ static_cast<T>(GetSliceNPHash64(key, ProtectionInfo<T>::kSeedK));
+  val =
+      val ^ static_cast<T>(GetSliceNPHash64(value, ProtectionInfo<T>::kSeedV));
+  return ProtectionInfoKV<T>(val);
 }
 
 template <typename T>
@@ -393,6 +424,44 @@ void ProtectionInfoKVOS<T>::UpdateS(SequenceNumber old_sequence_number,
                   reinterpret_cast<char*>(&new_sequence_number),
                   sizeof(new_sequence_number), ProtectionInfo<T>::kSeedS));
   SetVal(val);
+}
+
+inline void EncodeKVChecksum(uint64_t checksum,
+                             uint32_t protection_bytes_per_key, char* dst) {
+  switch (protection_bytes_per_key) {
+    case 1:
+      dst[0] = static_cast<uint8_t>(checksum);
+      break;
+    case 2:
+      EncodeFixed16(dst, static_cast<uint16_t>(checksum));
+      break;
+    case 4:
+      EncodeFixed32(dst, static_cast<uint32_t>(checksum));
+      break;
+    case 8:
+      EncodeFixed64(dst, checksum);
+      break;
+    default:
+      assert(false);
+  }
+}
+
+inline bool VerifyKVChecksum(uint8_t checksum_len, const char* checksum_ptr,
+                             uint64_t expected) {
+  switch (checksum_len) {
+    case 1:
+      return static_cast<uint8_t>(checksum_ptr[0]) ==
+             static_cast<uint8_t>(expected);
+    case 2:
+      return DecodeFixed16(checksum_ptr) == static_cast<uint16_t>(expected);
+    case 4:
+      return DecodeFixed32(checksum_ptr) == static_cast<uint32_t>(expected);
+    case 8:
+      return DecodeFixed64(checksum_ptr) == expected;
+    default:
+      assert(false);
+      return false;
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

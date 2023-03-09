@@ -1428,6 +1428,12 @@ Status ColumnFamilyData::ValidateOptions(
         "Memtable per key-value checksum protection only supports 0, 1, 2, 4 "
         "or 8 bytes per key.");
   }
+  if (std::find(supported.begin(), supported.end(),
+                cf_options.block_protection_bytes_per_key) == supported.end()) {
+    return Status::NotSupported(
+        "Block per key-value checksum protection only supports 0, 1, 2, 4 "
+        "or 8 bytes per key.");
+  }
   return s;
 }
 

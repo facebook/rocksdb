@@ -256,7 +256,7 @@ void MemTable::UpdateOldestKeyTime() {
 }
 
 Status MemTable::VerifyEntryChecksum(const char* entry,
-                                     size_t protection_bytes_per_key,
+                                     uint32_t protection_bytes_per_key,
                                      bool allow_data_in_errors) {
   if (protection_bytes_per_key == 0) {
     return Status::OK();
@@ -289,24 +289,8 @@ Status MemTable::VerifyEntryChecksum(const char* entry,
                           .ProtectKVO(user_key, value, type)
                           .ProtectS(seq)
                           .GetVal();
-  bool match = true;
-  switch (protection_bytes_per_key) {
-    case 1:
-      match = static_cast<uint8_t>(checksum_ptr[0]) ==
-              static_cast<uint8_t>(expected);
-      break;
-    case 2:
-      match = DecodeFixed16(checksum_ptr) == static_cast<uint16_t>(expected);
-      break;
-    case 4:
-      match = DecodeFixed32(checksum_ptr) == static_cast<uint32_t>(expected);
-      break;
-    case 8:
-      match = DecodeFixed64(checksum_ptr) == expected;
-      break;
-    default:
-      assert(false);
-  }
+  bool match = VerifyKVChecksum(static_cast<uint8_t>(protection_bytes_per_key),
+                                checksum_ptr, expected);
   if (!match) {
     std::string msg(
         "Corrupted memtable entry, per key-value checksum verification "
@@ -526,7 +510,7 @@ class MemTableIterator : public InternalIterator {
   bool valid_;
   bool arena_mode_;
   bool value_pinned_;
-  size_t protection_bytes_per_key_;
+  uint32_t protection_bytes_per_key_;
   Status status_;
   Logger* logger_;
 
@@ -691,22 +675,7 @@ void MemTable::UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
   } else {
     checksum = kv_prot_info->GetVal();
   }
-  switch (moptions_.protection_bytes_per_key) {
-    case 1:
-      checksum_ptr[0] = static_cast<uint8_t>(checksum);
-      break;
-    case 2:
-      EncodeFixed16(checksum_ptr, static_cast<uint16_t>(checksum));
-      break;
-    case 4:
-      EncodeFixed32(checksum_ptr, static_cast<uint32_t>(checksum));
-      break;
-    case 8:
-      EncodeFixed64(checksum_ptr, checksum);
-      break;
-    default:
-      assert(false);
-  }
+  EncodeKVChecksum(checksum, moptions_.protection_bytes_per_key, checksum_ptr);
 }
 
 Status MemTable::Add(SequenceNumber s, ValueType type,
@@ -902,7 +871,7 @@ struct Saver {
   ReadCallback* callback_;
   bool* is_blob_index;
   bool allow_data_in_errors;
-  size_t protection_bytes_per_key;
+  uint32_t protection_bytes_per_key;
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
       return callback_->IsVisible(_seq);

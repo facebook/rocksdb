@@ -566,13 +566,13 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
   assert(builder_iter->second != nullptr);
   VersionBuilder* builder = builder_iter->second->version_builder();
   assert(builder);
+  const MutableCFOptions* moptions = cfd->GetLatestMutableCFOptions();
   Status s = builder->LoadTableHandlers(
       cfd->internal_stats(),
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load,
-      cfd->GetLatestMutableCFOptions()->prefix_extractor,
-      MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()),
-      read_options_);
+      moptions->prefix_extractor, MaxFileSizeForL0MetaPin(*moptions),
+      read_options_, moptions->block_protection_bytes_per_key);
   if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
   }
@@ -812,16 +812,16 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
       assert(builder);
     }
 
+    const MutableCFOptions* cf_opts_ptr = cfd->GetLatestMutableCFOptions();
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
-                                *cfd->GetLatestMutableCFOptions(), io_tracer_,
+                                *cf_opts_ptr, io_tracer_,
                                 version_set_->current_version_number_++,
                                 epoch_number_requirement_);
     s = builder->LoadTableHandlers(
         cfd->internal_stats(),
         version_set_->db_options_->max_file_opening_threads, false, true,
-        cfd->GetLatestMutableCFOptions()->prefix_extractor,
-        MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()),
-        read_options_);
+        cf_opts_ptr->prefix_extractor, MaxFileSizeForL0MetaPin(*cf_opts_ptr),
+        read_options_, cf_opts_ptr->block_protection_bytes_per_key);
     if (!s.ok()) {
       delete version;
       if (s.IsCorruption()) {

@@ -518,8 +518,9 @@ class Repairer {
     if (status.ok()) {
       // TODO: plumb Env::IOActivity
       const ReadOptions read_options;
-      status = table_cache_->GetTableProperties(file_options_, read_options,
-                                                icmp_, t->meta, &props);
+      status = table_cache_->GetTableProperties(
+          file_options_, read_options, icmp_, t->meta, &props,
+          0 /* block_protection_bytes_per_key */);
     }
     if (status.ok()) {
       auto s =
@@ -577,7 +578,8 @@ class Repairer {
           /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false);
+          /*allow_unprepared_value=*/false,
+          cfd->GetLatestMutableCFOptions()->block_protection_bytes_per_key);
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
@@ -617,7 +619,9 @@ class Repairer {
       ReadOptions ropts;
       std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
       status = table_cache_->GetRangeTombstoneIterator(
-          ropts, cfd->internal_comparator(), t->meta, &r_iter);
+          ropts, cfd->internal_comparator(), t->meta,
+          cfd->GetLatestMutableCFOptions()->block_protection_bytes_per_key,
+          &r_iter);
 
       if (r_iter) {
         r_iter->SeekToFirst();
