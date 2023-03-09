@@ -1230,6 +1230,8 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(
             v, s->inplace_update_support == false /* operand_pinned */);
+        PERF_COUNTER_ADD(internal_merge_count_point_lookups, 1);
+
         if (s->do_merge && merge_operator->ShouldMerge(
                                merge_context->GetOperandsDirectionBackward())) {
           if (s->value || s->columns) {
