@@ -10,6 +10,7 @@ import static org.rocksdb.util.KVUtils.ba;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -258,11 +259,13 @@ public class GetBenchmarks {
   private MemorySegment getKeySegment() {
     final int MAX_LEN = 9; // key100000
     final int keyIdx = next();
-    final StringBuilder sb = new StringBuilder("key" + keyIdx);
-
-    while (sb.length() < MAX_LEN) sb.append("0");
-    final MemorySegment sbSegment = MemorySegment.ofArray(sb.toString().getBytes());
-    keySegment.copyFrom(sbSegment);
+    final String keyStr = "key" + keyIdx;
+    for (int i = 0; i < keyStr.length(); ++i) {
+      keySegment.set(ValueLayout.JAVA_BYTE, i, (byte) keyStr.charAt(i));
+    }
+    for (int i = keyStr.length(); i < MAX_LEN; ++i) {
+      keySegment.set(ValueLayout.JAVA_BYTE, i, (byte) 0x30);
+    }
 
     return keySegment;
   }
@@ -270,9 +273,13 @@ public class GetBenchmarks {
   private MemorySegment getRandomKeySegment() {
     final int MAX_LEN = 9; // key100000
     final int keyIdx = random();
-    final StringBuilder sb = new StringBuilder("key" + keyIdx);
-    while (sb.length() < MAX_LEN) sb.append((byte) 0x30);
-    keySegment.copyFrom(MemorySegment.ofArray(sb.toString().getBytes()));
+    final String keyStr = "key" + keyIdx;
+    for (int i = 0; i < keyStr.length(); ++i) {
+      keySegment.set(ValueLayout.JAVA_BYTE, i, (byte) keyStr.charAt(i));
+    }
+    for (int i = keyStr.length(); i < MAX_LEN; ++i) {
+      keySegment.set(ValueLayout.JAVA_BYTE, i, (byte) 0x30);
+    }
 
     return keySegment;
   }
