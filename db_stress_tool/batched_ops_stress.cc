@@ -309,8 +309,34 @@ class BatchedOpsStressTest : public StressTest {
       }
     }
 
+    auto normalize = [&](const WideColumns& columns,
+                         size_t index) -> WideColumns {
+      assert(index < num_keys);
+      const char expected_back = static_cast<char>('0' + index);
+
+      WideColumns normalized;
+      normalized.reserve(columns.size());
+
+      for (const auto& column : columns) {
+        Slice value = column.value();
+
+        if (value.empty()) {
+          // TODO
+        } else if (value[value.size() - 1] != expected_back) {
+          // TODO
+        } else {
+          value.remove_suffix(1);
+          normalized.emplace_back(column.name(), value);
+        }
+      }
+
+      return normalized;
+    };
+
+    const auto expected = normalize(results[0].columns(), 0);
+
     for (size_t i = 1; i < num_keys; ++i) {
-      if (results[i] != results[0]) {
+      if (normalize(results[i].columns(), i) != expected) {
         fprintf(stderr,
                 "GetEntity error: inconsistent entities for key %s: %s, %s\n",
                 StringToHex(key_suffix).c_str(),
