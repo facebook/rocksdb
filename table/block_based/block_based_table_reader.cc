@@ -834,7 +834,6 @@ Status BlockBasedTable::PrefetchTail(
   if (!file->use_direct_io() && !force_direct_prefetch) {
     if (!file->Prefetch(prefetch_off, prefetch_len, ro.rate_limiter_priority)
              .IsNotSupported()) {
-      RecordInHistogram(stats, TABLE_PREFETCH_TAIL_READ_BYTES, prefetch_len);
       prefetch_buffer->reset(new FilePrefetchBuffer(
           0 /* readahead_size */, 0 /* max_readahead_size */,
           false /* enable */, true /* track_min_offset */));
@@ -843,9 +842,12 @@ Status BlockBasedTable::PrefetchTail(
   }
 
   // Use `FilePrefetchBuffer`
-  prefetch_buffer->reset(
-      new FilePrefetchBuffer(0 /* readahead_size */, 0 /* max_readahead_size */,
-                             true /* enable */, true /* track_min_offset */));
+  prefetch_buffer->reset(new FilePrefetchBuffer(
+      0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
+      true /* track_min_offset */, false /* implicit_auto_readahead */,
+      0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
+      nullptr /* fs */, nullptr /* clock */, stats,
+      FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
   IOOptions opts;
   Status s = file->PrepareIOOptions(ro, opts);
@@ -853,7 +855,6 @@ Status BlockBasedTable::PrefetchTail(
     s = (*prefetch_buffer)
             ->Prefetch(opts, file, prefetch_off, prefetch_len,
                        ro.rate_limiter_priority);
-    RecordInHistogram(stats, TABLE_PREFETCH_TAIL_READ_BYTES, prefetch_len);
   }
   return s;
 }

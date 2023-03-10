@@ -162,6 +162,9 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 
   Status s = Read(opts, reader, rate_limiter_priority, read_len, chunk_len,
                   rounddown_offset, curr_);
+  if (s.ok() && usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+    RecordInHistogram(stats_, TABLE_OPEN_PREFETCH_TAIL_READ_BYTES, read_len);
+  }
   return s;
 }
 
@@ -612,7 +615,13 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
-  if (!enable_ || (offset < bufs_[curr_].offset_)) {
+  if (!enable_) {
+    return false;
+  }
+  if (offset < bufs_[curr_].offset_) {
+    if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+      RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+    }
     return false;
   }
 
@@ -635,6 +644,9 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
           if (!IsEligibleForPrefetch(offset, n)) {
             // Ignore status as Prefetch is not called.
             s.PermitUncheckedError();
+            if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+              RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+            }
             return false;
           }
         }
@@ -648,10 +660,16 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 #ifndef NDEBUG
         IGNORE_STATUS_IF_ERROR(s);
 #endif
+        if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+          RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+        }
         return false;
       }
       readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
     } else {
+      if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+        RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+      }
       return false;
     }
   }
@@ -659,6 +677,9 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 
   uint64_t offset_in_buffer = offset - bufs_[curr_].offset_;
   *result = Slice(bufs_[curr_].buffer_.BufferStart() + offset_in_buffer, n);
+  if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+    RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_HIT);
+  }
   return true;
 }
 
@@ -684,11 +705,17 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
       bufs_[curr_].buffer_.Clear();
       bufs_[curr_ ^ 1].buffer_.Clear();
       explicit_prefetch_submitted_ = false;
+      if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+        RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+      }
       return false;
     }
   }
 
   if (!explicit_prefetch_submitted_ && offset < bufs_[curr_].offset_) {
+    if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+      RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+    }
     return false;
   }
 
@@ -714,6 +741,9 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
         if (!IsEligibleForPrefetch(offset, n)) {
           // Ignore status as Prefetch is not called.
           s.PermitUncheckedError();
+          if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+            RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+          }
           return false;
         }
       }
@@ -729,10 +759,16 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
 #ifndef NDEBUG
         IGNORE_STATUS_IF_ERROR(s);
 #endif
+        if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+          RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+        }
         return false;
       }
       prefetched = explicit_prefetch_submitted_ ? false : true;
     } else {
+      if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+        RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+      }
       return false;
     }
   }
@@ -747,6 +783,9 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   *result = Slice(bufs_[index].buffer_.BufferStart() + offset_in_buffer, n);
   if (prefetched) {
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
+  }
+  if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail) {
+    RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_HIT);
   }
   return true;
 }

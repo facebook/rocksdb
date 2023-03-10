@@ -232,17 +232,11 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
 
   std::unique_ptr<BlockBasedTable> table;
   Options options;
-  options.statistics = CreateDBStatistics();
   ImmutableOptions ioptions(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
   InternalKeyComparator comparator(options.comparator);
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
-
-  HistogramData table_prefetch_tail_read_bytes;
-  options.statistics->histogramData(TABLE_PREFETCH_TAIL_READ_BYTES,
-                                    &table_prefetch_tail_read_bytes);
-  ASSERT_EQ(table_prefetch_tail_read_bytes.count, 1);
 
   // Ensure that keys are not in cache before MultiGet.
   for (auto& key : keys) {
