@@ -805,15 +805,34 @@ class NonBatchedOpsStressTest : public StressTest {
       // found case
       thread->stats.AddGets(1, 1);
 
-      if (!FLAGS_skip_verifydb &&
-          thread->shared->Get(rand_column_families[0], rand_keys[0]) ==
-              SharedState::DELETION_SENTINEL) {
-        thread->shared->SetVerificationFailure();
-        fprintf(stderr,
-                "error : inconsistent values for key %s: GetEntity returns %s, "
-                "expected state does not have the key.\n",
-                StringToHex(key).c_str(),
-                WideColumnsToHex(from_db.columns()).c_str());
+      if (!FLAGS_skip_verifydb) {
+        const WideColumns& columns = from_db.columns();
+
+        Slice default_column;
+        if (!columns.empty() &&
+            columns.front().name() == kDefaultWideColumnName) {
+          default_column = columns.front().value();
+        }
+
+        const WideColumns expected_columns = GenerateExpectedWideColumns(
+            GetValueBase(default_column), default_column);
+        if (columns != expected_columns) {
+          thread->shared->SetVerificationFailure();
+          fprintf(
+              stderr,
+              "error : inconsistent columns for key %s: GetEntity returns %s, "
+              "expected %s based on default column.\n",
+              StringToHex(key).c_str(), WideColumnsToHex(columns).c_str(),
+              WideColumnsToHex(expected_columns).c_str());
+        } else if (thread->shared->Get(rand_column_families[0], rand_keys[0]) ==
+                   SharedState::DELETION_SENTINEL) {
+          thread->shared->SetVerificationFailure();
+          fprintf(
+              stderr,
+              "error : inconsistent values for key %s: GetEntity returns %s, "
+              "expected state does not have the key.\n",
+              StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+        }
       }
     } else if (s.IsNotFound()) {
       // not found case
