@@ -268,9 +268,9 @@ class BatchedOpsStressTest : public StressTest {
     return ret_status;
   }
 
-  Status TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
-                       const std::vector<int>& rand_column_families,
-                       const std::vector<int64_t>& rand_keys) override {
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override {
     ManagedSnapshot snapshot_guard(db_);
 
     ReadOptions read_opts_copy(read_opts);
@@ -346,8 +346,6 @@ class BatchedOpsStressTest : public StressTest {
         // find more errors if any
       }
     }
-
-    return Status::OK();
   }
 
   // Given a key, this does prefix scans for "0"+P, "1"+P, ..., "9"+P

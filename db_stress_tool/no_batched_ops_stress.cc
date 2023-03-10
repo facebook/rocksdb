@@ -756,9 +756,9 @@ class NonBatchedOpsStressTest : public StressTest {
     return statuses;
   }
 
-  Status TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
-                       const std::vector<int>& rand_column_families,
-                       const std::vector<int64_t>& rand_keys) override {
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override {
     if (fault_fs_guard) {
       fault_fs_guard->EnableErrorInjection();
       SharedState::ignore_read_error = false;
@@ -863,8 +863,6 @@ class NonBatchedOpsStressTest : public StressTest {
     if (fault_fs_guard) {
       fault_fs_guard->DisableErrorInjection();
     }
-
-    return s;
   }
 
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
