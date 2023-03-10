@@ -270,7 +270,7 @@ class Block {
     }
     uint64_t expected = ProtectionInfo64().ProtectKV(key, val).GetVal();
     return VerifyKVChecksum(checksum_len, checksum_ptr, expected);
-  };
+  }
 
   static void GenerateKVChecksum(char* checksum_ptr, uint32_t checksum_len,
                                  const Slice& key, const Slice& value) {
@@ -482,7 +482,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
       ++count;
     }
     return count;
-  };
+  }
 
   // Returns the number of keys in this block.
   virtual uint32_t NumberOfKeys(uint32_t block_restart_interval) {
@@ -497,7 +497,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
       ++count;
     }
     return count;
-  };
+  }
 
   // Stores whether the current key has a shared bytes with prev key in
   // *is_shared.
