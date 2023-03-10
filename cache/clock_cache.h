@@ -405,12 +405,18 @@ class HyperClockTable {
 
   HyperClockTable(size_t capacity, bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy,
-                  MemoryAllocator* allocator, const Opts& opts);
+                  MemoryAllocator* allocator,
+                  const Cache::EvictionCallback* eviction_callback,
+                  const Opts& opts);
   ~HyperClockTable();
 
   Status Insert(const ClockHandleBasicData& proto, HandleImpl** handle,
                 Cache::Priority priority, size_t capacity,
                 bool strict_capacity_limit);
+
+  HandleImpl* CreateStandalone(ClockHandleBasicData& proto, size_t capacity,
+                               bool strict_capacity_limit,
+                               bool allow_uncharged);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -537,6 +543,9 @@ class HyperClockTable {
   // From Cache, for deleter
   MemoryAllocator* const allocator_;
 
+  // A reference to Cache::eviction_callback_
+  const Cache::EvictionCallback& eviction_callback_;
+
   // We partition the following members into different cache lines
   // to avoid false sharing among Lookup, Release, Erase and Insert
   // operations in ClockCacheShard.
@@ -562,7 +571,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
  public:
   ClockCacheShard(size_t capacity, bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy,
-                  MemoryAllocator* allocator, const typename Table::Opts& opts);
+                  MemoryAllocator* allocator,
+                  const Cache::EvictionCallback* eviction_callback,
+                  const typename Table::Opts& opts);
 
   // For CacheShard concept
   using HandleImpl = typename Table::HandleImpl;
@@ -603,6 +614,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
                 Cache::ObjectPtr value, const Cache::CacheItemHelper* helper,
                 size_t charge, HandleImpl** handle, Cache::Priority priority);
 
+  HandleImpl* CreateStandalone(const Slice& key, const UniqueId64x2& hashed_key,
+                               Cache::ObjectPtr obj,
+                               const Cache::CacheItemHelper* helper,
+                               size_t charge, bool allow_uncharged);
+
   HandleImpl* Lookup(const Slice& key, const UniqueId64x2& hashed_key);
 
   bool Release(HandleImpl* handle, bool useful, bool erase_if_last_ref);
@@ -640,14 +656,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   HandleImpl* Lookup(const Slice& key, const UniqueId64x2& hashed_key,
                      const Cache::CacheItemHelper* /*helper*/,
                      Cache::CreateContext* /*create_context*/,
-                     Cache::Priority /*priority*/, bool /*wait*/,
-                     Statistics* /*stats*/) {
+                     Cache::Priority /*priority*/, Statistics* /*stats*/) {
     return Lookup(key, hashed_key);
   }
-
-  bool IsReady(HandleImpl* /*handle*/) { return true; }
-
-  void Wait(HandleImpl* /*handle*/) {}
 
   // Acquire/release N references
   void TEST_RefN(HandleImpl* handle, size_t n);

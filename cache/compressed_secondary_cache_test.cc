@@ -315,7 +315,7 @@ class CompressedSecondaryCacheTest : public testing::Test,
     }
 
     Cache::Handle* handle;
-    handle = cache->Lookup("k3", GetHelper(), this, Cache::Priority::LOW, true,
+    handle = cache->Lookup("k3", GetHelper(), this, Cache::Priority::LOW,
                            stats.get());
     ASSERT_NE(handle, nullptr);
     auto val3 = static_cast<TestItem*>(cache->Value(handle));
@@ -324,13 +324,13 @@ class CompressedSecondaryCacheTest : public testing::Test,
     cache->Release(handle);
 
     // Lookup an non-existent key.
-    handle = cache->Lookup("k0", GetHelper(), this, Cache::Priority::LOW, true,
+    handle = cache->Lookup("k0", GetHelper(), this, Cache::Priority::LOW,
                            stats.get());
     ASSERT_EQ(handle, nullptr);
 
     // This Lookup should just insert a dummy handle in the primary cache
     // and the k1 is still in the secondary cache.
-    handle = cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW, true,
+    handle = cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW,
                            stats.get());
     ASSERT_NE(handle, nullptr);
     ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 1);
@@ -342,7 +342,7 @@ class CompressedSecondaryCacheTest : public testing::Test,
     // This Lookup should erase k1 from the secondary cache and insert
     // it into primary cache; then k3 is demoted.
     // k2 and k3 are in secondary cache.
-    handle = cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW, true,
+    handle = cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW,
                            stats.get());
     ASSERT_NE(handle, nullptr);
     ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 1);
@@ -350,7 +350,7 @@ class CompressedSecondaryCacheTest : public testing::Test,
     cache->Release(handle);
 
     // k2 is still in secondary cache.
-    handle = cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW, true,
+    handle = cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW,
                            stats.get());
     ASSERT_NE(handle, nullptr);
     ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 2);
@@ -358,7 +358,7 @@ class CompressedSecondaryCacheTest : public testing::Test,
 
     // Testing SetCapacity().
     ASSERT_OK(secondary_cache->SetCapacity(0));
-    handle = cache->Lookup("k3", GetHelper(), this, Cache::Priority::LOW, true,
+    handle = cache->Lookup("k3", GetHelper(), this, Cache::Priority::LOW,
                            stats.get());
     ASSERT_EQ(handle, nullptr);
 
@@ -391,7 +391,7 @@ class CompressedSecondaryCacheTest : public testing::Test,
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 5);
     // This Lookup should just insert a dummy handle in the primary cache
     // and the k1 is still in the secondary cache.
-    handle = cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW, true,
+    handle = cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW,
                            stats.get());
 
     ASSERT_NE(handle, nullptr);
@@ -434,11 +434,19 @@ class CompressedSecondaryCacheTest : public testing::Test,
     item1.release();  // Appease clang-analyze "potential memory leak"
 
     Cache::Handle* handle;
-    handle = cache->Lookup("k2", nullptr, this, Cache::Priority::LOW, true);
+    handle = cache->Lookup("k2", nullptr, this, Cache::Priority::LOW);
     ASSERT_EQ(handle, nullptr);
-    handle =
-        cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW, false);
+    handle = cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW);
     ASSERT_EQ(handle, nullptr);
+
+    Cache::AsyncLookupHandle ah;
+    ah.key = "k2";
+    ah.helper = GetHelper();
+    ah.create_context = this;
+    ah.priority = Cache::Priority::LOW;
+    cache->StartAsyncLookup(ah);
+    cache->Wait(ah);
+    ASSERT_EQ(ah.Result(), nullptr);
 
     cache.reset();
     secondary_cache.reset();
@@ -481,17 +489,14 @@ class CompressedSecondaryCacheTest : public testing::Test,
     ASSERT_OK(cache->Insert("k2", item2, GetHelperFail(), str2.length()));
 
     Cache::Handle* handle;
-    handle =
-        cache->Lookup("k2", GetHelperFail(), this, Cache::Priority::LOW, true);
+    handle = cache->Lookup("k2", GetHelperFail(), this, Cache::Priority::LOW);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
     // This lookup should fail, since k1 demotion would have failed.
-    handle =
-        cache->Lookup("k1", GetHelperFail(), this, Cache::Priority::LOW, true);
+    handle = cache->Lookup("k1", GetHelperFail(), this, Cache::Priority::LOW);
     ASSERT_EQ(handle, nullptr);
     // Since k1 was not promoted, k2 should still be in cache.
-    handle =
-        cache->Lookup("k2", GetHelperFail(), this, Cache::Priority::LOW, true);
+    handle = cache->Lookup("k2", GetHelperFail(), this, Cache::Priority::LOW);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
 
@@ -537,14 +542,14 @@ class CompressedSecondaryCacheTest : public testing::Test,
 
     Cache::Handle* handle;
     SetFailCreate(true);
-    handle = cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW, true);
+    handle = cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
     // This lookup should fail, since k1 creation would have failed
-    handle = cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW, true);
+    handle = cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW);
     ASSERT_EQ(handle, nullptr);
     // Since k1 didn't get promoted, k2 should still be in cache
-    handle = cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW, true);
+    handle = cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
 
@@ -601,8 +606,7 @@ class CompressedSecondaryCacheTest : public testing::Test,
     ASSERT_OK(cache->Insert("k2", item2_2, GetHelper(), str2.length()));
 
     Cache::Handle* handle2;
-    handle2 =
-        cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW, true);
+    handle2 = cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW);
     ASSERT_NE(handle2, nullptr);
     cache->Release(handle2);
 
@@ -610,14 +614,12 @@ class CompressedSecondaryCacheTest : public testing::Test,
     // strict_capacity_limit is true, but the lookup should still succeed.
     // A k1's dummy item is inserted into primary cache.
     Cache::Handle* handle1;
-    handle1 =
-        cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW, true);
+    handle1 = cache->Lookup("k1", GetHelper(), this, Cache::Priority::LOW);
     ASSERT_NE(handle1, nullptr);
     cache->Release(handle1);
 
     // Since k1 didn't get inserted, k2 should still be in cache
-    handle2 =
-        cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW, true);
+    handle2 = cache->Lookup("k2", GetHelper(), this, Cache::Priority::LOW);
     ASSERT_NE(handle2, nullptr);
     cache->Release(handle2);
 

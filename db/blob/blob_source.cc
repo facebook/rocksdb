@@ -104,9 +104,9 @@ Status BlobSource::PutBlobIntoCache(
 }
 
 BlobSource::TypedHandle* BlobSource::GetEntryFromCache(const Slice& key) const {
-  return blob_cache_.LookupFull(
-      key, nullptr /* context */, Cache::Priority::BOTTOM,
-      true /* wait_for_cache */, statistics_, lowest_used_cache_tier_);
+  return blob_cache_.LookupFull(key, nullptr /* context */,
+                                Cache::Priority::BOTTOM, statistics_,
+                                lowest_used_cache_tier_);
 }
 
 void BlobSource::PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,

@@ -5,6 +5,10 @@
 
 #pragma once
 
+#include <gtest/gtest.h>
+
+#include <functional>
+
 #include "rocksdb/advanced_cache.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -50,6 +54,58 @@ const Cache::CacheItemHelper* GetHelper(
 
 const Cache::CacheItemHelper* GetHelperFail(
     CacheEntryRole r = CacheEntryRole::kDataBlock);
+
+extern const std::string kLRU;
+extern const std::string kHyperClock;
+
+class WithCacheTestParam : public testing::WithParamInterface<std::string> {
+ public:
+  // For options other than capacity
+  size_t estimated_value_size_ = 1;
+
+  std::shared_ptr<Cache> NewCache(
+      size_t capacity,
+      std::function<void(ShardedCacheOptions&)> modify_opts_fn = {}) {
+    auto type = GetParam();
+    if (type == kLRU) {
+      LRUCacheOptions lru_opts;
+      lru_opts.capacity = capacity;
+      if (modify_opts_fn) {
+        modify_opts_fn(lru_opts);
+      }
+      return NewLRUCache(lru_opts);
+    }
+    if (type == kHyperClock) {
+      HyperClockCacheOptions hc_opts{capacity, estimated_value_size_};
+      if (modify_opts_fn) {
+        modify_opts_fn(hc_opts);
+      }
+      return hc_opts.MakeSharedCache();
+    }
+    return nullptr;
+  }
+
+  std::shared_ptr<Cache> NewCache(
+      size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+      CacheMetadataChargePolicy charge_policy = kDontChargeCacheMetadata) {
+    return NewCache(capacity, [=](ShardedCacheOptions& opts) {
+      opts.num_shard_bits = num_shard_bits;
+      opts.strict_capacity_limit = strict_capacity_limit;
+      opts.metadata_charge_policy = charge_policy;
+    });
+  }
+
+  std::shared_ptr<Cache> NewCache(
+      size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+      std::shared_ptr<SecondaryCache> secondary_cache) {
+    return NewCache(capacity, [=](ShardedCacheOptions& opts) {
+      opts.num_shard_bits = num_shard_bits;
+      opts.strict_capacity_limit = strict_capacity_limit;
+      opts.metadata_charge_policy = kDontChargeCacheMetadata;
+      opts.secondary_cache = secondary_cache;
+    });
+  }
+};
 
 }  // namespace secondary_cache_test_util
 

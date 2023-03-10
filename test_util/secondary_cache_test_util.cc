@@ -5,8 +5,6 @@
 
 #include "test_util/secondary_cache_test_util.h"
 
-#include <gtest/gtest.h>
-
 #include <array>
 
 namespace ROCKSDB_NAMESPACE {
@@ -88,6 +86,9 @@ const Cache::CacheItemHelper* GetHelper(CacheEntryRole r,
 const Cache::CacheItemHelper* GetHelperFail(CacheEntryRole r) {
   return GetHelper(r, true, true);
 }
+
+const std::string kLRU = "lru";
+const std::string kHyperClock = "hyper_clock";
 
 }  // namespace secondary_cache_test_util
 

@@ -35,10 +35,8 @@ Status ChargedCache::Insert(const Slice& key, ObjectPtr obj,
 Cache::Handle* ChargedCache::Lookup(const Slice& key,
                                     const CacheItemHelper* helper,
                                     CreateContext* create_context,
-                                    Priority priority, bool wait,
-                                    Statistics* stats) {
-  auto handle =
-      target_->Lookup(key, helper, create_context, priority, wait, stats);
+                                    Priority priority, Statistics* stats) {
+  auto handle = target_->Lookup(key, helper, create_context, priority, stats);
   // Lookup may promote the KV pair from the secondary cache to the primary
   // cache. So we directly call the reservation manager to update the total
   // memory used in the cache.
@@ -48,6 +46,16 @@ Cache::Handle* ChargedCache::Lookup(const Slice& key,
         .PermitUncheckedError();
   }
   return handle;
+}
+
+void ChargedCache::WaitAll(AsyncLookupHandle* async_handles, size_t count) {
+  target_->WaitAll(async_handles, count);
+  // In case of any promotions. Although some could finish by return of
+  // StartAsyncLookup, Wait/WaitAll will generally be used, so simpler to
+  // update here.
+  assert(cache_res_mgr_);
+  cache_res_mgr_->UpdateCacheReservation(target_->GetUsage())
+      .PermitUncheckedError();
 }
 
 bool ChargedCache::Release(Cache::Handle* handle, bool useful,
