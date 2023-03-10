@@ -2783,7 +2783,7 @@ Status Version::ProcessBatch(
           mutable_cf_options_.prefix_extractor,
           cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
           fp.GetHitFileLevel(), &file_range, &table_handle,
-          mutable_cf_options_.block_protection_bytes_per_key, );
+          mutable_cf_options_.block_protection_bytes_per_key);
       if (status.ok()) {
         skip_filters = true;
         skip_range_deletions = true;

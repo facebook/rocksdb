@@ -694,7 +694,8 @@ class BlockPerKVChecksumTest : public DBTestBase {
       return checksum_ptr == nullptr;
     }
     uint64_t expected = ProtectionInfo64().ProtectKV(key, val).GetVal();
-    return VerifyKVChecksum(checksum_len, checksum_ptr, expected);
+    return VerifyKVChecksum(static_cast<uint8_t>(checksum_len), checksum_ptr,
+                            expected);
   }
 };
 

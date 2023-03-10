@@ -476,7 +476,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     SeekToFirstImpl();
     uint32_t end_index = GetRestartPoint(1);
     uint32_t count = 1;
-    while (NextEntryOffset() < end_index) {
+    while (NextEntryOffset() < end_index && status_.ok()) {
       assert(Valid());
       NextImpl();
       ++count;
@@ -492,7 +492,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     uint32_t count = (num_restarts_ - 1) * block_restart_interval;
     // Add number of keys from the last restart interval
     SeekToRestartPoint(num_restarts_ - 1);
-    while (NextEntryOffset() < restarts_) {
+    while (NextEntryOffset() < restarts_ && status_.ok()) {
       NextImpl();
       ++count;
     }

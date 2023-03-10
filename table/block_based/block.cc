@@ -1087,22 +1087,29 @@ void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
     std::unique_ptr<DataBlockIter> iter{NewDataIterator(
         raw_ucmp, kDisableGlobalSequenceNumber, nullptr /* iter */,
         nullptr /* stats */, true /* block_contents_pinned */)};
-    block_restart_interval_ = iter->GetRestartInterval();
-    uint32_t num_keys = iter->NumberOfKeys(block_restart_interval_);
-    kv_checksum_ = new char[num_keys * protection_bytes_per_key];
-    size_t i = 0;
-    iter->SeekToFirst();
-    while (iter->Valid()) {
-      GenerateKVChecksum(kv_checksum_ + i, protection_bytes_per_key,
-                         iter->key(), iter->value());
-      iter->Next();
-      i += protection_bytes_per_key;
+    if (iter->status().ok()) {
+      block_restart_interval_ = iter->GetRestartInterval();
+    }
+    uint32_t num_keys = 0;
+    if (iter->status().ok()) {
+      num_keys = iter->NumberOfKeys(block_restart_interval_);
+    }
+    if (iter->status().ok()) {
+      kv_checksum_ = new char[num_keys * protection_bytes_per_key];
+      size_t i = 0;
+      iter->SeekToFirst();
+      while (iter->Valid()) {
+        GenerateKVChecksum(kv_checksum_ + i, protection_bytes_per_key,
+                           iter->key(), iter->value());
+        iter->Next();
+        i += protection_bytes_per_key;
+      }
+      assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
     }
     if (!iter->status().ok()) {
       size_ = 0;  // Error marker
       return;
     }
-    assert(i == num_keys * protection_bytes_per_key);
     protection_bytes_per_key_ = protection_bytes_per_key;
   }
 }
@@ -1119,22 +1126,29 @@ void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
         index_has_first_key /* have_first_key */, false /* key_includes_seq */,
         value_is_full, true /* block_contents_pinned */,
         nullptr /* prefix_index */)};
-    block_restart_interval_ = iter->GetRestartInterval();
-    uint32_t num_keys = iter->NumberOfKeys(block_restart_interval_);
-    kv_checksum_ = new char[num_keys * protection_bytes_per_key];
-    iter->SeekToFirst();
-    size_t i = 0;
-    while (iter->Valid()) {
-      GenerateKVChecksum(kv_checksum_ + i, protection_bytes_per_key,
-                         iter->key(), iter->raw_value());
-      i += protection_bytes_per_key;
-      iter->Next();
+    if (iter->status().ok()) {
+      block_restart_interval_ = iter->GetRestartInterval();
+    }
+    uint32_t num_keys = 0;
+    if (iter->status().ok()) {
+      num_keys = iter->NumberOfKeys(block_restart_interval_);
+    }
+    if (iter->status().ok()) {
+      kv_checksum_ = new char[num_keys * protection_bytes_per_key];
+      iter->SeekToFirst();
+      size_t i = 0;
+      while (iter->Valid()) {
+        GenerateKVChecksum(kv_checksum_ + i, protection_bytes_per_key,
+                           iter->key(), iter->raw_value());
+        iter->Next();
+        i += protection_bytes_per_key;
+      }
+      assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
     }
     if (!iter->status().ok()) {
       size_ = 0;  // Error marker
       return;
     }
-    assert(i == num_keys * protection_bytes_per_key);
     protection_bytes_per_key_ = protection_bytes_per_key;
   }
 }
@@ -1145,23 +1159,29 @@ void Block::InitializeMetaIndexBlockProtectionInfo(
   if (num_restarts_ > 0 && protection_bytes_per_key > 0) {
     std::unique_ptr<MetaBlockIter> iter{
         NewMetaIterator(true /* block_contents_pinned */)};
-    block_restart_interval_ = iter->GetRestartInterval();
-    uint32_t num_keys = iter->NumberOfKeys(block_restart_interval_);
-    // Assume restart interval is 1
-    kv_checksum_ = new char[num_keys * protection_bytes_per_key];
-    iter->SeekToFirst();
-    size_t i = 0;
-    while (iter->Valid()) {
-      GenerateKVChecksum(kv_checksum_ + i, protection_bytes_per_key,
-                         iter->key(), iter->value());
-      i += protection_bytes_per_key;
-      iter->Next();
+    if (iter->status().ok()) {
+      block_restart_interval_ = iter->GetRestartInterval();
+    }
+    uint32_t num_keys = 0;
+    if (iter->status().ok()) {
+      num_keys = iter->NumberOfKeys(block_restart_interval_);
+    }
+    if (iter->status().ok()) {
+      kv_checksum_ = new char[num_keys * protection_bytes_per_key];
+      iter->SeekToFirst();
+      size_t i = 0;
+      while (iter->Valid()) {
+        GenerateKVChecksum(kv_checksum_ + i, protection_bytes_per_key,
+                           iter->key(), iter->value());
+        iter->Next();
+        i += protection_bytes_per_key;
+      }
+      assert(!iter->status().ok() || i == num_keys * protection_bytes_per_key);
     }
     if (!iter->status().ok()) {
       size_ = 0;  // Error marker
       return;
     }
-    assert(i == num_keys * protection_bytes_per_key);
     protection_bytes_per_key_ = protection_bytes_per_key;
   }
 }
