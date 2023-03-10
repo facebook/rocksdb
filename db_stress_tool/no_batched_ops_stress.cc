@@ -765,10 +765,12 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     assert(thread);
-    assert(thread->shared);
+
+    SharedState* const shared = thread->shared;
+    assert(shared);
 
     std::unique_ptr<MutexLock> lock(new MutexLock(
-        thread->shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
+        shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
 
     assert(!rand_column_families.empty());
 
@@ -794,7 +796,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (error_count && !SharedState::ignore_read_error) {
           // Grab mutex so multiple threads don't try to print the
           // stack trace at the same time
-          MutexLock l(thread->shared->GetMutex());
+          MutexLock l(shared->GetMutex());
           fprintf(stderr, "Didn't get expected error from GetEntity\n");
           fprintf(stderr, "Call stack that injected the fault\n");
           fault_fs_guard->PrintFaultBacktrace();
@@ -817,16 +819,16 @@ class NonBatchedOpsStressTest : public StressTest {
         const WideColumns expected_columns = GenerateExpectedWideColumns(
             GetValueBase(default_column), default_column);
         if (columns != expected_columns) {
-          thread->shared->SetVerificationFailure();
+          shared->SetVerificationFailure();
           fprintf(
               stderr,
               "error : inconsistent columns for key %s: GetEntity returns %s, "
               "expected %s based on default column.\n",
               StringToHex(key).c_str(), WideColumnsToHex(columns).c_str(),
               WideColumnsToHex(expected_columns).c_str());
-        } else if (thread->shared->Get(rand_column_families[0], rand_keys[0]) ==
+        } else if (shared->Get(rand_column_families[0], rand_keys[0]) ==
                    SharedState::DELETION_SENTINEL) {
-          thread->shared->SetVerificationFailure();
+          shared->SetVerificationFailure();
           fprintf(
               stderr,
               "error : inconsistent values for key %s: GetEntity returns %s, "
@@ -839,11 +841,10 @@ class NonBatchedOpsStressTest : public StressTest {
       thread->stats.AddGets(1, 0);
 
       if (!FLAGS_skip_verifydb) {
-        auto expected =
-            thread->shared->Get(rand_column_families[0], rand_keys[0]);
+        auto expected = shared->Get(rand_column_families[0], rand_keys[0]);
         if (expected != SharedState::DELETION_SENTINEL &&
             expected != SharedState::UNKNOWN_SENTINEL) {
-          thread->shared->SetVerificationFailure();
+          shared->SetVerificationFailure();
           fprintf(stderr,
                   "error : inconsistent values for key %s: expected state has "
                   "the key, GetEntity returns NotFound.\n",
