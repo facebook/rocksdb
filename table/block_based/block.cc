@@ -1095,7 +1095,7 @@ void Block::InitializeDataBlockProtectionInfo(uint8_t protection_bytes_per_key,
       num_keys = iter->NumberOfKeys(block_restart_interval_);
     }
     if (iter->status().ok()) {
-      kv_checksum_ = new char[num_keys * protection_bytes_per_key];
+      kv_checksum_ = new char[(size_t)num_keys * protection_bytes_per_key];
       size_t i = 0;
       iter->SeekToFirst();
       while (iter->Valid()) {
@@ -1134,7 +1134,7 @@ void Block::InitializeIndexBlockProtectionInfo(uint8_t protection_bytes_per_key,
       num_keys = iter->NumberOfKeys(block_restart_interval_);
     }
     if (iter->status().ok()) {
-      kv_checksum_ = new char[num_keys * protection_bytes_per_key];
+      kv_checksum_ = new char[(size_t)num_keys * protection_bytes_per_key];
       iter->SeekToFirst();
       size_t i = 0;
       while (iter->Valid()) {
@@ -1167,7 +1167,7 @@ void Block::InitializeMetaIndexBlockProtectionInfo(
       num_keys = iter->NumberOfKeys(block_restart_interval_);
     }
     if (iter->status().ok()) {
-      kv_checksum_ = new char[num_keys * protection_bytes_per_key];
+      kv_checksum_ = new char[(size_t)num_keys * protection_bytes_per_key];
       iter->SeekToFirst();
       size_t i = 0;
       while (iter->Valid()) {
