@@ -268,6 +268,62 @@ class BatchedOpsStressTest : public StressTest {
     return ret_status;
   }
 
+  Status TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                       const std::vector<int>& rand_column_families,
+                       const std::vector<int64_t>& rand_keys) override {
+    ManagedSnapshot snapshot_guard(db_);
+
+    ReadOptions read_opts_copy(read_opts);
+    read_opts_copy.snapshot = snapshot_guard.snapshot();
+
+    assert(!rand_keys.empty());
+
+    const std::string key_suffix = Key(rand_keys[0]);
+
+    assert(!rand_column_families.empty());
+    assert(rand_column_families[0] >= 0);
+    assert(static_cast<size_t>(rand_column_families[0]) <
+           column_families_.size());
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    constexpr size_t num_keys = 10;
+
+    std::array<PinnableWideColumns, num_keys> results;
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      const std::string key = std::to_string(i) + key_suffix;
+
+      const Status s = db_->GetEntity(read_opts_copy, cfh, key, &results[i]);
+
+      if (!s.ok() && !s.IsNotFound()) {
+        fprintf(stderr, "GetEntity error: %s\n", s.ToString().c_str());
+        thread->stats.AddErrors(1);
+        // we continue on error rather than exiting so that we can
+        // find more errors if any
+      } else if (s.IsNotFound()) {
+        thread->stats.AddGets(1, 0);
+      } else {
+        thread->stats.AddGets(1, 1);
+      }
+    }
+
+    for (size_t i = 1; i < num_keys; ++i) {
+      if (results[i] != results[0]) {
+        fprintf(stderr,
+                "GetEntity error: inconsistent entities for key %s: %s, %s\n",
+                StringToHex(key_suffix).c_str(),
+                WideColumnsToHex(results[0].columns()).c_str(),
+                WideColumnsToHex(results[i].columns()).c_str());
+        // we continue after error rather than exiting so that we can
+        // find more errors if any
+      }
+    }
+
+    return Status::OK();
+  }
+
   // Given a key, this does prefix scans for "0"+P, "1"+P, ..., "9"+P
   // in the same snapshot where P is the first FLAGS_prefix_size - 1 bytes
   // of the key. Each of these 10 scans returns a series of values;
