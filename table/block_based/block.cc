@@ -396,7 +396,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
       // we stop at the first potential matching user key.
       break;
     }
-    TEST_SYNC_POINT_CALLBACK("DataBlockIter::SeekForGetImpl",
+    TEST_SYNC_POINT_CALLBACK("DataBlockIter::SeekForGetImpl::value",
                              (void*)value_.data());
     if (!Block::VerifyChecksum(
             protection_bytes_per_key_,

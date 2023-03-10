@@ -264,7 +264,8 @@ class Block {
 
   static bool VerifyChecksum(uint8_t checksum_len, const char* checksum_ptr,
                              const Slice& key, const Slice& val) {
-    TEST_SYNC_POINT_CALLBACK("Block::VerifyChecksum", &checksum_len);
+    TEST_SYNC_POINT_CALLBACK("Block::VerifyChecksum::checksum_len",
+                             &checksum_len);
     if (checksum_len == 0) {
       return true;
     }
@@ -582,7 +583,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
       key_ = key_buf_.GetInternalKey();
       key_pinned_ = false;
     }
-    TEST_SYNC_POINT_CALLBACK("BlockIter::UpdateKey", (void*)value_.data());
+    TEST_SYNC_POINT_CALLBACK("BlockIter::UpdateKey::value",
+                             (void*)value_.data());
     if (!Block::VerifyChecksum(
             protection_bytes_per_key_,
             kv_checksum_ + protection_bytes_per_key_ * cur_entry_idx_,
