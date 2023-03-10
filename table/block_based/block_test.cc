@@ -1396,7 +1396,7 @@ TEST_P(IndexBlockKVChecksumCorruptionTest, CorruptEntry) {
       SyncPoint::GetInstance()->SetCallBack(
           "BlockIter::UpdateKey::value", [](void *arg) {
             char *value = static_cast<char *>(arg);
-            // value can be delta-encoded with different lengths so we corrupt
+            // value can be delta-encoded with different lengths, so we corrupt
             // first bytes here to be safe
             ++value[0];
           });
@@ -1441,7 +1441,10 @@ TEST_P(IndexBlockKVChecksumCorruptionTest, CorruptEntry) {
         SyncPoint::GetInstance()->SetCallBack(
             "BlockIter::FindKeyAfterBinarySeek::value", [](void *arg) {
               char *value = static_cast<char *>(arg);
-              ++value[10];
+              // value can be delta-encoded with different lengths, so we
+              // corrupt
+              // first bytes here to be safe
+              ++value[0];
             });
         // Need to seek to some key that is not the first within a restart
         // interval

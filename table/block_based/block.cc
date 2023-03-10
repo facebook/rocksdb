@@ -766,7 +766,7 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
     }
     while (true) {
       TEST_SYNC_POINT_CALLBACK("BlockIter::FindKeyAfterBinarySeek::value",
-                               (void*)&value_);
+                               (void*)value_.data());
       if (!Block::VerifyChecksum(
               protection_bytes_per_key_,
               kv_checksum_ + protection_bytes_per_key_ * cur_entry_idx_,
