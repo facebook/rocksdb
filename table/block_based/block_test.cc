@@ -820,6 +820,13 @@ TEST_F(BlockPerKVChecksumTest, EmptyBlock) {
   ASSERT_OK(biter->status());
 }
 
+TEST_F(BlockPerKVChecksumTest, UnsupportedOptionValue) {
+  Options options = Options();
+  options.block_protection_bytes_per_key = 128;
+  Destroy(options);
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+}
+
 std::string GetDataBlockIndexTypeStr(
     BlockBasedTableOptions::DataBlockIndexType t) {
   return t == BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch
@@ -1205,7 +1212,7 @@ class DataBlockKVChecksumCorruptionTest : public DataBlockKVChecksumTest {
     return biter;
   }
 
- private:
+ protected:
   std::unique_ptr<Block_kData> block_;
 };
 
@@ -1229,7 +1236,7 @@ TEST_P(DataBlockKVChecksumCorruptionTest, CorruptInUpdateKey) {
     typedef std::unique_ptr<DataBlockIter> IterPtr;
     typedef void(IterAPI)(IterPtr & iter, std::string &);
 
-    std::string &seek_key = keys[kNumRecords / 2];
+    std::string seek_key = keys[kNumRecords / 2];
     auto test_seek = [&](IterAPI iter_api) {
       IterPtr biter = GenerateDataBlockIter(keys, values, kNumRecords);
       ASSERT_OK(biter->status());
@@ -1261,6 +1268,45 @@ TEST_P(DataBlockKVChecksumCorruptionTest, CorruptInUpdateKey) {
       test_step(&DataBlockIter::Prev, seek_key);
       test_step(&DataBlockIter::Next, seek_key);
     }
+
+    if (GetRestartInterval() > 1) {
+      // Test checksum verification for keys read after binary search but before
+      // UpdateKey()
+      SyncPoint::GetInstance()->ClearCallBack("BlockIter::UpdateKey");
+      SyncPoint::GetInstance()->SetCallBack(
+          "BlockIter::FindKeyAfterBinarySeek::value", [](void *arg) {
+            char *value = static_cast<char *>(arg);
+            ++value[10];
+          });
+      // Need to seek to some key that is not the first within a restart
+      // interval
+      seek_key = keys[(GetRestartInterval() + 1) / 2];
+      test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
+      test_seek([](IterPtr &iter, std::string &k) { iter->SeekForPrev(k); });
+      if (GetDataBlockIndexType() !=
+          BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash) {
+        test_seek([](IterPtr &iter, std::string &k) { iter->SeekForGet(k); });
+      }
+    }
+
+    // Test checksum verification in SeekForGetImpl()
+    // check kNumRecords == 1 so that data_block_hash_index does not have
+    // kCollision entry in it, and the callback below will be called.
+    if (GetDataBlockIndexType() == BlockBasedTableOptions::DataBlockIndexType::
+                                       kDataBlockBinaryAndHash &&
+        kNumRecords == 1) {
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      SyncPoint::GetInstance()->SetCallBack(
+          "DataBlockIter::SeekForGetImpl", [](void *arg) {
+            char *value = static_cast<char *>(arg);
+            ++value[10];
+          });
+      // Need to seek some key that is not the first key in a restart interval
+      // to reach syncpoint.
+      seek_key = keys[kNumRecords];
+      test_seek([](IterPtr &iter, std::string &k) { iter->SeekForGet(k); });
+      SyncPoint::GetInstance()->ClearCallBack("DataBlockIter::SeekForGetImpl");
+    }
   }
 }
 
@@ -1271,7 +1317,8 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
             BlockBasedTableOptions::DataBlockIndexType::
                 kDataBlockBinaryAndHash),
-        ::testing::Values(1, 2, 4, 8), ::testing::Values(1, 3, 8, 16),
+        ::testing::Values(1, 2, 4, 8),
+        ::testing::Values(1, 3, 8, 16) /* restart_interval */,
         ::testing::Values(false, true)),
     [](const testing::TestParamInfo<std::tuple<
            BlockBasedTableOptions::DataBlockIndexType, uint8_t, uint32_t, bool>>
@@ -1306,6 +1353,7 @@ class IndexBlockKVChecksumCorruptionTest : public IndexBlockKVChecksumTest {
     return biter;
   }
 
+ protected:
   std::unique_ptr<Block_kIndex> block_;
 };
 
@@ -1354,7 +1402,7 @@ TEST_P(IndexBlockKVChecksumCorruptionTest, CorruptEntry) {
 
       typedef std::unique_ptr<IndexBlockIter> IterPtr;
       typedef void(IterAPI)(IterPtr & iter, std::string &);
-      std::string &seek_key = first_keys[kNumRecords / 2];
+      std::string seek_key = first_keys[kNumRecords / 2];
       auto test_seek = [&](IterAPI iter_api) {
         std::unique_ptr<IndexBlockIter> biter = GenerateIndexBlockIter(
             separators, block_handles, first_keys, kNumRecords, seqno);
@@ -1384,6 +1432,21 @@ TEST_P(IndexBlockKVChecksumCorruptionTest, CorruptEntry) {
         test_step(&IndexBlockIter::Prev, seek_key);
         test_step(&IndexBlockIter::Next, seek_key);
       }
+
+      if (GetRestartInterval() > 1) {
+        // Test checksum verification for keys read after binary search but
+        // before UpdateKey()
+        SyncPoint::GetInstance()->ClearCallBack("BlockIter::UpdateKey");
+        SyncPoint::GetInstance()->SetCallBack(
+            "BlockIter::FindKeyAfterBinarySeek::value", [](void *arg) {
+              char *value = static_cast<char *>(arg);
+              ++value[10];
+            });
+        // Need to seek to some key that is not the first within a restart
+        // interval
+        seek_key = first_keys[(GetRestartInterval() + 1) / 2];
+        test_seek([](IterPtr &iter, std::string &k) { iter->Seek(k); });
+      }
     }
   }
 }
@@ -1404,7 +1467,7 @@ class MetaIndexBlockKVChecksumCorruptionTest
     return biter;
   }
 
- private:
+ protected:
   std::unique_ptr<Block_kMetaIndex> block_;
 };
 
@@ -1436,7 +1499,7 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
     typedef std::unique_ptr<MetaBlockIter> IterPtr;
     typedef void(IterAPI)(IterPtr & iter, std::string &);
     typedef void (MetaBlockIter::*IterStepAPI)();
-    std::string &seek_key = keys[kNumRecords / 2];
+    std::string seek_key = keys[kNumRecords / 2];
     auto test_seek = [&](IterAPI iter_api) {
       IterPtr biter = GenerateMetaIndexBlockIter(keys, values, kNumRecords);
       ASSERT_OK(biter->status());
@@ -1466,6 +1529,83 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
       test_step(&MetaBlockIter::Prev, seek_key);
       test_step(&MetaBlockIter::Next, seek_key);
     }
+  }
+}
+
+TEST_P(DataBlockKVChecksumCorruptionTest, DuringInitialization) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockIter::SeekToFirst", [](void *should_corrupt) {
+        bool *corrupt = static_cast<bool *>(should_corrupt);
+        *corrupt = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::vector<int> num_restart_intervals = {1, 3};
+  for (const auto num_restart_interval : num_restart_intervals) {
+    const int kNumRecords =
+        num_restart_interval * static_cast<int>(GetRestartInterval());
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords, 1 /* step */);
+    block_ = GenerateDataBlock(keys, values, kNumRecords);
+    std::unique_ptr<DataBlockIter> biter{block_->NewDataIterator(
+        Options().comparator, kDisableGlobalSequenceNumber)};
+    ASSERT_FALSE(biter->Valid());
+    ASSERT_TRUE(biter->status().IsCorruption());
+  }
+}
+
+TEST_P(IndexBlockKVChecksumCorruptionTest, DuringInitialization) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockIter::SeekToFirst", [](void *should_corrupt) {
+        bool *corrupt = static_cast<bool *>(should_corrupt);
+        *corrupt = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::vector<int> num_restart_intervals = {1, 3};
+  std::vector<SequenceNumber> seqnos{kDisableGlobalSequenceNumber, 10001};
+  for (const auto num_restart_interval : num_restart_intervals) {
+    const int kNumRecords =
+        num_restart_interval * static_cast<int>(GetRestartInterval());
+    for (const auto seqno : seqnos) {
+      std::vector<std::string> separators;
+      std::vector<BlockHandle> block_handles;
+      std::vector<std::string> first_keys;
+      GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
+                                 kNumRecords,
+                                 seqno != kDisableGlobalSequenceNumber);
+      block_ = GenerateIndexBlock(separators, block_handles, first_keys,
+                                  kNumRecords);
+      std::unique_ptr<IndexBlockIter> biter{block_->NewIndexIterator(
+          Options().comparator, seqno, nullptr, nullptr,
+          true /* total_order_seek */, IncludeFirstKey() /* have_first_key */,
+          true /* key_includes_seq */,
+          !UseValueDeltaEncoding() /* value_is_full */,
+          true /* block_contents_pinned */, nullptr /* prefix_index */)};
+      ASSERT_FALSE(biter->Valid());
+      ASSERT_TRUE(biter->status().IsCorruption());
+    }
+  }
+}
+
+TEST_P(MetaIndexBlockKVChecksumCorruptionTest, DuringInitialization) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockIter::SeekToFirst", [](void *should_corrupt) {
+        bool *corrupt = static_cast<bool *>(should_corrupt);
+        *corrupt = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::vector<int> num_restart_intervals = {1, 3};
+  for (const auto num_restart_interval : num_restart_intervals) {
+    const int kNumRecords =
+        num_restart_interval * static_cast<int>(GetRestartInterval());
+    std::vector<std::string> keys;
+    std::vector<std::string> values;
+    GenerateRandomKVs(&keys, &values, 0, kNumRecords, 1 /* step */);
+    block_ = GenerateMetaIndexBlock(keys, values, kNumRecords);
+    std::unique_ptr<MetaBlockIter> biter{
+        block_->NewMetaIterator(true /* block_contents_pinned */)};
+    ASSERT_FALSE(biter->Valid());
+    ASSERT_TRUE(biter->status().IsCorruption());
   }
 }
 

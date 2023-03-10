@@ -345,6 +345,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
   }
 
   virtual void SeekToFirst() override final {
+#ifndef NDEBUG
+    if (TEST_Corrupt_Callback("BlockIter::SeekToFirst")) return;
+#endif
     SeekToFirstImpl();
     UpdateKey();
   }

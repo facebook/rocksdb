@@ -396,6 +396,8 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
       // we stop at the first potential matching user key.
       break;
     }
+    TEST_SYNC_POINT_CALLBACK("DataBlockIter::SeekForGetImpl",
+                             (void*)value_.data());
     if (!Block::VerifyChecksum(
             protection_bytes_per_key_,
             kv_checksum_ + protection_bytes_per_key_ * cur_entry_idx_,
@@ -506,7 +508,9 @@ void DataBlockIter::SeekForPrevImpl(const Slice& target) {
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 
   if (!Valid()) {
-    SeekToLastImpl();
+    if (status_.ok()) {
+      SeekToLastImpl();
+    }
   } else {
     while (Valid() && CompareCurrentKey(seek_key) > 0) {
       PrevImpl();
@@ -530,7 +534,9 @@ void MetaBlockIter::SeekForPrevImpl(const Slice& target) {
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 
   if (!Valid()) {
-    SeekToLastImpl();
+    if (status_.ok()) {
+      SeekToLastImpl();
+    }
   } else {
     while (Valid() && CompareCurrentKey(seek_key) > 0) {
       PrevImpl();
@@ -595,6 +601,7 @@ void MetaBlockIter::SeekToLastImpl() {
       static_cast<int32_t>((num_restarts_ - 1) * block_restart_interval_);
   while (ParseNextKey<CheckAndDecodeEntry>(&is_shared) &&
          NextEntryOffset() < restarts_) {
+    // Will probably never reach here since restart_interval is always 1
     ++cur_entry_idx_;
   }
 }
@@ -758,6 +765,8 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
       max_offset = std::numeric_limits<uint32_t>::max();
     }
     while (true) {
+      TEST_SYNC_POINT_CALLBACK("BlockIter::FindKeyAfterBinarySeek::value",
+                               (void*)&value_);
       if (!Block::VerifyChecksum(
               protection_bytes_per_key_,
               kv_checksum_ + protection_bytes_per_key_ * cur_entry_idx_,
