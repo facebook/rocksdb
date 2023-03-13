@@ -110,7 +110,7 @@ public class FFIDB implements AutoCloseable {
       if (slice.code == Status.Code.Ok) {
         final var pinnableSlice = slice.pinnableSlice().get();
         final var size = pinnableSlice.data().byteSize();
-        pinnableSlice.data().asByteBuffer().get(0, value, 0, (int) Math.min(size, value.length));
+        MemorySegment.copy(pinnableSlice.data(), ValueLayout.JAVA_BYTE, 0, value, 0, (int)size);
         pinnableSlice.reset();
         return new GetBytes(slice.code, value, size);
       } else {
