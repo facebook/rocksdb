@@ -330,7 +330,20 @@ class BatchedOpsStressTest : public StressTest {
     for (size_t i = 0; i < num_keys; ++i) {
       const WideColumns& columns = results[i].columns();
 
-      if (columns.empty() || columns.front().name() != kDefaultWideColumnName) {
+      if (!compare(results[0].columns(), columns)) {
+        fprintf(stderr,
+                "GetEntity error: inconsistent entities for key %s: %s, %s\n",
+                StringToHex(key_suffix).c_str(),
+                WideColumnsToHex(results[0].columns()).c_str(),
+                WideColumnsToHex(columns).c_str());
+        continue;
+      }
+
+      if (columns.empty()) {
+        continue;
+      }
+
+      if (columns.front().name() != kDefaultWideColumnName) {
         fprintf(
             stderr,
             "GetEntity error: default column not found for key %s, entity %s\n",
@@ -363,15 +376,6 @@ class BatchedOpsStressTest : public StressTest {
                 StringToHex(key_suffix).c_str(),
                 WideColumnsToHex(columns).c_str(),
                 WideColumnsToHex(expected_columns).c_str());
-        continue;
-      }
-
-      if (!compare(results[0].columns(), columns)) {
-        fprintf(stderr,
-                "GetEntity error: inconsistent entities for key %s: %s, %s\n",
-                StringToHex(key_suffix).c_str(),
-                WideColumnsToHex(results[0].columns()).c_str(),
-                WideColumnsToHex(columns).c_str());
         continue;
       }
     }
