@@ -10,7 +10,7 @@
 
 ### New Features
 * Add statistics rocksdb.secondary.cache.filter.hits, rocksdb.secondary.cache.index.hits, and rocksdb.secondary.cache.filter.hits
-* Added a new PerfContext counter `internal_merge_count_point_lookups` which tracks the number of Merge operands applied while serving point lookup queries.
+* Added a new PerfContext counter `internal_merge_point_lookup_count` which tracks the number of Merge operands applied while serving point lookup queries.
 
 ## 8.0.0 (02/19/2023)
 ### Behavior changes
