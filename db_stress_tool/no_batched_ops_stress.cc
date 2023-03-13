@@ -769,19 +769,17 @@ class NonBatchedOpsStressTest : public StressTest {
     SharedState* const shared = thread->shared;
     assert(shared);
 
+    assert(!rand_column_families.empty());
     assert(!rand_keys.empty());
 
     std::unique_ptr<MutexLock> lock(new MutexLock(
         shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
 
-    assert(!rand_column_families.empty());
     assert(rand_column_families[0] >= 0);
     assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
 
     ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
     assert(cfh);
-
-    assert(!rand_keys.empty());
 
     const std::string key = Key(rand_keys[0]);
 
@@ -808,7 +806,6 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
 
-      // found case
       thread->stats.AddGets(1, 1);
 
       if (!FLAGS_skip_verifydb) {
@@ -841,7 +838,6 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
     } else if (s.IsNotFound()) {
-      // not found case
       thread->stats.AddGets(1, 0);
 
       if (!FLAGS_skip_verifydb) {
@@ -857,7 +853,6 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     } else {
       if (error_count == 0) {
-        // errors case
         thread->stats.AddErrors(1);
       } else {
         thread->stats.AddVerifiedErrors(1);
