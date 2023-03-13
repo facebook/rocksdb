@@ -2105,8 +2105,7 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
       std::make_shared<TestSecondaryCache>(2048 * 1024);
   cache_opts.secondary_cache = secondary_cache;
   cache = std::make_shared<CacheWithStats>(NewLRUCache(cache_opts));
-  std::shared_ptr<Cache> cache_new(cache);
-  table_options.block_cache = cache_new;
+  table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
