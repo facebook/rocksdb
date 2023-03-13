@@ -312,14 +312,17 @@ class BatchedOpsStressTest : public StressTest {
         return false;
       }
 
-      const size_t sz = lhs.size();
-
-      for (size_t i = 0; i < sz; ++i) {
+      for (size_t i = 0; i < lhs.size(); ++i) {
         if (lhs[i].name() != rhs[i].name()) {
           return false;
         }
 
-        if (lhs[i].value().difference_offset(rhs[i].value()) < sz - 1) {
+        if (lhs[i].value().size() != rhs[i].value().size()) {
+          return false;
+        }
+
+        if (lhs[i].value().difference_offset(rhs[i].value()) <
+            lhs[i].value().size() - 1) {
           return false;
         }
       }
