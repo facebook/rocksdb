@@ -30,9 +30,9 @@ public class FFILayout {
                 )
             .withName("input_slice");
 
-    static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data"));
+    static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data")).withInvokeExactBehavior();
 
-    static final VarHandle Size = Layout.varHandle(MemoryLayout.PathElement.groupElement("size"));
+    static final VarHandle Size = Layout.varHandle(MemoryLayout.PathElement.groupElement("size")).withInvokeExactBehavior();
   };
 
   public static class PinnableSlice {
@@ -43,15 +43,15 @@ public class FFILayout {
                                                      ValueLayout.JAVA_BOOLEAN.withName("is_pinned"))
                                                  .withName("pinnable_slice");
 
-    static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data"));
+    static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data")).withInvokeExactBehavior();
 
-    static final VarHandle Size = Layout.varHandle(MemoryLayout.PathElement.groupElement("size"));
+    static final VarHandle Size = Layout.varHandle(MemoryLayout.PathElement.groupElement("size")).withInvokeExactBehavior();
 
     static final VarHandle PinnableSlice =
-        Layout.varHandle(MemoryLayout.PathElement.groupElement("pinnable_slice"));
+        Layout.varHandle(MemoryLayout.PathElement.groupElement("pinnable_slice")).withInvokeExactBehavior();
 
     static final VarHandle IsPinned =
-        Layout.varHandle(MemoryLayout.PathElement.groupElement("is_pinned"));
+        Layout.varHandle(MemoryLayout.PathElement.groupElement("is_pinned")).withInvokeExactBehavior();
   };
 
   public static class GetParamsSegment {
@@ -70,11 +70,11 @@ public class FFILayout {
                 ValueLayout.JAVA_LONG.withName("capacity"), ValueLayout.JAVA_LONG.withName("size"))
             .withName("output_slice");
 
-    static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data"));
+    static final VarHandle Data = Layout.varHandle(MemoryLayout.PathElement.groupElement("data")).withInvokeExactBehavior();
 
     static final VarHandle Capacity =
         Layout.varHandle(MemoryLayout.PathElement.groupElement("capacity"));
 
-    static final VarHandle Size = Layout.varHandle(MemoryLayout.PathElement.groupElement("size"));
+    static final VarHandle Size = Layout.varHandle(MemoryLayout.PathElement.groupElement("size")).withInvokeExactBehavior();
   }
 }
