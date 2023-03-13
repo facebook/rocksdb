@@ -59,8 +59,10 @@ public class FFILayout {
         MemoryLayout.structLayout(InputSlice.Layout.withName("input_struct"),
             PinnableSlice.Layout.withName("pinnable_struct"));
 
-    static final long InputStructOffset = Layout.byteOffset(MemoryLayout.PathElement.groupElement("input_struct"));
-    static final long PinnableStructOffset = Layout.byteOffset(MemoryLayout.PathElement.groupElement("pinnable_struct"));
+    static final long InputStructOffset =
+        Layout.byteOffset(MemoryLayout.PathElement.groupElement("input_struct"));
+    static final long PinnableStructOffset =
+        Layout.byteOffset(MemoryLayout.PathElement.groupElement("pinnable_struct"));
   }
 
   public static class OutputSlice {

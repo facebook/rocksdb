@@ -151,14 +151,14 @@ public class GetBenchmarks {
   @TearDown(Level.Trial)
   public void cleanup() throws IOException {
     try {
-    for (final ColumnFamilyHandle cfHandle : cfHandles) {
-      cfHandle.close();
-    }
-    db.close();
-    options.close();
-    readOptions.close();
+      for (final ColumnFamilyHandle cfHandle : cfHandles) {
+        cfHandle.close();
+      }
+      db.close();
+      options.close();
+      readOptions.close();
     } finally {
-    FileUtils.delete(dbDir);
+      FileUtils.delete(dbDir);
     }
   }
 
@@ -364,8 +364,8 @@ public class GetBenchmarks {
 
   @Benchmark
   public void ffiGetPinnableSlice(Blackhole blackhole) throws RocksDBException {
-    final GetPinnableSlice result = dbFFI.getPinnableSlice(
-        readOptions, getColumnFamily(), getKeySegment(), getGetParams());
+    final GetPinnableSlice result =
+        dbFFI.getPinnableSlice(readOptions, getColumnFamily(), getKeySegment(), getGetParams());
     blackhole.consume(result);
     result.pinnableSlice().get().reset();
   }
@@ -381,7 +381,7 @@ public class GetBenchmarks {
   @Benchmark
   public void ffiIdentity(Blackhole blackhole) throws RocksDBException {
     final int result = dbFFI.identity((int) (Math.random() * 256));
-    
+
     blackhole.consume(result);
   }
 }
