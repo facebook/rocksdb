@@ -1891,6 +1891,8 @@ class DBImpl : public DB {
   // `selected_cfds`. If `provided_candidate_cfds` is non-empty, it will be used
   // as candidate CFs to select qualified ones from. Otherwise, all column
   // families are used as candidate to select from.
+  //
+  // REQUIRES: mutex held
   void SelectColumnFamiliesForAtomicFlush(
       autovector<ColumnFamilyData*>* selected_cfds,
       const autovector<ColumnFamilyData*>& provided_candidate_cfds = {});

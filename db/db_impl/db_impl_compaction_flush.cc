@@ -2231,8 +2231,15 @@ Status DBImpl::AtomicFlushMemTables(
   Status s;
   autovector<ColumnFamilyData*> candidate_cfds;
   if (provided_candidate_cfds.empty()) {
-    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-      candidate_cfds.push_back(cfd);
+    // Generate candidate cfds if not provided
+    {
+      InstrumentedMutexLock l(&mutex_);
+      for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+        if (!cfd->IsDropped() && cfd->initialized()) {
+          cfd->Ref();
+          candidate_cfds.push_back(cfd);
+        }
+      }
     }
   } else {
     candidate_cfds = provided_candidate_cfds;
@@ -2244,12 +2251,26 @@ Status DBImpl::AtomicFlushMemTables(
       bool flush_needed = true;
       s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
       if (!s.ok()) {
+        // Unref the newly generated candidate cfds (when not provided) in
+        // `candidate_cfds`
+        if (provided_candidate_cfds.empty()) {
+          for (auto candidate_cfd : candidate_cfds) {
+            candidate_cfd->UnrefAndTryDelete();
+          }
+        }
         return s;
       } else if (flush_needed) {
         ++num_cfs_to_flush;
       }
     }
     if (0 == num_cfs_to_flush) {
+      // Unref the newly generated candidate cfds (when not provided) in
+      // `candidate_cfds`
+      if (provided_candidate_cfds.empty()) {
+        for (auto candidate_cfd : candidate_cfds) {
+          candidate_cfd->UnrefAndTryDelete();
+        }
+      }
       return s;
     }
   }
@@ -2271,6 +2292,14 @@ Status DBImpl::AtomicFlushMemTables(
     WaitForPendingWrites();
 
     SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds);
+
+    // Unref the newly generated candidate cfds (when not provided) in
+    // `candidate_cfds`
+    if (provided_candidate_cfds.empty()) {
+      for (auto candidate_cfd : candidate_cfds) {
+        candidate_cfd->UnrefAndTryDelete();
+      }
+    }
 
     for (auto cfd : cfds) {
       if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) ||

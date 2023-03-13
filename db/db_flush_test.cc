@@ -754,6 +754,9 @@ TEST_F(
   // flush will not stall writes
   options.level0_stop_writes_trigger = 2;
   options.level0_slowdown_writes_trigger = 2;
+  // Disable level-0 compaction triggered by number of files to avoid
+  // stalling check being skipped (resulting in the flush mentioned above didn't
+  // wait)
   options.level0_file_num_compaction_trigger = -1;
 
   CreateAndReopenWithCF({"cf1"}, options);
@@ -818,9 +821,12 @@ TEST_F(
   write_thread.join();
 
   ReopenWithColumnFamilies({"default", "cf1"}, options);
+
+  ASSERT_EQ(Get(1, "k3"), "v3");
   // Prior to the fix, `Get()` will return `NotFound as "k2" entry in default CF
-  // can't be recovered from a crash right after the atomic flush finishes. It's
-  // due to the invariant violation described above.
+  // can't be recovered from a crash right after the atomic flush finishes,
+  // resulting in a "recovery hole" as "k3" can be recovered. It's due to the
+  // invariant violation described above.
   ASSERT_EQ(Get(0, "k2"), "v2");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
