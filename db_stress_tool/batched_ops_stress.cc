@@ -282,8 +282,7 @@ class BatchedOpsStressTest : public StressTest {
 
     assert(!rand_column_families.empty());
     assert(rand_column_families[0] >= 0);
-    assert(static_cast<size_t>(rand_column_families[0]) <
-           column_families_.size());
+    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
 
     ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
     assert(cfh);
