@@ -1717,11 +1717,12 @@ class DB {
       const std::vector<IngestExternalFileArg>& args) = 0;
 
   // CreateColumnFamilyWithImport() will create a new column family with
-  // column_family_name and import external SST files specified in metadata into
-  // this column family.
+  // column_family_name and import external SST files specified in `metadata`
+  // into this column family.
   // (1) External SST files can be created using SstFileWriter.
   // (2) External SST files can be exported from a particular column family in
-  //     an existing DB using Checkpoint::ExportColumnFamily.
+  //     an existing DB using Checkpoint::ExportColumnFamily. `metadata` should
+  //     be the output from Checkpoint::ExportColumnFamily.
   // Option in import_options specifies whether the external files are copied or
   // moved (default is copy). When option specifies copy, managing files at
   // external_file_path is caller's responsibility. When option specifies a

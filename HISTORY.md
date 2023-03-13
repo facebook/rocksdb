@@ -6,6 +6,7 @@
 ### Bug Fixes
 * Fixed an issue for backward iteration when user defined timestamp is enabled in combination with BlobDB.
 * Fixed a couple of cases where a Merge operand encountered during iteration wasn't reflected in the `internal_merge_count` PerfContext counter.
+* Fixed a bug in CreateColumnFamilyWithImport()/ExportColumnFamily() which did not support range tombstones (#11252).
 
 ### New Features
 * Add statistics rocksdb.secondary.cache.filter.hits, rocksdb.secondary.cache.index.hits, and rocksdb.secondary.cache.filter.hits
