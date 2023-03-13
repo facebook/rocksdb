@@ -299,8 +299,6 @@ class BatchedOpsStressTest : public StressTest {
       if (!s.ok() && !s.IsNotFound()) {
         fprintf(stderr, "GetEntity error: %s\n", s.ToString().c_str());
         thread->stats.AddErrors(1);
-        // we continue on error rather than exiting so that we can
-        // find more errors if any
       } else if (s.IsNotFound()) {
         thread->stats.AddGets(1, 0);
       } else {
@@ -308,41 +306,73 @@ class BatchedOpsStressTest : public StressTest {
       }
     }
 
-    auto normalize = [&](const WideColumns& columns,
-                         size_t index) -> WideColumns {
-      assert(index < num_keys);
-      const char expected_back = static_cast<char>('0' + index);
+    // Compare columns ignoring the last character of column values
+    auto compare = [](const WideColumns& lhs, const WideColumns& rhs) {
+      if (lhs.size() != rhs.size()) {
+        return false;
+      }
 
-      WideColumns normalized;
-      normalized.reserve(columns.size());
+      const size_t sz = lhs.size();
 
-      for (const auto& column : columns) {
-        Slice value = column.value();
+      for (size_t i = 0; i < sz; ++i) {
+        if (lhs[i].name() != rhs[i].name()) {
+          return false;
+        }
 
-        if (value.empty()) {
-          // TODO
-        } else if (value[value.size() - 1] != expected_back) {
-          // TODO
-        } else {
-          value.remove_suffix(1);
-          normalized.emplace_back(column.name(), value);
+        if (lhs[i].value().difference_offset(rhs[i].value()) < sz - 1) {
+          return false;
         }
       }
 
-      return normalized;
+      return true;
     };
 
-    const auto expected = normalize(results[0].columns(), 0);
+    for (size_t i = 0; i < num_keys; ++i) {
+      const WideColumns& columns = results[i].columns();
 
-    for (size_t i = 1; i < num_keys; ++i) {
-      if (normalize(results[i].columns(), i) != expected) {
+      if (columns.empty() || columns.front().name() != kDefaultWideColumnName) {
+        fprintf(
+            stderr,
+            "GetEntity error: default column not found for key %s, entity %s\n",
+            StringToHex(key_suffix).c_str(), WideColumnsToHex(columns).c_str());
+        continue;
+      }
+
+      // The last character of each column value should be 'i' as a decimal
+      // digit
+      const char expected = static_cast<char>('0' + i);
+
+      const Slice& value_of_default = columns.front().value();
+
+      if (value_of_default.empty() ||
+          value_of_default[value_of_default.size() - 1] != expected) {
+        fprintf(stderr,
+                "GetEntity error: incorrect value for default column for key "
+                "%s, entity %s, expected %c\n",
+                StringToHex(key_suffix).c_str(),
+                WideColumnsToHex(columns).c_str(), expected);
+        continue;
+      }
+
+      const WideColumns expected_columns = GenerateExpectedWideColumns(
+          GetValueBase(value_of_default), value_of_default);
+      if (columns != expected_columns) {
+        fprintf(stderr,
+                "GetEntity error: inconsistent columns for key %s, entity %s, "
+                "expected entity %s\n",
+                StringToHex(key_suffix).c_str(),
+                WideColumnsToHex(columns).c_str(),
+                WideColumnsToHex(expected_columns).c_str());
+        continue;
+      }
+
+      if (!compare(results[0].columns(), columns)) {
         fprintf(stderr,
                 "GetEntity error: inconsistent entities for key %s: %s, %s\n",
                 StringToHex(key_suffix).c_str(),
                 WideColumnsToHex(results[0].columns()).c_str(),
-                WideColumnsToHex(results[i].columns()).c_str());
-        // we continue after error rather than exiting so that we can
-        // find more errors if any
+                WideColumnsToHex(columns).c_str());
+        continue;
       }
     }
   }
