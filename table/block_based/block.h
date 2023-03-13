@@ -273,13 +273,13 @@ class Block {
     return VerifyKVChecksum(checksum_len, checksum_ptr, expected);
   }
 
-  static void GenerateKVChecksum(char* checksum_ptr, uint32_t checksum_len,
+  static void GenerateKVChecksum(char* checksum_ptr, uint8_t checksum_len,
                                  const Slice& key, const Slice& value) {
     uint64_t checksum = ProtectionInfo64().ProtectKV(key, value).GetVal();
     EncodeKVChecksum(checksum, checksum_len, checksum_ptr);
   }
 
-  [[nodiscard]] const char* TEST_GetKVChecksum() const { return kv_checksum_; }
+  const char* TEST_GetKVChecksum() const { return kv_checksum_; }
 
  private:
   BlockContents contents_;

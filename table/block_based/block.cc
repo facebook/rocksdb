@@ -396,6 +396,9 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
       // we stop at the first potential matching user key.
       break;
     }
+    // If the loop exits due to CompareCurrentKey(target) >= 0, then current key
+    // exists, and its checksum verification will be done in UpdateKey() called
+    // in SeekForGet().
     TEST_SYNC_POINT_CALLBACK("DataBlockIter::SeekForGetImpl::value",
                              (void*)value_.data());
     if (!Block::VerifyChecksum(
@@ -405,9 +408,6 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
       PerKVChecksumCorruptionError();
       return true;
     }
-    // If the loop exits due to CompareCurrentKey(target) >= 0, then current key
-    // exists, and its checksum verification will be done in UpdateKey() called
-    // in SeekForGet().
   }
 
   if (current_ == restarts_) {

@@ -427,7 +427,7 @@ void ProtectionInfoKVOS<T>::UpdateS(SequenceNumber old_sequence_number,
 }
 
 inline void EncodeKVChecksum(uint64_t checksum,
-                             uint32_t protection_bytes_per_key, char* dst) {
+                             uint8_t protection_bytes_per_key, char* dst) {
   switch (protection_bytes_per_key) {
     case 1:
       dst[0] = static_cast<uint8_t>(checksum);

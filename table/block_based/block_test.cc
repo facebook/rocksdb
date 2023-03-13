@@ -1216,7 +1216,7 @@ class DataBlockKVChecksumCorruptionTest : public DataBlockKVChecksumTest {
   std::unique_ptr<Block_kData> block_;
 };
 
-TEST_P(DataBlockKVChecksumCorruptionTest, CorruptInUpdateKey) {
+TEST_P(DataBlockKVChecksumCorruptionTest, CorruptEntry) {
   std::vector<int> num_restart_intervals = {1, 3};
   for (const auto num_restart_interval : num_restart_intervals) {
     const int kNumRecords =
@@ -1290,8 +1290,8 @@ TEST_P(DataBlockKVChecksumCorruptionTest, CorruptInUpdateKey) {
     }
 
     // Test checksum verification in SeekForGetImpl()
-    // check kNumRecords == 1 so that data_block_hash_index does not have
-    // kCollision entry in it, and the callback below will be called.
+    // Only test when kNumRecords == 1 since otherwise there could be collision
+    // in data_block_hash_index and the callback below will not be called.
     if (GetDataBlockIndexType() == BlockBasedTableOptions::DataBlockIndexType::
                                        kDataBlockBinaryAndHash &&
         kNumRecords == 1) {

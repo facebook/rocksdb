@@ -67,8 +67,6 @@ Status VerifySstFileChecksum(const Options& options,
       options.block_protection_bytes_per_key, false /* skip_filters */,
       !kImmortal, false /* force_direct_prefetch */, -1 /* level */);
   reader_options.largest_seqno = largest_seqno;
-  reader_options.block_protection_bytes_per_key =
-      options.block_protection_bytes_per_key;
   s = ioptions.table_factory->NewTableReader(
       reader_options, std::move(file_reader), file_size, &table_reader,
       false /* prefetch_index_and_filter_in_cache */);

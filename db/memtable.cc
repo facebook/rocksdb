@@ -675,7 +675,9 @@ void MemTable::UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
   } else {
     checksum = kv_prot_info->GetVal();
   }
-  EncodeKVChecksum(checksum, moptions_.protection_bytes_per_key, checksum_ptr);
+  EncodeKVChecksum(checksum,
+                   static_cast<uint8_t>(moptions_.protection_bytes_per_key),
+                   checksum_ptr);
 }
 
 Status MemTable::Add(SequenceNumber s, ValueType type,
