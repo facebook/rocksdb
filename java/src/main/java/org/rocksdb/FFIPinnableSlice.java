@@ -5,12 +5,13 @@
 
 package org.rocksdb;
 
+import java.lang.foreign.Addressable;
 import java.lang.foreign.MemorySegment;
 
 public record FFIPinnableSlice(MemorySegment data, MemorySegment outputPinnable) {
   public void reset() throws RocksDBException {
     try {
-      FFIMethod.ResetPinnable.invoke(outputPinnable);
+      final int statusCode = (int)FFIMethod.ResetPinnable.invokeExact((Addressable)outputPinnable);
     } catch (final Throwable methodException) {
       throw new RocksDBException("Internal error invoking FFI (Java to C++) function call: "
           + methodException.getMessage());
