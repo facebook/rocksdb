@@ -226,7 +226,7 @@ public class FFIDB implements AutoCloseable {
       case NotFound -> { return new GetPinnableSlice(code, Optional.empty()); }
       case Ok -> {
         final MemoryAddress data = (MemoryAddress) FFILayout.PinnableSlice.Data.get(outputPinnable);
-        final Long size = (Long) FFILayout.PinnableSlice.Size.get(outputPinnable);
+        final long size = (long) FFILayout.PinnableSlice.Size.get(outputPinnable);
 
         //TODO (AP) Review whether this is the correct session to use
         //The "never closed" global() session may well be correct,
@@ -269,7 +269,7 @@ public class FFIDB implements AutoCloseable {
     final MemorySegment outputSlice = segmentAllocator.allocate(FFILayout.OutputSlice.Layout);
     FFILayout.OutputSlice.Data.set(outputSlice, outputSegment.address());
     FFILayout.OutputSlice.Capacity.set(outputSlice, outputSegment.byteSize());
-    FFILayout.OutputSlice.Size.set(outputSlice, 0);
+    FFILayout.OutputSlice.Size.set(outputSlice, 0L);
 
     final int result;
     try {
@@ -285,7 +285,7 @@ public class FFIDB implements AutoCloseable {
     switch (code) {
       case NotFound -> { return new GetOutputSlice(code, Optional.empty()); }
       case Ok -> {
-        final Long size = (Long) FFILayout.OutputSlice.Size.get(outputSlice);
+        final long size = (long) FFILayout.OutputSlice.Size.get(outputSlice);
         return new GetOutputSlice(code, Optional.of(new OutputSlice(size, outputSegment)));
       }
       default -> throw new RocksDBException(new Status(code, Status.SubCode.None, "[Rocks FFI - no detailed reason provided]"));

@@ -18,6 +18,6 @@ public record FFIPinnableSlice(MemorySegment data, MemorySegment outputPinnable)
   }
 
   public boolean isPinned() {
-    return (Boolean) FFILayout.PinnableSlice.IsPinned.get(outputPinnable);
+    return (boolean) FFILayout.PinnableSlice.IsPinned.get(outputPinnable);
   }
 }
