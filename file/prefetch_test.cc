@@ -1743,7 +1743,8 @@ TEST_P(PrefetchTest, ReadAsyncWithPosixFS) {
     } else {
       // Not all platforms support iouring. In that case, ReadAsync in posix
       // won't submit async requests.
-      ASSERT_EQ(iter->status(), Status::NotSupported());
+      ASSERT_EQ(num_keys, total_keys);
+      ASSERT_EQ(buff_prefetch_count, 0);
     }
   }
 
@@ -1856,18 +1857,19 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
         iter->Next();
       }
 
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(num_keys, num_keys_first_batch);
+      // Check stats to make sure async prefetch is done.
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
       if (read_async_called) {
-        ASSERT_OK(iter->status());
-        ASSERT_EQ(num_keys, num_keys_first_batch);
-        // Check stats to make sure async prefetch is done.
-        HistogramData async_read_bytes;
-        options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
         ASSERT_GT(async_read_bytes.count, 0);
         ASSERT_GT(get_perf_context()->number_async_seek, 0);
       } else {
         // Not all platforms support iouring. In that case, ReadAsync in posix
         // won't submit async requests.
-        ASSERT_EQ(iter->status(), Status::NotSupported());
+        ASSERT_EQ(async_read_bytes.count, 0);
+        ASSERT_EQ(get_perf_context()->number_async_seek, 0);
       }
     }
 
@@ -1884,25 +1886,27 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
         iter->Next();
       }
 
-      if (read_async_called) {
-        ASSERT_OK(iter->status());
-        ASSERT_EQ(num_keys, num_keys_second_batch);
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(num_keys, num_keys_second_batch);
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      HistogramData prefetched_bytes_discarded;
+      options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
+                                        &prefetched_bytes_discarded);
 
+      if (read_async_called) {
         ASSERT_GT(buff_prefetch_count, 0);
 
         // Check stats to make sure async prefetch is done.
-        HistogramData async_read_bytes;
-        options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
-        HistogramData prefetched_bytes_discarded;
-        options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
-                                          &prefetched_bytes_discarded);
         ASSERT_GT(async_read_bytes.count, 0);
         ASSERT_GT(get_perf_context()->number_async_seek, 0);
         ASSERT_GT(prefetched_bytes_discarded.count, 0);
       } else {
         // Not all platforms support iouring. In that case, ReadAsync in posix
         // won't submit async requests.
-        ASSERT_EQ(iter->status(), Status::NotSupported());
+        ASSERT_EQ(async_read_bytes.count, 0);
+        ASSERT_EQ(get_perf_context()->number_async_seek, 0);
+        ASSERT_EQ(prefetched_bytes_discarded.count, 0);
       }
     }
   }
@@ -1981,51 +1985,45 @@ TEST_P(PrefetchTest, SeekParallelizationTestWithPosix) {
     // Each block contains around 4 keys.
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     iter->Seek(BuildKey(0));  // Prefetch data because of seek parallelization.
-    if (std::get<1>(GetParam()) && !read_async_called) {
-      ASSERT_EQ(iter->status(), Status::NotSupported());
-    } else {
-      ASSERT_TRUE(iter->Valid());
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(iter->Valid());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
 
-      // New data block. Since num_file_reads in FilePrefetch after this read is
-      // 2, it won't go for prefetching.
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
+    // New data block. Since num_file_reads in FilePrefetch after this read is
+    // 2, it won't go for prefetching.
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
 
-      // Prefetch data.
-      iter->Next();
+    // Prefetch data.
+    iter->Next();
 
-      if (read_async_called) {
-        ASSERT_TRUE(iter->Valid());
-        // Check stats to make sure async prefetch is done.
-        {
-          HistogramData async_read_bytes;
-          options.statistics->histogramData(ASYNC_READ_BYTES,
-                                            &async_read_bytes);
-          ASSERT_GT(async_read_bytes.count, 0);
-          ASSERT_GT(get_perf_context()->number_async_seek, 0);
-          if (std::get<1>(GetParam())) {
-            ASSERT_EQ(buff_prefetch_count, 1);
-          } else {
-            ASSERT_EQ(buff_prefetch_count, 2);
-          }
-        }
+    ASSERT_TRUE(iter->Valid());
+    HistogramData async_read_bytes;
+    options.statistics->histogramData(ASYNC_READ_BYTES,
+                                      &async_read_bytes);
+    if (read_async_called) {
+      ASSERT_GT(async_read_bytes.count, 0);
+      ASSERT_GT(get_perf_context()->number_async_seek, 0);
+      if (std::get<1>(GetParam())) {
+        ASSERT_EQ(buff_prefetch_count, 1);
       } else {
-        // Not all platforms support iouring. In that case, ReadAsync in posix
-        // won't submit async requests.
-        ASSERT_EQ(iter->status(), Status::NotSupported());
+        ASSERT_EQ(buff_prefetch_count, 2);
       }
+    } else {
+      // Not all platforms support iouring. In that case, ReadAsync in posix
+      // won't submit async requests.
+      ASSERT_EQ(async_read_bytes.count, 0);
+      ASSERT_EQ(get_perf_context()->number_async_seek, 0);
     }
   }
   Close();
@@ -2119,17 +2117,17 @@ TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
     ASSERT_OK(db_->EndIOTrace());
     ASSERT_OK(env_->FileExists(trace_file_path));
 
+    ASSERT_EQ(num_keys, total_keys);
+    HistogramData async_read_bytes;
+    options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
     if (read_async_called) {
-      ASSERT_EQ(num_keys, total_keys);
       ASSERT_GT(buff_prefetch_count, 0);
       // Check stats to make sure async prefetch is done.
-      HistogramData async_read_bytes;
-      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
       ASSERT_GT(async_read_bytes.count, 0);
     } else {
       // Not all platforms support iouring. In that case, ReadAsync in posix
       // won't submit async requests.
-      ASSERT_EQ(iter->status(), Status::NotSupported());
+      ASSERT_EQ(async_read_bytes.count, 0);
     }
 
     // Check the file to see if ReadAsync is logged.
