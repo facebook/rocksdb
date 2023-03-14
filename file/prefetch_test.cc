@@ -1893,6 +1893,7 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
       HistogramData prefetched_bytes_discarded;
       options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
                                         &prefetched_bytes_discarded);
+      ASSERT_GT(prefetched_bytes_discarded.count, 0);
 
       if (read_async_called) {
         ASSERT_GT(buff_prefetch_count, 0);
@@ -1900,13 +1901,11 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
         // Check stats to make sure async prefetch is done.
         ASSERT_GT(async_read_bytes.count, 0);
         ASSERT_GT(get_perf_context()->number_async_seek, 0);
-        ASSERT_GT(prefetched_bytes_discarded.count, 0);
       } else {
         // Not all platforms support iouring. In that case, ReadAsync in posix
         // won't submit async requests.
         ASSERT_EQ(async_read_bytes.count, 0);
         ASSERT_EQ(get_perf_context()->number_async_seek, 0);
-        ASSERT_EQ(prefetched_bytes_discarded.count, 0);
       }
     }
   }
@@ -2009,8 +2008,7 @@ TEST_P(PrefetchTest, SeekParallelizationTestWithPosix) {
 
     ASSERT_TRUE(iter->Valid());
     HistogramData async_read_bytes;
-    options.statistics->histogramData(ASYNC_READ_BYTES,
-                                      &async_read_bytes);
+    options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
     if (read_async_called) {
       ASSERT_GT(async_read_bytes.count, 0);
       ASSERT_GT(get_perf_context()->number_async_seek, 0);
