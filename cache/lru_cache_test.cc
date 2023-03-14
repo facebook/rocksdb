@@ -1997,37 +1997,25 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
   Destroy(options);
 }
 
-class LRUCacheWithStat : public LRUCache {
+class CacheWithStats : public CacheWrapper {
  public:
-  LRUCacheWithStat(
-      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
-      double _high_pri_pool_ratio, double _low_pri_pool_ratio,
-      std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
-      bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
-      CacheMetadataChargePolicy _metadata_charge_policy =
-          kDontChargeCacheMetadata,
-      const std::shared_ptr<SecondaryCache>& _secondary_cache = nullptr)
-      : LRUCache(_capacity, _num_shard_bits, _strict_capacity_limit,
-                 _high_pri_pool_ratio, _low_pri_pool_ratio, _memory_allocator,
-                 _use_adaptive_mutex, _metadata_charge_policy,
-                 _secondary_cache) {
-    insert_count_ = 0;
-    lookup_count_ = 0;
-  }
-  ~LRUCacheWithStat() {}
+  using CacheWrapper::CacheWrapper;
+
+  static const char* kClassName() { return "CacheWithStats"; }
+  const char* Name() const override { return kClassName(); }
 
   Status Insert(const Slice& key, Cache::ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
                 Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
     insert_count_++;
-    return LRUCache::Insert(key, value, helper, charge, handle, priority);
+    return target_->Insert(key, value, helper, charge, handle, priority);
   }
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                  CreateContext* create_context, Priority priority, bool wait,
                  Statistics* stats = nullptr) override {
     lookup_count_++;
-    return LRUCache::Lookup(key, helper, create_context, priority, wait, stats);
+    return target_->Lookup(key, helper, create_context, priority, wait, stats);
   }
 
   uint32_t GetInsertCount() { return insert_count_; }
@@ -2038,10 +2026,9 @@ class LRUCacheWithStat : public LRUCache {
   }
 
  private:
-  uint32_t insert_count_;
-  uint32_t lookup_count_;
+  uint32_t insert_count_ = 0;
+  uint32_t lookup_count_ = 0;
 };
-
 
 TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   LRUCacheOptions cache_opts(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
@@ -2049,13 +2036,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
                              0.5 /* high_pri_pool_ratio */,
                              nullptr /* memory_allocator */,
                              kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
-  LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
-      cache_opts.capacity, cache_opts.num_shard_bits,
-      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
-      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
-      cache_opts.secondary_cache);
-  std::shared_ptr<Cache> cache(tmp_cache);
+  std::shared_ptr<CacheWithStats> cache =
+      std::make_shared<CacheWithStats>(NewLRUCache(cache_opts));
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -2083,15 +2065,15 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
 
   // do th eread for all the key value pairs, so all the blocks should be in
   // cache
-  uint32_t start_insert = tmp_cache->GetInsertCount();
-  uint32_t start_lookup = tmp_cache->GetLookupcount();
+  uint32_t start_insert = cache->GetInsertCount();
+  uint32_t start_lookup = cache->GetLookupcount();
   std::string v;
   for (int i = 0; i < N; i++) {
     v = Get(Key(i));
     ASSERT_EQ(v, value[i]);
   }
-  uint32_t dump_insert = tmp_cache->GetInsertCount() - start_insert;
-  uint32_t dump_lookup = tmp_cache->GetLookupcount() - start_lookup;
+  uint32_t dump_insert = cache->GetInsertCount() - start_insert;
+  uint32_t dump_lookup = cache->GetLookupcount() - start_lookup;
   ASSERT_EQ(63,
             static_cast<int>(dump_insert));  // the insert in the block cache
   ASSERT_EQ(256,
@@ -2122,14 +2104,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048 * 1024);
   cache_opts.secondary_cache = secondary_cache;
-  tmp_cache = new LRUCacheWithStat(
-      cache_opts.capacity, cache_opts.num_shard_bits,
-      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
-      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
-      cache_opts.secondary_cache);
-  std::shared_ptr<Cache> cache_new(tmp_cache);
-  table_options.block_cache = cache_new;
+  cache = std::make_shared<CacheWithStats>(NewLRUCache(cache_opts));
+  table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -2160,8 +2136,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   // After load, we do the Get again
   start_insert = secondary_cache->num_inserts();
   start_lookup = secondary_cache->num_lookups();
-  uint32_t cache_insert = tmp_cache->GetInsertCount();
-  uint32_t cache_lookup = tmp_cache->GetLookupcount();
+  uint32_t cache_insert = cache->GetInsertCount();
+  uint32_t cache_lookup = cache->GetLookupcount();
   for (int i = 0; i < N; i++) {
     v = Get(Key(i));
     ASSERT_EQ(v, value[i]);
@@ -2172,8 +2148,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   ASSERT_EQ(0, static_cast<int>(final_insert));
   // lookup the secondary to get all blocks
   ASSERT_EQ(64, static_cast<int>(final_lookup));
-  uint32_t block_insert = tmp_cache->GetInsertCount() - cache_insert;
-  uint32_t block_lookup = tmp_cache->GetLookupcount() - cache_lookup;
+  uint32_t block_insert = cache->GetInsertCount() - cache_insert;
+  uint32_t block_lookup = cache->GetLookupcount() - cache_lookup;
   // Check the new block cache insert and lookup, should be no insert since all
   // blocks are from the secondary cache.
   ASSERT_EQ(0, static_cast<int>(block_insert));
@@ -2189,13 +2165,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
                              0.5 /* high_pri_pool_ratio */,
                              nullptr /* memory_allocator */,
                              kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
-  LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
-      cache_opts.capacity, cache_opts.num_shard_bits,
-      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
-      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
-      cache_opts.secondary_cache);
-  std::shared_ptr<Cache> cache(tmp_cache);
+  std::shared_ptr<CacheWithStats> cache =
+      std::make_shared<CacheWithStats>(NewLRUCache(cache_opts));
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -2245,8 +2216,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
 
   // do th eread for all the key value pairs, so all the blocks should be in
   // cache
-  uint32_t start_insert = tmp_cache->GetInsertCount();
-  uint32_t start_lookup = tmp_cache->GetLookupcount();
+  uint32_t start_insert = cache->GetInsertCount();
+  uint32_t start_lookup = cache->GetLookupcount();
   ReadOptions ro;
   std::string v;
   for (int i = 0; i < N; i++) {
@@ -2257,8 +2228,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
     ASSERT_OK(db2->Get(ro, Key(i), &v));
     ASSERT_EQ(v, value2[i]);
   }
-  uint32_t dump_insert = tmp_cache->GetInsertCount() - start_insert;
-  uint32_t dump_lookup = tmp_cache->GetLookupcount() - start_lookup;
+  uint32_t dump_insert = cache->GetInsertCount() - start_insert;
+  uint32_t dump_lookup = cache->GetLookupcount() - start_lookup;
   ASSERT_EQ(128,
             static_cast<int>(dump_insert));  // the insert in the block cache
   ASSERT_EQ(512,
@@ -2289,14 +2260,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048 * 1024);
   cache_opts.secondary_cache = secondary_cache;
-  tmp_cache = new LRUCacheWithStat(
-      cache_opts.capacity, cache_opts.num_shard_bits,
-      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
-      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
-      cache_opts.secondary_cache);
-  std::shared_ptr<Cache> cache_new(tmp_cache);
-  table_options.block_cache = cache_new;
+  cache = std::make_shared<CacheWithStats>(NewLRUCache(cache_opts));
+  table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -2332,8 +2297,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   fault_fs_->SetFilesystemActive(false, error_msg);
   start_insert = secondary_cache->num_inserts();
   start_lookup = secondary_cache->num_lookups();
-  uint32_t cache_insert = tmp_cache->GetInsertCount();
-  uint32_t cache_lookup = tmp_cache->GetLookupcount();
+  uint32_t cache_insert = cache->GetInsertCount();
+  uint32_t cache_lookup = cache->GetLookupcount();
   for (int i = 0; i < N; i++) {
     ASSERT_OK(db1->Get(ro, Key(i), &v));
     ASSERT_EQ(v, value1[i]);
@@ -2344,8 +2309,8 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   ASSERT_EQ(0, static_cast<int>(final_insert));
   // lookup the secondary to get all blocks
   ASSERT_EQ(64, static_cast<int>(final_lookup));
-  uint32_t block_insert = tmp_cache->GetInsertCount() - cache_insert;
-  uint32_t block_lookup = tmp_cache->GetLookupcount() - cache_lookup;
+  uint32_t block_insert = cache->GetInsertCount() - cache_insert;
+  uint32_t block_lookup = cache->GetLookupcount() - cache_lookup;
   // Check the new block cache insert and lookup, should be no insert since all
   // blocks are from the secondary cache.
   ASSERT_EQ(0, static_cast<int>(block_insert));
