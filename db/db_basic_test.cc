@@ -2623,18 +2623,17 @@ TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
-  ASSERT_EQ(statuses[0], Status::NotSupported());
-  ASSERT_EQ(statuses[1], Status::NotSupported());
-  ASSERT_EQ(statuses[2], Status::NotSupported());
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(statuses[2], Status::OK());
 
-  HistogramData multiget_io_batch_size;
+  HistogramData async_read_bytes;
 
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
+  statistics()->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
 
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 3);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  ASSERT_EQ(async_read_bytes.count, 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 }
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,

@@ -13,6 +13,11 @@
 #endif
 #include "util/random.h"
 
+namespace {
+static bool enable_io_uring = true;
+extern "C" bool RocksDbIOUringEnable() { return enable_io_uring; }
+}  // namespace
+
 namespace ROCKSDB_NAMESPACE {
 
 class MockFS;
@@ -1179,6 +1184,97 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
   Close();
 }
 
+TEST_P(PrefetchTest, DBIterAsyncIONoIOUring) {
+  const int kNumKeys = 1000;
+  // Set options
+  bool use_direct_io = std::get<0>(GetParam());
+  bool is_adaptive_readahead = std::get<1>(GetParam());
+
+  Options options;
+  SetGenericOptions(Env::Default(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  enable_io_uring = false;
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  WriteBatch batch;
+  Random rnd(309);
+  int total_keys = 0;
+  for (int j = 0; j < 5; j++) {
+    for (int i = j * kNumKeys; i < (j + 1) * kNumKeys; i++) {
+      ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+      total_keys++;
+    }
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(2);
+
+  // Test - Iterate over the keys sequentially.
+  {
+    ReadOptions ro;
+    if (is_adaptive_readahead) {
+      ro.adaptive_readahead = true;
+    }
+    ro.async_io = true;
+
+    ASSERT_OK(options.statistics->Reset());
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    int num_keys = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      num_keys++;
+    }
+    ASSERT_EQ(num_keys, total_keys);
+
+    // Check stats to make sure async prefetch is done.
+    {
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      ASSERT_EQ(async_read_bytes.count, 0);
+      ASSERT_EQ(options.statistics->getTickerCount(READ_ASYNC_MICROS), 0);
+    }
+  }
+
+  {
+    ReadOptions ro;
+    if (is_adaptive_readahead) {
+      ro.adaptive_readahead = true;
+    }
+    ro.async_io = true;
+    ro.tailing = true;
+
+    ASSERT_OK(options.statistics->Reset());
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    int num_keys = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      num_keys++;
+    }
+    ASSERT_EQ(num_keys, total_keys);
+
+    // Check stats to make sure async prefetch is done.
+    {
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      ASSERT_EQ(async_read_bytes.count, 0);
+      ASSERT_EQ(options.statistics->getTickerCount(READ_ASYNC_MICROS), 0);
+    }
+  }
+  Close();
+}
+
 class PrefetchTest1 : public DBTestBase,
                       public ::testing::WithParamInterface<bool> {
  public:
@@ -1526,8 +1622,6 @@ TEST_P(PrefetchTest1, SeekParallelizationTest) {
   }
   Close();
 }
-
-extern "C" bool RocksDbIOUringEnable() { return true; }
 
 namespace {
 #ifdef GFLAGS
