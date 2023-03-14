@@ -251,6 +251,111 @@ class CfConsistencyStressTest : public StressTest {
     return statuses;
   }
 
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override {
+    assert(thread);
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    const std::string key = Key(rand_keys[0]);
+
+    Status s;
+    bool is_consistent = true;
+
+    if (thread->rand.OneIn(2)) {
+      // With a 1/2 chance, do a random read from a random CF
+      const size_t cf_id = thread->rand.Next() % rand_column_families.size();
+
+      assert(rand_column_families[cf_id] >= 0);
+      assert(rand_column_families[cf_id] <
+             static_cast<int>(column_families_.size()));
+
+      ColumnFamilyHandle* const cfh =
+          column_families_[rand_column_families[cf_id]];
+      assert(cfh);
+
+      PinnableWideColumns from_db;
+      s = db_->GetEntity(read_opts, cfh, key, &from_db);
+    } else {
+      // With a 1/2 chance, compare one key across all CFs
+      ManagedSnapshot snapshot_guard(db_);
+
+      ReadOptions read_opts_copy = read_opts;
+      read_opts_copy.snapshot = snapshot_guard.snapshot();
+
+      PinnableWideColumns value0;
+      s = db_->GetEntity(read_opts_copy,
+                         column_families_[rand_column_families[0]], key,
+                         &value0);
+
+      if (s.ok() || s.IsNotFound()) {
+        bool found = s.ok();
+        for (size_t i = 1; i < rand_column_families.size(); i++) {
+          PinnableWideColumns value1;
+          s = db_->GetEntity(read_opts_copy,
+                             column_families_[rand_column_families[i]], key,
+                             &value1);
+
+          if (!s.ok() && !s.IsNotFound()) {
+            break;
+          }
+
+          if (!found && s.ok()) {
+            fprintf(stderr, "GetEntity returns different results for key %s\n",
+                    StringToHex(key).c_str());
+            fprintf(stderr, "CF %s returns not found\n",
+                    column_family_names_[0].c_str());
+            fprintf(stderr, "CF %s returns entity %s\n",
+                    column_family_names_[i].c_str(),
+                    WideColumnsToHex(value1.columns()).c_str());
+            is_consistent = false;
+            break;
+          }
+
+          if (found && s.IsNotFound()) {
+            fprintf(stderr, "GetEntity returns different results for key %s\n",
+                    StringToHex(key).c_str());
+            fprintf(stderr, "CF %s returns entity %s\n",
+                    column_family_names_[0].c_str(),
+                    WideColumnsToHex(value0.columns()).c_str());
+            fprintf(stderr, "CF %s returns not found\n",
+                    column_family_names_[i].c_str());
+            is_consistent = false;
+            break;
+          }
+
+          if (s.ok() && value0 != value1) {
+            fprintf(stderr, "GetEntity returns different results for key %s\n",
+                    StringToHex(key).c_str());
+            fprintf(stderr, "CF %s returns entity %s\n",
+                    column_family_names_[0].c_str(),
+                    WideColumnsToHex(value0.columns()).c_str());
+            fprintf(stderr, "CF %s returns entity %s\n",
+                    column_family_names_[i].c_str(),
+                    WideColumnsToHex(value1.columns()).c_str());
+            is_consistent = false;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!is_consistent) {
+      fprintf(stderr, "TestGetEntity error: is_consistent is false\n");
+      thread->stats.AddErrors(1);
+      // Fail fast to preserve the DB state.
+      thread->shared->SetVerificationFailure();
+    } else if (s.ok()) {
+      thread->stats.AddGets(1, 1);
+    } else if (s.IsNotFound()) {
+      thread->stats.AddGets(1, 0);
+    } else {
+      fprintf(stderr, "TestGetEntity error: %s\n", s.ToString().c_str());
+      thread->stats.AddErrors(1);
+    }
+  }
+
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {
