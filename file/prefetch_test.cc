@@ -1273,6 +1273,8 @@ TEST_P(PrefetchTest, DBIterAsyncIONoIOUring) {
     }
   }
   Close();
+
+  enable_io_uring = true;
 }
 
 class PrefetchTest1 : public DBTestBase,
