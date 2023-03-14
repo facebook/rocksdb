@@ -442,7 +442,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         state_ = kMerge;
         // value_pinner is not set from plain_table_reader.cc for example.
         push_operand(value, value_pinner);
-        PERF_COUNTER_ADD(internal_merge_count_point_lookups, 1);
+        PERF_COUNTER_ADD(internal_merge_point_lookup_count, 1);
 
         if (do_merge_ && merge_operator_ != nullptr &&
             merge_operator_->ShouldMerge(
