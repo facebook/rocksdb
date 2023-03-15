@@ -934,12 +934,12 @@ class TestSecondaryCache : public SecondaryCache {
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool /*wait*/,
-      bool /*advise_erase*/, bool& is_in_sec_cache) override {
+      bool /*advise_erase*/, bool& kept_in_sec_cache) override {
     std::string key_str = key.ToString();
     TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
 
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle;
-    is_in_sec_cache = false;
+    kept_in_sec_cache = false;
     ResultType type = ResultType::SUCCESS;
     auto iter = result_map_.find(key.ToString());
     if (iter != result_map_.end()) {
@@ -965,7 +965,7 @@ class TestSecondaryCache : public SecondaryCache {
       if (s.ok()) {
         secondary_handle.reset(new TestSecondaryCacheResultHandle(
             cache_.get(), handle, value, charge, type));
-        is_in_sec_cache = true;
+        kept_in_sec_cache = true;
       } else {
         cache_.Release(handle);
       }
