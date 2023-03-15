@@ -284,56 +284,70 @@ class CfConsistencyStressTest : public StressTest {
       ReadOptions read_opts_copy = read_opts;
       read_opts_copy.snapshot = snapshot_guard.snapshot();
 
-      PinnableWideColumns value0;
+      assert(rand_column_families[0] >= 0);
+      assert(rand_column_families[0] <
+             static_cast<int>(column_families_.size()));
+
+      PinnableWideColumns cmp_result;
       s = db_->GetEntity(read_opts_copy,
                          column_families_[rand_column_families[0]], key,
-                         &value0);
+                         &cmp_result);
 
       if (s.ok() || s.IsNotFound()) {
-        bool found = s.ok();
-        for (size_t i = 1; i < rand_column_families.size(); i++) {
-          PinnableWideColumns value1;
+        const bool cmp_found = s.ok();
+
+        for (size_t i = 1; i < rand_column_families.size(); ++i) {
+          assert(rand_column_families[i] >= 0);
+          assert(rand_column_families[i] <
+                 static_cast<int>(column_families_.size()));
+
+          PinnableWideColumns result;
           s = db_->GetEntity(read_opts_copy,
                              column_families_[rand_column_families[i]], key,
-                             &value1);
+                             &result);
 
           if (!s.ok() && !s.IsNotFound()) {
             break;
           }
 
-          if (!found && s.ok()) {
+          const bool found = s.ok();
+
+          assert(!column_family_names_.empty());
+          assert(i < column_family_names_.size());
+
+          if (!cmp_found && found) {
             fprintf(stderr, "GetEntity returns different results for key %s\n",
                     StringToHex(key).c_str());
             fprintf(stderr, "CF %s returns not found\n",
                     column_family_names_[0].c_str());
             fprintf(stderr, "CF %s returns entity %s\n",
                     column_family_names_[i].c_str(),
-                    WideColumnsToHex(value1.columns()).c_str());
+                    WideColumnsToHex(result.columns()).c_str());
             is_consistent = false;
             break;
           }
 
-          if (found && s.IsNotFound()) {
+          if (cmp_found && !found) {
             fprintf(stderr, "GetEntity returns different results for key %s\n",
                     StringToHex(key).c_str());
             fprintf(stderr, "CF %s returns entity %s\n",
                     column_family_names_[0].c_str(),
-                    WideColumnsToHex(value0.columns()).c_str());
+                    WideColumnsToHex(cmp_result.columns()).c_str());
             fprintf(stderr, "CF %s returns not found\n",
                     column_family_names_[i].c_str());
             is_consistent = false;
             break;
           }
 
-          if (s.ok() && value0 != value1) {
+          if (found && result != cmp_result) {
             fprintf(stderr, "GetEntity returns different results for key %s\n",
                     StringToHex(key).c_str());
             fprintf(stderr, "CF %s returns entity %s\n",
                     column_family_names_[0].c_str(),
-                    WideColumnsToHex(value0.columns()).c_str());
+                    WideColumnsToHex(cmp_result.columns()).c_str());
             fprintf(stderr, "CF %s returns entity %s\n",
                     column_family_names_[i].c_str(),
-                    WideColumnsToHex(value1.columns()).c_str());
+                    WideColumnsToHex(result.columns()).c_str());
             is_consistent = false;
             break;
           }
