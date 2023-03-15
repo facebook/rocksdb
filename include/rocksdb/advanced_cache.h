@@ -145,8 +145,7 @@ class Cache {
     // For helpers without SecondaryCache support
     explicit constexpr CacheItemHelper(CacheEntryRole _role,
                                        DeleterFn _del_cb = nullptr)
-        : CacheItemHelper(_role, _del_cb, nullptr, nullptr, nullptr,
-                          this) {}
+        : CacheItemHelper(_role, _del_cb, nullptr, nullptr, nullptr, this) {}
 
     // For helpers with SecondaryCache support
     explicit constexpr CacheItemHelper(

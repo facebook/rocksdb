@@ -35,8 +35,9 @@ class CompressedSecondaryCacheTest : public testing::Test,
     get_perf_context()->Reset();
     bool kept_in_sec_cache{true};
     // Lookup an non-existent key.
-    std::unique_ptr<SecondaryCacheResultHandle> handle0 = sec_cache->Lookup(
-        "k0", GetHelper(), this, true, /*advise_erase=*/true, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle0 =
+        sec_cache->Lookup("k0", GetHelper(), this, true, /*advise_erase=*/true,
+                          kept_in_sec_cache);
     ASSERT_EQ(handle0, nullptr);
 
     Random rnd(301);
@@ -49,16 +50,18 @@ class CompressedSecondaryCacheTest : public testing::Test,
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
 
-    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
-        "k1", GetHelper(), this, true, /*advise_erase=*/false, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
+        sec_cache->Lookup("k1", GetHelper(), this, true, /*advise_erase=*/false,
+                          kept_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
 
     // Insert and Lookup the item k1 for the second time and advise erasing it.
     ASSERT_OK(sec_cache->Insert("k1", &item1, GetHelper()));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1);
 
-    std::unique_ptr<SecondaryCacheResultHandle> handle1_2 = sec_cache->Lookup(
-        "k1", GetHelper(), this, true, /*advise_erase=*/true, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_2 =
+        sec_cache->Lookup("k1", GetHelper(), this, true, /*advise_erase=*/true,
+                          kept_in_sec_cache);
     ASSERT_NE(handle1_2, nullptr);
     ASSERT_FALSE(kept_in_sec_cache);
     if (sec_cache_is_compressed) {
@@ -77,8 +80,9 @@ class CompressedSecondaryCacheTest : public testing::Test,
     ASSERT_EQ(memcmp(val1->Buf(), item1.Buf(), item1.Size()), 0);
 
     // Lookup the item k1 again.
-    std::unique_ptr<SecondaryCacheResultHandle> handle1_3 = sec_cache->Lookup(
-        "k1", GetHelper(), this, true, /*advise_erase=*/true, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_3 =
+        sec_cache->Lookup("k1", GetHelper(), this, true, /*advise_erase=*/true,
+                          kept_in_sec_cache);
     ASSERT_EQ(handle1_3, nullptr);
 
     // Insert and Lookup the item k2.
@@ -86,8 +90,9 @@ class CompressedSecondaryCacheTest : public testing::Test,
     TestItem item2(str2.data(), str2.length());
     ASSERT_OK(sec_cache->Insert("k2", &item2, GetHelper()));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 2);
-    std::unique_ptr<SecondaryCacheResultHandle> handle2_1 = sec_cache->Lookup(
-        "k2", GetHelper(), this, true, /*advise_erase=*/false, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle2_1 =
+        sec_cache->Lookup("k2", GetHelper(), this, true, /*advise_erase=*/false,
+                          kept_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
     ASSERT_OK(sec_cache->Insert("k2", &item2, GetHelper()));
@@ -101,8 +106,9 @@ class CompressedSecondaryCacheTest : public testing::Test,
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
     }
-    std::unique_ptr<SecondaryCacheResultHandle> handle2_2 = sec_cache->Lookup(
-        "k2", GetHelper(), this, true, /*advise_erase=*/false, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle2_2 =
+        sec_cache->Lookup("k2", GetHelper(), this, true, /*advise_erase=*/false,
+                          kept_in_sec_cache);
     ASSERT_NE(handle2_2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2_2->Value()));
@@ -181,14 +187,16 @@ class CompressedSecondaryCacheTest : public testing::Test,
     // Insert a dummy handle, k1 is not evicted.
     ASSERT_OK(sec_cache->Insert("k2", &item2, GetHelper()));
     bool kept_in_sec_cache{false};
-    std::unique_ptr<SecondaryCacheResultHandle> handle1 = sec_cache->Lookup(
-        "k1", GetHelper(), this, true, /*advise_erase=*/false, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle1 =
+        sec_cache->Lookup("k1", GetHelper(), this, true, /*advise_erase=*/false,
+                          kept_in_sec_cache);
     ASSERT_EQ(handle1, nullptr);
 
     // Insert k2 and k1 is evicted.
     ASSERT_OK(sec_cache->Insert("k2", &item2, GetHelper()));
-    std::unique_ptr<SecondaryCacheResultHandle> handle2 = sec_cache->Lookup(
-        "k2", GetHelper(), this, true, /*advise_erase=*/false, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle2 =
+        sec_cache->Lookup("k2", GetHelper(), this, true, /*advise_erase=*/false,
+                          kept_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
@@ -198,14 +206,16 @@ class CompressedSecondaryCacheTest : public testing::Test,
     // Insert k1 again and a dummy handle is inserted.
     ASSERT_OK(sec_cache->Insert("k1", &item1, GetHelper()));
 
-    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
-        "k1", GetHelper(), this, true, /*advise_erase=*/false, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
+        sec_cache->Lookup("k1", GetHelper(), this, true, /*advise_erase=*/false,
+                          kept_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
 
     // Create Fails.
     SetFailCreate(true);
-    std::unique_ptr<SecondaryCacheResultHandle> handle2_1 = sec_cache->Lookup(
-        "k2", GetHelper(), this, true, /*advise_erase=*/true, kept_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle2_1 =
+        sec_cache->Lookup("k2", GetHelper(), this, true, /*advise_erase=*/true,
+                          kept_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
     // Save Fails.
