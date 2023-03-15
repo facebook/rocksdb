@@ -280,6 +280,57 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithOverlap) {
   }
 }
 
+TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithRangeTombstone) {
+  // Test for a bug where import file's smallest and largest key did not
+  // consider range tombstone.
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"koko"}, options);
+
+  SstFileWriter sfw_cf1(EnvOptions(), options, handles_[1]);
+  // cf1.sst
+  const std::string cf1_sst_name = "cf1.sst";
+  const std::string cf1_sst = sst_files_dir_ + cf1_sst_name;
+  ASSERT_OK(sfw_cf1.Open(cf1_sst));
+  ASSERT_OK(sfw_cf1.Put("K1", "V1"));
+  ASSERT_OK(sfw_cf1.Put("K2", "V2"));
+  ASSERT_OK(sfw_cf1.DeleteRange("K3", "K4"));
+  ASSERT_OK(sfw_cf1.Finish());
+
+  // Import sst file corresponding to cf1 onto a new cf and verify
+  ExportImportFilesMetaData metadata;
+  metadata.files.push_back(
+      LiveFileMetaDataInit(cf1_sst_name, sst_files_dir_, 0, 0, 19));
+  metadata.db_comparator_name = options.comparator->Name();
+
+  ASSERT_OK(db_->CreateColumnFamilyWithImport(
+      options, "toto", ImportColumnFamilyOptions(), metadata, &import_cfh_));
+  ASSERT_NE(import_cfh_, nullptr);
+
+  ColumnFamilyMetaData import_cf_meta;
+  db_->GetColumnFamilyMetaData(import_cfh_, &import_cf_meta);
+  ASSERT_EQ(import_cf_meta.file_count, 1);
+  const SstFileMetaData* file_meta = nullptr;
+  for (const auto& level_meta : import_cf_meta.levels) {
+    if (!level_meta.files.empty()) {
+      file_meta = &(level_meta.files[0]);
+      break;
+    }
+  }
+  ASSERT_TRUE(file_meta != nullptr);
+  InternalKey largest;
+  largest.DecodeFrom(file_meta->largest);
+  ASSERT_EQ(largest.user_key(), "K4");
+
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), import_cfh_, "K1", &value));
+  ASSERT_EQ(value, "V1");
+  ASSERT_OK(db_->Get(ReadOptions(), import_cfh_, "K2", &value));
+  ASSERT_EQ(value, "V2");
+  ASSERT_OK(db_->DropColumnFamily(import_cfh_));
+  ASSERT_OK(db_->DestroyColumnFamilyHandle(import_cfh_));
+  import_cfh_ = nullptr;
+}
+
 TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherCF) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"koko"}, options);
@@ -442,6 +493,70 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
   ASSERT_OK(db_copy->DestroyColumnFamilyHandle(cfh));
   delete db_copy;
   ASSERT_OK(DestroyDir(env_, dbname_ + "/db_copy"));
+}
+
+TEST_F(ImportColumnFamilyTest,
+       ImportExportedSSTFromAnotherCFWithRangeTombstone) {
+  // Test for a bug where import file's smallest and largest key did not
+  // consider range tombstone.
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"koko"}, options);
+
+  for (int i = 10; i < 20; ++i) {
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_val"));
+  }
+  ASSERT_OK(Flush(1 /* cf */));
+  MoveFilesToLevel(1 /* level */, 1 /* cf */);
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), handles_[1], Key(0), Key(25)));
+  ASSERT_OK(Put(1, Key(1), "t"));
+  ASSERT_OK(Flush(1));
+  // Tests importing a range tombstone only file
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), handles_[1], Key(0), Key(2)));
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir_,
+                                           &metadata_ptr_));
+  ASSERT_NE(metadata_ptr_, nullptr);
+  delete checkpoint;
+
+  ImportColumnFamilyOptions import_options;
+  import_options.move_files = false;
+  ASSERT_OK(db_->CreateColumnFamilyWithImport(options, "toto", import_options,
+                                              *metadata_ptr_, &import_cfh_));
+  ASSERT_NE(import_cfh_, nullptr);
+
+  import_options.move_files = true;
+  ASSERT_OK(db_->CreateColumnFamilyWithImport(options, "yoyo", import_options,
+                                              *metadata_ptr_, &import_cfh2_));
+  ASSERT_NE(import_cfh2_, nullptr);
+  delete metadata_ptr_;
+  metadata_ptr_ = nullptr;
+
+  std::string value1, value2;
+  ReadOptions ro_latest;
+  ReadOptions ro_snapshot;
+  ro_snapshot.snapshot = snapshot;
+
+  for (int i = 10; i < 20; ++i) {
+    ASSERT_TRUE(db_->Get(ro_latest, import_cfh_, Key(i), &value1).IsNotFound());
+    ASSERT_OK(db_->Get(ro_snapshot, import_cfh_, Key(i), &value1));
+    ASSERT_EQ(Get(1, Key(i), snapshot), value1);
+  }
+  ASSERT_TRUE(db_->Get(ro_latest, import_cfh_, Key(1), &value1).IsNotFound());
+
+  for (int i = 10; i < 20; ++i) {
+    ASSERT_TRUE(
+        db_->Get(ro_latest, import_cfh2_, Key(i), &value1).IsNotFound());
+
+    ASSERT_OK(db_->Get(ro_snapshot, import_cfh2_, Key(i), &value2));
+    ASSERT_EQ(Get(1, Key(i), snapshot), value2);
+  }
+  ASSERT_TRUE(db_->Get(ro_latest, import_cfh2_, Key(1), &value1).IsNotFound());
+
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(ImportColumnFamilyTest, LevelFilesOverlappingAtEndpoints) {

@@ -1543,14 +1543,40 @@ Status DBImpl::WriteRecoverableState() {
 }
 
 void DBImpl::SelectColumnFamiliesForAtomicFlush(
-    autovector<ColumnFamilyData*>* cfds) {
-  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+    autovector<ColumnFamilyData*>* selected_cfds,
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds) {
+  mutex_.AssertHeld();
+  assert(selected_cfds);
+
+  autovector<ColumnFamilyData*> candidate_cfds;
+
+  // Generate candidate cfds if not provided
+  if (provided_candidate_cfds.empty()) {
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->IsDropped() && cfd->initialized()) {
+        cfd->Ref();
+        candidate_cfds.push_back(cfd);
+      }
+    }
+  } else {
+    candidate_cfds = provided_candidate_cfds;
+  }
+
+  for (ColumnFamilyData* cfd : candidate_cfds) {
     if (cfd->IsDropped()) {
       continue;
     }
     if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
         !cached_recoverable_state_empty_.load()) {
-      cfds->push_back(cfd);
+      selected_cfds->push_back(cfd);
+    }
+  }
+
+  // Unref the newly generated candidate cfds (when not provided) in
+  // `candidate_cfds`
+  if (provided_candidate_cfds.empty()) {
+    for (auto candidate_cfd : candidate_cfds) {
+      candidate_cfd->UnrefAndTryDelete();
     }
   }
 }

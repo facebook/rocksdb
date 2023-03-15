@@ -620,6 +620,7 @@ TEST_P(DBWriteTest, LockWALInEffect) {
   options.env = fault_fs_env.get();
   options.disable_auto_compactions = true;
   options.paranoid_checks = false;
+  options.max_bgerror_resume_count = 0;  // manual Resume()
   Reopen(options);
   // try the 1st WAL created during open
   ASSERT_OK(Put("key0", "value"));
@@ -649,6 +650,7 @@ TEST_P(DBWriteTest, LockWALInEffect) {
     ASSERT_OK(db_->UnlockWAL());
   }
   fault_fs->SetFilesystemActive(true);
+  ASSERT_OK(db_->Resume());
   // Writes should work again
   ASSERT_OK(Put("key3", "value"));
   ASSERT_EQ(Get("key3"), "value");

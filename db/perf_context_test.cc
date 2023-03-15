@@ -1018,8 +1018,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         PinnableSlice result;
         ASSERT_OK(db->Get(ReadOptions(), db->DefaultColumnFamily(), keys[i],
                           &result));
-        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
-                  i + 1);
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count, i + 1);
 
         get_perf_context()->Reset();
       }
@@ -1029,8 +1028,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
         PinnableWideColumns result;
         ASSERT_OK(db->GetEntity(ReadOptions(), db->DefaultColumnFamily(),
                                 keys[i], &result));
-        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
-                  i + 1);
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count, i + 1);
 
         get_perf_context()->Reset();
       }
@@ -1056,7 +1054,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
           ASSERT_OK(statuses[i]);
         }
 
-        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count,
                   total_merges);
 
         get_perf_context()->Reset();
@@ -1074,7 +1072,7 @@ TEST_F(PerfContextTest, MergeOperandCount) {
           ASSERT_OK(statuses[i]);
         }
 
-        ASSERT_EQ(get_perf_context()->internal_merge_count_point_lookups,
+        ASSERT_EQ(get_perf_context()->internal_merge_point_lookup_count,
                   total_merges);
 
         get_perf_context()->Reset();
