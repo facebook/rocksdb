@@ -11,7 +11,7 @@ namespace ROCKSDB_NAMESPACE {
 
 ChargedCache::ChargedCache(std::shared_ptr<Cache> cache,
                            std::shared_ptr<Cache> block_cache)
-    : cache_(cache),
+    : CacheWrapper(cache),
       cache_res_mgr_(std::make_shared<ConcurrentCacheReservationManager>(
           std::make_shared<
               CacheReservationManagerImpl<CacheEntryRole::kBlobCache>>(
@@ -20,13 +20,13 @@ ChargedCache::ChargedCache(std::shared_ptr<Cache> cache,
 Status ChargedCache::Insert(const Slice& key, ObjectPtr obj,
                             const CacheItemHelper* helper, size_t charge,
                             Handle** handle, Priority priority) {
-  Status s = cache_->Insert(key, obj, helper, charge, handle, priority);
+  Status s = target_->Insert(key, obj, helper, charge, handle, priority);
   if (s.ok()) {
     // Insert may cause the cache entry eviction if the cache is full. So we
     // directly call the reservation manager to update the total memory used
     // in the cache.
     assert(cache_res_mgr_);
-    cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+    cache_res_mgr_->UpdateCacheReservation(target_->GetUsage())
         .PermitUncheckedError();
   }
   return s;
@@ -38,13 +38,13 @@ Cache::Handle* ChargedCache::Lookup(const Slice& key,
                                     Priority priority, bool wait,
                                     Statistics* stats) {
   auto handle =
-      cache_->Lookup(key, helper, create_context, priority, wait, stats);
+      target_->Lookup(key, helper, create_context, priority, wait, stats);
   // Lookup may promote the KV pair from the secondary cache to the primary
   // cache. So we directly call the reservation manager to update the total
   // memory used in the cache.
   if (helper && helper->create_cb) {
     assert(cache_res_mgr_);
-    cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+    cache_res_mgr_->UpdateCacheReservation(target_->GetUsage())
         .PermitUncheckedError();
   }
   return handle;
@@ -52,8 +52,8 @@ Cache::Handle* ChargedCache::Lookup(const Slice& key,
 
 bool ChargedCache::Release(Cache::Handle* handle, bool useful,
                            bool erase_if_last_ref) {
-  size_t memory_used_delta = cache_->GetUsage(handle);
-  bool erased = cache_->Release(handle, useful, erase_if_last_ref);
+  size_t memory_used_delta = target_->GetUsage(handle);
+  bool erased = target_->Release(handle, useful, erase_if_last_ref);
   if (erased) {
     assert(cache_res_mgr_);
     cache_res_mgr_
@@ -64,8 +64,8 @@ bool ChargedCache::Release(Cache::Handle* handle, bool useful,
 }
 
 bool ChargedCache::Release(Cache::Handle* handle, bool erase_if_last_ref) {
-  size_t memory_used_delta = cache_->GetUsage(handle);
-  bool erased = cache_->Release(handle, erase_if_last_ref);
+  size_t memory_used_delta = target_->GetUsage(handle);
+  bool erased = target_->Release(handle, erase_if_last_ref);
   if (erased) {
     assert(cache_res_mgr_);
     cache_res_mgr_
@@ -76,25 +76,25 @@ bool ChargedCache::Release(Cache::Handle* handle, bool erase_if_last_ref) {
 }
 
 void ChargedCache::Erase(const Slice& key) {
-  cache_->Erase(key);
+  target_->Erase(key);
   assert(cache_res_mgr_);
-  cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+  cache_res_mgr_->UpdateCacheReservation(target_->GetUsage())
       .PermitUncheckedError();
 }
 
 void ChargedCache::EraseUnRefEntries() {
-  cache_->EraseUnRefEntries();
+  target_->EraseUnRefEntries();
   assert(cache_res_mgr_);
-  cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+  cache_res_mgr_->UpdateCacheReservation(target_->GetUsage())
       .PermitUncheckedError();
 }
 
 void ChargedCache::SetCapacity(size_t capacity) {
-  cache_->SetCapacity(capacity);
+  target_->SetCapacity(capacity);
   // SetCapacity can result in evictions when the cache capacity is decreased,
   // so we would want to update the cache reservation here as well.
   assert(cache_res_mgr_);
-  cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+  cache_res_mgr_->UpdateCacheReservation(target_->GetUsage())
       .PermitUncheckedError();
 }
 

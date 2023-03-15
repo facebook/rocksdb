@@ -1214,12 +1214,12 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_EQ(handle0, nullptr);
 
       // key0's item should be in the secondary cache.
-      bool is_in_sec_cache = false;
+      bool kept_in_sec_cache = false;
       auto sec_handle0 = secondary_cache->Lookup(
           key0, &BlobSource::SharedCacheInterface::kFullHelper,
           /*context*/ nullptr, true,
-          /*advise_erase=*/true, is_in_sec_cache);
-      ASSERT_FALSE(is_in_sec_cache);
+          /*advise_erase=*/true, kept_in_sec_cache);
+      ASSERT_FALSE(kept_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
       auto value = static_cast<BlobContents*>(sec_handle0->Value());
@@ -1242,12 +1242,12 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_NE(handle1, nullptr);
       blob_cache->Release(handle1);
 
-      bool is_in_sec_cache = false;
+      bool kept_in_sec_cache = false;
       auto sec_handle1 = secondary_cache->Lookup(
           key1, &BlobSource::SharedCacheInterface::kFullHelper,
           /*context*/ nullptr, true,
-          /*advise_erase=*/true, is_in_sec_cache);
-      ASSERT_FALSE(is_in_sec_cache);
+          /*advise_erase=*/true, kept_in_sec_cache);
+      ASSERT_FALSE(kept_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
