@@ -140,26 +140,25 @@ class Cache {
     // from attempting re-insertion into secondary cache (for efficiency).
     const CacheItemHelper* without_secondary_compat;
 
-    constexpr CacheItemHelper()
-        : del_cb(nullptr),
-          size_cb(nullptr),
-          saveto_cb(nullptr),
-          create_cb(nullptr),
-          role(CacheEntryRole::kMisc),
-          without_secondary_compat(this) {}
+    constexpr CacheItemHelper() : CacheItemHelper(CacheEntryRole::kMisc) {}
 
+    // For helpers without SecondaryCache support
+    explicit constexpr CacheItemHelper(CacheEntryRole _role,
+                                       DeleterFn _del_cb = nullptr)
+        : CacheItemHelper(_role, _del_cb, nullptr, nullptr, nullptr,
+                          this) {}
+
+    // For helpers with SecondaryCache support
     explicit constexpr CacheItemHelper(
-        CacheEntryRole _role, DeleterFn _del_cb = nullptr,
-        SizeCallback _size_cb = nullptr, SaveToCallback _saveto_cb = nullptr,
-        CreateCallback _create_cb = nullptr,
-        const CacheItemHelper* _without_secondary_compat = nullptr)
+        CacheEntryRole _role, DeleterFn _del_cb, SizeCallback _size_cb,
+        SaveToCallback _saveto_cb, CreateCallback _create_cb,
+        const CacheItemHelper* _without_secondary_compat)
         : del_cb(_del_cb),
           size_cb(_size_cb),
           saveto_cb(_saveto_cb),
           create_cb(_create_cb),
           role(_role),
-          without_secondary_compat(
-              _without_secondary_compat ? _without_secondary_compat : this) {
+          without_secondary_compat(_without_secondary_compat) {
       // Either all three secondary cache callbacks are non-nullptr or
       // all three are nullptr
       assert((size_cb != nullptr) == (saveto_cb != nullptr));

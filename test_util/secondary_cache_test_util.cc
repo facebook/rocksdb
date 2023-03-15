@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace secondary_cache_test_util {
@@ -46,7 +48,9 @@ Status CreateCallback(const Slice& data, Cache::CreateContext* context,
   return Status::OK();
 }
 
-static constexpr auto GenerateHelpersByRole(
+// If helpers without_secondary are provided, returns helpers with secondary
+// support. If not provided, returns helpers without secondary support.
+static auto GenerateHelpersByRole(
     const std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>*
         without_secondary,
     bool fail) {
@@ -70,11 +74,11 @@ static constexpr auto GenerateHelpersByRole(
 
 const Cache::CacheItemHelper* GetHelper(CacheEntryRole r,
                                         bool secondary_compatible, bool fail) {
-  static std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
+  static const std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
       without_secondary = GenerateHelpersByRole(nullptr, false);
-  static std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
+  static const std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
       with_secondary = GenerateHelpersByRole(&without_secondary, false);
-  static std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
+  static const std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
       with_secondary_fail = GenerateHelpersByRole(&without_secondary, true);
   return &(fail                   ? with_secondary_fail
            : secondary_compatible ? with_secondary
