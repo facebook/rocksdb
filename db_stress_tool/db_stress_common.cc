@@ -278,6 +278,23 @@ WideColumns GenerateExpectedWideColumns(uint32_t value_base,
   return columns;
 }
 
+bool VerifyWideColumns(const Slice& value, const WideColumns& columns) {
+  if (value.size() < sizeof(uint32_t)) {
+    return false;
+  }
+
+  const uint32_t value_base = GetValueBase(value);
+
+  const WideColumns expected_columns =
+      GenerateExpectedWideColumns(value_base, value);
+
+  if (columns != expected_columns) {
+    return false;
+  }
+
+  return true;
+}
+
 bool VerifyWideColumns(const WideColumns& columns) {
   if (columns.empty()) {
     return false;
@@ -289,20 +306,7 @@ bool VerifyWideColumns(const WideColumns& columns) {
 
   const Slice& value_of_default = columns.front().value();
 
-  if (value_of_default.size() < sizeof(uint32_t)) {
-    return false;
-  }
-
-  const uint32_t value_base = GetValueBase(value_of_default);
-
-  const WideColumns expected_columns =
-      GenerateExpectedWideColumns(value_base, value_of_default);
-
-  if (columns != expected_columns) {
-    return false;
-  }
-
-  return true;
+  return VerifyWideColumns(value_of_default, columns);
 }
 
 std::string GetNowNanos() {

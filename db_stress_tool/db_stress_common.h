@@ -645,6 +645,7 @@ extern uint32_t GetValueBase(Slice s);
 extern WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
 extern WideColumns GenerateExpectedWideColumns(uint32_t value_base,
                                                const Slice& slice);
+extern bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
 extern bool VerifyWideColumns(const WideColumns& columns);
 
 extern StressTest* CreateCfConsistencyStressTest();
