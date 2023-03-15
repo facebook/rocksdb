@@ -278,6 +278,33 @@ WideColumns GenerateExpectedWideColumns(uint32_t value_base,
   return columns;
 }
 
+bool VerifyWideColumns(const WideColumns& columns) {
+  if (columns.empty()) {
+    return false;
+  }
+
+  if (columns.front().name() != kDefaultWideColumnName) {
+    return false;
+  }
+
+  const Slice& value_of_default = columns.front().value();
+
+  if (value_of_default.size() < sizeof(uint32_t)) {
+    return false;
+  }
+
+  const uint32_t value_base = GetValueBase(value_of_default);
+
+  const WideColumns expected_columns =
+      GenerateExpectedWideColumns(value_base, value_of_default);
+
+  if (columns != expected_columns) {
+    return false;
+  }
+
+  return true;
+}
+
 std::string GetNowNanos() {
   uint64_t t = db_stress_env->NowNanos();
   std::string ret;
