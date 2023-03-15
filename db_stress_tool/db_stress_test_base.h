@@ -228,8 +228,8 @@ class StressTest {
   void VerificationAbort(SharedState* shared, int cf, int64_t key,
                          const Slice& value, const WideColumns& columns) const;
 
-  static std::string DebugString(const Slice& value, const WideColumns& columns,
-                                 const WideColumns& expected_columns);
+  static std::string DebugString(const Slice& value,
+                                 const WideColumns& columns);
 
   void PrintEnv() const;
 

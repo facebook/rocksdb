@@ -463,16 +463,14 @@ class BatchedOpsStressTest : public StressTest {
         }
 
         // make sure value() and columns() are consistent
-        const WideColumns expected_columns = GenerateExpectedWideColumns(
-            GetValueBase(iters[i]->value()), iters[i]->value());
-        if (iters[i]->columns() != expected_columns) {
+        if (!VerifyWideColumns(iters[i]->value(), iters[i]->columns())) {
           fprintf(stderr,
                   "prefix scan error : %" ROCKSDB_PRIszt
-                  ", value and columns inconsistent for prefix %s: %s\n",
+                  ", value and columns inconsistent for prefix %s: value: %s, "
+                  "columns: %s\n",
                   i, prefix_slices[i].ToString(/* hex */ true).c_str(),
-                  DebugString(iters[i]->value(), iters[i]->columns(),
-                              expected_columns)
-                      .c_str());
+                  iters[i]->value().ToString(/* hex */ true).c_str(),
+                  WideColumnsToHex(iters[i]->columns()).c_str());
         }
 
         iters[i]->Next();

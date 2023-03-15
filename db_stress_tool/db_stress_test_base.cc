@@ -445,13 +445,11 @@ void StressTest::VerificationAbort(SharedState* shared, int cf, int64_t key,
 }
 
 std::string StressTest::DebugString(const Slice& value,
-                                    const WideColumns& columns,
-                                    const WideColumns& expected_columns) {
+                                    const WideColumns& columns) {
   std::ostringstream oss;
 
   oss << "value: " << value.ToString(/* hex */ true)
-      << ", columns: " << WideColumnsToHex(columns)
-      << ", expected_columns: " << WideColumnsToHex(expected_columns);
+      << ", columns: " << WideColumnsToHex(columns);
 
   return oss.str();
 }
@@ -1475,12 +1473,12 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (!*diverged && iter->Valid()) {
-    const WideColumns expected_columns =
-        GenerateExpectedWideColumns(GetValueBase(iter->value()), iter->value());
-    if (iter->columns() != expected_columns) {
-      fprintf(stderr, "Value and columns inconsistent for iterator: %s\n",
-              DebugString(iter->value(), iter->columns(), expected_columns)
-                  .c_str());
+    if (!VerifyWideColumns(iter->value(), iter->columns())) {
+      fprintf(stderr,
+              "Value and columns inconsistent for iterator: value: %s, "
+              "columns: %s\n",
+              iter->value().ToString(/* hex */ true).c_str(),
+              WideColumnsToHex(iter->columns()).c_str());
 
       *diverged = true;
     }

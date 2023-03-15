@@ -101,9 +101,7 @@ class NonBatchedOpsStressTest : public StressTest {
             if (diff > 0) {
               s = Status::NotFound();
             } else if (diff == 0) {
-              const WideColumns expected_columns = GenerateExpectedWideColumns(
-                  GetValueBase(iter->value()), iter->value());
-              if (iter->columns() != expected_columns) {
+              if (!VerifyWideColumns(iter->value(), iter->columns())) {
                 VerificationAbort(shared, static_cast<int>(cf), i,
                                   iter->value(), iter->columns());
               }
@@ -903,12 +901,9 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
 
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(iter->value()), iter->value());
-      if (iter->columns() != expected_columns) {
-        s = Status::Corruption(
-            "Value and columns inconsistent",
-            DebugString(iter->value(), iter->columns(), expected_columns));
+      if (!VerifyWideColumns(iter->value(), iter->columns())) {
+        s = Status::Corruption("Value and columns inconsistent",
+                               DebugString(iter->value(), iter->columns()));
         break;
       }
     }
@@ -1361,17 +1356,15 @@ class NonBatchedOpsStressTest : public StressTest {
       assert(iter);
       assert(iter->Valid());
 
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(iter->value()), iter->value());
-      if (iter->columns() != expected_columns) {
+      if (!VerifyWideColumns(iter->value(), iter->columns())) {
         shared->SetVerificationFailure();
 
         fprintf(stderr,
                 "Verification failed for key %s: "
-                "Value and columns inconsistent: %s\n",
+                "Value and columns inconsistent: value: %s, columns: %s\n",
                 Slice(iter->key()).ToString(/* hex */ true).c_str(),
-                DebugString(iter->value(), iter->columns(), expected_columns)
-                    .c_str());
+                iter->value().ToString(/* hex */ true).c_str(),
+                WideColumnsToHex(iter->columns()).c_str());
         fprintf(stderr, "Column family: %s, op_logs: %s\n",
                 cfh->GetName().c_str(), op_logs.c_str());
 

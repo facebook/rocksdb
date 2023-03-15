@@ -436,12 +436,9 @@ class CfConsistencyStressTest : public StressTest {
          iter->Next()) {
       ++count;
 
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(iter->value()), iter->value());
-      if (iter->columns() != expected_columns) {
-        s = Status::Corruption(
-            "Value and columns inconsistent",
-            DebugString(iter->value(), iter->columns(), expected_columns));
+      if (!VerifyWideColumns(iter->value(), iter->columns())) {
+        s = Status::Corruption("Value and columns inconsistent",
+                               DebugString(iter->value(), iter->columns()));
         break;
       }
     }
@@ -518,12 +515,10 @@ class CfConsistencyStressTest : public StressTest {
         assert(iter);
 
         if (iter->Valid()) {
-          const WideColumns expected_columns = GenerateExpectedWideColumns(
-              GetValueBase(iter->value()), iter->value());
-          if (iter->columns() != expected_columns) {
-            statuses[i] = Status::Corruption(
-                "Value and columns inconsistent",
-                DebugString(iter->value(), iter->columns(), expected_columns));
+          if (!VerifyWideColumns(iter->value(), iter->columns())) {
+            statuses[i] =
+                Status::Corruption("Value and columns inconsistent",
+                                   DebugString(iter->value(), iter->columns()));
           } else {
             ++valid_cnt;
           }
