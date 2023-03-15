@@ -140,18 +140,17 @@ class Cache {
     // from attempting re-insertion into secondary cache (for efficiency).
     const CacheItemHelper* without_secondary_compat;
 
-    constexpr CacheItemHelper() : CacheItemHelper(CacheEntryRole::kMisc) {}
+    CacheItemHelper() : CacheItemHelper(CacheEntryRole::kMisc) {}
 
     // For helpers without SecondaryCache support
-    explicit constexpr CacheItemHelper(CacheEntryRole _role,
-                                       DeleterFn _del_cb = nullptr)
+    explicit CacheItemHelper(CacheEntryRole _role, DeleterFn _del_cb = nullptr)
         : CacheItemHelper(_role, _del_cb, nullptr, nullptr, nullptr, this) {}
 
     // For helpers with SecondaryCache support
-    explicit constexpr CacheItemHelper(
-        CacheEntryRole _role, DeleterFn _del_cb, SizeCallback _size_cb,
-        SaveToCallback _saveto_cb, CreateCallback _create_cb,
-        const CacheItemHelper* _without_secondary_compat)
+    explicit CacheItemHelper(CacheEntryRole _role, DeleterFn _del_cb,
+                             SizeCallback _size_cb, SaveToCallback _saveto_cb,
+                             CreateCallback _create_cb,
+                             const CacheItemHelper* _without_secondary_compat)
         : del_cb(_del_cb),
           size_cb(_size_cb),
           saveto_cb(_saveto_cb),
@@ -168,7 +167,7 @@ class Cache {
       assert(del_cb == without_secondary_compat->del_cb);
       assert(!without_secondary_compat->IsSecondaryCacheCompatible());
     }
-    inline constexpr bool IsSecondaryCacheCompatible() const {
+    inline bool IsSecondaryCacheCompatible() const {
       return size_cb != nullptr;
     }
   };
@@ -533,6 +532,6 @@ class CacheWrapper : public Cache {
 
 // Useful for cache entries requiring no clean-up, such as for cache
 // reservations
-inline constexpr Cache::CacheItemHelper kNoopCacheItemHelper{};
+extern const Cache::CacheItemHelper kNoopCacheItemHelper;
 
 }  // namespace ROCKSDB_NAMESPACE

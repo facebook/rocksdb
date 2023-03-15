@@ -16,6 +16,8 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+const Cache::CacheItemHelper kNoopCacheItemHelper{};
+
 static std::unordered_map<std::string, OptionTypeInfo>
     lru_cache_options_type_info = {
         {"capacity",
