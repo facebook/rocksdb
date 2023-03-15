@@ -54,7 +54,7 @@ struct BufferInfo {
   uint32_t pos_ = 0;
 };
 
-enum FilePrefetchBufferUsage {
+enum class FilePrefetchBufferUsage {
   kTableOpenPrefetchTail,
   kUnknown,
 };
@@ -408,6 +408,19 @@ class FilePrefetchBuffer {
                                Env::IOPriority rate_limiter_priority,
                                bool& copy_to_third_buffer, uint64_t& tmp_offset,
                                size_t& tmp_length);
+
+  bool TryReadFromCacheUntracked(const IOOptions& opts,
+                                 RandomAccessFileReader* reader,
+                                 uint64_t offset, size_t n, Slice* result,
+                                 Status* s,
+                                 Env::IOPriority rate_limiter_priority,
+                                 bool for_compaction = false);
+
+  bool TryReadFromCacheAsyncUntracked(const IOOptions& opts,
+                                      RandomAccessFileReader* reader,
+                                      uint64_t offset, size_t n, Slice* result,
+                                      Status* status,
+                                      Env::IOPriority rate_limiter_priority);
 
   std::vector<BufferInfo> bufs_;
   // curr_ represents the index for bufs_ indicating which buffer is being
