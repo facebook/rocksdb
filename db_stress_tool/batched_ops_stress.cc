@@ -346,39 +346,29 @@ class BatchedOpsStressTest : public StressTest {
         continue;
       }
 
-      if (columns.front().name() != kDefaultWideColumnName) {
-        fprintf(
-            stderr,
-            "GetEntity error: default column not found for key %s, entity %s\n",
-            StringToHex(key_suffix).c_str(), WideColumnsToHex(columns).c_str());
-        continue;
-      }
-
       // The last character of each column value should be 'i' as a decimal
       // digit
       const char expected = static_cast<char>('0' + i);
 
-      const Slice& value_of_default = columns.front().value();
+      for (const auto& column : columns) {
+        const Slice& value = column.value();
 
-      if (value_of_default.empty() ||
-          value_of_default[value_of_default.size() - 1] != expected) {
-        fprintf(stderr,
-                "GetEntity error: incorrect value for default column for key "
-                "%s, entity %s, expected %c\n",
-                StringToHex(key_suffix).c_str(),
-                WideColumnsToHex(columns).c_str(), expected);
-        continue;
+        if (value.empty() || value[value.size() - 1] != expected) {
+          fprintf(stderr,
+                  "GetEntity error: incorrect column value for key "
+                  "%s, entity %s, column value %s, expected %c\n",
+                  StringToHex(key_suffix).c_str(),
+                  WideColumnsToHex(columns).c_str(),
+                  value.ToString(/* hex */ true).c_str(), expected);
+          continue;
+        }
       }
 
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(value_of_default), value_of_default);
-      if (columns != expected_columns) {
+      if (!VerifyWideColumns(columns)) {
         fprintf(stderr,
-                "GetEntity error: inconsistent columns for key %s, entity %s, "
-                "expected entity %s\n",
+                "GetEntity error: inconsistent columns for key %s, entity %s\n",
                 StringToHex(key_suffix).c_str(),
-                WideColumnsToHex(columns).c_str(),
-                WideColumnsToHex(expected_columns).c_str());
+                WideColumnsToHex(columns).c_str());
         continue;
       }
     }

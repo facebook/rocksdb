@@ -105,8 +105,7 @@ class NonBatchedOpsStressTest : public StressTest {
                   GetValueBase(iter->value()), iter->value());
               if (iter->columns() != expected_columns) {
                 VerificationAbort(shared, static_cast<int>(cf), i,
-                                  iter->value(), iter->columns(),
-                                  expected_columns);
+                                  iter->value(), iter->columns());
               }
 
               from_db = iter->value().ToString();
@@ -159,26 +158,24 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           const std::string key = Key(i);
-          PinnableWideColumns columns;
+          PinnableWideColumns result;
 
           Status s =
-              db_->GetEntity(options, column_families_[cf], key, &columns);
+              db_->GetEntity(options, column_families_[cf], key, &result);
 
           std::string from_db;
 
           if (s.ok()) {
-            const WideColumns& columns_from_db = columns.columns();
+            const WideColumns& columns = result.columns();
 
-            if (!columns_from_db.empty() &&
-                columns_from_db[0].name() == kDefaultWideColumnName) {
-              from_db = columns_from_db[0].value().ToString();
+            if (!columns.empty() &&
+                columns.front().name() == kDefaultWideColumnName) {
+              from_db = columns.front().value().ToString();
             }
 
-            const WideColumns expected_columns =
-                GenerateExpectedWideColumns(GetValueBase(from_db), from_db);
-            if (columns_from_db != expected_columns) {
+            if (!VerifyWideColumns(columns)) {
               VerificationAbort(shared, static_cast<int>(cf), i, from_db,
-                                columns_from_db, expected_columns);
+                                columns);
             }
           }
 
@@ -256,18 +253,16 @@ class NonBatchedOpsStressTest : public StressTest {
             std::string from_db;
 
             if (statuses[j].ok()) {
-              const WideColumns& columns_from_db = results[j].columns();
+              const WideColumns& columns = results[j].columns();
 
-              if (!columns_from_db.empty() &&
-                  columns_from_db[0].name() == kDefaultWideColumnName) {
-                from_db = columns_from_db[0].value().ToString();
+              if (!columns.empty() &&
+                  columns.front().name() == kDefaultWideColumnName) {
+                from_db = columns.front().value().ToString();
               }
 
-              const WideColumns expected_columns =
-                  GenerateExpectedWideColumns(GetValueBase(from_db), from_db);
-              if (columns_from_db != expected_columns) {
+              if (!VerifyWideColumns(columns)) {
                 VerificationAbort(shared, static_cast<int>(cf), i, from_db,
-                                  columns_from_db, expected_columns);
+                                  columns);
               }
             }
 
@@ -811,22 +806,12 @@ class NonBatchedOpsStressTest : public StressTest {
       if (!FLAGS_skip_verifydb) {
         const WideColumns& columns = from_db.columns();
 
-        Slice default_column;
-        if (!columns.empty() &&
-            columns.front().name() == kDefaultWideColumnName) {
-          default_column = columns.front().value();
-        }
-
-        const WideColumns expected_columns = GenerateExpectedWideColumns(
-            GetValueBase(default_column), default_column);
-        if (columns != expected_columns) {
+        if (!VerifyWideColumns(columns)) {
           shared->SetVerificationFailure();
-          fprintf(
-              stderr,
-              "error : inconsistent columns for key %s: GetEntity returns %s, "
-              "expected %s based on default column.\n",
-              StringToHex(key).c_str(), WideColumnsToHex(columns).c_str(),
-              WideColumnsToHex(expected_columns).c_str());
+          fprintf(stderr,
+                  "error : inconsistent columns returned by GetEntity for key "
+                  "%s: %s\n",
+                  StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
         } else if (shared->Get(rand_column_families[0], rand_keys[0]) ==
                    SharedState::DELETION_SENTINEL) {
           shared->SetVerificationFailure();

@@ -279,29 +279,13 @@ class CfConsistencyStressTest : public StressTest {
       s = db_->GetEntity(read_opts, cfh, key, &result);
 
       if (s.ok()) {
-        const WideColumns& columns = result.columns();
-
-        if (columns.empty() ||
-            columns.front().name() != kDefaultWideColumnName) {
-          fprintf(stderr,
-                  "GetEntity error: default column not found for key %s, "
-                  "entity %s\n",
-                  StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+        if (!VerifyWideColumns(result.columns())) {
+          fprintf(
+              stderr,
+              "GetEntity error: inconsistent columns for key %s, entity %s\n",
+              StringToHex(key).c_str(),
+              WideColumnsToHex(result.columns()).c_str());
           is_consistent = false;
-        } else {
-          const Slice& value_of_default = columns.front().value();
-
-          const WideColumns expected_columns = GenerateExpectedWideColumns(
-              GetValueBase(value_of_default), value_of_default);
-          if (columns != expected_columns) {
-            fprintf(
-                stderr,
-                "GetEntity error: inconsistent columns for key %s, entity %s, "
-                "expected entity %s\n",
-                StringToHex(key).c_str(), WideColumnsToHex(columns).c_str(),
-                WideColumnsToHex(expected_columns).c_str());
-            is_consistent = false;
-          }
         }
       }
     } else {
@@ -324,31 +308,13 @@ class CfConsistencyStressTest : public StressTest {
         const bool cmp_found = s.ok();
 
         if (cmp_found) {
-          const WideColumns& columns = cmp_result.columns();
-
-          if (columns.empty() ||
-              columns.front().name() != kDefaultWideColumnName) {
+          if (!VerifyWideColumns(cmp_result.columns())) {
             fprintf(stderr,
-                    "GetEntity error: default column not found for key %s, "
+                    "GetEntity error: inconsistent columns for key %s, "
                     "entity %s\n",
                     StringToHex(key).c_str(),
-                    WideColumnsToHex(columns).c_str());
+                    WideColumnsToHex(cmp_result.columns()).c_str());
             is_consistent = false;
-          } else {
-            const Slice& value_of_default = columns.front().value();
-
-            const WideColumns expected_columns = GenerateExpectedWideColumns(
-                GetValueBase(value_of_default), value_of_default);
-            if (columns != expected_columns) {
-              fprintf(stderr,
-                      "GetEntity error: inconsistent columns for key %s, "
-                      "entity %s, "
-                      "expected entity %s\n",
-                      StringToHex(key).c_str(),
-                      WideColumnsToHex(columns).c_str(),
-                      WideColumnsToHex(expected_columns).c_str());
-              is_consistent = false;
-            }
           }
         }
 
