@@ -134,30 +134,43 @@ class Cache {
     CreateCallback create_cb;
     // Classification of the entry for monitoring purposes in block cache.
     CacheEntryRole role;
+    // Another CacheItemHelper (or this one) without secondary cache support.
+    // This is provided so that items promoted from secondary cache into
+    // primary cache without removal from the secondary cache can be prevented
+    // from attempting re-insertion into secondary cache (for efficiency).
+    const CacheItemHelper* without_secondary_compat;
 
     constexpr CacheItemHelper()
         : del_cb(nullptr),
           size_cb(nullptr),
           saveto_cb(nullptr),
           create_cb(nullptr),
-          role(CacheEntryRole::kMisc) {}
+          role(CacheEntryRole::kMisc),
+          without_secondary_compat(this) {}
 
-    explicit constexpr CacheItemHelper(CacheEntryRole _role,
-                                       DeleterFn _del_cb = nullptr,
-                                       SizeCallback _size_cb = nullptr,
-                                       SaveToCallback _saveto_cb = nullptr,
-                                       CreateCallback _create_cb = nullptr)
+    explicit constexpr CacheItemHelper(
+        CacheEntryRole _role, DeleterFn _del_cb = nullptr,
+        SizeCallback _size_cb = nullptr, SaveToCallback _saveto_cb = nullptr,
+        CreateCallback _create_cb = nullptr,
+        const CacheItemHelper* _without_secondary_compat = nullptr)
         : del_cb(_del_cb),
           size_cb(_size_cb),
           saveto_cb(_saveto_cb),
           create_cb(_create_cb),
-          role(_role) {
+          role(_role),
+          without_secondary_compat(
+              _without_secondary_compat ? _without_secondary_compat : this) {
       // Either all three secondary cache callbacks are non-nullptr or
       // all three are nullptr
       assert((size_cb != nullptr) == (saveto_cb != nullptr));
       assert((size_cb != nullptr) == (create_cb != nullptr));
+      // without_secondary_compat points to equivalent but without
+      // secondary support
+      assert(role == without_secondary_compat->role);
+      assert(del_cb == without_secondary_compat->del_cb);
+      assert(!without_secondary_compat->IsSecondaryCacheCompatible());
     }
-    inline bool IsSecondaryCacheCompatible() const {
+    inline constexpr bool IsSecondaryCacheCompatible() const {
       return size_cb != nullptr;
     }
   };

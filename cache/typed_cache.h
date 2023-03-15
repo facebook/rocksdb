@@ -240,8 +240,12 @@ class FullTypedCacheHelper
     : public FullTypedCacheHelperFns<TValue, TCreateContext> {
  public:
   static constexpr Cache::CacheItemHelper kFullHelper{
-      kRole, &FullTypedCacheHelper::Delete, &FullTypedCacheHelper::Size,
-      &FullTypedCacheHelper::SaveTo, &FullTypedCacheHelper::Create};
+      kRole,
+      &FullTypedCacheHelper::Delete,
+      &FullTypedCacheHelper::Size,
+      &FullTypedCacheHelper::SaveTo,
+      &FullTypedCacheHelper::Create,
+      &BasicTypedCacheHelper<TValue, kRole>::kBasicHelper};
 };
 
 // FullTypedCacheHelper - Used for secondary cache compatible storage of

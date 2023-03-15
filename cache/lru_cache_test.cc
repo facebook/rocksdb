@@ -19,6 +19,7 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/utilities/cache_dump_load.h"
+#include "test_util/secondary_cache_test_util.h"
 #include "test_util/testharness.h"
 #include "typed_cache.h"
 #include "util/coding.h"
@@ -1052,6 +1053,11 @@ class TestSecondaryCache : public SecondaryCache {
   ResultMap result_map_;
 };
 
+using secondary_cache_test_util::GetHelper;
+using secondary_cache_test_util::GetHelperFail;
+using secondary_cache_test_util::TestCreateContext;
+using secondary_cache_test_util::TestItem;
+
 class DBSecondaryCacheTest : public DBTestBase {
  public:
   DBSecondaryCacheTest()
@@ -1065,86 +1071,7 @@ class DBSecondaryCacheTest : public DBTestBase {
 };
 
 class LRUCacheSecondaryCacheTest : public LRUCacheTest,
-                                   public Cache::CreateContext {
- public:
-  LRUCacheSecondaryCacheTest() : fail_create_(false) {}
-  ~LRUCacheSecondaryCacheTest() {}
-
- protected:
-  class TestItem {
-   public:
-    TestItem(const char* buf, size_t size) : buf_(new char[size]), size_(size) {
-      memcpy(buf_.get(), buf, size);
-    }
-    ~TestItem() {}
-
-    char* Buf() { return buf_.get(); }
-    size_t Size() { return size_; }
-    std::string ToString() { return std::string(Buf(), Size()); }
-
-   private:
-    std::unique_ptr<char[]> buf_;
-    size_t size_;
-  };
-
-  static size_t SizeCallback(Cache::ObjectPtr obj) {
-    return static_cast<TestItem*>(obj)->Size();
-  }
-
-  static Status SaveToCallback(Cache::ObjectPtr from_obj, size_t from_offset,
-                               size_t length, char* out) {
-    TestItem* item = static_cast<TestItem*>(from_obj);
-    char* buf = item->Buf();
-    EXPECT_EQ(length, item->Size());
-    EXPECT_EQ(from_offset, 0);
-    memcpy(out, buf, length);
-    return Status::OK();
-  }
-
-  static void DeletionCallback(Cache::ObjectPtr obj,
-                               MemoryAllocator* /*alloc*/) {
-    delete static_cast<TestItem*>(obj);
-  }
-
-  static Cache::CacheItemHelper helper_;
-
-  static Status SaveToCallbackFail(Cache::ObjectPtr /*from_obj*/,
-                                   size_t /*from_offset*/, size_t /*length*/,
-                                   char* /*out*/) {
-    return Status::NotSupported();
-  }
-
-  static Cache::CacheItemHelper helper_fail_;
-
-  static Status CreateCallback(const Slice& data, Cache::CreateContext* context,
-                               MemoryAllocator* /*allocator*/,
-                               Cache::ObjectPtr* out_obj, size_t* out_charge) {
-    auto t = static_cast<LRUCacheSecondaryCacheTest*>(context);
-    if (t->fail_create_) {
-      return Status::NotSupported();
-    }
-    *out_obj = new TestItem(data.data(), data.size());
-    *out_charge = data.size();
-    return Status::OK();
-  };
-
-  void SetFailCreate(bool fail) { fail_create_ = fail; }
-
- private:
-  bool fail_create_;
-};
-
-Cache::CacheItemHelper LRUCacheSecondaryCacheTest::helper_{
-    CacheEntryRole::kMisc, LRUCacheSecondaryCacheTest::DeletionCallback,
-    LRUCacheSecondaryCacheTest::SizeCallback,
-    LRUCacheSecondaryCacheTest::SaveToCallback,
-    LRUCacheSecondaryCacheTest::CreateCallback};
-
-Cache::CacheItemHelper LRUCacheSecondaryCacheTest::helper_fail_{
-    CacheEntryRole::kMisc, LRUCacheSecondaryCacheTest::DeletionCallback,
-    LRUCacheSecondaryCacheTest::SizeCallback,
-    LRUCacheSecondaryCacheTest::SaveToCallbackFail,
-    LRUCacheSecondaryCacheTest::CreateCallback};
+                                   public TestCreateContext {};
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
@@ -1168,18 +1095,16 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
 
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
-                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1, GetHelper(), str1.length()));
   std::string str2 = rnd.RandomString(1021);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
-                          &LRUCacheSecondaryCacheTest::helper_, str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2, GetHelper(), str2.length()));
 
   get_perf_context()->Reset();
   Cache::Handle* handle;
   handle =
-      cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+      cache->Lookup(k2.AsSlice(), GetHelper(),
                     /*context*/ this, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str2.size());
@@ -1187,7 +1112,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
 
   // This lookup should promote k1 and demote k2
   handle =
-      cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+      cache->Lookup(k1.AsSlice(), GetHelper(),
                     /*context*/ this, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str1.size());
@@ -1195,7 +1120,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
 
   // This lookup should promote k3 and demote k1
   handle =
-      cache->Lookup(k3.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+      cache->Lookup(k3.AsSlice(), GetHelper(),
                     /*context*/ this, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str3.size());
@@ -1226,12 +1151,6 @@ TEST_F(LRUCacheSecondaryCacheTest, StatsTest) {
   CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
   CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
   CacheKey k3 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
-  Cache::CacheItemHelper filter_helper = helper_;
-  Cache::CacheItemHelper index_helper = helper_;
-  Cache::CacheItemHelper data_helper = helper_;
-  filter_helper.role = CacheEntryRole::kFilterBlock;
-  index_helper.role = CacheEntryRole::kIndexBlock;
-  data_helper.role = CacheEntryRole::kDataBlock;
 
   Random rnd(301);
   // Start with warming secondary cache
@@ -1245,21 +1164,21 @@ TEST_F(LRUCacheSecondaryCacheTest, StatsTest) {
   get_perf_context()->Reset();
   Cache::Handle* handle;
   handle =
-      cache->Lookup(k1.AsSlice(), &filter_helper,
+      cache->Lookup(k1.AsSlice(), GetHelper(CacheEntryRole::kFilterBlock),
                     /*context*/ this, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str1.size());
   cache->Release(handle);
 
   handle =
-      cache->Lookup(k2.AsSlice(), &index_helper,
+      cache->Lookup(k2.AsSlice(), GetHelper(CacheEntryRole::kIndexBlock),
                     /*context*/ this, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str2.size());
   cache->Release(handle);
 
   handle =
-      cache->Lookup(k3.AsSlice(), &data_helper,
+      cache->Lookup(k3.AsSlice(), GetHelper(CacheEntryRole::kDataBlock),
                     /*context*/ this, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str3.size());
@@ -1298,15 +1217,15 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
   // NOTE: changed to assert helper != nullptr for efficiency / code size
   // ASSERT_TRUE(cache->Insert(k1.AsSlice(), item1.get(), nullptr,
   //                           str1.length()).IsInvalidArgument());
-  ASSERT_OK(cache->Insert(k1.AsSlice(), item1.get(),
-                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
+  ASSERT_OK(
+      cache->Insert(k1.AsSlice(), item1.get(), GetHelper(), str1.length()));
   item1.release();  // Appease clang-analyze "potential memory leak"
 
   Cache::Handle* handle;
   handle = cache->Lookup(k2.AsSlice(), nullptr, /*context*/ this,
                          Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
-  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), GetHelper(),
                          /*context*/ this, Cache::Priority::LOW, false);
   ASSERT_EQ(handle, nullptr);
 
@@ -1330,33 +1249,26 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
-                          &LRUCacheSecondaryCacheTest::helper_fail_,
-                          str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1, GetHelperFail(), str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
   ASSERT_EQ(secondary_cache->num_inserts(), 0u);
-  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
-                          &LRUCacheSecondaryCacheTest::helper_fail_,
-                          str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2, GetHelperFail(), str2.length()));
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
 
   Cache::Handle* handle;
-  handle =
-      cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_fail_,
-                    /*context*/ this, Cache::Priority::LOW, true);
+  handle = cache->Lookup(k2.AsSlice(), GetHelperFail(),
+                         /*context*/ this, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 demotion would have failed
-  handle =
-      cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_fail_,
-                    /*context*/ this, Cache::Priority::LOW, true);
+  handle = cache->Lookup(k1.AsSlice(), GetHelperFail(),
+                         /*context*/ this, Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
-  handle =
-      cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_fail_,
-                    /*context*/ this, Cache::Priority::LOW, true);
+  handle = cache->Lookup(k2.AsSlice(), GetHelperFail(),
+                         /*context*/ this, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
@@ -1382,26 +1294,24 @@ TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
-                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1, GetHelper(), str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
-                          &LRUCacheSecondaryCacheTest::helper_, str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2, GetHelper(), str2.length()));
 
   Cache::Handle* handle;
   SetFailCreate(true);
-  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), GetHelper(),
                          /*context*/ this, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 creation would have failed
-  handle = cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k1.AsSlice(), GetHelper(),
                          /*context*/ this, Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
-  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), GetHelper(),
                          /*context*/ this, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
@@ -1428,28 +1338,26 @@ TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
-                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1, GetHelper(), str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
-                          &LRUCacheSecondaryCacheTest::helper_, str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2, GetHelper(), str2.length()));
 
   Cache::Handle* handle;
-  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), GetHelper(),
                          /*context*/ this, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   // k1 promotion should fail due to the block cache being at capacity,
   // but the lookup should still succeed
   Cache::Handle* handle2;
-  handle2 = cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+  handle2 = cache->Lookup(k1.AsSlice(), GetHelper(),
                           /*context*/ this, Cache::Priority::LOW, true);
   ASSERT_NE(handle2, nullptr);
   // Since k1 didn't get inserted, k2 should still be in cache
   cache->Release(handle);
   cache->Release(handle2);
-  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), GetHelper(),
                          /*context*/ this, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
@@ -1870,8 +1778,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
     std::string str = rnd.RandomString(1020);
     values.emplace_back(str);
     TestItem* item = new TestItem(str.data(), str.length());
-    ASSERT_OK(cache->Insert(ock.WithOffset(i).AsSlice(), item,
-                            &LRUCacheSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert(ock.WithOffset(i).AsSlice(), item, GetHelper(),
                             str.length()));
   }
   // Force all entries to be evicted to the secondary cache
@@ -1888,9 +1795,9 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
         TestSecondaryCache::ResultType::FAIL}});
   std::vector<Cache::Handle*> results;
   for (int i = 0; i < 6; ++i) {
-    results.emplace_back(cache->Lookup(
-        ock.WithOffset(i).AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
-        /*context*/ this, Cache::Priority::LOW, false));
+    results.emplace_back(cache->Lookup(ock.WithOffset(i).AsSlice(), GetHelper(),
+                                       /*context*/ this, Cache::Priority::LOW,
+                                       false));
   }
   cache->WaitAll(results);
   for (int i = 0; i < 6; ++i) {
