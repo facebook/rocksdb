@@ -275,8 +275,35 @@ class CfConsistencyStressTest : public StressTest {
           column_families_[rand_column_families[cf_id]];
       assert(cfh);
 
-      PinnableWideColumns from_db;
-      s = db_->GetEntity(read_opts, cfh, key, &from_db);
+      PinnableWideColumns result;
+      s = db_->GetEntity(read_opts, cfh, key, &result);
+
+      if (s.ok()) {
+        const WideColumns& columns = result.columns();
+
+        if (columns.empty() ||
+            columns.front().name() != kDefaultWideColumnName) {
+          fprintf(stderr,
+                  "GetEntity error: default column not found for key %s, "
+                  "entity %s\n",
+                  StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+          is_consistent = false;
+        } else {
+          const Slice& value_of_default = columns.front().value();
+
+          const WideColumns expected_columns = GenerateExpectedWideColumns(
+              GetValueBase(value_of_default), value_of_default);
+          if (columns != expected_columns) {
+            fprintf(
+                stderr,
+                "GetEntity error: inconsistent columns for key %s, entity %s, "
+                "expected entity %s\n",
+                StringToHex(key).c_str(), WideColumnsToHex(columns).c_str(),
+                WideColumnsToHex(expected_columns).c_str());
+            is_consistent = false;
+          }
+        }
+      }
     } else {
       // With a 1/2 chance, compare one key across all CFs
       ManagedSnapshot snapshot_guard(db_);
@@ -296,60 +323,94 @@ class CfConsistencyStressTest : public StressTest {
       if (s.ok() || s.IsNotFound()) {
         const bool cmp_found = s.ok();
 
-        for (size_t i = 1; i < rand_column_families.size(); ++i) {
-          assert(rand_column_families[i] >= 0);
-          assert(rand_column_families[i] <
-                 static_cast<int>(column_families_.size()));
+        if (cmp_found) {
+          const WideColumns& columns = cmp_result.columns();
 
-          PinnableWideColumns result;
-          s = db_->GetEntity(read_opts_copy,
-                             column_families_[rand_column_families[i]], key,
-                             &result);
-
-          if (!s.ok() && !s.IsNotFound()) {
-            break;
-          }
-
-          const bool found = s.ok();
-
-          assert(!column_family_names_.empty());
-          assert(i < column_family_names_.size());
-
-          if (!cmp_found && found) {
-            fprintf(stderr, "GetEntity returns different results for key %s\n",
-                    StringToHex(key).c_str());
-            fprintf(stderr, "CF %s returns not found\n",
-                    column_family_names_[0].c_str());
-            fprintf(stderr, "CF %s returns entity %s\n",
-                    column_family_names_[i].c_str(),
-                    WideColumnsToHex(result.columns()).c_str());
+          if (columns.empty() ||
+              columns.front().name() != kDefaultWideColumnName) {
+            fprintf(stderr,
+                    "GetEntity error: default column not found for key %s, "
+                    "entity %s\n",
+                    StringToHex(key).c_str(),
+                    WideColumnsToHex(columns).c_str());
             is_consistent = false;
-            break;
-          }
+          } else {
+            const Slice& value_of_default = columns.front().value();
 
-          if (cmp_found && !found) {
-            fprintf(stderr, "GetEntity returns different results for key %s\n",
-                    StringToHex(key).c_str());
-            fprintf(stderr, "CF %s returns entity %s\n",
-                    column_family_names_[0].c_str(),
-                    WideColumnsToHex(cmp_result.columns()).c_str());
-            fprintf(stderr, "CF %s returns not found\n",
-                    column_family_names_[i].c_str());
-            is_consistent = false;
-            break;
+            const WideColumns expected_columns = GenerateExpectedWideColumns(
+                GetValueBase(value_of_default), value_of_default);
+            if (columns != expected_columns) {
+              fprintf(stderr,
+                      "GetEntity error: inconsistent columns for key %s, "
+                      "entity %s, "
+                      "expected entity %s\n",
+                      StringToHex(key).c_str(),
+                      WideColumnsToHex(columns).c_str(),
+                      WideColumnsToHex(expected_columns).c_str());
+              is_consistent = false;
+            }
           }
+        }
 
-          if (found && result != cmp_result) {
-            fprintf(stderr, "GetEntity returns different results for key %s\n",
-                    StringToHex(key).c_str());
-            fprintf(stderr, "CF %s returns entity %s\n",
-                    column_family_names_[0].c_str(),
-                    WideColumnsToHex(cmp_result.columns()).c_str());
-            fprintf(stderr, "CF %s returns entity %s\n",
-                    column_family_names_[i].c_str(),
-                    WideColumnsToHex(result.columns()).c_str());
-            is_consistent = false;
-            break;
+        if (is_consistent) {
+          for (size_t i = 1; i < rand_column_families.size(); ++i) {
+            assert(rand_column_families[i] >= 0);
+            assert(rand_column_families[i] <
+                   static_cast<int>(column_families_.size()));
+
+            PinnableWideColumns result;
+            s = db_->GetEntity(read_opts_copy,
+                               column_families_[rand_column_families[i]], key,
+                               &result);
+
+            if (!s.ok() && !s.IsNotFound()) {
+              break;
+            }
+
+            const bool found = s.ok();
+
+            assert(!column_family_names_.empty());
+            assert(i < column_family_names_.size());
+
+            if (!cmp_found && found) {
+              fprintf(stderr,
+                      "GetEntity returns different results for key %s\n",
+                      StringToHex(key).c_str());
+              fprintf(stderr, "CF %s returns not found\n",
+                      column_family_names_[0].c_str());
+              fprintf(stderr, "CF %s returns entity %s\n",
+                      column_family_names_[i].c_str(),
+                      WideColumnsToHex(result.columns()).c_str());
+              is_consistent = false;
+              break;
+            }
+
+            if (cmp_found && !found) {
+              fprintf(stderr,
+                      "GetEntity returns different results for key %s\n",
+                      StringToHex(key).c_str());
+              fprintf(stderr, "CF %s returns entity %s\n",
+                      column_family_names_[0].c_str(),
+                      WideColumnsToHex(cmp_result.columns()).c_str());
+              fprintf(stderr, "CF %s returns not found\n",
+                      column_family_names_[i].c_str());
+              is_consistent = false;
+              break;
+            }
+
+            if (found && result != cmp_result) {
+              fprintf(stderr,
+                      "GetEntity returns different results for key %s\n",
+                      StringToHex(key).c_str());
+              fprintf(stderr, "CF %s returns entity %s\n",
+                      column_family_names_[0].c_str(),
+                      WideColumnsToHex(cmp_result.columns()).c_str());
+              fprintf(stderr, "CF %s returns entity %s\n",
+                      column_family_names_[i].c_str(),
+                      WideColumnsToHex(result.columns()).c_str());
+              is_consistent = false;
+              break;
+            }
           }
         }
       }
