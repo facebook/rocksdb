@@ -125,6 +125,7 @@ TEST_P(PrefetchTest, Basic) {
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options;
   SetGenericOptions(env.get(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
 
   const int kNumKeys = 1100;
   int buff_prefetch_count = 0;
@@ -167,8 +168,24 @@ TEST_P(PrefetchTest, Basic) {
   Slice least(start_key.data(), start_key.size());
   Slice greatest(end_key.data(), end_key.size());
 
+  HistogramData prev_table_open_prefetch_tail_read;
+  options.statistics->histogramData(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+                                    &prev_table_open_prefetch_tail_read);
+  const uint64_t prev_table_open_prefetch_tail_miss =
+      options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_MISS);
+  const uint64_t prev_table_open_prefetch_tail_hit =
+      options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_HIT);
+
   // commenting out the line below causes the example to work correctly
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  HistogramData cur_table_open_prefetch_tail_read;
+  options.statistics->histogramData(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+                                    &cur_table_open_prefetch_tail_read);
+  const uint64_t cur_table_open_prefetch_tail_miss =
+      options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_MISS);
+  const uint64_t cur_table_open_prefetch_tail_hit =
+      options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_HIT);
 
   if (support_prefetch && !use_direct_io) {
     // If underline file system supports prefetch, and directIO is not enabled
@@ -182,6 +199,12 @@ TEST_P(PrefetchTest, Basic) {
     // used.
     ASSERT_FALSE(fs->IsPrefetchCalled());
     ASSERT_GT(buff_prefetch_count, 0);
+    ASSERT_GT(cur_table_open_prefetch_tail_read.count,
+              prev_table_open_prefetch_tail_read.count);
+    ASSERT_GT(cur_table_open_prefetch_tail_hit,
+              prev_table_open_prefetch_tail_hit);
+    ASSERT_GE(cur_table_open_prefetch_tail_miss,
+              prev_table_open_prefetch_tail_miss);
     buff_prefetch_count = 0;
   }
 
