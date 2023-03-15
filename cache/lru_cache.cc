@@ -554,16 +554,16 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
   // again, we erase it from CompressedSecondaryCache and add it into the
   // primary cache.
   if (!e && secondary_cache_ && helper && helper->create_cb) {
-    bool is_in_sec_cache{false};
+    bool kept_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
         secondary_cache_->Lookup(key, helper, create_context, wait,
-                                 found_dummy_entry, is_in_sec_cache);
+                                 found_dummy_entry, kept_in_sec_cache);
     if (secondary_handle != nullptr) {
       e = static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
 
       // For entries already in secondary cache, prevent re-insertion by
       // using a helper that is not secondary cache compatible
-      if (is_in_sec_cache) {
+      if (kept_in_sec_cache) {
         helper = helper->without_secondary_compat;
       }
 
