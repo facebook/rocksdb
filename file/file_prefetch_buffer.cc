@@ -162,6 +162,9 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 
   Status s = Read(opts, reader, rate_limiter_priority, read_len, chunk_len,
                   rounddown_offset, curr_);
+  if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && s.ok()) {
+    RecordInHistogram(stats_, TABLE_OPEN_PREFETCH_TAIL_READ_BYTES, read_len);
+  }
   return s;
 }
 
@@ -609,6 +612,22 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
                                           Slice* result, Status* status,
                                           Env::IOPriority rate_limiter_priority,
                                           bool for_compaction /* = false */) {
+  bool ret = TryReadFromCacheUntracked(opts, reader, offset, n, result, status,
+                                       rate_limiter_priority, for_compaction);
+  if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && enable_) {
+    if (ret) {
+      RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_HIT);
+    } else {
+      RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+    }
+  }
+  return ret;
+}
+
+bool FilePrefetchBuffer::TryReadFromCacheUntracked(
+    const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
+    size_t n, Slice* result, Status* status,
+    Env::IOPriority rate_limiter_priority, bool for_compaction /* = false */) {
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
@@ -663,6 +682,22 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 }
 
 bool FilePrefetchBuffer::TryReadFromCacheAsync(
+    const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
+    size_t n, Slice* result, Status* status,
+    Env::IOPriority rate_limiter_priority) {
+  bool ret = TryReadFromCacheAsyncUntracked(opts, reader, offset, n, result,
+                                            status, rate_limiter_priority);
+  if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && enable_) {
+    if (ret) {
+      RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_HIT);
+    } else {
+      RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
+    }
+  }
+  return ret;
+}
+
+bool FilePrefetchBuffer::TryReadFromCacheAsyncUntracked(
     const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
     size_t n, Slice* result, Status* status,
     Env::IOPriority rate_limiter_priority) {

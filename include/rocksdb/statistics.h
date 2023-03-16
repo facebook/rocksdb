@@ -420,6 +420,15 @@ enum Tickers : uint32_t {
   SECONDARY_CACHE_INDEX_HITS,
   SECONDARY_CACHE_DATA_HITS,
 
+  // Number of lookup into the prefetched tail (see
+  // `TABLE_OPEN_PREFETCH_TAIL_READ_BYTES`)
+  // that can't find its data for table open
+  TABLE_OPEN_PREFETCH_TAIL_MISS,
+  // Number of lookup into the prefetched tail (see
+  // `TABLE_OPEN_PREFETCH_TAIL_READ_BYTES`)
+  // that finds its data for table open
+  TABLE_OPEN_PREFETCH_TAIL_HIT,
+
   TICKER_ENUM_MAX
 };
 
@@ -532,6 +541,10 @@ enum Histograms : uint32_t {
 
   // Wait time for aborting async read in FilePrefetchBuffer destructor
   ASYNC_PREFETCH_ABORT_MICROS,
+
+  // Number of bytes read for RocksDB's prefetching contents (as opposed to file
+  // system's prefetch) from the end of SST table during block based table open
+  TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
 
   HISTOGRAM_ENUM_MAX
 };

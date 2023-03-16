@@ -1279,6 +1279,7 @@ if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/mock_time_env.cc
+  test_util/secondary_cache_test_util.cc
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()

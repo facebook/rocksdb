@@ -91,10 +91,8 @@ struct LRUHandle {
     IM_IS_LOW_PRI = (1 << 1),
     // Is the handle still being read from a lower tier.
     IM_IS_PENDING = (1 << 2),
-    // Whether this handle is still in a lower tier
-    IM_IS_IN_SECONDARY_CACHE = (1 << 3),
     // Marks result handles that should not be inserted into cache
-    IM_IS_STANDALONE = (1 << 4),
+    IM_IS_STANDALONE = (1 << 3),
   };
 
   // Beginning of the key (MUST BE THE LAST FIELD IN THIS STRUCT!)
@@ -126,9 +124,6 @@ struct LRUHandle {
   bool HasHit() const { return m_flags & M_HAS_HIT; }
   bool IsSecondaryCacheCompatible() const { return helper->size_cb != nullptr; }
   bool IsPending() const { return im_flags & IM_IS_PENDING; }
-  bool IsInSecondaryCache() const {
-    return im_flags & IM_IS_IN_SECONDARY_CACHE;
-  }
   bool IsStandalone() const { return im_flags & IM_IS_STANDALONE; }
 
   void SetInCache(bool in_cache) {
@@ -175,14 +170,6 @@ struct LRUHandle {
       im_flags |= IM_IS_PENDING;
     } else {
       im_flags &= ~IM_IS_PENDING;
-    }
-  }
-
-  void SetIsInSecondaryCache(bool is_in_secondary_cache) {
-    if (is_in_secondary_cache) {
-      im_flags |= IM_IS_IN_SECONDARY_CACHE;
-    } else {
-      im_flags &= ~IM_IS_IN_SECONDARY_CACHE;
     }
   }
 

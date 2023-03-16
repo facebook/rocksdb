@@ -95,8 +95,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
   static void Deleter(Cache::ObjectPtr v, MemoryAllocator*) {
     current_->deleted_values_.push_back(DecodeValue(v));
   }
-  static constexpr Cache::CacheItemHelper kHelper{CacheEntryRole::kMisc,
-                                                  &Deleter};
+  static const Cache::CacheItemHelper kHelper;
 
   static const int kCacheSize = 1000;
   static const int kNumShardBits = 4;
@@ -211,6 +210,9 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   void Erase2(int key) { Erase(cache2_, key); }
 };
+
+const Cache::CacheItemHelper CacheTest::kHelper{CacheEntryRole::kMisc,
+                                                &CacheTest::Deleter};
 
 CacheTest* CacheTest::current_;
 std::string CacheTest::type_;

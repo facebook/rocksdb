@@ -591,7 +591,7 @@ Status BlockBasedTable::Open(
   if (!ioptions.allow_mmap_reads) {
     s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
-                     &prefetch_buffer);
+                     &prefetch_buffer, ioptions.stats);
     // Return error in prefetch path to users.
     if (!s.ok()) {
       return s;
@@ -802,7 +802,7 @@ Status BlockBasedTable::PrefetchTail(
     const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
     bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
     const bool prefetch_all, const bool preload_all,
-    std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer) {
+    std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats) {
   size_t tail_prefetch_size = 0;
   if (tail_prefetch_stats != nullptr) {
     // Multiple threads may get a 0 (no history) when running in parallel,
@@ -842,9 +842,12 @@ Status BlockBasedTable::PrefetchTail(
   }
 
   // Use `FilePrefetchBuffer`
-  prefetch_buffer->reset(
-      new FilePrefetchBuffer(0 /* readahead_size */, 0 /* max_readahead_size */,
-                             true /* enable */, true /* track_min_offset */));
+  prefetch_buffer->reset(new FilePrefetchBuffer(
+      0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
+      true /* track_min_offset */, false /* implicit_auto_readahead */,
+      0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
+      nullptr /* fs */, nullptr /* clock */, stats,
+      FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
   IOOptions opts;
   Status s = file->PrepareIOOptions(ro, opts);
