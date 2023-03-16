@@ -2302,9 +2302,8 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
     ASSERT_EQ(multiget_io_batch_size.count, 3);
   }
 #else   // ROCKSDB_IOURING_PRESENT
-  if (GetParam()) {
-    ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
-  }
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  ASSERT_EQ(multiget_io_batch_size.count, 3);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -2346,8 +2345,11 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(multiget_io_batch_size.count, 1);
   ASSERT_EQ(multiget_io_batch_size.max, 3);
-#endif  // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+#else   // ROCKSDB_IOURING_PRESENT
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  ASSERT_EQ(multiget_io_batch_size.count, 3);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 #ifdef ROCKSDB_IOURING_PRESENT
@@ -2531,8 +2533,12 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   ASSERT_EQ(values[0], "val_l2_" + std::to_string(19));
   ASSERT_EQ(values[1], "val_l2_" + std::to_string(26));
 
+#ifdef ROCKSDB_IOURING_PRESENT
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+#else   // ROCKSDB_IOURING_PRESENT
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 #ifdef ROCKSDB_IOURING_PRESENT
