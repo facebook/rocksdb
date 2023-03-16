@@ -255,12 +255,15 @@ void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
   delete[] static_cast<char*>(value);
 }
 
+Cache::CacheItemHelper helper1_wos(CacheEntryRole::kDataBlock, DeleteFn);
 Cache::CacheItemHelper helper1(CacheEntryRole::kDataBlock, DeleteFn, SizeFn,
-                               SaveToFn, CreateFn);
+                               SaveToFn, CreateFn, &helper1_wos);
+Cache::CacheItemHelper helper2_wos(CacheEntryRole::kIndexBlock, DeleteFn);
 Cache::CacheItemHelper helper2(CacheEntryRole::kIndexBlock, DeleteFn, SizeFn,
-                               SaveToFn, CreateFn);
+                               SaveToFn, CreateFn, &helper2_wos);
+Cache::CacheItemHelper helper3_wos(CacheEntryRole::kFilterBlock, DeleteFn);
 Cache::CacheItemHelper helper3(CacheEntryRole::kFilterBlock, DeleteFn, SizeFn,
-                               SaveToFn, CreateFn);
+                               SaveToFn, CreateFn, &helper3_wos);
 }  // namespace
 
 class CacheBench {

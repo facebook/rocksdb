@@ -701,6 +701,7 @@ cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "db/db_with_timestamp_test_util.cc",
         "table/mock_table.cc",
         "test_util/mock_time_env.cc",
+        "test_util/secondary_cache_test_util.cc",
         "test_util/testharness.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",

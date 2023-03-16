@@ -83,11 +83,14 @@ class PlaceholderCacheInterface : public BaseCacheInterface<CachePtr> {
   using BaseCacheInterface<CachePtr>::BaseCacheInterface;
 
   inline Status Insert(const Slice& key, size_t charge, Handle** handle) {
-    return this->cache_->Insert(key, /*value=*/nullptr, &kHelper, charge,
+    return this->cache_->Insert(key, /*value=*/nullptr, GetHelper(), charge,
                                 handle);
   }
 
-  static constexpr Cache::CacheItemHelper kHelper{kRole};
+  static const Cache::CacheItemHelper* GetHelper() {
+    static const Cache::CacheItemHelper kHelper{kRole};
+    return &kHelper;
+  }
 };
 
 template <CacheEntryRole kRole>
@@ -128,8 +131,11 @@ class BasicTypedCacheHelperFns {
 template <class TValue, CacheEntryRole kRole>
 class BasicTypedCacheHelper : public BasicTypedCacheHelperFns<TValue> {
  public:
-  static constexpr Cache::CacheItemHelper kBasicHelper{
-      kRole, &BasicTypedCacheHelper::Delete};
+  static const Cache::CacheItemHelper* GetBasicHelper() {
+    static const Cache::CacheItemHelper kHelper{kRole,
+                                                &BasicTypedCacheHelper::Delete};
+    return &kHelper;
+  }
 };
 
 // BasicTypedCacheInterface - Used for primary cache storage of objects of
@@ -144,7 +150,7 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
   CACHE_TYPE_DEFS();
   using typename BasicTypedCacheHelperFns<TValue>::TValuePtr;
   struct TypedHandle : public Handle {};
-  using BasicTypedCacheHelper<TValue, kRole>::kBasicHelper;
+  using BasicTypedCacheHelper<TValue, kRole>::GetBasicHelper;
   // ctor
   using BaseCacheInterface<CachePtr>::BaseCacheInterface;
 
@@ -154,7 +160,7 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
     auto untyped_handle = reinterpret_cast<Handle**>(handle);
     return this->cache_->Insert(
         key, BasicTypedCacheHelperFns<TValue>::UpCastValue(value),
-        &kBasicHelper, charge, untyped_handle, priority);
+        GetBasicHelper(), charge, untyped_handle, priority);
   }
 
   inline TypedHandle* Lookup(const Slice& key, Statistics* stats = nullptr) {
@@ -239,9 +245,16 @@ template <class TValue, class TCreateContext, CacheEntryRole kRole>
 class FullTypedCacheHelper
     : public FullTypedCacheHelperFns<TValue, TCreateContext> {
  public:
-  static constexpr Cache::CacheItemHelper kFullHelper{
-      kRole, &FullTypedCacheHelper::Delete, &FullTypedCacheHelper::Size,
-      &FullTypedCacheHelper::SaveTo, &FullTypedCacheHelper::Create};
+  static const Cache::CacheItemHelper* GetFullHelper() {
+    static const Cache::CacheItemHelper kHelper{
+        kRole,
+        &FullTypedCacheHelper::Delete,
+        &FullTypedCacheHelper::Size,
+        &FullTypedCacheHelper::SaveTo,
+        &FullTypedCacheHelper::Create,
+        BasicTypedCacheHelper<TValue, kRole>::GetBasicHelper()};
+    return &kHelper;
+  }
 };
 
 // FullTypedCacheHelper - Used for secondary cache compatible storage of
@@ -263,8 +276,8 @@ class FullTypedCacheInterface
   CACHE_TYPE_DEFS();
   using typename BasicTypedCacheInterface<TValue, kRole, CachePtr>::TypedHandle;
   using typename BasicTypedCacheHelperFns<TValue>::TValuePtr;
-  using BasicTypedCacheHelper<TValue, kRole>::kBasicHelper;
-  using FullTypedCacheHelper<TValue, TCreateContext, kRole>::kFullHelper;
+  using BasicTypedCacheHelper<TValue, kRole>::GetBasicHelper;
+  using FullTypedCacheHelper<TValue, TCreateContext, kRole>::GetFullHelper;
   using BasicTypedCacheHelperFns<TValue>::UpCastValue;
   using BasicTypedCacheHelperFns<TValue>::DownCastValue;
   // ctor
@@ -279,8 +292,8 @@ class FullTypedCacheInterface
       CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier) {
     auto untyped_handle = reinterpret_cast<Handle**>(handle);
     auto helper = lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier
-                      ? &kFullHelper
-                      : &kBasicHelper;
+                      ? GetFullHelper()
+                      : GetBasicHelper();
     return this->cache_->Insert(key, UpCastValue(value), helper, charge,
                                 untyped_handle, priority);
   }
@@ -294,9 +307,9 @@ class FullTypedCacheInterface
       size_t* out_charge = nullptr) {
     ObjectPtr value;
     size_t charge;
-    Status st = kFullHelper.create_cb(data, create_context,
-                                      this->cache_->memory_allocator(), &value,
-                                      &charge);
+    Status st = GetFullHelper()->create_cb(data, create_context,
+                                           this->cache_->memory_allocator(),
+                                           &value, &charge);
     if (out_charge) {
       *out_charge = charge;
     }
@@ -304,7 +317,7 @@ class FullTypedCacheInterface
       st = InsertFull(key, DownCastValue(value), charge, nullptr /*handle*/,
                       priority, lowest_used_cache_tier);
     } else {
-      kFullHelper.del_cb(value, this->cache_->memory_allocator());
+      GetFullHelper()->del_cb(value, this->cache_->memory_allocator());
     }
     return st;
   }
@@ -318,7 +331,7 @@ class FullTypedCacheInterface
       CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier) {
     if (lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier) {
       return reinterpret_cast<TypedHandle*>(this->cache_->Lookup(
-          key, &kFullHelper, create_context, priority, wait, stats));
+          key, GetFullHelper(), create_context, priority, wait, stats));
     } else {
       return BasicTypedCacheInterface<TValue, kRole, CachePtr>::Lookup(key,
                                                                        stats);

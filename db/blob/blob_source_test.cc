@@ -1216,7 +1216,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key0's item should be in the secondary cache.
       bool kept_in_sec_cache = false;
       auto sec_handle0 = secondary_cache->Lookup(
-          key0, &BlobSource::SharedCacheInterface::kFullHelper,
+          key0, BlobSource::SharedCacheInterface::GetFullHelper(),
           /*context*/ nullptr, true,
           /*advise_erase=*/true, kept_in_sec_cache);
       ASSERT_FALSE(kept_in_sec_cache);
@@ -1244,7 +1244,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
       bool kept_in_sec_cache = false;
       auto sec_handle1 = secondary_cache->Lookup(
-          key1, &BlobSource::SharedCacheInterface::kFullHelper,
+          key1, BlobSource::SharedCacheInterface::GetFullHelper(),
           /*context*/ nullptr, true,
           /*advise_erase=*/true, kept_in_sec_cache);
       ASSERT_FALSE(kept_in_sec_cache);
