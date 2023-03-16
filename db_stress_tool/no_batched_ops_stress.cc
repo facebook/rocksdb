@@ -778,7 +778,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     PinnableWideColumns from_db;
 
-    Status s = db_->GetEntity(read_opts, cfh, key, &from_db);
+    const Status s = db_->GetEntity(read_opts, cfh, key, &from_db);
 
     int error_count = 0;
 

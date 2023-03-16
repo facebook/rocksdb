@@ -383,7 +383,7 @@ class CfConsistencyStressTest : public StressTest {
     }
 
     if (!is_consistent) {
-      fprintf(stderr, "TestGetEntity error: is_consistent is false\n");
+      fprintf(stderr, "TestGetEntity error: results are not consistent\n");
       thread->stats.AddErrors(1);
       // Fail fast to preserve the DB state.
       thread->shared->SetVerificationFailure();

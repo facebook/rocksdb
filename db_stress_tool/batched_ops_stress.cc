@@ -271,6 +271,8 @@ class BatchedOpsStressTest : public StressTest {
   void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
                      const std::vector<int>& rand_column_families,
                      const std::vector<int64_t>& rand_keys) override {
+    assert(thread);
+
     ManagedSnapshot snapshot_guard(db_);
 
     ReadOptions read_opts_copy(read_opts);
@@ -339,37 +341,33 @@ class BatchedOpsStressTest : public StressTest {
                 StringToHex(key_suffix).c_str(),
                 WideColumnsToHex(results[0].columns()).c_str(),
                 WideColumnsToHex(columns).c_str());
-        continue;
       }
 
-      if (columns.empty()) {
-        continue;
-      }
+      if (!columns.empty()) {
+        // The last character of each column value should be 'i' as a decimal
+        // digit
+        const char expected = static_cast<char>('0' + i);
 
-      // The last character of each column value should be 'i' as a decimal
-      // digit
-      const char expected = static_cast<char>('0' + i);
+        for (const auto& column : columns) {
+          const Slice& value = column.value();
 
-      for (const auto& column : columns) {
-        const Slice& value = column.value();
-
-        if (value.empty() || value[value.size() - 1] != expected) {
-          fprintf(stderr,
-                  "GetEntity error: incorrect column value for key "
-                  "%s, entity %s, column value %s, expected %c\n",
-                  StringToHex(key_suffix).c_str(),
-                  WideColumnsToHex(columns).c_str(),
-                  value.ToString(/* hex */ true).c_str(), expected);
-          continue;
+          if (value.empty() || value[value.size() - 1] != expected) {
+            fprintf(stderr,
+                    "GetEntity error: incorrect column value for key "
+                    "%s, entity %s, column value %s, expected %c\n",
+                    StringToHex(key_suffix).c_str(),
+                    WideColumnsToHex(columns).c_str(),
+                    value.ToString(/* hex */ true).c_str(), expected);
+          }
         }
-      }
 
-      if (!VerifyWideColumns(columns)) {
-        fprintf(stderr,
-                "GetEntity error: inconsistent columns for key %s, entity %s\n",
-                StringToHex(key_suffix).c_str(),
-                WideColumnsToHex(columns).c_str());
-        continue;
+        if (!VerifyWideColumns(columns)) {
+          fprintf(
+              stderr,
+              "GetEntity error: inconsistent columns for key %s, entity %s\n",
+              StringToHex(key_suffix).c_str(),
+              WideColumnsToHex(columns).c_str());
+        }
       }
     }
   }
