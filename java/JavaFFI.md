@@ -98,7 +98,7 @@ We also implement an `FFILayout` class to describe each of the passed structures
 
  The `FFIDB` class, which implements the public Java FFI API methods, makes use of `FFIMethod` and `FFILayout` to make the code for each individual method as idiomatic and efficient as possible. This class also contains `java.lang.foreign.MemorySession` and `java.lang.foreign.SegmentAllocator` objects which control the lifetime of native memory sessions and allow us to allocate lifetime-limited native memory which can be written and read by Java, and passed to native methods.
 
- At the user level, we then present a method which wraps the details of use of `FFIMethod` and `FFILayout` to implement our core Java API `get()` method
+ At the user level, we then present a method which wraps the details of use of `FFIMethod` and `FFILayout` to implement our single, core Java API `get()` method
 
  ```java
  public GetPinnableSlice getPinnableSlice(final ReadOptions readOptions,
@@ -116,7 +116,7 @@ For the `getPinnableSlice()` method, on successful return from an invocation of 
 
 ### Pinnable Slices
 
-RocksDB offers core (C++) API methods using the concept of a [`PinnableSlice`](http://rocksdb.org/blog/2017/08/24/pinnableslice.html) to return fetched data values while reducing copies to a minimum. We take advantage of this to base our central `get()` method(s) on `PinnableSlice`s. Methods mirroring the existing `JNI`-based API can then be implemented in pure Java by wrapping the core `get()`.
+RocksDB offers core (C++) API methods using the concept of a [`PinnableSlice`](http://rocksdb.org/blog/2017/08/24/pinnableslice.html) to return fetched data values while reducing copies to a minimum. We take advantage of this to base our central `get()` method(s) on `PinnableSlice`s. Methods mirroring the existing `JNI`-based API can then be implemented in pure Java by wrapping the core `getPinnableSlice()`.
 
 So we implement
 ```java
@@ -140,40 +140,47 @@ We extended existing RocksDB Java JNI benchmarks with new benchmarks based on FF
 java --enable-preview --enable-native-access=ALL-UNNAMED -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar -p keyCount=100000 -p keySize=128 -p valueSize=4096,65536 -p columnFamilyTestType="no_column_family" -rf csv org.rocksdb.jmh.GetBenchmarks
 ```
 
-[Results](./jmh/plot/jmh-result.csv)
+[Results](./jmh/plot/jmh-result.csv, ./jmh/plot/jmh-result-fixed2.csv)
 ![Plot](./jmh/plot/jmh-result-select.png)
+![Plot](./jmh/plot/jmh-result-fixed.png)
 
 ### Discussion
 
 We have plotted the performance (more operations is better) of a selection of benchmarks,
 ```bash
-q "select Benchmark,Score,Error from ./plot/jmh-result.csv where keyCount=100000 and valueSize=65536" -d, -H
+q "select Benchmark,Score from ./plot/jmh-result-fixed.csv where \"Param: keyCount\"=100000 and \"Param: valueSize\"=65536 -d, -H
 ```
 
- - benchmarks with `ffi` in their name are implemented using the FFI mechanisms
- - other benchmarks are previously implemented JNI-based benchmarks
+ - JNI versions of benchmarks are previously implemented `jmh` benchmarks for measuring the performance of the current RocksDB Java interface.
+ - FFI versions of benchmarks are equivalent benchmarks (as far as possible) implemented using the FFI mechanisms.
 
- If we compare like with like, for basic `get()`
+ We can see that for all benchmarks which have equivalent FFI and JNI pairs, the JNI version is only very marginally faster. FFI has successfully optimized away most of the extra safety-checking of the new invocation mechanism.
+
+ Our initial implementation of FFI benchmarks lagged the JNI benchmarks quite significantly, but we have received extremely helpful support from Maurizio Cimadamore of the Panama Dev team, to help us optimize the performance of out FFI implementation. We consider that the small remaining performance gap is a feature of the 
+
+ For basic `get()` the result buffer is allocated by the method, so that there is a cost of allocation associated with each request.
  - `ffiGet` vs `get`
- - The JNI version is faster
+ - The JNI version is ver marginally faster than FFI
 
- For preallocated `get()` where the result buffer is supplied to the method, avoiding an allocation of a fresh result buffer on each call (and the test recycles its result buffers), then the same small difference persists
- - `ffiPreallocatedGet` vs `preallocatedGet`
- - `preallocatedGet` is faster
+ For preallocated `get()` where the result buffer is supplied to the method, we avoid an allocation of a fresh result buffer on each call, and the test recycles its result buffers. Then the same small difference persists
+ - JNI is very marginally faster than FFI
+ - `preallocatedGet()` is a lot faster than basic `get()`
 
  We implemented some methods where the key for the `get()` is randomized, so that any ordering effects can be accounted for. The same differences persisted.
 
  The FFI interface gives us a natural way to expose RocksDB's [pinnable slice](http://rocksdb.org/blog/2017/08/24/pinnableslice.html) mechanism. When we provide a benchmark which accesses the raw `PinnableSlice` API, as expected this is the fastest method of any; however we are not comparing like with like:
- - `ffiGetPinnableSlice` returns a handle to the RocksDB memory containing the slice, and presents that as an FFI `MemorySegment`. No copying of the memory in the segment occurs.
+ - `ffiGetPinnableSlice()` returns a handle to the RocksDB memory containing the slice, and presents that as an FFI `MemorySegment`. No copying of the memory in the segment occurs.
 
- In fact, we implement the new FFI-based `get()` method using the new FFI-based `getPinnableSlice()` method, and copying out the result. So the `ffiGet` and `ffiPreallocatedGet` benchmarks use this mechanism underneath.
+ As noted above, we implement the new FFI-based `get()` methods using the new FFI-based `getPinnableSlice()` method, and copying out the result. So the `ffiGet` and `ffiPreallocatedGet` benchmarks use this mechanism underneath.
 
- In an effort to discover whether using the Java APIs to copy from the pinnable slice backed `MemorySegment` was a problem, we implemented a separate `ffiGetOutputSlice` benchmark which copies the result into a (Java allocated native memory) segment at the C++ side.
- - `ffiGetOutputSlice` while faster than `ffiPreallocatedGet` is still slower than `preallocatedGet`.
+ In an effort to discover whether using the Java APIs to copy from the pinnable slice backed `MemorySegment` was a problem, we implemented a separate `ffiGetOutputSlice()` benchmark which copies the result into a (Java allocated native memory) segment at the C++ side.
+ - `ffiGetOutputSlice()` is faster than `ffiPreallocatedGet()` and is in fact at least as fast as `preallocatedGet()`, which is an almost exact analogue in the JNI world.
 
- It's reasonable to expect that the extra FFI call to C++ to release the pinned slice has some cost, but a null FFI method call is extremely fast. And as `ffiGetOutputSlice` is still not as fast, we remain unclear where the performance is lost.
+ So it appears that we can build an FFI-based API with equal performance to the JNI-based one.
 
- - We would recommend looking again the performance of the FFI-based implementation when Panama is release post-Preview in Java 21.
+ Thinking about the (very small, but probably statistically significant) difference between our `ffiGetPinnableSlice()`-based FFI calls and the JNI-based calls, it is reasonable to expect that some of the cost is the extra FFI call to C++ to release the pinned slice as a separate operation. A null FFI method call is extremely fast, but it does take some time.
+
+ - We would recommend looking again the performance of the FFI-based implementation when Panama is release post-Preview in Java 21. It seems that at least with Java 20 the performance is of our FFI benchmarks is not significantly different from that of the Java 19 version.
 
 ## Other Conclusions
 
@@ -193,14 +200,14 @@ Panama's *Foreign-Memory Access API* appears to us to be the most significant pa
 
 We have taken advantage of this mechanism to provide the core `FFIDB.getPinnableSlice()` method in our Panama-based API. The rest of our prototype `get()` API, duplicating the existing *JNI*-based API, is then a *Pure Java* library on top of `FFIDB.getPinnableSlice()` and `FFIPinnableSlice.reset()`.
 
-The common standard for foreign memory opens up the possibility of efficient interoperation between RocksDB and Java clients (e.g. Kafka).
+The common standard for foreign memory opens up the possibility of efficient interoperation between RocksDB and Java clients (e.g. Kafka). We think that this is really the key to higher performing, more integrated Java-based systems:
 - This could result in data never being copied into Java memory, or a significant reduction in copies, as native `MemorySegment`s are handed off between co-operating Java clients of fundamentally native APIs.
 - Some thought should be applied to how this architecture would interact with the cache layer(s) in RocksDB, and whether it can be accommodated within the present RocksDB architecture. How long can 3rd-party applications *pin* pages in the RocksDB cache without disrupting RocksDB normal behaviour (e.g. compaction) ?
 
 ## Summary
 
-1. Panama/FFI (in [Preview](https://openjdk.org/jeps/424)) is a perfectly capable technology for (re)building the RocksDB Java API, although the supported language level of RocksDB and the planned release schedule for Panama mean that it could not replace JNI in production for some time to come.
-2. Panama/FFI would seem to offer comparable or slightly lower performance than JNI; we don't think the impact is really significant, and we hope things may improve with the final release of Panama. But there is no strong performance argument *for* a re-implementation.
+1. Panama/FFI (in [Preview](https://openjdk.org/jeps/424)) is a highly capable technology for (re)building the RocksDB Java API, although the supported language level of RocksDB and the planned release schedule for Panama mean that it could not replace JNI in production for some time to come.
+2. Panama/FFI would seem to offer comparable performance to JNI;  there is no strong performance argument *for* a re-implementation of a standalone RocksDB Java API. But the opportunity to provide a natural pinnable slice-based API gives a lot of flexibility; not least because an efficient API could be built mostly in Java with only a small underlying layer implementing the pinnable slice interface.
 3. Panama/FFI can remove some boilerplate (native method declarations) and allow Java programs to access `C` libraries without stub code, but calling a `C++`-based library still requires `C` stubs; a possible approach would be to use the RocksDB `C` API as the basis for a rebuilt Java API. This would allow us to remove all the existing JNI boilerplate, and concentrate support effort on the `C` API. An alternative approach would be to build a robust API based on [Reference Counting](https://github.com/facebook/rocksdb/pull/10736), but using FFI. 
 4. Panama/FFI really shines as a foreign memory standard for a Java API that can allow efficient interoperation between RocksDB Java clients and other (Java and native) components of a system. Foreign Memory gives us a model for how to efficiently return data from RocksDB; as pinnable slices with their contents presented in `MemorySegment`s. If we focus on designing an API *for native interoperability* we think this can be highly productive in opening RocksDB to new uses and opportunities in future.
 

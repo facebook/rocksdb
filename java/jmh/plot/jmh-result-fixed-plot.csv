@@ -1,0 +1,11 @@
+org.rocksdb.jmh.GetBenchmarks.ffiGet,19210.811786
+org.rocksdb.jmh.GetBenchmarks.ffiGetOutputSlice,25390.927096
+org.rocksdb.jmh.GetBenchmarks.ffiGetPinnableSlice,28377.03071
+org.rocksdb.jmh.GetBenchmarks.ffiGetRandom,18570.010749
+org.rocksdb.jmh.GetBenchmarks.ffiIdentity,36217377.976026
+org.rocksdb.jmh.GetBenchmarks.ffiPreallocatedGet,24707.495343
+org.rocksdb.jmh.GetBenchmarks.ffiPreallocatedGetRandom,23807.356412
+org.rocksdb.jmh.GetBenchmarks.get,19841.817791
+org.rocksdb.jmh.GetBenchmarks.preallocatedByteBufferGet,25171.75234
+org.rocksdb.jmh.GetBenchmarks.preallocatedByteBufferGetRandom,24229.952282
+org.rocksdb.jmh.GetBenchmarks.preallocatedGet,25388.719475

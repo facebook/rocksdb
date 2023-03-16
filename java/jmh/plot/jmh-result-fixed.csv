@@ -1,0 +1,23 @@
+"Benchmark","Mode","Threads","Samples","Score","Score Error (99.9%)","Unit","Param: columnFamilyTestType","Param: keyCount","Param: keySize","Param: valueSize"
+"org.rocksdb.jmh.GetBenchmarks.ffiGet","thrpt",1,25,74924.585293,1594.804596,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.ffiGet","thrpt",1,25,19210.811786,137.304390,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.ffiGetOutputSlice","thrpt",1,25,79869.658582,2035.802966,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.ffiGetOutputSlice","thrpt",1,25,25390.927096,178.290347,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.ffiGetPinnableSlice","thrpt",1,25,81493.841355,662.316653,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.ffiGetPinnableSlice","thrpt",1,25,28377.030710,140.511559,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.ffiGetRandom","thrpt",1,25,70398.265149,631.434719,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.ffiGetRandom","thrpt",1,25,18570.010749,83.058040,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.ffiIdentity","thrpt",1,25,36245940.134209,59925.847215,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.ffiIdentity","thrpt",1,25,36217377.976026,47178.538728,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.ffiPreallocatedGet","thrpt",1,25,77783.088061,824.243989,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.ffiPreallocatedGet","thrpt",1,25,24707.495343,111.656373,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.ffiPreallocatedGetRandom","thrpt",1,25,73202.104396,880.995580,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.ffiPreallocatedGetRandom","thrpt",1,25,23807.356412,108.122730,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.get","thrpt",1,25,73315.223387,1384.814916,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.get","thrpt",1,25,19841.817791,98.266232,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.preallocatedByteBufferGet","thrpt",1,25,83528.750171,600.679117,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.preallocatedByteBufferGet","thrpt",1,25,25171.752340,203.539225,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.preallocatedByteBufferGetRandom","thrpt",1,25,77076.501912,1225.278754,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.preallocatedByteBufferGetRandom","thrpt",1,25,24229.952282,188.407421,"ops/s",no_column_family,100000,128,65536
+"org.rocksdb.jmh.GetBenchmarks.preallocatedGet","thrpt",1,25,83888.583756,649.572784,"ops/s",no_column_family,100000,128,4096
+"org.rocksdb.jmh.GetBenchmarks.preallocatedGet","thrpt",1,25,25388.719475,96.364850,"ops/s",no_column_family,100000,128,65536
