@@ -301,6 +301,18 @@ class DB {
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
       std::string trim_ts);
 
+  // Manually, synchronously attempt to resume DB writes after a write failure
+  // to the underlying filesystem. See
+  // https://github.com/facebook/rocksdb/wiki/Background-Error-Handling
+  //
+  // Returns OK if writes are successfully resumed, or there was no
+  // outstanding error to recover from. Returns underlying write error if
+  // it is not recoverable.
+  //
+  // WART: Does not mix well with auto-resume. Will return Busy if an
+  // auto-resume is in progress, without waiting for it to complete.
+  // See DBOptions::max_bgerror_resume_count and
+  // EventListener::OnErrorRecoveryBegin
   virtual Status Resume() { return Status::NotSupported(); }
 
   // Close the DB by releasing resources, closing files etc. This should be
@@ -766,6 +778,68 @@ class DB {
     for (auto& value : vals) {
       values->PinSelf(value);
       values++;
+    }
+  }
+
+  // Batched MultiGet-like API that returns wide-column entities from a single
+  // column family. For any given "key[i]" in "keys" (where 0 <= "i" <
+  // "num_keys"), if the column family specified by "column_family" contains an
+  // entry, it is returned it as a wide-column entity in "results[i]". If the
+  // entry is a wide-column entity, it is returned as-is; if it is a plain
+  // key-value, it is returned as an entity with a single anonymous column (see
+  // kDefaultWideColumnName) which contains the value.
+  //
+  // "statuses[i]" is set to OK if "keys[i]" is successfully retrieved. It is
+  // set to NotFound and an empty wide-column entity is returned in "results[i]"
+  // if there is no entry for "keys[i]". Finally, "statuses[i]" is set to some
+  // other non-OK status on error.
+  //
+  // If "keys" are sorted according to the column family's comparator, the
+  // "sorted_input" flag can be set for a small performance improvement.
+  //
+  // Note that it is the caller's responsibility to ensure that "keys",
+  // "results", and "statuses" point to "num_keys" number of contiguous objects
+  // (Slices, PinnableWideColumns, and Statuses respectively).
+  virtual void MultiGetEntity(const ReadOptions& /* options */,
+                              ColumnFamilyHandle* /* column_family */,
+                              size_t num_keys, const Slice* /* keys */,
+                              PinnableWideColumns* /* results */,
+                              Status* statuses,
+                              bool /* sorted_input */ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported("MultiGetEntity not supported");
+    }
+  }
+
+  // Batched MultiGet-like API that returns wide-column entities potentially
+  // from multiple column families. For any given "key[i]" in "keys" (where 0 <=
+  // "i" < "num_keys"), if the column family specified by "column_families[i]"
+  // contains an entry, it is returned it as a wide-column entity in
+  // "results[i]". If the entry is a wide-column entity, it is returned as-is;
+  // if it is a plain key-value, it is returned as an entity with a single
+  // anonymous column (see kDefaultWideColumnName) which contains the value.
+  //
+  // "statuses[i]" is set to OK if "keys[i]" is successfully retrieved. It is
+  // set to NotFound and an empty wide-column entity is returned in "results[i]"
+  // if there is no entry for "keys[i]". Finally, "statuses[i]" is set to some
+  // other non-OK status on error.
+  //
+  // If "keys" are sorted by column family id and within each column family,
+  // according to the column family's comparator, the "sorted_input" flag can be
+  // set for a small performance improvement.
+  //
+  // Note that it is the caller's responsibility to ensure that
+  // "column_families", "keys", "results", and "statuses" point to "num_keys"
+  // number of contiguous objects (ColumnFamilyHandle pointers, Slices,
+  // PinnableWideColumns, and Statuses respectively).
+  virtual void MultiGetEntity(const ReadOptions& /* options */, size_t num_keys,
+                              ColumnFamilyHandle** /* column_families */,
+                              const Slice* /* keys */,
+                              PinnableWideColumns* /* results */,
+                              Status* statuses,
+                              bool /* sorted_input */ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Status::NotSupported("MultiGetEntity not supported");
     }
   }
 
@@ -1655,11 +1729,12 @@ class DB {
       const std::vector<IngestExternalFileArg>& args) = 0;
 
   // CreateColumnFamilyWithImport() will create a new column family with
-  // column_family_name and import external SST files specified in metadata into
-  // this column family.
+  // column_family_name and import external SST files specified in `metadata`
+  // into this column family.
   // (1) External SST files can be created using SstFileWriter.
   // (2) External SST files can be exported from a particular column family in
-  //     an existing DB using Checkpoint::ExportColumnFamily.
+  //     an existing DB using Checkpoint::ExportColumnFamily. `metadata` should
+  //     be the output from Checkpoint::ExportColumnFamily.
   // Option in import_options specifies whether the external files are copied or
   // moved (default is copy). When option specifies copy, managing files at
   // external_file_path is caller's responsibility. When option specifies a

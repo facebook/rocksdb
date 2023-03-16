@@ -103,7 +103,7 @@ void LRUHandleTable::Resize() {
   std::unique_ptr<LRUHandle* []> new_list {
     new LRUHandle* [size_t{1} << new_length_bits] {}
   };
-  uint32_t count = 0;
+  [[maybe_unused]] uint32_t count = 0;
   for (uint32_t i = 0; i < old_length; i++) {
     LRUHandle* h = list_[i];
     while (h != nullptr) {
@@ -344,8 +344,7 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 void LRUCacheShard::TryInsertIntoSecondaryCache(
     autovector<LRUHandle*> evicted_handles) {
   for (auto entry : evicted_handles) {
-    if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
-        !entry->IsInSecondaryCache()) {
+    if (secondary_cache_ && entry->IsSecondaryCacheCompatible()) {
       secondary_cache_->Insert(entry->key(), entry->value, entry->helper)
           .PermitUncheckedError();
     }
@@ -555,12 +554,18 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
   // again, we erase it from CompressedSecondaryCache and add it into the
   // primary cache.
   if (!e && secondary_cache_ && helper && helper->create_cb) {
-    bool is_in_sec_cache{false};
+    bool kept_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
         secondary_cache_->Lookup(key, helper, create_context, wait,
-                                 found_dummy_entry, is_in_sec_cache);
+                                 found_dummy_entry, kept_in_sec_cache);
     if (secondary_handle != nullptr) {
       e = static_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
+
+      // For entries already in secondary cache, prevent re-insertion by
+      // using a helper that is not secondary cache compatible
+      if (kept_in_sec_cache) {
+        helper = helper->without_secondary_compat;
+      }
 
       e->m_flags = 0;
       e->im_flags = 0;
@@ -575,7 +580,6 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
       e->sec_handle = secondary_handle.release();
       e->total_charge = 0;
       e->Ref();
-      e->SetIsInSecondaryCache(is_in_sec_cache);
       e->SetIsStandalone(secondary_cache_->SupportForceErase() &&
                          !found_dummy_entry);
 
@@ -587,17 +591,29 @@ LRUHandle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash,
             e->Unref();
             e->Free(table_.GetAllocator());
             e = nullptr;
-          } else {
-            PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
-            RecordTick(stats, SECONDARY_CACHE_HITS);
           }
         }
       } else {
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure.
         e->SetIsPending(true);
+      }
+      if (e) {
         // This may be slightly inaccurate, if the lookup eventually fails.
         // But the probability is very low.
+        switch (helper->role) {
+          case CacheEntryRole::kFilterBlock:
+            RecordTick(stats, SECONDARY_CACHE_FILTER_HITS);
+            break;
+          case CacheEntryRole::kIndexBlock:
+            RecordTick(stats, SECONDARY_CACHE_INDEX_HITS);
+            break;
+          case CacheEntryRole::kDataBlock:
+            RecordTick(stats, SECONDARY_CACHE_DATA_HITS);
+            break;
+          default:
+            break;
+        }
         PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
         RecordTick(stats, SECONDARY_CACHE_HITS);
       }

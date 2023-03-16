@@ -231,7 +231,9 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
       {
         std::string value;
         ASSERT_OK(db_->Get(ReadOptions(), "k0", &value));
-        ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsCorruption());
+        Status s = db_->Get(ReadOptions(), "k1", &value);
+        ASSERT_TRUE(s.IsCorruption());
+        ASSERT_EQ(Status::SubCode::kMergeOperatorFailed, s.subcode());
         ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
       }
 
@@ -243,6 +245,8 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
         ASSERT_EQ("k0", iter->key());
         iter->Next();
         ASSERT_TRUE(iter->status().IsCorruption());
+        ASSERT_EQ(Status::SubCode::kMergeOperatorFailed,
+                  iter->status().subcode());
 
         iter->SeekToLast();
         ASSERT_TRUE(iter->Valid());

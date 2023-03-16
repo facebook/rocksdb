@@ -658,11 +658,6 @@ void InternalStats::CollectCacheEntryStats(bool foreground) {
                                              min_interval_factor);
 }
 
-std::function<void()> Blah() {
-  static int x = 42;
-  return [&]() { ++x; };
-}
-
 std::function<void(const Slice& key, Cache::ObjectPtr value, size_t charge,
                    const Cache::CacheItemHelper* helper)>
 InternalStats::CacheEntryRoleStats::GetEntryCallback() {

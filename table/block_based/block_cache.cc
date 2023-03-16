@@ -50,36 +50,36 @@ namespace {
 // For getting SecondaryCache-compatible helpers from a BlockType. This is
 // useful for accessing block cache in untyped contexts, such as for generic
 // cache warming in table builder.
-constexpr std::array<const Cache::CacheItemHelper*,
-                     static_cast<unsigned>(BlockType::kInvalid) + 1>
+const std::array<const Cache::CacheItemHelper*,
+                 static_cast<unsigned>(BlockType::kInvalid) + 1>
     kCacheItemFullHelperForBlockType{{
-        &BlockCacheInterface<Block_kData>::kFullHelper,
-        &BlockCacheInterface<ParsedFullFilterBlock>::kFullHelper,
-        &BlockCacheInterface<Block_kFilterPartitionIndex>::kFullHelper,
+        BlockCacheInterface<Block_kData>::GetFullHelper(),
+        BlockCacheInterface<ParsedFullFilterBlock>::GetFullHelper(),
+        BlockCacheInterface<Block_kFilterPartitionIndex>::GetFullHelper(),
         nullptr,  // kProperties
-        &BlockCacheInterface<UncompressionDict>::kFullHelper,
-        &BlockCacheInterface<Block_kRangeDeletion>::kFullHelper,
+        BlockCacheInterface<UncompressionDict>::GetFullHelper(),
+        BlockCacheInterface<Block_kRangeDeletion>::GetFullHelper(),
         nullptr,  // kHashIndexPrefixes
         nullptr,  // kHashIndexMetadata
         nullptr,  // kMetaIndex (not yet stored in block cache)
-        &BlockCacheInterface<Block_kIndex>::kFullHelper,
+        BlockCacheInterface<Block_kIndex>::GetFullHelper(),
         nullptr,  // kInvalid
     }};
 
 // For getting basic helpers from a BlockType (no SecondaryCache support)
-constexpr std::array<const Cache::CacheItemHelper*,
-                     static_cast<unsigned>(BlockType::kInvalid) + 1>
+const std::array<const Cache::CacheItemHelper*,
+                 static_cast<unsigned>(BlockType::kInvalid) + 1>
     kCacheItemBasicHelperForBlockType{{
-        &BlockCacheInterface<Block_kData>::kBasicHelper,
-        &BlockCacheInterface<ParsedFullFilterBlock>::kBasicHelper,
-        &BlockCacheInterface<Block_kFilterPartitionIndex>::kBasicHelper,
+        BlockCacheInterface<Block_kData>::GetBasicHelper(),
+        BlockCacheInterface<ParsedFullFilterBlock>::GetBasicHelper(),
+        BlockCacheInterface<Block_kFilterPartitionIndex>::GetBasicHelper(),
         nullptr,  // kProperties
-        &BlockCacheInterface<UncompressionDict>::kBasicHelper,
-        &BlockCacheInterface<Block_kRangeDeletion>::kBasicHelper,
+        BlockCacheInterface<UncompressionDict>::GetBasicHelper(),
+        BlockCacheInterface<Block_kRangeDeletion>::GetBasicHelper(),
         nullptr,  // kHashIndexPrefixes
         nullptr,  // kHashIndexMetadata
         nullptr,  // kMetaIndex (not yet stored in block cache)
-        &BlockCacheInterface<Block_kIndex>::kBasicHelper,
+        BlockCacheInterface<Block_kIndex>::GetBasicHelper(),
         nullptr,  // kInvalid
     }};
 }  // namespace

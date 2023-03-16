@@ -659,18 +659,6 @@ Status GetStringFromCompressionType(std::string* compression_str,
 }
 
 Status GetColumnFamilyOptionsFromMap(
-    const ColumnFamilyOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.input_strings_escaped = input_strings_escaped;
-  return GetColumnFamilyOptionsFromMap(config_options, base_options, opts_map,
-                                       new_options);
-}
-
-Status GetColumnFamilyOptionsFromMap(
     const ConfigOptions& config_options,
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
@@ -691,17 +679,6 @@ Status GetColumnFamilyOptionsFromMap(
   }
 }
 
-Status GetColumnFamilyOptionsFromString(
-    const ColumnFamilyOptions& base_options,
-    const std::string& opts_str,
-    ColumnFamilyOptions* new_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-  return GetColumnFamilyOptionsFromString(config_options, base_options,
-                                          opts_str, new_options);
-}
-
 Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
                                         const ColumnFamilyOptions& base_options,
                                         const std::string& opts_str,
@@ -714,18 +691,6 @@ Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
   }
   return GetColumnFamilyOptionsFromMap(config_options, base_options, opts_map,
                                        new_options);
-}
-
-Status GetDBOptionsFromMap(
-    const DBOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options(base_options);
-  config_options.input_strings_escaped = input_strings_escaped;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  return GetDBOptionsFromMap(config_options, base_options, opts_map,
-                             new_options);
 }
 
 Status GetDBOptionsFromMap(
@@ -744,17 +709,6 @@ Status GetDBOptionsFromMap(
   } else {
     return Status::InvalidArgument(s.getState());
   }
-}
-
-Status GetDBOptionsFromString(const DBOptions& base_options,
-                              const std::string& opts_str,
-                              DBOptions* new_options) {
-  ConfigOptions config_options(base_options);
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-
-  return GetDBOptionsFromString(config_options, base_options, opts_str,
-                                new_options);
 }
 
 Status GetDBOptionsFromString(const ConfigOptions& config_options,

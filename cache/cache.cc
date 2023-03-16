@@ -16,6 +16,8 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+const Cache::CacheItemHelper kNoopCacheItemHelper{};
+
 static std::unordered_map<std::string, OptionTypeInfo>
     lru_cache_options_type_info = {
         {"capacity",
@@ -87,8 +89,7 @@ Status SecondaryCache::CreateFromString(
     }
     return status;
   } else {
-    return LoadSharedObject<SecondaryCache>(config_options, value, nullptr,
-                                            result);
+    return LoadSharedObject<SecondaryCache>(config_options, value, result);
   }
 }
 

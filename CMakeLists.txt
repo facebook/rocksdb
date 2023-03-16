@@ -838,6 +838,7 @@ set(SOURCES
         table/get_context.cc
         table/iterator.cc
         table/merging_iterator.cc
+        table/compaction_merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
         table/plain/plain_table_bloom.cc
@@ -879,6 +880,7 @@ set(SOURCES
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
+        util/data_structure.cc
         util/dynamic_bloom.cc
         util/hash.cc
         util/murmurhash.cc
@@ -1277,6 +1279,7 @@ if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/mock_time_env.cc
+  test_util/secondary_cache_test_util.cc
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()

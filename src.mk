@@ -198,6 +198,7 @@ LIB_SOURCES =                                                   \
   table/get_context.cc                                          \
   table/iterator.cc                                             \
   table/merging_iterator.cc                                     \
+  table/compaction_merging_iterator.cc                          \
   table/meta_blocks.cc                                          \
   table/persistent_cache_helper.cc                              \
   table/plain/plain_table_bloom.cc                              \
@@ -234,6 +235,7 @@ LIB_SOURCES =                                                   \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
   util/crc32c_arm64.cc                                          \
+  util/data_structure.cc                                        \
   util/dynamic_bloom.cc                                         \
   util/hash.cc                                                  \
   util/murmurhash.cc                                            \
@@ -380,6 +382,7 @@ TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
   db/db_with_timestamp_test_util.cc                             \
   test_util/mock_time_env.cc                                    \
+  test_util/secondary_cache_test_util.cc                        \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
   utilities/agg_merge/test_agg_merge.cc                                 \

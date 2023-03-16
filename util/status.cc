@@ -41,9 +41,10 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "Insufficient capacity for merge operands",
     // kManualCompactionPaused
     "Manual compaction paused",
-    " (overwritten)",    // kOverwritten, subcode of OK
-    "Txn not prepared",  // kTxnNotPrepared
-    "IO fenced off",     // kIOFenced
+    " (overwritten)",         // kOverwritten, subcode of OK
+    "Txn not prepared",       // kTxnNotPrepared
+    "IO fenced off",          // kIOFenced
+    "Merge operator failed",  // kMergeOperatorFailed
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,

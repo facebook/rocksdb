@@ -123,6 +123,10 @@ class BlobCountingIterator : public InternalIterator {
     return iter_->GetProperty(prop_name, prop);
   }
 
+  bool IsDeleteRangeSentinelKey() const override {
+    return iter_->IsDeleteRangeSentinelKey();
+  }
+
  private:
   void UpdateAndCountBlobIfNeeded() {
     assert(!iter_->Valid() || iter_->status().ok());

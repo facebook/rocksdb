@@ -442,6 +442,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         state_ = kMerge;
         // value_pinner is not set from plain_table_reader.cc for example.
         push_operand(value, value_pinner);
+        PERF_COUNTER_ADD(internal_merge_point_lookup_count, 1);
+
         if (do_merge_ && merge_operator_ != nullptr &&
             merge_operator_->ShouldMerge(
                 merge_context_->GetOperandsDirectionBackward())) {
@@ -474,7 +476,11 @@ void GetContext::Merge(const Slice* value) {
       /* update_num_ops_stats */ true,
       /* op_failure_scope */ nullptr);
   if (!s.ok()) {
-    state_ = kCorrupt;
+    if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+      state_ = kMergeOperatorFailed;
+    } else {
+      state_ = kCorrupt;
+    }
     return;
   }
 
@@ -485,7 +491,7 @@ void GetContext::Merge(const Slice* value) {
   }
 
   assert(columns_);
-  columns_->SetPlainValue(result);
+  columns_->SetPlainValue(std::move(result));
 }
 
 void GetContext::MergeWithEntity(Slice entity) {
@@ -514,7 +520,11 @@ void GetContext::MergeWithEntity(Slice entity) {
           /* update_num_ops_stats */ true,
           /* op_failure_scope */ nullptr);
       if (!s.ok()) {
-        state_ = kCorrupt;
+        if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+          state_ = kMergeOperatorFailed;
+        } else {
+          state_ = kCorrupt;
+        }
         return;
       }
     }
@@ -533,14 +543,18 @@ void GetContext::MergeWithEntity(Slice entity) {
         &result, logger_, statistics_, clock_, /* update_num_ops_stats */ true,
         /* op_failure_scope */ nullptr);
     if (!s.ok()) {
-      state_ = kCorrupt;
+      if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+        state_ = kMergeOperatorFailed;
+      } else {
+        state_ = kCorrupt;
+      }
       return;
     }
   }
 
   {
     assert(columns_);
-    const Status s = columns_->SetWideColumnValue(result);
+    const Status s = columns_->SetWideColumnValue(std::move(result));
     if (!s.ok()) {
       state_ = kCorrupt;
       return;

@@ -53,6 +53,7 @@ class NonBatchedOpsStressTest : public StressTest {
         kGet,
         kGetEntity,
         kMultiGet,
+        kMultiGetEntity,
         kGetMergeOperands,
         // Add any new items above kNumberOfMethods
         kNumberOfMethods
@@ -163,11 +164,11 @@ class NonBatchedOpsStressTest : public StressTest {
           Status s =
               db_->GetEntity(options, column_families_[cf], key, &columns);
 
-          const WideColumns& columns_from_db = columns.columns();
-
           std::string from_db;
 
           if (s.ok()) {
+            const WideColumns& columns_from_db = columns.columns();
+
             if (!columns_from_db.empty() &&
                 columns_from_db[0].name() == kDefaultWideColumnName) {
               from_db = columns_from_db[0].value().ToString();
@@ -200,14 +201,14 @@ class NonBatchedOpsStressTest : public StressTest {
           size_t batch_size = thread->rand.Uniform(128) + 1;
           batch_size = std::min<size_t>(batch_size, end - i);
 
-          std::vector<std::string> keystrs(batch_size);
+          std::vector<std::string> key_strs(batch_size);
           std::vector<Slice> keys(batch_size);
           std::vector<PinnableSlice> values(batch_size);
           std::vector<Status> statuses(batch_size);
 
           for (size_t j = 0; j < batch_size; ++j) {
-            keystrs[j] = Key(i + j);
-            keys[j] = Slice(keystrs[j].data(), keystrs[j].size());
+            key_strs[j] = Key(i + j);
+            keys[j] = Slice(key_strs[j]);
           }
 
           db_->MultiGet(options, column_families_[cf], batch_size, keys.data(),
@@ -218,6 +219,61 @@ class NonBatchedOpsStressTest : public StressTest {
 
             VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
                               from_db, /* msg_prefix */ "MultiGet verification",
+                              statuses[j], /* strict */ true);
+
+            if (!from_db.empty()) {
+              PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
+                            from_db.data(), from_db.size());
+            }
+          }
+
+          i += batch_size;
+        }
+      } else if (method == VerificationMethod::kMultiGetEntity) {
+        for (int64_t i = start; i < end;) {
+          if (thread->shared->HasVerificationFailedYet()) {
+            break;
+          }
+
+          // Keep the batch size to some reasonable value
+          size_t batch_size = thread->rand.Uniform(128) + 1;
+          batch_size = std::min<size_t>(batch_size, end - i);
+
+          std::vector<std::string> key_strs(batch_size);
+          std::vector<Slice> keys(batch_size);
+          std::vector<PinnableWideColumns> results(batch_size);
+          std::vector<Status> statuses(batch_size);
+
+          for (size_t j = 0; j < batch_size; ++j) {
+            key_strs[j] = Key(i + j);
+            keys[j] = Slice(key_strs[j]);
+          }
+
+          db_->MultiGetEntity(options, column_families_[cf], batch_size,
+                              keys.data(), results.data(), statuses.data());
+
+          for (size_t j = 0; j < batch_size; ++j) {
+            std::string from_db;
+
+            if (statuses[j].ok()) {
+              const WideColumns& columns_from_db = results[j].columns();
+
+              if (!columns_from_db.empty() &&
+                  columns_from_db[0].name() == kDefaultWideColumnName) {
+                from_db = columns_from_db[0].value().ToString();
+              }
+
+              const WideColumns expected_columns =
+                  GenerateExpectedWideColumns(GetValueBase(from_db), from_db);
+              if (columns_from_db != expected_columns) {
+                VerificationAbort(shared, static_cast<int>(cf), i, from_db,
+                                  columns_from_db, expected_columns);
+              }
+            }
+
+            VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
+                              from_db,
+                              /* msg_prefix */ "MultiGetEntity verification",
                               statuses[j], /* strict */ true);
 
             if (!from_db.empty()) {
@@ -436,6 +492,11 @@ class NonBatchedOpsStressTest : public StressTest {
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
     Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
     bool read_older_ts = MaybeUseOlderTimestampForPointLookup(
         thread, read_ts_str, read_ts_slice, read_opts_copy);
 
@@ -458,7 +519,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // found case
       thread->stats.AddGets(1, 1);
       // we only have the latest expected state
-      if (!FLAGS_skip_verifydb && !read_opts_copy.timestamp &&
+      if (!FLAGS_skip_verifydb && !read_older_ts &&
           thread->shared->Get(rand_column_families[0], rand_keys[0]) ==
               SharedState::DELETION_SENTINEL) {
         thread->shared->SetVerificationFailure();

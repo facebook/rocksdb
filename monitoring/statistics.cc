@@ -213,7 +213,13 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_CACHE_BYTES_READ, "rocksdb.blobdb.cache.bytes.read"},
     {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"},
     {READ_ASYNC_MICROS, "rocksdb.read.async.micros"},
-    {ASYNC_READ_ERROR_COUNT, "rocksdb.async.read.error.count"}};
+    {ASYNC_READ_ERROR_COUNT, "rocksdb.async.read.error.count"},
+    {SECONDARY_CACHE_FILTER_HITS, "rocksdb.secondary.cache.filter.hits"},
+    {SECONDARY_CACHE_INDEX_HITS, "rocksdb.secondary.cache.index.hits"},
+    {SECONDARY_CACHE_DATA_HITS, "rocksdb.secondary.cache.data.hits"},
+    {TABLE_OPEN_PREFETCH_TAIL_MISS, "rocksdb.table.open.prefetch.tail.miss"},
+    {TABLE_OPEN_PREFETCH_TAIL_HIT, "rocksdb.table.open.prefetch.tail.hit"},
+};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},
@@ -269,6 +275,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {MULTIGET_IO_BATCH_SIZE, "rocksdb.multiget.io.batch.size"},
     {NUM_LEVEL_READ_PER_MULTIGET, "rocksdb.num.level.read.per.multiget"},
     {ASYNC_PREFETCH_ABORT_MICROS, "rocksdb.async.prefetch.abort.micros"},
+    {TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+     "rocksdb.table.open.prefetch.tail.read.bytes"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
@@ -300,7 +308,7 @@ Status Statistics::CreateFromString(const ConfigOptions& config_options,
   } else if (id == kNullptrString) {
     result->reset();
   } else {
-    s = LoadSharedObject<Statistics>(config_options, id, nullptr, result);
+    s = LoadSharedObject<Statistics>(config_options, id, result);
   }
   return s;
 }

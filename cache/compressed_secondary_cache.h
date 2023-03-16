@@ -78,7 +78,9 @@ class CompressedSecondaryCache : public SecondaryCache {
           kDefaultCacheMetadataChargePolicy,
       CompressionType compression_type = CompressionType::kLZ4Compression,
       uint32_t compress_format_version = 2,
-      bool enable_custom_split_merge = false);
+      bool enable_custom_split_merge = false,
+      const CacheEntryRoleSet& do_not_compress_roles = {
+          CacheEntryRole::kFilterBlock});
   ~CompressedSecondaryCache() override;
 
   const char* Name() const override { return "CompressedSecondaryCache"; }
@@ -89,7 +91,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool /*wait*/, bool advise_erase,
-      bool& is_in_sec_cache) override;
+      bool& kept_in_sec_cache) override;
 
   bool SupportForceErase() const override { return true; }
 

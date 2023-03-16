@@ -113,6 +113,11 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
 }
 Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
                                                bool pin) {
+  if (!partition_map_.empty()) {
+    // The dependencies are already cached since `partition_map_` is filled in
+    // an all-or-nothing manner.
+    return Status::OK();
+  }
   // Before read partitions, prefetch them to avoid lots of IOs
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   const BlockBasedTable::Rep* rep = table()->rep_;
