@@ -234,7 +234,7 @@ struct IODebugContext {
     return ss.str();
   }
 };
-
+enum DeviceType { HDD, Conventional, ZoneNameSpace, Computational };
 // A function pointer type for custom destruction of void pointer passed to
 // ReadAsync API. RocksDB/caller is responsible for deleting the void pointer
 // allocated by FS in ReadAsync API.
@@ -683,6 +683,7 @@ class FileSystem : public Customizable {
   }
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
+  virtual DeviceType GetDeviceType(void) { return DeviceType::Conventional; }
 
  private:
   void operator=(const FileSystem&);
@@ -1521,6 +1522,7 @@ class FileSystemWrapper : public FileSystem {
   virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
     return target_->AbortIO(io_handles);
   }
+  virtual DeviceType GetDeviceType(void) { return target_->GetDeviceType(); }
 
  protected:
   std::shared_ptr<FileSystem> target_;
