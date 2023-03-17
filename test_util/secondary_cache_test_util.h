@@ -68,6 +68,7 @@ class WithCacheType : public TestCreateContext {
       }
       return hc_opts.MakeSharedCache();
     }
+    assert(false);
     return nullptr;
   }
 
@@ -105,10 +106,10 @@ class WithCacheTypeParam : public WithCacheType,
   const std::string& Type() override { return GetParam(); }
 };
 
-inline constexpr const std::string& kLRU = WithCacheType::kLRU;
-inline constexpr const std::string& kHyperClock = WithCacheType::kHyperClock;
+extern const std::string& kLRU;
+extern const std::string& kHyperClock;
 
-const auto kTestingCacheTypes = testing::Values(kLRU, kHyperClock);
+extern const decltype(testing::Values(kLRU, kHyperClock)) kTestingCacheTypes;
 
 }  // namespace secondary_cache_test_util
 }  // namespace ROCKSDB_NAMESPACE
