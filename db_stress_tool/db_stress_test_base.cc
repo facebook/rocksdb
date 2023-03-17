@@ -429,47 +429,27 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
 
 void StressTest::VerificationAbort(SharedState* shared, int cf, int64_t key,
                                    const Slice& value,
-                                   const WideColumns& columns,
-                                   const WideColumns& expected_columns) const {
+                                   const WideColumns& columns) const {
   assert(shared);
 
   auto key_str = Key(key);
 
   fprintf(stderr,
           "Verification failed for column family %d key %s (%" PRIi64
-          "): Value and columns inconsistent: %s\n",
+          "): Value and columns inconsistent: value: %s, columns: %s\n",
           cf, Slice(key_str).ToString(/* hex */ true).c_str(), key,
-          DebugString(value, columns, expected_columns).c_str());
+          value.ToString(/* hex */ true).c_str(),
+          WideColumnsToHex(columns).c_str());
 
   shared->SetVerificationFailure();
 }
 
 std::string StressTest::DebugString(const Slice& value,
-                                    const WideColumns& columns,
-                                    const WideColumns& expected_columns) {
+                                    const WideColumns& columns) {
   std::ostringstream oss;
 
-  oss << "value: " << value.ToString(/* hex */ true);
-
-  auto dump = [](const WideColumns& cols, std::ostream& os) {
-    if (cols.empty()) {
-      return;
-    }
-
-    os << std::hex;
-
-    auto it = cols.begin();
-    os << *it;
-    for (++it; it != cols.end(); ++it) {
-      os << ' ' << *it;
-    }
-  };
-
-  oss << ", columns: ";
-  dump(columns, oss);
-
-  oss << ", expected_columns: ";
-  dump(expected_columns, oss);
+  oss << "value: " << value.ToString(/* hex */ true)
+      << ", columns: " << WideColumnsToHex(columns);
 
   return oss.str();
 }
@@ -1004,7 +984,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readpercent)) {
         assert(0 <= prob_op);
         // OPERATION read
-        if (FLAGS_use_multiget) {
+        if (FLAGS_use_get_entity) {
+          TestGetEntity(thread, read_opts, rand_column_families, rand_keys);
+        } else if (FLAGS_use_multiget) {
           // Leave room for one more iteration of the loop with a single key
           // batch. This is to ensure that each thread does exactly the same
           // number of ops
@@ -1491,12 +1473,12 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (!*diverged && iter->Valid()) {
-    const WideColumns expected_columns =
-        GenerateExpectedWideColumns(GetValueBase(iter->value()), iter->value());
-    if (iter->columns() != expected_columns) {
-      fprintf(stderr, "Value and columns inconsistent for iterator: %s\n",
-              DebugString(iter->value(), iter->columns(), expected_columns)
-                  .c_str());
+    if (!VerifyWideColumns(iter->value(), iter->columns())) {
+      fprintf(stderr,
+              "Value and columns inconsistent for iterator: value: %s, "
+              "columns: %s\n",
+              iter->value().ToString(/* hex */ true).c_str(),
+              WideColumnsToHex(iter->columns()).c_str());
 
       *diverged = true;
     }
@@ -2402,6 +2384,8 @@ void StressTest::PrintEnv() const {
           FLAGS_subcompactions);
   fprintf(stdout, "Use MultiGet              : %s\n",
           FLAGS_use_multiget ? "true" : "false");
+  fprintf(stdout, "Use GetEntity             : %s\n",
+          FLAGS_use_get_entity ? "true" : "false");
 
   const char* memtablerep = "";
   switch (FLAGS_rep_factory) {
