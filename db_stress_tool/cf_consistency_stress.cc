@@ -340,11 +340,9 @@ class CfConsistencyStressTest : public StressTest {
 
             if (!cmp_found && found) {
               fprintf(stderr,
-                      "GetEntity returns different results for key %s\n",
-                      StringToHex(key).c_str());
-              fprintf(stderr, "CF %s returns not found\n",
-                      column_family_names_[0].c_str());
-              fprintf(stderr, "CF %s returns entity %s\n",
+                      "GetEntity returns different results for key %s: CF %s "
+                      "returns not found, CF %s returns entity %s\n",
+                      StringToHex(key).c_str(), column_family_names_[0].c_str(),
                       column_family_names_[i].c_str(),
                       WideColumnsToHex(result.columns()).c_str());
               is_consistent = false;
@@ -353,12 +351,10 @@ class CfConsistencyStressTest : public StressTest {
 
             if (cmp_found && !found) {
               fprintf(stderr,
-                      "GetEntity returns different results for key %s\n",
-                      StringToHex(key).c_str());
-              fprintf(stderr, "CF %s returns entity %s\n",
-                      column_family_names_[0].c_str(),
-                      WideColumnsToHex(cmp_result.columns()).c_str());
-              fprintf(stderr, "CF %s returns not found\n",
+                      "GetEntity returns different results for key %s: CF %s "
+                      "returns entity %s, CF %s returns not found\n",
+                      StringToHex(key).c_str(), column_family_names_[0].c_str(),
+                      WideColumnsToHex(cmp_result.columns()).c_str(),
                       column_family_names_[i].c_str());
               is_consistent = false;
               break;
@@ -366,12 +362,10 @@ class CfConsistencyStressTest : public StressTest {
 
             if (found && result != cmp_result) {
               fprintf(stderr,
-                      "GetEntity returns different results for key %s\n",
-                      StringToHex(key).c_str());
-              fprintf(stderr, "CF %s returns entity %s\n",
-                      column_family_names_[0].c_str(),
-                      WideColumnsToHex(cmp_result.columns()).c_str());
-              fprintf(stderr, "CF %s returns entity %s\n",
+                      "GetEntity returns different results for key %s: CF %s "
+                      "returns entity %s, CF %s returns entity %s\n",
+                      StringToHex(key).c_str(), column_family_names_[0].c_str(),
+                      WideColumnsToHex(cmp_result.columns()).c_str(),
                       column_family_names_[i].c_str(),
                       WideColumnsToHex(result.columns()).c_str());
               is_consistent = false;
