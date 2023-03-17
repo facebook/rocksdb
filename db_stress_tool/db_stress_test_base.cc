@@ -109,36 +109,37 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     return nullptr;
   }
 
+  std::shared_ptr<SecondaryCache> secondary_cache;
+  if (!FLAGS_secondary_cache_uri.empty()) {
+    Status s = SecondaryCache::CreateFromString(
+        config_options, FLAGS_secondary_cache_uri, &secondary_cache);
+    if (secondary_cache == nullptr) {
+      fprintf(stderr,
+              "No secondary cache registered matching string: %s status=%s\n",
+              FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
+      exit(1);
+    }
+    if (FLAGS_secondary_cache_fault_one_in > 0) {
+      secondary_cache = std::make_shared<FaultInjectionSecondaryCache>(
+          secondary_cache, static_cast<uint32_t>(FLAGS_seed),
+          FLAGS_secondary_cache_fault_one_in);
+    }
+  }
+
   if (FLAGS_cache_type == "clock_cache") {
     fprintf(stderr, "Old clock cache implementation has been removed.\n");
     exit(1);
   } else if (FLAGS_cache_type == "hyper_clock_cache") {
-    return HyperClockCacheOptions(static_cast<size_t>(capacity),
-                                  FLAGS_block_size /*estimated_entry_charge*/,
-                                  num_shard_bits)
-        .MakeSharedCache();
+    HyperClockCacheOptions opts(static_cast<size_t>(capacity),
+                                FLAGS_block_size /*estimated_entry_charge*/,
+                                num_shard_bits);
+    opts.secondary_cache = std::move(secondary_cache);
+    return opts.MakeSharedCache();
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
     opts.num_shard_bits = num_shard_bits;
-    std::shared_ptr<SecondaryCache> secondary_cache;
-    if (!FLAGS_secondary_cache_uri.empty()) {
-      Status s = SecondaryCache::CreateFromString(
-          config_options, FLAGS_secondary_cache_uri, &secondary_cache);
-      if (secondary_cache == nullptr) {
-        fprintf(stderr,
-                "No secondary cache registered matching string: %s status=%s\n",
-                FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
-        exit(1);
-      }
-      if (FLAGS_secondary_cache_fault_one_in > 0) {
-        secondary_cache = std::make_shared<FaultInjectionSecondaryCache>(
-            secondary_cache, static_cast<uint32_t>(FLAGS_seed),
-            FLAGS_secondary_cache_fault_one_in);
-      }
-      opts.secondary_cache = secondary_cache;
-    }
-
+    opts.secondary_cache = std::move(secondary_cache);
     return NewLRUCache(opts);
   } else {
     fprintf(stderr, "Cache type not supported.");

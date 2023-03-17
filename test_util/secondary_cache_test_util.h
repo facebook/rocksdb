@@ -105,8 +105,8 @@ class WithCacheTypeParam : public WithCacheType,
   const std::string& Type() override { return GetParam(); }
 };
 
-constexpr const std::string& kLRU = WithCacheType::kLRU;
-constexpr const std::string& kHyperClock = WithCacheType::kHyperClock;
+inline constexpr const std::string& kLRU = WithCacheType::kLRU;
+inline constexpr const std::string& kHyperClock = WithCacheType::kHyperClock;
 
 const auto kTestingCacheTypes = testing::Values(kLRU, kHyperClock);
 
