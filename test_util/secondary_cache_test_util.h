@@ -12,7 +12,6 @@
 #include "rocksdb/advanced_cache.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 namespace secondary_cache_test_util {
 
 struct TestCreateContext : public Cache::CreateContext {
@@ -106,11 +105,10 @@ class WithCacheTypeParam : public WithCacheType,
   const std::string& Type() override { return GetParam(); }
 };
 
-const std::string& kLRU = WithCacheType::kLRU;
-const std::string& kHyperClock = WithCacheType::kHyperClock;
+constexpr const std::string& kLRU = WithCacheType::kLRU;
+constexpr const std::string& kHyperClock = WithCacheType::kHyperClock;
 
 const auto kTestingCacheTypes = testing::Values(kLRU, kHyperClock);
 
 }  // namespace secondary_cache_test_util
-
 }  // namespace ROCKSDB_NAMESPACE

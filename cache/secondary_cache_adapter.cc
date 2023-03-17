@@ -237,6 +237,10 @@ void CacheWithSecondaryAdapter::WaitAll(AsyncLookupHandle* async_handles,
   }
 
   // Wait on inner-most cache lookups first
+  // TODO with stacked secondaries: because we are not using proper
+  // async/await constructs here yet, there is a false synchronization point
+  // here where all the results at one level are needed before initiating
+  // any lookups at the next level. Probably not a big deal, but worth noting.
   if (!inner_pending.empty()) {
     target_->WaitAll(async_handles, count);
   }

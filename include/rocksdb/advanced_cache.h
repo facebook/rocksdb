@@ -454,8 +454,8 @@ class Cache {
     // blocking, though Wait()/WaitAll() might be required to publish it to
     // Value(). See secondary cache compatible Lookup() above for details.
     // This call is not thread safe on "pending" handles.
-    // WART/TODO: might not be ready in stacked secondary configuration, just
-    // ready for one step.
+    // WART/TODO with stacked secondaries: might indicate ready when one
+    // result is ready (a miss) but the next lookup will block.
     bool IsReady();
 
     // Returns true if Wait/WaitAll is required before calling Result().
