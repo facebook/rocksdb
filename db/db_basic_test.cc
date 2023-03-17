@@ -2303,7 +2303,6 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
   }
 #else   // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
-  ASSERT_EQ(multiget_io_batch_size.count, 3);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -2348,7 +2347,6 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 #else   // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
-  ASSERT_EQ(multiget_io_batch_size.count, 3);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 

@@ -1185,6 +1185,11 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
 }
 
 TEST_P(PrefetchTest, DBIterAsyncIONoIOUring) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
   const int kNumKeys = 1000;
   // Set options
   bool use_direct_io = std::get<0>(GetParam());
