@@ -58,15 +58,20 @@ const Cache::CacheItemHelper* GetHelperFail(
 extern const std::string kLRU;
 extern const std::string kHyperClock;
 
-class WithCacheTestParam : public testing::WithParamInterface<std::string> {
+class WithCacheType {
  public:
+  WithCacheType() {}
+  virtual ~WithCacheType() {}
+
   // For options other than capacity
   size_t estimated_value_size_ = 1;
+
+  virtual const std::string& Type() = 0;
 
   std::shared_ptr<Cache> NewCache(
       size_t capacity,
       std::function<void(ShardedCacheOptions&)> modify_opts_fn = {}) {
-    auto type = GetParam();
+    const auto& type = Type();
     if (type == kLRU) {
       LRUCacheOptions lru_opts;
       lru_opts.capacity = capacity;
@@ -106,6 +111,13 @@ class WithCacheTestParam : public testing::WithParamInterface<std::string> {
     });
   }
 };
+
+class WithCacheTypeParam : public WithCacheType,
+                           public testing::WithParamInterface<std::string> {
+  const std::string& Type() override { return GetParam(); }
+};
+
+const auto kTestingCacheTypes = testing::Values(kLRU, kHyperClock);
 
 }  // namespace secondary_cache_test_util
 

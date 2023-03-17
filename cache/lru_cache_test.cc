@@ -1058,22 +1058,16 @@ class TestSecondaryCache : public SecondaryCache {
   ResultMap result_map_;
 };
 
-using secondary_cache_test_util::GetHelper;
-using secondary_cache_test_util::GetHelperFail;
-using secondary_cache_test_util::kHyperClock;
-using secondary_cache_test_util::kLRU;
-using secondary_cache_test_util::TestCreateContext;
-using secondary_cache_test_util::TestItem;
-using secondary_cache_test_util::WithCacheTestParam;
+using namespace secondary_cache_test_util;
 
 class BasicSecondaryCacheTest : public testing::Test,
                                 public TestCreateContext,
-                                public WithCacheTestParam {};
+                                public WithCacheTypeParam {};
 
 INSTANTIATE_TEST_CASE_P(BasicSecondaryCacheTest, BasicSecondaryCacheTest,
-                        testing::Values(kLRU, kHyperClock));
+                        kTestingCacheTypes);
 
-class DBSecondaryCacheTest : public DBTestBase, public WithCacheTestParam {
+class DBSecondaryCacheTest : public DBTestBase, public WithCacheTypeParam {
  public:
   DBSecondaryCacheTest()
       : DBTestBase("db_secondary_cache_test", /*env_do_fsync=*/true) {
@@ -1086,7 +1080,7 @@ class DBSecondaryCacheTest : public DBTestBase, public WithCacheTestParam {
 };
 
 INSTANTIATE_TEST_CASE_P(DBSecondaryCacheTest, DBSecondaryCacheTest,
-                        testing::Values(kLRU, kHyperClock));
+                        kTestingCacheTypes);
 
 TEST_P(BasicSecondaryCacheTest, BasicTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
@@ -1394,9 +1388,17 @@ TEST_P(BasicSecondaryCacheTest, FullCapacityTest) {
 // of the meta blocks are about 900 to 1000. Therefore, in any situation,
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
+// CORRECTION: this is not quite right. block_1 can be inserted into the block
+// cache because strict_capacity_limit=false, but it is removed from the cache
+// in Release() because of being over-capacity, without demoting to secondary
+// cache. HyperClockCache doesn't check capacity on release (for efficiency)
+// so can demote the over-capacity item to secondary cache. Also, we intend to
+// add support for demotion in Release, but that currently causes too much
+// unit test churn.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   if (GetParam() == kHyperClock) {
-    ROCKSDB_GTEST_BYPASS("FIXME");
+    // See CORRECTION above
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
@@ -1493,7 +1495,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
 // from TestSecondaryCacheCorrectness1)
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   if (GetParam() == kHyperClock) {
-    ROCKSDB_GTEST_BYPASS("FIXME");
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
@@ -1681,7 +1683,7 @@ TEST_P(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
 // block_2 will be successfully inserted into the block cache.
 TEST_P(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   if (GetParam() == kHyperClock) {
-    ROCKSDB_GTEST_BYPASS("FIXME");
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
@@ -1846,7 +1848,7 @@ TEST_P(BasicSecondaryCacheTest, BasicWaitAllTest) {
 // lookup result by setting the ResultMap.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
   if (GetParam() == kHyperClock) {
-    ROCKSDB_GTEST_BYPASS("FIXME");
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
@@ -2347,7 +2349,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
 // kNonVolatileBlockTier. So secondary cache will be used.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   if (GetParam() == kHyperClock) {
-    ROCKSDB_GTEST_BYPASS("FIXME");
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
@@ -2442,7 +2444,7 @@ TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
 // cache. We diable the secondary cache option for DB2.
 TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   if (GetParam() == kHyperClock) {
-    ROCKSDB_GTEST_BYPASS("FIXME");
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
     return;
   }
   std::shared_ptr<TestSecondaryCache> secondary_cache(

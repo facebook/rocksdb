@@ -84,11 +84,9 @@ const Cache::CacheItemHelper kEraseOnDeleteHelper2{
     }};
 }  // anonymous namespace
 
-using secondary_cache_test_util::kHyperClock;
-using secondary_cache_test_util::kLRU;
-using secondary_cache_test_util::WithCacheTestParam;
+using namespace secondary_cache_test_util;
 
-class CacheTest : public testing::Test, public WithCacheTestParam {
+class CacheTest : public testing::Test, public WithCacheTypeParam {
  public:
   static CacheTest* current_;
   static std::string type_;
@@ -958,8 +956,7 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
   cache_->Release(h1);
 }
 
-INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(kLRU, kHyperClock));
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest, kTestingCacheTypes);
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest, testing::Values(kLRU));
 
 }  // namespace ROCKSDB_NAMESPACE
