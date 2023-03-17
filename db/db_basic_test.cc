@@ -2302,9 +2302,7 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
     ASSERT_EQ(multiget_io_batch_size.count, 3);
   }
 #else   // ROCKSDB_IOURING_PRESENT
-  if (GetParam()) {
-    ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
-  }
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 #endif  // ROCKSDB_IOURING_PRESENT
 }
 
@@ -2338,16 +2336,18 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1) {
   ASSERT_EQ(values[1], "val_l1_" + std::to_string(54));
   ASSERT_EQ(values[2], "val_l1_" + std::to_string(102));
 
-#ifdef ROCKSDB_IOURING_PRESENT
   HistogramData multiget_io_batch_size;
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
+#ifdef ROCKSDB_IOURING_PRESENT
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(multiget_io_batch_size.count, 1);
   ASSERT_EQ(multiget_io_batch_size.max, 3);
-#endif  // ROCKSDB_IOURING_PRESENT
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+#else   // ROCKSDB_IOURING_PRESENT
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 #ifdef ROCKSDB_IOURING_PRESENT
@@ -2531,8 +2531,12 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   ASSERT_EQ(values[0], "val_l2_" + std::to_string(19));
   ASSERT_EQ(values[1], "val_l2_" + std::to_string(26));
 
+#ifdef ROCKSDB_IOURING_PRESENT
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+#else   // ROCKSDB_IOURING_PRESENT
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+#endif  // ROCKSDB_IOURING_PRESENT
 }
 
 #ifdef ROCKSDB_IOURING_PRESENT
@@ -2623,18 +2627,17 @@ TEST_P(DBMultiGetAsyncIOTest, GetNoIOUring) {
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
-  ASSERT_EQ(statuses[0], Status::NotSupported());
-  ASSERT_EQ(statuses[1], Status::NotSupported());
-  ASSERT_EQ(statuses[2], Status::NotSupported());
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(statuses[2], Status::OK());
 
-  HistogramData multiget_io_batch_size;
+  HistogramData async_read_bytes;
 
-  statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
+  statistics()->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
 
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 3);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+  ASSERT_EQ(async_read_bytes.count, 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 }
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetAsyncIOTest, DBMultiGetAsyncIOTest,
