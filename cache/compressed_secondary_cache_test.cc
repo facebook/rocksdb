@@ -18,7 +18,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-using namespace secondary_cache_test_util;
+using secondary_cache_test_util::kTestingCacheTypes;
+using secondary_cache_test_util::WithCacheType;
 
 // 16 bytes for HCC compatibility
 const std::string key0 = "____    ____key0";
@@ -27,8 +28,7 @@ const std::string key2 = "____    ____key2";
 const std::string key3 = "____    ____key3";
 
 class CompressedSecondaryCacheTestBase : public testing::Test,
-                                         public WithCacheType,
-                                         public TestCreateContext {
+                                         public WithCacheType {
  public:
   CompressedSecondaryCacheTestBase() {}
   ~CompressedSecondaryCacheTestBase() override = default;

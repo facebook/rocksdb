@@ -1058,10 +1058,10 @@ class TestSecondaryCache : public SecondaryCache {
   ResultMap result_map_;
 };
 
-using namespace secondary_cache_test_util;
+using secondary_cache_test_util::kTestingCacheTypes;
+using secondary_cache_test_util::WithCacheTypeParam;
 
 class BasicSecondaryCacheTest : public testing::Test,
-                                public TestCreateContext,
                                 public WithCacheTypeParam {};
 
 INSTANTIATE_TEST_CASE_P(BasicSecondaryCacheTest, BasicSecondaryCacheTest,

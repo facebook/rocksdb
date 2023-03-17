@@ -11,6 +11,9 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace secondary_cache_test_util {
 
+namespace {
+using TestItem = WithCacheType::TestItem;
+
 size_t SizeCallback(Cache::ObjectPtr obj) {
   return static_cast<TestItem*>(obj)->Size();
 }
@@ -48,7 +51,7 @@ Status CreateCallback(const Slice& data, Cache::CreateContext* context,
 
 // If helpers without_secondary are provided, returns helpers with secondary
 // support. If not provided, returns helpers without secondary support.
-static auto GenerateHelpersByRole(
+auto GenerateHelpersByRole(
     const std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>*
         without_secondary,
     bool fail) {
@@ -69,9 +72,10 @@ static auto GenerateHelpersByRole(
   }
   return a;
 }
+}  // namespace
 
-const Cache::CacheItemHelper* GetHelper(CacheEntryRole r,
-                                        bool secondary_compatible, bool fail) {
+const Cache::CacheItemHelper* WithCacheType::GetHelper(
+    CacheEntryRole r, bool secondary_compatible, bool fail) {
   static const std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
       without_secondary = GenerateHelpersByRole(nullptr, false);
   static const std::array<Cache::CacheItemHelper, kNumCacheEntryRoles>
@@ -83,12 +87,12 @@ const Cache::CacheItemHelper* GetHelper(CacheEntryRole r,
                                   : without_secondary)[static_cast<int>(r)];
 }
 
-const Cache::CacheItemHelper* GetHelperFail(CacheEntryRole r) {
+const Cache::CacheItemHelper* WithCacheType::GetHelperFail(CacheEntryRole r) {
   return GetHelper(r, true, true);
 }
 
-const std::string kLRU = "lru";
-const std::string kHyperClock = "hyper_clock";
+const std::string WithCacheType::kLRU = "lru";
+const std::string WithCacheType::kHyperClock = "hyper_clock";
 
 }  // namespace secondary_cache_test_util
 

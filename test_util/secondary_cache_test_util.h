@@ -15,53 +15,35 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace secondary_cache_test_util {
 
-class TestItem {
- public:
-  TestItem(const char* buf, size_t size) : buf_(new char[size]), size_(size) {
-    memcpy(buf_.get(), buf, size);
-  }
-  ~TestItem() = default;
-
-  char* Buf() { return buf_.get(); }
-  [[nodiscard]] size_t Size() const { return size_; }
-  std::string ToString() { return std::string(Buf(), Size()); }
-
- private:
-  std::unique_ptr<char[]> buf_;
-  size_t size_;
-};
-
 struct TestCreateContext : public Cache::CreateContext {
   void SetFailCreate(bool fail) { fail_create_ = fail; }
 
   bool fail_create_ = false;
 };
 
-size_t SizeCallback(Cache::ObjectPtr obj);
-Status SaveToCallback(Cache::ObjectPtr from_obj, size_t from_offset,
-                      size_t length, char* out);
-void DeletionCallback(Cache::ObjectPtr obj, MemoryAllocator* alloc);
-Status SaveToCallbackFail(Cache::ObjectPtr obj, size_t offset, size_t size,
-                          char* out);
-
-Status CreateCallback(const Slice& data, Cache::CreateContext* context,
-                      MemoryAllocator* allocator, Cache::ObjectPtr* out_obj,
-                      size_t* out_charge);
-
-const Cache::CacheItemHelper* GetHelper(
-    CacheEntryRole r = CacheEntryRole::kDataBlock,
-    bool secondary_compatible = true, bool fail = false);
-
-const Cache::CacheItemHelper* GetHelperFail(
-    CacheEntryRole r = CacheEntryRole::kDataBlock);
-
-extern const std::string kLRU;
-extern const std::string kHyperClock;
-
-class WithCacheType {
+class WithCacheType : public TestCreateContext {
  public:
   WithCacheType() {}
   virtual ~WithCacheType() {}
+
+  class TestItem {
+   public:
+    TestItem(const char* buf, size_t size) : buf_(new char[size]), size_(size) {
+      memcpy(buf_.get(), buf, size);
+    }
+    ~TestItem() = default;
+
+    char* Buf() { return buf_.get(); }
+    [[nodiscard]] size_t Size() const { return size_; }
+    std::string ToString() { return std::string(Buf(), Size()); }
+
+   private:
+    std::unique_ptr<char[]> buf_;
+    size_t size_;
+  };
+
+  static const std::string kLRU;
+  static const std::string kHyperClock;
 
   // For options other than capacity
   size_t estimated_value_size_ = 1;
@@ -110,12 +92,22 @@ class WithCacheType {
       opts.secondary_cache = secondary_cache;
     });
   }
+
+  static const Cache::CacheItemHelper* GetHelper(
+      CacheEntryRole r = CacheEntryRole::kDataBlock,
+      bool secondary_compatible = true, bool fail = false);
+
+  static const Cache::CacheItemHelper* GetHelperFail(
+      CacheEntryRole r = CacheEntryRole::kDataBlock);
 };
 
 class WithCacheTypeParam : public WithCacheType,
                            public testing::WithParamInterface<std::string> {
   const std::string& Type() override { return GetParam(); }
 };
+
+const std::string& kLRU = WithCacheType::kLRU;
+const std::string& kHyperClock = WithCacheType::kHyperClock;
 
 const auto kTestingCacheTypes = testing::Values(kLRU, kHyperClock);
 
