@@ -91,13 +91,6 @@ const Cache::CacheItemHelper* WithCacheType::GetHelperFail(CacheEntryRole r) {
   return GetHelper(r, true, true);
 }
 
-const std::string WithCacheType::kLRU = "lru";
-const std::string WithCacheType::kHyperClock = "hyper_clock";
-const std::string& kLRU = WithCacheType::kLRU;
-const std::string& kHyperClock = WithCacheType::kHyperClock;
-
-const decltype(testing::Values(kLRU, kHyperClock)) kTestingCacheTypes = testing::Values(kLRU, kHyperClock);
-
 }  // namespace secondary_cache_test_util
 
 }  // namespace ROCKSDB_NAMESPACE

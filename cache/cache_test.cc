@@ -956,7 +956,7 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
 }
 
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        secondary_cache_test_util::kTestingCacheTypes);
+                        secondary_cache_test_util::GetTestingCacheTypes());
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,
                         testing::Values(secondary_cache_test_util::kLRU));
 

@@ -1058,14 +1058,14 @@ class TestSecondaryCache : public SecondaryCache {
   ResultMap result_map_;
 };
 
-using secondary_cache_test_util::kTestingCacheTypes;
+using secondary_cache_test_util::GetTestingCacheTypes;
 using secondary_cache_test_util::WithCacheTypeParam;
 
 class BasicSecondaryCacheTest : public testing::Test,
                                 public WithCacheTypeParam {};
 
 INSTANTIATE_TEST_CASE_P(BasicSecondaryCacheTest, BasicSecondaryCacheTest,
-                        kTestingCacheTypes);
+                        GetTestingCacheTypes());
 
 class DBSecondaryCacheTest : public DBTestBase, public WithCacheTypeParam {
  public:
@@ -1080,7 +1080,7 @@ class DBSecondaryCacheTest : public DBTestBase, public WithCacheTypeParam {
 };
 
 INSTANTIATE_TEST_CASE_P(DBSecondaryCacheTest, DBSecondaryCacheTest,
-                        kTestingCacheTypes);
+                        GetTestingCacheTypes());
 
 TEST_P(BasicSecondaryCacheTest, BasicTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =

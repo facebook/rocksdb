@@ -388,6 +388,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, LRUHandle** handle) {
         last_reference_list.push_back(e);
       } else {
         free(e);
+        e = nullptr;
         *handle = nullptr;
         s = Status::MemoryLimit("Insert failed due to LRU cache being full.");
       }

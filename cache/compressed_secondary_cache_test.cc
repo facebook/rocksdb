@@ -18,7 +18,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-using secondary_cache_test_util::kTestingCacheTypes;
+using secondary_cache_test_util::GetTestingCacheTypes;
 using secondary_cache_test_util::WithCacheType;
 
 // 16 bytes for HCC compatibility
@@ -736,7 +736,7 @@ class CompressedSecondaryCacheTest
 };
 
 INSTANTIATE_TEST_CASE_P(CompressedSecondaryCacheTest,
-                        CompressedSecondaryCacheTest, kTestingCacheTypes);
+                        CompressedSecondaryCacheTest, GetTestingCacheTypes());
 
 class CompressedSecCacheTestWithCompressAndAllocatorParam
     : public CompressedSecondaryCacheTestBase,
@@ -759,7 +759,7 @@ TEST_P(CompressedSecCacheTestWithCompressAndAllocatorParam, BasicTes) {
 INSTANTIATE_TEST_CASE_P(CompressedSecCacheTests,
                         CompressedSecCacheTestWithCompressAndAllocatorParam,
                         ::testing::Combine(testing::Bool(), testing::Bool(),
-                                           kTestingCacheTypes));
+                                           GetTestingCacheTypes()));
 
 class CompressedSecondaryCacheTestWithCompressionParam
     : public CompressedSecondaryCacheTestBase,
@@ -933,7 +933,8 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
 
 INSTANTIATE_TEST_CASE_P(CompressedSecCacheTests,
                         CompressedSecondaryCacheTestWithCompressionParam,
-                        testing::Combine(testing::Bool(), kTestingCacheTypes));
+                        testing::Combine(testing::Bool(),
+                                         GetTestingCacheTypes()));
 
 class CompressedSecCacheTestWithCompressAndSplitParam
     : public CompressedSecondaryCacheTestBase,
@@ -956,7 +957,7 @@ TEST_P(CompressedSecCacheTestWithCompressAndSplitParam, BasicIntegrationTest) {
 INSTANTIATE_TEST_CASE_P(CompressedSecCacheTests,
                         CompressedSecCacheTestWithCompressAndSplitParam,
                         ::testing::Combine(testing::Bool(), testing::Bool(),
-                                           kTestingCacheTypes));
+                                           GetTestingCacheTypes()));
 
 TEST_P(CompressedSecondaryCacheTest, SplitValueIntoChunksTest) {
   SplitValueIntoChunksTest();

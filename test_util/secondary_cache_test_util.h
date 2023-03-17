@@ -41,8 +41,8 @@ class WithCacheType : public TestCreateContext {
     size_t size_;
   };
 
-  static const std::string kLRU;
-  static const std::string kHyperClock;
+  static constexpr auto kLRU = "lru";
+  static constexpr auto kHyperClock = "hyper_clock";
 
   // For options other than capacity
   size_t estimated_value_size_ = 1;
@@ -106,10 +106,12 @@ class WithCacheTypeParam : public WithCacheType,
   const std::string& Type() override { return GetParam(); }
 };
 
-extern const std::string& kLRU;
-extern const std::string& kHyperClock;
+constexpr auto kLRU = WithCacheType::kLRU;
+constexpr auto kHyperClock = WithCacheType::kHyperClock;
 
-extern const decltype(testing::Values(kLRU, kHyperClock)) kTestingCacheTypes;
+inline auto GetTestingCacheTypes() {
+  return testing::Values(std::string(kLRU), std::string(kHyperClock));
+}
 
 }  // namespace secondary_cache_test_util
 }  // namespace ROCKSDB_NAMESPACE
