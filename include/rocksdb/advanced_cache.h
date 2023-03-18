@@ -20,6 +20,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Logger;
+class SecondaryCacheResultHandle;
 class Statistics;
 
 // A Cache maps keys to objects resident in memory, tracks reference counts
@@ -134,28 +135,38 @@ class Cache {
     CreateCallback create_cb;
     // Classification of the entry for monitoring purposes in block cache.
     CacheEntryRole role;
+    // Another CacheItemHelper (or this one) without secondary cache support.
+    // This is provided so that items promoted from secondary cache into
+    // primary cache without removal from the secondary cache can be prevented
+    // from attempting re-insertion into secondary cache (for efficiency).
+    const CacheItemHelper* without_secondary_compat;
 
-    constexpr CacheItemHelper()
-        : del_cb(nullptr),
-          size_cb(nullptr),
-          saveto_cb(nullptr),
-          create_cb(nullptr),
-          role(CacheEntryRole::kMisc) {}
+    CacheItemHelper() : CacheItemHelper(CacheEntryRole::kMisc) {}
 
-    explicit constexpr CacheItemHelper(CacheEntryRole _role,
-                                       DeleterFn _del_cb = nullptr,
-                                       SizeCallback _size_cb = nullptr,
-                                       SaveToCallback _saveto_cb = nullptr,
-                                       CreateCallback _create_cb = nullptr)
+    // For helpers without SecondaryCache support
+    explicit CacheItemHelper(CacheEntryRole _role, DeleterFn _del_cb = nullptr)
+        : CacheItemHelper(_role, _del_cb, nullptr, nullptr, nullptr, this) {}
+
+    // For helpers with SecondaryCache support
+    explicit CacheItemHelper(CacheEntryRole _role, DeleterFn _del_cb,
+                             SizeCallback _size_cb, SaveToCallback _saveto_cb,
+                             CreateCallback _create_cb,
+                             const CacheItemHelper* _without_secondary_compat)
         : del_cb(_del_cb),
           size_cb(_size_cb),
           saveto_cb(_saveto_cb),
           create_cb(_create_cb),
-          role(_role) {
+          role(_role),
+          without_secondary_compat(_without_secondary_compat) {
       // Either all three secondary cache callbacks are non-nullptr or
       // all three are nullptr
       assert((size_cb != nullptr) == (saveto_cb != nullptr));
       assert((size_cb != nullptr) == (create_cb != nullptr));
+      // without_secondary_compat points to equivalent but without
+      // secondary support
+      assert(role == without_secondary_compat->role);
+      assert(del_cb == without_secondary_compat->del_cb);
+      assert(!without_secondary_compat->IsSecondaryCacheCompatible());
     }
     inline bool IsSecondaryCacheCompatible() const {
       return size_cb != nullptr;
@@ -238,6 +249,19 @@ class Cache {
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) = 0;
 
+  // Similar to Insert, but used for creating cache entries that cannot
+  // be found with Lookup, such as for memory charging purposes. The
+  // key is needed for cache sharding purposes.
+  // * If allow_uncharged==true or strict_capacity_limit=false, the operation
+  //   always succeeds and returns a valid Handle.
+  // * If strict_capacity_limit=true and the requested charge cannot be freed
+  //   up in the cache, then
+  //   * If allow_uncharged==true, it's created anyway (GetCharge() == 0).
+  //   * If allow_uncharged==false, returns nullptr to indicate failure.
+  virtual Handle* CreateStandalone(const Slice& key, ObjectPtr obj,
+                                   const CacheItemHelper* helper, size_t charge,
+                                   bool allow_uncharged) = 0;
+
   // Lookup the key, returning nullptr if not found. If found, returns
   // a handle to the mapping that must eventually be passed to Release().
   //
@@ -248,41 +272,15 @@ class Cache {
   // used to promote the entry to an object in the primary cache.
   // In that case, the helper may be saved and used later when the object
   // is evicted, so as usual, the pointed-to helper must outlive the cache.
-  //
-  // ======================== Async Lookup (wait=false) ======================
-  // When wait=false, the handle returned might be in any of three states:
-  // * Present - If Value() != nullptr, then the result is present and
-  // the handle can be used just as if wait=true.
-  // * Pending, not ready (IsReady() == false) - secondary cache is still
-  // working to retrieve the value. Might become ready any time.
-  // * Pending, ready (IsReady() == true) - secondary cache has the value
-  // but it has not been loaded as an object into primary cache. Call to
-  // Wait()/WaitAll() will not block.
-  //
-  // IMPORTANT: Pending handles are not thread-safe, and only these functions
-  // are allowed on them: Value(), IsReady(), Wait(), WaitAll(). Even Release()
-  // can only come after Wait() or WaitAll() even though a reference is held.
-  //
-  // Only Wait()/WaitAll() gets a Handle out of a Pending state. (Waiting is
-  // safe and has no effect on other handle states.) After waiting on a Handle,
-  // it is in one of two states:
-  // * Present - if Value() != nullptr
-  // * Failed - if Value() == nullptr, such as if the secondary cache
-  // initially thought it had the value but actually did not.
-  //
-  // Note that given an arbitrary Handle, the only way to distinguish the
-  // Pending+ready state from the Failed state is to Wait() on it. A cache
-  // entry not compatible with secondary cache can also have Value()==nullptr
-  // like the Failed state, but this is not generally a concern.
   virtual Handle* Lookup(const Slice& key,
                          const CacheItemHelper* helper = nullptr,
                          CreateContext* create_context = nullptr,
-                         Priority priority = Priority::LOW, bool wait = true,
+                         Priority priority = Priority::LOW,
                          Statistics* stats = nullptr) = 0;
 
   // Convenience wrapper when secondary cache not supported
   inline Handle* BasicLookup(const Slice& key, Statistics* stats) {
-    return Lookup(key, nullptr, nullptr, Priority::LOW, true, stats);
+    return Lookup(key, nullptr, nullptr, Priority::LOW, stats);
   }
 
   // Increments the reference count for the handle if it refers to an entry in
@@ -419,28 +417,109 @@ class Cache {
     return Release(handle, erase_if_last_ref);
   }
 
-  // Determines if the handle returned by Lookup() can give a value without
-  // blocking, though Wait()/WaitAll() might be required to publish it to
-  // Value(). See secondary cache compatible Lookup() above for details.
-  // This call is not thread safe on "pending" handles.
-  virtual bool IsReady(Handle* /*handle*/) { return true; }
+  // A temporary handle structure for managing async lookups, which callers
+  // of AsyncLookup() can allocate on the call stack for efficiency.
+  // An AsyncLookupHandle should not be used concurrently across threads.
+  struct AsyncLookupHandle {
+    // Inputs, populated by caller:
+    // NOTE: at least in case of stacked secondary caches, the underlying
+    // key buffer must last until handle is completely waited on.
+    Slice key;
+    const CacheItemHelper* helper = nullptr;
+    CreateContext* create_context = nullptr;
+    Priority priority = Priority::LOW;
+    Statistics* stats = nullptr;
 
-  // Convert a "pending" handle into a full thread-shareable handle by
-  // * If necessary, wait until secondary cache finishes loading the value.
-  // * Construct the object for primary cache and set it in the handle.
-  // Even after Wait() on a pending handle, the caller must check for
-  // Value() == nullptr in case of failure. This call is not thread-safe
-  // on pending handles. This call has no effect on non-pending handles.
-  // See secondary cache compatible Lookup() above for details.
-  virtual void Wait(Handle* /*handle*/) {}
+    AsyncLookupHandle() {}
+    AsyncLookupHandle(const Slice& _key, const CacheItemHelper* _helper,
+                      CreateContext* _create_context,
+                      Priority _priority = Priority::LOW,
+                      Statistics* _stats = nullptr)
+        : key(_key),
+          helper(_helper),
+          create_context(_create_context),
+          priority(_priority),
+          stats(_stats) {}
 
-  // Wait for a vector of handles to become ready. As with Wait(), the user
-  // should check the Value() of each handle for nullptr. This call is not
-  // thread-safe on pending handles.
-  virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
+    // AsyncLookupHandle should only be destroyed when no longer pending
+    ~AsyncLookupHandle() { assert(!IsPending()); }
 
- private:
+    // No copies or moves (StartAsyncLookup may save a pointer to this)
+    AsyncLookupHandle(const AsyncLookupHandle&) = delete;
+    AsyncLookupHandle operator=(const AsyncLookupHandle&) = delete;
+    AsyncLookupHandle(AsyncLookupHandle&&) = delete;
+    AsyncLookupHandle operator=(AsyncLookupHandle&&) = delete;
+
+    // Determines if the handle returned by Lookup() can give a value without
+    // blocking, though Wait()/WaitAll() might be required to publish it to
+    // Value(). See secondary cache compatible Lookup() above for details.
+    // This call is not thread safe on "pending" handles.
+    // WART/TODO with stacked secondaries: might indicate ready when one
+    // result is ready (a miss) but the next lookup will block.
+    bool IsReady();
+
+    // Returns true if Wait/WaitAll is required before calling Result().
+    bool IsPending();
+
+    // Returns a Lookup()-like result if this AsyncHandle is not pending.
+    // (Undefined behavior on a pending AsyncHandle.) Like Lookup(), the
+    // caller is responsible for eventually Release()ing a non-nullptr
+    // Handle* result.
+    Handle* Result();
+
+    // Implementation details, for RocksDB internal use only
+    Handle* result_handle = nullptr;
+    SecondaryCacheResultHandle* pending_handle = nullptr;
+    SecondaryCache* pending_cache = nullptr;
+    bool found_dummy_entry = false;
+    bool kept_in_sec_cache = false;
+  };
+
+  // Starts a potentially asynchronous Lookup(), based on the populated
+  // "input" fields of the async_handle. The caller is responsible for
+  // keeping the AsyncLookupHandle and the key it references alive through
+  // WaitAll(), and the AsyncLookupHandle alive through
+  // AsyncLookupHandle::Result(). WaitAll() can only be skipped if
+  // AsyncLookupHandle::IsPending() is already false after StartAsyncLookup.
+  // Calling AsyncLookupHandle::Result() is essentially required so that
+  // Release() can be called on non-nullptr Handle result. Wait() is a
+  // concise version of WaitAll()+Result() on a single handle. After an
+  // AsyncLookupHandle has completed this cycle, its input fields can be
+  // updated and re-used for another StartAsyncLookup.
+  //
+  // Handle is thread-safe while AsyncLookupHandle is not thread-safe.
+  //
+  // Default implementation is appropriate for Caches without
+  // true asynchronous support: defers to synchronous Lookup().
+  // (AsyncLookupHandles will only get into the "pending" state with
+  // SecondaryCache configured.)
+  virtual void StartAsyncLookup(AsyncLookupHandle& async_handle);
+
+  // A convenient wrapper around WaitAll() and AsyncLookupHandle::Result()
+  // for a single async handle. See StartAsyncLookup().
+  Handle* Wait(AsyncLookupHandle& async_handle);
+
+  // Wait for an array of async handles to get results, so that none are left
+  // in the "pending" state. Not thread safe. See StartAsyncLookup().
+  // Default implementation is appropriate for Caches without true
+  // asynchronous support: asserts that all handles are not pending (or not
+  // expected to be handled by this cache, in case of wrapped/stacked
+  // WaitAlls()).
+  virtual void WaitAll(AsyncLookupHandle* /*async_handles*/, size_t /*count*/);
+
+  // For a function called on cache entries about to be evicted. The function
+  // returns `true` if it has taken ownership of the Value (object), or
+  // `false` if the cache should destroy it as usual. Regardless, Ref() and
+  // Release() cannot be called on this Handle that is poised for eviction.
+  using EvictionCallback = std::function<bool(const Slice& key, Handle* h)>;
+  // Sets an eviction callback for this Cache. Not thread safe and only
+  // supports being set once, so should only be used during initialization
+  // or destruction, guaranteed before or after any thread-shared operations.
+  void SetEvictionCallback(EvictionCallback&& fn);
+
+ protected:
   std::shared_ptr<MemoryAllocator> memory_allocator_;
+  EvictionCallback eviction_callback_;
 };
 
 // A wrapper around Cache that can easily be extended with instrumentation,
@@ -460,11 +539,17 @@ class CacheWrapper : public Cache {
     return target_->Insert(key, value, helper, charge, handle, priority);
   }
 
+  Handle* CreateStandalone(const Slice& key, ObjectPtr obj,
+                           const CacheItemHelper* helper, size_t charge,
+                           bool allow_uncharged) override {
+    return target_->CreateStandalone(key, obj, helper, charge, allow_uncharged);
+  }
+
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                  CreateContext* create_context,
-                 Priority priority = Priority::LOW, bool wait = true,
+                 Priority priority = Priority::LOW,
                  Statistics* stats = nullptr) override {
-    return target_->Lookup(key, helper, create_context, priority, wait, stats);
+    return target_->Lookup(key, helper, create_context, priority, stats);
   }
 
   bool Ref(Handle* handle) override { return target_->Ref(handle); }
@@ -516,12 +601,20 @@ class CacheWrapper : public Cache {
 
   void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
 
+  void StartAsyncLookup(AsyncLookupHandle& async_handle) override {
+    target_->StartAsyncLookup(async_handle);
+  }
+
+  void WaitAll(AsyncLookupHandle* async_handles, size_t count) override {
+    target_->WaitAll(async_handles, count);
+  }
+
  protected:
   std::shared_ptr<Cache> target_;
 };
 
 // Useful for cache entries requiring no clean-up, such as for cache
 // reservations
-inline constexpr Cache::CacheItemHelper kNoopCacheItemHelper{};
+extern const Cache::CacheItemHelper kNoopCacheItemHelper;
 
 }  // namespace ROCKSDB_NAMESPACE

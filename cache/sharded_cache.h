@@ -51,15 +51,17 @@ class CacheShardBase {
   };
   Status Insert(const Slice& key, HashCref hash, Cache::ObjectPtr value,
                 const Cache::CacheItemHelper* helper, size_t charge,
-                HandleImpl** handle, Cache::Priority priority) = 0;
+                HandleImpl** handle, Cache::Priority priority,
+                bool standalone) = 0;
+  Handle* CreateStandalone(const Slice& key, HashCref hash, ObjectPtr obj,
+                           const CacheItemHelper* helper,
+                           size_t charge, bool allow_uncharged) = 0;
   HandleImpl* Lookup(const Slice& key, HashCref hash,
                         const Cache::CacheItemHelper* helper,
                         Cache::CreateContext* create_context,
-                        Cache::Priority priority, bool wait,
+                        Cache::Priority priority,
                         Statistics* stats) = 0;
   bool Release(HandleImpl* handle, bool useful, bool erase_if_last_ref) = 0;
-  bool IsReady(HandleImpl* handle) = 0;
-  void Wait(HandleImpl* handle) = 0;
   bool Ref(HandleImpl* handle) = 0;
   void Erase(const Slice& key, HashCref hash) = 0;
   void SetCapacity(size_t capacity) = 0;
@@ -169,24 +171,33 @@ class ShardedCache : public ShardedCacheBase {
         [s_c_l](CacheShard* cs) { cs->SetStrictCapacityLimit(s_c_l); });
   }
 
-  Status Insert(const Slice& key, ObjectPtr value,
-                const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
+  Status Insert(const Slice& key, ObjectPtr obj, const CacheItemHelper* helper,
+                size_t charge, Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
     assert(helper);
     HashVal hash = CacheShard::ComputeHash(key);
     auto h_out = reinterpret_cast<HandleImpl**>(handle);
-    return GetShard(hash).Insert(key, hash, value, helper, charge, h_out,
+    return GetShard(hash).Insert(key, hash, obj, helper, charge, h_out,
                                  priority);
+  }
+
+  Handle* CreateStandalone(const Slice& key, ObjectPtr obj,
+                           const CacheItemHelper* helper, size_t charge,
+                           bool allow_uncharged) override {
+    assert(helper);
+    HashVal hash = CacheShard::ComputeHash(key);
+    HandleImpl* result = GetShard(hash).CreateStandalone(
+        key, hash, obj, helper, charge, allow_uncharged);
+    return reinterpret_cast<Handle*>(result);
   }
 
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper = nullptr,
                  CreateContext* create_context = nullptr,
-                 Priority priority = Priority::LOW, bool wait = true,
+                 Priority priority = Priority::LOW,
                  Statistics* stats = nullptr) override {
     HashVal hash = CacheShard::ComputeHash(key);
-    HandleImpl* result = GetShard(hash).Lookup(
-        key, hash, helper, create_context, priority, wait, stats);
+    HandleImpl* result = GetShard(hash).Lookup(key, hash, helper,
+                                               create_context, priority, stats);
     return reinterpret_cast<Handle*>(result);
   }
 
@@ -199,14 +210,6 @@ class ShardedCache : public ShardedCacheBase {
                bool erase_if_last_ref = false) override {
     auto h = reinterpret_cast<HandleImpl*>(handle);
     return GetShard(h->GetHash()).Release(h, useful, erase_if_last_ref);
-  }
-  bool IsReady(Handle* handle) override {
-    auto h = reinterpret_cast<HandleImpl*>(handle);
-    return GetShard(h->GetHash()).IsReady(h);
-  }
-  void Wait(Handle* handle) override {
-    auto h = reinterpret_cast<HandleImpl*>(handle);
-    GetShard(h->GetHash()).Wait(h);
   }
   bool Ref(Handle* handle) override {
     auto h = reinterpret_cast<HandleImpl*>(handle);

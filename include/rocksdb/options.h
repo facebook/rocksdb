@@ -1311,12 +1311,12 @@ struct DBOptions {
   // Default: false
   bool best_efforts_recovery = false;
 
-  // It defines how many times db resume is called by a separate thread when
+  // It defines how many times DB::Resume() is called by a separate thread when
   // background retryable IO Error happens. When background retryable IO
   // Error happens, SetBGError is called to deal with the error. If the error
   // can be auto-recovered (e.g., retryable IO Error during Flush or WAL write),
   // then db resume is called in background to recover from the error. If this
-  // value is 0 or negative, db resume will not be called.
+  // value is 0 or negative, DB::Resume() will not be called automatically.
   //
   // Default: INT_MAX
   int max_bgerror_resume_count = INT_MAX;

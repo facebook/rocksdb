@@ -34,8 +34,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   for (const auto& file_metadata : metadata_) {
     const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
     IngestedFileInfo file_to_import;
-    status =
-        GetIngestedFileInfo(file_path, next_file_number++, &file_to_import, sv);
+    status = GetIngestedFileInfo(file_path, next_file_number++, sv,
+                                 file_metadata, &file_to_import);
     if (!status.ok()) {
       return status;
     }
@@ -212,16 +212,20 @@ void ImportColumnFamilyJob::Cleanup(const Status& status) {
 
 Status ImportColumnFamilyJob::GetIngestedFileInfo(
     const std::string& external_file, uint64_t new_file_number,
-    IngestedFileInfo* file_to_import, SuperVersion* sv) {
+    SuperVersion* sv, const LiveFileMetaData& file_meta,
+    IngestedFileInfo* file_to_import) {
   file_to_import->external_file_path = external_file;
-
-  // Get external file size
-  Status status = fs_->GetFileSize(external_file, IOOptions(),
-                                   &file_to_import->file_size, nullptr);
-  if (!status.ok()) {
-    return status;
+  Status status;
+  if (file_meta.size > 0) {
+    file_to_import->file_size = file_meta.size;
+  } else {
+    // Get external file size
+    status = fs_->GetFileSize(external_file, IOOptions(),
+                              &file_to_import->file_size, nullptr);
+    if (!status.ok()) {
+      return status;
+    }
   }
-
   // Assign FD with number
   file_to_import->fd =
       FileDescriptor(new_file_number, 0, file_to_import->file_size);
@@ -262,37 +266,61 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   // Get number of entries in table
   file_to_import->num_entries = props->num_entries;
 
-  ParsedInternalKey key;
-  ReadOptions ro;
-  // During reading the external file we can cache blocks that we read into
-  // the block cache, if we later change the global seqno of this file, we will
-  // have block in cache that will include keys with wrong seqno.
-  // We need to disable fill_cache so that we read from the file without
-  // updating the block cache.
-  ro.fill_cache = false;
-  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
-      ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
+  // If the importing files were exported with Checkpoint::ExportColumnFamily(),
+  // we cannot simply recompute smallest and largest used to truncate range
+  // tombstones from file content, and we expect smallest and largest populated
+  // in file_meta.
+  if (file_meta.smallest.empty()) {
+    assert(file_meta.largest.empty());
+    ReadOptions ro;
+    std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
+        ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
 
-  // Get first (smallest) key from file
-  iter->SeekToFirst();
-  Status pik_status =
-      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
-  if (!pik_status.ok()) {
-    return Status::Corruption("Corrupted Key in external file. ",
-                              pik_status.getState());
-  }
-  file_to_import->smallest_internal_key.SetFrom(key);
+    // Get first (smallest) key from file
+    iter->SeekToFirst();
+    bool bound_set = false;
+    if (iter->Valid()) {
+      file_to_import->smallest_internal_key.DecodeFrom(iter->key());
+      iter->SeekToLast();
+      file_to_import->largest_internal_key.DecodeFrom(iter->key());
+      bound_set = true;
+    }
 
-  // Get last (largest) key from file
-  iter->SeekToLast();
-  pik_status =
-      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
-  if (!pik_status.ok()) {
-    return Status::Corruption("Corrupted Key in external file. ",
-                              pik_status.getState());
+    std::unique_ptr<InternalIterator> range_del_iter{
+        table_reader->NewRangeTombstoneIterator(ro)};
+    if (range_del_iter != nullptr) {
+      range_del_iter->SeekToFirst();
+      if (range_del_iter->Valid()) {
+        ParsedInternalKey key;
+        Status pik_status = ParseInternalKey(range_del_iter->key(), &key,
+                                             db_options_.allow_data_in_errors);
+        if (!pik_status.ok()) {
+          return Status::Corruption("Corrupted key in external file. ",
+                                    pik_status.getState());
+        }
+        RangeTombstone tombstone(key, range_del_iter->value());
+        InternalKey start_key = tombstone.SerializeKey();
+        const InternalKeyComparator* icmp = &cfd_->internal_comparator();
+        if (!bound_set ||
+            icmp->Compare(start_key, file_to_import->smallest_internal_key) <
+                0) {
+          file_to_import->smallest_internal_key = start_key;
+        }
+        InternalKey end_key = tombstone.SerializeEndKey();
+        if (!bound_set ||
+            icmp->Compare(end_key, file_to_import->largest_internal_key) > 0) {
+          file_to_import->largest_internal_key = end_key;
+        }
+        bound_set = true;
+      }
+    }
+    assert(bound_set);
+  } else {
+    assert(!file_meta.largest.empty());
+    file_to_import->smallest_internal_key.DecodeFrom(file_meta.smallest);
+    file_to_import->largest_internal_key.DecodeFrom(file_meta.largest);
   }
-  file_to_import->largest_internal_key.SetFrom(key);
 
   file_to_import->cf_id = static_cast<uint32_t>(props->column_family_id);
 

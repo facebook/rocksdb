@@ -1183,6 +1183,14 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
+  bool use_async_io() override {
+#if defined(ROCKSDB_IOURING_PRESENT)
+    return IsIOUringEnabled();
+#else
+    return false;
+#endif
+  }
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;

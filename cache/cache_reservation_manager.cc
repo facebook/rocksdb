@@ -169,7 +169,7 @@ Slice CacheReservationManagerImpl<R>::GetNextCacheKey() {
 template <CacheEntryRole R>
 const Cache::CacheItemHelper*
 CacheReservationManagerImpl<R>::TEST_GetCacheItemHelperForRole() {
-  return &CacheInterface::kHelper;
+  return CacheInterface::GetHelper();
 }
 
 template class CacheReservationManagerImpl<
