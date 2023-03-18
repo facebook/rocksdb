@@ -953,6 +953,18 @@ class DB {
     //      level, as well as the histogram of latency of single requests.
     static const std::string kCFFileHistogram;
 
+    // "rocksdb.cf-write-stall-stats" - returns a multi-line string or
+    //      map with statistics on CF-scope write stalls for a given CF
+    // See`WriteStallStatsMapKeys` for structured representation of keys
+    // available in the map form.
+    static const std::string kCFWriteStallStats;
+
+    // "rocksdb.db-write-stall-stats" - returns a multi-line string or
+    //      map with statistics on DB-scope write stalls
+    // See`WriteStallStatsMapKeys` for structured representation of keys
+    // available in the map form.
+    static const std::string kDBWriteStallStats;
+
     //  "rocksdb.dbstats" - As a string property, returns a multi-line string
     //      with general database stats, both cumulative (over the db's
     //      lifetime) and interval (since the last retrieval of kDBStats).
@@ -1871,6 +1883,24 @@ class DB {
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }
+};
+
+struct WriteStallStatsMapKeys {
+  static const std::string& TotalStops();
+  static const std::string& TotalDelays();
+
+  static const std::string& CFL0FileCountLimitDelaysWithOngoingCompaction();
+  static const std::string& CFL0FileCountLimitStopsWithOngoingCompaction();
+
+  // REQUIRES:
+  // `cause` isn't any of these: `WriteStallCause::kNone`,
+  // `WriteStallCause::kCFScopeWriteStallCauseEnumMax`,
+  // `WriteStallCause::kDBScopeWriteStallCauseEnumMax`
+  //
+  // REQUIRES:
+  // `condition` isn't any of these: `WriteStallCondition::kNormal`
+  static std::string CauseConditionCount(WriteStallCause cause,
+                                         WriteStallCondition condition);
 };
 
 // Overloaded operators for enum class SizeApproximationFlags.

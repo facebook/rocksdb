@@ -13,6 +13,7 @@
 #include <string>
 
 #include "db/db_test_util.h"
+#include "db/write_stall_stats.h"
 #include "options/cf_options.h"
 #include "port/stack_trace.h"
 #include "rocksdb/listener.h"
@@ -2104,6 +2105,180 @@ TEST_F(DBPropertiesTest, GetMapPropertyBlockCacheEntryStats) {
 
   // There should be no extra values in the map.
   ASSERT_EQ(3 * kNumCacheEntryRoles + 4, values.size());
+}
+
+TEST_F(DBPropertiesTest, WriteStallStatsSanityCheck) {
+  for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {
+    std::string str = kWriteStallCauseToHyphenString[i];
+    ASSERT_TRUE(!str.empty())
+        << "Please ensure mapping from `WriteStallCause` to "
+           "`kWriteStallCauseToHyphenString` is complete";
+    WriteStallCause cause = static_cast<WriteStallCause>(i);
+    if (cause == WriteStallCause::kCFScopeWriteStallCauseEnumMax ||
+        cause == WriteStallCause::kDBScopeWriteStallCauseEnumMax) {
+      ASSERT_EQ(str, kInvalidWriteStallCauseHyphenString)
+          << "Please ensure order in `kWriteStallCauseToHyphenString` is "
+             "consistent with `WriteStallCause`";
+    }
+  }
+
+  for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCondition::kNormal);
+       ++i) {
+    std::string str = kWriteStallConditionToHyphenString[i];
+    ASSERT_TRUE(!str.empty())
+        << "Please ensure mapping from `WriteStallCondition` to "
+           "`kWriteStallConditionToHyphenString` is complete";
+  }
+
+  for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {
+    for (uint32_t j = 0;
+         j < static_cast<uint32_t>(WriteStallCondition::kNormal); ++j) {
+      WriteStallCause cause = static_cast<WriteStallCause>(i);
+      WriteStallCondition condition = static_cast<WriteStallCondition>(j);
+
+      if (isCFScopeWriteStallCause(cause)) {
+        ASSERT_TRUE(InternalCFStat(cause, condition) !=
+                    InternalStats::INTERNAL_CF_STATS_ENUM_MAX)
+            << "Please ensure the combination of WriteStallCause(" +
+                   std::to_string(static_cast<uint32_t>(cause)) +
+                   ") + WriteStallCondition(" +
+                   std::to_string(static_cast<uint32_t>(condition)) +
+                   ") is correctly mapped to a valid `InternalStats` or bypass "
+                   "its check in this test";
+      } else if (isDBScopeWriteStallCause(cause)) {
+        InternalStats::InternalDBStatsType internal_db_stat =
+            InternalDBStat(cause, condition);
+        if (internal_db_stat == InternalStats::kIntStatsNumMax) {
+          ASSERT_TRUE(cause == WriteStallCause::kWriteBufferManagerLimit &&
+                      condition == WriteStallCondition::kDelayed)
+              << "Please ensure the combination of WriteStallCause(" +
+                     std::to_string(static_cast<uint32_t>(cause)) +
+                     ") + WriteStallCondition(" +
+                     std::to_string(static_cast<uint32_t>(condition)) +
+                     ") is correctly mapped to a valid `InternalStats` or "
+                     "bypass its check in this test";
+        }
+      } else if (cause != WriteStallCause::kCFScopeWriteStallCauseEnumMax &&
+                 cause != WriteStallCause::kDBScopeWriteStallCauseEnumMax) {
+        ASSERT_TRUE(false) << "Please ensure the WriteStallCause(" +
+                                  std::to_string(static_cast<uint32_t>(cause)) +
+                                  ") is either CF-scope or DB-scope write "
+                                  "stall cause in enum `WriteStallCause`";
+      }
+    }
+  }
+}
+TEST_F(DBPropertiesTest, GetMapPropertyWriteStallStats) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"heavy_write_cf"}, options);
+
+  for (auto test_cause : {WriteStallCause::kWriteBufferManagerLimit,
+                          WriteStallCause::kMemtableLimit}) {
+    if (test_cause == WriteStallCause::kWriteBufferManagerLimit) {
+      options.write_buffer_manager.reset(
+          new WriteBufferManager(100000, nullptr, true));
+    } else if (test_cause == WriteStallCause::kMemtableLimit) {
+      options.max_write_buffer_number = 2;
+      options.disable_auto_compactions = true;
+    }
+    ReopenWithColumnFamilies({"default", "heavy_write_cf"}, options);
+
+    // Assert initial write stall stats are all 0
+    std::map<std::string, std::string> db_values;
+    ASSERT_TRUE(dbfull()->GetMapProperty(DB::Properties::kDBWriteStallStats,
+                                         &db_values));
+    ASSERT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::CauseConditionCount(
+                  WriteStallCause::kWriteBufferManagerLimit,
+                  WriteStallCondition::kStopped)]),
+              0);
+
+    for (int cf = 0; cf <= 1; ++cf) {
+      std::map<std::string, std::string> cf_values;
+      ASSERT_TRUE(dbfull()->GetMapProperty(
+          handles_[cf], DB::Properties::kCFWriteStallStats, &cf_values));
+      ASSERT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStops()]), 0);
+      ASSERT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelays()]), 0);
+    }
+
+    // Pause flush thread to help coerce write stall
+    std::unique_ptr<test::SleepingBackgroundTask> sleeping_task(
+        new test::SleepingBackgroundTask());
+    env_->SetBackgroundThreads(1, Env::HIGH);
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   sleeping_task.get(), Env::Priority::HIGH);
+    sleeping_task->WaitUntilSleeping();
+
+    // Coerce write stall
+    if (test_cause == WriteStallCause::kWriteBufferManagerLimit) {
+      ASSERT_OK(dbfull()->Put(
+          WriteOptions(), handles_[1], Key(1),
+          DummyString(options.write_buffer_manager->buffer_size())));
+
+      WriteOptions wo;
+      wo.no_slowdown = true;
+      Status s = dbfull()->Put(
+          wo, handles_[1], Key(2),
+          DummyString(options.write_buffer_manager->buffer_size()));
+      ASSERT_TRUE(s.IsIncomplete());
+      ASSERT_TRUE(s.ToString().find("Write stall") != std::string::npos);
+    } else if (test_cause == WriteStallCause::kMemtableLimit) {
+      FlushOptions fo;
+      fo.allow_write_stall = true;
+      fo.wait = false;
+
+      ASSERT_OK(
+          dbfull()->Put(WriteOptions(), handles_[1], Key(1), DummyString(1)));
+      ASSERT_OK(dbfull()->Flush(fo, handles_[1]));
+
+      ASSERT_OK(
+          dbfull()->Put(WriteOptions(), handles_[1], Key(2), DummyString(1)));
+      ASSERT_OK(dbfull()->Flush(fo, handles_[1]));
+    }
+
+    if (test_cause == WriteStallCause::kWriteBufferManagerLimit) {
+      db_values.clear();
+      EXPECT_TRUE(dbfull()->GetMapProperty(DB::Properties::kDBWriteStallStats,
+                                           &db_values));
+      EXPECT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::CauseConditionCount(
+                    WriteStallCause::kWriteBufferManagerLimit,
+                    WriteStallCondition::kStopped)]),
+                1);
+      // `WriteStallCause::kWriteBufferManagerLimit` should not result in any
+      // CF-scope write stall stats changes
+      for (int cf = 0; cf <= 1; ++cf) {
+        std::map<std::string, std::string> cf_values;
+        EXPECT_TRUE(dbfull()->GetMapProperty(
+            handles_[cf], DB::Properties::kCFWriteStallStats, &cf_values));
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStops()]),
+                  0);
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelays()]),
+                  0);
+      }
+    } else if (test_cause == WriteStallCause::kMemtableLimit) {
+      for (int cf = 0; cf <= 1; ++cf) {
+        std::map<std::string, std::string> cf_values;
+        EXPECT_TRUE(dbfull()->GetMapProperty(
+            handles_[cf], DB::Properties::kCFWriteStallStats, &cf_values));
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStops()]),
+                  cf == 1 ? 1 : 0);
+        EXPECT_EQ(
+            std::stoi(cf_values[WriteStallStatsMapKeys::CauseConditionCount(
+                WriteStallCause::kMemtableLimit,
+                WriteStallCondition::kStopped)]),
+            cf == 1 ? 1 : 0);
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelays()]),
+                  0);
+        EXPECT_EQ(
+            std::stoi(cf_values[WriteStallStatsMapKeys::CauseConditionCount(
+                WriteStallCause::kMemtableLimit,
+                WriteStallCondition::kDelayed)]),
+            0);
+      }
+    }
+
+    sleeping_task->WakeUp();
+    sleeping_task->WaitUntilDone();
+  }
 }
 
 namespace {
