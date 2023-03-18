@@ -869,7 +869,7 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
 }
 }  // anonymous namespace
 
-std::pair<WriteStallCondition, ColumnFamilyData::WriteStallCause>
+std::pair<WriteStallCondition, WriteStallCause>
 ColumnFamilyData::GetWriteStallConditionAndCause(
     int num_unflushed_memtables, int num_l0_files,
     uint64_t num_compaction_needed_bytes,
@@ -942,7 +942,8 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_STOPS, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
         internal_stats_->AddCFStats(
-            InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_STOPS, 1);
+            InternalStats::L0_FILE_COUNT_LIMIT_STOPS_WITH_ONGOING_COMPACTION,
+            1);
       }
       ROCKS_LOG_WARN(ioptions_.logger,
                      "[%s] Stopping writes because we have %d level-0 files",
@@ -963,7 +964,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           SetupDelay(write_controller, compaction_needed_bytes,
                      prev_compaction_needed_bytes_, was_stopped,
                      mutable_cf_options.disable_auto_compactions);
-      internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_SLOWDOWNS, 1);
+      internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_DELAYS, 1);
       ROCKS_LOG_WARN(
           ioptions_.logger,
           "[%s] Stalling writes because we have %d immutable memtables "
@@ -981,11 +982,11 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           SetupDelay(write_controller, compaction_needed_bytes,
                      prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
-      internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_SLOWDOWNS,
-                                  1);
+      internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_DELAYS, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
         internal_stats_->AddCFStats(
-            InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS, 1);
+            InternalStats::L0_FILE_COUNT_LIMIT_DELAYS_WITH_ONGOING_COMPACTION,
+            1);
       }
       ROCKS_LOG_WARN(ioptions_.logger,
                      "[%s] Stalling writes because we have %d level-0 files "
@@ -1011,7 +1012,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
                      prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(
-          InternalStats::PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS, 1);
+          InternalStats::PENDING_COMPACTION_BYTES_LIMIT_DELAYS, 1);
       ROCKS_LOG_WARN(
           ioptions_.logger,
           "[%s] Stalling writes because of estimated pending compaction "
