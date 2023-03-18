@@ -78,7 +78,7 @@ const std::map<InternalStats::InternalDBStatsType, DBStatInfo>
          DBStatInfo{"db.user_writes_with_wal"}},
         {InternalStats::kIntStatsWriteStallMicros,
          DBStatInfo{"db.user_write_stall_micros"}},
-        {InternalStats::kIntStatsWriteBufferManagerLimitStopCounts,
+        {InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts,
          DBStatInfo{WriteStallStatsMapKeys::CauseConditionCount(
              WriteStallCause::kWriteBufferManagerLimit,
              WriteStallCondition::kStopped)}},
@@ -1513,8 +1513,6 @@ void InternalStats::DumpDBMapStats(
   }
   double seconds_up = (clock_->NowMicros() - started_at_) / kMicrosInSec;
   (*db_stats)["db.uptime"] = std::to_string(seconds_up);
-
-  DumpDBMapStatsWriteStall(db_stats);
 }
 
 void InternalStats::DumpDBStats(std::string* value) {
@@ -1802,8 +1800,8 @@ void InternalStats::DumpCFMapStatsByPriority(
 
 void InternalStats::DumpCFMapStatsWriteStall(
     std::map<std::string, std::string>* value) {
-  uint64_t total_delay = 0;
-  uint64_t total_stop = 0;
+  uint64_t total_delays = 0;
+  uint64_t total_stops = 0;
   constexpr uint32_t max_cf_scope_write_stall_cause =
       static_cast<uint32_t>(WriteStallCause::kCFScopeWriteStallCauseEnumMax);
 
@@ -1828,9 +1826,9 @@ void InternalStats::DumpCFMapStatsWriteStall(
       (*value)[name] = std::to_string(stat);
 
       if (condition == WriteStallCondition::kDelayed) {
-        total_delay += stat;
+        total_delays += stat;
       } else if (condition == WriteStallCondition::kStopped) {
-        total_stop += stat;
+        total_stops += stat;
       }
     }
   }
@@ -1844,8 +1842,9 @@ void InternalStats::DumpCFMapStatsWriteStall(
       std::to_string(
           cf_stats_count_[L0_FILE_COUNT_LIMIT_STOPS_WITH_ONGOING_COMPACTION]);
 
-  (*value)[WriteStallStatsMapKeys::TotalStop()] = std::to_string(total_stop);
-  (*value)[WriteStallStatsMapKeys::TotalDelay()] = std::to_string(total_delay);
+  (*value)[WriteStallStatsMapKeys::TotalStops()] = std::to_string(total_stops);
+  (*value)[WriteStallStatsMapKeys::TotalDelays()] =
+      std::to_string(total_delays);
 }
 
 void InternalStats::DumpCFStatsWriteStall(std::string* value,
@@ -1865,9 +1864,9 @@ void InternalStats::DumpCFStatsWriteStall(std::string* value,
   if (total_stall_count) {
     *total_stall_count =
         ParseUint64(
-            write_stall_stats_map[WriteStallStatsMapKeys::TotalStop()]) +
+            write_stall_stats_map[WriteStallStatsMapKeys::TotalStops()]) +
         ParseUint64(
-            write_stall_stats_map[WriteStallStatsMapKeys::TotalDelay()]);
+            write_stall_stats_map[WriteStallStatsMapKeys::TotalDelays()]);
     if (*total_stall_count > 0) {
       str << "interval: " << *total_stall_count - cf_stats_snapshot_.stall_count
           << " total count\n";

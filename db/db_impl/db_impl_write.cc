@@ -1212,7 +1212,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   // through until memory usage is decreased.
   if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldStall())) {
     default_cf_internal_stats_->AddDBStats(
-        InternalStats::kIntStatsWriteBufferManagerLimitStopCounts, 1,
+        InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts, 1,
         true /* concurrent */);
     if (write_options.no_slowdown) {
       status = Status::Incomplete("Write stall");

@@ -1886,8 +1886,8 @@ class DB {
 };
 
 struct WriteStallStatsMapKeys {
-  static const std::string& TotalStop();
-  static const std::string& TotalDelay();
+  static const std::string& TotalStops();
+  static const std::string& TotalDelays();
 
   static const std::string& CFL0FileCountLimitDelaysWithOngoingCompaction();
   static const std::string& CFL0FileCountLimitStopsWithOngoingCompaction();

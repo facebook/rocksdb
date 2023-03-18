@@ -2160,10 +2160,10 @@ TEST_F(DBPropertiesTest, WriteStallStatsSanityCheck) {
         }
       } else if (cause != WriteStallCause::kCFScopeWriteStallCauseEnumMax &&
                  cause != WriteStallCause::kDBScopeWriteStallCauseEnumMax) {
-        ASSERT_TRUE(false)
-            << "Please ensure the WriteStallCause(" +
-                   std::to_string(static_cast<uint32_t>(cause)) +
-                   ") is either CF-scope or DB-scope write stall cause in enum `WriteStallCause`";
+        ASSERT_TRUE(false) << "Please ensure the WriteStallCause(" +
+                                  std::to_string(static_cast<uint32_t>(cause)) +
+                                  ") is either CF-scope or DB-scope write "
+                                  "stall cause in enum `WriteStallCause`";
       }
     }
   }
@@ -2196,8 +2196,8 @@ TEST_F(DBPropertiesTest, GetMapPropertyWriteStallStats) {
       std::map<std::string, std::string> cf_values;
       ASSERT_TRUE(dbfull()->GetMapProperty(
           handles_[cf], DB::Properties::kCFWriteStallStats, &cf_values));
-      ASSERT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStop()]), 0);
-      ASSERT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelay()]), 0);
+      ASSERT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStops()]), 0);
+      ASSERT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelays()]), 0);
     }
 
     // Pause flush thread to help coerce write stall
@@ -2249,8 +2249,9 @@ TEST_F(DBPropertiesTest, GetMapPropertyWriteStallStats) {
         std::map<std::string, std::string> cf_values;
         EXPECT_TRUE(dbfull()->GetMapProperty(
             handles_[cf], DB::Properties::kCFWriteStallStats, &cf_values));
-        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStop()]), 0);
-        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelay()]),
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStops()]),
+                  0);
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelays()]),
                   0);
       }
     } else if (test_cause == WriteStallCause::kMemtableLimit) {
@@ -2258,14 +2259,14 @@ TEST_F(DBPropertiesTest, GetMapPropertyWriteStallStats) {
         std::map<std::string, std::string> cf_values;
         EXPECT_TRUE(dbfull()->GetMapProperty(
             handles_[cf], DB::Properties::kCFWriteStallStats, &cf_values));
-        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStop()]),
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalStops()]),
                   cf == 1 ? 1 : 0);
         EXPECT_EQ(
             std::stoi(cf_values[WriteStallStatsMapKeys::CauseConditionCount(
                 WriteStallCause::kMemtableLimit,
                 WriteStallCondition::kStopped)]),
             cf == 1 ? 1 : 0);
-        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelay()]),
+        EXPECT_EQ(std::stoi(cf_values[WriteStallStatsMapKeys::TotalDelays()]),
                   0);
         EXPECT_EQ(
             std::stoi(cf_values[WriteStallStatsMapKeys::CauseConditionCount(

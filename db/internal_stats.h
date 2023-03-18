@@ -145,7 +145,7 @@ class InternalStats {
     //
     // So we should improve, rename or clarify it
     kIntStatsWriteStallMicros,
-    kIntStatsWriteBufferManagerLimitStopCounts,
+    kIntStatsWriteBufferManagerLimitStopsCounts,
     kIntStatsNumMax,
   };
 

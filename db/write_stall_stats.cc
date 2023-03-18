@@ -6,6 +6,8 @@
 #include "db/write_stall_stats.h"
 
 namespace ROCKSDB_NAMESPACE {
+const std::string kInvalidWriteStallCauseHyphenString = "invalid";
+
 const std::array<std::string, static_cast<uint32_t>(WriteStallCause::kNone)>
     kWriteStallCauseToHyphenString{{
         "memtable-limit",
@@ -21,8 +23,8 @@ const std::array<std::string, static_cast<uint32_t>(WriteStallCause::kNone)>
 const std::array<std::string,
                  static_cast<uint32_t>(WriteStallCondition::kNormal)>
     kWriteStallConditionToHyphenString{{
-        "delayed",
-        "stopped",
+        "delays",
+        "stops",
     }};
 
 InternalStats::InternalCFStatsType InternalCFStat(
@@ -73,7 +75,7 @@ InternalStats::InternalDBStatsType InternalDBStat(
     case WriteStallCause::kWriteBufferManagerLimit: {
       switch (condition) {
         case WriteStallCondition::kStopped:
-          return InternalStats::kIntStatsWriteBufferManagerLimitStopCounts;
+          return InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts;
         default:
           break;
       }
@@ -107,14 +109,14 @@ bool isDBScopeWriteStallCause(WriteStallCause cause) {
   return lower_bound <= int_cause && int_cause <= upper_bound;
 }
 
-const std::string& WriteStallStatsMapKeys::TotalStop() {
-  static const std::string kTotalStop = "total-stop";
-  return kTotalStop;
+const std::string& WriteStallStatsMapKeys::TotalStops() {
+  static const std::string kTotalStops = "total-stops";
+  return kTotalStops;
 }
 
-const std::string& WriteStallStatsMapKeys::TotalDelay() {
-  static const std::string kTotalDelay = "total-delay";
-  return kTotalDelay;
+const std::string& WriteStallStatsMapKeys::TotalDelays() {
+  static const std::string kTotalDelays = "total-delays";
+  return kTotalDelays;
 }
 
 const std::string&
@@ -143,7 +145,7 @@ std::string WriteStallStatsMapKeys::CauseConditionCount(
     return "";
   }
 
-  std::string condition_name =
+  const std::string& condition_name =
       kWriteStallConditionToHyphenString[static_cast<uint32_t>(condition)];
 
   cause_condition_count_name.reserve(cause_name.size() + 1 +

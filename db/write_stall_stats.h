@@ -11,6 +11,8 @@
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
+extern const std::string kInvalidWriteStallCauseHyphenString;
+
 extern const std::array<std::string,
                         static_cast<uint32_t>(WriteStallCause::kNone)>
     kWriteStallCauseToHyphenString;
@@ -45,6 +47,4 @@ constexpr uint32_t kNumCFScopeWriteStallCauses =
 constexpr uint32_t kNumDBScopeWriteStallCauses =
     static_cast<uint32_t>(WriteStallCause::kDBScopeWriteStallCauseEnumMax) -
     static_cast<uint32_t>(WriteStallCause::kWriteBufferManagerLimit);
-
-const std::string kInvalidWriteStallCauseHyphenString = "invalid";
 }  // namespace ROCKSDB_NAMESPACE
