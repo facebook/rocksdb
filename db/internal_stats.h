@@ -104,34 +104,18 @@ class InternalStats {
   static const std::map<LevelStatType, LevelStat> compaction_level_stats;
 
   enum InternalCFStatsType {
-    // Beginning of CF-scope write stall stats caused by different
-    // WriteStallCause combined with different WriteStallCondition
-    //
-    // Always keep `MEMTABLE_LIMIT_DELAYS` as the first stat in this section
-    MEMTABLE_LIMIT_DELAYS = 0,
+    MEMTABLE_LIMIT_DELAYS,
     MEMTABLE_LIMIT_STOPS,
     L0_FILE_COUNT_LIMIT_DELAYS,
     L0_FILE_COUNT_LIMIT_STOPS,
     PENDING_COMPACTION_BYTES_LIMIT_DELAYS,
     PENDING_COMPACTION_BYTES_LIMIT_STOPS,
-    // End of CF-scope write stall stats caused by different
-    // WriteStallCause combined with different WriteStallCondition
-
-    // Beginning of repetitive write stall stats for further breakdown of above
-    // write stall stats.
-    //
-    // Always keep `L0_FILE_COUNT_LIMIT_DELAYS_WITH_ONGOING_COMPACTION` as
-    // the first stat in this section
-    L0_FILE_COUNT_LIMIT_DELAYS_WITH_ONGOING_COMPACTION,  // Write slowdown
-                                                         // caused by l0 file
-                                                         // count limit while
-                                                         // there is ongoing
-                                                         // L0 compaction
-    L0_FILE_COUNT_LIMIT_STOPS_WITH_ONGOING_COMPACTION,   // Write stop caused by
-                                                         // l0 file count limit
-                                                         // while there is
-                                                        // ongoing L0 compaction
-    // End of repetitive write stall stats
+    // Write slowdown caused by l0 file count limit while there is ongoing L0
+    // compaction
+    L0_FILE_COUNT_LIMIT_DELAYS_WITH_ONGOING_COMPACTION,
+    // Write stop caused by l0 file count limit while there is ongoing L0
+    // compaction
+    L0_FILE_COUNT_LIMIT_STOPS_WITH_ONGOING_COMPACTION,
     WRITE_STALLS_ENUM_MAX,
     // End of all write stall stats
     BYTES_FLUSHED,
@@ -633,8 +617,7 @@ class InternalStats {
   void DumpDBStats(std::string* value);
 
   void DumpDBMapStatsWriteStall(std::map<std::string, std::string>* value);
-  void DumpDBStatsWriteStall(std::string* value,
-                             uint64_t* total_stall_count = nullptr);
+  void DumpDBStatsWriteStall(std::string* value);
 
   void DumpCFMapStats(std::map<std::string, std::string>* cf_stats);
   void DumpCFMapStats(
@@ -746,8 +729,6 @@ class InternalStats {
     // Total time writes delayed by stalls.
     uint64_t write_stall_micros;
     double seconds_up;
-    // Total counts of DB-scope write stalls
-    uint64_t stall_count;
 
     DBStatsSnapshot()
         : ingest_bytes(0),
@@ -758,8 +739,7 @@ class InternalStats {
           write_self(0),
           num_keys_written(0),
           write_stall_micros(0),
-          seconds_up(0),
-          stall_count(0) {}
+          seconds_up(0) {}
 
     void Clear() {
       ingest_bytes = 0;
@@ -771,7 +751,6 @@ class InternalStats {
       num_keys_written = 0;
       write_stall_micros = 0;
       seconds_up = 0;
-      stall_count = 0;
     }
   } db_stats_snapshot_;
 

@@ -84,14 +84,6 @@ enum class WriteStallCause {
   kNone,
 };
 
-constexpr uint32_t kNumCFScopeWriteStallCauses =
-    static_cast<uint32_t>(WriteStallCause::kCFScopeWriteStallCauseEnumMax) -
-    static_cast<uint32_t>(WriteStallCause::kMemtableLimit);
-
-constexpr uint32_t kNumDBScopeWriteStallCauses =
-    static_cast<uint32_t>(WriteStallCause::kDBScopeWriteStallCauseEnumMax) -
-    static_cast<uint32_t>(WriteStallCause::kWriteBufferManagerLimit);
-
 enum class WriteStallCondition {
   kDelayed,
   kStopped,

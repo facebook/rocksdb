@@ -124,7 +124,7 @@ WriteStallStatsMapKeys::CFL0FileCountLimitDelaysWithOngoingCompaction() {
 const std::string&
 WriteStallStatsMapKeys::CFL0FileCountLimitStopsWithOngoingCompaction() {
   static const std::string ret =
-      "cf-l0-file-count-limit-stopps-with-ongoing-compaction";
+      "cf-l0-file-count-limit-stops-with-ongoing-compaction";
   return ret;
 }
 

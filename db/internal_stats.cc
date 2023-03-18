@@ -1624,8 +1624,7 @@ void InternalStats::DumpDBStats(std::string* value) {
   value->append(buf);
 
   std::string write_stall_stats;
-  uint64_t total_stall_count;
-  DumpDBStatsWriteStall(&write_stall_stats, &total_stall_count);
+  DumpDBStatsWriteStall(&write_stall_stats);
   value->append(write_stall_stats);
 
   db_stats_snapshot_.seconds_up = seconds_up;
@@ -1637,7 +1636,6 @@ void InternalStats::DumpDBStats(std::string* value) {
   db_stats_snapshot_.wal_synced = wal_synced;
   db_stats_snapshot_.write_with_wal = write_with_wal;
   db_stats_snapshot_.write_stall_micros = write_stall_micros;
-  db_stats_snapshot_.stall_count = total_stall_count;
 }
 
 void InternalStats::DumpDBMapStatsWriteStall(
@@ -1676,13 +1674,9 @@ void InternalStats::DumpDBMapStatsWriteStall(
       }
     }
   }
-
-  (*value)[WriteStallStatsMapKeys::TotalStop()] = std::to_string(total_stop);
-  (*value)[WriteStallStatsMapKeys::TotalDelay()] = std::to_string(total_delay);
 }
 
-void InternalStats::DumpDBStatsWriteStall(std::string* value,
-                                          uint64_t* total_stall_count) {
+void InternalStats::DumpDBStatsWriteStall(std::string* value) {
   assert(value);
 
   std::map<std::string, std::string> write_stall_stats_map;
@@ -1693,16 +1687,6 @@ void InternalStats::DumpDBStatsWriteStall(std::string* value,
 
   for (const auto& name_and_stat : write_stall_stats_map) {
     str << name_and_stat.first << ": " << name_and_stat.second << ", ";
-  }
-
-  if (total_stall_count) {
-    *total_stall_count =
-        std::stoi(write_stall_stats_map[WriteStallStatsMapKeys::TotalStop()]) +
-        std::stoi(write_stall_stats_map[WriteStallStatsMapKeys::TotalDelay()]);
-    if (*total_stall_count > 0) {
-      str << "interval: " << *total_stall_count - db_stats_snapshot_.stall_count
-          << " total count\n";
-    }
   }
   *value = str.str();
 }
@@ -1889,8 +1873,10 @@ void InternalStats::DumpCFStatsWriteStall(std::string* value,
 
   if (total_stall_count) {
     *total_stall_count =
-        std::stoi(write_stall_stats_map[WriteStallStatsMapKeys::TotalStop()]) +
-        std::stoi(write_stall_stats_map[WriteStallStatsMapKeys::TotalDelay()]);
+        ParseUint64(
+            write_stall_stats_map[WriteStallStatsMapKeys::TotalStop()]) +
+        ParseUint64(
+            write_stall_stats_map[WriteStallStatsMapKeys::TotalDelay()]);
     if (*total_stall_count > 0) {
       str << "interval: " << *total_stall_count - cf_stats_snapshot_.stall_count
           << " total count\n";

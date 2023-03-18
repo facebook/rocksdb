@@ -2125,8 +2125,10 @@ TEST_F(DBPropertiesTest, GetMapPropertyWriteStallStats) {
     std::map<std::string, std::string> db_values;
     ASSERT_TRUE(dbfull()->GetMapProperty(DB::Properties::kDBWriteStallStats,
                                          &db_values));
-    ASSERT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::TotalStop()]), 0);
-    ASSERT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::TotalDelay()]), 0);
+    ASSERT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::CauseConditionCount(
+                  WriteStallCause::kWriteBufferManagerLimit,
+                  WriteStallCondition::kStopped)]),
+              0);
 
     for (int cf = 0; cf <= 1; ++cf) {
       std::map<std::string, std::string> cf_values;
@@ -2175,8 +2177,10 @@ TEST_F(DBPropertiesTest, GetMapPropertyWriteStallStats) {
       db_values.clear();
       EXPECT_TRUE(dbfull()->GetMapProperty(DB::Properties::kDBWriteStallStats,
                                            &db_values));
-      EXPECT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::TotalStop()]), 1);
-      EXPECT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::TotalDelay()]), 0);
+      EXPECT_EQ(std::stoi(db_values[WriteStallStatsMapKeys::CauseConditionCount(
+                    WriteStallCause::kWriteBufferManagerLimit,
+                    WriteStallCondition::kStopped)]),
+                1);
       // `WriteStallCause::kWriteBufferManagerLimit` should not result in any
       // CF-scope write stall stats changes
       for (int cf = 0; cf <= 1; ++cf) {
