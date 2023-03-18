@@ -62,7 +62,7 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
       prefetch_buffer, read_options, rep->compression_dict_handle,
       UncompressionDict::GetEmptyDict(), uncompression_dict, get_context,
       lookup_context,
-      /* for_compaction */ false, use_cache, /* wait_for_cache */ true,
+      /* for_compaction */ false, use_cache,
       /* async_read */ false);
 
   if (!s.ok()) {

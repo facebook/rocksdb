@@ -547,7 +547,7 @@ class CacheBench {
         }
         // do lookup
         handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
-                                Cache::Priority::LOW, true);
+                                Cache::Priority::LOW);
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data
@@ -576,7 +576,7 @@ class CacheBench {
         }
         // do lookup
         handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
-                                Cache::Priority::LOW, true);
+                                Cache::Priority::LOW);
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data

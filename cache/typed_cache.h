@@ -153,6 +153,11 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
   using BasicTypedCacheHelper<TValue, kRole>::GetBasicHelper;
   // ctor
   using BaseCacheInterface<CachePtr>::BaseCacheInterface;
+  struct TypedAsyncLookupHandle : public Cache::AsyncLookupHandle {
+    TypedHandle* Result() {
+      return reinterpret_cast<TypedHandle*>(Cache::AsyncLookupHandle::Result());
+    }
+  };
 
   inline Status Insert(const Slice& key, TValuePtr value, size_t charge,
                        TypedHandle** handle = nullptr,
@@ -166,6 +171,11 @@ class BasicTypedCacheInterface : public BaseCacheInterface<CachePtr>,
   inline TypedHandle* Lookup(const Slice& key, Statistics* stats = nullptr) {
     return reinterpret_cast<TypedHandle*>(
         this->cache_->BasicLookup(key, stats));
+  }
+
+  inline void StartAsyncLookup(TypedAsyncLookupHandle& async_handle) {
+    assert(async_handle.helper == nullptr);
+    this->cache_->StartAsyncLookup(async_handle);
   }
 
   inline CacheHandleGuard<TValue> Guard(TypedHandle* handle) {
@@ -275,6 +285,8 @@ class FullTypedCacheInterface
  public:
   CACHE_TYPE_DEFS();
   using typename BasicTypedCacheInterface<TValue, kRole, CachePtr>::TypedHandle;
+  using typename BasicTypedCacheInterface<TValue, kRole,
+                                          CachePtr>::TypedAsyncLookupHandle;
   using typename BasicTypedCacheHelperFns<TValue>::TValuePtr;
   using BasicTypedCacheHelper<TValue, kRole>::GetBasicHelper;
   using FullTypedCacheHelper<TValue, TCreateContext, kRole>::GetFullHelper;
@@ -326,15 +338,26 @@ class FullTypedCacheInterface
   // (Basic Lookup() also inherited.)
   inline TypedHandle* LookupFull(
       const Slice& key, TCreateContext* create_context = nullptr,
-      Priority priority = Priority::LOW, bool wait = true,
-      Statistics* stats = nullptr,
+      Priority priority = Priority::LOW, Statistics* stats = nullptr,
       CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier) {
     if (lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier) {
       return reinterpret_cast<TypedHandle*>(this->cache_->Lookup(
-          key, GetFullHelper(), create_context, priority, wait, stats));
+          key, GetFullHelper(), create_context, priority, stats));
     } else {
       return BasicTypedCacheInterface<TValue, kRole, CachePtr>::Lookup(key,
                                                                        stats);
+    }
+  }
+
+  inline void StartAsyncLookupFull(
+      TypedAsyncLookupHandle& async_handle,
+      CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier) {
+    if (lowest_used_cache_tier == CacheTier::kNonVolatileBlockTier) {
+      async_handle.helper = GetFullHelper();
+      this->cache_->StartAsyncLookup(async_handle);
+    } else {
+      BasicTypedCacheInterface<TValue, kRole, CachePtr>::StartAsyncLookup(
+          async_handle);
     }
   }
 };

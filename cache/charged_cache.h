@@ -28,8 +28,10 @@ class ChargedCache : public CacheWrapper {
 
   Cache::Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                         CreateContext* create_context,
-                        Priority priority = Priority::LOW, bool wait = true,
+                        Priority priority = Priority::LOW,
                         Statistics* stats = nullptr) override;
+
+  void WaitAll(AsyncLookupHandle* async_handles, size_t count) override;
 
   bool Release(Cache::Handle* handle, bool useful,
                bool erase_if_last_ref = false) override;

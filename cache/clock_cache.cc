@@ -13,6 +13,7 @@
 #include <numeric>
 
 #include "cache/cache_key.h"
+#include "cache/secondary_cache_adapter.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -50,13 +51,7 @@ inline uint64_t GetInitialCountdown(Cache::Priority priority) {
   }
 }
 
-inline void FreeDataMarkEmpty(ClockHandle& h, MemoryAllocator* allocator) {
-  // NOTE: in theory there's more room for parallelism if we copy the handle
-  // data and delay actions like this until after marking the entry as empty,
-  // but performance tests only show a regression by copying the few words
-  // of data.
-  h.FreeData(allocator);
-
+inline void MarkEmpty(ClockHandle& h) {
 #ifndef NDEBUG
   // Mark slot as empty, with assertion
   uint64_t meta = h.meta.exchange(0, std::memory_order_release);
@@ -65,6 +60,16 @@ inline void FreeDataMarkEmpty(ClockHandle& h, MemoryAllocator* allocator) {
   // Mark slot as empty
   h.meta.store(0, std::memory_order_release);
 #endif
+}
+
+inline void FreeDataMarkEmpty(ClockHandle& h, MemoryAllocator* allocator) {
+  // NOTE: in theory there's more room for parallelism if we copy the handle
+  // data and delay actions like this until after marking the entry as empty,
+  // but performance tests only show a regression by copying the few words
+  // of data.
+  h.FreeData(allocator);
+
+  MarkEmpty(h);
 }
 
 inline bool ClockUpdate(ClockHandle& h) {
@@ -124,14 +129,16 @@ void ClockHandleBasicData::FreeData(MemoryAllocator* allocator) const {
 HyperClockTable::HyperClockTable(
     size_t capacity, bool /*strict_capacity_limit*/,
     CacheMetadataChargePolicy metadata_charge_policy,
-    MemoryAllocator* allocator, const Opts& opts)
+    MemoryAllocator* allocator,
+    const Cache::EvictionCallback* eviction_callback, const Opts& opts)
     : length_bits_(CalcHashBits(capacity, opts.estimated_value_size,
                                 metadata_charge_policy)),
       length_bits_mask_((size_t{1} << length_bits_) - 1),
       occupancy_limit_(static_cast<size_t>((uint64_t{1} << length_bits_) *
                                            kStrictLoadFactor)),
       array_(new HandleImpl[size_t{1} << length_bits_]),
-      allocator_(allocator) {
+      allocator_(allocator),
+      eviction_callback_(*eviction_callback) {
   if (metadata_charge_policy ==
       CacheMetadataChargePolicy::kFullChargeCacheMetadata) {
     usage_ += size_t{GetTableSize()} * sizeof(HandleImpl);
@@ -574,6 +581,34 @@ Status HyperClockTable::Insert(const ClockHandleBasicData& proto,
   return Status::OkOverwritten();
 }
 
+HyperClockTable::HandleImpl* HyperClockTable::CreateStandalone(
+    ClockHandleBasicData& proto, size_t capacity, bool strict_capacity_limit,
+    bool allow_uncharged) {
+  const size_t total_charge = proto.GetTotalCharge();
+  if (strict_capacity_limit) {
+    Status s = ChargeUsageMaybeEvictStrict(total_charge, capacity,
+                                           /*need_evict_for_occupancy=*/false);
+    if (!s.ok()) {
+      if (allow_uncharged) {
+        proto.total_charge = 0;
+      } else {
+        return nullptr;
+      }
+    }
+  } else {
+    // Case strict_capacity_limit == false
+    bool success =
+        ChargeUsageMaybeEvictNonStrict(total_charge, capacity,
+                                       /*need_evict_for_occupancy=*/false);
+    if (!success) {
+      // Force the issue
+      usage_.fetch_add(total_charge, std::memory_order_relaxed);
+    }
+  }
+
+  return StandaloneInsert(proto);
+}
+
 HyperClockTable::HandleImpl* HyperClockTable::Lookup(
     const UniqueId64x2& hashed_key) {
   size_t probe = 0;
@@ -960,6 +995,9 @@ inline void HyperClockTable::Evict(size_t requested_charge,
   uint64_t max_clock_pointer =
       old_clock_pointer + (ClockHandle::kMaxCountdown << length_bits_);
 
+  // For key reconstructed from hash
+  UniqueId64x2 unhashed;
+
   for (;;) {
     for (size_t i = 0; i < step_size; i++) {
       HandleImpl& h = array_[ModTableSize(Lower32of64(old_clock_pointer + i))];
@@ -968,7 +1006,17 @@ inline void HyperClockTable::Evict(size_t requested_charge,
         Rollback(h.hashed_key, &h);
         *freed_charge += h.GetTotalCharge();
         *freed_count += 1;
-        FreeDataMarkEmpty(h, allocator_);
+        bool took_ownership = false;
+        if (eviction_callback_) {
+          took_ownership =
+              eviction_callback_(ClockCacheShard<HyperClockTable>::ReverseHash(
+                                     h.GetHash(), &unhashed),
+                                 reinterpret_cast<Cache::Handle*>(&h));
+        }
+        if (!took_ownership) {
+          h.FreeData(allocator_);
+        }
+        MarkEmpty(h);
       }
     }
 
@@ -990,10 +1038,12 @@ template <class Table>
 ClockCacheShard<Table>::ClockCacheShard(
     size_t capacity, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy,
-    MemoryAllocator* allocator, const typename Table::Opts& opts)
+    MemoryAllocator* allocator,
+    const Cache::EvictionCallback* eviction_callback,
+    const typename Table::Opts& opts)
     : CacheShardBase(metadata_charge_policy),
       table_(capacity, strict_capacity_limit, metadata_charge_policy, allocator,
-             opts),
+             eviction_callback, opts),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit) {
   // Initial charge metadata should not exceed capacity
@@ -1093,10 +1143,29 @@ Status ClockCacheShard<Table>::Insert(const Slice& key,
   proto.value = value;
   proto.helper = helper;
   proto.total_charge = charge;
-  Status s = table_.Insert(
-      proto, handle, priority, capacity_.load(std::memory_order_relaxed),
-      strict_capacity_limit_.load(std::memory_order_relaxed));
-  return s;
+  return table_.Insert(proto, handle, priority,
+                       capacity_.load(std::memory_order_relaxed),
+                       strict_capacity_limit_.load(std::memory_order_relaxed));
+}
+
+template <class Table>
+typename ClockCacheShard<Table>::HandleImpl*
+ClockCacheShard<Table>::CreateStandalone(const Slice& key,
+                                         const UniqueId64x2& hashed_key,
+                                         Cache::ObjectPtr obj,
+                                         const Cache::CacheItemHelper* helper,
+                                         size_t charge, bool allow_uncharged) {
+  if (UNLIKELY(key.size() != kCacheKeySize)) {
+    return nullptr;
+  }
+  ClockHandleBasicData proto;
+  proto.hashed_key = hashed_key;
+  proto.value = obj;
+  proto.helper = helper;
+  proto.total_charge = charge;
+  return table_.CreateStandalone(
+      proto, capacity_.load(std::memory_order_relaxed),
+      strict_capacity_limit_.load(std::memory_order_relaxed), allow_uncharged);
 }
 
 template <class Table>
@@ -1226,11 +1295,12 @@ HyperClockCache::HyperClockCache(
   // get to table entries
   size_t per_shard = GetPerShardCapacity();
   MemoryAllocator* alloc = this->memory_allocator();
+  const Cache::EvictionCallback* eviction_callback = &eviction_callback_;
   InitShards([=](Shard* cs) {
     HyperClockTable::Opts opts;
     opts.estimated_value_size = estimated_value_size;
     new (cs) Shard(per_shard, strict_capacity_limit, metadata_charge_policy,
-                   alloc, opts);
+                   alloc, eviction_callback, opts);
   });
 }
 
@@ -1400,9 +1470,13 @@ std::shared_ptr<Cache> HyperClockCacheOptions::MakeSharedCache() const {
     constexpr size_t min_shard_size = 32U * 1024U * 1024U;
     my_num_shard_bits = GetDefaultCacheShardBits(capacity, min_shard_size);
   }
-  return std::make_shared<clock_cache::HyperClockCache>(
+  std::shared_ptr<Cache> cache = std::make_shared<clock_cache::HyperClockCache>(
       capacity, estimated_entry_charge, my_num_shard_bits,
       strict_capacity_limit, metadata_charge_policy, memory_allocator);
+  if (secondary_cache) {
+    cache = std::make_shared<CacheWithSecondaryAdapter>(cache, secondary_cache);
+  }
+  return cache;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

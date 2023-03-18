@@ -3629,11 +3629,11 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                    CreateContext* create_context,
-                   Priority priority = Priority::LOW, bool wait = true,
+                   Priority priority = Priority::LOW,
                    Statistics* stats = nullptr) override {
       num_lookups_++;
       Handle* handle =
-          target_->Lookup(key, helper, create_context, priority, wait, stats);
+          target_->Lookup(key, helper, create_context, priority, stats);
       if (handle != nullptr) {
         num_found_++;
       }

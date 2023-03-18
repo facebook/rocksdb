@@ -5,6 +5,7 @@
 
 #include "cache/lru_cache.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -52,8 +53,7 @@ class LRUCacheTest : public testing::Test {
                                high_pri_pool_ratio, low_pri_pool_ratio,
                                use_adaptive_mutex, kDontChargeCacheMetadata,
                                /*max_upper_hash_bits=*/24,
-                               /*allocator*/ nullptr,
-                               /*secondary_cache=*/nullptr);
+                               /*allocator*/ nullptr, &eviction_callback_);
   }
 
   void Insert(const std::string& key,
@@ -69,7 +69,7 @@ class LRUCacheTest : public testing::Test {
 
   bool Lookup(const std::string& key) {
     auto handle = cache_->Lookup(key, 0 /*hash*/, nullptr, nullptr,
-                                 Cache::Priority::LOW, true, nullptr);
+                                 Cache::Priority::LOW, nullptr);
     if (handle) {
       cache_->Release(handle, true /*useful*/, false /*erase*/);
       return true;
@@ -146,6 +146,7 @@ class LRUCacheTest : public testing::Test {
 
  private:
   LRUCacheShard* cache_ = nullptr;
+  Cache::EvictionCallback eviction_callback_;
 };
 
 TEST_F(LRUCacheTest, BasicLRU) {
@@ -394,8 +395,9 @@ class ClockCacheTest : public testing::Test {
 
     Table::Opts opts;
     opts.estimated_value_size = 1;
-    new (shard_) Shard(capacity, strict_capacity_limit,
-                       kDontChargeCacheMetadata, /*allocator*/ nullptr, opts);
+    new (shard_)
+        Shard(capacity, strict_capacity_limit, kDontChargeCacheMetadata,
+              /*allocator*/ nullptr, &eviction_callback_, opts);
   }
 
   Status Insert(const UniqueId64x2& hashed_key,
@@ -450,6 +452,9 @@ class ClockCacheTest : public testing::Test {
   }
 
   Shard* shard_ = nullptr;
+
+ private:
+  Cache::EvictionCallback eviction_callback_;
 };
 
 TEST_F(ClockCacheTest, Misc) {
@@ -1053,12 +1058,16 @@ class TestSecondaryCache : public SecondaryCache {
   ResultMap result_map_;
 };
 
-using secondary_cache_test_util::GetHelper;
-using secondary_cache_test_util::GetHelperFail;
-using secondary_cache_test_util::TestCreateContext;
-using secondary_cache_test_util::TestItem;
+using secondary_cache_test_util::GetTestingCacheTypes;
+using secondary_cache_test_util::WithCacheTypeParam;
 
-class DBSecondaryCacheTest : public DBTestBase {
+class BasicSecondaryCacheTest : public testing::Test,
+                                public WithCacheTypeParam {};
+
+INSTANTIATE_TEST_CASE_P(BasicSecondaryCacheTest, BasicSecondaryCacheTest,
+                        GetTestingCacheTypes());
+
+class DBSecondaryCacheTest : public DBTestBase, public WithCacheTypeParam {
  public:
   DBSecondaryCacheTest()
       : DBTestBase("db_secondary_cache_test", /*env_do_fsync=*/true) {
@@ -1070,19 +1079,15 @@ class DBSecondaryCacheTest : public DBTestBase {
   std::unique_ptr<Env> fault_env_;
 };
 
-class LRUCacheSecondaryCacheTest : public LRUCacheTest,
-                                   public TestCreateContext {};
+INSTANTIATE_TEST_CASE_P(DBSecondaryCacheTest, DBSecondaryCacheTest,
+                        GetTestingCacheTypes());
 
-TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
-  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(BasicSecondaryCacheTest, BasicTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(4096);
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   std::shared_ptr<Statistics> stats = CreateDBStatistics();
   CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
   CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
@@ -1093,7 +1098,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   std::string str3 = rnd.RandomString(1021);
   ASSERT_OK(secondary_cache->InsertSaved(k3.AsSlice(), str3));
 
-  std::string str1 = rnd.RandomString(1020);
+  std::string str1 = rnd.RandomString(1021);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
   ASSERT_OK(cache->Insert(k1.AsSlice(), item1, GetHelper(), str1.length()));
   std::string str2 = rnd.RandomString(1021);
@@ -1103,25 +1108,22 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
 
   get_perf_context()->Reset();
   Cache::Handle* handle;
-  handle =
-      cache->Lookup(k2.AsSlice(), GetHelper(),
-                    /*context*/ this, Cache::Priority::LOW, true, stats.get());
+  handle = cache->Lookup(k2.AsSlice(), GetHelper(),
+                         /*context*/ this, Cache::Priority::LOW, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str2.size());
   cache->Release(handle);
 
   // This lookup should promote k1 and demote k2
-  handle =
-      cache->Lookup(k1.AsSlice(), GetHelper(),
-                    /*context*/ this, Cache::Priority::LOW, true, stats.get());
+  handle = cache->Lookup(k1.AsSlice(), GetHelper(),
+                         /*context*/ this, Cache::Priority::LOW, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str1.size());
   cache->Release(handle);
 
   // This lookup should promote k3 and demote k1
-  handle =
-      cache->Lookup(k3.AsSlice(), GetHelper(),
-                    /*context*/ this, Cache::Priority::LOW, true, stats.get());
+  handle = cache->Lookup(k3.AsSlice(), GetHelper(),
+                         /*context*/ this, Cache::Priority::LOW, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str3.size());
   cache->Release(handle);
@@ -1137,16 +1139,12 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   secondary_cache.reset();
 }
 
-TEST_F(LRUCacheSecondaryCacheTest, StatsTest) {
-  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(BasicSecondaryCacheTest, StatsTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(4096);
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   std::shared_ptr<Statistics> stats = CreateDBStatistics();
   CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
   CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
@@ -1163,23 +1161,20 @@ TEST_F(LRUCacheSecondaryCacheTest, StatsTest) {
 
   get_perf_context()->Reset();
   Cache::Handle* handle;
-  handle =
-      cache->Lookup(k1.AsSlice(), GetHelper(CacheEntryRole::kFilterBlock),
-                    /*context*/ this, Cache::Priority::LOW, true, stats.get());
+  handle = cache->Lookup(k1.AsSlice(), GetHelper(CacheEntryRole::kFilterBlock),
+                         /*context*/ this, Cache::Priority::LOW, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str1.size());
   cache->Release(handle);
 
-  handle =
-      cache->Lookup(k2.AsSlice(), GetHelper(CacheEntryRole::kIndexBlock),
-                    /*context*/ this, Cache::Priority::LOW, true, stats.get());
+  handle = cache->Lookup(k2.AsSlice(), GetHelper(CacheEntryRole::kIndexBlock),
+                         /*context*/ this, Cache::Priority::LOW, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str2.size());
   cache->Release(handle);
 
-  handle =
-      cache->Lookup(k3.AsSlice(), GetHelper(CacheEntryRole::kDataBlock),
-                    /*context*/ this, Cache::Priority::LOW, true, stats.get());
+  handle = cache->Lookup(k3.AsSlice(), GetHelper(CacheEntryRole::kDataBlock),
+                         /*context*/ this, Cache::Priority::LOW, stats.get());
   ASSERT_NE(handle, nullptr);
   ASSERT_EQ(static_cast<TestItem*>(cache->Value(handle))->Size(), str3.size());
   cache->Release(handle);
@@ -1198,16 +1193,12 @@ TEST_F(LRUCacheSecondaryCacheTest, StatsTest) {
   secondary_cache.reset();
 }
 
-TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
-  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(BasicSecondaryCacheTest, BasicFailTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
   CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
@@ -1223,26 +1214,33 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
 
   Cache::Handle* handle;
   handle = cache->Lookup(k2.AsSlice(), nullptr, /*context*/ this,
-                         Cache::Priority::LOW, true);
+                         Cache::Priority::LOW);
   ASSERT_EQ(handle, nullptr);
+
   handle = cache->Lookup(k2.AsSlice(), GetHelper(),
-                         /*context*/ this, Cache::Priority::LOW, false);
+                         /*context*/ this, Cache::Priority::LOW);
+  ASSERT_EQ(handle, nullptr);
+
+  Cache::AsyncLookupHandle async_handle;
+  async_handle.key = k2.AsSlice();
+  async_handle.helper = GetHelper();
+  async_handle.create_context = this;
+  async_handle.priority = Cache::Priority::LOW;
+  cache->StartAsyncLookup(async_handle);
+  cache->Wait(async_handle);
+  handle = async_handle.Result();
   ASSERT_EQ(handle, nullptr);
 
   cache.reset();
   secondary_cache.reset();
 }
 
-TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
-  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(BasicSecondaryCacheTest, SaveFailTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
   CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
@@ -1259,16 +1257,16 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
 
   Cache::Handle* handle;
   handle = cache->Lookup(k2.AsSlice(), GetHelperFail(),
-                         /*context*/ this, Cache::Priority::LOW, true);
+                         /*context*/ this, Cache::Priority::LOW);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 demotion would have failed
   handle = cache->Lookup(k1.AsSlice(), GetHelperFail(),
-                         /*context*/ this, Cache::Priority::LOW, true);
+                         /*context*/ this, Cache::Priority::LOW);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
   handle = cache->Lookup(k2.AsSlice(), GetHelperFail(),
-                         /*context*/ this, Cache::Priority::LOW, true);
+                         /*context*/ this, Cache::Priority::LOW);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
@@ -1278,16 +1276,12 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
   secondary_cache.reset();
 }
 
-TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
-  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(BasicSecondaryCacheTest, CreateFailTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
   CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
@@ -1303,16 +1297,16 @@ TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
   Cache::Handle* handle;
   SetFailCreate(true);
   handle = cache->Lookup(k2.AsSlice(), GetHelper(),
-                         /*context*/ this, Cache::Priority::LOW, true);
+                         /*context*/ this, Cache::Priority::LOW);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 creation would have failed
   handle = cache->Lookup(k1.AsSlice(), GetHelper(),
-                         /*context*/ this, Cache::Priority::LOW, true);
+                         /*context*/ this, Cache::Priority::LOW);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
   handle = cache->Lookup(k2.AsSlice(), GetHelper(),
-                         /*context*/ this, Cache::Priority::LOW, true);
+                         /*context*/ this, Cache::Priority::LOW);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
@@ -1322,50 +1316,70 @@ TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
   secondary_cache.reset();
 }
 
-TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
-  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
-                       true /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
-  std::shared_ptr<TestSecondaryCache> secondary_cache =
-      std::make_shared<TestSecondaryCache>(2048);
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
-  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
-  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+TEST_P(BasicSecondaryCacheTest, FullCapacityTest) {
+  for (bool strict_capacity_limit : {false, true}) {
+    std::shared_ptr<TestSecondaryCache> secondary_cache =
+        std::make_shared<TestSecondaryCache>(2048);
+    std::shared_ptr<Cache> cache =
+        NewCache(1024 /* capacity */, 0 /* num_shard_bits */,
+                 strict_capacity_limit, secondary_cache);
+    CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+    CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
-  Random rnd(301);
-  std::string str1 = rnd.RandomString(1020);
-  TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert(k1.AsSlice(), item1, GetHelper(), str1.length()));
-  std::string str2 = rnd.RandomString(1020);
-  TestItem* item2 = new TestItem(str2.data(), str2.length());
-  // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert(k2.AsSlice(), item2, GetHelper(), str2.length()));
+    Random rnd(301);
+    std::string str1 = rnd.RandomString(1020);
+    TestItem* item1 = new TestItem(str1.data(), str1.length());
+    ASSERT_OK(cache->Insert(k1.AsSlice(), item1, GetHelper(), str1.length()));
+    std::string str2 = rnd.RandomString(1020);
+    TestItem* item2 = new TestItem(str2.data(), str2.length());
+    // k1 should be demoted to NVM
+    ASSERT_OK(cache->Insert(k2.AsSlice(), item2, GetHelper(), str2.length()));
 
-  Cache::Handle* handle;
-  handle = cache->Lookup(k2.AsSlice(), GetHelper(),
-                         /*context*/ this, Cache::Priority::LOW, true);
-  ASSERT_NE(handle, nullptr);
-  // k1 promotion should fail due to the block cache being at capacity,
-  // but the lookup should still succeed
-  Cache::Handle* handle2;
-  handle2 = cache->Lookup(k1.AsSlice(), GetHelper(),
-                          /*context*/ this, Cache::Priority::LOW, true);
-  ASSERT_NE(handle2, nullptr);
-  // Since k1 didn't get inserted, k2 should still be in cache
-  cache->Release(handle);
-  cache->Release(handle2);
-  handle = cache->Lookup(k2.AsSlice(), GetHelper(),
-                         /*context*/ this, Cache::Priority::LOW, true);
-  ASSERT_NE(handle, nullptr);
-  cache->Release(handle);
-  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
-  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+    Cache::Handle* handle2;
+    handle2 = cache->Lookup(k2.AsSlice(), GetHelper(),
+                            /*context*/ this, Cache::Priority::LOW);
+    ASSERT_NE(handle2, nullptr);
+    // k1 lookup fails without secondary cache support
+    Cache::Handle* handle1;
+    handle1 = cache->Lookup(
+        k1.AsSlice(),
+        GetHelper(CacheEntryRole::kDataBlock, /*secondary_compatible=*/false),
+        /*context*/ this, Cache::Priority::LOW);
+    ASSERT_EQ(handle1, nullptr);
 
-  cache.reset();
-  secondary_cache.reset();
+    // k1 promotion can fail with strict_capacit_limit=true, but Lookup still
+    // succeeds using a standalone handle
+    handle1 = cache->Lookup(k1.AsSlice(), GetHelper(),
+                            /*context*/ this, Cache::Priority::LOW);
+    ASSERT_NE(handle1, nullptr);
+
+    ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+    ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+
+    // Releasing k2's handle first, k2 is evicted from primary iff k1 promotion
+    // was charged to the cache (except HCC doesn't erase in Release() over
+    // capacity)
+    // FIXME: Insert to secondary from Release disabled
+    cache->Release(handle2);
+    cache->Release(handle1);
+    handle2 = cache->Lookup(
+        k2.AsSlice(),
+        GetHelper(CacheEntryRole::kDataBlock, /*secondary_compatible=*/false),
+        /*context*/ this, Cache::Priority::LOW);
+    if (strict_capacity_limit || GetParam() == kHyperClock) {
+      ASSERT_NE(handle2, nullptr);
+      cache->Release(handle2);
+      ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+    } else {
+      ASSERT_EQ(handle2, nullptr);
+      // FIXME: Insert to secondary from Release disabled
+      // ASSERT_EQ(secondary_cache->num_inserts(), 2u);
+      ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+    }
+
+    cache.reset();
+    secondary_cache.reset();
+  }
 }
 
 // In this test, the block cache size is set to 4096, after insert 6 KV-pairs
@@ -1374,16 +1388,24 @@ TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
 // of the meta blocks are about 900 to 1000. Therefore, in any situation,
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
-  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+// CORRECTION: this is not quite right. block_1 can be inserted into the block
+// cache because strict_capacity_limit=false, but it is removed from the cache
+// in Release() because of being over-capacity, without demoting to secondary
+// cache. HyperClockCache doesn't check capacity on release (for efficiency)
+// so can demote the over-capacity item to secondary cache. Also, we intend to
+// add support for demotion in Release, but that currently causes too much
+// unit test churn.
+TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
+  if (GetParam() == kHyperClock) {
+    // See CORRECTION above
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
+    return;
+  }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -1471,16 +1493,16 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
 // of the meta blocks are about 900 to 1000. Therefore, we can successfully
 // insert and cache block_1 in the block cache (this is the different place
 // from TestSecondaryCacheCorrectness1)
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
-  LRUCacheOptions opts(6100 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
+  if (GetParam() == kHyperClock) {
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
+    return;
+  }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(6100 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -1564,16 +1586,12 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
 // of the meta blocks are about 900 to 1000. Therefore, we can successfully
 // cache all the blocks in the block cache and there is not secondary cache
 // insertion. 2 lookup is needed for the blocks.
-TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
-  LRUCacheOptions opts(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -1618,16 +1636,12 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   Destroy(options);
 }
 
-TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
-  LRUCacheOptions opts(8 * 1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(8 * 1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -1667,16 +1681,16 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
 // of the meta blocks are about 900 to 1000. Therefore, in any situation,
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
-TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
-  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
+  if (GetParam() == kHyperClock) {
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
+    return;
+  }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -1759,16 +1773,12 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   Destroy(options);
 }
 
-TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
-  LRUCacheOptions opts(1024 /* capacity */, 2 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(BasicSecondaryCacheTest, BasicWaitAllTest) {
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(32 * 1024);
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(1024 /* capacity */, 2 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   const int num_keys = 32;
   OffsetableCacheKey ock{"foo", "bar", 1};
 
@@ -1782,7 +1792,15 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
                             str.length()));
   }
   // Force all entries to be evicted to the secondary cache
-  cache->SetCapacity(0);
+  if (GetParam() == kHyperClock) {
+    // HCC doesn't respond immediately to SetCapacity
+    for (int i = 9000; i < 9030; ++i) {
+      ASSERT_OK(cache->Insert(ock.WithOffset(i).AsSlice(), nullptr,
+                              &kNoopCacheItemHelper, 256));
+    }
+  } else {
+    cache->SetCapacity(0);
+  }
   ASSERT_EQ(secondary_cache->num_inserts(), 32u);
   cache->SetCapacity(32 * 1024);
 
@@ -1793,24 +1811,31 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
         TestSecondaryCache::ResultType::DEFER_AND_FAIL},
        {ock.WithOffset(5).AsSlice().ToString(),
         TestSecondaryCache::ResultType::FAIL}});
-  std::vector<Cache::Handle*> results;
-  for (int i = 0; i < 6; ++i) {
-    results.emplace_back(cache->Lookup(ock.WithOffset(i).AsSlice(), GetHelper(),
-                                       /*context*/ this, Cache::Priority::LOW,
-                                       false));
+
+  std::array<Cache::AsyncLookupHandle, 6> async_handles;
+  std::array<CacheKey, 6> cache_keys;
+  for (size_t i = 0; i < async_handles.size(); ++i) {
+    auto& ah = async_handles[i];
+    cache_keys[i] = ock.WithOffset(i);
+    ah.key = cache_keys[i].AsSlice();
+    ah.helper = GetHelper();
+    ah.create_context = this;
+    ah.priority = Cache::Priority::LOW;
+    cache->StartAsyncLookup(ah);
   }
-  cache->WaitAll(results);
-  for (int i = 0; i < 6; ++i) {
-    if (i == 4) {
-      ASSERT_EQ(cache->Value(results[i]), nullptr);
-    } else if (i == 5) {
-      ASSERT_EQ(results[i], nullptr);
+  cache->WaitAll(&async_handles[0], async_handles.size());
+  for (size_t i = 0; i < async_handles.size(); ++i) {
+    SCOPED_TRACE("i = " + std::to_string(i));
+    Cache::Handle* result = async_handles[i].Result();
+    if (i == 4 || i == 5) {
+      ASSERT_EQ(result, nullptr);
       continue;
     } else {
-      TestItem* item = static_cast<TestItem*>(cache->Value(results[i]));
+      ASSERT_NE(result, nullptr);
+      TestItem* item = static_cast<TestItem*>(cache->Value(result));
       ASSERT_EQ(item->ToString(), values[i]);
     }
-    cache->Release(results[i]);
+    cache->Release(result);
   }
 
   cache.reset();
@@ -1821,16 +1846,16 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
 // the cache key associated with each data block (and thus each KV) by using
 // a sync point callback in TestSecondaryCache::Lookup. We then control the
 // lookup result by setting the ResultMap.
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
-  LRUCacheOptions opts(1 << 20 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
+  if (GetParam() == kHyperClock) {
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
+    return;
+  }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(1 << 20 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -1919,10 +1944,10 @@ class CacheWithStats : public CacheWrapper {
     return target_->Insert(key, value, helper, charge, handle, priority);
   }
   Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
-                 CreateContext* create_context, Priority priority, bool wait,
+                 CreateContext* create_context, Priority priority,
                  Statistics* stats = nullptr) override {
     lookup_count_++;
-    return target_->Lookup(key, helper, create_context, priority, wait, stats);
+    return target_->Lookup(key, helper, create_context, priority, stats);
   }
 
   uint32_t GetInsertCount() { return insert_count_; }
@@ -1937,14 +1962,12 @@ class CacheWithStats : public CacheWrapper {
   uint32_t lookup_count_ = 0;
 };
 
-TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
-  LRUCacheOptions cache_opts(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
-                             false /* strict_capacity_limit */,
-                             0.5 /* high_pri_pool_ratio */,
-                             nullptr /* memory_allocator */,
-                             kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
+  std::shared_ptr<Cache> base_cache =
+      NewCache(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */);
   std::shared_ptr<CacheWithStats> cache =
-      std::make_shared<CacheWithStats>(NewLRUCache(cache_opts));
+      std::make_shared<CacheWithStats>(base_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -2010,8 +2033,10 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   // dumpload
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048 * 1024);
-  cache_opts.secondary_cache = secondary_cache;
-  cache = std::make_shared<CacheWithStats>(NewLRUCache(cache_opts));
+  // This time with secondary cache
+  base_cache = NewCache(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                        false /* strict_capacity_limit */, secondary_cache);
+  cache = std::make_shared<CacheWithStats>(base_cache);
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
   options.create_if_missing = true;
@@ -2066,14 +2091,12 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   Destroy(options);
 }
 
-TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
-  LRUCacheOptions cache_opts(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
-                             false /* strict_capacity_limit */,
-                             0.5 /* high_pri_pool_ratio */,
-                             nullptr /* memory_allocator */,
-                             kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
+  std::shared_ptr<Cache> base_cache =
+      NewCache(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */);
   std::shared_ptr<CacheWithStats> cache =
-      std::make_shared<CacheWithStats>(NewLRUCache(cache_opts));
+      std::make_shared<CacheWithStats>(base_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -2166,8 +2189,10 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   // dumpload
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048 * 1024);
-  cache_opts.secondary_cache = secondary_cache;
-  cache = std::make_shared<CacheWithStats>(NewLRUCache(cache_opts));
+  // This time with secondary_cache
+  base_cache = NewCache(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                        false /* strict_capacity_limit */, secondary_cache);
+  cache = std::make_shared<CacheWithStats>(base_cache);
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
   options.create_if_missing = true;
@@ -2231,16 +2256,12 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
 }
 
 // Test the option not to use the secondary cache in a certain DB.
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
-  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -2326,16 +2347,16 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
 // We disable the secondary cache in DBOptions at first. Close and reopen the DB
 // with new options, which set the lowest_used_cache_tier to
 // kNonVolatileBlockTier. So secondary cache will be used.
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
-  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
+  if (GetParam() == kHyperClock) {
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
+    return;
+  }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -2421,16 +2442,16 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
 
 // Two DB test. We create 2 DBs sharing the same block cache and secondary
 // cache. We diable the secondary cache option for DB2.
-TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
-  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
-                       0.5 /* high_pri_pool_ratio */,
-                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+TEST_P(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
+  if (GetParam() == kHyperClock) {
+    ROCKSDB_GTEST_BYPASS("Test depends on LRUCache-specific behaviors");
+    return;
+  }
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
-  opts.secondary_cache = secondary_cache;
-  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  std::shared_ptr<Cache> cache =
+      NewCache(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+               false /* strict_capacity_limit */, secondary_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   table_options.block_size = 4 * 1024;
@@ -2527,7 +2548,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   ASSERT_OK(DestroyDB(dbname1, options));
   ASSERT_OK(DestroyDB(dbname2, options));
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE
 
