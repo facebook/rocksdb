@@ -11,6 +11,14 @@
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
+extern const std::array<std::string,
+                        static_cast<uint32_t>(WriteStallCause::kNone)>
+    kWriteStallCauseToHyphenString;
+
+extern const std::array<std::string,
+                        static_cast<uint32_t>(WriteStallCondition::kNormal)>
+    kWriteStallConditionToHyphenString;
+
 // REQUIRES:
 // cause` is CF-scope `WriteStallCause`, see `WriteStallCause` for more
 //
@@ -27,6 +35,9 @@ extern InternalStats::InternalCFStatsType InternalCFStat(
 extern InternalStats::InternalDBStatsType InternalDBStat(
     WriteStallCause cause, WriteStallCondition condition);
 
+extern bool isCFScopeWriteStallCause(WriteStallCause cause);
+extern bool isDBScopeWriteStallCause(WriteStallCause cause);
+
 constexpr uint32_t kNumCFScopeWriteStallCauses =
     static_cast<uint32_t>(WriteStallCause::kCFScopeWriteStallCauseEnumMax) -
     static_cast<uint32_t>(WriteStallCause::kMemtableLimit);
@@ -34,4 +45,6 @@ constexpr uint32_t kNumCFScopeWriteStallCauses =
 constexpr uint32_t kNumDBScopeWriteStallCauses =
     static_cast<uint32_t>(WriteStallCause::kDBScopeWriteStallCauseEnumMax) -
     static_cast<uint32_t>(WriteStallCause::kWriteBufferManagerLimit);
+
+const std::string kInvalidWriteStallCauseHyphenString = "invalid";
 }  // namespace ROCKSDB_NAMESPACE

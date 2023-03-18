@@ -1640,9 +1640,6 @@ void InternalStats::DumpDBStats(std::string* value) {
 
 void InternalStats::DumpDBMapStatsWriteStall(
     std::map<std::string, std::string>* value) {
-  uint64_t total_delay = 0;
-  uint64_t total_stop = 0;
-
   constexpr uint32_t max_db_scope_write_stall_cause =
       static_cast<uint32_t>(WriteStallCause::kDBScopeWriteStallCauseEnumMax);
 
@@ -1666,12 +1663,6 @@ void InternalStats::DumpDBMapStatsWriteStall(
           db_stats_[static_cast<std::size_t>(internal_db_stat)].load(
               std::memory_order_relaxed);
       (*value)[name] = std::to_string(stat);
-
-      if (condition == WriteStallCondition::kDelayed) {
-        total_delay += stat;
-      } else if (condition == WriteStallCondition::kStopped) {
-        total_stop += stat;
-      }
     }
   }
 }

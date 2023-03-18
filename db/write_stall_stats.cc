@@ -11,12 +11,15 @@ const std::array<std::string, static_cast<uint32_t>(WriteStallCause::kNone)>
         "memtable-limit",
         "l0-file-count-limit",
         "pending-compaction-bytes",
-        "invalid",
-        "write-buffer-manager-limit"
-        "invalid",
+        // WriteStallCause::kCFScopeWriteStallCauseEnumMax
+        kInvalidWriteStallCauseHyphenString,
+        "write-buffer-manager-limit",
+        // WriteStallCause::kDBScopeWriteStallCauseEnumMax
+        kInvalidWriteStallCauseHyphenString,
     }};
 
-std::array<std::string, static_cast<uint32_t>(WriteStallCondition::kNormal)>
+const std::array<std::string,
+                 static_cast<uint32_t>(WriteStallCondition::kNormal)>
     kWriteStallConditionToHyphenString{{
         "delayed",
         "stopped",
@@ -140,7 +143,7 @@ std::string WriteStallStatsMapKeys::CauseConditionCount(
     return "";
   }
 
-  std::string& condition_name =
+  std::string condition_name =
       kWriteStallConditionToHyphenString[static_cast<uint32_t>(condition)];
 
   cause_condition_count_name.reserve(cause_name.size() + 1 +

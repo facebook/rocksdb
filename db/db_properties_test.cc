@@ -13,6 +13,7 @@
 #include <string>
 
 #include "db/db_test_util.h"
+#include "db/write_stall_stats.h"
 #include "options/cf_options.h"
 #include "port/stack_trace.h"
 #include "rocksdb/listener.h"
@@ -2106,6 +2107,67 @@ TEST_F(DBPropertiesTest, GetMapPropertyBlockCacheEntryStats) {
   ASSERT_EQ(3 * kNumCacheEntryRoles + 4, values.size());
 }
 
+TEST_F(DBPropertiesTest, WriteStallStatsSanityCheck) {
+  for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {
+    std::string str = kWriteStallCauseToHyphenString[i];
+    ASSERT_TRUE(!str.empty())
+        << "Please ensure mapping from `WriteStallCause` to "
+           "`kWriteStallCauseToHyphenString` is complete";
+    WriteStallCause cause = static_cast<WriteStallCause>(i);
+    if (cause == WriteStallCause::kCFScopeWriteStallCauseEnumMax ||
+        cause == WriteStallCause::kDBScopeWriteStallCauseEnumMax) {
+      ASSERT_EQ(str, kInvalidWriteStallCauseHyphenString)
+          << "Please ensure order in `kWriteStallCauseToHyphenString` is "
+             "consistent with `WriteStallCause`";
+    }
+  }
+
+  for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCondition::kNormal);
+       ++i) {
+    std::string str = kWriteStallConditionToHyphenString[i];
+    ASSERT_TRUE(!str.empty())
+        << "Please ensure mapping from `WriteStallCondition` to "
+           "`kWriteStallConditionToHyphenString` is complete";
+  }
+
+  for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {
+    for (uint32_t j = 0;
+         j < static_cast<uint32_t>(WriteStallCondition::kNormal); ++j) {
+      WriteStallCause cause = static_cast<WriteStallCause>(i);
+      WriteStallCondition condition = static_cast<WriteStallCondition>(j);
+
+      if (isCFScopeWriteStallCause(cause)) {
+        ASSERT_TRUE(InternalCFStat(cause, condition) !=
+                    InternalStats::INTERNAL_CF_STATS_ENUM_MAX)
+            << "Please ensure the combination of WriteStallCause(" +
+                   std::to_string(static_cast<uint32_t>(cause)) +
+                   ") + WriteStallCondition(" +
+                   std::to_string(static_cast<uint32_t>(condition)) +
+                   ") is correctly mapped to a valid `InternalStats` or bypass "
+                   "its check in this test";
+      } else if (isDBScopeWriteStallCause(cause)) {
+        InternalStats::InternalDBStatsType internal_db_stat =
+            InternalDBStat(cause, condition);
+        if (internal_db_stat == InternalStats::kIntStatsNumMax) {
+          ASSERT_TRUE(cause == WriteStallCause::kWriteBufferManagerLimit &&
+                      condition == WriteStallCondition::kDelayed)
+              << "Please ensure the combination of WriteStallCause(" +
+                     std::to_string(static_cast<uint32_t>(cause)) +
+                     ") + WriteStallCondition(" +
+                     std::to_string(static_cast<uint32_t>(condition)) +
+                     ") is correctly mapped to a valid `InternalStats` or "
+                     "bypass its check in this test";
+        }
+      } else if (cause != WriteStallCause::kCFScopeWriteStallCauseEnumMax &&
+                 cause != WriteStallCause::kDBScopeWriteStallCauseEnumMax) {
+        ASSERT_TRUE(false)
+            << "Please ensure the WriteStallCause(" +
+                   std::to_string(static_cast<uint32_t>(cause)) +
+                   ") is either CF-scope or DB-scope write stall cause in enum `WriteStallCause`";
+      }
+    }
+  }
+}
 TEST_F(DBPropertiesTest, GetMapPropertyWriteStallStats) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"heavy_write_cf"}, options);
