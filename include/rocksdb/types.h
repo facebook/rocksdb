@@ -63,4 +63,40 @@ enum EntryType {
   kEntryOther,
 };
 
+enum class WriteStallCause {
+  // Beginning of CF-scope write stall causes
+  //
+  // Always keep `kMemtableLimit` as the first stat in this section
+  kMemtableLimit,
+  kL0FileCountLimit,
+  kPendingCompactionBytes,
+  kCFScopeWriteStallCauseEnumMax,
+  // End of CF-scope write stall causes
+
+  // Beginning of DB-scope write stall causes
+  //
+  // Always keep `kWriteBufferManagerLimit` as the first stat in this section
+  kWriteBufferManagerLimit,
+  kDBScopeWriteStallCauseEnumMax,
+  // End of DB-scope write stall causes
+
+  // Always add new WriteStallCause before `kNone`
+  kNone,
+};
+
+constexpr uint32_t kNumCFScopeWriteStallCauses =
+    static_cast<uint32_t>(WriteStallCause::kCFScopeWriteStallCauseEnumMax) -
+    static_cast<uint32_t>(WriteStallCause::kMemtableLimit);
+
+constexpr uint32_t kNumDBScopeWriteStallCauses =
+    static_cast<uint32_t>(WriteStallCause::kDBScopeWriteStallCauseEnumMax) -
+    static_cast<uint32_t>(WriteStallCause::kWriteBufferManagerLimit);
+
+enum class WriteStallCondition {
+  kDelayed,
+  kStopped,
+  // Always add new WriteStallCondition before `kNormal`
+  kNormal,
+};
+
 }  // namespace ROCKSDB_NAMESPACE

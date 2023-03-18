@@ -104,15 +104,36 @@ class InternalStats {
   static const std::map<LevelStatType, LevelStat> compaction_level_stats;
 
   enum InternalCFStatsType {
-    L0_FILE_COUNT_LIMIT_SLOWDOWNS,
-    LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+    // Beginning of CF-scope write stall stats caused by different
+    // WriteStallCause combined with different WriteStallCondition
+    //
+    // Always keep `MEMTABLE_LIMIT_DELAYS` as the first stat in this section
+    MEMTABLE_LIMIT_DELAYS = 0,
     MEMTABLE_LIMIT_STOPS,
-    MEMTABLE_LIMIT_SLOWDOWNS,
+    L0_FILE_COUNT_LIMIT_DELAYS,
     L0_FILE_COUNT_LIMIT_STOPS,
-    LOCKED_L0_FILE_COUNT_LIMIT_STOPS,
-    PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS,
+    PENDING_COMPACTION_BYTES_LIMIT_DELAYS,
     PENDING_COMPACTION_BYTES_LIMIT_STOPS,
+    // End of CF-scope write stall stats caused by different
+    // WriteStallCause combined with different WriteStallCondition
+
+    // Beginning of repetitive write stall stats for further breakdown of above
+    // write stall stats.
+    //
+    // Always keep `L0_FILE_COUNT_LIMIT_DELAYS_WITH_ONGOING_COMPACTION` as
+    // the first stat in this section
+    L0_FILE_COUNT_LIMIT_DELAYS_WITH_ONGOING_COMPACTION,  // Write slowdown
+                                                         // caused by l0 file
+                                                         // count limit while
+                                                         // there is ongoing
+                                                         // L0 compaction
+    L0_FILE_COUNT_LIMIT_STOPS_WITH_ONGOING_COMPACTION,   // Write stop caused by
+                                                         // l0 file count limit
+                                                         // while there is
+                                                        // ongoing L0 compaction
+    // End of repetitive write stall stats
     WRITE_STALLS_ENUM_MAX,
+    // End of all write stall stats
     BYTES_FLUSHED,
     BYTES_INGESTED_ADD_FILE,
     INGESTED_NUM_FILES_TOTAL,
@@ -129,7 +150,18 @@ class InternalStats {
     kIntStatsWriteDoneByOther,
     kIntStatsWriteDoneBySelf,
     kIntStatsWriteWithWal,
+    // TODO(hx235): Currently `kIntStatsWriteStallMicros` only measures
+    // "delayed" time of CF-scope write stalls, not including the "stopped" time
+    // nor any DB-scope write stalls (e.g, ones triggered by
+    // `WriteBufferManager`).
+    //
+    // However, the word "write stall" includes both "delayed" and "stopped"
+    // (see `WriteStallCondition`) and DB-scope writes stalls (see
+    // `WriteStallCause`).
+    //
+    // So we should improve, rename or clarify it
     kIntStatsWriteStallMicros,
+    kIntStatsWriteBufferManagerLimitStopCounts,
     kIntStatsNumMax,
   };
 
@@ -599,6 +631,11 @@ class InternalStats {
  private:
   void DumpDBMapStats(std::map<std::string, std::string>* db_stats);
   void DumpDBStats(std::string* value);
+
+  void DumpDBMapStatsWriteStall(std::map<std::string, std::string>* value);
+  void DumpDBStatsWriteStall(std::string* value,
+                             uint64_t* total_stall_count = nullptr);
+
   void DumpCFMapStats(std::map<std::string, std::string>* cf_stats);
   void DumpCFMapStats(
       const VersionStorageInfo* vstorage,
@@ -606,7 +643,6 @@ class InternalStats {
       CompactionStats* compaction_stats_sum);
   void DumpCFMapStatsByPriority(
       std::map<int, std::map<LevelStatType, double>>* priorities_stats);
-  void DumpCFMapStatsIOStalls(std::map<std::string, std::string>* cf_stats);
   void DumpCFStats(std::string* value);
   // if is_periodic = true, it is an internal call by RocksDB periodically to
   // dump the status.
@@ -614,6 +650,10 @@ class InternalStats {
   // if is_periodic = true, it is an internal call by RocksDB periodically to
   // dump the status.
   void DumpCFFileHistogram(std::string* value);
+
+  void DumpCFMapStatsWriteStall(std::map<std::string, std::string>* value);
+  void DumpCFStatsWriteStall(std::string* value,
+                             uint64_t* total_stall_count = nullptr);
 
   Cache* GetBlockCacheForStats();
   Cache* GetBlobCacheForStats();
@@ -648,7 +688,7 @@ class InternalStats {
     // ColumnFamily-level stats
     CompactionStats comp_stats;
     uint64_t ingest_bytes_flush;  // Bytes written to L0 (Flush)
-    uint64_t stall_count;         // Stall count
+    uint64_t stall_count;         // Total counts of CF-scope write stalls
     // Stats from compaction jobs - bytes written, bytes read, duration.
     uint64_t compact_bytes_write;
     uint64_t compact_bytes_read;
@@ -706,6 +746,8 @@ class InternalStats {
     // Total time writes delayed by stalls.
     uint64_t write_stall_micros;
     double seconds_up;
+    // Total counts of DB-scope write stalls
+    uint64_t stall_count;
 
     DBStatsSnapshot()
         : ingest_bytes(0),
@@ -716,7 +758,8 @@ class InternalStats {
           write_self(0),
           num_keys_written(0),
           write_stall_micros(0),
-          seconds_up(0) {}
+          seconds_up(0),
+          stall_count(0) {}
 
     void Clear() {
       ingest_bytes = 0;
@@ -728,6 +771,7 @@ class InternalStats {
       num_keys_written = 0;
       write_stall_micros = 0;
       seconds_up = 0;
+      stall_count = 0;
     }
   } db_stats_snapshot_;
 
@@ -743,9 +787,15 @@ class InternalStats {
   bool HandleCFStatsNoFileHistogram(std::string* value, Slice suffix);
   bool HandleCFFileHistogram(std::string* value, Slice suffix);
   bool HandleCFStatsPeriodic(std::string* value, Slice suffix);
+  bool HandleCFWriteStallStats(std::string* value, Slice suffix);
+  bool HandleCFWriteStallStatsMap(std::map<std::string, std::string>* values,
+                                  Slice suffix);
   bool HandleDBMapStats(std::map<std::string, std::string>* compaction_stats,
                         Slice suffix);
   bool HandleDBStats(std::string* value, Slice suffix);
+  bool HandleDBWriteStallStats(std::string* value, Slice suffix);
+  bool HandleDBWriteStallStatsMap(std::map<std::string, std::string>* values,
+                                  Slice suffix);
   bool HandleSsTables(std::string* value, Slice suffix);
   bool HandleAggregatedTableProperties(std::string* value, Slice suffix);
   bool HandleAggregatedTablePropertiesAtLevel(std::string* value, Slice suffix);
