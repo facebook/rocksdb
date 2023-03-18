@@ -106,7 +106,7 @@ class CompressedSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override;
 
  private:
-  friend class CompressedSecondaryCacheTest;
+  friend class CompressedSecondaryCacheTestBase;
   static constexpr std::array<uint16_t, 8> malloc_bin_sizes_{
       128, 256, 512, 1024, 2048, 4096, 8192, 16384};
 
