@@ -6,9 +6,9 @@
 package org.rocksdb;
 
 public enum WriteStallCondition {
-  NORMAL((byte) 0x0),
-  DELAYED((byte) 0x1),
-  STOPPED((byte) 0x2);
+  DELAYED((byte) 0x0),
+  STOPPED((byte) 0x1),
+  NORMAL((byte) 0x2);
 
   private final byte value;
 
