@@ -37,7 +37,7 @@ if [ "$?" != "1" ]; then
   BAD=1
 fi
 
-git grep -n -P "[\x80-\xFF]" -- ':!docs' ':!*.md'
+git grep -n -P "[\x80-\xFF]" -- ':!docs' ':!*.md' '!*.png' '!*.pdf'
 if [ "$?" != "1" ]; then
   echo '^^^^ Use only ASCII characters in source files'
   BAD=1
