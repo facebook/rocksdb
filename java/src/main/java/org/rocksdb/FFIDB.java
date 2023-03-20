@@ -281,7 +281,7 @@ public class FFIDB implements AutoCloseable {
     } catch (final Throwable methodException) {
       throw new RocksDBException(INVOCATION_ERROR + FFIMethod.GetOutput, methodException);
     }
-    final Status.Code code = Status.Code.values()[(Integer) result];
+    final Status.Code code = Status.Code.values()[result];
     switch (code) {
       case NotFound -> { return new GetOutputSlice(code, Optional.empty()); }
       case Ok -> {

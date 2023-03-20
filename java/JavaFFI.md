@@ -182,6 +182,19 @@ q "select Benchmark,Score from ./plot/jmh-result-fixed.csv where \"Param: keyCou
 
  - We would recommend looking again the performance of the FFI-based implementation when Panama is release post-Preview in Java 21. It seems that at least with Java 20 the performance is of our FFI benchmarks is not significantly different from that of the Java 19 version.
 
+### Copies versus Calls
+
+The second method call over the FFI boundary to release a pinnable slice has a cost. We compared the `ffiGetOutputSlice()` and `ffiGetPinnableSlice()` benchmarks in order to examine this cost. We ran it with a fixed ky size (128 bytes); the key size is likely to be pretty much irrelevant anyway; we varied the value size read from 16 bytes to 16k, and we found a crossover point between 1k and 4k for performance:
+
+![Plot](./jmh/plot/jmh-result-pinnable-vs-output-plot.pdf)
+
+- `ffiGetOutputSlice()` is faster when values read are  1k in size or smaller. The cost of an extra copy in the C++ side from the pinnable slice buffer into the supplied buffer allocated by Java Foreign Memory API is less than the cost of the extra call to release a pinnable slice.
+- `ffiGetPinnableSlice()` is faster when values read are 4k in size, or larger. Consistent with intuition, the advantage grows with larger read values.
+
+The way that the RocksDB API is constructed means that of the 2 methods compared, `ffiGetOutputSlice()` will always make exactly 1 more copy than `ffiGetPinnableSlice()`. The underlying RocksDB C++ API will always copy into its own temporary buffer if it decides that it cannot pin an internal buffer, and that will be returned as the pinnable slice. There is a potential optimization where the temporary buffer could be replaced by an output buffer, such as that supplied by `ffiGetOutputSlice()`; in practice that is a hard fix to hack in. Its effectiveness depends on how often RocksDB fails to pin an internal buffer.
+
+A solution which either filled a buffer *or* returned a pinnable slice would give us the best of both worlds.
+
 ## Other Conclusions
 
 ### Build Processing
