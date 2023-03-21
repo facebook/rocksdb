@@ -22,6 +22,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManager;
+
 // Interface to block and signal DB instances, intended for RocksDB
 // internal use only. Each DB instance contains ptr to StallInterface.
 class StallInterface {
@@ -148,11 +149,12 @@ class WriteBufferManager final {
   // WARNING: Should only be called by RocksDB internally.
   void FreeMem(size_t mem);
 
-  // Return true if stall conditions have been met and WriteBufferManager has
-  // done its work to begin write stall. Return false otherwise.
+  // If stall conditions are met, WriteBufferManager
+  // will prepare for write stall (including changing `wbm_stall`'s state
+  // to be `State::Blocked`). Otherwise, this function does nothing.
   //
   // WARNING: Should only be called by RocksDB internally.
-  bool MaybeBeginWriteStall(StallInterface* wbm_stall);
+  void MaybeBeginWriteStall(StallInterface* wbm_stall);
 
   // WARNING: Should only be called by RocksDB internally.
   void RemoveDBFromQueue(StallInterface* wbm_stall);

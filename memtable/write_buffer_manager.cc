@@ -147,16 +147,16 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
   s.PermitUncheckedError();
 }
 
-bool WriteBufferManager::MaybeBeginWriteStall(StallInterface* wbm_stall) {
+void WriteBufferManager::MaybeBeginWriteStall(StallInterface* wbm_stall) {
   assert(wbm_stall != nullptr);
+
+  // Allocate the list `new_node` outside of the lock
   std::list<StallInterface*> new_node = {wbm_stall};
+
   std::unique_lock<std::mutex> lock(wbm_mutex_);
   if (ShouldStall()) {
     wbm_stall->SetState(StallInterface::State::BLOCKED);
     queue_.splice(queue_.end(), std::move(new_node));
-    return true;
-  } else {
-    return false;
   }
 }
 
@@ -177,7 +177,7 @@ void WriteBufferManager::MaybeEndWriteStall() {
 void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
   assert(wbm_stall != nullptr);
 
-  // Deallocate the removed nodes outside of the lock.
+  // Deallocate the list `cleanup` outside of the lock
   std::list<StallInterface*> cleanup;
   {
     std::unique_lock<std::mutex> lock(wbm_mutex_);
