@@ -3613,7 +3613,10 @@ TEST_F(DBCompactionTest, CancelCompactionWaitingOnConflict) {
   Random rnd(301);
   for (int i = 0; i < kNumSortedRuns; ++i) {
     int key_idx = 0;
-    GenerateNewFile(&rnd, &key_idx, true /* nowait */);
+    // We hold the compaction from happening, so when generating the last SST
+    // file, we cannot wait. Otherwise, we'll hit a deadlock.
+    GenerateNewFile(&rnd, &key_idx,
+                    (i == kNumSortedRuns - 1) ? true : false /* nowait */);
   }
   auto_compaction_sleeping_task.WaitUntilSleeping();
 
