@@ -175,7 +175,15 @@ inline ThreadPoolImpl::Impl::Impl()
       bgsignal_(),
       bgthreads_() {}
 
-inline ThreadPoolImpl::Impl::~Impl() { assert(bgthreads_.size() == 0U); }
+inline ThreadPoolImpl::Impl::~Impl() {
+  // In case destructor is called by host program before
+  // first joining the threads, force join the threads
+  // so that the program does not hang on shutdown due
+  // to the threadpool condition variable being locked
+  // by other RocksDB threads.
+  JoinThreads(false);
+  assert(bgthreads_.size() == 0U);
+}
 
 void ThreadPoolImpl::Impl::JoinThreads(bool wait_for_jobs_to_complete) {
   std::unique_lock<std::mutex> lock(mu_);
