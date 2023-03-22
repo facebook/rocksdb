@@ -985,7 +985,10 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readpercent)) {
         assert(0 <= prob_op);
         // OPERATION read
-        if (FLAGS_use_get_entity) {
+        if (FLAGS_use_multi_get_entity) {
+          TestMultiGetEntity(thread, read_opts, rand_column_families,
+                             rand_keys);
+        } else if (FLAGS_use_get_entity) {
           TestGetEntity(thread, read_opts, rand_column_families, rand_keys);
         } else if (FLAGS_use_multiget) {
           // Leave room for one more iteration of the loop with a single key
@@ -2387,6 +2390,8 @@ void StressTest::PrintEnv() const {
           FLAGS_use_multiget ? "true" : "false");
   fprintf(stdout, "Use GetEntity             : %s\n",
           FLAGS_use_get_entity ? "true" : "false");
+  fprintf(stdout, "Use MultiGetEntity        : %s\n",
+          FLAGS_use_multi_get_entity ? "true" : "false");
 
   const char* memtablerep = "";
   switch (FLAGS_rep_factory) {
