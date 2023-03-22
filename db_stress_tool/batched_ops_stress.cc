@@ -372,6 +372,11 @@ class BatchedOpsStressTest : public StressTest {
     }
   }
 
+  void TestMultiGetEntity(
+      ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */) override {}
+
   // Given a key, this does prefix scans for "0"+P, "1"+P, ..., "9"+P
   // in the same snapshot where P is the first FLAGS_prefix_size - 1 bytes
   // of the key. Each of these 10 scans returns a series of values;
