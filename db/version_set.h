@@ -1204,7 +1204,7 @@ class VersionSet {
                                        uint64_t* manifest_file_number);
   void WakeUpWaitingManifestWriters();
 
-  // Recover the last saved descriptor from persistent storage.
+  // Recover the last saved descriptor (MANIFEST) from persistent storage.
   // If read_only == true, Recover() will not complain if some column families
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
