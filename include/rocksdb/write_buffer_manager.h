@@ -116,6 +116,7 @@ class WriteBufferManager final {
   void SetAllowStall(bool new_allow_stall);
 
   // WARNING: Should only be called from write thread
+  // WARNING: Should only be called by RocksDB internally
   bool ShouldFlush() const;
 
   // Returns true if stall conditions are met.
@@ -123,7 +124,7 @@ class WriteBufferManager final {
   // size > 0) AND total memory usage accounted by this WriteBufferManager
   // exceeds the memory limit.
   //
-  // WARNING: Should only be called by RocksDB internally .
+  // WARNING: Should only be called by RocksDB internally.
   //
   // WARNING: If running without syncronization with any functions that could
   // change the stall conditions above, this function might not return the
