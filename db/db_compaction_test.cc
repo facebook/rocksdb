@@ -9225,7 +9225,6 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytesUCToLC) {
   options.allow_ingest_behind = false;
   options.level_compaction_dynamic_level_bytes = false;
   options.num_levels = 50;
-  options.disable_auto_compactions = true;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   Random rnd(33);
@@ -9247,6 +9246,10 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytesUCToLC) {
     expected_lsm += "0,";
   }
   expected_lsm += "1";
+  ASSERT_EQ(expected_lsm, FilesPerLevel(1));
+
+  // Tests that entries for trial move in MANIFEST should be valid
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_EQ(expected_lsm, FilesPerLevel(1));
 }
 

@@ -551,7 +551,8 @@ Status DBImpl::Recover(
       // option in target level.
       if (cfd->ioptions()->compaction_style ==
               CompactionStyle::kCompactionStyleLevel &&
-          cfd->ioptions()->level_compaction_dynamic_level_bytes) {
+          cfd->ioptions()->level_compaction_dynamic_level_bytes &&
+          !cfd->GetLatestMutableCFOptions()->disable_auto_compactions) {
         int to_level = cfd->ioptions()->num_levels - 1;
         // last level is reserved
         if (cfd->ioptions()->allow_ingest_behind ||
@@ -593,6 +594,7 @@ Status DBImpl::Recover(
                 cfd->GetName().c_str(), level_files.size(), from_level,
                 to_level);
             VersionEdit edit;
+            edit.SetColumnFamily(cfd->GetID());
             for (const FileMetaData* f : level_files) {
               edit.DeleteFile(from_level, f->fd.GetNumber());
               edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
