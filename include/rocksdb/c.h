@@ -125,6 +125,7 @@ typedef struct rocksdb_wal_iterator_t rocksdb_wal_iterator_t;
 typedef struct rocksdb_wal_readoptions_t rocksdb_wal_readoptions_t;
 typedef struct rocksdb_memory_consumers_t rocksdb_memory_consumers_t;
 typedef struct rocksdb_memory_usage_t rocksdb_memory_usage_t;
+typedef struct rocksdb_write_buffer_manager_t  rocksdb_write_buffer_manager_t;
 
 /* DB operations */
 
@@ -1026,6 +1027,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_ratelimiter(
 /* RateLimiter */
 extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness);
+extern ROCKSDB_LIBRARY_API void rocksdb_ratelimiter_set_bytes_per_second(rocksdb_ratelimiter_t*, int64_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t*);
 
 /* PerfContext */
@@ -1764,6 +1766,16 @@ rocksdb_approximate_memory_usage_get_mem_table_readers_total(
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_approximate_memory_usage_get_cache_total(
     rocksdb_memory_usage_t* memory_usage);
+
+extern ROCKSDB_LIBRARY_API rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create(
+    size_t buffer_size);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_buffer_manager(
+    rocksdb_options_t *opt, rocksdb_write_buffer_manager_t *wbm);
+
+//extern ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_set_buffer_size(rocksdb_write_buffer_manager_t *wbm, size_t size);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_destory(rocksdb_write_buffer_manager_t *wbm);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

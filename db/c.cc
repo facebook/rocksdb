@@ -41,6 +41,7 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/perf_context.h"
 #include "utilities/merge_operators.h"
+#include "rocksdb/write_buffer_manager.h"
 
 #include <vector>
 #include <unordered_set>
@@ -114,6 +115,7 @@ using rocksdb::BatchResult;
 using rocksdb::PerfLevel;
 using rocksdb::PerfContext;
 using rocksdb::MemoryUtil;
+using rocksdb::WriteBufferManager;
 
 using std::shared_ptr;
 using std::vector;
@@ -193,6 +195,10 @@ struct rocksdb_optimistictransaction_options_t {
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
+};
+
+struct rocksdb_write_buffer_manager_t {
+  std::shared_ptr<WriteBufferManager> rep;
 };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
@@ -2725,6 +2731,10 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
   return rate_limiter;
 }
 
+void rocksdb_ratelimiter_set_bytes_per_second(rocksdb_ratelimiter_t *limiter, int64_t bytes) {
+  limiter->rep->SetBytesPerSecond(bytes);
+}
+
 void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t *limiter) {
   delete limiter;
 }
@@ -4386,6 +4396,27 @@ uint64_t rocksdb_approximate_memory_usage_get_cache_total(
 void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
   delete usage;
 }
+
+rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create(size_t buffer_size) {
+  rocksdb_write_buffer_manager_t* wbm = new rocksdb_write_buffer_manager_t;
+  wbm->rep.reset(new rocksdb::WriteBufferManager(buffer_size));
+  return wbm;
+}
+
+void rocksdb_options_set_write_buffer_manager(rocksdb_options_t *opt, rocksdb_write_buffer_manager_t *wbm) {
+  if (wbm) {
+    opt->rep.write_buffer_manager = wbm->rep;
+  }
+}
+
+/*void rocksdb_write_buffer_manager_set_buffer_size(rocksdb_write_buffer_manager_t *wbm, size_t size) {
+  wbm->rep->SetBufferSize(size);
+}*/
+
+void rocksdb_write_buffer_manager_destory(rocksdb_write_buffer_manager_t *wbm) {
+  delete wbm;
+}
+
 
 }  // end extern "C"
 
