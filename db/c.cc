@@ -41,6 +41,8 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/perf_context.h"
 #include "utilities/merge_operators.h"
+#include "rocksdb/write_buffer_manager.h"
+#include "rocksdb/sst_file_manager.h"
 
 #include <vector>
 #include <unordered_set>
@@ -114,6 +116,8 @@ using rocksdb::BatchResult;
 using rocksdb::PerfLevel;
 using rocksdb::PerfContext;
 using rocksdb::MemoryUtil;
+using rocksdb::WriteBufferManager;
+using rocksdb::SstFileManager;
 
 using std::shared_ptr;
 using std::vector;
@@ -193,6 +197,14 @@ struct rocksdb_optimistictransaction_options_t {
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
+};
+
+struct rocksdb_write_buffer_manager_t {
+  std::shared_ptr<WriteBufferManager> rep;
+};
+
+struct rocksdb_sst_file_manager_t {
+  std::shared_ptr<SstFileManager> rep;
 };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
@@ -2443,6 +2455,11 @@ void rocksdb_options_set_stats_dump_period_sec(
   opt->rep.stats_dump_period_sec = v;
 }
 
+void rocksdb_options_set_stats_persist_period_sec(
+    rocksdb_options_t* opt, unsigned int v) {
+  opt->rep.stats_persist_period_sec = v;
+}
+
 void rocksdb_options_set_advise_random_on_open(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.advise_random_on_open = v;
@@ -2723,6 +2740,10 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
                NewGenericRateLimiter(rate_bytes_per_sec,
                                      refill_period_us, fairness));
   return rate_limiter;
+}
+
+void rocksdb_ratelimiter_set_bytes_per_second(rocksdb_ratelimiter_t *limiter, int64_t bytes) {
+  limiter->rep->SetBytesPerSecond(bytes);
 }
 
 void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t *limiter) {
@@ -4386,6 +4407,52 @@ uint64_t rocksdb_approximate_memory_usage_get_cache_total(
 void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
   delete usage;
 }
+
+rocksdb_write_buffer_manager_t* rocksdb_write_buffer_manager_create(size_t buffer_size) {
+  rocksdb_write_buffer_manager_t* wbm = new rocksdb_write_buffer_manager_t;
+  wbm->rep.reset(new rocksdb::WriteBufferManager(buffer_size));
+  return wbm;
+}
+
+void rocksdb_options_set_write_buffer_manager(rocksdb_options_t *opt, rocksdb_write_buffer_manager_t *wbm) {
+  if (wbm) {
+    opt->rep.write_buffer_manager = wbm->rep;
+  }
+}
+
+/*void rocksdb_write_buffer_manager_set_buffer_size(rocksdb_write_buffer_manager_t *wbm, size_t size) {
+  wbm->rep->SetBufferSize(size);
+}*/
+
+void rocksdb_write_buffer_manager_destory(rocksdb_write_buffer_manager_t *wbm) {
+  delete wbm;
+}
+
+void rocksdb_set_dboptions(
+    rocksdb_t* db, int count, const char* const keys[], const char* const values[], char** errptr) {
+        std::unordered_map<std::string, std::string> options_map;
+        for (int i=0; i<count; i++)
+            options_map[keys[i]] = values[i];
+        SaveError(errptr,
+            db->rep->SetDBOptions(options_map));
+    }
+
+rocksdb_sst_file_manager_t* rocksdb_sst_file_manager_create(rocksdb_env_t* env) {
+  rocksdb_sst_file_manager_t* sfm = new rocksdb_sst_file_manager_t;
+  sfm->rep.reset(rocksdb::NewSstFileManager(env->rep));
+  return sfm;
+}
+
+void rocksdb_options_set_sst_file_manager(rocksdb_options_t *opt, rocksdb_sst_file_manager_t *sfm) {
+  if (sfm) {
+    opt->rep.sst_file_manager = sfm->rep;
+  }
+}
+
+void rocksdb_sst_file_manager_destory(rocksdb_sst_file_manager_t *sfm) {
+  delete sfm;
+}
+
 
 }  // end extern "C"
 
