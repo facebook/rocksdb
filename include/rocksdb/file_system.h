@@ -79,6 +79,10 @@ enum class IOType : uint8_t {
   kInvalid,
 };
 
+// enum representing various operations supported by underlying FileSystem.
+// These need to be set in SupportedOps API for RocksDB to use them.
+enum FSSupportedOps { kAsyncIO, kFSBuffer };
+
 // Per-request options that can be passed down to the FileSystem
 // implementation. These are hints and are not necessarily guaranteed to be
 // honored. More hints can be added here in the future to indicate things like
@@ -684,9 +688,17 @@ class FileSystem : public Customizable {
     return IOStatus::OK();
   }
 
-  // Indicates to upper layers whether the FileSystem supports/uses async IO
-  // or not
-  virtual bool use_async_io() { return true; }
+  // Indicates to upper layers which FileSystem operations mentioned in
+  // FSSupportedOps are supported by underlying FileSystem. Each bit in
+  // supported_ops argument represent corresponding FSSupportedOps operation.
+  // Foreg:
+  //  If async_io is supported by the underlying FileSystem, then supported_ops
+  //  will have corresponding bit (i.e FSSupportedOps::kAsyncIO) set to 1.
+  virtual void SupportedOps(int64_t& supported_ops) {
+    supported_ops = 0;
+    // Underlying FS supports async_io
+    supported_ops |= (1 << FSSupportedOps::kAsyncIO);
+  }
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
@@ -791,6 +803,37 @@ struct FSReadRequest {
   // Output parameter set by underlying FileSystem that represents status of
   // read request.
   IOStatus status;
+
+  // fs_scratch is a data buffer allocated and provided by underlying FileSystem
+  // to RocksDB during reads, when FS wants to provide its own buffer with data
+  // instead of using RocksDB provided FSReadRequest::scratch.
+  //
+  // FileSystem needs to provide a buffer and custom delete function. The
+  // lifecycle of fs_scratch until data is used by RocksDB. The buffer
+  // should be released by RocksDB using custom delete function provided in
+  // unique_ptr fs_scratch.
+  //
+  // Optimization benefits:
+  // This is helpful in cases where underlying FileSystem has to do additional
+  // copy of data to RocksDB provided buffer which can consume CPU cycles. It
+  // can be optimized by avoiding copying to RocksDB buffer and directly using
+  // FS provided buffer.
+  //
+  // How to enable:
+  // In order to enable this option, FS needs to override SupportedOps() API and
+  // set FSSupportedOps::kFSBuffer in SupportedOps() as:
+  //  {
+  //    supported_ops |= (1 << FSSupportedOps::kFSBuffer);
+  //  }
+  //
+  // Work in progress:
+  // Right now it's only enabled for MultiReads (sync and async
+  // both) with non direct io.
+  // If RocksDB provide its own buffer (scratch) during reads, that's a
+  //  signal for FS to use RocksDB buffer.
+  // If FSSupportedOps::kFSBuffer is enabled and scratch == nullptr,
+  //   then FS have to provide its own buffer in fs_scratch.
+  std::unique_ptr<void, std::function<void(void*)>> fs_scratch;
 };
 
 // A file abstraction for randomly reading the contents of a file.
@@ -1550,7 +1593,9 @@ class FileSystemWrapper : public FileSystem {
     return target_->AbortIO(io_handles);
   }
 
-  virtual bool use_async_io() override { return target_->use_async_io(); }
+  virtual void SupportedOps(int64_t& supported_ops) override {
+    return target_->SupportedOps(supported_ops);
+  }
 
  protected:
   std::shared_ptr<FileSystem> target_;

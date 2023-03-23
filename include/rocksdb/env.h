@@ -763,6 +763,8 @@ struct ReadRequest {
 
   // Status of read
   Status status;
+
+  std::unique_ptr<void, std::function<void(void*)>> fs_scratch;
 };
 
 // A file abstraction for randomly reading the contents of a file.

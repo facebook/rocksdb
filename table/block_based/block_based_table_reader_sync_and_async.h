@@ -33,7 +33,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 (const ReadOptions& options, const MultiGetRange* batch,
  const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
  Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
- const UncompressionDict& uncompression_dict) const {
+ const UncompressionDict& uncompression_dict, bool use_fs_scratch) const {
   RandomAccessFileReader* file = rep_->file.get();
   const Footer& footer = rep_->footer;
   const ImmutableOptions& ioptions = rep_->ioptions;
@@ -99,7 +99,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         FSReadRequest req;
         req.offset = prev_offset;
         req.len = prev_len;
-        if (file->use_direct_io()) {
+        if (file->use_direct_io() || use_fs_scratch) {
           req.scratch = nullptr;
         } else if (use_shared_buffer) {
           req.scratch = scratch + buf_offset;
@@ -107,10 +107,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         } else {
           req.scratch = new char[req.len];
         }
-        read_reqs.emplace_back(req);
+        read_reqs.emplace_back(std::move(req));
       }
 
-      // Step 2, remeber the previous block info
+      // Step 2, remember the previous block info
       prev_offset = handle.offset();
       prev_len = BlockSizeWithTrailer(handle);
       req_offset_for_block.emplace_back(0);
@@ -125,14 +125,14 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     FSReadRequest req;
     req.offset = prev_offset;
     req.len = prev_len;
-    if (file->use_direct_io()) {
+    if (file->use_direct_io() || use_fs_scratch) {
       req.scratch = nullptr;
     } else if (use_shared_buffer) {
       req.scratch = scratch + buf_offset;
     } else {
       req.scratch = new char[req.len];
     }
-    read_reqs.emplace_back(req);
+    read_reqs.emplace_back(std::move(req));
   }
 
   AlignedBuf direct_io_buf;
@@ -192,7 +192,12 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
     BlockContents serialized_block;
     if (s.ok()) {
-      if (!use_shared_buffer) {
+      if (use_fs_scratch) {
+        assert(req_offset == 0);
+        assert(req.result.size() == BlockSizeWithTrailer(handle));
+        serialized_block =
+            BlockContents(Slice(req.result.data() + req_offset, handle.size()));
+      } else if (!use_shared_buffer) {
         // We allocated a buffer for this block. Give ownership of it to
         // BlockContents so it can free the memory
         assert(req.result.data() == req.scratch);
@@ -224,6 +229,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
                                 handle.offset());
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
+    } else if (use_fs_scratch) {
+      // Free the allocated scratch buffer by fs.
+      req.fs_scratch.reset();
     } else if (!use_shared_buffer) {
       // Free the allocated scratch buffer.
       delete[] req.scratch;
@@ -243,7 +251,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       // heap buffer or there is no cache at all.
       CompressionType compression_type =
           GetBlockCompressionType(serialized_block);
-      if (use_shared_buffer && compression_type == kNoCompression) {
+      if ((use_fs_scratch || use_shared_buffer) &&
+          compression_type == kNoCompression) {
         Slice serialized =
             Slice(req.result.data() + req_offset, BlockSizeWithTrailer(handle));
         serialized_block = BlockContents(
@@ -274,6 +283,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // through and set up the block explicitly
         if (block_entry->GetValue() != nullptr) {
           s.PermitUncheckedError();
+          if (use_fs_scratch) {
+            // Free the allocated scratch buffer by fs.
+            req.fs_scratch.reset();
+          }
           continue;
         }
       }
@@ -303,6 +316,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       }
     }
     statuses[idx_in_batch] = s;
+    if (use_fs_scratch) {
+      // Free the allocated scratch buffer by fs.
+      req.fs_scratch.reset();
+    }
   }
 }
 
@@ -512,11 +529,29 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
 
       if (total_len) {
         char* scratch = nullptr;
+        bool use_fs_scratch = false;
         const UncompressionDict& dict = uncompression_dict.GetValue()
                                             ? *uncompression_dict.GetValue()
                                             : UncompressionDict::GetEmptyDict();
         assert(uncompression_dict_inited || !rep_->uncompression_dict_reader);
         assert(uncompression_dict_status.ok());
+
+        if (!rep_->file->use_direct_io()) {
+          int64_t supported_ops = 0;
+          rep_->ioptions.fs->SupportedOps(supported_ops);
+          uint32_t set_pos = 0;
+          while (supported_ops && set_pos < FSSupportedOps::kFSBuffer) {
+            // Find the rightmost set bit.
+            set_pos =
+                static_cast<uint32_t>(log2(supported_ops & -supported_ops));
+            // unset the rightmost bit.
+            supported_ops &= (supported_ops - 1);
+          }
+          if (set_pos == FSSupportedOps::kFSBuffer) {
+            use_fs_scratch = true;
+          }
+        }
+
         // If using direct IO, then scratch is not used, so keep it nullptr.
         // If the blocks need to be uncompressed and we don't need the
         // compressed blocks, then we can use a contiguous block of
@@ -527,7 +562,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         // 2. If blocks are uncompressed, alloc heap bufs
         // 3. If blocks are compressed and no compressed block cache, use
         //    stack buf
-        if (!rep_->file->use_direct_io() &&
+        if (!use_fs_scratch && !rep_->file->use_direct_io() &&
             rep_->blocks_maybe_compressed) {
           if (total_len <= kMultiGetReadStackBufSize) {
             scratch = stack_buf;
@@ -538,7 +573,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         }
         CO_AWAIT(RetrieveMultipleBlocks)
         (read_options, &data_block_range, &block_handles, &statuses[0],
-         &results[0], scratch, dict);
+         &results[0], scratch, dict, use_fs_scratch);
         if (get_context) {
           ++(get_context->get_context_stats_.num_sst_read);
         }

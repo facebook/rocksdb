@@ -241,10 +241,16 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
   if (sv_) {
     RebuildIterators(false);
   }
-  if (!cfd_->ioptions()->env->GetFileSystem()->use_async_io()) {
+  int64_t supported_ops = 0;
+  cfd_->ioptions()->env->GetFileSystem()->SupportedOps(supported_ops);
+  uint32_t set_pos = 0;
+  if (supported_ops) {
+    // Find the rightmost set bit.
+    set_pos = static_cast<uint32_t>(log2(supported_ops & -supported_ops));
+  }
+  if (supported_ops == 0 || set_pos != FSSupportedOps::kAsyncIO) {
     read_options_.async_io = false;
   }
-
   // immutable_status_ is a local aggregation of the
   // status of the immutable Iterators.
   // We have to PermitUncheckedError in case it is never
@@ -1067,4 +1073,3 @@ void ForwardIterator::DeleteIterator(InternalIterator* iter, bool is_arena) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

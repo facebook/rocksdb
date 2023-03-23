@@ -47,7 +47,14 @@ void ArenaWrappedDBIter::Init(
   read_options_ = read_options;
   allow_refresh_ = allow_refresh;
   memtable_range_tombstone_iter_ = nullptr;
-  if (!env->GetFileSystem()->use_async_io()) {
+  int64_t supported_ops = 0;
+  env->GetFileSystem()->SupportedOps(supported_ops);
+  uint32_t set_pos = 0;
+  if (supported_ops) {
+    // Find the rightmost set bit.
+    set_pos = static_cast<uint32_t>(log2(supported_ops & -supported_ops));
+  }
+  if (supported_ops == 0 || set_pos != FSSupportedOps::kAsyncIO) {
     read_options_.async_io = false;
   }
 }

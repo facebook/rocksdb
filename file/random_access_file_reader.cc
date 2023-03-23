@@ -314,14 +314,14 @@ IOStatus RandomAccessFileReader::MultiRead(
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
       for (size_t i = 0; i < num_reqs; i++) {
-        const auto& r = Align(read_reqs[i], alignment);
+        FSReadRequest r = Align(read_reqs[i], alignment);
         if (i == 0) {
           // head
-          aligned_reqs.push_back(r);
+          aligned_reqs.push_back(std::move(r));
 
         } else if (!TryMerge(&aligned_reqs.back(), r)) {
           // head + n
-          aligned_reqs.push_back(r);
+          aligned_reqs.push_back(std::move(r));
 
         } else {
           // unused

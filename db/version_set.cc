@@ -2190,7 +2190,18 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           MaxFileSizeForL0MetaPin(mutable_cf_options_)),
       version_number_(version_number),
       io_tracer_(io_tracer),
-      use_async_io_(env_->GetFileSystem()->use_async_io()) {}
+      use_async_io_(false) {
+  int64_t supported_ops = 0;
+  env_->GetFileSystem()->SupportedOps(supported_ops);
+  if (supported_ops) {
+    // Find the rightmost set bit.
+    uint32_t set_pos =
+        static_cast<uint32_t>(log2(supported_ops & -supported_ops));
+    if (set_pos == FSSupportedOps::kAsyncIO) {
+      use_async_io_ = true;
+    }
+  }
+}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const Slice& blob_index_slice,
