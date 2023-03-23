@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Changes
+* `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.
 
 ## 8.1.0 (03/18/2023)
 ### Behavior changes
