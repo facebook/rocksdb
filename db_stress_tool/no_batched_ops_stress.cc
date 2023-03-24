@@ -934,26 +934,37 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
           fprintf(stderr, "GetEntity error: %s\n", cmp_s.ToString().c_str());
           is_consistent = false;
-        } else if (s.IsNotFound() && cmp_s.ok()) {
-          fprintf(stderr,
-                  "Inconsistent results for key %s: MultiGetEntity returned "
-                  "not found, GetEntity returned ok\n",
-                  StringToHex(keys[i]).c_str());
-          is_consistent = false;
-        } else if (s.ok() && cmp_s.IsNotFound()) {
-          fprintf(stderr,
-                  "Inconsistent results for key %s: MultiGetEntity returned "
-                  "ok, GetEntity returned not found\n",
-                  StringToHex(keys[i]).c_str());
-          is_consistent = false;
-        } else if (s.ok() && results[i] != cmp_result) {
-          fprintf(stderr,
+        } else if (cmp_s.IsNotFound()) {
+          if (s.ok()) {
+            fprintf(stderr,
+                    "Inconsistent results for key %s: MultiGetEntity returned "
+                    "ok, GetEntity returned not found\n",
+                    StringToHex(keys[i]).c_str());
+            is_consistent = false;
+          }
+        } else {
+          assert(cmp_s.ok());
+
+          if (s.IsNotFound()) {
+            fprintf(stderr,
+                    "Inconsistent results for key %s: MultiGetEntity returned "
+                    "not found, GetEntity returned ok\n",
+                    StringToHex(keys[i]).c_str());
+            is_consistent = false;
+          } else {
+            assert(s.ok());
+
+            if (results[i] != cmp_result) {
+              fprintf(
+                  stderr,
                   "Inconsistent results for key %s: MultiGetEntity returned "
                   "%s, GetEntity returned %s\n",
                   StringToHex(keys[i]).c_str(),
                   WideColumnsToHex(results[i].columns()).c_str(),
                   WideColumnsToHex(cmp_result.columns()).c_str());
-          is_consistent = false;
+              is_consistent = false;
+            }
+          }
         }
       }
 
