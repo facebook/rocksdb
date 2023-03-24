@@ -872,8 +872,8 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<Slice> key_slices(num_keys);
 
     for (size_t i = 0; i < num_keys; ++i) {
-      keys.emplace_back(Key(rand_keys[i]));
-      key_slices.emplace_back(keys.back());
+      keys[i] = Key(rand_keys[i]);
+      key_slices[i] = keys[i];
     }
 
     std::vector<PinnableWideColumns> results(num_keys);
