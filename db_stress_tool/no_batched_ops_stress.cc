@@ -873,7 +873,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     for (size_t i = 0; i < num_keys; ++i) {
       keys.emplace_back(Key(rand_keys[i]));
-      keys.emplace_back(keys.back());
+      key_slices.emplace_back(keys.back());
     }
 
     std::vector<PinnableWideColumns> results(num_keys);
@@ -938,7 +938,7 @@ class NonBatchedOpsStressTest : public StressTest {
         PinnableWideColumns cmp_result;
 
         const Status cmp_s =
-            db_->GetEntity(read_opts_copy, cfh, keys[i], &cmp_result);
+            db_->GetEntity(read_opts_copy, cfh, key_slices[i], &cmp_result);
 
         if (!cmp_s.ok() && !cmp_s.IsNotFound()) {
           fprintf(stderr, "GetEntity error: %s\n", cmp_s.ToString().c_str());
