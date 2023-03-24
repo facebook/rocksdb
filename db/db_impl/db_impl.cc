@@ -1818,6 +1818,11 @@ bool DBImpl::WALBufferIsEmpty(bool lock) {
   if (lock) {
     log_write_mutex_.Lock();
   }
+  
+  if (logs_.empty()) {
+    return true;
+  }
+    
   log::Writer* cur_log_writer = logs_.back().writer;
   auto res = cur_log_writer->BufferIsEmpty();
   if (lock) {
