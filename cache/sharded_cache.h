@@ -226,7 +226,7 @@ class ShardedCache : public ShardedCacheBase {
     return SumOverShards2(&CacheShard::GetPinnedUsage);
   }
   size_t GetOccupancyCount() const override {
-    return SumOverShards2(&CacheShard::GetPinnedUsage);
+    return SumOverShards2(&CacheShard::GetOccupancyCount);
   }
   size_t GetTableAddressCount() const override {
     return SumOverShards2(&CacheShard::GetTableAddressCount);
