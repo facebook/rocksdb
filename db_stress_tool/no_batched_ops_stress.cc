@@ -925,7 +925,15 @@ class NonBatchedOpsStressTest : public StressTest {
 
       bool is_consistent = true;
 
-      if (do_consistency_check && (s.ok() || s.IsNotFound())) {
+      if (s.ok() && !VerifyWideColumns(results[i].columns())) {
+        fprintf(
+            stderr,
+            "error : inconsistent columns returned by MultiGetEntity for key "
+            "%s: %s\n",
+            StringToHex(keys[i]).c_str(),
+            WideColumnsToHex(results[i].columns()).c_str());
+        is_consistent = false;
+      } else if (do_consistency_check && (s.ok() || s.IsNotFound())) {
         PinnableWideColumns cmp_result;
 
         const Status cmp_s =
