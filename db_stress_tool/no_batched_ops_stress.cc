@@ -918,8 +918,7 @@ class NonBatchedOpsStressTest : public StressTest {
       fault_fs_guard->DisableErrorInjection();
     }
 
-    const bool check_consistency_with_get =
-        !error_count && thread->rand.OneIn(4);
+    const bool check_get_entity = !error_count && thread->rand.OneIn(4);
 
     for (size_t i = 0; i < num_keys; ++i) {
       const Status& s = statuses[i];
@@ -934,7 +933,7 @@ class NonBatchedOpsStressTest : public StressTest {
             StringToHex(keys[i]).c_str(),
             WideColumnsToHex(results[i].columns()).c_str());
         is_consistent = false;
-      } else if (check_consistency_with_get && (s.ok() || s.IsNotFound())) {
+      } else if (check_get_entity && (s.ok() || s.IsNotFound())) {
         PinnableWideColumns cmp_result;
 
         const Status cmp_s =
