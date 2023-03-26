@@ -561,6 +561,10 @@ Status DBImpl::Recover(
         }
         // Whether this column family has a level trivially moved
         bool moved = false;
+        // Fill the LSM starting from to_level and going up one level at a time.
+        // Some loop invariants (when last level is not reserved):
+        // - levels in (from_level, to_level] are empty, and
+        // - levels in (to_level, last_level] are non-empty.
         for (int from_level = to_level; from_level >= 0; --from_level) {
           const std::vector<FileMetaData*>& level_files =
               cfd->current()->storage_info()->LevelFiles(from_level);
