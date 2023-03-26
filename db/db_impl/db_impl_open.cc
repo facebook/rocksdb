@@ -571,16 +571,18 @@ Status DBImpl::Recover(
           // Trivial move files from `from_level` to `to_level`
           if (from_level < to_level) {
             if (!moved) {
+              // lsm_state will look like "[1,2,3,4,5,6,0]" for an LSM with
+              // 7 levels
               std::string lsm_state = "[";
               for (int i = 0; i < cfd->ioptions()->num_levels; ++i) {
                 lsm_state += std::to_string(
                     cfd->current()->storage_info()->NumLevelFiles(i));
                 if (i < cfd->ioptions()->num_levels - 1) {
-                  lsm_state += ", ";
+                  lsm_state += ",";
                 }
               }
               lsm_state += "]";
-              ROCKS_LOG_INFO(immutable_db_options_.info_log,
+              ROCKS_LOG_WARN(immutable_db_options_.info_log,
                              "[%s] Trivially move files down the LSM when open "
                              "with level_compaction_dynamic_level_bytes=true,"
                              " lsm_state: %s (Files are moved only if DB "
@@ -588,7 +590,7 @@ Status DBImpl::Recover(
                              cfd->GetName().c_str(), lsm_state.c_str());
               moved = true;
             }
-            ROCKS_LOG_INFO(
+            ROCKS_LOG_WARN(
                 immutable_db_options_.info_log,
                 "[%s] Moving %zu files from from_level-%d to from_level-%d",
                 cfd->GetName().c_str(), level_files.size(), from_level,
@@ -607,7 +609,7 @@ Status DBImpl::Recover(
                            f->file_creation_time, f->epoch_number,
                            f->file_checksum, f->file_checksum_func_name,
                            f->unique_id, f->compensated_range_deletion_size);
-              ROCKS_LOG_INFO(immutable_db_options_.info_log,
+              ROCKS_LOG_WARN(immutable_db_options_.info_log,
                              "[%s] Moving #%" PRIu64
                              " from from_level-%d to from_level-%d %" PRIu64
                              " bytes\n",
