@@ -135,9 +135,14 @@ struct PerfContext {
   // than the snapshot that iterator is using.
   //
   uint64_t internal_recent_skipped_count;
-  // How many values were fed into merge operator by iterators.
+  // How many merge operands were fed into the merge operator by iterators.
+  // Note: base values are not included in the count.
   //
   uint64_t internal_merge_count;
+  // How many merge operands were fed into the merge operator by point lookups.
+  // Note: base values are not included in the count.
+  //
+  uint64_t internal_merge_point_lookup_count;
   // Number of times we reseeked inside a merging iterator, specifically to skip
   // after or before a range of keys covered by a range deletion in a newer LSM
   // component.

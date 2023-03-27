@@ -23,7 +23,6 @@
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
-#include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_source.h"
 #include "db/compaction/compaction.h"
@@ -39,6 +38,8 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit_handler.h"
+#include "table/compaction_merging_iterator.h"
+
 #if USE_COROUTINES
 #include "folly/experimental/coro/BlockingWait.h"
 #include "folly/experimental/coro/Collect.h"
@@ -1775,6 +1776,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->file_checksum, file->file_checksum_func_name);
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
+      files.back().smallest = file->smallest.Encode().ToString();
+      files.back().largest = file->largest.Encode().ToString();
       level_size += file->fd.GetFileSize();
     }
     cf_meta->levels.emplace_back(level, level_size, std::move(files));
@@ -2118,7 +2121,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       max_file_size_for_l0_meta_pin_(
           MaxFileSizeForL0MetaPin(mutable_cf_options_)),
       version_number_(version_number),
-      io_tracer_(io_tracer) {}
+      io_tracer_(io_tracer),
+      use_async_io_(env_->GetFileSystem()->use_async_io()) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const Slice& blob_index_slice,
@@ -2177,25 +2181,35 @@ void Version::MultiGetBlob(
 
     autovector<BlobReadRequest> blob_reqs_in_file;
     BlobReadContexts& blobs_in_file = ctx.second;
-    for (const auto& blob : blobs_in_file) {
-      const BlobIndex& blob_index = blob.first;
-      const KeyContext& key_context = blob.second;
+    for (auto& blob : blobs_in_file) {
+      const BlobIndex& blob_index = blob.blob_index;
+      const KeyContext* const key_context = blob.key_context;
+      assert(key_context);
+      assert(key_context->get_context);
+      assert(key_context->s);
+
+      if (key_context->value) {
+        key_context->value->Reset();
+      } else {
+        assert(key_context->columns);
+        key_context->columns->Reset();
+      }
 
       if (!blob_file_meta) {
-        *key_context.s = Status::Corruption("Invalid blob file number");
+        *key_context->s = Status::Corruption("Invalid blob file number");
         continue;
       }
 
       if (blob_index.HasTTL() || blob_index.IsInlined()) {
-        *key_context.s =
+        *key_context->s =
             Status::Corruption("Unexpected TTL/inlined blob index");
         continue;
       }
 
-      key_context.value->Reset();
       blob_reqs_in_file.emplace_back(
-          key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
-          blob_index.compression(), key_context.value, key_context.s);
+          key_context->get_context->ukey_to_get_blob_value(),
+          blob_index.offset(), blob_index.size(), blob_index.compression(),
+          &blob.result, key_context->s);
     }
     if (blob_reqs_in_file.size() > 0) {
       const auto file_size = blob_file_meta->GetBlobFileSize();
@@ -2204,23 +2218,35 @@ void Version::MultiGetBlob(
   }
 
   if (blob_reqs.size() > 0) {
-    blob_source_->MultiGetBlob(read_options, blob_reqs, /*bytes_read=*/nullptr);
+    blob_source_->MultiGetBlob(read_options, blob_reqs,
+                               /*bytes_read=*/nullptr);
   }
 
   for (auto& ctx : blob_ctxs) {
     BlobReadContexts& blobs_in_file = ctx.second;
-    for (const auto& blob : blobs_in_file) {
-      const KeyContext& key_context = blob.second;
-      if (key_context.s->ok()) {
-        range.AddValueSize(key_context.value->size());
-        if (range.GetValueSize() > read_options.value_size_soft_limit) {
-          *key_context.s = Status::Aborted();
+    for (auto& blob : blobs_in_file) {
+      const KeyContext* const key_context = blob.key_context;
+      assert(key_context);
+      assert(key_context->get_context);
+      assert(key_context->s);
+
+      if (key_context->s->ok()) {
+        if (key_context->value) {
+          *key_context->value = std::move(blob.result);
+          range.AddValueSize(key_context->value->size());
+        } else {
+          assert(key_context->columns);
+          key_context->columns->SetPlainValue(std::move(blob.result));
+          range.AddValueSize(key_context->columns->serialized_size());
         }
-      } else if (key_context.s->IsIncomplete()) {
+
+        if (range.GetValueSize() > read_options.value_size_soft_limit) {
+          *key_context->s = Status::Aborted();
+        }
+      } else if (key_context->s->IsIncomplete()) {
         // read_options.read_tier == kBlockCacheTier
         // Cannot read blob(s): no disk I/O allowed
-        assert(key_context.get_context);
-        auto& get_context = *(key_context.get_context);
+        auto& get_context = *(key_context->get_context);
         get_context.MarkKeyMayExist();
       }
     }
@@ -2337,22 +2363,37 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
                                   fp.GetHitFileLevel());
 
-        if (is_blob_index) {
-          if (do_merge && value) {
-            TEST_SYNC_POINT_CALLBACK("Version::Get::TamperWithBlobIndex",
-                                     value);
+        if (is_blob_index && do_merge && (value || columns)) {
+          assert(!columns ||
+                 (!columns->columns().empty() &&
+                  columns->columns().front().name() == kDefaultWideColumnName));
 
-            constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-            constexpr uint64_t* bytes_read = nullptr;
+          Slice blob_index =
+              value ? *value : columns->columns().front().value();
 
-            *status = GetBlob(read_options, user_key, *value, prefetch_buffer,
-                              value, bytes_read);
-            if (!status->ok()) {
-              if (status->IsIncomplete()) {
-                get_context.MarkKeyMayExist();
-              }
-              return;
+          TEST_SYNC_POINT_CALLBACK("Version::Get::TamperWithBlobIndex",
+                                   &blob_index);
+
+          constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+
+          PinnableSlice result;
+
+          constexpr uint64_t* bytes_read = nullptr;
+
+          *status = GetBlob(read_options, get_context.ukey_to_get_blob_value(),
+                            blob_index, prefetch_buffer, &result, bytes_read);
+          if (!status->ok()) {
+            if (status->IsIncomplete()) {
+              get_context.MarkKeyMayExist();
             }
+            return;
+          }
+
+          if (value) {
+            *value = std::move(result);
+          } else {
+            assert(columns);
+            columns->SetPlainValue(std::move(result));
           }
         }
 
@@ -2369,6 +2410,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         *status = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
             "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
+        return;
+      case GetContext::kMergeOperatorFailed:
+        *status = Status::Corruption(Status::SubCode::kMergeOperatorFailed);
         return;
     }
     f = fp.GetNextFile();
@@ -2403,7 +2447,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           value->PinSelf();
         } else {
           assert(columns != nullptr);
-          columns->SetPlainValue(result);
+          columns->SetPlainValue(std::move(result));
         }
       }
     }
@@ -2439,7 +2483,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge,
-        iter->ukey_with_ts, iter->value, /*columns=*/nullptr, iter->timestamp,
+        iter->ukey_with_ts, iter->value, iter->columns, iter->timestamp,
         nullptr, &(iter->merge_context), true,
         &iter->max_covering_tombstone_seq, clock_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
@@ -2462,7 +2506,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
 #if USE_COROUTINES
   if (read_options.async_io && read_options.optimize_multiget_for_io &&
-      using_coroutines()) {
+      using_coroutines() && use_async_io_) {
     s = MultiGetAsync(read_options, range, &blob_ctxs);
   } else
 #endif  // USE_COROUTINES
@@ -2488,7 +2532,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       // Avoid using the coroutine version if we're looking in a L0 file, since
       // L0 files won't be parallelized anyway. The regular synchronous version
       // is faster.
-      if (!read_options.async_io || !using_coroutines() ||
+      if (!read_options.async_io || !using_coroutines() || !use_async_io_ ||
           fp.GetHitFileLevel() == 0 || !fp.RemainingOverlapInLevel()) {
         if (f) {
           bool skip_filters =
@@ -2639,23 +2683,29 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
       // merge_operands are in saver and we hit the beginning of the key history
       // do a final merge of nullptr and operands;
-      std::string* str_value =
-          iter->value != nullptr ? iter->value->GetSelf() : nullptr;
+      std::string result;
+
       // `op_failure_scope` (an output parameter) is not provided (set to
       // nullptr) since a failure must be propagated regardless of its value.
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
-          str_value, info_log_, db_statistics_, clock_,
+          &result, info_log_, db_statistics_, clock_,
           /* result_operand */ nullptr, /* update_num_ops_stats */ true,
           /* op_failure_scope */ nullptr);
       if (LIKELY(iter->value != nullptr)) {
+        *iter->value->GetSelf() = std::move(result);
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
-        range->MarkKeyDone(iter);
-        if (range->GetValueSize() > read_options.value_size_soft_limit) {
-          s = Status::Aborted();
-          break;
-        }
+      } else {
+        assert(iter->columns);
+        iter->columns->SetPlainValue(std::move(result));
+        range->AddValueSize(iter->columns->serialized_size());
+      }
+
+      range->MarkKeyDone(iter);
+      if (range->GetValueSize() > read_options.value_size_soft_limit) {
+        s = Status::Aborted();
+        break;
       }
     } else {
       range->MarkKeyDone(iter);
@@ -5059,15 +5109,10 @@ Status VersionSet::ProcessManifestWrites(
   if (!descriptor_log_ ||
       manifest_file_size_ > db_options_->max_manifest_file_size) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
-    TEST_SYNC_POINT_CALLBACK(
-        "VersionSet::ProcessManifestWrites:BeforeNewManifest", nullptr);
     new_descriptor_log = true;
   } else {
     pending_manifest_file_number_ = manifest_file_number_;
   }
-  TEST_SYNC_POINT_CALLBACK(
-      "VersionSet::ProcessManifestWrites:PostDecidingCreateNewManifestOrNot",
-      &new_descriptor_log);
 
   // Local cached copy of state variable(s). WriteCurrentStateToManifest()
   // reads its content after releasing db mutex to avoid race with
@@ -5888,7 +5933,6 @@ Status VersionSet::ListColumnFamiliesFromManifest(
   return handler.status();
 }
 
-#ifndef ROCKSDB_LITE
 Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         const Options* options,
                                         const FileOptions& file_options,
@@ -6096,7 +6140,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
   return handler.status();
 }
-#endif  // ROCKSDB_LITE
 
 void VersionSet::MarkFileNumberUsed(uint64_t number) {
   // only called during recovery and repair which are single threaded, so this
@@ -6596,6 +6639,14 @@ InternalIterator* VersionSet::MakeInputIterator(
                                               c->num_input_levels() - 1
                                         : c->num_input_levels());
   InternalIterator** list = new InternalIterator*[space];
+  // First item in the pair is a pointer to range tombstones.
+  // Second item is a pointer to a member of a LevelIterator,
+  // that will be initialized to where CompactionMergingIterator stores
+  // pointer to its range tombstones. This is used by LevelIterator
+  // to update pointer to range tombstones as it traverse different SST files.
+  std::vector<
+      std::pair<TruncatedRangeDelIterator*, TruncatedRangeDelIterator***>>
+      range_tombstones;
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
@@ -6616,7 +6667,7 @@ InternalIterator* VersionSet::MakeInputIterator(
                   end.value(), fmd.smallest.user_key()) < 0) {
             continue;
           }
-
+          TruncatedRangeDelIterator* range_tombstone_iter = nullptr;
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
               cfd->internal_comparator(), fmd, range_del_agg,
@@ -6629,10 +6680,13 @@ InternalIterator* VersionSet::MakeInputIterator(
               MaxFileSizeForL0MetaPin(*c->mutable_cf_options()),
               /*smallest_compaction_key=*/nullptr,
               /*largest_compaction_key=*/nullptr,
-              /*allow_unprepared_value=*/false);
+              /*allow_unprepared_value=*/false,
+              /*range_del_iter=*/&range_tombstone_iter);
+          range_tombstones.emplace_back(range_tombstone_iter, nullptr);
         }
       } else {
         // Create concatenating iterator for the files from this level
+        TruncatedRangeDelIterator*** tombstone_iter_ptr = nullptr;
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
@@ -6641,14 +6695,15 @@ InternalIterator* VersionSet::MakeInputIterator(
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
             /*level=*/static_cast<int>(c->level(which)), range_del_agg,
-            c->boundaries(which));
+            c->boundaries(which), false, &tombstone_iter_ptr);
+        range_tombstones.emplace_back(nullptr, tombstone_iter_ptr);
       }
     }
   }
   assert(num <= space);
-  InternalIterator* result =
-      NewMergingIterator(&c->column_family_data()->internal_comparator(), list,
-                         static_cast<int>(num));
+  InternalIterator* result = NewCompactionMergingIterator(
+      &c->column_family_data()->internal_comparator(), list,
+      static_cast<int>(num), range_tombstones);
   delete[] list;
   return result;
 }

@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 
@@ -607,4 +606,3 @@ void ThreadedWriter::DispatchIO(const IO& io) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif

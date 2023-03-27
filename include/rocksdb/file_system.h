@@ -273,12 +273,6 @@ class FileSystem : public Customizable {
   static const char* kDefaultName() { return "DefaultFileSystem"; }
 
   // Loads the FileSystem specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status Load(const std::string& value,
-                     std::shared_ptr<FileSystem>* result);
-
-  // Loads the FileSystem specified by the input value into the result
   // @see Customizable for a more detailed description of the parameters and
   // return codes
   // @param config_options Controls how the FileSystem is loaded
@@ -687,6 +681,10 @@ class FileSystem : public Customizable {
   virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
     return IOStatus::OK();
   }
+
+  // Indicates to upper layers whether the FileSystem supports/uses async IO
+  // or not
+  virtual bool use_async_io() { return true; }
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
@@ -1516,10 +1514,8 @@ class FileSystemWrapper : public FileSystem {
 
   const Customizable* Inner() const override { return target_.get(); }
   Status PrepareOptions(const ConfigOptions& options) override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
-#endif  // ROCKSDB_LITE
 
   virtual IOStatus Poll(std::vector<void*>& io_handles,
                         size_t min_completions) override {
@@ -1529,6 +1525,8 @@ class FileSystemWrapper : public FileSystem {
   virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
     return target_->AbortIO(io_handles);
   }
+
+  virtual bool use_async_io() override { return target_->use_async_io(); }
 
  protected:
   std::shared_ptr<FileSystem> target_;

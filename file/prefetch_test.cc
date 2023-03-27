@@ -13,6 +13,11 @@
 #endif
 #include "util/random.h"
 
+namespace {
+static bool enable_io_uring = true;
+extern "C" bool RocksDbIOUringEnable() { return enable_io_uring; }
+}  // namespace
+
 namespace ROCKSDB_NAMESPACE {
 
 class MockFS;
@@ -125,6 +130,7 @@ TEST_P(PrefetchTest, Basic) {
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options;
   SetGenericOptions(env.get(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
 
   const int kNumKeys = 1100;
   int buff_prefetch_count = 0;
@@ -167,8 +173,24 @@ TEST_P(PrefetchTest, Basic) {
   Slice least(start_key.data(), start_key.size());
   Slice greatest(end_key.data(), end_key.size());
 
+  HistogramData prev_table_open_prefetch_tail_read;
+  options.statistics->histogramData(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+                                    &prev_table_open_prefetch_tail_read);
+  const uint64_t prev_table_open_prefetch_tail_miss =
+      options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_MISS);
+  const uint64_t prev_table_open_prefetch_tail_hit =
+      options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_HIT);
+
   // commenting out the line below causes the example to work correctly
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  HistogramData cur_table_open_prefetch_tail_read;
+  options.statistics->histogramData(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+                                    &cur_table_open_prefetch_tail_read);
+  const uint64_t cur_table_open_prefetch_tail_miss =
+      options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_MISS);
+  const uint64_t cur_table_open_prefetch_tail_hit =
+      options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_HIT);
 
   if (support_prefetch && !use_direct_io) {
     // If underline file system supports prefetch, and directIO is not enabled
@@ -182,6 +204,12 @@ TEST_P(PrefetchTest, Basic) {
     // used.
     ASSERT_FALSE(fs->IsPrefetchCalled());
     ASSERT_GT(buff_prefetch_count, 0);
+    ASSERT_GT(cur_table_open_prefetch_tail_read.count,
+              prev_table_open_prefetch_tail_read.count);
+    ASSERT_GT(cur_table_open_prefetch_tail_hit,
+              prev_table_open_prefetch_tail_hit);
+    ASSERT_GE(cur_table_open_prefetch_tail_miss,
+              prev_table_open_prefetch_tail_miss);
     buff_prefetch_count = 0;
   }
 
@@ -207,7 +235,6 @@ TEST_P(PrefetchTest, Basic) {
   Close();
 }
 
-#ifndef ROCKSDB_LITE
 // This test verifies BlockBasedTableOptions.max_auto_readahead_size is
 // configured dynamically.
 TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
@@ -559,7 +586,6 @@ TEST_P(PrefetchTest, ConfigureNumFilesReadsForReadaheadSize) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   Close();
 }
-#endif  // !ROCKSDB_LITE
 
 // This test verifies the basic functionality of implicit autoreadahead:
 // - Enable implicit autoreadahead and prefetch only if sequential blocks are
@@ -949,7 +975,6 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
   Close();
 }
 
-#ifndef ROCKSDB_LITE
 // This test verifies the functionality of ReadOptions.adaptive_readahead.
 TEST_P(PrefetchTest, DBIterLevelReadAhead) {
   const int kNumKeys = 1000;
@@ -1158,7 +1183,104 @@ TEST_P(PrefetchTest, DBIterLevelReadAheadWithAsyncIO) {
   }
   Close();
 }
-#endif  //! ROCKSDB_LITE
+
+TEST_P(PrefetchTest, DBIterAsyncIONoIOUring) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
+  const int kNumKeys = 1000;
+  // Set options
+  bool use_direct_io = std::get<0>(GetParam());
+  bool is_adaptive_readahead = std::get<1>(GetParam());
+
+  Options options;
+  SetGenericOptions(Env::Default(), use_direct_io, options);
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  SetBlockBasedTableOptions(table_options);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  enable_io_uring = false;
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  WriteBatch batch;
+  Random rnd(309);
+  int total_keys = 0;
+  for (int j = 0; j < 5; j++) {
+    for (int i = j * kNumKeys; i < (j + 1) * kNumKeys; i++) {
+      ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+      total_keys++;
+    }
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(2);
+
+  // Test - Iterate over the keys sequentially.
+  {
+    ReadOptions ro;
+    if (is_adaptive_readahead) {
+      ro.adaptive_readahead = true;
+    }
+    ro.async_io = true;
+
+    ASSERT_OK(options.statistics->Reset());
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    int num_keys = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      num_keys++;
+    }
+    ASSERT_EQ(num_keys, total_keys);
+
+    // Check stats to make sure async prefetch is done.
+    {
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      ASSERT_EQ(async_read_bytes.count, 0);
+      ASSERT_EQ(options.statistics->getTickerCount(READ_ASYNC_MICROS), 0);
+    }
+  }
+
+  {
+    ReadOptions ro;
+    if (is_adaptive_readahead) {
+      ro.adaptive_readahead = true;
+    }
+    ro.async_io = true;
+    ro.tailing = true;
+
+    ASSERT_OK(options.statistics->Reset());
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    int num_keys = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      num_keys++;
+    }
+    ASSERT_EQ(num_keys, total_keys);
+
+    // Check stats to make sure async prefetch is done.
+    {
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      ASSERT_EQ(async_read_bytes.count, 0);
+      ASSERT_EQ(options.statistics->getTickerCount(READ_ASYNC_MICROS), 0);
+    }
+  }
+  Close();
+
+  enable_io_uring = true;
+}
 
 class PrefetchTest1 : public DBTestBase,
                       public ::testing::WithParamInterface<bool> {
@@ -1189,7 +1311,6 @@ class PrefetchTest1 : public DBTestBase,
 
 INSTANTIATE_TEST_CASE_P(PrefetchTest1, PrefetchTest1, ::testing::Bool());
 
-#ifndef ROCKSDB_LITE
 // This test verifies the functionality of ReadOptions.adaptive_readahead when
 // reads are not sequential.
 TEST_P(PrefetchTest1, NonSequentialReadsWithAdaptiveReadahead) {
@@ -1272,7 +1393,6 @@ TEST_P(PrefetchTest1, NonSequentialReadsWithAdaptiveReadahead) {
   }
   Close();
 }
-#endif  //! ROCKSDB_LITE
 
 // This test verifies the functionality of adaptive_readaheadsize with cache and
 // if block is found in cache, decrease the readahead_size if
@@ -1510,10 +1630,7 @@ TEST_P(PrefetchTest1, SeekParallelizationTest) {
   Close();
 }
 
-extern "C" bool RocksDbIOUringEnable() { return true; }
-
 namespace {
-#ifndef ROCKSDB_LITE
 #ifdef GFLAGS
 const int kMaxArgCount = 100;
 const size_t kArgBufferSize = 100000;
@@ -1538,7 +1655,6 @@ void RunIOTracerParserTool(std::string trace_file) {
   ASSERT_EQ(0, ROCKSDB_NAMESPACE::io_tracer_parser(argc, argv));
 }
 #endif  // GFLAGS
-#endif  // ROCKSDB_LITE
 }  // namespace
 
 // Tests the default implementation of ReadAsync API with PosixFileSystem during
@@ -1617,27 +1733,24 @@ TEST_P(PrefetchTest, ReadAsyncWithPosixFS) {
       num_keys++;
     }
 
-    ASSERT_EQ(num_keys, total_keys);
-    ASSERT_GT(buff_prefetch_count, 0);
-
-    // Check stats to make sure async prefetch is done.
-    {
+    if (read_async_called) {
+      ASSERT_EQ(num_keys, total_keys);
+      ASSERT_GT(buff_prefetch_count, 0);
+      // Check stats to make sure async prefetch is done.
       HistogramData async_read_bytes;
       options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
       HistogramData prefetched_bytes_discarded;
       options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
                                         &prefetched_bytes_discarded);
-
+      ASSERT_GT(async_read_bytes.count, 0);
+      ASSERT_GT(prefetched_bytes_discarded.count, 0);
+      ASSERT_EQ(get_perf_context()->number_async_seek, 0);
+    } else {
       // Not all platforms support iouring. In that case, ReadAsync in posix
       // won't submit async requests.
-      if (read_async_called) {
-        ASSERT_GT(async_read_bytes.count, 0);
-      } else {
-        ASSERT_EQ(async_read_bytes.count, 0);
-      }
-      ASSERT_GT(prefetched_bytes_discarded.count, 0);
+      ASSERT_EQ(num_keys, total_keys);
+      ASSERT_EQ(buff_prefetch_count, 0);
     }
-    ASSERT_EQ(get_perf_context()->number_async_seek, 0);
   }
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -1748,22 +1861,20 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
         num_keys++;
         iter->Next();
       }
+
       ASSERT_OK(iter->status());
       ASSERT_EQ(num_keys, num_keys_first_batch);
       // Check stats to make sure async prefetch is done.
-      {
-        HistogramData async_read_bytes;
-        options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
-
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      if (read_async_called) {
+        ASSERT_GT(async_read_bytes.count, 0);
+        ASSERT_GT(get_perf_context()->number_async_seek, 0);
+      } else {
         // Not all platforms support iouring. In that case, ReadAsync in posix
         // won't submit async requests.
-        if (read_async_called) {
-          ASSERT_GT(async_read_bytes.count, 0);
-          ASSERT_GT(get_perf_context()->number_async_seek, 0);
-        } else {
-          ASSERT_EQ(async_read_bytes.count, 0);
-          ASSERT_EQ(get_perf_context()->number_async_seek, 0);
-        }
+        ASSERT_EQ(async_read_bytes.count, 0);
+        ASSERT_EQ(get_perf_context()->number_async_seek, 0);
       }
     }
 
@@ -1779,29 +1890,27 @@ TEST_P(PrefetchTest, MultipleSeekWithPosixFS) {
         num_keys++;
         iter->Next();
       }
+
       ASSERT_OK(iter->status());
       ASSERT_EQ(num_keys, num_keys_second_batch);
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      HistogramData prefetched_bytes_discarded;
+      options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
+                                        &prefetched_bytes_discarded);
+      ASSERT_GT(prefetched_bytes_discarded.count, 0);
 
-      ASSERT_GT(buff_prefetch_count, 0);
+      if (read_async_called) {
+        ASSERT_GT(buff_prefetch_count, 0);
 
-      // Check stats to make sure async prefetch is done.
-      {
-        HistogramData async_read_bytes;
-        options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
-        HistogramData prefetched_bytes_discarded;
-        options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
-                                          &prefetched_bytes_discarded);
-
+        // Check stats to make sure async prefetch is done.
+        ASSERT_GT(async_read_bytes.count, 0);
+        ASSERT_GT(get_perf_context()->number_async_seek, 0);
+      } else {
         // Not all platforms support iouring. In that case, ReadAsync in posix
         // won't submit async requests.
-        if (read_async_called) {
-          ASSERT_GT(async_read_bytes.count, 0);
-          ASSERT_GT(get_perf_context()->number_async_seek, 0);
-        } else {
-          ASSERT_EQ(async_read_bytes.count, 0);
-          ASSERT_EQ(get_perf_context()->number_async_seek, 0);
-        }
-        ASSERT_GT(prefetched_bytes_discarded.count, 0);
+        ASSERT_EQ(async_read_bytes.count, 0);
+        ASSERT_EQ(get_perf_context()->number_async_seek, 0);
       }
     }
   }
@@ -1901,35 +2010,28 @@ TEST_P(PrefetchTest, SeekParallelizationTestWithPosix) {
 
     // Prefetch data.
     iter->Next();
-    ASSERT_TRUE(iter->Valid());
 
-    // Check stats to make sure async prefetch is done.
-    {
-      HistogramData async_read_bytes;
-      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+    ASSERT_TRUE(iter->Valid());
+    HistogramData async_read_bytes;
+    options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+    if (read_async_called) {
+      ASSERT_GT(async_read_bytes.count, 0);
+      ASSERT_GT(get_perf_context()->number_async_seek, 0);
+      if (std::get<1>(GetParam())) {
+        ASSERT_EQ(buff_prefetch_count, 1);
+      } else {
+        ASSERT_EQ(buff_prefetch_count, 2);
+      }
+    } else {
       // Not all platforms support iouring. In that case, ReadAsync in posix
       // won't submit async requests.
-      if (read_async_called) {
-        ASSERT_GT(async_read_bytes.count, 0);
-        ASSERT_GT(get_perf_context()->number_async_seek, 0);
-        if (std::get<1>(GetParam())) {
-          ASSERT_EQ(buff_prefetch_count, 1);
-        } else {
-          ASSERT_EQ(buff_prefetch_count, 2);
-        }
-      } else {
-        ASSERT_EQ(async_read_bytes.count, 0);
-        ASSERT_EQ(get_perf_context()->number_async_seek, 0);
-        ASSERT_EQ(buff_prefetch_count, 1);
-      }
+      ASSERT_EQ(async_read_bytes.count, 0);
+      ASSERT_EQ(get_perf_context()->number_async_seek, 0);
     }
-
-    buff_prefetch_count = 0;
   }
   Close();
 }
 
-#ifndef ROCKSDB_LITE
 #ifdef GFLAGS
 // This test verifies io_tracing with PosixFileSystem during prefetching.
 TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
@@ -2019,19 +2121,16 @@ TEST_P(PrefetchTest, TraceReadAsyncWithCallbackWrapper) {
     ASSERT_OK(env_->FileExists(trace_file_path));
 
     ASSERT_EQ(num_keys, total_keys);
-    ASSERT_GT(buff_prefetch_count, 0);
-
-    // Check stats to make sure async prefetch is done.
-    {
-      HistogramData async_read_bytes;
-      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+    HistogramData async_read_bytes;
+    options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+    if (read_async_called) {
+      ASSERT_GT(buff_prefetch_count, 0);
+      // Check stats to make sure async prefetch is done.
+      ASSERT_GT(async_read_bytes.count, 0);
+    } else {
       // Not all platforms support iouring. In that case, ReadAsync in posix
       // won't submit async requests.
-      if (read_async_called) {
-        ASSERT_GT(async_read_bytes.count, 0);
-      } else {
-        ASSERT_EQ(async_read_bytes.count, 0);
-      }
+      ASSERT_EQ(async_read_bytes.count, 0);
     }
 
     // Check the file to see if ReadAsync is logged.
@@ -2111,8 +2210,13 @@ TEST_F(FilePrefetchBufferTest, SeekWithBlockCacheHit) {
   // Simulate a seek of 4096 bytes at offset 0. Due to the readahead settings,
   // it will do two reads of 4096+8192 and 8192
   Status s = fpb.PrefetchAsync(IOOptions(), r.get(), 0, 4096, &result);
-  // Platforms that don't have IO uring may not support async IO
-  ASSERT_TRUE(s.IsTryAgain() || s.IsNotSupported());
+
+  // Platforms that don't have IO uring may not support async IO.
+  if (s.IsNotSupported()) {
+    return;
+  }
+
+  ASSERT_TRUE(s.IsTryAgain());
   // Simulate a block cache hit
   fpb.UpdateReadPattern(0, 4096, false);
   // Now read some data that straddles the two prefetch buffers - offset 8192 to
@@ -2146,9 +2250,13 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   // Simulate a seek of 4000 bytes at offset 3000. Due to the readahead
   // settings, it will do two reads of 4000+4096 and 4096
   Status s = fpb.PrefetchAsync(IOOptions(), r.get(), 3000, 4000, &async_result);
-  // Platforms that don't have IO uring may not support async IO
-  ASSERT_TRUE(s.IsTryAgain() || s.IsNotSupported());
 
+  // Platforms that don't have IO uring may not support async IO
+  if (s.IsNotSupported()) {
+    return;
+  }
+
+  ASSERT_TRUE(s.IsTryAgain());
   ASSERT_TRUE(fpb.TryReadFromCacheAsync(IOOptions(), r.get(), /*offset=*/3000,
                                         /*length=*/4000, &async_result, &s,
                                         Env::IOPriority::IO_LOW));
@@ -2167,7 +2275,6 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   ASSERT_EQ(result, async_result);
 }
 
-#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

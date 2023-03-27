@@ -22,7 +22,6 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 
 void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
-#ifndef ROCKSDB_LITE
   if (replay_log) {
     if (replay_log->empty()) {
       // Optimization: in the common case of only one operation in the
@@ -32,11 +31,6 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
     replay_log->push_back(type);
     PutLengthPrefixedSlice(replay_log, value);
   }
-#else
-  (void)replay_log;
-  (void)type;
-  (void)value;
-#endif  // ROCKSDB_LITE
 }
 
 }  // namespace
@@ -306,6 +300,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (kNotFound == state_) {
           state_ = kFound;
           if (do_merge_) {
+            if (type == kTypeBlobIndex && ucmp_->timestamp_size() != 0) {
+              ukey_with_ts_found_.PinSelf(parsed_key.user_key);
+            }
             if (LIKELY(pinnable_val_ != nullptr)) {
               Slice value_to_use = value;
 
@@ -345,7 +342,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // merge_context_->operand_list
             if (type == kTypeBlobIndex) {
               PinnableSlice pin_val;
-              if (GetBlobValue(value, &pin_val) == false) {
+              if (GetBlobValue(parsed_key.user_key, value, &pin_val) == false) {
                 return false;
               }
               Slice blob_value(pin_val);
@@ -371,7 +368,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           assert(merge_operator_ != nullptr);
           if (type == kTypeBlobIndex) {
             PinnableSlice pin_val;
-            if (GetBlobValue(value, &pin_val) == false) {
+            if (GetBlobValue(parsed_key.user_key, value, &pin_val) == false) {
               return false;
             }
             Slice blob_value(pin_val);
@@ -445,6 +442,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         state_ = kMerge;
         // value_pinner is not set from plain_table_reader.cc for example.
         push_operand(value, value_pinner);
+        PERF_COUNTER_ADD(internal_merge_point_lookup_count, 1);
+
         if (do_merge_ && merge_operator_ != nullptr &&
             merge_operator_->ShouldMerge(
                 merge_context_->GetOperandsDirectionBackward())) {
@@ -477,7 +476,11 @@ void GetContext::Merge(const Slice* value) {
       /* update_num_ops_stats */ true,
       /* op_failure_scope */ nullptr);
   if (!s.ok()) {
-    state_ = kCorrupt;
+    if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+      state_ = kMergeOperatorFailed;
+    } else {
+      state_ = kCorrupt;
+    }
     return;
   }
 
@@ -488,7 +491,7 @@ void GetContext::Merge(const Slice* value) {
   }
 
   assert(columns_);
-  columns_->SetPlainValue(result);
+  columns_->SetPlainValue(std::move(result));
 }
 
 void GetContext::MergeWithEntity(Slice entity) {
@@ -517,7 +520,11 @@ void GetContext::MergeWithEntity(Slice entity) {
           /* update_num_ops_stats */ true,
           /* op_failure_scope */ nullptr);
       if (!s.ok()) {
-        state_ = kCorrupt;
+        if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+          state_ = kMergeOperatorFailed;
+        } else {
+          state_ = kCorrupt;
+        }
         return;
       }
     }
@@ -536,14 +543,18 @@ void GetContext::MergeWithEntity(Slice entity) {
         &result, logger_, statistics_, clock_, /* update_num_ops_stats */ true,
         /* op_failure_scope */ nullptr);
     if (!s.ok()) {
-      state_ = kCorrupt;
+      if (s.subcode() == Status::SubCode::kMergeOperatorFailed) {
+        state_ = kMergeOperatorFailed;
+      } else {
+        state_ = kCorrupt;
+      }
       return;
     }
   }
 
   {
     assert(columns_);
-    const Status s = columns_->SetWideColumnValue(result);
+    const Status s = columns_->SetWideColumnValue(std::move(result));
     if (!s.ok()) {
       state_ = kCorrupt;
       return;
@@ -551,13 +562,13 @@ void GetContext::MergeWithEntity(Slice entity) {
   }
 }
 
-bool GetContext::GetBlobValue(const Slice& blob_index,
+bool GetContext::GetBlobValue(const Slice& user_key, const Slice& blob_index,
                               PinnableSlice* blob_value) {
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
   Status status = blob_fetcher_->FetchBlob(
-      user_key_, blob_index, prefetch_buffer, blob_value, bytes_read);
+      user_key, blob_index, prefetch_buffer, blob_value, bytes_read);
   if (!status.ok()) {
     if (status.IsIncomplete()) {
       // FIXME: this code is not covered by unit tests
@@ -584,7 +595,6 @@ void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context, Cleanable* value_pinner) {
-#ifndef ROCKSDB_LITE
   Slice s = replay_log;
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
@@ -601,13 +611,6 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
         ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
         &dont_care, value_pinner);
   }
-#else   // ROCKSDB_LITE
-  (void)replay_log;
-  (void)user_key;
-  (void)get_context;
-  (void)value_pinner;
-  assert(false);
-#endif  // ROCKSDB_LITE
 }
 
 }  // namespace ROCKSDB_NAMESPACE

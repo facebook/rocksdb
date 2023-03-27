@@ -36,16 +36,6 @@ public enum HistogramType {
 
   WRITE_RAW_BLOCK_MICROS((byte) 0xC),
 
-  STALL_L0_SLOWDOWN_COUNT((byte) 0xD),
-
-  STALL_MEMTABLE_COMPACTION_COUNT((byte) 0xE),
-
-  STALL_L0_NUM_FILES_COUNT((byte) 0xF),
-
-  HARD_RATE_LIMIT_DELAY_COUNT((byte) 0x10),
-
-  SOFT_RATE_LIMIT_DELAY_COUNT((byte) 0x11),
-
   NUM_FILES_IN_SINGLE_COMPACTION((byte) 0x12),
 
   DB_SEEK((byte) 0x13),
@@ -145,11 +135,6 @@ public enum HistogramType {
   BLOB_DB_BLOB_FILE_SYNC_MICROS((byte) 0x2B),
 
   /**
-   * BlobDB garbage collection time.
-   */
-  BLOB_DB_GC_MICROS((byte) 0x2C),
-
-  /**
    * BlobDB compression time.
    */
   BLOB_DB_COMPRESSION_MICROS((byte) 0x2D),
@@ -166,11 +151,6 @@ public enum HistogramType {
   NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL((byte) 0x2F),
 
   /**
-   * Num of Data blocks read from file system per level in MultiGet request.
-   */
-  NUM_DATA_BLOCKS_READ_PER_LEVEL((byte) 0x30),
-
-  /**
    * Num of SST files read from file system per level in MultiGet request.
    */
   NUM_SST_READ_PER_LEVEL((byte) 0x31),
@@ -181,6 +161,13 @@ public enum HistogramType {
   ERROR_HANDLER_AUTORESUME_RETRY_COUNT((byte) 0x32),
 
   ASYNC_READ_BYTES((byte) 0x33),
+
+  /**
+   * Number of bytes read for RocksDB's prefetching contents
+   * (as opposed to file system's prefetch)
+   * from the end of SST table during block based table open
+   */
+  TABLE_OPEN_PREFETCH_TAIL_READ_BYTES((byte) 0x39),
 
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);

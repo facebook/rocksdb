@@ -5,7 +5,6 @@
 
 #include "cache/cache_key.h"
 #include "table/block_based/block_based_table_reader.h"
-#ifndef ROCKSDB_LITE
 
 #include "cache/cache_entry_roles.h"
 #include "file/writable_file_writer.h"
@@ -368,4 +367,3 @@ IOStatus CacheDumpedLoaderImpl::ReadCacheBlock(std::string* data,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

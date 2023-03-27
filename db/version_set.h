@@ -33,6 +33,7 @@
 
 #include "cache/cache_helpers.h"
 #include "db/blob/blob_file_meta.h"
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/compaction_picker.h"
@@ -889,8 +890,15 @@ class Version {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
-  using BlobReadContext =
-      std::pair<BlobIndex, std::reference_wrapper<const KeyContext>>;
+  struct BlobReadContext {
+    BlobReadContext(const BlobIndex& blob_idx, const KeyContext* key_ctx)
+        : blob_index(blob_idx), key_context(key_ctx) {}
+
+    BlobIndex blob_index;
+    const KeyContext* key_context;
+    PinnableSlice result;
+  };
+
   using BlobReadContexts = std::vector<BlobReadContext>;
   void MultiGetBlob(const ReadOptions& read_options, MultiGetRange& range,
                     std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs);
@@ -1067,6 +1075,7 @@ class Version {
   // used for debugging and logging purposes only.
   uint64_t version_number_;
   std::shared_ptr<IOTracer> io_tracer_;
+  bool use_async_io_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
           MutableCFOptions mutable_cf_options,
@@ -1226,7 +1235,6 @@ class VersionSet {
       const std::string& manifest_path, FileSystem* fs,
       std::vector<std::string>* column_families);
 
-#ifndef ROCKSDB_LITE
   // Try to reduce the number of levels. This call is valid when
   // only one level from the new max level to the old
   // max level containing files.
@@ -1248,7 +1256,6 @@ class VersionSet {
   Status DumpManifest(Options& options, std::string& manifestFileName,
                       bool verbose, bool hex = false, bool json = false);
 
-#endif  // ROCKSDB_LITE
 
   const std::string& DbSessionId() const { return db_session_id_; }
 

@@ -496,12 +496,6 @@ if(CMAKE_COMPILER_IS_GNUCXX)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-builtin-memcmp")
 endif()
 
-option(ROCKSDB_LITE "Build RocksDBLite version" OFF)
-if(ROCKSDB_LITE)
-  add_definitions(-DROCKSDB_LITE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -Os")
-endif()
-
 if(CMAKE_SYSTEM_NAME MATCHES "Cygwin")
   add_definitions(-fno-builtin-memcmp -DCYGWIN)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
@@ -667,6 +661,7 @@ set(SOURCES
         cache/compressed_secondary_cache.cc
         cache/lru_cache.cc
         cache/secondary_cache.cc
+        cache/secondary_cache_adapter.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_contents.cc
@@ -753,6 +748,7 @@ set(SOURCES
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc
+        db/write_stall_stats.cc
         db/write_thread.cc
         env/composite_env.cc
         env/env.cc
@@ -844,6 +840,7 @@ set(SOURCES
         table/get_context.cc
         table/iterator.cc
         table/merging_iterator.cc
+        table/compaction_merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
         table/plain/plain_table_bloom.cc
@@ -885,6 +882,7 @@ set(SOURCES
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
+        util/data_structure.cc
         util/dynamic_bloom.cc
         util/hash.cc
         util/murmurhash.cc
@@ -1283,6 +1281,7 @@ if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/mock_time_env.cc
+  test_util/secondary_cache_test_util.cc
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()

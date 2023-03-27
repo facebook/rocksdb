@@ -6,16 +6,13 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#ifndef ROCKSDB_LITE
 
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/stack_trace.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/sst_file_manager.h"
-#if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
-#endif
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
@@ -2863,13 +2860,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // ROCKSDB_LITE

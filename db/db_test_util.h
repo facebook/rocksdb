@@ -695,7 +695,6 @@ class SpecialEnv : public EnvWrapper {
   bool no_slowdown_;
 };
 
-#ifndef ROCKSDB_LITE
 class FileTemperatureTestFS : public FileSystemWrapper {
  public:
   explicit FileTemperatureTestFS(const std::shared_ptr<FileSystem>& fs)
@@ -870,7 +869,6 @@ class FlushCounterListener : public EventListener {
     ASSERT_EQ(expected_flush_reason.load(), flush_job_info.flush_reason);
   }
 };
-#endif
 
 // A test merge operator mimics put but also fails if one of merge operands is
 // "corrupted", "corrupted_try_merge", or "corrupted_must_merge".
@@ -911,82 +909,6 @@ class TestPutOperator : public MergeOperator {
   virtual const char* Name() const override { return "TestPutOperator"; }
 };
 
-// A wrapper around Cache that can easily be extended with instrumentation,
-// etc.
-class CacheWrapper : public Cache {
- public:
-  explicit CacheWrapper(std::shared_ptr<Cache> target)
-      : target_(std::move(target)) {}
-
-  const char* Name() const override { return target_->Name(); }
-
-  Status Insert(const Slice& key, ObjectPtr value,
-                const CacheItemHelper* helper, size_t charge,
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
-    return target_->Insert(key, value, helper, charge, handle, priority);
-  }
-
-  Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
-                 CreateContext* create_context,
-                 Priority priority = Priority::LOW, bool wait = true,
-                 Statistics* stats = nullptr) override {
-    return target_->Lookup(key, helper, create_context, priority, wait, stats);
-  }
-
-  bool Ref(Handle* handle) override { return target_->Ref(handle); }
-
-  using Cache::Release;
-  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
-    return target_->Release(handle, erase_if_last_ref);
-  }
-
-  ObjectPtr Value(Handle* handle) override { return target_->Value(handle); }
-
-  void Erase(const Slice& key) override { target_->Erase(key); }
-  uint64_t NewId() override { return target_->NewId(); }
-
-  void SetCapacity(size_t capacity) override { target_->SetCapacity(capacity); }
-
-  void SetStrictCapacityLimit(bool strict_capacity_limit) override {
-    target_->SetStrictCapacityLimit(strict_capacity_limit);
-  }
-
-  bool HasStrictCapacityLimit() const override {
-    return target_->HasStrictCapacityLimit();
-  }
-
-  size_t GetCapacity() const override { return target_->GetCapacity(); }
-
-  size_t GetUsage() const override { return target_->GetUsage(); }
-
-  size_t GetUsage(Handle* handle) const override {
-    return target_->GetUsage(handle);
-  }
-
-  size_t GetPinnedUsage() const override { return target_->GetPinnedUsage(); }
-
-  size_t GetCharge(Handle* handle) const override {
-    return target_->GetCharge(handle);
-  }
-
-  const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override {
-    return target_->GetCacheItemHelper(handle);
-  }
-
-  void ApplyToAllEntries(
-      const std::function<void(const Slice& key, ObjectPtr value, size_t charge,
-                               const CacheItemHelper* helper)>& callback,
-      const ApplyToAllEntriesOptions& opts) override {
-    target_->ApplyToAllEntries(callback, opts);
-  }
-
-  void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
-
- protected:
-  std::shared_ptr<Cache> target_;
-};
-
 /*
  * A cache wrapper that tracks certain CacheEntryRole's cache charge, its
  * peaks and increments
@@ -1003,6 +925,8 @@ template <CacheEntryRole R>
 class TargetCacheChargeTrackingCache : public CacheWrapper {
  public:
   explicit TargetCacheChargeTrackingCache(std::shared_ptr<Cache> target);
+
+  const char* Name() const override { return "TargetCacheChargeTrackingCache"; }
 
   Status Insert(const Slice& key, ObjectPtr value,
                 const CacheItemHelper* helper, size_t charge,
@@ -1056,16 +980,15 @@ class DBTestBase : public testing::Test {
     kHashSkipList = 18,
     kUniversalCompaction = 19,
     kUniversalCompactionMultiLevel = 20,
-    kCompressedBlockCache = 21,
-    kInfiniteMaxOpenFiles = 22,
-    kCRC32cChecksum = 23,
-    kFIFOCompaction = 24,
-    kOptimizeFiltersForHits = 25,
-    kRowCache = 26,
-    kRecycleLogFiles = 27,
-    kConcurrentSkipList = 28,
-    kPipelinedWrite = 29,
-    kConcurrentWALWrites = 30,
+    kInfiniteMaxOpenFiles = 21,
+    kCRC32cChecksum = 22,
+    kFIFOCompaction = 23,
+    kOptimizeFiltersForHits = 24,
+    kRowCache = 25,
+    kRecycleLogFiles = 26,
+    kConcurrentSkipList = 27,
+    kPipelinedWrite = 28,
+    kConcurrentWALWrites = 29,
     kDirectIO,
     kLevelSubcompactions,
     kBlockBasedTableWithIndexRestartInterval,
@@ -1261,7 +1184,6 @@ class DBTestBase : public testing::Test {
                                      const std::vector<std::string>& cfs,
                                      const Options& options);
 
-#ifndef ROCKSDB_LITE
   int NumSortedRuns(int cf = 0);
 
   uint64_t TotalSize(int cf = 0);
@@ -1277,7 +1199,6 @@ class DBTestBase : public testing::Test {
   double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
-#endif  // ROCKSDB_LITE
 
   std::vector<uint64_t> GetBlobFileNumbers();
 
@@ -1313,9 +1234,7 @@ class DBTestBase : public testing::Test {
 
   void MoveFilesToLevel(int level, int cf = 0);
 
-#ifndef ROCKSDB_LITE
   void DumpFileCounts(const char* label);
-#endif  // ROCKSDB_LITE
 
   std::string DumpSSTableList();
 
@@ -1384,12 +1303,10 @@ class DBTestBase : public testing::Test {
   void VerifyDBInternal(
       std::vector<std::pair<std::string, std::string>> true_data);
 
-#ifndef ROCKSDB_LITE
   uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
                                               std::string column_family_name);
 
   uint64_t GetSstSizeHelper(Temperature temperature);
-#endif  // ROCKSDB_LITE
 
   uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
     return options.statistics->getTickerCount(ticker_type);

@@ -194,12 +194,6 @@ enum class BackgroundErrorReason {
   kManifestWriteNoWAL,
 };
 
-enum class WriteStallCondition {
-  kNormal,
-  kDelayed,
-  kStopped,
-};
-
 struct WriteStallInfo {
   // the name of the column family
   std::string cf_name;
@@ -210,7 +204,6 @@ struct WriteStallInfo {
   } condition;
 };
 
-#ifndef ROCKSDB_LITE
 
 struct FileDeletionInfo {
   FileDeletionInfo() = default;
@@ -843,11 +836,5 @@ class EventListener : public Customizable {
   ~EventListener() override {}
 };
 
-#else
-
-class EventListener {};
-struct FlushJobInfo {};
-
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

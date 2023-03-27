@@ -60,7 +60,6 @@
 //   in the table's meta section to speed up ScanTable.
 
 #include "db/version_builder.h"
-#ifndef ROCKSDB_LITE
 
 #include <cinttypes>
 
@@ -811,4 +810,3 @@ Status RepairDB(const std::string& dbname, const Options& options) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

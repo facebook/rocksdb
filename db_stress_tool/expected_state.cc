@@ -254,7 +254,6 @@ Status FileExpectedStateManager::Open() {
   return s;
 }
 
-#ifndef ROCKSDB_LITE
 Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   SequenceNumber seqno = db->GetLatestSequenceNumber();
 
@@ -322,17 +321,11 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   }
   return s;
 }
-#else   // ROCKSDB_LITE
-Status FileExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
-  return Status::NotSupported();
-}
-#endif  // ROCKSDB_LITE
 
 bool FileExpectedStateManager::HasHistory() {
   return saved_seqno_ != kMaxSequenceNumber;
 }
 
-#ifndef ROCKSDB_LITE
 
 namespace {
 
@@ -423,16 +416,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                 entity.ToString(/* hex */ true));
     }
 
-    if (columns.empty() || columns[0].name() != kDefaultWideColumnName) {
-      return Status::Corruption("Cannot find default column in entity",
-                                entity.ToString(/* hex */ true));
-    }
-
-    const Slice& value_of_default = columns[0].value();
-
-    const uint32_t value_base = GetValueBase(value_of_default);
-
-    if (columns != GenerateExpectedWideColumns(value_base, value_of_default)) {
+    if (!VerifyWideColumns(columns)) {
       return Status::Corruption("Wide columns in entity inconsistent",
                                 entity.ToString(/* hex */ true));
     }
@@ -441,6 +425,11 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
       return WriteBatchInternal::PutEntity(buffered_writes_.get(),
                                            column_family_id, key, columns);
     }
+
+    assert(!columns.empty());
+    assert(columns.front().name() == kDefaultWideColumnName);
+
+    const uint32_t value_base = GetValueBase(columns.front().value());
 
     state_->Put(column_family_id, static_cast<int64_t>(key_id), value_base,
                 false /* pending */);
@@ -683,11 +672,6 @@ Status FileExpectedStateManager::Restore(DB* db) {
   }
   return s;
 }
-#else   // ROCKSDB_LITE
-Status FileExpectedStateManager::Restore(DB* /* db */) {
-  return Status::NotSupported();
-}
-#endif  // ROCKSDB_LITE
 
 Status FileExpectedStateManager::Clean() {
   std::vector<std::string> expected_state_dir_children;

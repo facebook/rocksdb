@@ -12,6 +12,7 @@
 #include "db/range_del_aggregator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/types.h"
+#include "table/iterator_wrapper.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -23,7 +24,7 @@ template <class TValue>
 class InternalIteratorBase;
 using InternalIterator = InternalIteratorBase<Slice>;
 
-// Return an iterator that provided the union of the data in
+// Return an iterator that provides the union of the data in
 // children[0,n-1].  Takes ownership of the child iterators and
 // will delete them when the result iterator is deleted.
 //
@@ -35,11 +36,15 @@ extern InternalIterator* NewMergingIterator(
     const InternalKeyComparator* comparator, InternalIterator** children, int n,
     Arena* arena = nullptr, bool prefix_seek_mode = false);
 
+// The iterator returned by NewMergingIterator() and
+// MergeIteratorBuilder::Finish(). MergingIterator handles the merging of data
+// from different point and/or range tombstone iterators.
 class MergingIterator;
 
-// A builder class to build a merging iterator by adding iterators one by one.
-// User should call only one of AddIterator() or AddPointAndTombstoneIterator()
-// exclusively for the same builder.
+// A builder class to for an iterator that provides the union of data
+// of input iterators. Two APIs are provided to add input iterators. User should
+// only call one of them exclusively depending on if range tombstone should be
+// processed.
 class MergeIteratorBuilder {
  public:
   // comparator: the comparator used in merging comparator
@@ -49,7 +54,7 @@ class MergeIteratorBuilder {
                                 const Slice* iterate_upper_bound = nullptr);
   ~MergeIteratorBuilder();
 
-  // Add iter to the merging iterator.
+  // Add point key iterator `iter` to the merging iterator.
   void AddIterator(InternalIterator* iter);
 
   // Add a point key iterator and a range tombstone iterator.

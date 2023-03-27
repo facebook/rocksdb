@@ -341,11 +341,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       } else {
         assert(!skipping_saved_key ||
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
-        if (!iter_.PrepareValue()) {
-          assert(!iter_.status().ok());
-          valid_ = false;
-          return false;
-        }
         num_skipped = 0;
         reseek_done = false;
         switch (ikey_.type) {
@@ -369,6 +364,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeValue:
           case kTypeBlobIndex:
           case kTypeWideColumnEntity:
+            if (!iter_.PrepareValue()) {
+              assert(!iter_.status().ok());
+              valid_ = false;
+              return false;
+            }
             if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
             } else {
@@ -397,6 +397,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             return true;
             break;
           case kTypeMerge:
+            if (!iter_.PrepareValue()) {
+              assert(!iter_.status().ok());
+              valid_ = false;
+              return false;
+            }
             saved_key_.SetUserKey(
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
@@ -516,6 +521,8 @@ bool DBIter::MergeValuesNewToOld() {
   // Start the merge process by pushing the first operand
   merge_context_.PushOperand(
       iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+  PERF_COUNTER_ADD(internal_merge_count, 1);
+
   TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
@@ -872,9 +879,14 @@ bool DBIter::FindValueForCurrentKey() {
     if (timestamp_lb_ != nullptr) {
       // Only needed when timestamp_lb_ is not null
       [[maybe_unused]] const bool ret = ParseKey(&ikey_);
-      saved_ikey_.assign(iter_.key().data(), iter_.key().size());
       // Since the preceding ParseKey(&ikey) succeeds, so must this.
       assert(ret);
+      saved_key_.SetInternalKey(ikey);
+    } else if (user_comparator_.Compare(ikey.user_key,
+                                        saved_key_.GetUserKey()) < 0) {
+      saved_key_.SetUserKey(
+          ikey.user_key,
+          !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
     }
 
     valid_entry_seen = true;
@@ -959,7 +971,6 @@ bool DBIter::FindValueForCurrentKey() {
       if (timestamp_lb_ == nullptr) {
         valid_ = false;
       } else {
-        saved_key_.SetInternalKey(saved_ikey_);
         valid_ = true;
       }
       return true;
@@ -1005,10 +1016,6 @@ bool DBIter::FindValueForCurrentKey() {
       }
       break;
     case kTypeValue:
-      if (timestamp_lb_ != nullptr) {
-        saved_key_.SetInternalKey(saved_ikey_);
-      }
-
       SetValueAndColumnsFromPlain(pinned_value_);
 
       break;
@@ -1154,6 +1161,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   merge_context_.Clear();
   merge_context_.PushOperand(
       iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+  PERF_COUNTER_ADD(internal_merge_count, 1);
+
   while (true) {
     iter_.Next();
 
@@ -1428,9 +1437,8 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
     if (timestamp_size_ > 0) {
       const std::string kTsMax(timestamp_size_, '\xff');
       Slice ts = kTsMax;
-      saved_key_.UpdateInternalKey(
-          kMaxSequenceNumber, kValueTypeForSeekForPrev,
-          timestamp_lb_ != nullptr ? timestamp_lb_ : &ts);
+      saved_key_.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeekForPrev,
+                                   &ts);
     }
   }
 }
@@ -1439,7 +1447,6 @@ void DBIter::Seek(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-#ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
@@ -1456,7 +1463,6 @@ void DBIter::Seek(const Slice& target) {
     db_impl_->TraceIteratorSeek(cfd_->GetID(), target, lower_bound, upper_bound)
         .PermitUncheckedError();
   }
-#endif  // ROCKSDB_LITE
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
@@ -1514,7 +1520,6 @@ void DBIter::SeekForPrev(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   StopWatch sw(clock_, statistics_, DB_SEEK);
 
-#ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
     Slice lower_bound, upper_bound;
@@ -1533,7 +1538,6 @@ void DBIter::SeekForPrev(const Slice& target) {
                                    upper_bound)
         .PermitUncheckedError();
   }
-#endif  // ROCKSDB_LITE
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
@@ -1636,24 +1640,15 @@ void DBIter::SeekToLast() {
   if (iterate_upper_bound_ != nullptr) {
     // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
     SeekForPrev(*iterate_upper_bound_);
-    const bool is_ikey = (timestamp_size_ > 0 && timestamp_lb_ != nullptr);
+#ifndef NDEBUG
     Slice k = Valid() ? key() : Slice();
-    if (is_ikey && Valid()) {
+    if (Valid() && timestamp_size_ > 0 && timestamp_lb_) {
       k.remove_suffix(kNumInternalBytes + timestamp_size_);
     }
-    while (Valid() && 0 == user_comparator_.CompareWithoutTimestamp(
-                               *iterate_upper_bound_, /*a_has_ts=*/false, k,
-                               /*b_has_ts=*/false)) {
-      ReleaseTempPinnedData();
-      ResetBlobValue();
-      ResetValueAndColumns();
-      PrevInternal(nullptr);
-
-      k = key();
-      if (is_ikey) {
-        k.remove_suffix(kNumInternalBytes + timestamp_size_);
-      }
-    }
+    assert(!Valid() || user_comparator_.CompareWithoutTimestamp(
+                           k, /*a_has_ts=*/false, *iterate_upper_bound_,
+                           /*b_has_ts=*/false) < 0);
+#endif
     return;
   }
 

@@ -27,7 +27,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
   assert(log_read_status);
   assert(log_read_status->ok());
 
-  size_t recovered_edits = 0;
+  [[maybe_unused]] size_t recovered_edits = 0;
   Status s = Initialize();
   while (reader.LastRecordEnd() < max_manifest_read_size_ && s.ok() &&
          reader.ReadRecord(&record, &scratch) && log_read_status->ok()) {

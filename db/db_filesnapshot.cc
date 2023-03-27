@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <cstdint>
@@ -35,11 +34,8 @@ Status DBImpl::FlushForGetLiveFiles() {
   // flush all dirty data to disk.
   Status status;
   if (immutable_db_options_.atomic_flush) {
-    autovector<ColumnFamilyData*> cfds;
-    SelectColumnFamiliesForAtomicFlush(&cfds);
     mutex_.Unlock();
-    status =
-        AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kGetLiveFiles);
+    status = AtomicFlushMemTables(FlushOptions(), FlushReason::kGetLiveFiles);
     if (status.IsColumnFamilyDropped()) {
       status = Status::OK();
     }
@@ -438,5 +434,3 @@ Status DBImpl::GetLiveFilesStorageInfo(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#endif  // ROCKSDB_LITE

@@ -134,7 +134,6 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   return retriever.status();
 }
 
-#ifndef ROCKSDB_LITE
 namespace {
 static int RegisterFileChecksumGenFactories(ObjectLibrary& library,
                                             const std::string& /*arg*/) {
@@ -149,23 +148,19 @@ static int RegisterFileChecksumGenFactories(ObjectLibrary& library,
   return 1;
 }
 }  // namespace
-#endif  // !ROCKSDB_LITE
 
 Status FileChecksumGenFactory::CreateFromString(
     const ConfigOptions& options, const std::string& value,
     std::shared_ptr<FileChecksumGenFactory>* result) {
-#ifndef ROCKSDB_LITE
   static std::once_flag once;
   std::call_once(once, [&]() {
     RegisterFileChecksumGenFactories(*(ObjectLibrary::Default().get()), "");
   });
-#endif  // ROCKSDB_LITE
   if (value == FileChecksumGenCrc32cFactory::kClassName()) {
     *result = GetFileChecksumGenCrc32cFactory();
     return Status::OK();
   } else {
-    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, nullptr,
-                                                        result);
+    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, result);
     return s;
   }
 }

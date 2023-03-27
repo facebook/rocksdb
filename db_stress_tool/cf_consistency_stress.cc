@@ -251,6 +251,146 @@ class CfConsistencyStressTest : public StressTest {
     return statuses;
   }
 
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override {
+    assert(thread);
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    const std::string key = Key(rand_keys[0]);
+
+    Status s;
+    bool is_consistent = true;
+
+    if (thread->rand.OneIn(2)) {
+      // With a 1/2 chance, do a random read from a random CF
+      const size_t cf_id = thread->rand.Next() % rand_column_families.size();
+
+      assert(rand_column_families[cf_id] >= 0);
+      assert(rand_column_families[cf_id] <
+             static_cast<int>(column_families_.size()));
+
+      ColumnFamilyHandle* const cfh =
+          column_families_[rand_column_families[cf_id]];
+      assert(cfh);
+
+      PinnableWideColumns result;
+      s = db_->GetEntity(read_opts, cfh, key, &result);
+
+      if (s.ok()) {
+        if (!VerifyWideColumns(result.columns())) {
+          fprintf(
+              stderr,
+              "GetEntity error: inconsistent columns for key %s, entity %s\n",
+              StringToHex(key).c_str(),
+              WideColumnsToHex(result.columns()).c_str());
+          is_consistent = false;
+        }
+      }
+    } else {
+      // With a 1/2 chance, compare one key across all CFs
+      ManagedSnapshot snapshot_guard(db_);
+
+      ReadOptions read_opts_copy = read_opts;
+      read_opts_copy.snapshot = snapshot_guard.snapshot();
+
+      assert(rand_column_families[0] >= 0);
+      assert(rand_column_families[0] <
+             static_cast<int>(column_families_.size()));
+
+      PinnableWideColumns cmp_result;
+      s = db_->GetEntity(read_opts_copy,
+                         column_families_[rand_column_families[0]], key,
+                         &cmp_result);
+
+      if (s.ok() || s.IsNotFound()) {
+        const bool cmp_found = s.ok();
+
+        if (cmp_found) {
+          if (!VerifyWideColumns(cmp_result.columns())) {
+            fprintf(stderr,
+                    "GetEntity error: inconsistent columns for key %s, "
+                    "entity %s\n",
+                    StringToHex(key).c_str(),
+                    WideColumnsToHex(cmp_result.columns()).c_str());
+            is_consistent = false;
+          }
+        }
+
+        if (is_consistent) {
+          for (size_t i = 1; i < rand_column_families.size(); ++i) {
+            assert(rand_column_families[i] >= 0);
+            assert(rand_column_families[i] <
+                   static_cast<int>(column_families_.size()));
+
+            PinnableWideColumns result;
+            s = db_->GetEntity(read_opts_copy,
+                               column_families_[rand_column_families[i]], key,
+                               &result);
+
+            if (!s.ok() && !s.IsNotFound()) {
+              break;
+            }
+
+            const bool found = s.ok();
+
+            assert(!column_family_names_.empty());
+            assert(i < column_family_names_.size());
+
+            if (!cmp_found && found) {
+              fprintf(stderr,
+                      "GetEntity returns different results for key %s: CF %s "
+                      "returns not found, CF %s returns entity %s\n",
+                      StringToHex(key).c_str(), column_family_names_[0].c_str(),
+                      column_family_names_[i].c_str(),
+                      WideColumnsToHex(result.columns()).c_str());
+              is_consistent = false;
+              break;
+            }
+
+            if (cmp_found && !found) {
+              fprintf(stderr,
+                      "GetEntity returns different results for key %s: CF %s "
+                      "returns entity %s, CF %s returns not found\n",
+                      StringToHex(key).c_str(), column_family_names_[0].c_str(),
+                      WideColumnsToHex(cmp_result.columns()).c_str(),
+                      column_family_names_[i].c_str());
+              is_consistent = false;
+              break;
+            }
+
+            if (found && result != cmp_result) {
+              fprintf(stderr,
+                      "GetEntity returns different results for key %s: CF %s "
+                      "returns entity %s, CF %s returns entity %s\n",
+                      StringToHex(key).c_str(), column_family_names_[0].c_str(),
+                      WideColumnsToHex(cmp_result.columns()).c_str(),
+                      column_family_names_[i].c_str(),
+                      WideColumnsToHex(result.columns()).c_str());
+              is_consistent = false;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (!is_consistent) {
+      fprintf(stderr, "TestGetEntity error: results are not consistent\n");
+      thread->stats.AddErrors(1);
+      // Fail fast to preserve the DB state.
+      thread->shared->SetVerificationFailure();
+    } else if (s.ok()) {
+      thread->stats.AddGets(1, 1);
+    } else if (s.IsNotFound()) {
+      thread->stats.AddGets(1, 0);
+    } else {
+      fprintf(stderr, "TestGetEntity error: %s\n", s.ToString().c_str());
+      thread->stats.AddErrors(1);
+    }
+  }
+
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {
@@ -290,12 +430,9 @@ class CfConsistencyStressTest : public StressTest {
          iter->Next()) {
       ++count;
 
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(iter->value()), iter->value());
-      if (iter->columns() != expected_columns) {
-        s = Status::Corruption(
-            "Value and columns inconsistent",
-            DebugString(iter->value(), iter->columns(), expected_columns));
+      if (!VerifyWideColumns(iter->value(), iter->columns())) {
+        s = Status::Corruption("Value and columns inconsistent",
+                               DebugString(iter->value(), iter->columns()));
         break;
       }
     }
@@ -372,12 +509,10 @@ class CfConsistencyStressTest : public StressTest {
         assert(iter);
 
         if (iter->Valid()) {
-          const WideColumns expected_columns = GenerateExpectedWideColumns(
-              GetValueBase(iter->value()), iter->value());
-          if (iter->columns() != expected_columns) {
-            statuses[i] = Status::Corruption(
-                "Value and columns inconsistent",
-                DebugString(iter->value(), iter->columns(), expected_columns));
+          if (!VerifyWideColumns(iter->value(), iter->columns())) {
+            statuses[i] =
+                Status::Corruption("Value and columns inconsistent",
+                                   DebugString(iter->value(), iter->columns()));
           } else {
             ++valid_cnt;
           }
@@ -466,7 +601,6 @@ class CfConsistencyStressTest : public StressTest {
                   iters[i]->key().ToString(true /* hex */).c_str(),
                   iters[i]->value().ToString(true /* hex */).c_str());
 
-#ifndef ROCKSDB_LITE
           Slice begin_key;
           Slice end_key;
           if (cmp < 0) {
@@ -509,7 +643,6 @@ class CfConsistencyStressTest : public StressTest {
           }
 
           print_key_versions(column_families_[i]);
-#endif  // ROCKSDB_LITE
 
           shared->SetVerificationFailure();
         }
@@ -524,7 +657,6 @@ class CfConsistencyStressTest : public StressTest {
     } while (true);
   }
 
-#ifndef ROCKSDB_LITE
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
     assert(thread);
     Status status;
@@ -614,9 +746,6 @@ class CfConsistencyStressTest : public StressTest {
       }
     }
   }
-#else   // ROCKSDB_LITE
-  void ContinuouslyVerifyDb(ThreadState* /*thread*/) const override {}
-#endif  // !ROCKSDB_LITE
 
   std::vector<int> GenerateColumnFamilies(
       const int /* num_column_families */,

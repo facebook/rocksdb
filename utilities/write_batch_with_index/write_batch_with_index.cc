@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 
@@ -618,7 +617,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     assert(result == WBWIIteratorImpl::kMergeInProgress ||
            result == WBWIIteratorImpl::kNotFound);
     key_context.emplace_back(column_family, keys[i], &values[i],
-                             /*timestamp*/ nullptr, &statuses[i]);
+                             /* columns */ nullptr, /* timestamp */ nullptr,
+                             &statuses[i]);
     merges.emplace_back(result, std::move(merge_context));
   }
 
@@ -692,4 +692,3 @@ const Comparator* WriteBatchWithIndexInternal::GetUserComparator(
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

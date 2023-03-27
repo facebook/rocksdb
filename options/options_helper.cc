@@ -30,30 +30,22 @@
 
 namespace ROCKSDB_NAMESPACE {
 ConfigOptions::ConfigOptions()
-#ifndef ROCKSDB_LITE
     : registry(ObjectRegistry::NewInstance())
-#endif
 {
   env = Env::Default();
 }
 
 ConfigOptions::ConfigOptions(const DBOptions& db_opts) : env(db_opts.env) {
-#ifndef ROCKSDB_LITE
   registry = ObjectRegistry::NewInstance();
-#endif
 }
 
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts) {
   Status s;
-#ifndef ROCKSDB_LITE
   auto db_cfg = DBOptionsAsConfigurable(db_opts);
   auto cf_cfg = CFOptionsAsConfigurable(cf_opts);
   s = db_cfg->ValidateOptions(db_opts, cf_opts);
   if (s.ok()) s = cf_cfg->ValidateOptions(db_opts, cf_opts);
-#else
-  s = cf_opts.table_factory->ValidateOptions(db_opts, cf_opts);
-#endif
   return s;
 }
 
@@ -154,9 +146,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.wal_recovery_mode = immutable_db_options.wal_recovery_mode;
   options.allow_2pc = immutable_db_options.allow_2pc;
   options.row_cache = immutable_db_options.row_cache;
-#ifndef ROCKSDB_LITE
   options.wal_filter = immutable_db_options.wal_filter;
-#endif  // ROCKSDB_LITE
   options.fail_if_options_file_error =
       immutable_db_options.fail_if_options_file_error;
   options.dump_malloc_stats = immutable_db_options.dump_malloc_stats;
@@ -402,7 +392,6 @@ std::vector<ChecksumType> GetSupportedChecksums() {
                                    checksum_types.end());
 }
 
-#ifndef ROCKSDB_LITE
 static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
                               const std::string& value) {
   switch (opt_type) {
@@ -670,18 +659,6 @@ Status GetStringFromCompressionType(std::string* compression_str,
 }
 
 Status GetColumnFamilyOptionsFromMap(
-    const ColumnFamilyOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  config_options.input_strings_escaped = input_strings_escaped;
-  return GetColumnFamilyOptionsFromMap(config_options, base_options, opts_map,
-                                       new_options);
-}
-
-Status GetColumnFamilyOptionsFromMap(
     const ConfigOptions& config_options,
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
@@ -702,17 +679,6 @@ Status GetColumnFamilyOptionsFromMap(
   }
 }
 
-Status GetColumnFamilyOptionsFromString(
-    const ColumnFamilyOptions& base_options,
-    const std::string& opts_str,
-    ColumnFamilyOptions* new_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-  return GetColumnFamilyOptionsFromString(config_options, base_options,
-                                          opts_str, new_options);
-}
-
 Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
                                         const ColumnFamilyOptions& base_options,
                                         const std::string& opts_str,
@@ -725,18 +691,6 @@ Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
   }
   return GetColumnFamilyOptionsFromMap(config_options, base_options, opts_map,
                                        new_options);
-}
-
-Status GetDBOptionsFromMap(
-    const DBOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped,
-    bool ignore_unknown_options) {
-  ConfigOptions config_options(base_options);
-  config_options.input_strings_escaped = input_strings_escaped;
-  config_options.ignore_unknown_options = ignore_unknown_options;
-  return GetDBOptionsFromMap(config_options, base_options, opts_map,
-                             new_options);
 }
 
 Status GetDBOptionsFromMap(
@@ -755,17 +709,6 @@ Status GetDBOptionsFromMap(
   } else {
     return Status::InvalidArgument(s.getState());
   }
-}
-
-Status GetDBOptionsFromString(const DBOptions& base_options,
-                              const std::string& opts_str,
-                              DBOptions* new_options) {
-  ConfigOptions config_options(base_options);
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-
-  return GetDBOptionsFromString(config_options, base_options, opts_str,
-                                new_options);
 }
 
 Status GetDBOptionsFromString(const ConfigOptions& config_options,
@@ -1473,6 +1416,5 @@ const OptionTypeInfo* OptionTypeInfo::Find(
   }
   return nullptr;
 }
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 #include <stdint.h>
 
 #include <memory>
@@ -179,4 +178,3 @@ class PlainTableFactory : public TableFactory {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

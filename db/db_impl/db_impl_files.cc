@@ -361,8 +361,6 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion",
                            &file_deletion_status);
-  TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl:AfterDeletion2",
-                           const_cast<std::string*>(&fname));
   if (file_deletion_status.ok()) {
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", job_id,
@@ -599,13 +597,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
               to_delete;
     }
 
-#ifndef ROCKSDB_LITE
     if (type == kWalFile && (immutable_db_options_.WAL_ttl_seconds > 0 ||
                              immutable_db_options_.WAL_size_limit_MB > 0)) {
       wal_manager_.ArchiveWALFile(fname, number);
       continue;
     }
-#endif  // !ROCKSDB_LITE
 
     // If I do not own these files, e.g. secondary instance with max_open_files
     // = -1, then no need to delete or schedule delete these files since they
@@ -669,9 +665,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       }
     }
   }
-#ifndef ROCKSDB_LITE
   wal_manager_.PurgeObsoleteWALFiles();
-#endif  // ROCKSDB_LITE
   LogFlush(immutable_db_options_.info_log);
   InstrumentedMutexLock l(&mutex_);
   --pending_purge_obsolete_files_;

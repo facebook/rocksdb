@@ -63,11 +63,6 @@ public enum TickerType {
     BLOCK_CACHE_INDEX_BYTES_INSERT((byte) 0x7),
 
     /**
-     * # of bytes of index block erased from cache
-     */
-    BLOCK_CACHE_INDEX_BYTES_EVICT((byte) 0x8),
-
-    /**
      * # of times cache miss when accessing filter block from block cache.
      */
     BLOCK_CACHE_FILTER_MISS((byte) 0x9),
@@ -86,11 +81,6 @@ public enum TickerType {
      * # of bytes of bloom filter blocks inserted into cache
      */
     BLOCK_CACHE_FILTER_BYTES_INSERT((byte) 0xC),
-
-    /**
-     * # of bytes of bloom filter block erased from cache
-     */
-    BLOCK_CACHE_FILTER_BYTES_EVICT((byte) 0xD),
 
     /**
      * # of times cache miss when accessing data block from block cache.
@@ -269,35 +259,9 @@ public enum TickerType {
      */
     ITER_BYTES_READ((byte) 0x2E),
 
-    NO_FILE_CLOSES((byte) 0x2F),
-
     NO_FILE_OPENS((byte) 0x30),
 
     NO_FILE_ERRORS((byte) 0x31),
-
-    /**
-     * Time system had to wait to do LO-L1 compactions.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_L0_SLOWDOWN_MICROS((byte) 0x32),
-
-    /**
-     * Time system had to wait to move memtable to L1.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_MEMTABLE_COMPACTION_MICROS((byte) 0x33),
-
-    /**
-     * write throttle because of too many files in L0.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_L0_NUM_FILES_MICROS((byte) 0x34),
 
     /**
      * Writer has to wait for compaction or flush to finish.
@@ -310,14 +274,6 @@ public enum TickerType {
      * Disabled by default. To enable it set stats level to {@link StatsLevel#ALL}
      */
     DB_MUTEX_WAIT_MICROS((byte) 0x36),
-
-    RATE_LIMIT_DELAY_MILLIS((byte) 0x37),
-
-    /**
-     * Number of iterators created.
-     *
-     */
-    NO_ITERATORS((byte) 0x38),
 
     /**
      * Number of MultiGet calls.
@@ -334,11 +290,6 @@ public enum TickerType {
      */
     NUMBER_MULTIGET_BYTES_READ((byte) 0x3B),
 
-    /**
-     * Number of deletes records that were not required to be
-     * written to storage because key does not exist.
-     */
-    NUMBER_FILTERED_DELETES((byte) 0x3C),
     NUMBER_MERGE_FAILURES((byte) 0x3D),
 
     /**
@@ -362,26 +313,6 @@ public enum TickerType {
     GET_UPDATES_SINCE_CALLS((byte) 0x41),
 
     /**
-     * Miss in the compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_MISS((byte) 0x42),
-
-    /**
-     * Hit in the compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_HIT((byte) 0x43),
-
-    /**
-     * Number of blocks added to compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_ADD((byte) 0x44),
-
-    /**
-     * Number of failures when adding blocks to compressed block cache.
-     */
-    BLOCK_CACHE_COMPRESSED_ADD_FAILURES((byte) 0x45),
-
-    /**
      * Number of times WAL sync is done.
      */
     WAL_FILE_SYNCED((byte) 0x46),
@@ -401,11 +332,6 @@ public enum TickerType {
      * Equivalent to writes done for others.
      */
     WRITE_DONE_BY_OTHER((byte) 0x49),
-
-    /**
-     * Number of writes ending up with timed-out.
-     */
-    WRITE_TIMEDOUT((byte) 0x4A),
 
     /**
      * Number of Write calls that request WAL.
@@ -649,31 +575,9 @@ public enum TickerType {
     BLOB_DB_GC_FAILURES((byte) 0x7D),
 
     /**
-     * # of keys drop by BlobDB garbage collection because they had been
-     * overwritten.
-     */
-    BLOB_DB_GC_NUM_KEYS_OVERWRITTEN((byte) 0x7E),
-
-    /**
-     * # of keys drop by BlobDB garbage collection because of expiration.
-     */
-    BLOB_DB_GC_NUM_KEYS_EXPIRED((byte) 0x7F),
-
-    /**
      * # of keys relocated to new blob file by garbage collection.
      */
     BLOB_DB_GC_NUM_KEYS_RELOCATED((byte) -0x02),
-
-    /**
-     * # of bytes drop by BlobDB garbage collection because they had been
-     * overwritten.
-     */
-    BLOB_DB_GC_BYTES_OVERWRITTEN((byte) -0x03),
-
-    /**
-     * # of bytes drop by BlobDB garbage collection because of expiration.
-     */
-    BLOB_DB_GC_BYTES_EXPIRED((byte) -0x04),
 
     /**
      * # of bytes relocated to new blob file by garbage collection.
@@ -835,6 +739,20 @@ public enum TickerType {
      * # of bytes written into blob cache.
      */
     BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
+
+    /**
+     * Number of lookup into the prefetched tail (see
+     * `TABLE_OPEN_PREFETCH_TAIL_READ_BYTES`)
+     * that can't find its data for table open
+     */
+    TABLE_OPEN_PREFETCH_TAIL_MISS((byte) -0x3A),
+
+    /**
+     * Number of lookup into the prefetched tail (see
+     * `TABLE_OPEN_PREFETCH_TAIL_READ_BYTES`)
+     * that finds its data for table open
+     */
+    TABLE_OPEN_PREFETCH_TAIL_HIT((byte) -0x3B),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 

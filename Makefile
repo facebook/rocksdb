@@ -44,13 +44,6 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # Set the default DEBUG_LEVEL to 1
 DEBUG_LEVEL?=1
 
-# LIB_MODE says whether or not to use/build "shared" or "static" libraries.
-# Mode "static" means to link against static libraries (.a)
-# Mode "shared" means to link against shared libraries (.so, .sl, .dylib, etc)
-#
-# Set the default LIB_MODE to static
-LIB_MODE?=static
-
 # OBJ_DIR is where the object files reside.  Default to the current directory
 OBJ_DIR?=.
 
@@ -81,29 +74,23 @@ else ifneq ($(filter jtest rocksdbjava%, $(MAKECMDGOALS)),)
 	endif
 endif
 
-$(info $$DEBUG_LEVEL is ${DEBUG_LEVEL})
+# LIB_MODE says whether or not to use/build "shared" or "static" libraries.
+# Mode "static" means to link against static libraries (.a)
+# Mode "shared" means to link against shared libraries (.so, .sl, .dylib, etc)
+#
+ifeq ($(DEBUG_LEVEL), 0)
+# For optimized, set the default LIB_MODE to static for code size/efficiency
+	LIB_MODE?=static
+else
+# For debug, set the default LIB_MODE to shared for efficient `make check` etc.
+	LIB_MODE?=shared
+endif
 
-# Lite build flag.
-LITE ?= 0
-ifeq ($(LITE), 0)
-ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
-  # Be backward compatible and support older format where OPT=-DROCKSDB_LITE is
-  # specified instead of LITE=1 on the command line.
-  LITE=1
-endif
-else ifeq ($(LITE), 1)
-ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
-	OPT += -DROCKSDB_LITE
-endif
-endif
+$(info $$DEBUG_LEVEL is $(DEBUG_LEVEL), $$LIB_MODE is $(LIB_MODE))
 
 # Figure out optimize level.
 ifneq ($(DEBUG_LEVEL), 2)
-ifeq ($(LITE), 0)
 	OPTIMIZE_LEVEL ?= -O2
-else
-	OPTIMIZE_LEVEL ?= -Os
-endif
 endif
 # `OPTIMIZE_LEVEL` is empty when the user does not set it and `DEBUG_LEVEL=2`.
 # In that case, the compiler default (`-O0` for gcc and clang) will be used.
@@ -336,13 +323,6 @@ endif
 
 ifeq ($(PLATFORM), OS_SOLARIS)
 	PLATFORM_CXXFLAGS += -D _GLIBCXX_USE_C99
-endif
-ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
-	# found
-	CFLAGS += -fno-exceptions
-	CXXFLAGS += -fno-exceptions
-	# LUA is not supported under ROCKSDB_LITE
-	LUA_PATH =
 endif
 
 ifeq ($(LIB_MODE),shared)
@@ -1082,11 +1062,9 @@ check: all
 	rm -rf $(TEST_TMPDIR)
 ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
-ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	$(PYTHON) tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
-endif
 endif
 endif
 ifndef SKIP_FORMAT_BUCK_CHECKS
@@ -1244,9 +1222,9 @@ clean: clean-ext-libraries-all clean-rocks clean-rocksjava
 clean-not-downloaded: clean-ext-libraries-bin clean-rocks clean-not-downloaded-rocksjava
 
 clean-rocks:
-	echo shared=$(ALL_SHARED_LIBS)
-	echo static=$(ALL_STATIC_LIBS)
-	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS) $(MICROBENCHS)
+# Not practical to exactly match all versions/variants in naming (e.g. debug or not)
+	rm -f ${LIBNAME}*.so* ${LIBNAME}*.a
+	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(MICROBENCHS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
@@ -2489,18 +2467,6 @@ build_size:
 	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib $$(stat --printf="%s" `readlink -f librocksdb.so`)
 	strip `readlink -f librocksdb.so`
 	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_stripped $$(stat --printf="%s" `readlink -f librocksdb.so`)
-	# === lite build, static ===
-	$(MAKE) clean
-	$(MAKE) LITE=1 static_lib
-	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_lite $$(stat --printf="%s" librocksdb.a)
-	strip librocksdb.a
-	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_lite_stripped $$(stat --printf="%s" librocksdb.a)
-	# === lite build, shared ===
-	$(MAKE) clean
-	$(MAKE) LITE=1 shared_lib
-	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_lite $$(stat --printf="%s" `readlink -f librocksdb.so`)
-	strip `readlink -f librocksdb.so`
-	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_lite_stripped $$(stat --printf="%s" `readlink -f librocksdb.so`)
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation

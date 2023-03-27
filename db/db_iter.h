@@ -388,21 +388,12 @@ class DBIter final : public Iterator {
   MergeContext merge_context_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-#ifdef ROCKSDB_LITE
-  ROCKSDB_FIELD_UNUSED
-#endif
   DBImpl* db_impl_;
-#ifdef ROCKSDB_LITE
-  ROCKSDB_FIELD_UNUSED
-#endif
   ColumnFamilyData* cfd_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
   std::string saved_timestamp_;
-
-  // Used only if timestamp_lb_ is not nullptr.
-  std::string saved_ikey_;
 };
 
 // Return a new iterator that converts internal keys (yielded by

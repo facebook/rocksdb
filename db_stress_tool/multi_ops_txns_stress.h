@@ -210,6 +210,10 @@ class MultiOpsTxnsStressTest : public StressTest {
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) override;
 
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override;
+
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override;
@@ -248,11 +252,9 @@ class MultiOpsTxnsStressTest : public StressTest {
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override;
 
-#ifndef ROCKSDB_LITE
   Status TestApproximateSize(ThreadState* thread, uint64_t iteration,
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys) override;
-#endif  // !ROCKSDB_LITE
 
   Status TestCustomOperations(
       ThreadState* thread,
@@ -260,10 +262,8 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   void RegisterAdditionalListeners() override;
 
-#ifndef ROCKSDB_LITE
   void PrepareTxnDbOptions(SharedState* /*shared*/,
                            TransactionDBOptions& txn_db_opts) override;
-#endif  // !ROCKSDB_LITE
 
   Status PrimaryKeyUpdateTxn(ThreadState* thread, uint32_t old_a,
                              uint32_t old_a_pos, uint32_t new_a);
@@ -344,7 +344,6 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   uint32_t GenerateNextC(ThreadState* thread);
 
-#ifndef ROCKSDB_LITE
   // Randomly commit or rollback `txn`
   void ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
                                           SharedState*) override;
@@ -363,7 +362,6 @@ class MultiOpsTxnsStressTest : public StressTest {
   void SetupSnapshot(ThreadState* thread, ReadOptions& read_opts,
                      Transaction& txn,
                      std::shared_ptr<const Snapshot>& snapshot);
-#endif  //! ROCKSDB_LITE
 
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_a_;
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_c_;
@@ -414,7 +412,6 @@ class MultiOpsTxnsStressListener : public EventListener {
     assert(stress_test_);
   }
 
-#ifndef ROCKSDB_LITE
   ~MultiOpsTxnsStressListener() override {}
 
   void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
@@ -434,7 +431,6 @@ class MultiOpsTxnsStressListener : public EventListener {
     assert(info.cf_id == 0);
     stress_test_->VerifyPkSkFast(info.job_id);
   }
-#endif  //! ROCKSDB_LITE
 
  private:
   MultiOpsTxnsStressTest* const stress_test_ = nullptr;

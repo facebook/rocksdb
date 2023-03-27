@@ -99,10 +99,10 @@ int db_stress_tool(int argc, char** argv) {
 
   env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
       raw_env, std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem()));
-  if (!env_opts) {
+  if (!env_opts && !FLAGS_use_io_uring) {
     // If using the default Env (Posix), wrap DbStressEnvWrapper with the
-    // legacy EnvWrapper. This is a temporary fix for the ReadAsync interface
-    // not being properly supported with Posix and db_stress. The EnvWrapper
+    // legacy EnvWrapper. This is a workaround to prevent MultiGet and scans
+    // from failing when IO uring is disabled. The EnvWrapper
     // has a default implementation of ReadAsync that redirects to Read.
     env_wrapper_guard = std::make_shared<EnvWrapper>(env_wrapper_guard);
   }

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_dump_tool.h"
 
@@ -581,4 +580,3 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

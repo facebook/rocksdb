@@ -53,11 +53,9 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   if (cfd_ != nullptr) {
-#ifndef ROCKSDB_LITE
     for (auto& listener : cfd_->ioptions()->listeners) {
       listener->OnColumnFamilyHandleDeletionStarted(this);
     }
-#endif  // ROCKSDB_LITE
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     // Need to hold some shared pointers owned by the initial_cf_options
@@ -88,15 +86,10 @@ const std::string& ColumnFamilyHandleImpl::GetName() const {
 }
 
 Status ColumnFamilyHandleImpl::GetDescriptor(ColumnFamilyDescriptor* desc) {
-#ifndef ROCKSDB_LITE
   // accessing mutable cf-options requires db mutex.
   InstrumentedMutexLock l(mutex_);
   *desc = ColumnFamilyDescriptor(cfd()->GetName(), cfd()->GetLatestCFOptions());
   return Status::OK();
-#else
-  (void)desc;
-  return Status::NotSupported();
-#endif  // !ROCKSDB_LITE
 }
 
 const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
@@ -347,7 +340,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
         result.hard_pending_compaction_bytes_limit;
   }
 
-#ifndef ROCKSDB_LITE
   // When the DB is stopped, it's possible that there are some .trash files that
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted (or delete immediately if SstFileManager
@@ -359,7 +351,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                       result.cf_paths[i].path)
         .PermitUncheckedError();
   }
-#endif
 
   if (result.cf_paths.empty()) {
     result.cf_paths = db_options.db_paths;
@@ -557,7 +548,6 @@ ColumnFamilyData::ColumnFamilyData(
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      flush_reason_(FlushReason::kOthers),
       column_family_set_(column_family_set),
       queued_for_flush_(false),
       queued_for_compaction_(false),
@@ -603,7 +593,6 @@ ColumnFamilyData::ColumnFamilyData(
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
-#ifndef ROCKSDB_LITE
     } else if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
           new UniversalCompactionPicker(ioptions_, &internal_comparator_));
@@ -617,7 +606,6 @@ ColumnFamilyData::ColumnFamilyData(
                      "Column family %s does not use any background compaction. "
                      "Compactions can only be done via CompactFiles\n",
                      GetName().c_str());
-#endif  // !ROCKSDB_LITE
     } else {
       ROCKS_LOG_ERROR(ioptions_.logger,
                       "Unable to recognize the specified compaction style %d. "
@@ -881,7 +869,7 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
 }
 }  // anonymous namespace
 
-std::pair<WriteStallCondition, ColumnFamilyData::WriteStallCause>
+std::pair<WriteStallCondition, WriteStallCause>
 ColumnFamilyData::GetWriteStallConditionAndCause(
     int num_unflushed_memtables, int num_l0_files,
     uint64_t num_compaction_needed_bytes,
@@ -954,7 +942,8 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_STOPS, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
         internal_stats_->AddCFStats(
-            InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_STOPS, 1);
+            InternalStats::L0_FILE_COUNT_LIMIT_STOPS_WITH_ONGOING_COMPACTION,
+            1);
       }
       ROCKS_LOG_WARN(ioptions_.logger,
                      "[%s] Stopping writes because we have %d level-0 files",
@@ -975,7 +964,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           SetupDelay(write_controller, compaction_needed_bytes,
                      prev_compaction_needed_bytes_, was_stopped,
                      mutable_cf_options.disable_auto_compactions);
-      internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_SLOWDOWNS, 1);
+      internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_DELAYS, 1);
       ROCKS_LOG_WARN(
           ioptions_.logger,
           "[%s] Stalling writes because we have %d immutable memtables "
@@ -993,11 +982,11 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           SetupDelay(write_controller, compaction_needed_bytes,
                      prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
-      internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_SLOWDOWNS,
-                                  1);
+      internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_DELAYS, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
         internal_stats_->AddCFStats(
-            InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS, 1);
+            InternalStats::L0_FILE_COUNT_LIMIT_DELAYS_WITH_ONGOING_COMPACTION,
+            1);
       }
       ROCKS_LOG_WARN(ioptions_.logger,
                      "[%s] Stalling writes because we have %d level-0 files "
@@ -1023,7 +1012,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
                      prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(
-          InternalStats::PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS, 1);
+          InternalStats::PENDING_COMPACTION_BYTES_LIMIT_DELAYS, 1);
       ROCKS_LOG_WARN(
           ioptions_.logger,
           "[%s] Stalling writes because of estimated pending compaction "
@@ -1441,7 +1430,6 @@ Status ColumnFamilyData::ValidateOptions(
   return s;
 }
 
-#ifndef ROCKSDB_LITE
 Status ColumnFamilyData::SetOptions(
     const DBOptions& db_opts,
     const std::unordered_map<std::string, std::string>& options_map) {
@@ -1460,7 +1448,6 @@ Status ColumnFamilyData::SetOptions(
   }
   return s;
 }
-#endif  // ROCKSDB_LITE
 
 // REQUIRES: DB mutex held
 Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {

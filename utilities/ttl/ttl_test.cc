@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 
 #include <map>
 #include <memory>
@@ -636,6 +635,17 @@ TEST_F(TtlTest, MultiGetTest) {
   CloseTtl();
 }
 
+TEST_F(TtlTest, TtlFiftenYears) {
+  MakeKVMap(kSampleSize_);
+  // 15 year will lead int32_t overflow from now
+  const int kFifteenYearSeconds = 86400 * 365 * 15;
+  OpenTtl(kFifteenYearSeconds);
+  PutValues(0, kSampleSize_, true);
+  // trigger the compaction
+  SleepCompactCheck(1, 0, kSampleSize_);
+  CloseTtl();
+}
+
 TEST_F(TtlTest, ColumnFamiliesTest) {
   DB* db;
   Options options;
@@ -901,12 +911,3 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as DBWithTTL is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

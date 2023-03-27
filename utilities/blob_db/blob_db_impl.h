@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <atomic>
 #include <condition_variable>
@@ -500,4 +499,3 @@ class BlobDBImpl : public BlobDB {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

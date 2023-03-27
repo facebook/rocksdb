@@ -7,7 +7,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifndef ROCKSDB_LITE
 
 void CompactionJobStats::Reset() {
   elapsed_micros = 0;
@@ -89,12 +88,5 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
   num_single_del_mismatch += stats.num_single_del_mismatch;
 }
 
-#else
-
-void CompactionJobStats::Reset() {}
-
-void CompactionJobStats::Add(const CompactionJobStats& /*stats*/) {}
-
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

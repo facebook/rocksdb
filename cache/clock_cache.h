@@ -145,7 +145,7 @@ class ClockCacheTest;
 //     (erased by user) but can be read by existing references, and ref count
 //     changed by Ref and Release.
 //
-// A special case is "detached" entries, which are heap-allocated handles
+// A special case is "standalone" entries, which are heap-allocated handles
 // not in the table. They are always Invisible and freed on zero refs.
 //
 // State transitions:
@@ -200,8 +200,8 @@ class ClockCacheTest;
 // table occupancy limit has been reached. If strict_capacity_limit=false,
 // we must never fail Insert, and if a Handle* is provided, we have to return
 // a usable Cache handle on success. The solution to this (typically rare)
-// problem is "detached" handles, which are usable by the caller but not
-// actually available for Lookup in the Cache. Detached handles are allocated
+// problem is "standalone" handles, which are usable by the caller but not
+// actually available for Lookup in the Cache. Standalone handles are allocated
 // independently on the heap and specially marked so that they are freed on
 // the heap when their last reference is released.
 //
@@ -312,12 +312,6 @@ struct ClockHandleBasicData {
   UniqueId64x2 hashed_key = kNullUniqueId64x2;
   size_t total_charge = 0;
 
-  // For total_charge_and_flags
-  // "Detached" means the handle is allocated separately from hash table.
-  static constexpr uint64_t kFlagDetached = uint64_t{1} << 63;
-  // Extract just the total charge
-  static constexpr uint64_t kTotalChargeMask = kFlagDetached - 1;
-
   inline size_t GetTotalCharge() const { return total_charge; }
 
   // Calls deleter (if non-null) on cache key and value
@@ -398,11 +392,11 @@ class HyperClockTable {
     // TODO: ideally this would be packed into some other data field, such
     // as upper bits of total_charge, but that incurs a measurable performance
     // regression.
-    bool detached = false;
+    bool standalone = false;
 
-    inline bool IsDetached() const { return detached; }
+    inline bool IsStandalone() const { return standalone; }
 
-    inline void SetDetached() { detached = true; }
+    inline void SetStandalone() { standalone = true; }
   };  // struct HandleImpl
 
   struct Opts {
@@ -411,12 +405,18 @@ class HyperClockTable {
 
   HyperClockTable(size_t capacity, bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy,
-                  MemoryAllocator* allocator, const Opts& opts);
+                  MemoryAllocator* allocator,
+                  const Cache::EvictionCallback* eviction_callback,
+                  const Opts& opts);
   ~HyperClockTable();
 
   Status Insert(const ClockHandleBasicData& proto, HandleImpl** handle,
                 Cache::Priority priority, size_t capacity,
                 bool strict_capacity_limit);
+
+  HandleImpl* CreateStandalone(ClockHandleBasicData& proto, size_t capacity,
+                               bool strict_capacity_limit,
+                               bool allow_uncharged);
 
   HandleImpl* Lookup(const UniqueId64x2& hashed_key);
 
@@ -444,8 +444,8 @@ class HyperClockTable {
 
   size_t GetUsage() const { return usage_.load(std::memory_order_relaxed); }
 
-  size_t GetDetachedUsage() const {
-    return detached_usage_.load(std::memory_order_relaxed);
+  size_t GetStandaloneUsage() const {
+    return standalone_usage_.load(std::memory_order_relaxed);
   }
 
   // Acquire/release N references
@@ -514,10 +514,10 @@ class HyperClockTable {
                                              size_t capacity,
                                              bool need_evict_for_occupancy);
 
-  // Creates a "detached" handle for returning from an Insert operation that
+  // Creates a "standalone" handle for returning from an Insert operation that
   // cannot be completed by actually inserting into the table.
-  // Updates `detached_usage_` but not `usage_` nor `occupancy_`.
-  inline HandleImpl* DetachedInsert(const ClockHandleBasicData& proto);
+  // Updates `standalone_usage_` but not `usage_` nor `occupancy_`.
+  inline HandleImpl* StandaloneInsert(const ClockHandleBasicData& proto);
 
   MemoryAllocator* GetAllocator() const { return allocator_; }
 
@@ -543,6 +543,9 @@ class HyperClockTable {
   // From Cache, for deleter
   MemoryAllocator* const allocator_;
 
+  // A reference to Cache::eviction_callback_
+  const Cache::EvictionCallback& eviction_callback_;
+
   // We partition the following members into different cache lines
   // to avoid false sharing among Lookup, Release, Erase and Insert
   // operations in ClockCacheShard.
@@ -555,11 +558,11 @@ class HyperClockTable {
   // Number of elements in the table.
   std::atomic<size_t> occupancy_{};
 
-  // Memory usage by entries tracked by the cache (including detached)
+  // Memory usage by entries tracked by the cache (including standalone)
   std::atomic<size_t> usage_{};
 
-  // Part of usage by detached entries (not in table)
-  std::atomic<size_t> detached_usage_{};
+  // Part of usage by standalone entries (not in table)
+  std::atomic<size_t> standalone_usage_{};
 };  // class HyperClockTable
 
 // A single shard of sharded cache.
@@ -568,7 +571,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
  public:
   ClockCacheShard(size_t capacity, bool strict_capacity_limit,
                   CacheMetadataChargePolicy metadata_charge_policy,
-                  MemoryAllocator* allocator, const typename Table::Opts& opts);
+                  MemoryAllocator* allocator,
+                  const Cache::EvictionCallback* eviction_callback,
+                  const typename Table::Opts& opts);
 
   // For CacheShard concept
   using HandleImpl = typename Table::HandleImpl;
@@ -609,6 +614,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
                 Cache::ObjectPtr value, const Cache::CacheItemHelper* helper,
                 size_t charge, HandleImpl** handle, Cache::Priority priority);
 
+  HandleImpl* CreateStandalone(const Slice& key, const UniqueId64x2& hashed_key,
+                               Cache::ObjectPtr obj,
+                               const Cache::CacheItemHelper* helper,
+                               size_t charge, bool allow_uncharged);
+
   HandleImpl* Lookup(const Slice& key, const UniqueId64x2& hashed_key);
 
   bool Release(HandleImpl* handle, bool useful, bool erase_if_last_ref);
@@ -623,7 +633,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
 
   size_t GetUsage() const;
 
-  size_t GetDetachedUsage() const;
+  size_t GetStandaloneUsage() const;
 
   size_t GetPinnedUsage() const;
 
@@ -646,14 +656,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShardBase {
   HandleImpl* Lookup(const Slice& key, const UniqueId64x2& hashed_key,
                      const Cache::CacheItemHelper* /*helper*/,
                      Cache::CreateContext* /*create_context*/,
-                     Cache::Priority /*priority*/, bool /*wait*/,
-                     Statistics* /*stats*/) {
+                     Cache::Priority /*priority*/, Statistics* /*stats*/) {
     return Lookup(key, hashed_key);
   }
-
-  bool IsReady(HandleImpl* /*handle*/) { return true; }
-
-  void Wait(HandleImpl* /*handle*/) {}
 
   // Acquire/release N references
   void TEST_RefN(HandleImpl* handle, size_t n);

@@ -23,7 +23,6 @@ const std::string ExternalSstFilePropertyNames::kVersion =
 const std::string ExternalSstFilePropertyNames::kGlobalSeqno =
     "rocksdb.external_sst_file.global_seqno";
 
-#ifndef ROCKSDB_LITE
 
 const size_t kFadviseTrigger = 1024 * 1024;  // 1MB
 
@@ -135,6 +134,17 @@ struct SstFileWriter::Rep {
     if (!builder) {
       return Status::InvalidArgument("File is not opened");
     }
+    int cmp = internal_comparator.user_comparator()->CompareWithoutTimestamp(
+        begin_key, end_key);
+    if (cmp > 0) {
+      // It's an empty range where endpoints appear mistaken. Don't bother
+      // applying it to the DB, and return an error to the user.
+      return Status::InvalidArgument("end key comes before start key");
+    } else if (cmp == 0) {
+      // It's an empty range. Don't bother applying it to the DB.
+      return Status::OK();
+    }
+
     RangeTombstone tombstone(begin_key, end_key, 0 /* Sequence Number */);
     if (file_info.num_range_del_entries == 0) {
       file_info.smallest_range_del_key.assign(tombstone.start_key_.data(),
@@ -422,6 +432,5 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 }
 
 uint64_t SstFileWriter::FileSize() { return rep_->file_info.file_size; }
-#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -27,6 +27,7 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/functor_wrapper.h"
+#include "rocksdb/port_defs.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -68,13 +69,6 @@ class SystemClock;
 struct ConfigOptions;
 
 const size_t kDefaultPageSize = 4 * 1024;
-
-enum class CpuPriority {
-  kIdle = 0,
-  kLow = 1,
-  kNormal = 2,
-  kHigh = 3,
-};
 
 // Options while opening a file to read/write
 struct EnvOptions {
@@ -178,17 +172,6 @@ class Env : public Customizable {
   // Deprecated. Will be removed in a major release. Derived classes
   // should implement this method.
   const char* Name() const override { return ""; }
-
-  // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result);
-
-  // Loads the environment specified by the input value into the result
-  // The CreateFromString alternative should be used; this method may be
-  // deprecated in a future release.
-  static Status LoadEnv(const std::string& value, Env** result,
-                        std::shared_ptr<Env>* guard);
 
   // Loads the environment specified by the input value into the result
   // @see Customizable for a more detailed description of the parameters and
@@ -1660,10 +1643,8 @@ class EnvWrapper : public Env {
     target_.env->SanitizeEnvOptions(env_opts);
   }
   Status PrepareOptions(const ConfigOptions& options) override;
-#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
-#endif  // ROCKSDB_LITE
 
  private:
   Target target_;

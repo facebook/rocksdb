@@ -202,7 +202,6 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 
-#ifndef ROCKSDB_LITE
 
 TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
   // This is like a mini-stress test dedicated to `OpFailureScope::kMustMerge`.
@@ -232,7 +231,9 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
       {
         std::string value;
         ASSERT_OK(db_->Get(ReadOptions(), "k0", &value));
-        ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsCorruption());
+        Status s = db_->Get(ReadOptions(), "k1", &value);
+        ASSERT_TRUE(s.IsCorruption());
+        ASSERT_EQ(Status::SubCode::kMergeOperatorFailed, s.subcode());
         ASSERT_OK(db_->Get(ReadOptions(), "k2", &value));
       }
 
@@ -244,6 +245,8 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
         ASSERT_EQ("k0", iter->key());
         iter->Next();
         ASSERT_TRUE(iter->status().IsCorruption());
+        ASSERT_EQ(Status::SubCode::kMergeOperatorFailed,
+                  iter->status().subcode());
 
         iter->SeekToLast();
         ASSERT_TRUE(iter->Valid());
@@ -355,7 +358,6 @@ TEST_F(DBMergeOperatorTest, MergeOperatorFailsWithMustMerge) {
   }
 }
 
-#endif  // ROCKSDB_LITE
 
 class MergeOperatorPinningTest : public DBMergeOperatorTest,
                                  public testing::WithParamInterface<bool> {
@@ -368,7 +370,6 @@ class MergeOperatorPinningTest : public DBMergeOperatorTest,
 INSTANTIATE_TEST_CASE_P(MergeOperatorPinningTest, MergeOperatorPinningTest,
                         ::testing::Bool());
 
-#ifndef ROCKSDB_LITE
 TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   Options options = CurrentOptions();
   BlockBasedTableOptions table_options;
@@ -639,7 +640,6 @@ TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
   EXPECT_TRUE(pushed_first_operand);
   EXPECT_TRUE(stepped_to_next_operand);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   Options options = CurrentOptions();

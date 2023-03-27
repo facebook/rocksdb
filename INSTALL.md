@@ -48,6 +48,11 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 * If you wish to build the RocksJava static target, then cmake is required for building Snappy.
 
 * If you wish to run microbench (e.g, `make microbench`, `make ribbon_bench` or `cmake -DWITH_BENCHMARK=1`), Google benchmark >= 1.6.0 is needed.
+* You can do the following to install Google benchmark. These commands are copied from `./build_tools/ubuntu20_image/Dockerfile`:
+
+`$ git clone --depth 1 --branch v1.7.0 https://github.com/google/benchmark.git ~/benchmark`
+
+`$ cd ~/benchmark && mkdir build && cd build && cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_GTEST_TESTS=0 && ninja && ninja install`
 
 ## Supported platforms
 
@@ -178,7 +183,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
         gmake rocksdbjava
 
 * **iOS**:
-  * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define two important pre-processing macros: `ROCKSDB_LITE` and `IOS_CROSS_COMPILE`.
+  * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define an important pre-processing macros: `IOS_CROSS_COMPILE`.
 
 * **Windows** (Visual Studio 2017 to up):
   * Read and follow the instructions at CMakeLists.txt

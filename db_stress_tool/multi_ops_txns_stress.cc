@@ -329,9 +329,7 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_enable_compaction_filter) {
     // TODO (yanqin) enable compaction filter
   }
-#ifndef ROCKSDB_LITE
   ProcessRecoveredPreparedTxns(shared);
-#endif
 
   ReopenAndPreloadDbIfNeeded(shared);
   // TODO (yanqin) parallelize if key space is large
@@ -348,7 +346,6 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
 
 void MultiOpsTxnsStressTest::ReopenAndPreloadDbIfNeeded(SharedState* shared) {
   (void)shared;
-#ifndef ROCKSDB_LITE
   bool db_empty = false;
   {
     std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
@@ -369,7 +366,6 @@ void MultiOpsTxnsStressTest::ReopenAndPreloadDbIfNeeded(SharedState* shared) {
     fflush(stdout);
     ScanExistingDb(shared, FLAGS_threads);
   }
-#endif  // !ROCKSDB_LITE
 }
 
 // Used for point-lookup transaction
@@ -390,6 +386,12 @@ std::vector<Status> MultiOpsTxnsStressTest::TestMultiGet(
     const std::vector<int64_t>& /*rand_keys*/) {
   return std::vector<Status>{Status::NotSupported()};
 }
+
+// Wide columns are currently not supported by transactions.
+void MultiOpsTxnsStressTest::TestGetEntity(
+    ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+    const std::vector<int>& /* rand_column_families */,
+    const std::vector<int64_t>& /* rand_keys */) {}
 
 Status MultiOpsTxnsStressTest::TestPrefixScan(
     ThreadState* thread, const ReadOptions& read_opts,
@@ -477,7 +479,6 @@ Status MultiOpsTxnsStressTest::TestCheckpoint(
   return Status::OK();
 }
 
-#ifndef ROCKSDB_LITE
 Status MultiOpsTxnsStressTest::TestApproximateSize(
     ThreadState* thread, uint64_t iteration,
     const std::vector<int>& rand_column_families,
@@ -488,7 +489,6 @@ Status MultiOpsTxnsStressTest::TestApproximateSize(
   (void)rand_column_families;
   return Status::OK();
 }
-#endif  // !ROCKSDB_LITE
 
 Status MultiOpsTxnsStressTest::TestCustomOperations(
     ThreadState* thread, const std::vector<int>& rand_column_families) {
@@ -529,7 +529,6 @@ void MultiOpsTxnsStressTest::RegisterAdditionalListeners() {
   options_.listeners.emplace_back(new MultiOpsTxnsStressListener(this));
 }
 
-#ifndef ROCKSDB_LITE
 void MultiOpsTxnsStressTest::PrepareTxnDbOptions(
     SharedState* /*shared*/, TransactionDBOptions& txn_db_opts) {
   // MultiOpsTxnStressTest uses SingleDelete to delete secondary keys, thus we
@@ -548,19 +547,11 @@ void MultiOpsTxnsStressTest::PrepareTxnDbOptions(
         return index_id == Record::kSecondaryIndexId;
       };
 }
-#endif  // !ROCKSDB_LITE
 
 Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
                                                    uint32_t old_a,
                                                    uint32_t old_a_pos,
                                                    uint32_t new_a) {
-#ifdef ROCKSDB_LITE
-  (void)thread;
-  (void)old_a;
-  (void)old_a_pos;
-  (void)new_a;
-  return Status::NotSupported();
-#else
   std::string old_pk = Record::EncodePrimaryKey(old_a);
   std::string new_pk = Record::EncodePrimaryKey(new_a);
   Transaction* txn = nullptr;
@@ -678,20 +669,12 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     key_gen->Replace(old_a, old_a_pos, new_a);
   }
   return s;
-#endif  // !ROCKSDB_LITE
 }
 
 Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
                                                      uint32_t old_c,
                                                      uint32_t old_c_pos,
                                                      uint32_t new_c) {
-#ifdef ROCKSDB_LITE
-  (void)thread;
-  (void)old_c;
-  (void)old_c_pos;
-  (void)new_c;
-  return Status::NotSupported();
-#else
   Transaction* txn = nullptr;
   WriteOptions wopts;
   Status s = NewTxn(wopts, &txn);
@@ -885,18 +868,11 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   }
 
   return s;
-#endif  // !ROCKSDB_LITE
 }
 
 Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
                                                           uint32_t a,
                                                           uint32_t b_delta) {
-#ifdef ROCKSDB_LITE
-  (void)thread;
-  (void)a;
-  (void)b_delta;
-  return Status::NotSupported();
-#else
   std::string pk_str = Record::EncodePrimaryKey(a);
   Transaction* txn = nullptr;
   WriteOptions wopts;
@@ -974,17 +950,10 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
     delete txn;
   }
   return s;
-#endif  // !ROCKSDB_LITE
 }
 
 Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
                                               ReadOptions ropts, uint32_t a) {
-#ifdef ROCKSDB_LITE
-  (void)thread;
-  (void)ropts;
-  (void)a;
-  return Status::NotSupported();
-#else
   std::string pk_str = Record::EncodePrimaryKey(a);
   // pk may or may not exist
   PinnableSlice value;
@@ -1030,17 +999,10 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
     delete txn;
   }
   return s;
-#endif  // !ROCKSDB_LITE
 }
 
 Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
                                             ReadOptions ropts, uint32_t c) {
-#ifdef ROCKSDB_LITE
-  (void)thread;
-  (void)ropts;
-  (void)c;
-  return Status::NotSupported();
-#else
   std::string sk = Record::EncodeSecondaryKey(c);
 
   Transaction* txn = nullptr;
@@ -1093,7 +1055,6 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
   }
 
   return s;
-#endif  // !ROCKSDB_LITE
 }
 
 void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
@@ -1356,7 +1317,6 @@ uint32_t MultiOpsTxnsStressTest::GenerateNextC(ThreadState* thread) {
   return key_gen->Allocate();
 }
 
-#ifndef ROCKSDB_LITE
 void MultiOpsTxnsStressTest::ProcessRecoveredPreparedTxnsHelper(
     Transaction* txn, SharedState*) {
   thread_local Random rand(static_cast<uint32_t>(FLAGS_seed));
@@ -1418,7 +1378,6 @@ void MultiOpsTxnsStressTest::SetupSnapshot(
     read_opts.snapshot = txn.GetSnapshot();
   }
 }
-#endif  // !ROCKSDB_LITE
 
 std::string MultiOpsTxnsStressTest::KeySpaces::EncodeTo() const {
   std::string result;
@@ -1489,14 +1448,6 @@ MultiOpsTxnsStressTest::KeySpaces MultiOpsTxnsStressTest::ReadKeySpacesDesc(
 void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
                                        uint32_t lb_a, uint32_t ub_a,
                                        uint32_t lb_c, uint32_t ub_c) {
-#ifdef ROCKSDB_LITE
-  (void)shared;
-  (void)threads;
-  (void)lb_a;
-  (void)ub_a;
-  (void)lb_c;
-  (void)ub_c;
-#else
   key_gen_for_a_.resize(threads);
   key_gen_for_c_.resize(threads);
 
@@ -1599,7 +1550,6 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
         my_seed, low, high, std::move(existing_c_uniqs[i]),
         std::move(non_existing_c_uniqs[i]));
   }
-#endif  // !ROCKSDB_LITE
 }
 
 // Scan an existing, non-empty database.
@@ -1739,7 +1689,6 @@ StressTest* CreateMultiOpsTxnsStressTest() {
 }
 
 void CheckAndSetOptionsForMultiOpsTxnStressTest() {
-#ifndef ROCKSDB_LITE
   if (FLAGS_test_batches_snapshots || FLAGS_test_cf_consistency) {
     fprintf(stderr,
             "-test_multi_ops_txns is not compatible with "
@@ -1798,10 +1747,6 @@ void CheckAndSetOptionsForMultiOpsTxnStressTest() {
             "-test_multi_ops_txns\n");
     exit(1);
   }
-#else
-  fprintf(stderr, "-test_multi_ops_txns not supported in ROCKSDB_LITE mode\n");
-  exit(1);
-#endif  // !ROCKSDB_LITE
 }
 }  // namespace ROCKSDB_NAMESPACE
 

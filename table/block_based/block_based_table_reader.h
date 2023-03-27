@@ -336,10 +336,9 @@ class BlockBasedTable : public TableReader {
   WithBlocklikeCheck<Status, TBlocklike> MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-      const bool wait, const bool for_compaction,
-      CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context, BlockContents* contents,
-      bool async_read) const;
+      bool for_compaction, CachableEntry<TBlocklike>* block_entry,
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      BlockContents* contents, bool async_read) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
@@ -350,16 +349,14 @@ class BlockBasedTable : public TableReader {
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, bool for_compaction,
-      bool use_cache, bool wait_for_cache, bool async_read) const;
+      bool use_cache, bool async_read) const;
 
   DECLARE_SYNC_AND_ASYNC_CONST(
       void, RetrieveMultipleBlocks, const ReadOptions& options,
       const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
-      autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
-      autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>*
-          results,
-      char* scratch, const UncompressionDict& uncompression_dict);
+      Status* statuses, CachableEntry<Block>* results, char* scratch,
+      const UncompressionDict& uncompression_dict);
 
   // Get the iterator from the index reader.
   //
@@ -379,8 +376,10 @@ class BlockBasedTable : public TableReader {
       IndexBlockIter* input_iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) const;
 
-  // Read block cache from block caches (if set): block_cache and
-  // block_cache_compressed.
+  template <typename TBlocklike>
+  Cache::Priority GetCachePriority() const;
+
+  // Read block cache from block caches (if set): block_cache.
   // On success, Status::OK with be returned and @block will be populated with
   // pointer to the block as well as its block handle.
   // @param uncompression_dict Data for presetting the compression library's
@@ -388,10 +387,7 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> GetDataBlockFromCache(
       const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-      CompressedBlockCacheInterface block_cache_compressed,
-      const ReadOptions& read_options, CachableEntry<TBlocklike>* block,
-      const UncompressionDict& uncompression_dict, const bool wait,
-      GetContext* get_context) const;
+      CachableEntry<TBlocklike>* block, GetContext* get_context) const;
 
   // Put a maybe compressed block to the corresponding block caches.
   // This method will perform decompression against block_contents if needed
@@ -406,7 +402,6 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> PutDataBlockToCache(
       const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-      CompressedBlockCacheInterface block_cache_compressed,
       CachableEntry<TBlocklike>* cached_block, BlockContents&& block_contents,
       CompressionType block_comp_type,
       const UncompressionDict& uncompression_dict,
@@ -448,7 +443,7 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
       const bool prefetch_all, const bool preload_all,
-      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
+      std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats);
   Status ReadMetaIndexBlock(const ReadOptions& ro,
                             FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,

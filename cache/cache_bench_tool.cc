@@ -16,7 +16,7 @@
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
-#include "rocksdb/cache.h"
+#include "rocksdb/advanced_cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -77,11 +77,9 @@ DEFINE_bool(lean, false,
             "If true, no additional computation is performed besides cache "
             "operations.");
 
-#ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
-#endif  // ROCKSDB_LITE
 
 DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
@@ -257,12 +255,15 @@ void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* /*alloc*/) {
   delete[] static_cast<char*>(value);
 }
 
+Cache::CacheItemHelper helper1_wos(CacheEntryRole::kDataBlock, DeleteFn);
 Cache::CacheItemHelper helper1(CacheEntryRole::kDataBlock, DeleteFn, SizeFn,
-                               SaveToFn, CreateFn);
+                               SaveToFn, CreateFn, &helper1_wos);
+Cache::CacheItemHelper helper2_wos(CacheEntryRole::kIndexBlock, DeleteFn);
 Cache::CacheItemHelper helper2(CacheEntryRole::kIndexBlock, DeleteFn, SizeFn,
-                               SaveToFn, CreateFn);
+                               SaveToFn, CreateFn, &helper2_wos);
+Cache::CacheItemHelper helper3_wos(CacheEntryRole::kFilterBlock, DeleteFn);
 Cache::CacheItemHelper helper3(CacheEntryRole::kFilterBlock, DeleteFn, SizeFn,
-                               SaveToFn, CreateFn);
+                               SaveToFn, CreateFn, &helper3_wos);
 }  // namespace
 
 class CacheBench {
@@ -305,7 +306,6 @@ class CacheBench {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
                            false /* strict_capacity_limit */,
                            0.5 /* high_pri_pool_ratio */);
-#ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
             ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
@@ -318,7 +318,6 @@ class CacheBench {
         }
         opts.secondary_cache = secondary_cache;
       }
-#endif  // ROCKSDB_LITE
 
       cache_ = NewLRUCache(opts);
     } else {
@@ -548,7 +547,7 @@ class CacheBench {
         }
         // do lookup
         handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
-                                Cache::Priority::LOW, true);
+                                Cache::Priority::LOW);
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data
@@ -577,7 +576,7 @@ class CacheBench {
         }
         // do lookup
         handle = cache_->Lookup(key, &helper2, /*context*/ nullptr,
-                                Cache::Priority::LOW, true);
+                                Cache::Priority::LOW);
         if (handle) {
           if (!FLAGS_lean) {
             // do something with the data

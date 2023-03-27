@@ -87,6 +87,7 @@ DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
 DECLARE_int32(manual_wal_flush_one_in);
+DECLARE_int32(lock_wal_one_in);
 DECLARE_bool(test_cf_consistency);
 DECLARE_bool(test_multi_ops_txns);
 DECLARE_int32(threads);
@@ -212,6 +213,7 @@ DECLARE_bool(compare_full_db_state_snapshot);
 DECLARE_uint64(snapshot_hold_ops);
 DECLARE_bool(long_running_snapshots);
 DECLARE_bool(use_multiget);
+DECLARE_bool(use_get_entity);
 DECLARE_int32(readpercent);
 DECLARE_int32(prefixpercent);
 DECLARE_int32(writepercent);
@@ -252,7 +254,6 @@ DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
 
-#ifndef ROCKSDB_LITE
 // Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
 DECLARE_uint64(blob_db_min_blob_size);
@@ -260,7 +261,6 @@ DECLARE_uint64(blob_db_bytes_per_sync);
 DECLARE_uint64(blob_db_file_size);
 DECLARE_bool(blob_db_enable_gc);
 DECLARE_double(blob_db_gc_cutoff);
-#endif  // !ROCKSDB_LITE
 
 // Options for integrated BlobDB
 DECLARE_bool(allow_setting_blob_options_dynamically);
@@ -297,11 +297,9 @@ DECLARE_int32(secondary_cache_fault_one_in);
 DECLARE_int32(prepopulate_block_cache);
 
 DECLARE_bool(two_write_queues);
-#ifndef ROCKSDB_LITE
 DECLARE_bool(use_only_the_last_commit_time_batch_for_recovery);
 DECLARE_uint64(wp_snapshot_cache_bits);
 DECLARE_uint64(wp_commit_cache_bits);
-#endif  // !ROCKSDB_LITE
 
 DECLARE_bool(adaptive_readahead);
 DECLARE_bool(async_io);
@@ -324,6 +322,7 @@ DECLARE_uint64(readahead_size);
 DECLARE_uint64(initial_auto_readahead_size);
 DECLARE_uint64(max_auto_readahead_size);
 DECLARE_uint64(num_file_reads_for_auto_readahead);
+DECLARE_bool(use_io_uring);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -598,6 +597,24 @@ extern inline std::string StringToHex(const std::string& str) {
   return result;
 }
 
+inline std::string WideColumnsToHex(const WideColumns& columns) {
+  if (columns.empty()) {
+    return std::string();
+  }
+
+  std::ostringstream oss;
+
+  oss << std::hex;
+
+  auto it = columns.begin();
+  oss << *it;
+  for (++it; it != columns.end(); ++it) {
+    oss << ' ' << *it;
+  }
+
+  return oss.str();
+}
+
 // Unified output format for double parameters
 extern inline std::string FormatDoubleParam(double param) {
   return std::to_string(param);
@@ -628,6 +645,8 @@ extern uint32_t GetValueBase(Slice s);
 extern WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
 extern WideColumns GenerateExpectedWideColumns(uint32_t value_base,
                                                const Slice& slice);
+extern bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
+extern bool VerifyWideColumns(const WideColumns& columns);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();

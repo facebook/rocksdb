@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "db/external_sst_file_ingestion_job.h"
 
@@ -747,12 +746,6 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
   ParsedInternalKey key;
   ReadOptions ro;
-  // During reading the external file we can cache blocks that we read into
-  // the block cache, if we later change the global seqno of this file, we will
-  // have block in cache that will include keys with wrong seqno.
-  // We need to disable fill_cache so that we read from the file without
-  // updating the block cache.
-  ro.fill_cache = false;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
       ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
@@ -1096,4 +1089,3 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE
