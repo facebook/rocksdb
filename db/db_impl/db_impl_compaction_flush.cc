@@ -1031,15 +1031,9 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
     if (immutable_db_options_.atomic_flush) {
-      autovector<ColumnFamilyData*> cfds;
-      mutex_.Lock();
-      SelectColumnFamiliesForAtomicFlush(&cfds);
-      mutex_.Unlock();
-      s = AtomicFlushMemTables(cfds, fo, FlushReason::kManualCompaction,
-                               false /* entered_write_thread */);
+      s = AtomicFlushMemTables(fo, FlushReason::kManualCompaction);
     } else {
-      s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction,
-                        false /* entered_write_thread */);
+      s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction);
     }
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
@@ -1800,8 +1794,8 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                  cfh->GetName().c_str());
   Status s;
   if (immutable_db_options_.atomic_flush) {
-    s = AtomicFlushMemTables({cfh->cfd()}, flush_options,
-                             FlushReason::kManualFlush);
+    s = AtomicFlushMemTables(flush_options, FlushReason::kManualFlush,
+                             {cfh->cfd()});
   } else {
     s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
   }
@@ -1839,7 +1833,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                     auto cfh = static_cast<ColumnFamilyHandleImpl*>(elem);
                     cfds.emplace_back(cfh->cfd());
                   });
-    s = AtomicFlushMemTables(cfds, flush_options, FlushReason::kManualFlush);
+    s = AtomicFlushMemTables(flush_options, FlushReason::kManualFlush, cfds);
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Manual atomic flush finished, status: %s\n"
                    "=====Column families:=====",
@@ -2223,11 +2217,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   return s;
 }
 
-// Flush all elements in 'column_family_datas'
-// and atomically record the result to the MANIFEST.
 Status DBImpl::AtomicFlushMemTables(
-    const autovector<ColumnFamilyData*>& column_family_datas,
     const FlushOptions& flush_options, FlushReason flush_reason,
+    const autovector<ColumnFamilyData*>& provided_candidate_cfds,
     bool entered_write_thread) {
   assert(immutable_db_options_.atomic_flush);
   if (!flush_options.wait && write_controller_.IsStopped()) {
@@ -2237,18 +2229,48 @@ Status DBImpl::AtomicFlushMemTables(
     return Status::TryAgain(oss.str());
   }
   Status s;
+  autovector<ColumnFamilyData*> candidate_cfds;
+  if (provided_candidate_cfds.empty()) {
+    // Generate candidate cfds if not provided
+    {
+      InstrumentedMutexLock l(&mutex_);
+      for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+        if (!cfd->IsDropped() && cfd->initialized()) {
+          cfd->Ref();
+          candidate_cfds.push_back(cfd);
+        }
+      }
+    }
+  } else {
+    candidate_cfds = provided_candidate_cfds;
+  }
+
   if (!flush_options.allow_write_stall) {
     int num_cfs_to_flush = 0;
-    for (auto cfd : column_family_datas) {
+    for (auto cfd : candidate_cfds) {
       bool flush_needed = true;
       s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
       if (!s.ok()) {
+        // Unref the newly generated candidate cfds (when not provided) in
+        // `candidate_cfds`
+        if (provided_candidate_cfds.empty()) {
+          for (auto candidate_cfd : candidate_cfds) {
+            candidate_cfd->UnrefAndTryDelete();
+          }
+        }
         return s;
       } else if (flush_needed) {
         ++num_cfs_to_flush;
       }
     }
     if (0 == num_cfs_to_flush) {
+      // Unref the newly generated candidate cfds (when not provided) in
+      // `candidate_cfds`
+      if (provided_candidate_cfds.empty()) {
+        for (auto candidate_cfd : candidate_cfds) {
+          candidate_cfd->UnrefAndTryDelete();
+        }
+      }
       return s;
     }
   }
@@ -2269,15 +2291,16 @@ Status DBImpl::AtomicFlushMemTables(
     }
     WaitForPendingWrites();
 
-    for (auto cfd : column_family_datas) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-          !cached_recoverable_state_empty_.load()) {
-        cfds.emplace_back(cfd);
+    SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds);
+
+    // Unref the newly generated candidate cfds (when not provided) in
+    // `candidate_cfds`
+    if (provided_candidate_cfds.empty()) {
+      for (auto candidate_cfd : candidate_cfds) {
+        candidate_cfd->UnrefAndTryDelete();
       }
     }
+
     for (auto cfd : cfds) {
       if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) ||
           flush_reason == FlushReason::kErrorRecoveryRetryFlush) {

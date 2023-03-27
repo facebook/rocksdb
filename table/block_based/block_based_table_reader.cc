@@ -94,7 +94,7 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       const BlockHandle& handle, const UncompressionDict& uncompression_dict, \
       CachableEntry<T>* out_parsed_block, GetContext* get_context,            \
       BlockCacheLookupContext* lookup_context, bool for_compaction,           \
-      bool use_cache, bool wait_for_cache, bool async_read) const;
+      bool use_cache, bool async_read) const;
 
 INSTANTIATE_RETRIEVE_BLOCK(ParsedFullFilterBlock);
 INSTANTIATE_RETRIEVE_BLOCK(UncompressionDict);
@@ -591,7 +591,7 @@ Status BlockBasedTable::Open(
   if (!ioptions.allow_mmap_reads) {
     s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
-                     &prefetch_buffer);
+                     &prefetch_buffer, ioptions.stats);
     // Return error in prefetch path to users.
     if (!s.ok()) {
       return s;
@@ -802,7 +802,7 @@ Status BlockBasedTable::PrefetchTail(
     const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
     bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
     const bool prefetch_all, const bool preload_all,
-    std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer) {
+    std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats) {
   size_t tail_prefetch_size = 0;
   if (tail_prefetch_stats != nullptr) {
     // Multiple threads may get a 0 (no history) when running in parallel,
@@ -842,9 +842,12 @@ Status BlockBasedTable::PrefetchTail(
   }
 
   // Use `FilePrefetchBuffer`
-  prefetch_buffer->reset(
-      new FilePrefetchBuffer(0 /* readahead_size */, 0 /* max_readahead_size */,
-                             true /* enable */, true /* track_min_offset */));
+  prefetch_buffer->reset(new FilePrefetchBuffer(
+      0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
+      true /* track_min_offset */, false /* implicit_auto_readahead */,
+      0 /* num_file_reads */, 0 /* num_file_reads_for_auto_readahead */,
+      nullptr /* fs */, nullptr /* clock */, stats,
+      FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
   IOOptions opts;
   Status s = file->PrepareIOOptions(ro, opts);
@@ -1251,24 +1254,31 @@ Status BlockBasedTable::ReadMetaIndexBlock(
 }
 
 template <typename TBlocklike>
-WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
-    const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-    CachableEntry<TBlocklike>* out_parsed_block, const bool wait,
-    GetContext* get_context) const {
-  assert(out_parsed_block);
-  assert(out_parsed_block->IsEmpty());
+Cache::Priority BlockBasedTable::GetCachePriority() const {
   // Here we treat the legacy name "...index_and_filter_blocks..." to mean all
   // metadata blocks that might go into block cache, EXCEPT only those needed
   // for the read path (Get, etc.). TableProperties should not be needed on the
   // read path (prefix extractor setting is an O(1) size special case that we
   // are working not to require from TableProperties), so it is not given
   // high-priority treatment if it should go into BlockCache.
-  const Cache::Priority priority =
-      rep_->table_options.cache_index_and_filter_blocks_with_high_priority &&
-              TBlocklike::kBlockType != BlockType::kData &&
-              TBlocklike::kBlockType != BlockType::kProperties
-          ? Cache::Priority::HIGH
-          : Cache::Priority::LOW;
+  if constexpr (TBlocklike::kBlockType == BlockType::kData ||
+                TBlocklike::kBlockType == BlockType::kProperties) {
+    return Cache::Priority::LOW;
+  } else if (rep_->table_options
+                 .cache_index_and_filter_blocks_with_high_priority) {
+    return Cache::Priority::HIGH;
+  } else {
+    return Cache::Priority::LOW;
+  }
+}
+
+template <typename TBlocklike>
+WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
+    const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
+    CachableEntry<TBlocklike>* out_parsed_block,
+    GetContext* get_context) const {
+  assert(out_parsed_block);
+  assert(out_parsed_block->IsEmpty());
 
   Status s;
   Statistics* statistics = rep_->ioptions.statistics.get();
@@ -1277,8 +1287,8 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
   if (block_cache) {
     assert(!cache_key.empty());
     auto cache_handle = block_cache.LookupFull(
-        cache_key, &rep_->create_context, priority, wait, statistics,
-        rep_->ioptions.lowest_used_cache_tier);
+        cache_key, &rep_->create_context, GetCachePriority<TBlocklike>(),
+        statistics, rep_->ioptions.lowest_used_cache_tier);
 
     // Avoid updating metrics here if the handle is not complete yet. This
     // happens with MultiGet and secondary cache. So update the metrics only
@@ -1311,11 +1321,6 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     MemoryAllocator* memory_allocator, GetContext* get_context) const {
   const ImmutableOptions& ioptions = rep_->ioptions;
   const uint32_t format_version = rep_->table_options.format_version;
-  const Cache::Priority priority =
-      rep_->table_options.cache_index_and_filter_blocks_with_high_priority &&
-              TBlocklike::kBlockType != BlockType::kData
-          ? Cache::Priority::HIGH
-          : Cache::Priority::LOW;
   assert(out_parsed_block);
   assert(out_parsed_block->IsEmpty());
 
@@ -1346,7 +1351,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
     size_t charge = block_holder->ApproximateMemoryUsage();
     BlockCacheTypedHandle<TBlocklike>* cache_handle = nullptr;
     s = block_cache.InsertFull(cache_key, block_holder.get(), charge,
-                               &cache_handle, priority,
+                               &cache_handle, GetCachePriority<TBlocklike>(),
                                rep_->ioptions.lowest_used_cache_tier);
 
     if (s.ok()) {
@@ -1443,10 +1448,9 @@ WithBlocklikeCheck<Status, TBlocklike>
 BlockBasedTable::MaybeReadBlockAndLoadToCache(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-    const bool wait, const bool for_compaction,
-    CachableEntry<TBlocklike>* out_parsed_block, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context, BlockContents* contents,
-    bool async_read) const {
+    bool for_compaction, CachableEntry<TBlocklike>* out_parsed_block,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    BlockContents* contents, bool async_read) const {
   assert(out_parsed_block != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   BlockCacheInterface<TBlocklike> block_cache{
@@ -1465,7 +1469,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
     key = key_data.AsSlice();
 
     if (!contents) {
-      s = GetDataBlockFromCache(key, block_cache, out_parsed_block, wait,
+      s = GetDataBlockFromCache(key, block_cache, out_parsed_block,
                                 get_context);
       // Value could still be null at this point, so check the cache handle
       // and update the read pattern for prefetching
@@ -1626,15 +1630,15 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<TBlocklike>* out_parsed_block, GetContext* get_context,
     BlockCacheLookupContext* lookup_context, bool for_compaction,
-    bool use_cache, bool wait_for_cache, bool async_read) const {
+    bool use_cache, bool async_read) const {
   assert(out_parsed_block);
   assert(out_parsed_block->IsEmpty());
 
   Status s;
   if (use_cache) {
     s = MaybeReadBlockAndLoadToCache(
-        prefetch_buffer, ro, handle, uncompression_dict, wait_for_cache,
-        for_compaction, out_parsed_block, get_context, lookup_context,
+        prefetch_buffer, ro, handle, uncompression_dict, for_compaction,
+        out_parsed_block, get_context, lookup_context,
         /*contents=*/nullptr, async_read);
 
     if (!s.ok()) {

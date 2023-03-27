@@ -521,6 +521,8 @@ bool DBIter::MergeValuesNewToOld() {
   // Start the merge process by pushing the first operand
   merge_context_.PushOperand(
       iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+  PERF_COUNTER_ADD(internal_merge_count, 1);
+
   TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
@@ -877,9 +879,14 @@ bool DBIter::FindValueForCurrentKey() {
     if (timestamp_lb_ != nullptr) {
       // Only needed when timestamp_lb_ is not null
       [[maybe_unused]] const bool ret = ParseKey(&ikey_);
-      saved_ikey_.assign(iter_.key().data(), iter_.key().size());
       // Since the preceding ParseKey(&ikey) succeeds, so must this.
       assert(ret);
+      saved_key_.SetInternalKey(ikey);
+    } else if (user_comparator_.Compare(ikey.user_key,
+                                        saved_key_.GetUserKey()) < 0) {
+      saved_key_.SetUserKey(
+          ikey.user_key,
+          !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
     }
 
     valid_entry_seen = true;
@@ -964,7 +971,6 @@ bool DBIter::FindValueForCurrentKey() {
       if (timestamp_lb_ == nullptr) {
         valid_ = false;
       } else {
-        saved_key_.SetInternalKey(saved_ikey_);
         valid_ = true;
       }
       return true;
@@ -1010,17 +1016,10 @@ bool DBIter::FindValueForCurrentKey() {
       }
       break;
     case kTypeValue:
-      if (timestamp_lb_ != nullptr) {
-        saved_key_.SetInternalKey(saved_ikey_);
-      }
-
       SetValueAndColumnsFromPlain(pinned_value_);
 
       break;
     case kTypeBlobIndex:
-      if (timestamp_lb_ != nullptr) {
-        saved_key_.SetInternalKey(saved_ikey_);
-      }
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
         return false;
       }
@@ -1162,6 +1161,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   merge_context_.Clear();
   merge_context_.PushOperand(
       iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+  PERF_COUNTER_ADD(internal_merge_count, 1);
+
   while (true) {
     iter_.Next();
 

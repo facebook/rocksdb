@@ -135,6 +135,9 @@ struct ShardedCacheOptions {
   CacheMetadataChargePolicy metadata_charge_policy =
       kDefaultCacheMetadataChargePolicy;
 
+  // A SecondaryCache instance to use the non-volatile tier.
+  std::shared_ptr<SecondaryCache> secondary_cache;
+
   ShardedCacheOptions() {}
   ShardedCacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
@@ -181,9 +184,6 @@ struct LRUCacheOptions : public ShardedCacheOptions {
   // effect. The default value is true if RocksDB is compiled with
   // -DROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX, false otherwise.
   bool use_adaptive_mutex = kDefaultToAdaptiveMutex;
-
-  // A SecondaryCache instance to use a the non-volatile tier.
-  std::shared_ptr<SecondaryCache> secondary_cache;
 
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,

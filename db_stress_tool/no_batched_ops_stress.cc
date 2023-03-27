@@ -101,12 +101,9 @@ class NonBatchedOpsStressTest : public StressTest {
             if (diff > 0) {
               s = Status::NotFound();
             } else if (diff == 0) {
-              const WideColumns expected_columns = GenerateExpectedWideColumns(
-                  GetValueBase(iter->value()), iter->value());
-              if (iter->columns() != expected_columns) {
+              if (!VerifyWideColumns(iter->value(), iter->columns())) {
                 VerificationAbort(shared, static_cast<int>(cf), i,
-                                  iter->value(), iter->columns(),
-                                  expected_columns);
+                                  iter->value(), iter->columns());
               }
 
               from_db = iter->value().ToString();
@@ -159,26 +156,24 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           const std::string key = Key(i);
-          PinnableWideColumns columns;
+          PinnableWideColumns result;
 
           Status s =
-              db_->GetEntity(options, column_families_[cf], key, &columns);
+              db_->GetEntity(options, column_families_[cf], key, &result);
 
           std::string from_db;
 
           if (s.ok()) {
-            const WideColumns& columns_from_db = columns.columns();
+            const WideColumns& columns = result.columns();
 
-            if (!columns_from_db.empty() &&
-                columns_from_db[0].name() == kDefaultWideColumnName) {
-              from_db = columns_from_db[0].value().ToString();
+            if (!columns.empty() &&
+                columns.front().name() == kDefaultWideColumnName) {
+              from_db = columns.front().value().ToString();
             }
 
-            const WideColumns expected_columns =
-                GenerateExpectedWideColumns(GetValueBase(from_db), from_db);
-            if (columns_from_db != expected_columns) {
+            if (!VerifyWideColumns(columns)) {
               VerificationAbort(shared, static_cast<int>(cf), i, from_db,
-                                columns_from_db, expected_columns);
+                                columns);
             }
           }
 
@@ -256,18 +251,16 @@ class NonBatchedOpsStressTest : public StressTest {
             std::string from_db;
 
             if (statuses[j].ok()) {
-              const WideColumns& columns_from_db = results[j].columns();
+              const WideColumns& columns = results[j].columns();
 
-              if (!columns_from_db.empty() &&
-                  columns_from_db[0].name() == kDefaultWideColumnName) {
-                from_db = columns_from_db[0].value().ToString();
+              if (!columns.empty() &&
+                  columns.front().name() == kDefaultWideColumnName) {
+                from_db = columns.front().value().ToString();
               }
 
-              const WideColumns expected_columns =
-                  GenerateExpectedWideColumns(GetValueBase(from_db), from_db);
-              if (columns_from_db != expected_columns) {
+              if (!VerifyWideColumns(columns)) {
                 VerificationAbort(shared, static_cast<int>(cf), i, from_db,
-                                  columns_from_db, expected_columns);
+                                  columns);
               }
             }
 
@@ -756,6 +749,104 @@ class NonBatchedOpsStressTest : public StressTest {
     return statuses;
   }
 
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override {
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableErrorInjection();
+      SharedState::ignore_read_error = false;
+    }
+
+    assert(thread);
+
+    SharedState* const shared = thread->shared;
+    assert(shared);
+
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    std::unique_ptr<MutexLock> lock(new MutexLock(
+        shared->GetMutexForKey(rand_column_families[0], rand_keys[0])));
+
+    assert(rand_column_families[0] >= 0);
+    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    const std::string key = Key(rand_keys[0]);
+
+    PinnableWideColumns from_db;
+
+    const Status s = db_->GetEntity(read_opts, cfh, key, &from_db);
+
+    int error_count = 0;
+
+    if (fault_fs_guard) {
+      error_count = fault_fs_guard->GetAndResetErrorCount();
+    }
+
+    if (s.ok()) {
+      if (fault_fs_guard) {
+        if (error_count && !SharedState::ignore_read_error) {
+          // Grab mutex so multiple threads don't try to print the
+          // stack trace at the same time
+          MutexLock l(shared->GetMutex());
+          fprintf(stderr, "Didn't get expected error from GetEntity\n");
+          fprintf(stderr, "Call stack that injected the fault\n");
+          fault_fs_guard->PrintFaultBacktrace();
+          std::terminate();
+        }
+      }
+
+      thread->stats.AddGets(1, 1);
+
+      if (!FLAGS_skip_verifydb) {
+        const WideColumns& columns = from_db.columns();
+
+        if (!VerifyWideColumns(columns)) {
+          shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "error : inconsistent columns returned by GetEntity for key "
+                  "%s: %s\n",
+                  StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+        } else if (shared->Get(rand_column_families[0], rand_keys[0]) ==
+                   SharedState::DELETION_SENTINEL) {
+          shared->SetVerificationFailure();
+          fprintf(
+              stderr,
+              "error : inconsistent values for key %s: GetEntity returns %s, "
+              "expected state does not have the key.\n",
+              StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+        }
+      }
+    } else if (s.IsNotFound()) {
+      thread->stats.AddGets(1, 0);
+
+      if (!FLAGS_skip_verifydb) {
+        auto expected = shared->Get(rand_column_families[0], rand_keys[0]);
+        if (expected != SharedState::DELETION_SENTINEL &&
+            expected != SharedState::UNKNOWN_SENTINEL) {
+          shared->SetVerificationFailure();
+          fprintf(stderr,
+                  "error : inconsistent values for key %s: expected state has "
+                  "the key, GetEntity returns NotFound.\n",
+                  StringToHex(key).c_str());
+        }
+      }
+    } else {
+      if (error_count == 0) {
+        thread->stats.AddErrors(1);
+      } else {
+        thread->stats.AddVerifiedErrors(1);
+      }
+    }
+
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
+    }
+  }
+
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {
@@ -810,12 +901,9 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
 
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(iter->value()), iter->value());
-      if (iter->columns() != expected_columns) {
-        s = Status::Corruption(
-            "Value and columns inconsistent",
-            DebugString(iter->value(), iter->columns(), expected_columns));
+      if (!VerifyWideColumns(iter->value(), iter->columns())) {
+        s = Status::Corruption("Value and columns inconsistent",
+                               DebugString(iter->value(), iter->columns()));
         break;
       }
     }
@@ -1268,17 +1356,15 @@ class NonBatchedOpsStressTest : public StressTest {
       assert(iter);
       assert(iter->Valid());
 
-      const WideColumns expected_columns = GenerateExpectedWideColumns(
-          GetValueBase(iter->value()), iter->value());
-      if (iter->columns() != expected_columns) {
+      if (!VerifyWideColumns(iter->value(), iter->columns())) {
         shared->SetVerificationFailure();
 
         fprintf(stderr,
                 "Verification failed for key %s: "
-                "Value and columns inconsistent: %s\n",
+                "Value and columns inconsistent: value: %s, columns: %s\n",
                 Slice(iter->key()).ToString(/* hex */ true).c_str(),
-                DebugString(iter->value(), iter->columns(), expected_columns)
-                    .c_str());
+                iter->value().ToString(/* hex */ true).c_str(),
+                WideColumnsToHex(iter->columns()).c_str());
         fprintf(stderr, "Column family: %s, op_logs: %s\n",
                 cfh->GetName().c_str(), op_logs.c_str());
 

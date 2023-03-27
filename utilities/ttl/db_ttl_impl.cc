@@ -451,7 +451,11 @@ bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl,
   if (!clock->GetCurrentTime(&curtime).ok()) {
     return false;  // Treat the data as fresh if could not get current time
   }
-  int32_t timestamp_value =
+  /* int32_t may overflow when timestamp_value + ttl
+   * for example ttl = 86400 * 365 * 15
+   * convert timestamp_value to int64_t
+   */
+  int64_t timestamp_value =
       DecodeFixed32(value.data() + value.size() - kTSLength);
   return (timestamp_value + ttl) < curtime;
 }

@@ -2253,6 +2253,12 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
             "Corruption: Corrupt or unsupported checksum type: 123 in test");
 }
 
+class BuiltinChecksumTest : public testing::Test,
+                            public testing::WithParamInterface<ChecksumType> {};
+
+INSTANTIATE_TEST_CASE_P(SupportedChecksums, BuiltinChecksumTest,
+                        testing::ValuesIn(GetSupportedChecksums()));
+
 namespace {
 std::string ChecksumAsString(const std::string& data,
                              ChecksumType checksum_type) {
@@ -2278,7 +2284,11 @@ std::string ChecksumAsString(std::string* data, char new_last_byte,
 
 // Make sure that checksum values don't change in later versions, even if
 // consistent within current version.
-TEST_P(BlockBasedTableTest, ChecksumSchemas) {
+TEST_P(BuiltinChecksumTest, ChecksumSchemas) {
+  // Trailing 'x' chars will be replaced by compression type. Specifically,
+  // the first byte of a block trailer is compression type, which is part of
+  // the checksum input. This test does not deal with storing or parsing
+  // checksums from the trailer (next 4 bytes of trailer).
   std::string b0 = "x";
   std::string b1 = "This is a short block!x";
   std::string b2;
@@ -2286,7 +2296,6 @@ TEST_P(BlockBasedTableTest, ChecksumSchemas) {
     b2.append("This is a long block!");
   }
   b2.append("x");
-  // Trailing 'x' will be replaced by compression type
 
   std::string empty;
 
@@ -2294,74 +2303,108 @@ TEST_P(BlockBasedTableTest, ChecksumSchemas) {
   char ct2 = kSnappyCompression;
   char ct3 = kZSTD;
 
-  // Note: first byte of trailer is compression type, last 4 are checksum
+  ChecksumType t = GetParam();
+  switch (t) {
+    case kNoChecksum:
+      EXPECT_EQ(ChecksumAsString(empty, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "00000000");
+      break;
+    case kCRC32c:
+      EXPECT_EQ(ChecksumAsString(empty, t), "D8EA82A2");
+      EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "D28F2549");
+      EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "052B2843");
+      EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "46F8F711");
+      EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "583F0355");
+      EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "2F9B0A57");
+      EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "ECE7DA1D");
+      EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "943EF0AB");
+      EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "43A2EDB1");
+      EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "00E53D63");
+      break;
+    case kxxHash:
+      EXPECT_EQ(ChecksumAsString(empty, t), "055DCC02");
+      EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "3EB065CF");
+      EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "31F79238");
+      EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "320D2E00");
+      EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "4A2E5FB0");
+      EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "0BD9F652");
+      EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "B4107E50");
+      EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "20F4D4BA");
+      EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "8F1A1F99");
+      EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "A191A338");
+      break;
+    case kxxHash64:
+      EXPECT_EQ(ChecksumAsString(empty, t), "99E9D851");
+      EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "682705DB");
+      EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "30E7211B");
+      EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "B7BB58E8");
+      EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "B74655EF");
+      EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "B6C8BBBE");
+      EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "AED9E3B4");
+      EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "0D4999FE");
+      EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "F5932423");
+      EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "6B31BAB1");
+      break;
+    case kXXH3:
+      EXPECT_EQ(ChecksumAsString(empty, t), "00000000");
+      EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "C294D338");
+      EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "1B174353");
+      EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "2D0E20C8");
+      EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "B37FB5E6");
+      EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "6AFC258D");
+      EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "5CE54616");
+      EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "FA2D482E");
+      EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "23AED845");
+      EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "15B7BBDE");
+      break;
+    default:
+      // Force this test to be updated on new ChecksumTypes
+      assert(false);
+      break;
+  }
+}
 
-  for (ChecksumType t : GetSupportedChecksums()) {
-    switch (t) {
-      case kNoChecksum:
-        EXPECT_EQ(ChecksumAsString(empty, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "00000000");
-        break;
-      case kCRC32c:
-        EXPECT_EQ(ChecksumAsString(empty, t), "D8EA82A2");
-        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "D28F2549");
-        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "052B2843");
-        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "46F8F711");
-        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "583F0355");
-        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "2F9B0A57");
-        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "ECE7DA1D");
-        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "943EF0AB");
-        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "43A2EDB1");
-        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "00E53D63");
-        break;
-      case kxxHash:
-        EXPECT_EQ(ChecksumAsString(empty, t), "055DCC02");
-        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "3EB065CF");
-        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "31F79238");
-        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "320D2E00");
-        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "4A2E5FB0");
-        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "0BD9F652");
-        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "B4107E50");
-        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "20F4D4BA");
-        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "8F1A1F99");
-        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "A191A338");
-        break;
-      case kxxHash64:
-        EXPECT_EQ(ChecksumAsString(empty, t), "99E9D851");
-        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "682705DB");
-        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "30E7211B");
-        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "B7BB58E8");
-        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "B74655EF");
-        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "B6C8BBBE");
-        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "AED9E3B4");
-        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "0D4999FE");
-        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "F5932423");
-        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "6B31BAB1");
-        break;
-      case kXXH3:
-        EXPECT_EQ(ChecksumAsString(empty, t), "00000000");
-        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "C294D338");
-        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "1B174353");
-        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "2D0E20C8");
-        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "B37FB5E6");
-        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "6AFC258D");
-        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "5CE54616");
-        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "FA2D482E");
-        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "23AED845");
-        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "15B7BBDE");
-        break;
-      default:
-        // Force this test to be updated on new ChecksumTypes
-        assert(false);
-        break;
+TEST_P(BuiltinChecksumTest, ChecksumZeroInputs) {
+  // Verify that no reasonably sized "all zeros" inputs produce "all zeros"
+  // output. Otherwise, "wiped" data could appear to be well-formed.
+  // Assuming essentially random assignment of output values, the likelihood
+  // of encountering checksum == 0 for an input not specifically crafted is
+  // 1 in 4 billion.
+  if (GetParam() == kNoChecksum) {
+    return;
+  }
+  // "Thorough" case is too slow for continouous testing
+  bool thorough = getenv("ROCKSDB_THOROUGH_CHECKSUM_TEST") != nullptr;
+  // Verified through 10M
+  size_t kMaxZerosLen = thorough ? 10000000 : 20000;
+  std::string zeros(kMaxZerosLen, '\0');
+
+  for (size_t len = 0; len < kMaxZerosLen; ++len) {
+    if (thorough && (len & 0xffffU) == 0) {
+      fprintf(stderr, "t=%u len=%u\n", (unsigned)GetParam(), (unsigned)len);
+    }
+    uint32_t v = ComputeBuiltinChecksum(GetParam(), zeros.data(), len);
+    if (v == 0U) {
+      // One exception case:
+      if (GetParam() == kXXH3 && len == 0) {
+        // This is not a big deal because assuming the block length is known
+        // from the block handle, which comes from a checksum-verified block,
+        // there is nothing to corrupt in a zero-length block. And when there
+        // is a block trailer with compression byte (as in block-based table),
+        // zero length checksummed data never arises.
+        continue;
+      }
+      // Only compute this on failure
+      SCOPED_TRACE("len=" + std::to_string(len));
+      ASSERT_NE(v, 0U);
     }
   }
 }

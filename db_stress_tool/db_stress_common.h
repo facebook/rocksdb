@@ -213,6 +213,7 @@ DECLARE_bool(compare_full_db_state_snapshot);
 DECLARE_uint64(snapshot_hold_ops);
 DECLARE_bool(long_running_snapshots);
 DECLARE_bool(use_multiget);
+DECLARE_bool(use_get_entity);
 DECLARE_int32(readpercent);
 DECLARE_int32(prefixpercent);
 DECLARE_int32(writepercent);
@@ -596,6 +597,24 @@ extern inline std::string StringToHex(const std::string& str) {
   return result;
 }
 
+inline std::string WideColumnsToHex(const WideColumns& columns) {
+  if (columns.empty()) {
+    return std::string();
+  }
+
+  std::ostringstream oss;
+
+  oss << std::hex;
+
+  auto it = columns.begin();
+  oss << *it;
+  for (++it; it != columns.end(); ++it) {
+    oss << ' ' << *it;
+  }
+
+  return oss.str();
+}
+
 // Unified output format for double parameters
 extern inline std::string FormatDoubleParam(double param) {
   return std::to_string(param);
@@ -626,6 +645,8 @@ extern uint32_t GetValueBase(Slice s);
 extern WideColumns GenerateWideColumns(uint32_t value_base, const Slice& slice);
 extern WideColumns GenerateExpectedWideColumns(uint32_t value_base,
                                                const Slice& slice);
+extern bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
+extern bool VerifyWideColumns(const WideColumns& columns);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();

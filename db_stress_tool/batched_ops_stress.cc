@@ -268,6 +268,110 @@ class BatchedOpsStressTest : public StressTest {
     return ret_status;
   }
 
+  void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                     const std::vector<int>& rand_column_families,
+                     const std::vector<int64_t>& rand_keys) override {
+    assert(thread);
+
+    ManagedSnapshot snapshot_guard(db_);
+
+    ReadOptions read_opts_copy(read_opts);
+    read_opts_copy.snapshot = snapshot_guard.snapshot();
+
+    assert(!rand_keys.empty());
+
+    const std::string key_suffix = Key(rand_keys[0]);
+
+    assert(!rand_column_families.empty());
+    assert(rand_column_families[0] >= 0);
+    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    constexpr size_t num_keys = 10;
+
+    std::array<PinnableWideColumns, num_keys> results;
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      const std::string key = std::to_string(i) + key_suffix;
+
+      const Status s = db_->GetEntity(read_opts_copy, cfh, key, &results[i]);
+
+      if (!s.ok() && !s.IsNotFound()) {
+        fprintf(stderr, "GetEntity error: %s\n", s.ToString().c_str());
+        thread->stats.AddErrors(1);
+      } else if (s.IsNotFound()) {
+        thread->stats.AddGets(1, 0);
+      } else {
+        thread->stats.AddGets(1, 1);
+      }
+    }
+
+    // Compare columns ignoring the last character of column values
+    auto compare = [](const WideColumns& lhs, const WideColumns& rhs) {
+      if (lhs.size() != rhs.size()) {
+        return false;
+      }
+
+      for (size_t i = 0; i < lhs.size(); ++i) {
+        if (lhs[i].name() != rhs[i].name()) {
+          return false;
+        }
+
+        if (lhs[i].value().size() != rhs[i].value().size()) {
+          return false;
+        }
+
+        if (lhs[i].value().difference_offset(rhs[i].value()) <
+            lhs[i].value().size() - 1) {
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      const WideColumns& columns = results[i].columns();
+
+      if (!compare(results[0].columns(), columns)) {
+        fprintf(stderr,
+                "GetEntity error: inconsistent entities for key %s: %s, %s\n",
+                StringToHex(key_suffix).c_str(),
+                WideColumnsToHex(results[0].columns()).c_str(),
+                WideColumnsToHex(columns).c_str());
+      }
+
+      if (!columns.empty()) {
+        // The last character of each column value should be 'i' as a decimal
+        // digit
+        const char expected = static_cast<char>('0' + i);
+
+        for (const auto& column : columns) {
+          const Slice& value = column.value();
+
+          if (value.empty() || value[value.size() - 1] != expected) {
+            fprintf(stderr,
+                    "GetEntity error: incorrect column value for key "
+                    "%s, entity %s, column value %s, expected %c\n",
+                    StringToHex(key_suffix).c_str(),
+                    WideColumnsToHex(columns).c_str(),
+                    value.ToString(/* hex */ true).c_str(), expected);
+          }
+        }
+
+        if (!VerifyWideColumns(columns)) {
+          fprintf(
+              stderr,
+              "GetEntity error: inconsistent columns for key %s, entity %s\n",
+              StringToHex(key_suffix).c_str(),
+              WideColumnsToHex(columns).c_str());
+        }
+      }
+    }
+  }
+
   // Given a key, this does prefix scans for "0"+P, "1"+P, ..., "9"+P
   // in the same snapshot where P is the first FLAGS_prefix_size - 1 bytes
   // of the key. Each of these 10 scans returns a series of values;
@@ -357,16 +461,14 @@ class BatchedOpsStressTest : public StressTest {
         }
 
         // make sure value() and columns() are consistent
-        const WideColumns expected_columns = GenerateExpectedWideColumns(
-            GetValueBase(iters[i]->value()), iters[i]->value());
-        if (iters[i]->columns() != expected_columns) {
+        if (!VerifyWideColumns(iters[i]->value(), iters[i]->columns())) {
           fprintf(stderr,
                   "prefix scan error : %" ROCKSDB_PRIszt
-                  ", value and columns inconsistent for prefix %s: %s\n",
+                  ", value and columns inconsistent for prefix %s: value: %s, "
+                  "columns: %s\n",
                   i, prefix_slices[i].ToString(/* hex */ true).c_str(),
-                  DebugString(iters[i]->value(), iters[i]->columns(),
-                              expected_columns)
-                      .c_str());
+                  iters[i]->value().ToString(/* hex */ true).c_str(),
+                  WideColumnsToHex(iters[i]->columns()).c_str());
         }
 
         iters[i]->Next();

@@ -387,10 +387,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // We allow flush to stall write since we are trying to resume from error.
     flush_opts.allow_write_stall = true;
     if (immutable_db_options_.atomic_flush) {
-      autovector<ColumnFamilyData*> cfds;
-      SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
-      s = AtomicFlushMemTables(cfds, flush_opts, context.flush_reason);
+      s = AtomicFlushMemTables(flush_opts, context.flush_reason);
       mutex_.Lock();
     } else {
       for (auto cfd : versions_->GetRefedColumnFamilySet()) {
@@ -507,11 +505,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
     if (immutable_db_options_.atomic_flush) {
-      autovector<ColumnFamilyData*> cfds;
-      SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
-      Status s =
-          AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kShutDown);
+      Status s = AtomicFlushMemTables(FlushOptions(), FlushReason::kShutDown);
       s.PermitUncheckedError();  //**TODO: What to do on error?
       mutex_.Lock();
     } else {
@@ -5350,12 +5345,10 @@ Status DBImpl::IngestExternalFiles(
       FlushOptions flush_opts;
       flush_opts.allow_write_stall = true;
       if (immutable_db_options_.atomic_flush) {
-        autovector<ColumnFamilyData*> cfds_to_flush;
-        SelectColumnFamiliesForAtomicFlush(&cfds_to_flush);
         mutex_.Unlock();
-        status = AtomicFlushMemTables(cfds_to_flush, flush_opts,
-                                      FlushReason::kExternalFileIngestion,
-                                      true /* entered_write_thread */);
+        status = AtomicFlushMemTables(
+            flush_opts, FlushReason::kExternalFileIngestion,
+            {} /* provided_candidate_cfds */, true /* entered_write_thread */);
         mutex_.Lock();
       } else {
         for (size_t i = 0; i != num_cfs; ++i) {

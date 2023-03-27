@@ -99,12 +99,12 @@ class SecondaryCache : public Customizable {
   // needs to return true.
   // This hint can also be safely ignored.
   //
-  // is_in_sec_cache is to indicate whether the handle is possibly erased
-  // from the secondary cache after the Lookup.
+  // kept_in_sec_cache is to indicate whether the entry will be kept in the
+  // secondary cache after the Lookup (rather than erased because of Lookup)
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CacheItemHelper* helper,
       Cache::CreateContext* create_context, bool wait, bool advise_erase,
-      bool& is_in_sec_cache) = 0;
+      bool& kept_in_sec_cache) = 0;
 
   // Indicate whether a handle can be erased in this secondary cache.
   [[nodiscard]] virtual bool SupportForceErase() const = 0;
