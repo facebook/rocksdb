@@ -4494,6 +4494,37 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
 
+TEST_F(DBBasicTest, VerifyFileChecksumsReadahead) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 16; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(256 * 1024)));
+  }
+  ASSERT_OK(Flush());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenerateOneFileChecksum::Chunk:0", [&](void* /*arg*/) {
+        static bool last_read = false;
+        if (env_->random_read_bytes_counter_.load() & (256 * 1024 - 1)) {
+          EXPECT_FALSE(last_read);
+          last_read = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  env_->count_random_reads_ = true;
+  env_->random_read_bytes_counter_ = 0;
+
+  ReadOptions ro;
+  ro.readahead_size = 256 * 1024;
+  ASSERT_OK(db_->VerifyFileChecksums(ro));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 // TODO: re-enable after we provide finer-grained control for WAL tracking to
 // meet the needs of different use cases, durability levels and recovery modes.
 TEST_F(DBBasicTest, DISABLED_ManualWalSync) {

@@ -221,6 +221,8 @@ IOStatus GenerateOneFileChecksum(
     checksum_generator->Update(slice.data(), slice.size());
     size -= slice.size();
     offset += slice.size();
+
+    TEST_SYNC_POINT("GenerateOneFileChecksum::Chunk:0");
   }
   checksum_generator->Finalize();
   *file_checksum = checksum_generator->GetChecksum();
