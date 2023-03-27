@@ -140,7 +140,7 @@ DECLARE_int64(cache_size);
 DECLARE_int32(cache_numshardbits);
 DECLARE_bool(cache_index_and_filter_blocks);
 DECLARE_bool(pin_l0_filter_and_index_blocks_in_cache);
-DECLARE_bool(pin_top_level_index_and_filter );
+DECLARE_bool(pin_top_level_index_and_filter);
 DECLARE_bool(charge_compression_dictionary_building_buffer);
 DECLARE_bool(charge_filter_construction);
 DECLARE_bool(charge_table_reader);
