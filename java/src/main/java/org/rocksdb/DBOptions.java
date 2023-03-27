@@ -12,8 +12,8 @@ import java.util.*;
  * DBOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
- * If {@link #dispose()} function is not called, then it will be GC'd
- * automatically and native resources will be released as part of the process.
+ * As a descendent of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
+ * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class DBOptions extends RocksObject
     implements DBOptionsInterface<DBOptions>,
@@ -31,6 +31,7 @@ public class DBOptions extends RocksObject
   public DBOptions() {
     super(newDBOptions());
     numShardBits_ = DEFAULT_NUM_SHARD_BITS;
+    env_ = Env.getDefault();
   }
 
   /**
@@ -405,20 +406,6 @@ public class DBOptions extends RocksObject
 
   @Override
   @Deprecated
-  public void setBaseBackgroundCompactions(
-      final int baseBackgroundCompactions) {
-    assert(isOwningHandle());
-    setBaseBackgroundCompactions(nativeHandle_, baseBackgroundCompactions);
-  }
-
-  @Override
-  public int baseBackgroundCompactions() {
-    assert(isOwningHandle());
-    return baseBackgroundCompactions(nativeHandle_);
-  }
-
-  @Override
-  @Deprecated
   public DBOptions setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
     assert(isOwningHandle());
@@ -778,21 +765,6 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setNewTableReaderForCompactionInputs(
-      final boolean newTableReaderForCompactionInputs) {
-    assert(isOwningHandle());
-    setNewTableReaderForCompactionInputs(nativeHandle_,
-        newTableReaderForCompactionInputs);
-    return this;
-  }
-
-  @Override
-  public boolean newTableReaderForCompactionInputs() {
-    assert(isOwningHandle());
-    return newTableReaderForCompactionInputs(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setCompactionReadaheadSize(final long compactionReadaheadSize) {
     assert(isOwningHandle());
     setCompactionReadaheadSize(nativeHandle_, compactionReadaheadSize);
@@ -884,32 +856,18 @@ public class DBOptions extends RocksObject
     return strictBytesPerSync(nativeHandle_);
   }
 
-  //TODO(AR) NOW
-//  @Override
-//  public DBOptions setListeners(final List<EventListener> listeners) {
-//    assert(isOwningHandle());
-//    final long[] eventListenerHandlers = new long[listeners.size()];
-//    for (int i = 0; i < eventListenerHandlers.length; i++) {
-//      eventListenerHandlers[i] = listeners.get(i).nativeHandle_;
-//    }
-//    setEventListeners(nativeHandle_, eventListenerHandlers);
-//    return this;
-//  }
-//
-//  @Override
-//  public Collection<EventListener> listeners() {
-//    assert(isOwningHandle());
-//    final long[] eventListenerHandlers = listeners(nativeHandle_);
-//    if (eventListenerHandlers == null || eventListenerHandlers.length == 0) {
-//      return Collections.emptyList();
-//    }
-//
-//    final List<EventListener> eventListeners = new ArrayList<>();
-//    for (final long eventListenerHandle : eventListenerHandlers) {
-//      eventListeners.add(new EventListener(eventListenerHandle)); //TODO(AR) check ownership is set to false!
-//    }
-//    return eventListeners;
-//  }
+  @Override
+  public DBOptions setListeners(final List<AbstractEventListener> listeners) {
+    assert (isOwningHandle());
+    setEventListeners(nativeHandle_, RocksCallbackObject.toNativeHandleList(listeners));
+    return this;
+  }
+
+  @Override
+  public List<AbstractEventListener> listeners() {
+    assert (isOwningHandle());
+    return Arrays.asList(eventListeners(nativeHandle_));
+  }
 
   @Override
   public DBOptions setEnableThreadTracking(final boolean enableThreadTracking) {
@@ -1155,19 +1113,6 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setPreserveDeletes(final boolean preserveDeletes) {
-    assert(isOwningHandle());
-    setPreserveDeletes(nativeHandle_, preserveDeletes);
-    return this;
-  }
-
-  @Override
-  public boolean preserveDeletes() {
-    assert(isOwningHandle());
-    return preserveDeletes(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setTwoWriteQueues(final boolean twoWriteQueues) {
     assert(isOwningHandle());
     setTwoWriteQueues(nativeHandle_, twoWriteQueues);
@@ -1356,9 +1301,6 @@ public class DBOptions extends RocksObject
   private native void setDeleteObsoleteFilesPeriodMicros(
       long handle, long micros);
   private native long deleteObsoleteFilesPeriodMicros(long handle);
-  private native void setBaseBackgroundCompactions(long handle,
-      int baseBackgroundCompactions);
-  private native int baseBackgroundCompactions(long handle);
   private native void setMaxBackgroundCompactions(
       long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);
@@ -1435,9 +1377,6 @@ public class DBOptions extends RocksObject
   private native void setAccessHintOnCompactionStart(final long handle,
       final byte accessHintOnCompactionStart);
   private native byte accessHintOnCompactionStart(final long handle);
-  private native void setNewTableReaderForCompactionInputs(final long handle,
-      final boolean newTableReaderForCompactionInputs);
-  private native boolean newTableReaderForCompactionInputs(final long handle);
   private native void setCompactionReadaheadSize(final long handle,
       final long compactionReadaheadSize);
   private native long compactionReadaheadSize(final long handle);
@@ -1459,6 +1398,9 @@ public class DBOptions extends RocksObject
       final long handle, final boolean strictBytesPerSync);
   private native boolean strictBytesPerSync(
       final long handle);
+  private static native void setEventListeners(
+      final long handle, final long[] eventListenerHandles);
+  private static native AbstractEventListener[] eventListeners(final long handle);
   private native void setEnableThreadTracking(long handle,
       boolean enableThreadTracking);
   private native boolean enableThreadTracking(long handle);
@@ -1513,9 +1455,6 @@ public class DBOptions extends RocksObject
   private native void setAllowIngestBehind(final long handle,
       final boolean allowIngestBehind);
   private native boolean allowIngestBehind(final long handle);
-  private native void setPreserveDeletes(final long handle,
-      final boolean preserveDeletes);
-  private native boolean preserveDeletes(final long handle);
   private native void setTwoWriteQueues(final long handle,
       final boolean twoWriteQueues);
   private native boolean twoWriteQueues(final long handle);

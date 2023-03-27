@@ -332,6 +332,24 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
+  public void experimentalMempurgeThreshold() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final double doubleValue = rand.nextDouble();
+      opt.setExperimentalMempurgeThreshold(doubleValue);
+      assertThat(opt.experimentalMempurgeThreshold()).isEqualTo(doubleValue);
+    }
+  }
+
+  @Test
+  public void memtableWholeKeyFiltering() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final boolean booleanValue = rand.nextBoolean();
+      opt.setMemtableWholeKeyFiltering(booleanValue);
+      assertThat(opt.memtableWholeKeyFiltering()).isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
   public void memtableHugePageSize() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final long longValue = rand.nextLong();
@@ -586,6 +604,14 @@ public class ColumnFamilyOptionsTest {
       options.setTtl(1000 * 60);
       assertThat(options.ttl()).
           isEqualTo(1000 * 60);
+    }
+  }
+
+  @Test
+  public void periodicCompactionSeconds() {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
+      options.setPeriodicCompactionSeconds(1000 * 60);
+      assertThat(options.periodicCompactionSeconds()).isEqualTo(1000 * 60);
     }
   }
 

@@ -53,8 +53,8 @@ public class RocksDBColumnFamilySample {
 
       try {
         // put and get from non-default column family
-        db.put(columnFamilyHandles.get(0), new WriteOptions(),
-            "key".getBytes(), "value".getBytes());
+        db.put(
+            columnFamilyHandles.get(1), new WriteOptions(), "key".getBytes(), "value".getBytes());
 
         // atomic write
         try (final WriteBatch wb = new WriteBatch()) {
@@ -62,7 +62,7 @@ public class RocksDBColumnFamilySample {
               "value2".getBytes());
           wb.put(columnFamilyHandles.get(1), "key3".getBytes(),
               "value3".getBytes());
-          wb.remove(columnFamilyHandles.get(0), "key".getBytes());
+          wb.delete(columnFamilyHandles.get(1), "key".getBytes());
           db.write(new WriteOptions(), wb);
         }
 

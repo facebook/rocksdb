@@ -10,11 +10,13 @@
 #define JAVA_ROCKSJNI_LOGGERJNICALLBACK_H_
 
 #include <jni.h>
+
 #include <memory>
 #include <string>
-#include "rocksjni/jnicallback.h"
+
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksjni/jnicallback.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -23,8 +25,8 @@ class LoggerJniCallback : public JniCallback, public Logger {
   LoggerJniCallback(JNIEnv* env, jobject jLogger);
   ~LoggerJniCallback();
 
-  using Logger::SetInfoLogLevel;
   using Logger::GetInfoLogLevel;
+  using Logger::SetInfoLogLevel;
   // Write an entry to the log file with the specified format.
   virtual void Logv(const char* format, va_list ap);
   // Write an entry to the log file with the specified log level
@@ -43,7 +45,7 @@ class LoggerJniCallback : public JniCallback, public Logger {
   jobject m_jfatal_level;
   jobject m_jheader_level;
   std::unique_ptr<char[]> format_str(const char* format, va_list ap) const;
-  };
-  }  // namespace ROCKSDB_NAMESPACE
+};
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // JAVA_ROCKSJNI_LOGGERJNICALLBACK_H_

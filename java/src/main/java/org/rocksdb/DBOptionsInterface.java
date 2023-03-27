@@ -625,7 +625,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *    then WAL_size_limit_MB, they will be deleted starting with the
    *    earliest until size_limit is met. All empty files will be deleted.</li>
    * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-   *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   *    WAL files will be checked every WAL_ttl_seconds / 2 and those that
    *    are older than WAL_ttl_seconds will be deleted.</li>
    * <li>If both are not 0, WAL files will be checked every 10 min and both
    *    checks will be performed with ttl being first.</li>
@@ -648,7 +648,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * then WAL_size_limit_MB, they will be deleted starting with the
    * earliest until size_limit is met. All empty files will be deleted.</li>
    * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-   * WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   * WAL files will be checked every WAL_ttl_seconds / 2 and those that
    * are older than WAL_ttl_seconds will be deleted.</li>
    * <li>If both are not 0, WAL files will be checked every 10 min and both
    * checks will be performed with ttl being first.</li>
@@ -948,43 +948,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   AccessHint accessHintOnCompactionStart();
 
   /**
-   * If true, always create a new file descriptor and new table reader
-   * for compaction inputs. Turn this parameter on may introduce extra
-   * memory usage in the table reader, if it allocates extra memory
-   * for indexes. This will allow file descriptor prefetch options
-   * to be set for compaction input files and not to impact file
-   * descriptors for the same file used by user queries.
-   * Suggest to enable {@link BlockBasedTableConfig#cacheIndexAndFilterBlocks()}
-   * for this mode if using block-based table.
-   *
-   * Default: false
-   *
-   * @param newTableReaderForCompactionInputs true if a new file descriptor and
-   *     table reader should be created for compaction inputs
-   *
-   * @return the reference to the current options.
-   */
-  T setNewTableReaderForCompactionInputs(
-      boolean newTableReaderForCompactionInputs);
-
-  /**
-   * If true, always create a new file descriptor and new table reader
-   * for compaction inputs. Turn this parameter on may introduce extra
-   * memory usage in the table reader, if it allocates extra memory
-   * for indexes. This will allow file descriptor prefetch options
-   * to be set for compaction input files and not to impact file
-   * descriptors for the same file used by user queries.
-   * Suggest to enable {@link BlockBasedTableConfig#cacheIndexAndFilterBlocks()}
-   * for this mode if using block-based table.
-   *
-   * Default: false
-   *
-   * @return true if a new file descriptor and table reader are created for
-   *     compaction inputs
-   */
-  boolean newTableReaderForCompactionInputs();
-
-  /**
    * This is a maximum buffer size that is used by WinMmapReadableFile in
    * unbuffered disk I/O mode. We need to maintain an aligned buffer for
    * reads. We allow the buffer to grow until the specified value and then
@@ -1055,24 +1018,31 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    */
   boolean useAdaptiveMutex();
 
-  //TODO(AR) NOW
-//  /**
-//   * Sets the {@link EventListener}s whose callback functions
-//   * will be called when specific RocksDB event happens.
-//   *
-//   * @param listeners the listeners who should be notified on various events.
-//   *
-//   * @return the instance of the current object.
-//   */
-//  T setListeners(final List<EventListener> listeners);
-//
-//  /**
-//   * Gets the {@link EventListener}s whose callback functions
-//   * will be called when specific RocksDB event happens.
-//   *
-//   * @return a collection of Event listeners.
-//   */
-//  Collection<EventListener> listeners();
+  /**
+   * Sets the {@link EventListener}s whose callback functions
+   * will be called when specific RocksDB event happens.
+   *
+   * Note: the RocksJava API currently only supports EventListeners implemented in Java.
+   * It could be extended in future to also support adding/removing EventListeners implemented in
+   * C++.
+   *
+   * @param listeners the listeners who should be notified on various events.
+   *
+   * @return the instance of the current object.
+   */
+  T setListeners(final List<AbstractEventListener> listeners);
+
+  /**
+   * Sets the {@link EventListener}s whose callback functions
+   * will be called when specific RocksDB event happens.
+   *
+   * Note: the RocksJava API currently only supports EventListeners implemented in Java.
+   * It could be extended in future to also support adding/removing EventListeners implemented in
+   * C++.
+   *
+   * @return the instance of the current object.
+   */
+  List<AbstractEventListener> listeners();
 
   /**
    * If true, then the status of the threads involved in this DB will
@@ -1515,32 +1485,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return true if ingest behind is allowed, false otherwise.
    */
   boolean allowIngestBehind();
-
-  /**
-   * Needed to support differential snapshots.
-   * If set to true then DB will only process deletes with sequence number
-   * less than what was set by SetPreserveDeletesSequenceNumber(uint64_t ts).
-   * Clients are responsible to periodically call this method to advance
-   * the cutoff time. If this method is never called and preserve_deletes
-   * is set to true NO deletes will ever be processed.
-   * At the moment this only keeps normal deletes, SingleDeletes will
-   * not be preserved.
-   *
-   * DEFAULT: false
-   *
-   * @param preserveDeletes true to preserve deletes.
-   *
-   * @return the reference to the current options.
-   */
-  T setPreserveDeletes(final boolean preserveDeletes);
-
-  /**
-   * Returns true if deletes are preserved.
-   * See {@link #setPreserveDeletes(boolean)}.
-   *
-   * @return true if deletes are preserved, false otherwise.
-   */
-  boolean preserveDeletes();
 
   /**
    * If enabled it uses two queues for writes, one for the ones with

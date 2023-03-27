@@ -8,10 +8,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <atomic>
-#include "rocksdb/env.h"
+#include <memory>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
+class FSRandomAccessFile;
 // This file provides the following main abstractions:
 // SequentialFileReader : wrapper over Env::SequentialFile
 // RandomAccessFileReader : wrapper over Env::RandomAccessFile
@@ -22,6 +24,6 @@ namespace ROCKSDB_NAMESPACE {
 // NewReadaheadRandomAccessFile provides a wrapper over RandomAccessFile to
 // always prefetch additional data with every read. This is mainly used in
 // Compaction Table Readers.
-std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
-    std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size);
+std::unique_ptr<FSRandomAccessFile> NewReadaheadRandomAccessFile(
+    std::unique_ptr<FSRandomAccessFile>&& file, size_t readahead_size);
 }  // namespace ROCKSDB_NAMESPACE

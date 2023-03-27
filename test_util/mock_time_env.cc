@@ -12,7 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 // TODO: this is a workaround for the different behavior on different platform
 // for timedwait timeout. Ideally timedwait API should be moved to env.
 // details: PR #7101.
-void MockTimeEnv::InstallTimedWaitFixCallback() {
+void MockSystemClock::InstallTimedWaitFixCallback() {
 #ifndef NDEBUG
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

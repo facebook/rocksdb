@@ -5,7 +5,10 @@
 //
 #pragma once
 
-#ifndef ROCKSDB_LITE
+#include <cstdint>
+
+#include "rocksdb/rocksdb_namespace.h"
+
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -49,4 +52,3 @@ class BlobDBGarbageCollectionStats {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -16,8 +16,8 @@
 #include "db/version_set.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "logging/logging.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
@@ -28,6 +28,9 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
+#ifndef NDEBUG
+#include "utilities/fault_injection_fs.h"
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -58,7 +61,6 @@ class FaultInjectionTest
 
   bool sequential_order_;
 
- protected:
  public:
   enum ExpectedVerifResult { kValExpectFound, kValExpectNoError };
   enum ResetMethod {
@@ -82,7 +84,11 @@ class FaultInjectionTest
         sync_use_compact_(true),
         base_env_(nullptr),
         env_(nullptr),
-        db_(nullptr) {}
+        db_(nullptr) {
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &system_env_, &env_guard_));
+    EXPECT_NE(system_env_, nullptr);
+  }
 
   ~FaultInjectionTest() override {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -95,7 +101,7 @@ class FaultInjectionTest
       return false;
     } else {
       if (option_config_ == kMultiLevels) {
-        base_env_.reset(new MockEnv(Env::Default()));
+        base_env_.reset(MockEnv::Create(system_env_));
       }
       return true;
     }
@@ -147,8 +153,7 @@ class FaultInjectionTest
     assert(tiny_cache_ == nullptr);
     assert(env_ == nullptr);
 
-    env_ =
-        new FaultInjectionTestEnv(base_env_ ? base_env_.get() : Env::Default());
+    env_ = new FaultInjectionTestEnv(base_env_ ? base_env_.get() : system_env_);
 
     options_ = CurrentOptions();
     options_.env = env_;
@@ -193,7 +198,7 @@ class FaultInjectionTest
     for (int i = start_idx; i < start_idx + num_vals; i++) {
       Slice key = Key(i, &key_space);
       batch.Clear();
-      batch.Put(key, Value(i, &value_space));
+      ASSERT_OK(batch.Put(key, Value(i, &value_space)));
       ASSERT_OK(db_->Write(write_options, &batch));
     }
   }
@@ -273,12 +278,12 @@ class FaultInjectionTest
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_OK(db_->Delete(WriteOptions(), iter->key()));
     }
-
+    ASSERT_OK(iter->status());
     delete iter;
 
     FlushOptions flush_options;
     flush_options.wait = true;
-    db_->Flush(flush_options);
+    ASSERT_OK(db_->Flush(flush_options));
   }
 
   // rnd cannot be null for kResetDropRandomUnsyncedData
@@ -311,7 +316,7 @@ class FaultInjectionTest
 
     Build(write_options, 0, num_pre_sync);
     if (sync_use_compact_) {
-      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     }
     write_options.sync = false;
     Build(write_options, num_pre_sync, num_post_sync);
@@ -333,8 +338,7 @@ class FaultInjectionTest
                      FaultInjectionTest::kValExpectNoError));
   }
 
-  void NoWriteTestPreFault() {
-  }
+  void NoWriteTestPreFault() {}
 
   void NoWriteTestReopenWithFault(ResetMethod reset_method) {
     CloseDB();
@@ -343,9 +347,13 @@ class FaultInjectionTest
   }
 
   void WaitCompactionFinish() {
-    static_cast<DBImpl*>(db_->GetRootDB())->TEST_WaitForCompact();
+    ASSERT_OK(static_cast<DBImpl*>(db_->GetRootDB())->TEST_WaitForCompact());
     ASSERT_OK(db_->Put(WriteOptions(), "", ""));
   }
+
+ private:
+  Env* system_env_;
+  std::shared_ptr<Env> env_guard_;
 };
 
 class FaultInjectionTestSplitted : public FaultInjectionTest {};
@@ -410,7 +418,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   write_options.sync = true;
   ASSERT_OK(
       db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
-  db_->FlushWAL(false);
+  ASSERT_OK(db_->FlushWAL(false));
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
@@ -451,7 +459,7 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
   Build(WriteOptions(), 0, kNumKeys);
   FlushOptions flush_options;
   flush_options.wait = true;
-  db_->Flush(flush_options);
+  ASSERT_OK(db_->Flush(flush_options));
   ASSERT_OK(db_->Put(WriteOptions(), "", ""));
   TEST_SYNC_POINT("FaultInjectionTest::FaultTest:0");
   TEST_SYNC_POINT("FaultInjectionTest::FaultTest:1");
@@ -522,9 +530,9 @@ TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
   wo.sync = true;
   wo.disableWAL = false;
   WriteBatch batch;
-  batch.Put("cats", "dogs");
+  ASSERT_OK(batch.Put("cats", "dogs"));
   batch.MarkWalTerminationPoint();
-  batch.Put("boys", "girls");
+  ASSERT_OK(batch.Put("boys", "girls"));
   ASSERT_OK(db_->Write(wo, &batch));
 
   env_->SetFilesystemActive(false);
@@ -535,6 +543,76 @@ TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
   ASSERT_OK(db_->Get(ro, "cats", &val));
   ASSERT_EQ("dogs", val);
   ASSERT_EQ(db_->Get(ro, "boys", &val), Status::NotFound());
+}
+
+TEST_P(FaultInjectionTest, NoDuplicateTrailingEntries) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  fault_fs->EnableWriteErrorInjection();
+  fault_fs->SetFilesystemDirectWritable(false);
+  const std::string file_name = NormalizePath(dbname_ + "/test_file");
+  std::unique_ptr<log::Writer> log_writer = nullptr;
+  constexpr uint64_t log_number = 0;
+  {
+    std::unique_ptr<FSWritableFile> file;
+    const Status s =
+        fault_fs->NewWritableFile(file_name, FileOptions(), &file, nullptr);
+    ASSERT_OK(s);
+    std::unique_ptr<WritableFileWriter> fwriter(
+        new WritableFileWriter(std::move(file), file_name, FileOptions()));
+    log_writer.reset(new log::Writer(std::move(fwriter), log_number,
+                                     /*recycle_log_files=*/false));
+  }
+
+  fault_fs->SetRandomWriteError(
+      0xdeadbeef, /*one_in=*/1, IOStatus::IOError("Injected IOError"),
+      /*inject_for_all_file_types=*/true, /*types=*/{});
+
+  {
+    VersionEdit edit;
+    edit.SetColumnFamily(0);
+    std::string buf;
+    assert(edit.EncodeTo(&buf));
+    const Status s = log_writer->AddRecord(buf);
+    ASSERT_NOK(s);
+  }
+
+  fault_fs->DisableWriteErrorInjection();
+
+  // Closing the log writer will cause WritableFileWriter::Close() and flush
+  // remaining data from its buffer to underlying file.
+  log_writer.reset();
+
+  {
+    std::unique_ptr<FSSequentialFile> file;
+    Status s =
+        fault_fs->NewSequentialFile(file_name, FileOptions(), &file, nullptr);
+    ASSERT_OK(s);
+    std::unique_ptr<SequentialFileReader> freader(
+        new SequentialFileReader(std::move(file), file_name));
+    Status log_read_s;
+    class LogReporter : public log::Reader::Reporter {
+     public:
+      Status* status_;
+      explicit LogReporter(Status* _s) : status_(_s) {}
+      void Corruption(size_t /*bytes*/, const Status& _s) override {
+        if (status_->ok()) {
+          *status_ = _s;
+        }
+      }
+    } reporter(&log_read_s);
+    std::unique_ptr<log::Reader> log_reader(new log::Reader(
+        nullptr, std::move(freader), &reporter, /*checksum=*/true, log_number));
+    Slice record;
+    std::string data;
+    size_t count = 0;
+    while (log_reader->ReadRecord(&record, &data) && log_read_s.ok()) {
+      VersionEdit edit;
+      ASSERT_OK(edit.DecodeFrom(data));
+      ++count;
+    }
+    // Verify that only one version edit exists in the file.
+    ASSERT_EQ(1, count);
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -552,6 +630,8 @@ INSTANTIATE_TEST_CASE_P(
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

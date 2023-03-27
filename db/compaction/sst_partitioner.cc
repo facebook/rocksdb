@@ -8,7 +8,22 @@
 
 #include <algorithm>
 
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
+
 namespace ROCKSDB_NAMESPACE {
+static std::unordered_map<std::string, OptionTypeInfo>
+    sst_fixed_prefix_type_info = {
+        {"length",
+         {0, OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+};
+
+SstPartitionerFixedPrefixFactory::SstPartitionerFixedPrefixFactory(size_t len)
+    : len_(len) {
+  RegisterOptions("Length", &len_, &sst_fixed_prefix_type_info);
+}
 
 PartitionerResult SstPartitionerFixedPrefix::ShouldPartition(
     const PartitionerRequest& request) {
@@ -41,4 +56,28 @@ std::shared_ptr<SstPartitionerFactory> NewSstPartitionerFixedPrefixFactory(
   return std::make_shared<SstPartitionerFixedPrefixFactory>(prefix_len);
 }
 
+namespace {
+static int RegisterSstPartitionerFactories(ObjectLibrary& library,
+                                           const std::string& /*arg*/) {
+  library.AddFactory<SstPartitionerFactory>(
+      SstPartitionerFixedPrefixFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<SstPartitionerFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new SstPartitionerFixedPrefixFactory(0));
+        return guard->get();
+      });
+  return 1;
+}
+}  // namespace
+
+Status SstPartitionerFactory::CreateFromString(
+    const ConfigOptions& options, const std::string& value,
+    std::shared_ptr<SstPartitionerFactory>* result) {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterSstPartitionerFactories(*(ObjectLibrary::Default().get()), "");
+  });
+  return LoadSharedObject<SstPartitionerFactory>(options, value, result);
+}
 }  // namespace ROCKSDB_NAMESPACE

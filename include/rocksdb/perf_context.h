@@ -6,6 +6,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <map>
 #include <string>
 
@@ -57,7 +58,7 @@ struct PerfContext {
   // enable per level perf context and allocate storage for PerfContextByLevel
   void EnablePerLevelPerfContext();
 
-  // temporarily disable per level perf contxt by setting the flag to false
+  // temporarily disable per level perf context by setting the flag to false
   void DisablePerLevelPerfContext();
 
   // free the space for PerfContextByLevel, also disable per level perf context
@@ -68,18 +69,41 @@ struct PerfContext {
   uint64_t block_read_count;           // total number of block reads (with IO)
   uint64_t block_read_byte;            // total number of bytes from block reads
   uint64_t block_read_time;            // total nanos spent on block reads
-  uint64_t block_cache_index_hit_count;   // total number of index block hits
+  uint64_t block_cache_index_hit_count;  // total number of index block hits
+  // total number of standalone handles lookup from secondary cache
+  uint64_t block_cache_standalone_handle_count;
+  // total number of real handles lookup from secondary cache that are inserted
+  // into primary cache
+  uint64_t block_cache_real_handle_count;
   uint64_t index_block_read_count;        // total number of index block reads
   uint64_t block_cache_filter_hit_count;  // total number of filter block hits
   uint64_t filter_block_read_count;       // total number of filter block reads
   uint64_t compression_dict_block_read_count;  // total number of compression
                                                // dictionary block reads
+
+  uint64_t secondary_cache_hit_count;  // total number of secondary cache hits
+  // total number of real handles inserted into secondary cache
+  uint64_t compressed_sec_cache_insert_real_count;
+  // total number of dummy handles inserted into secondary cache
+  uint64_t compressed_sec_cache_insert_dummy_count;
+  // bytes for vals before compression in secondary cache
+  uint64_t compressed_sec_cache_uncompressed_bytes;
+  // bytes for vals after compression in secondary cache
+  uint64_t compressed_sec_cache_compressed_bytes;
+
   uint64_t block_checksum_time;    // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
 
   uint64_t get_read_bytes;       // bytes for vals returned by Get
   uint64_t multiget_read_bytes;  // bytes for vals returned by MultiGet
   uint64_t iter_read_bytes;      // bytes for keys/vals decoded by iterator
+
+  uint64_t blob_cache_hit_count;  // total number of blob cache hits
+  uint64_t blob_read_count;       // total number of blob reads (with IO)
+  uint64_t blob_read_byte;        // total number of bytes from blob reads
+  uint64_t blob_read_time;        // total nanos spent on blob reads
+  uint64_t blob_checksum_time;    // total nanos spent on blob checksum
+  uint64_t blob_decompress_time;  // total nanos spent on blob decompression
 
   // total number of internal keys skipped over during iteration.
   // There are several reasons for it:
@@ -111,9 +135,18 @@ struct PerfContext {
   // than the snapshot that iterator is using.
   //
   uint64_t internal_recent_skipped_count;
-  // How many values were fed into merge operator by iterators.
+  // How many merge operands were fed into the merge operator by iterators.
+  // Note: base values are not included in the count.
   //
   uint64_t internal_merge_count;
+  // How many merge operands were fed into the merge operator by point lookups.
+  // Note: base values are not included in the count.
+  //
+  uint64_t internal_merge_point_lookup_count;
+  // Number of times we reseeked inside a merging iterator, specifically to skip
+  // after or before a range of keys covered by a range deletion in a newer LSM
+  // component.
+  uint64_t internal_range_del_reseek_count;
 
   uint64_t get_snapshot_time;        // total nanos spent on getting snapshot
   uint64_t get_from_memtable_time;   // total nanos spent on querying memtables
@@ -226,12 +259,21 @@ struct PerfContext {
   // Time spent in decrypting data. Populated when EncryptedEnv is used.
   uint64_t decrypt_data_nanos;
 
+  uint64_t number_async_seek;
+
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
   bool per_level_perf_context_enabled = false;
 };
 
-// Get Thread-local PerfContext object pointer
-// if defined(NPERF_CONTEXT), then the pointer is not thread-local
+// If RocksDB is compiled with -DNPERF_CONTEXT, then a pointer to a global,
+// non-thread-local PerfContext object will be returned. Attempts to update
+// this object will be ignored, and reading from it will also be no-op.
+// Otherwise,
+// a) if thread-local is supported on the platform, then a pointer to
+//    a thread-local PerfContext object will be returned.
+// b) if thread-local is NOT supported, then compilation will fail.
+//
+// This function never returns nullptr.
 PerfContext* get_perf_context();
 
 }  // namespace ROCKSDB_NAMESPACE

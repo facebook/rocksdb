@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/transaction_base.h"
 
@@ -11,6 +10,7 @@
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "logging/logging.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
@@ -20,15 +20,57 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-TransactionBaseImpl::TransactionBaseImpl(DB* db,
-                                         const WriteOptions& write_options)
+Status Transaction::CommitAndTryCreateSnapshot(
+    std::shared_ptr<TransactionNotifier> notifier, TxnTimestamp ts,
+    std::shared_ptr<const Snapshot>* snapshot) {
+  if (snapshot) {
+    snapshot->reset();
+  }
+  TxnTimestamp commit_ts = GetCommitTimestamp();
+  if (commit_ts == kMaxTxnTimestamp) {
+    if (ts == kMaxTxnTimestamp) {
+      return Status::InvalidArgument("Commit timestamp unset");
+    } else {
+      const Status s = SetCommitTimestamp(ts);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  } else if (ts != kMaxTxnTimestamp) {
+    if (ts != commit_ts) {
+      // For now we treat this as error.
+      return Status::InvalidArgument("Different commit ts specified");
+    }
+  }
+  SetSnapshotOnNextOperation(notifier);
+  Status s = Commit();
+  if (!s.ok()) {
+    return s;
+  }
+  assert(s.ok());
+  // If we reach here, we must return ok status for this function.
+  std::shared_ptr<const Snapshot> new_snapshot = GetTimestampedSnapshot();
+
+  if (snapshot) {
+    *snapshot = new_snapshot;
+  }
+  return Status::OK();
+}
+
+TransactionBaseImpl::TransactionBaseImpl(
+    DB* db, const WriteOptions& write_options,
+    const LockTrackerFactory& lock_tracker_factory)
     : db_(db),
       dbimpl_(static_cast_with_check<DBImpl>(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
-      start_time_(db_->GetEnv()->NowMicros()),
-      write_batch_(cmp_, 0, true, 0),
-      tracked_locks_(NewLockTracker()),
+      lock_tracker_factory_(lock_tracker_factory),
+      start_time_(dbimpl_->GetSystemClock()->NowMicros()),
+      write_batch_(cmp_, 0, true, 0, write_options.protection_bytes_per_key),
+      tracked_locks_(lock_tracker_factory_.Create()),
+      commit_time_batch_(0 /* reserved_bytes */, 0 /* max_bytes */,
+                         write_options.protection_bytes_per_key,
+                         0 /* default_cf_ts_sz */),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
@@ -65,9 +107,15 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   name_.clear();
   log_number_ = 0;
   write_options_ = write_options;
-  start_time_ = db_->GetEnv()->NowMicros();
+  start_time_ = dbimpl_->GetSystemClock()->NowMicros();
   indexing_enabled_ = true;
   cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
+  WriteBatchInternal::UpdateProtectionInfo(
+      write_batch_.GetWriteBatch(), write_options_.protection_bytes_per_key)
+      .PermitUncheckedError();
+  WriteBatchInternal::UpdateProtectionInfo(
+      &commit_time_batch_, write_options_.protection_bytes_per_key)
+      .PermitUncheckedError();
 }
 
 void TransactionBaseImpl::SetSnapshot() {
@@ -122,10 +170,13 @@ Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
 
 void TransactionBaseImpl::SetSavePoint() {
   if (save_points_ == nullptr) {
-    save_points_.reset(new std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>());
+    save_points_.reset(
+        new std::stack<TransactionBaseImpl::SavePoint,
+                       autovector<TransactionBaseImpl::SavePoint>>());
   }
   save_points_->emplace(snapshot_, snapshot_needed_, snapshot_notifier_,
-                        num_puts_, num_deletes_, num_merges_);
+                        num_puts_, num_deletes_, num_merges_,
+                        lock_tracker_factory_);
   write_batch_.SetSavePoint();
 }
 
@@ -157,8 +208,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
 }
 
 Status TransactionBaseImpl::PopSavePoint() {
-  if (save_points_ == nullptr ||
-      save_points_->empty()) {
+  if (save_points_ == nullptr || save_points_->empty()) {
     // No SavePoint yet.
     assert(write_batch_.PopSavePoint().IsNotFound());
     return Status::NotFound();
@@ -172,7 +222,7 @@ Status TransactionBaseImpl::PopSavePoint() {
   if (save_points_->size() == 1) {
     save_points_->pop();
   } else {
-    TransactionBaseImpl::SavePoint top;
+    TransactionBaseImpl::SavePoint top(lock_tracker_factory_);
     std::swap(top, save_points_->top());
     save_points_->pop();
 
@@ -303,7 +353,8 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options) {
   Iterator* db_iter = db_->NewIterator(read_options);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(db_iter);
+  return write_batch_.NewIteratorWithBase(db_->DefaultColumnFamily(), db_iter,
+                                          &read_options);
 }
 
 Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
@@ -527,7 +578,9 @@ Status TransactionBaseImpl::SingleDeleteUntracked(
 }
 
 void TransactionBaseImpl::PutLogData(const Slice& blob) {
-  write_batch_.PutLogData(blob);
+  auto s = write_batch_.PutLogData(blob);
+  (void)s;
+  assert(s.ok());
 }
 
 WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {
@@ -535,7 +588,7 @@ WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {
 }
 
 uint64_t TransactionBaseImpl::GetElapsedTime() const {
-  return (db_->GetEnv()->NowMicros() - start_time_) / 1000;
+  return (dbimpl_->GetSystemClock()->NowMicros() - start_time_) / 1000;
 }
 
 uint64_t TransactionBaseImpl::GetNumPuts() const { return num_puts_; }
@@ -656,6 +709,10 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
       return Status::InvalidArgument();
     }
 
+    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+      return Status::InvalidArgument();
+    }
+
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
     }
@@ -670,4 +727,3 @@ WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

@@ -7,12 +7,15 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 extern uint32_t crc32c_ppc(uint32_t crc, unsigned char const *buffer,
-                           unsigned len);
+                           size_t len);
 
 #ifdef __cplusplus
 }

@@ -10,8 +10,8 @@
 #pragma once
 
 #include <assert.h>
-#include <cinttypes>
 
+#include <cinttypes>
 #include <list>
 #include <string>
 #include <unordered_map>
@@ -152,8 +152,9 @@ class ShortenedIndexBuilder : public IndexBuilder {
     if (first_key_in_next_block != nullptr) {
       if (shortening_mode_ !=
           BlockBasedTableOptions::IndexShorteningMode::kNoShortening) {
-        comparator_->FindShortestSeparator(last_key_in_current_block,
-                                           *first_key_in_next_block);
+        FindShortestInternalKeySeparator(*comparator_->user_comparator(),
+                                         last_key_in_current_block,
+                                         *first_key_in_next_block);
       }
       if (!seperator_is_key_plus_seq_ &&
           comparator_->user_comparator()->Compare(
@@ -164,7 +165,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
     } else {
       if (shortening_mode_ == BlockBasedTableOptions::IndexShorteningMode::
                                   kShortenSeparatorsAndSuccessor) {
-        comparator_->FindShortSuccessor(last_key_in_current_block);
+        FindShortInternalKeySuccessor(*comparator_->user_comparator(),
+                                      last_key_in_current_block);
       }
     }
     auto sep = Slice(*last_key_in_current_block);
@@ -211,6 +213,15 @@ class ShortenedIndexBuilder : public IndexBuilder {
   virtual bool seperator_is_key_plus_seq() override {
     return seperator_is_key_plus_seq_;
   }
+
+  // Changes *key to a short string >= *key.
+  //
+  static void FindShortestInternalKeySeparator(const Comparator& comparator,
+                                               std::string* start,
+                                               const Slice& limit);
+
+  static void FindShortInternalKeySuccessor(const Comparator& comparator,
+                                            std::string* key);
 
   friend class PartitionedIndexBuilder;
 
@@ -285,8 +296,8 @@ class HashIndexBuilder : public IndexBuilder {
       }
 
       // need a hard copy otherwise the underlying data changes all the time.
-      // TODO(kailiu) ToString() is expensive. We may speed up can avoid data
-      // copy.
+      // TODO(kailiu) std::to_string() is expensive. We may speed up can avoid
+      // data copy.
       pending_entry_prefix_ = key_prefix.ToString();
       pending_block_num_ = 1;
       pending_entry_index_ = static_cast<uint32_t>(current_restart_index_);

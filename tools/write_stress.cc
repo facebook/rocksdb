@@ -69,6 +69,7 @@ int main() {
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/system_clock.h"
 #include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -187,8 +188,8 @@ class WriteStress {
   void IteratorHoldThread() {
     while (!stop_.load(std::memory_order_relaxed)) {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
-      Env::Default()->SleepForMicroseconds(FLAGS_iterator_hold_sec * 1000 *
-                                           1000LL);
+      SystemClock::Default()->SleepForMicroseconds(FLAGS_iterator_hold_sec *
+                                                   1000 * 1000LL);
       for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
       }
       if (!iterator->status().ok()) {
@@ -204,17 +205,19 @@ class WriteStress {
     std::uniform_real_distribution<double> dist(0, 1);
     std::uniform_int_distribution<int> char_dist('a', 'z');
     while (!stop_.load(std::memory_order_relaxed)) {
-      Env::Default()->SleepForMicroseconds(static_cast<int>(
-                                           FLAGS_prefix_mutate_period_sec *
-                                           1000 * 1000LL));
+      SystemClock::Default()->SleepForMicroseconds(
+          static_cast<int>(FLAGS_prefix_mutate_period_sec * 1000 * 1000LL));
       if (dist(rng) < FLAGS_first_char_mutate_probability) {
-        key_prefix_[0].store(static_cast<char>(char_dist(rng)), std::memory_order_relaxed);
+        key_prefix_[0].store(static_cast<char>(char_dist(rng)),
+                             std::memory_order_relaxed);
       }
       if (dist(rng) < FLAGS_second_char_mutate_probability) {
-        key_prefix_[1].store(static_cast<char>(char_dist(rng)), std::memory_order_relaxed);
+        key_prefix_[1].store(static_cast<char>(char_dist(rng)),
+                             std::memory_order_relaxed);
       }
       if (dist(rng) < FLAGS_third_char_mutate_probability) {
-        key_prefix_[2].store(static_cast<char>(char_dist(rng)), std::memory_order_relaxed);
+        key_prefix_[2].store(static_cast<char>(char_dist(rng)),
+                             std::memory_order_relaxed);
       }
     }
   }
@@ -227,11 +230,12 @@ class WriteStress {
     if (FLAGS_runtime_sec == -1) {
       // infinite runtime, until we get killed
       while (true) {
-        Env::Default()->SleepForMicroseconds(1000 * 1000);
+        SystemClock::Default()->SleepForMicroseconds(1000 * 1000);
       }
     }
 
-    Env::Default()->SleepForMicroseconds(FLAGS_runtime_sec * 1000 * 1000);
+    SystemClock::Default()->SleepForMicroseconds(FLAGS_runtime_sec * 1000 *
+                                                 1000);
 
     stop_.store(true, std::memory_order_relaxed);
     for (auto& t : threads_) {
@@ -239,9 +243,6 @@ class WriteStress {
     }
     threads_.clear();
 
-// Skip checking for leaked files in ROCKSDB_LITE since we don't have access to
-// function GetLiveFilesMetaData
-#ifndef ROCKSDB_LITE
     // let's see if we leaked some files
     db_->PauseBackgroundWork();
     std::vector<LiveFileMetaData> metadata;
@@ -277,7 +278,6 @@ class WriteStress {
       }
     }
     db_->ContinueBackgroundWork();
-#endif  // !ROCKSDB_LITE
 
     return 0;
   }

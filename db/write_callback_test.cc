@@ -3,7 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
+
+#include "db/write_callback.h"
 
 #include <atomic>
 #include <functional>
@@ -12,7 +13,6 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "db/write_callback.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
@@ -37,11 +37,11 @@ class WriteCallbackTestWriteCallback1 : public WriteCallback {
  public:
   bool was_called = false;
 
-  Status Callback(DB *db) override {
+  Status Callback(DB* db) override {
     was_called = true;
 
     // Make sure db is a DBImpl
-    DBImpl* db_impl = dynamic_cast<DBImpl*> (db);
+    DBImpl* db_impl = dynamic_cast<DBImpl*>(db);
     if (db_impl == nullptr) {
       return Status::InvalidArgument("");
     }
@@ -84,6 +84,7 @@ class MockWriteCallback : public WriteCallback {
   bool AllowWriteBatching() override { return allow_batching_; }
 };
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class WriteCallbackPTest
     : public WriteCallbackTest,
       public ::testing::WithParamInterface<
@@ -111,7 +112,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
 
     void Put(const string& key, const string& val) {
       kvs_.push_back(std::make_pair(key, val));
-      write_batch_.Put(key, val);
+      ASSERT_OK(write_batch_.Put(key, val));
     }
 
     void Clear() {
@@ -170,7 +171,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     DB* db;
     DBImpl* db_impl;
 
-    DestroyDB(dbname, options);
+    ASSERT_OK(DestroyDB(dbname, options));
 
     DBOptions db_options(options);
     ColumnFamilyOptions cf_options(options);
@@ -306,6 +307,10 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
       WriteOptions woptions;
       woptions.disableWAL = !enable_WAL_;
       woptions.sync = enable_WAL_;
+      if (woptions.protection_bytes_per_key > 0) {
+        ASSERT_OK(WriteBatchInternal::UpdateProtectionInfo(
+            &write_op.write_batch_, woptions.protection_bytes_per_key));
+      }
       Status s;
       if (seq_per_batch_) {
         class PublishSeqCallback : public PreReleaseCallback {
@@ -319,7 +324,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
           DBImpl* db_impl_;
         } publish_seq_callback(db_impl);
         // seq_per_batch_ requires a natural batch separator or Noop
-        WriteBatchInternal::InsertNoop(&write_op.write_batch_);
+        ASSERT_OK(WriteBatchInternal::InsertNoop(&write_op.write_batch_));
         const size_t ONE_BATCH = 1;
         s = db_impl->WriteImpl(woptions, &write_op.write_batch_,
                                &write_op.callback_, nullptr, 0, false, nullptr,
@@ -367,7 +372,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     ASSERT_EQ(seq.load(), db_impl->TEST_GetLastVisibleSequence());
 
     delete db;
-    DestroyDB(dbname, options);
+    ASSERT_OK(DestroyDB(dbname, options));
   }
 }
 
@@ -376,6 +381,7 @@ INSTANTIATE_TEST_CASE_P(WriteCallbackPTest, WriteCallbackPTest,
                                            ::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool()));
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(WriteCallbackTest, WriteCallBackTest) {
   Options options;
@@ -385,19 +391,19 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   DB* db;
   DBImpl* db_impl;
 
-  DestroyDB(dbname, options);
+  ASSERT_OK(DestroyDB(dbname, options));
 
   options.create_if_missing = true;
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
 
-  db_impl = dynamic_cast<DBImpl*> (db);
+  db_impl = dynamic_cast<DBImpl*>(db);
   ASSERT_TRUE(db_impl);
 
   WriteBatch wb;
 
-  wb.Put("a", "value.a");
-  wb.Delete("x");
+  ASSERT_OK(wb.Put("a", "value.a"));
+  ASSERT_OK(wb.Delete("x"));
 
   // Test a simple Write
   s = db->Write(write_options, &wb);
@@ -411,7 +417,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   WriteCallbackTestWriteCallback1 callback1;
   WriteBatch wb2;
 
-  wb2.Put("a", "value.a2");
+  ASSERT_OK(wb2.Put("a", "value.a2"));
 
   s = db_impl->WriteWithCallback(write_options, &wb2, &callback1);
   ASSERT_OK(s);
@@ -425,7 +431,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   WriteCallbackTestWriteCallback2 callback2;
   WriteBatch wb3;
 
-  wb3.Put("a", "value.a3");
+  ASSERT_OK(wb3.Put("a", "value.a3"));
 
   s = db_impl->WriteWithCallback(write_options, &wb3, &callback2);
   ASSERT_NOK(s);
@@ -435,23 +441,14 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   ASSERT_EQ("value.a2", value);
 
   delete db;
-  DestroyDB(dbname, options);
+  ASSERT_OK(DestroyDB(dbname, options));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr,
-          "SKIPPED as WriteWithCallback is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

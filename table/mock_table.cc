@@ -18,8 +18,8 @@ namespace mock {
 
 KVVector MakeMockFile(std::initializer_list<KVPair> l) { return KVVector(l); }
 
-void SortKVVector(KVVector* kv_vector) {
-  InternalKeyComparator icmp(BytewiseComparator());
+void SortKVVector(KVVector* kv_vector, const Comparator* ucmp) {
+  InternalKeyComparator icmp(ucmp);
   std::sort(kv_vector->begin(), kv_vector->end(),
             [icmp](KVPair a, KVPair b) -> bool {
               return icmp.Compare(a.first, b.first) < 0;
@@ -122,8 +122,12 @@ class MockTableBuilder : public TableBuilder {
  public:
   MockTableBuilder(uint32_t id, MockTableFileSystem* file_system,
                    MockTableFactory::MockCorruptionMode corrupt_mode =
-                       MockTableFactory::kCorruptNone)
-      : id_(id), file_system_(file_system), corrupt_mode_(corrupt_mode) {
+                       MockTableFactory::kCorruptNone,
+                   size_t key_value_size = 1)
+      : id_(id),
+        file_system_(file_system),
+        corrupt_mode_(corrupt_mode),
+        key_value_size_(key_value_size) {
     table_ = MakeMockFile({});
   }
 
@@ -171,7 +175,7 @@ class MockTableBuilder : public TableBuilder {
 
   uint64_t NumEntries() const override { return table_.size(); }
 
-  uint64_t FileSize() const override { return table_.size(); }
+  uint64_t FileSize() const override { return table_.size() * key_value_size_; }
 
   TableProperties GetTableProperties() const override {
     return TableProperties();
@@ -191,6 +195,7 @@ class MockTableBuilder : public TableBuilder {
   MockTableFileSystem* file_system_;
   int corrupt_mode_;
   KVVector table_;
+  size_t key_value_size_;
 };
 
 InternalIterator* MockTableReader::NewIterator(
@@ -207,8 +212,10 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
   std::unique_ptr<MockTableIterator> iter(new MockTableIterator(table_));
   for (iter->Seek(key); iter->Valid(); iter->Next()) {
     ParsedInternalKey parsed_key;
-    if (ParseInternalKey(iter->key(), &parsed_key) != Status::OK()) {
-      return Status::Corruption(Slice());
+    Status pik_status =
+        ParseInternalKey(iter->key(), &parsed_key, true /* log_err_key */);
+    if (!pik_status.ok()) {
+      return pik_status;
     }
 
     bool dont_care __attribute__((__unused__));
@@ -233,7 +240,11 @@ Status MockTableFactory::NewTableReader(
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t /*file_size*/,
     std::unique_ptr<TableReader>* table_reader,
     bool /*prefetch_index_and_filter_in_cache*/) const {
-  uint32_t id = GetIDFromFile(file.get());
+  uint32_t id;
+  Status s = GetIDFromFile(file.get(), &id);
+  if (!s.ok()) {
+    return s;
+  }
 
   MutexLock lock_guard(&file_system_.mutex);
 
@@ -249,42 +260,48 @@ Status MockTableFactory::NewTableReader(
 
 TableBuilder* MockTableFactory::NewTableBuilder(
     const TableBuilderOptions& /*table_builder_options*/,
-    uint32_t /*column_family_id*/, WritableFileWriter* file) const {
-  uint32_t id = GetAndWriteNextID(file);
+    WritableFileWriter* file) const {
+  uint32_t id;
+  Status s = GetAndWriteNextID(file, &id);
+  assert(s.ok());
 
-  return new MockTableBuilder(id, &file_system_, corrupt_mode_);
+  return new MockTableBuilder(id, &file_system_, corrupt_mode_,
+                              key_value_size_);
 }
 
 Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
                                          KVVector file_contents) {
-  std::unique_ptr<WritableFile> file;
-  auto s = env->NewWritableFile(fname, &file, EnvOptions());
+  std::unique_ptr<WritableFileWriter> file_writer;
+  Status s = WritableFileWriter::Create(env->GetFileSystem(), fname,
+                                        FileOptions(), &file_writer, nullptr);
   if (!s.ok()) {
     return s;
   }
-
-  WritableFileWriter file_writer(NewLegacyWritableFileWrapper(std::move(file)),
-                                 fname, EnvOptions());
-
-  uint32_t id = GetAndWriteNextID(&file_writer);
-  file_system_.files.insert({id, std::move(file_contents)});
-  return Status::OK();
+  uint32_t id;
+  s = GetAndWriteNextID(file_writer.get(), &id);
+  if (s.ok()) {
+    file_system_.files.insert({id, std::move(file_contents)});
+  }
+  return s;
 }
 
-uint32_t MockTableFactory::GetAndWriteNextID(WritableFileWriter* file) const {
-  uint32_t next_id = next_id_.fetch_add(1);
+Status MockTableFactory::GetAndWriteNextID(WritableFileWriter* file,
+                                           uint32_t* next_id) const {
+  *next_id = next_id_.fetch_add(1);
   char buf[4];
-  EncodeFixed32(buf, next_id);
-  file->Append(Slice(buf, 4));
-  return next_id;
+  EncodeFixed32(buf, *next_id);
+  return file->Append(Slice(buf, 4));
 }
 
-uint32_t MockTableFactory::GetIDFromFile(RandomAccessFileReader* file) const {
+Status MockTableFactory::GetIDFromFile(RandomAccessFileReader* file,
+                                       uint32_t* id) const {
   char buf[4];
   Slice result;
-  file->Read(IOOptions(), 0, 4, &result, buf, nullptr);
+  Status s = file->Read(IOOptions(), 0, 4, &result, buf, nullptr,
+                        Env::IO_TOTAL /* rate_limiter_priority */);
   assert(result.size() == 4);
-  return DecodeFixed32(buf);
+  *id = DecodeFixed32(buf);
+  return s;
 }
 
 void MockTableFactory::AssertSingleFile(const KVVector& file_contents) {
@@ -292,21 +309,34 @@ void MockTableFactory::AssertSingleFile(const KVVector& file_contents) {
   ASSERT_EQ(file_contents, file_system_.files.begin()->second);
 }
 
-void MockTableFactory::AssertLatestFile(const KVVector& file_contents) {
-  ASSERT_GE(file_system_.files.size(), 1U);
-  auto latest = file_system_.files.end();
-  --latest;
-
-  if (file_contents != latest->second) {
-    std::cout << "Wrong content! Content of latest file:" << std::endl;
-    for (const auto& kv : latest->second) {
-      ParsedInternalKey ikey;
-      std::string key, value;
-      std::tie(key, value) = kv;
-      ASSERT_OK(ParseInternalKey(Slice(key), &ikey));
-      std::cout << ikey.DebugString(false) << " -> " << value << std::endl;
+void MockTableFactory::AssertLatestFiles(
+    const std::vector<KVVector>& files_contents) {
+  ASSERT_GE(file_system_.files.size(), files_contents.size());
+  auto it = file_system_.files.rbegin();
+  for (auto expect = files_contents.rbegin(); expect != files_contents.rend();
+       expect++, it++) {
+    ASSERT_TRUE(it != file_system_.files.rend());
+    if (*expect != it->second) {
+      std::cout << "Wrong content! Content of file, expect:" << std::endl;
+      for (const auto& kv : *expect) {
+        ParsedInternalKey ikey;
+        std::string key, value;
+        std::tie(key, value) = kv;
+        ASSERT_OK(ParseInternalKey(Slice(key), &ikey, true /* log_err_key */));
+        std::cout << ikey.DebugString(true, false) << " -> " << value
+                  << std::endl;
+      }
+      std::cout << "actual:" << std::endl;
+      for (const auto& kv : it->second) {
+        ParsedInternalKey ikey;
+        std::string key, value;
+        std::tie(key, value) = kv;
+        ASSERT_OK(ParseInternalKey(Slice(key), &ikey, true /* log_err_key */));
+        std::cout << ikey.DebugString(true, false) << " -> " << value
+                  << std::endl;
+      }
+      FAIL();
     }
-    FAIL();
   }
 }
 

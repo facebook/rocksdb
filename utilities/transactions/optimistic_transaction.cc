@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/optimistic_transaction.h"
 
@@ -17,9 +16,10 @@
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
-#include "utilities/transactions/transaction_util.h"
+#include "utilities/transactions/lock/point/point_lock_tracker.h"
 #include "utilities/transactions/optimistic_transaction.h"
 #include "utilities/transactions/optimistic_transaction_db_impl.h"
+#include "utilities/transactions/transaction_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -28,7 +28,9 @@ struct WriteOptions;
 OptimisticTransaction::OptimisticTransaction(
     OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options)
-    : TransactionBaseImpl(txn_db->GetBaseDB(), write_options), txn_db_(txn_db) {
+    : TransactionBaseImpl(txn_db->GetBaseDB(), write_options,
+                          PointLockTrackerFactory::Get()),
+      txn_db_(txn_db) {
   Initialize(txn_options);
 }
 
@@ -174,8 +176,6 @@ Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 // Should only be called on writer thread in order to avoid any race conditions
 // in detecting write conflicts.
 Status OptimisticTransaction::CheckTransactionForConflicts(DB* db) {
-  Status result;
-
   auto db_impl = static_cast_with_check<DBImpl>(db);
 
   // Since we are on the write thread and do not want to block other writers,
@@ -192,4 +192,3 @@ Status OptimisticTransaction::SetName(const TransactionName& /* unused */) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

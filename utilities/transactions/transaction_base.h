@@ -5,7 +5,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <stack>
 #include <string>
@@ -28,9 +27,10 @@ namespace ROCKSDB_NAMESPACE {
 
 class TransactionBaseImpl : public Transaction {
  public:
-  TransactionBaseImpl(DB* db, const WriteOptions& write_options);
+  TransactionBaseImpl(DB* db, const WriteOptions& write_options,
+                      const LockTrackerFactory& lock_tracker_factory);
 
-  virtual ~TransactionBaseImpl();
+  ~TransactionBaseImpl() override;
 
   // Remove pending operations queued in this transaction.
   virtual void Clear();
@@ -92,8 +92,9 @@ class TransactionBaseImpl : public Transaction {
   std::vector<Status> MultiGet(const ReadOptions& options,
                                const std::vector<Slice>& keys,
                                std::vector<std::string>* values) override {
-    return MultiGet(options, std::vector<ColumnFamilyHandle*>(
-                                 keys.size(), db_->DefaultColumnFamily()),
+    return MultiGet(options,
+                    std::vector<ColumnFamilyHandle*>(
+                        keys.size(), db_->DefaultColumnFamily()),
                     keys, values);
   }
 
@@ -201,7 +202,12 @@ class TransactionBaseImpl : public Transaction {
   }
 
   const Snapshot* GetSnapshot() const override {
-    return snapshot_ ? snapshot_.get() : nullptr;
+    // will return nullptr when there is no snapshot
+    return snapshot_.get();
+  }
+
+  std::shared_ptr<const Snapshot> GetTimestampedSnapshot() const override {
+    return snapshot_;
   }
 
   virtual void SetSnapshot() override;
@@ -217,6 +223,8 @@ class TransactionBaseImpl : public Transaction {
   void DisableIndexing() override { indexing_enabled_ = false; }
 
   void EnableIndexing() override { indexing_enabled_ = true; }
+
+  bool IndexingEnabled() const { return indexing_enabled_; }
 
   uint64_t GetElapsedTime() const override;
 
@@ -249,6 +257,8 @@ class TransactionBaseImpl : public Transaction {
 
   WriteBatch* GetCommitTimeWriteBatch() override;
 
+  LockTracker& GetTrackedLocks() { return *tracked_locks_; }
+
  protected:
   // Add a key to the list of tracked keys.
   //
@@ -270,8 +280,11 @@ class TransactionBaseImpl : public Transaction {
       write_batch_.Clear();
     }
     assert(write_batch_.GetDataSize() == WriteBatchInternal::kHeader);
-    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+    auto s = WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+    assert(s.ok());
   }
+
+  WriteBatchBase* GetBatchForWrite();
 
   DB* db_;
   DBImpl* dbimpl_;
@@ -279,6 +292,8 @@ class TransactionBaseImpl : public Transaction {
   WriteOptions write_options_;
 
   const Comparator* cmp_;
+
+  const LockTrackerFactory& lock_tracker_factory_;
 
   // Stores that time the txn was constructed, in microseconds.
   uint64_t start_time_;
@@ -305,16 +320,18 @@ class TransactionBaseImpl : public Transaction {
 
     SavePoint(std::shared_ptr<const Snapshot> snapshot, bool snapshot_needed,
               std::shared_ptr<TransactionNotifier> snapshot_notifier,
-              uint64_t num_puts, uint64_t num_deletes, uint64_t num_merges)
+              uint64_t num_puts, uint64_t num_deletes, uint64_t num_merges,
+              const LockTrackerFactory& lock_tracker_factory)
         : snapshot_(snapshot),
           snapshot_needed_(snapshot_needed),
           snapshot_notifier_(snapshot_notifier),
           num_puts_(num_puts),
           num_deletes_(num_deletes),
           num_merges_(num_merges),
-          new_locks_(NewLockTracker()) {}
+          new_locks_(lock_tracker_factory.Create()) {}
 
-    SavePoint() : new_locks_(NewLockTracker()) {}
+    explicit SavePoint(const LockTrackerFactory& lock_tracker_factory)
+        : new_locks_(lock_tracker_factory.Create()) {}
   };
 
   // Records writes pending in this transaction
@@ -333,7 +350,9 @@ class TransactionBaseImpl : public Transaction {
       save_points_;
 
  private:
+  friend class WriteCommittedTxn;
   friend class WritePreparedTxn;
+
   // Extra data to be persisted with the commit. Note this is only used when
   // prepare phase is not skipped.
   WriteBatch commit_time_batch_;
@@ -356,10 +375,8 @@ class TransactionBaseImpl : public Transaction {
                  bool read_only, bool exclusive, const bool do_validate = true,
                  const bool assume_tracked = false);
 
-  WriteBatchBase* GetBatchForWrite();
   void SetSnapshotInternal(const Snapshot* snapshot);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

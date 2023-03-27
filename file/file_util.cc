@@ -5,8 +5,8 @@
 //
 #include "file/file_util.h"
 
-#include <string>
 #include <algorithm>
+#include <string>
 
 #include "file/random_access_file_reader.h"
 #include "file/sequence_file_reader.h"
@@ -18,21 +18,18 @@ namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                  const std::string& destination, uint64_t size, bool use_fsync,
-                  const std::shared_ptr<IOTracer>& io_tracer) {
-  const FileOptions soptions;
+                  std::unique_ptr<WritableFileWriter>& dest_writer,
+                  uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  const Temperature temperature) {
+  FileOptions soptions;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
-  std::unique_ptr<WritableFileWriter> dest_writer;
 
   {
+    soptions.temperature = temperature;
     std::unique_ptr<FSSequentialFile> srcfile;
     io_s = fs->NewSequentialFile(source, soptions, &srcfile, nullptr);
-    if (!io_s.ok()) {
-      return io_s;
-    }
-    std::unique_ptr<FSWritableFile> destfile;
-    io_s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }
@@ -46,15 +43,16 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
     }
     src_reader.reset(
         new SequentialFileReader(std::move(srcfile), source, io_tracer));
-    dest_writer.reset(
-        new WritableFileWriter(std::move(destfile), destination, soptions));
   }
 
   char buffer[4096];
   Slice slice;
   while (size > 0) {
     size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
-    io_s = status_to_io_status(src_reader->Read(bytes_to_read, &slice, buffer));
+    // TODO: rate limit copy file
+    io_s = status_to_io_status(
+        src_reader->Read(bytes_to_read, &slice, buffer,
+                         Env::IO_TOTAL /* rate_limiter_priority */));
     if (!io_s.ok()) {
       return io_s;
     }
@@ -68,6 +66,30 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
     size -= slice.size();
   }
   return dest_writer->Sync(use_fsync);
+}
+
+IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  const std::string& destination, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  const Temperature temperature) {
+  FileOptions options;
+  IOStatus io_s;
+  std::unique_ptr<WritableFileWriter> dest_writer;
+
+  {
+    options.temperature = temperature;
+    std::unique_ptr<FSWritableFile> destfile;
+    io_s = fs->NewWritableFile(destination, options, &destfile, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+
+    dest_writer.reset(
+        new WritableFileWriter(std::move(destfile), destination, options));
+  }
+
+  return CopyFile(fs, source, dest_writer, size, use_fsync, io_tracer,
+                  temperature);
 }
 
 // Utility function to create a file with the provided contents
@@ -94,7 +116,6 @@ IOStatus CreateFile(FileSystem* fs, const std::string& destination,
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
                     const std::string& fname, const std::string& dir_to_sync,
                     const bool force_bg, const bool force_fg) {
-#ifndef ROCKSDB_LITE
   SstFileManagerImpl* sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
   if (sfm && !force_fg) {
@@ -102,34 +123,21 @@ Status DeleteDBFile(const ImmutableDBOptions* db_options,
   } else {
     return db_options->env->DeleteFile(fname);
   }
-#else
-  (void)dir_to_sync;
-  (void)force_bg;
-  (void)force_fg;
-  // SstFileManager is not supported in ROCKSDB_LITE
-  // Delete file immediately
-  return db_options->env->DeleteFile(fname);
-#endif
 }
 
-bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
-  bool same = false;
-  assert(!db_options->db_paths.empty());
-  Status s = db_options->env->AreFilesSame(db_options->wal_dir,
-                                           db_options->db_paths[0].path, &same);
-  if (s.IsNotSupported()) {
-    same = db_options->wal_dir == db_options->db_paths[0].path;
-  }
-  return same;
-}
-
-IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
-                                 FileChecksumGenFactory* checksum_factory,
-                                 std::string* file_checksum,
-                                 std::string* file_checksum_func_name,
-                                 size_t verify_checksums_readahead_size,
-                                 bool allow_mmap_reads,
-                                 std::shared_ptr<IOTracer>& io_tracer) {
+// requested_checksum_func_name brings the function name of the checksum
+// generator in checksum_factory. Empty string is permitted, in which case the
+// name of the generator created by the factory is unchecked. When
+// `requested_checksum_func_name` is non-empty, however, the created generator's
+// name must match it, otherwise an `InvalidArgument` error is returned.
+IOStatus GenerateOneFileChecksum(
+    FileSystem* fs, const std::string& file_path,
+    FileChecksumGenFactory* checksum_factory,
+    const std::string& requested_checksum_func_name, std::string* file_checksum,
+    std::string* file_checksum_func_name,
+    size_t verify_checksums_readahead_size, bool allow_mmap_reads,
+    std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
+    Env::IOPriority rate_limiter_priority) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -137,8 +145,33 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
   assert(file_checksum_func_name != nullptr);
 
   FileChecksumGenContext gen_context;
+  gen_context.requested_checksum_func_name = requested_checksum_func_name;
+  gen_context.file_name = file_path;
   std::unique_ptr<FileChecksumGenerator> checksum_generator =
       checksum_factory->CreateFileChecksumGenerator(gen_context);
+  if (checksum_generator == nullptr) {
+    std::string msg =
+        "Cannot get the file checksum generator based on the requested "
+        "checksum function name: " +
+        requested_checksum_func_name +
+        " from checksum factory: " + checksum_factory->Name();
+    return IOStatus::InvalidArgument(msg);
+  } else {
+    // For backward compatibility and use in file ingestion clients where there
+    // is no stored checksum function name, `requested_checksum_func_name` can
+    // be empty. If we give the requested checksum function name, we expect it
+    // is the same name of the checksum generator.
+    if (!requested_checksum_func_name.empty() &&
+        checksum_generator->Name() != requested_checksum_func_name) {
+      std::string msg = "Expected file checksum generator named '" +
+                        requested_checksum_func_name +
+                        "', while the factory created one "
+                        "named '" +
+                        checksum_generator->Name() + "'";
+      return IOStatus::InvalidArgument(msg);
+    }
+  }
+
   uint64_t size;
   IOStatus io_s;
   std::unique_ptr<RandomAccessFileReader> reader;
@@ -153,7 +186,8 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
       return io_s;
     }
     reader.reset(new RandomAccessFileReader(std::move(r_file), file_path,
-                                            nullptr /*Env*/, io_tracer));
+                                            nullptr /*Env*/, io_tracer, nullptr,
+                                            0, nullptr, rate_limiter));
   }
 
   // Found that 256 KB readahead size provides the best performance, based on
@@ -163,9 +197,9 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
                               ? verify_checksums_readahead_size
                               : default_max_read_ahead_size;
 
-  FilePrefetchBuffer prefetch_buffer(
-      reader.get(), readahead_size /* readadhead_size */,
-      readahead_size /* max_readahead_size */, !allow_mmap_reads /* enable */);
+  FilePrefetchBuffer prefetch_buffer(readahead_size /* readahead_size */,
+                                     readahead_size /* max_readahead_size */,
+                                     !allow_mmap_reads /* enable */);
 
   Slice slice;
   uint64_t offset = 0;
@@ -173,8 +207,10 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
   while (size > 0) {
     size_t bytes_to_read =
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
-    if (!prefetch_buffer.TryReadFromCache(opts, offset, bytes_to_read, &slice,
-                                          false)) {
+    if (!prefetch_buffer.TryReadFromCache(
+            opts, reader.get(), offset, bytes_to_read, &slice,
+            nullptr /* status */, rate_limiter_priority,
+            false /* for_compaction */)) {
       return IOStatus::Corruption("file read failed");
     }
     if (slice.size() == 0) {
@@ -199,9 +235,6 @@ Status DestroyDir(Env* env, const std::string& dir) {
   s = env->GetChildren(dir, &files_in_dir);
   if (s.ok()) {
     for (auto& file_in_dir : files_in_dir) {
-      if (file_in_dir == "." || file_in_dir == "..") {
-        continue;
-      }
       std::string path = dir + "/" + file_in_dir;
       bool is_dir = false;
       s = env->IsDirectory(path, &is_dir);
@@ -211,6 +244,8 @@ Status DestroyDir(Env* env, const std::string& dir) {
         } else {
           s = env->DeleteFile(path);
         }
+      } else if (s.IsNotSupported()) {
+        s = Status::OK();
       }
       if (!s.ok()) {
         // IsDirectory, etc. might not report NotFound

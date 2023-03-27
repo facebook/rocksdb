@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/two_level_iterator.h"
+
 #include "db/pinned_iterators_manager.h"
 #include "memory/arena.h"
 #include "rocksdb/options.h"
@@ -42,6 +43,10 @@ class TwoLevelIndexIterator : public InternalIteratorBase<IndexValue> {
   Slice key() const override {
     assert(Valid());
     return second_level_iter_.key();
+  }
+  Slice user_key() const override {
+    assert(Valid());
+    return second_level_iter_.user_key();
   }
   IndexValue value() const override {
     assert(Valid());
@@ -197,6 +202,10 @@ void TwoLevelIndexIterator::InitDataBlock() {
           state_->NewSecondaryIterator(handle);
       data_block_handle_ = handle;
       SetSecondLevelIterator(iter);
+      if (iter == nullptr) {
+        status_ = Status::Corruption("Missing block for partition " +
+                                     handle.ToString());
+      }
     }
   }
 }

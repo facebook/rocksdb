@@ -35,10 +35,6 @@ class WalMetadata {
   explicit WalMetadata(uint64_t synced_size_bytes)
       : synced_size_bytes_(synced_size_bytes) {}
 
-  bool IsClosed() const { return closed_; }
-
-  void SetClosed() { closed_ = true; }
-
   bool HasSyncedSize() const { return synced_size_bytes_ != kUnknownWalSize; }
 
   void SetSyncedSizeInBytes(uint64_t bytes) { synced_size_bytes_ = bytes; }
@@ -46,16 +42,24 @@ class WalMetadata {
   uint64_t GetSyncedSizeInBytes() const { return synced_size_bytes_; }
 
  private:
+  friend bool operator==(const WalMetadata& lhs, const WalMetadata& rhs);
+  friend bool operator!=(const WalMetadata& lhs, const WalMetadata& rhs);
   // The size of WAL is unknown, used when the WAL is not synced yet or is
   // empty.
-  constexpr static uint64_t kUnknownWalSize = port::kMaxUint64;
+  constexpr static uint64_t kUnknownWalSize =
+      std::numeric_limits<uint64_t>::max();
 
   // Size of the most recently synced WAL in bytes.
   uint64_t synced_size_bytes_ = kUnknownWalSize;
-
-  // Whether the WAL is closed.
-  bool closed_ = false;
 };
+
+inline bool operator==(const WalMetadata& lhs, const WalMetadata& rhs) {
+  return lhs.synced_size_bytes_ == rhs.synced_size_bytes_;
+}
+
+inline bool operator!=(const WalMetadata& lhs, const WalMetadata& rhs) {
+  return !(lhs == rhs);
+}
 
 // These tags are persisted to MANIFEST, so it's part of the user API.
 enum class WalAdditionTag : uint32_t {
@@ -63,8 +67,6 @@ enum class WalAdditionTag : uint32_t {
   kTerminate = 1,
   // Synced Size in bytes.
   kSyncedSize = 2,
-  // Whether the WAL is closed.
-  kClosed = 3,
   // Add tags in the future, such as checksum?
 };
 
@@ -98,10 +100,10 @@ JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal);
 
 using WalAdditions = std::vector<WalAddition>;
 
-// Records the event of deleting/archiving a WAL in VersionEdit.
+// Records the event of deleting WALs before the specified log number.
 class WalDeletion {
  public:
-  WalDeletion() : number_(0) {}
+  WalDeletion() : number_(kEmpty) {}
 
   explicit WalDeletion(WalNumber number) : number_(number) {}
 
@@ -113,18 +115,22 @@ class WalDeletion {
 
   std::string DebugString() const;
 
+  bool IsEmpty() const { return number_ == kEmpty; }
+
+  void Reset() { number_ = kEmpty; }
+
  private:
+  static constexpr WalNumber kEmpty = 0;
+
   WalNumber number_;
 };
 
 std::ostream& operator<<(std::ostream& os, const WalDeletion& wal);
 JSONWriter& operator<<(JSONWriter& jw, const WalDeletion& wal);
 
-using WalDeletions = std::vector<WalDeletion>;
-
 // Used in VersionSet to keep the current set of WALs.
 //
-// When a WAL is created, closed, deleted, or archived,
+// When a WAL is synced or becomes obsoleted,
 // a VersionEdit is logged to MANIFEST and
 // the WAL is added to or deleted from WalSet.
 //
@@ -139,15 +145,15 @@ class WalSet {
   Status AddWal(const WalAddition& wal);
   Status AddWals(const WalAdditions& wals);
 
-  // Delete WAL(s).
-  // The WAL to be deleted must exist and be closed, otherwise,
-  // return Status::Corruption.
+  // Delete WALs with log number smaller than the specified wal number.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
-  Status DeleteWal(const WalDeletion& wal);
-  Status DeleteWals(const WalDeletions& wals);
+  Status DeleteWalsBefore(WalNumber wal);
 
   // Resets the internal state.
   void Reset();
+
+  // WALs with number less than MinWalNumberToKeep should not exist in WalSet.
+  WalNumber GetMinWalNumberToKeep() const { return min_wal_number_to_keep_; }
 
   const std::map<WalNumber, WalMetadata>& GetWals() const { return wals_; }
 
@@ -163,6 +169,9 @@ class WalSet {
 
  private:
   std::map<WalNumber, WalMetadata> wals_;
+  // WAL number < min_wal_number_to_keep_ should not exist in wals_.
+  // It's monotonically increasing, in-memory only, not written to MANIFEST.
+  WalNumber min_wal_number_to_keep_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

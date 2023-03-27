@@ -7,6 +7,7 @@
 #define UTIL_CRC32C_ARM64_H
 
 #include <cinttypes>
+#include <cstddef>
 
 #if defined(__aarch64__) || defined(__AARCH64__)
 
@@ -17,6 +18,7 @@
 #define crc32c_u16(crc, v) __crc32ch(crc, v)
 #define crc32c_u32(crc, v) __crc32cw(crc, v)
 #define crc32c_u64(crc, v) __crc32cd(crc, v)
+// clang-format off
 #define PREF4X64L1(buffer, PREF_OFFSET, ITR)                \
   __asm__("PRFM PLDL1KEEP, [%x[v],%[c]]" ::[v] "r"(buffer), \
           [c] "I"((PREF_OFFSET) + ((ITR) + 0) * 64));       \
@@ -26,6 +28,7 @@
           [c] "I"((PREF_OFFSET) + ((ITR) + 2) * 64));       \
   __asm__("PRFM PLDL1KEEP, [%x[v],%[c]]" ::[v] "r"(buffer), \
           [c] "I"((PREF_OFFSET) + ((ITR) + 3) * 64));
+// clang-format on
 
 #define PREF1KL1(buffer, PREF_OFFSET)  \
   PREF4X64L1(buffer, (PREF_OFFSET), 0) \
@@ -33,7 +36,8 @@
   PREF4X64L1(buffer, (PREF_OFFSET), 8) \
   PREF4X64L1(buffer, (PREF_OFFSET), 12)
 
-extern uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data, unsigned len);
+extern uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
+                             size_t len);
 extern uint32_t crc32c_runtime_check(void);
 extern bool crc32c_pmull_runtime_check(void);
 

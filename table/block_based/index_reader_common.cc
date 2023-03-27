@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/index_reader_common.h"
 
+#include "block_cache.h"
+
 namespace ROCKSDB_NAMESPACE {
 Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
@@ -25,14 +27,15 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
 
   const Status s = table->RetrieveBlock(
       prefetch_buffer, read_options, rep->footer.index_handle(),
-      UncompressionDict::GetEmptyDict(), index_block, BlockType::kIndex,
-      get_context, lookup_context, /* for_compaction */ false, use_cache);
+      UncompressionDict::GetEmptyDict(), &index_block->As<Block_kIndex>(),
+      get_context, lookup_context, /* for_compaction */ false, use_cache,
+      /* async_read */ false);
 
   return s;
 }
 
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
-    bool no_io, GetContext* get_context,
+    bool no_io, Env::IOPriority rate_limiter_priority, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     CachableEntry<Block>* index_block) const {
   assert(index_block != nullptr);
@@ -43,6 +46,7 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
   }
 
   ReadOptions read_options;
+  read_options.rate_limiter_priority = rate_limiter_priority;
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }

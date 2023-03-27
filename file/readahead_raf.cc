@@ -11,15 +11,17 @@
 
 #include <algorithm>
 #include <mutex>
+
 #include "file/read_write_util.h"
+#include "rocksdb/file_system.h"
 #include "util/aligned_buffer.h"
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-class ReadaheadRandomAccessFile : public RandomAccessFile {
+class ReadaheadRandomAccessFile : public FSRandomAccessFile {
  public:
-  ReadaheadRandomAccessFile(std::unique_ptr<RandomAccessFile>&& file,
+  ReadaheadRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file,
                             size_t readahead_size)
       : file_(std::move(file)),
         alignment_(file_->GetRequiredBufferAlignment()),
@@ -35,11 +37,12 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   ReadaheadRandomAccessFile& operator=(const ReadaheadRandomAccessFile&) =
       delete;
 
-  Status Read(uint64_t offset, size_t n, Slice* result,
-              char* scratch) const override {
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override {
     // Read-ahead only make sense if we have some slack left after reading
     if (n + alignment_ >= readahead_size_) {
-      return file_->Read(offset, n, result, scratch);
+      return file_->Read(offset, n, options, result, scratch, dbg);
     }
 
     std::unique_lock<std::mutex> lk(lock_);
@@ -53,14 +56,14 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
         (cached_len == n || buffer_.CurrentSize() < readahead_size_)) {
       // We read exactly what we needed, or we hit end of file - return.
       *result = Slice(scratch, cached_len);
-      return Status::OK();
+      return IOStatus::OK();
     }
     size_t advanced_offset = static_cast<size_t>(offset + cached_len);
     // In the case of cache hit advanced_offset is already aligned, means that
     // chunk_offset equals to advanced_offset
     size_t chunk_offset = TruncateToPageBoundary(alignment_, advanced_offset);
 
-    Status s = ReadIntoBuffer(chunk_offset, readahead_size_);
+    IOStatus s = ReadIntoBuffer(chunk_offset, readahead_size_, options, dbg);
     if (s.ok()) {
       // The data we need is now in cache, so we can safely read it
       size_t remaining_len;
@@ -71,11 +74,12 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     return s;
   }
 
-  Status Prefetch(uint64_t offset, size_t n) override {
+  IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
+                    IODebugContext* dbg) override {
     if (n < readahead_size_) {
       // Don't allow smaller prefetches than the configured `readahead_size_`.
       // `Read()` assumes a smaller prefetch buffer indicates EOF was reached.
-      return Status::OK();
+      return IOStatus::OK();
     }
 
     std::unique_lock<std::mutex> lk(lock_);
@@ -83,10 +87,11 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     size_t offset_ = static_cast<size_t>(offset);
     size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset_);
     if (prefetch_offset == buffer_offset_) {
-      return Status::OK();
+      return IOStatus::OK();
     }
     return ReadIntoBuffer(prefetch_offset,
-                          Roundup(offset_ + n, alignment_) - prefetch_offset);
+                          Roundup(offset_ + n, alignment_) - prefetch_offset,
+                          options, dbg);
   }
 
   size_t GetUniqueId(char* id, size_t max_size) const override {
@@ -95,7 +100,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
   void Hint(AccessPattern pattern) override { file_->Hint(pattern); }
 
-  Status InvalidateCache(size_t offset, size_t length) override {
+  IOStatus InvalidateCache(size_t offset, size_t length) override {
     std::unique_lock<std::mutex> lk(lock_);
     buffer_.Clear();
     return file_->InvalidateCache(offset, length);
@@ -125,14 +130,16 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   // Reads into buffer_ the next n bytes from file_ starting at offset.
   // Can actually read less if EOF was reached.
   // Returns the status of the read operastion on the file.
-  Status ReadIntoBuffer(uint64_t offset, size_t n) const {
+  IOStatus ReadIntoBuffer(uint64_t offset, size_t n, const IOOptions& options,
+                          IODebugContext* dbg) const {
     if (n > buffer_.Capacity()) {
       n = buffer_.Capacity();
     }
     assert(IsFileSectorAligned(offset, alignment_));
     assert(IsFileSectorAligned(n, alignment_));
     Slice result;
-    Status s = file_->Read(offset, n, &result, buffer_.BufferStart());
+    IOStatus s =
+        file_->Read(offset, n, options, &result, buffer_.BufferStart(), dbg);
     if (s.ok()) {
       buffer_offset_ = offset;
       buffer_.Size(result.size());
@@ -141,7 +148,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     return s;
   }
 
-  const std::unique_ptr<RandomAccessFile> file_;
+  const std::unique_ptr<FSRandomAccessFile> file_;
   const size_t alignment_;
   const size_t readahead_size_;
 
@@ -153,9 +160,9 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 };
 }  // namespace
 
-std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
-    std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size) {
-  std::unique_ptr<RandomAccessFile> result(
+std::unique_ptr<FSRandomAccessFile> NewReadaheadRandomAccessFile(
+    std::unique_ptr<FSRandomAccessFile>&& file, size_t readahead_size) {
+  std::unique_ptr<FSRandomAccessFile> result(
       new ReadaheadRandomAccessFile(std::move(file), readahead_size));
   return result;
 }

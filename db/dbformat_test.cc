@@ -8,13 +8,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/dbformat.h"
-#include "logging/logging.h"
+
+#include "table/block_based/index_builder.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-static std::string IKey(const std::string& user_key,
-                        uint64_t seq,
+static std::string IKey(const std::string& user_key, uint64_t seq,
                         ValueType vt) {
   std::string encoded;
   AppendInternalKey(&encoded, ParsedInternalKey(user_key, seq, vt));
@@ -23,42 +24,48 @@ static std::string IKey(const std::string& user_key,
 
 static std::string Shorten(const std::string& s, const std::string& l) {
   std::string result = s;
-  InternalKeyComparator(BytewiseComparator()).FindShortestSeparator(&result, l);
+  ShortenedIndexBuilder::FindShortestInternalKeySeparator(*BytewiseComparator(),
+                                                          &result, l);
   return result;
 }
 
 static std::string ShortSuccessor(const std::string& s) {
   std::string result = s;
-  InternalKeyComparator(BytewiseComparator()).FindShortSuccessor(&result);
+  ShortenedIndexBuilder::FindShortInternalKeySuccessor(*BytewiseComparator(),
+                                                       &result);
   return result;
 }
 
-static void TestKey(const std::string& key,
-                    uint64_t seq,
-                    ValueType vt) {
+static void TestKey(const std::string& key, uint64_t seq, ValueType vt) {
   std::string encoded = IKey(key, seq, vt);
 
   Slice in(encoded);
   ParsedInternalKey decoded("", 0, kTypeValue);
 
-  ASSERT_OK(ParseInternalKey(in, &decoded));
+  ASSERT_OK(ParseInternalKey(in, &decoded, true /* log_err_key */));
   ASSERT_EQ(key, decoded.user_key.ToString());
   ASSERT_EQ(seq, decoded.sequence);
   ASSERT_EQ(vt, decoded.type);
 
-  ASSERT_NOK(ParseInternalKey(Slice("bar"), &decoded));
+  ASSERT_NOK(ParseInternalKey(Slice("bar"), &decoded, true /* log_err_key */));
 }
 
 class FormatTest : public testing::Test {};
 
 TEST_F(FormatTest, InternalKey_EncodeDecode) {
-  const char* keys[] = { "", "k", "hello", "longggggggggggggggggggggg" };
-  const uint64_t seq[] = {
-    1, 2, 3,
-    (1ull << 8) - 1, 1ull << 8, (1ull << 8) + 1,
-    (1ull << 16) - 1, 1ull << 16, (1ull << 16) + 1,
-    (1ull << 32) - 1, 1ull << 32, (1ull << 32) + 1
-  };
+  const char* keys[] = {"", "k", "hello", "longggggggggggggggggggggg"};
+  const uint64_t seq[] = {1,
+                          2,
+                          3,
+                          (1ull << 8) - 1,
+                          1ull << 8,
+                          (1ull << 8) + 1,
+                          (1ull << 16) - 1,
+                          1ull << 16,
+                          (1ull << 16) + 1,
+                          (1ull << 32) - 1,
+                          1ull << 32,
+                          (1ull << 32) + 1};
   for (unsigned int k = 0; k < sizeof(keys) / sizeof(keys[0]); k++) {
     for (unsigned int s = 0; s < sizeof(seq) / sizeof(seq[0]); s++) {
       TestKey(keys[k], seq[s], kTypeValue);
@@ -70,27 +77,25 @@ TEST_F(FormatTest, InternalKey_EncodeDecode) {
 TEST_F(FormatTest, InternalKeyShortSeparator) {
   // When user keys are same
   ASSERT_EQ(IKey("foo", 100, kTypeValue),
-            Shorten(IKey("foo", 100, kTypeValue),
-                    IKey("foo", 99, kTypeValue)));
-  ASSERT_EQ(IKey("foo", 100, kTypeValue),
-            Shorten(IKey("foo", 100, kTypeValue),
-                    IKey("foo", 101, kTypeValue)));
-  ASSERT_EQ(IKey("foo", 100, kTypeValue),
-            Shorten(IKey("foo", 100, kTypeValue),
-                    IKey("foo", 100, kTypeValue)));
-  ASSERT_EQ(IKey("foo", 100, kTypeValue),
-            Shorten(IKey("foo", 100, kTypeValue),
-                    IKey("foo", 100, kTypeDeletion)));
+            Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 99, kTypeValue)));
+  ASSERT_EQ(
+      IKey("foo", 100, kTypeValue),
+      Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 101, kTypeValue)));
+  ASSERT_EQ(
+      IKey("foo", 100, kTypeValue),
+      Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 100, kTypeValue)));
+  ASSERT_EQ(
+      IKey("foo", 100, kTypeValue),
+      Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 100, kTypeDeletion)));
 
   // When user keys are misordered
   ASSERT_EQ(IKey("foo", 100, kTypeValue),
-            Shorten(IKey("foo", 100, kTypeValue),
-                    IKey("bar", 99, kTypeValue)));
+            Shorten(IKey("foo", 100, kTypeValue), IKey("bar", 99, kTypeValue)));
 
   // When user keys are different, but correctly ordered
-  ASSERT_EQ(IKey("g", kMaxSequenceNumber, kValueTypeForSeek),
-            Shorten(IKey("foo", 100, kTypeValue),
-                    IKey("hello", 200, kTypeValue)));
+  ASSERT_EQ(
+      IKey("g", kMaxSequenceNumber, kValueTypeForSeek),
+      Shorten(IKey("foo", 100, kTypeValue), IKey("hello", 200, kTypeValue)));
 
   ASSERT_EQ(IKey("ABC2", kMaxSequenceNumber, kValueTypeForSeek),
             Shorten(IKey("ABC1AAAAA", 100, kTypeValue),
@@ -117,14 +122,14 @@ TEST_F(FormatTest, InternalKeyShortSeparator) {
       Shorten(IKey("AAA1", 100, kTypeValue), IKey("AAA2", 200, kTypeValue)));
 
   // When start user key is prefix of limit user key
-  ASSERT_EQ(IKey("foo", 100, kTypeValue),
-            Shorten(IKey("foo", 100, kTypeValue),
-                    IKey("foobar", 200, kTypeValue)));
+  ASSERT_EQ(
+      IKey("foo", 100, kTypeValue),
+      Shorten(IKey("foo", 100, kTypeValue), IKey("foobar", 200, kTypeValue)));
 
   // When limit user key is prefix of start user key
-  ASSERT_EQ(IKey("foobar", 100, kTypeValue),
-            Shorten(IKey("foobar", 100, kTypeValue),
-                    IKey("foo", 200, kTypeValue)));
+  ASSERT_EQ(
+      IKey("foobar", 100, kTypeValue),
+      Shorten(IKey("foobar", 100, kTypeValue), IKey("foo", 200, kTypeValue)));
 }
 
 TEST_F(FormatTest, InternalKeyShortestSuccessor) {
@@ -186,7 +191,7 @@ TEST_F(FormatTest, UpdateInternalKey) {
 
   Slice in(ikey);
   ParsedInternalKey decoded;
-  ASSERT_OK(ParseInternalKey(in, &decoded));
+  ASSERT_OK(ParseInternalKey(in, &decoded, true /* log_err_key */));
   ASSERT_EQ(user_key, decoded.user_key.ToString());
   ASSERT_EQ(new_seq, decoded.sequence);
   ASSERT_EQ(new_val_type, decoded.type);
@@ -202,6 +207,8 @@ TEST_F(FormatTest, RangeTombstoneSerializeEndKey) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

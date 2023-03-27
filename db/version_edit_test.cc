@@ -8,8 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_edit.h"
+
+#include "db/blob/blob_index.h"
+#include "rocksdb/advanced_options.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -37,8 +42,10 @@ TEST_F(VersionEditTest, EncodeDecode) {
     edit.AddFile(3, kBig + 300 + i, kBig32Bit + 400 + i, 0,
                  InternalKey("foo", kBig + 500 + i, kTypeValue),
                  InternalKey("zoo", kBig + 600 + i, kTypeDeletion),
-                 kBig + 500 + i, kBig + 600 + i, false, kInvalidBlobFileNumber,
-                 888, 678, "234", "crc32c");
+                 kBig + 500 + i, kBig + 600 + i, false, Temperature::kUnknown,
+                 kInvalidBlobFileNumber, 888, 678,
+                 kBig + 300 + i /* epoch_number */, "234", "crc32c",
+                 kNullUniqueId64x2, 0);
     edit.DeleteFile(4, kBig + 700 + i);
   }
 
@@ -55,24 +62,27 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   VersionEdit edit;
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
-               kBig + 600, true, kInvalidBlobFileNumber,
+               kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+               300 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
-               kBig + 601, false, kInvalidBlobFileNumber,
+               kBig + 601, false, Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+               301 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
   edit.AddFile(5, 302, 0, 100, InternalKey("foo", kBig + 502, kTypeValue),
                InternalKey("zoo", kBig + 602, kTypeDeletion), kBig + 502,
-               kBig + 602, true, kInvalidBlobFileNumber, 666, 888,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+               kBig + 602, true, Temperature::kUnknown, kInvalidBlobFileNumber,
+               666, 888, 302 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
   edit.AddFile(5, 303, 0, 100, InternalKey("foo", kBig + 503, kTypeBlobIndex),
                InternalKey("zoo", kBig + 603, kTypeBlobIndex), kBig + 503,
-               kBig + 603, true, 1001, kUnknownOldestAncesterTime,
-               kUnknownFileCreationTime, kUnknownFileChecksum,
-               kUnknownFileChecksumFuncName);
-  ;
+               kBig + 603, true, Temperature::kUnknown, 1001,
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               303 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
 
   edit.DeleteFile(4, 700);
 
@@ -110,13 +120,15 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
   VersionEdit edit;
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
-               kBig + 600, true, kInvalidBlobFileNumber,
+               kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+               300 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
-               kBig + 601, false, kInvalidBlobFileNumber, 686, 868, "234",
-               "crc32c");
+               kBig + 601, false, Temperature::kUnknown, kInvalidBlobFileNumber,
+               686, 868, 301 /* epoch_number */, "234", "crc32c",
+               kNullUniqueId64x2, 0);
   edit.DeleteFile(4, 700);
 
   edit.SetComparatorName("foo");
@@ -162,9 +174,10 @@ TEST_F(VersionEditTest, NewFile4NotSupportedField) {
   VersionEdit edit;
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
-               kBig + 600, true, kInvalidBlobFileNumber,
+               kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+               300 /* epoch_number */, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
 
   edit.SetComparatorName("foo");
   edit.SetLogNumber(kBig + 100);
@@ -192,9 +205,10 @@ TEST_F(VersionEditTest, NewFile4NotSupportedField) {
 TEST_F(VersionEditTest, EncodeEmptyFile) {
   VersionEdit edit;
   edit.AddFile(0, 0, 0, 0, InternalKey(), InternalKey(), 0, 0, false,
-               kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-               kUnknownFileCreationTime, kUnknownFileChecksum,
-               kUnknownFileChecksumFuncName);
+               Temperature::kUnknown, kInvalidBlobFileNumber,
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               1 /*epoch_number*/, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kNullUniqueId64x2, 0);
   std::string buffer;
   ASSERT_TRUE(!edit.EncodeTo(&buffer));
 }
@@ -317,23 +331,27 @@ TEST_F(VersionEditTest, AddWalEncodeDecode) {
     if (has_size) {
       meta.SetSyncedSizeInBytes(rand() % 1000);
     }
-    bool is_closed = rand() % 2 == 0;
-    if (is_closed) {
-      meta.SetClosed();
-    }
     edit.AddWal(log_number, meta);
   }
   TestEncodeDecode(edit);
 }
 
+static std::string PrefixEncodedWalAdditionWithLength(
+    const std::string& encoded) {
+  std::string ret;
+  PutVarint32(&ret, Tag::kWalAddition2);
+  PutLengthPrefixedSlice(&ret, encoded);
+  return ret;
+}
+
 TEST_F(VersionEditTest, AddWalDecodeBadLogNumber) {
   std::string encoded;
-  PutVarint32(&encoded, Tag::kWalAddition);
 
   {
     // No log number.
+    std::string encoded_edit = PrefixEncodedWalAdditionWithLength(encoded);
     VersionEdit edit;
-    Status s = edit.DecodeFrom(encoded);
+    Status s = edit.DecodeFrom(encoded_edit);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(s.ToString().find("Error decoding WAL log number") !=
                 std::string::npos)
@@ -347,8 +365,10 @@ TEST_F(VersionEditTest, AddWalDecodeBadLogNumber) {
     unsigned char* ptr = reinterpret_cast<unsigned char*>(&c);
     *ptr = 128;
     encoded.append(1, c);
+
+    std::string encoded_edit = PrefixEncodedWalAdditionWithLength(encoded);
     VersionEdit edit;
-    Status s = edit.DecodeFrom(encoded);
+    Status s = edit.DecodeFrom(encoded_edit);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(s.ToString().find("Error decoding WAL log number") !=
                 std::string::npos)
@@ -360,14 +380,14 @@ TEST_F(VersionEditTest, AddWalDecodeBadTag) {
   constexpr WalNumber kLogNumber = 100;
   constexpr uint64_t kSizeInBytes = 100;
 
-  std::string encoded_without_tag;
-  PutVarint32(&encoded_without_tag, Tag::kWalAddition);
-  PutVarint64(&encoded_without_tag, kLogNumber);
+  std::string encoded;
+  PutVarint64(&encoded, kLogNumber);
 
   {
     // No tag.
+    std::string encoded_edit = PrefixEncodedWalAdditionWithLength(encoded);
     VersionEdit edit;
-    Status s = edit.DecodeFrom(encoded_without_tag);
+    Status s = edit.DecodeFrom(encoded_edit);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(s.ToString().find("Error decoding tag") != std::string::npos)
         << s.ToString();
@@ -375,12 +395,15 @@ TEST_F(VersionEditTest, AddWalDecodeBadTag) {
 
   {
     // Only has size tag, no terminate tag.
-    std::string encoded_with_size = encoded_without_tag;
+    std::string encoded_with_size = encoded;
     PutVarint32(&encoded_with_size,
                 static_cast<uint32_t>(WalAdditionTag::kSyncedSize));
     PutVarint64(&encoded_with_size, kSizeInBytes);
+
+    std::string encoded_edit =
+        PrefixEncodedWalAdditionWithLength(encoded_with_size);
     VersionEdit edit;
-    Status s = edit.DecodeFrom(encoded_with_size);
+    Status s = edit.DecodeFrom(encoded_edit);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(s.ToString().find("Error decoding tag") != std::string::npos)
         << s.ToString();
@@ -388,11 +411,14 @@ TEST_F(VersionEditTest, AddWalDecodeBadTag) {
 
   {
     // Only has terminate tag.
-    std::string encoded_with_terminate = encoded_without_tag;
+    std::string encoded_with_terminate = encoded;
     PutVarint32(&encoded_with_terminate,
                 static_cast<uint32_t>(WalAdditionTag::kTerminate));
+
+    std::string encoded_edit =
+        PrefixEncodedWalAdditionWithLength(encoded_with_terminate);
     VersionEdit edit;
-    ASSERT_OK(edit.DecodeFrom(encoded_with_terminate));
+    ASSERT_OK(edit.DecodeFrom(encoded_edit));
     auto& wal_addition = edit.GetWalAdditions()[0];
     ASSERT_EQ(wal_addition.GetLogNumber(), kLogNumber);
     ASSERT_FALSE(wal_addition.GetMetadata().HasSyncedSize());
@@ -403,15 +429,15 @@ TEST_F(VersionEditTest, AddWalDecodeNoSize) {
   constexpr WalNumber kLogNumber = 100;
 
   std::string encoded;
-  PutVarint32(&encoded, Tag::kWalAddition);
   PutVarint64(&encoded, kLogNumber);
   PutVarint32(&encoded, static_cast<uint32_t>(WalAdditionTag::kSyncedSize));
   // No real size after the size tag.
 
   {
     // Without terminate tag.
+    std::string encoded_edit = PrefixEncodedWalAdditionWithLength(encoded);
     VersionEdit edit;
-    Status s = edit.DecodeFrom(encoded);
+    Status s = edit.DecodeFrom(encoded_edit);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(s.ToString().find("Error decoding WAL file size") !=
                 std::string::npos)
@@ -421,8 +447,10 @@ TEST_F(VersionEditTest, AddWalDecodeNoSize) {
   {
     // With terminate tag.
     PutVarint32(&encoded, static_cast<uint32_t>(WalAdditionTag::kTerminate));
+
+    std::string encoded_edit = PrefixEncodedWalAdditionWithLength(encoded);
     VersionEdit edit;
-    Status s = edit.DecodeFrom(encoded);
+    Status s = edit.DecodeFrom(encoded_edit);
     ASSERT_TRUE(s.IsCorruption());
     // The terminate tag is misunderstood as the size.
     ASSERT_TRUE(s.ToString().find("Error decoding tag") != std::string::npos)
@@ -442,7 +470,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
 
   const WalAdditions& wals = edit.GetWalAdditions();
 
-  ASSERT_TRUE(edit.HasWalAddition());
+  ASSERT_TRUE(edit.IsWalAddition());
   ASSERT_EQ(wals.size(), n);
   for (int i = 0; i < n; i++) {
     const WalAddition& wal = wals[i];
@@ -454,7 +482,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "  WalAddition: log_number: " << kLogNumbers[i]
-       << " synced_size_in_bytes: " << kSizeInBytes[i] << " closed: 0\n";
+       << " synced_size_in_bytes: " << kSizeInBytes[i] << "\n";
     expected_str += ss.str();
   }
   expected_str += "  ColumnFamily: 0\n}\n";
@@ -464,8 +492,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "{\"LogNumber\": " << kLogNumbers[i] << ", "
-       << "\"SyncedSizeInBytes\": " << kSizeInBytes[i] << ", "
-       << "\"Closed\": 0}";
+       << "\"SyncedSizeInBytes\": " << kSizeInBytes[i] << "}";
     if (i < n - 1) ss << ", ";
     expected_json += ss.str();
   }
@@ -475,9 +502,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
 
 TEST_F(VersionEditTest, DeleteWalEncodeDecode) {
   VersionEdit edit;
-  for (uint64_t log_number = 1; log_number <= 20; log_number++) {
-    edit.DeleteWal(log_number);
-  }
+  edit.DeleteWalsBefore(rand() % 100);
   TestEncodeDecode(edit);
 }
 
@@ -486,42 +511,222 @@ TEST_F(VersionEditTest, DeleteWalDebug) {
   constexpr std::array<uint64_t, n> kLogNumbers{{10, 20}};
 
   VersionEdit edit;
-  for (int i = 0; i < n; i++) {
-    edit.DeleteWal(kLogNumbers[i]);
-  }
+  edit.DeleteWalsBefore(kLogNumbers[n - 1]);
 
-  const WalDeletions& wals = edit.GetWalDeletions();
+  const WalDeletion& wal = edit.GetWalDeletion();
 
-  ASSERT_TRUE(edit.HasWalDeletion());
-  ASSERT_EQ(wals.size(), n);
-  for (int i = 0; i < n; i++) {
-    const WalDeletion& wal = wals[i];
-    ASSERT_EQ(wal.GetLogNumber(), kLogNumbers[i]);
-  }
+  ASSERT_TRUE(edit.IsWalDeletion());
+  ASSERT_EQ(wal.GetLogNumber(), kLogNumbers[n - 1]);
 
   std::string expected_str = "VersionEdit {\n";
-  for (int i = 0; i < n; i++) {
+  {
     std::stringstream ss;
-    ss << "  WalDeletion: log_number: " << kLogNumbers[i] << "\n";
+    ss << "  WalDeletion: log_number: " << kLogNumbers[n - 1] << "\n";
     expected_str += ss.str();
   }
   expected_str += "  ColumnFamily: 0\n}\n";
   ASSERT_EQ(edit.DebugString(true), expected_str);
 
-  std::string expected_json = "{\"EditNumber\": 4, \"WalDeletions\": [";
-  for (int i = 0; i < n; i++) {
+  std::string expected_json = "{\"EditNumber\": 4, \"WalDeletion\": ";
+  {
     std::stringstream ss;
-    ss << "{\"LogNumber\": " << kLogNumbers[i] << "}";
-    if (i < n - 1) ss << ", ";
+    ss << "{\"LogNumber\": " << kLogNumbers[n - 1] << "}";
     expected_json += ss.str();
   }
-  expected_json += "], \"ColumnFamily\": 0}";
+  expected_json += ", \"ColumnFamily\": 0}";
   ASSERT_EQ(edit.DebugJSON(4, true), expected_json);
+}
+
+TEST_F(VersionEditTest, FullHistoryTsLow) {
+  VersionEdit edit;
+  ASSERT_FALSE(edit.HasFullHistoryTsLow());
+  std::string ts = test::EncodeInt(0);
+  edit.SetFullHistoryTsLow(ts);
+  TestEncodeDecode(edit);
+}
+
+// Tests that if RocksDB is downgraded, the new types of VersionEdits
+// that have a tag larger than kTagSafeIgnoreMask can be safely ignored.
+TEST_F(VersionEditTest, IgnorableTags) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEdit::EncodeTo:IgnoreIgnorableTags", [&](void* arg) {
+        bool* ignore = static_cast<bool*>(arg);
+        *ignore = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr uint64_t kPrevLogNumber = 100;
+  constexpr uint64_t kLogNumber = 200;
+  constexpr uint64_t kNextFileNumber = 300;
+  constexpr uint64_t kColumnFamilyId = 400;
+
+  VersionEdit edit;
+  // Add some ignorable entries.
+  for (int i = 0; i < 2; i++) {
+    edit.AddWal(i + 1, WalMetadata(i + 2));
+  }
+  edit.SetDBId("db_id");
+  // Add unignorable entries.
+  edit.SetPrevLogNumber(kPrevLogNumber);
+  edit.SetLogNumber(kLogNumber);
+  // Add more ignorable entries.
+  edit.DeleteWalsBefore(100);
+  // Add unignorable entry.
+  edit.SetNextFile(kNextFileNumber);
+  // Add more ignorable entries.
+  edit.SetFullHistoryTsLow("ts");
+  // Add unignorable entry.
+  edit.SetColumnFamily(kColumnFamilyId);
+
+  std::string encoded;
+  ASSERT_TRUE(edit.EncodeTo(&encoded));
+
+  VersionEdit decoded;
+  ASSERT_OK(decoded.DecodeFrom(encoded));
+
+  // Check that all ignorable entries are ignored.
+  ASSERT_FALSE(decoded.HasDbId());
+  ASSERT_FALSE(decoded.HasFullHistoryTsLow());
+  ASSERT_FALSE(decoded.IsWalAddition());
+  ASSERT_FALSE(decoded.IsWalDeletion());
+  ASSERT_TRUE(decoded.GetWalAdditions().empty());
+  ASSERT_TRUE(decoded.GetWalDeletion().IsEmpty());
+
+  // Check that unignorable entries are still present.
+  ASSERT_EQ(edit.GetPrevLogNumber(), kPrevLogNumber);
+  ASSERT_EQ(edit.GetLogNumber(), kLogNumber);
+  ASSERT_EQ(edit.GetNextFile(), kNextFileNumber);
+  ASSERT_EQ(edit.GetColumnFamily(), kColumnFamilyId);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
+  FileMetaData meta;
+
+  {
+    constexpr uint64_t file_number = 10;
+    constexpr uint32_t path_id = 0;
+    constexpr uint64_t file_size = 0;
+
+    meta.fd = FileDescriptor(file_number, path_id, file_size);
+  }
+
+  constexpr char key[] = "foo";
+
+  constexpr uint64_t expected_oldest_blob_file_number = 20;
+
+  // Plain old value (does not affect oldest_blob_file_number)
+  {
+    constexpr char value[] = "value";
+    constexpr SequenceNumber seq = 200;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, value, seq, kTypeValue));
+    ASSERT_EQ(meta.oldest_blob_file_number, kInvalidBlobFileNumber);
+  }
+
+  // Non-inlined, non-TTL blob index (sets oldest_blob_file_number)
+  {
+    constexpr uint64_t blob_file_number = 25;
+    static_assert(blob_file_number > expected_oldest_blob_file_number,
+                  "unexpected");
+
+    constexpr uint64_t offset = 1000;
+    constexpr uint64_t size = 100;
+
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, blob_file_number, offset, size,
+                          kNoCompression);
+
+    constexpr SequenceNumber seq = 201;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, blob_file_number);
+  }
+
+  // Another one, with the oldest blob file number (updates
+  // oldest_blob_file_number)
+  {
+    constexpr uint64_t offset = 2000;
+    constexpr uint64_t size = 300;
+
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, expected_oldest_blob_file_number, offset,
+                          size, kNoCompression);
+
+    constexpr SequenceNumber seq = 202;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
+
+  // Inlined TTL blob index (does not affect oldest_blob_file_number)
+  {
+    constexpr uint64_t expiration = 9876543210;
+    constexpr char value[] = "value";
+
+    std::string blob_index;
+    BlobIndex::EncodeInlinedTTL(&blob_index, expiration, value);
+
+    constexpr SequenceNumber seq = 203;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
+
+  // Non-inlined TTL blob index (does not affect oldest_blob_file_number, even
+  // though file number is smaller)
+  {
+    constexpr uint64_t expiration = 9876543210;
+    constexpr uint64_t blob_file_number = 15;
+    static_assert(blob_file_number < expected_oldest_blob_file_number,
+                  "unexpected");
+
+    constexpr uint64_t offset = 2000;
+    constexpr uint64_t size = 500;
+
+    std::string blob_index;
+    BlobIndex::EncodeBlobTTL(&blob_index, expiration, blob_file_number, offset,
+                             size, kNoCompression);
+
+    constexpr SequenceNumber seq = 204;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
+
+  // Corrupt blob index
+  {
+    constexpr char corrupt_blob_index[] = "!corrupt!";
+    constexpr SequenceNumber seq = 205;
+
+    ASSERT_TRUE(
+        meta.UpdateBoundaries(key, corrupt_blob_index, seq, kTypeBlobIndex)
+            .IsCorruption());
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
+
+  // Invalid blob file number
+  {
+    constexpr uint64_t offset = 10000;
+    constexpr uint64_t size = 1000;
+
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, kInvalidBlobFileNumber, offset, size,
+                          kNoCompression);
+
+    constexpr SequenceNumber seq = 206;
+
+    ASSERT_TRUE(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex)
+                    .IsCorruption());
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <memory>
 #include <string>
 
@@ -24,14 +25,14 @@ namespace ROCKSDB_NAMESPACE {
 // cache interface is specifically designed for persistent read cache.
 class PersistentCache {
  public:
-  typedef std::vector<std::map<std::string, double>> StatsType;
+  using StatsType = std::vector<std::map<std::string, double>>;
 
   virtual ~PersistentCache() {}
 
   // Insert to page cache
   //
   // page_key   Identifier to identify a page uniquely across restarts
-  // data       Page data
+  // data       Page data to copy (caller retains ownership)
   // size       Size of the page
   virtual Status Insert(const Slice& key, const char* data,
                         const size_t size) = 0;
@@ -44,9 +45,9 @@ class PersistentCache {
   virtual Status Lookup(const Slice& key, std::unique_ptr<char[]>* data,
                         size_t* size) = 0;
 
-  // Is cache storing uncompressed data ?
-  //
-  // True if the cache is configured to store uncompressed data else false
+  // True if the cache is configured to store serialized blocks, which are
+  // potentially compressed and include a trailer (when SST format calls for
+  // one). False if the cache stores uncompressed blocks (no trailer).
   virtual bool IsCompressed() = 0;
 
   // Return stats as map of {string, double} per-tier

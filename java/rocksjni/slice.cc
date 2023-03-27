@@ -6,15 +6,18 @@
 // This file implements the "bridge" between Java and C++ for
 // ROCKSDB_NAMESPACE::Slice.
 
+#include "rocksdb/slice.h"
+
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <string>
 
 #include "include/org_rocksdb_AbstractSlice.h"
 #include "include/org_rocksdb_DirectSlice.h"
 #include "include/org_rocksdb_Slice.h"
-#include "rocksdb/slice.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 // <editor-fold desc="org.rocksdb.AbstractSlice>
@@ -44,7 +47,7 @@ jlong Java_org_rocksdb_AbstractSlice_createNewSliceFromString(JNIEnv* env,
   env->ReleaseStringUTFChars(jstr, str);
 
   const auto* slice = new ROCKSDB_NAMESPACE::Slice(buf);
-  return reinterpret_cast<jlong>(slice);
+  return GET_CPLUSPLUS_POINTER(slice);
 }
 
 /*
@@ -144,7 +147,7 @@ jlong Java_org_rocksdb_Slice_createNewSlice0(JNIEnv* env, jclass /*jcls*/,
   }
 
   const auto* slice = new ROCKSDB_NAMESPACE::Slice((const char*)buf, len);
-  return reinterpret_cast<jlong>(slice);
+  return GET_CPLUSPLUS_POINTER(slice);
 }
 
 /*
@@ -171,7 +174,7 @@ jlong Java_org_rocksdb_Slice_createNewSlice1(JNIEnv* env, jclass /*jcls*/,
 
   env->ReleaseByteArrayElements(data, ptrData, JNI_ABORT);
 
-  return reinterpret_cast<jlong>(slice);
+  return GET_CPLUSPLUS_POINTER(slice);
 }
 
 /*
@@ -229,6 +232,17 @@ void Java_org_rocksdb_Slice_removePrefix0(JNIEnv* /*env*/, jobject /*jobj*/,
 }
 
 /*
+ * Class:     org_rocksdb_DirectSlice
+ * Method:    setLength0
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_DirectSlice_setLength0(JNIEnv* /*env*/, jobject /*jobj*/,
+                                             jlong handle, jint length) {
+  auto* slice = reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(handle);
+  slice->size_ = length;
+}
+
+/*
  * Class:     org_rocksdb_Slice
  * Method:    disposeInternalBuf
  * Signature: (JJ)V
@@ -267,7 +281,7 @@ jlong Java_org_rocksdb_DirectSlice_createNewDirectSlice0(JNIEnv* env,
 
   const auto* ptrData = reinterpret_cast<char*>(data_addr);
   const auto* slice = new ROCKSDB_NAMESPACE::Slice(ptrData, length);
-  return reinterpret_cast<jlong>(slice);
+  return GET_CPLUSPLUS_POINTER(slice);
 }
 
 /*
@@ -290,7 +304,7 @@ jlong Java_org_rocksdb_DirectSlice_createNewDirectSlice1(JNIEnv* env,
 
   const auto* ptrData = reinterpret_cast<char*>(data_addr);
   const auto* slice = new ROCKSDB_NAMESPACE::Slice(ptrData);
-  return reinterpret_cast<jlong>(slice);
+  return GET_CPLUSPLUS_POINTER(slice);
 }
 
 /*

@@ -38,11 +38,12 @@ class RandomAccessFileReaderTest : public testing::Test {
   }
 
   void Read(const std::string& fname, const FileOptions& opts,
-                std::unique_ptr<RandomAccessFileReader>* reader) {
+            std::unique_ptr<RandomAccessFileReader>* reader) {
     std::string fpath = Path(fname);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
-    (*reader).reset(new RandomAccessFileReader(std::move(f), fpath, env_));
+    reader->reset(new RandomAccessFileReader(std::move(f), fpath,
+                                             env_->GetSystemClock().get()));
   }
 
   void AssertResult(const std::string& content,
@@ -59,13 +60,10 @@ class RandomAccessFileReaderTest : public testing::Test {
   std::shared_ptr<FileSystem> fs_;
   std::string test_dir_;
 
-  std::string Path(const std::string& fname) {
-    return test_dir_ + "/" + fname;
-  }
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 };
 
 // Skip the following tests in lite mode since direct I/O is unsupported.
-#ifndef ROCKSDB_LITE
 
 TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   std::string fname = "read-direct-io";
@@ -84,9 +82,9 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   size_t len = page_size / 3;
   Slice result;
   AlignedBuf buf;
-  for (bool for_compaction : {true, false}) {
+  for (Env::IOPriority rate_limiter_priority : {Env::IO_LOW, Env::IO_TOTAL}) {
     ASSERT_OK(r->Read(IOOptions(), offset, len, &result, nullptr, &buf,
-                      for_compaction));
+                      rate_limiter_priority));
     ASSERT_EQ(result.ToString(), content.substr(offset, len));
   }
 }
@@ -137,14 +135,15 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuf aligned_buf;
-    ASSERT_OK(
-        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
+                           Env::IO_TOTAL /* rate_limiter_priority */));
 
     AssertResult(content, reqs);
 
     // Reads the first page internally.
     ASSERT_EQ(aligned_reqs.size(), 1);
     const FSReadRequest& aligned_r = aligned_reqs[0];
+    ASSERT_OK(aligned_r.status);
     ASSERT_EQ(aligned_r.offset, 0);
     ASSERT_EQ(aligned_r.len, page_size);
   }
@@ -181,14 +180,15 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuf aligned_buf;
-    ASSERT_OK(
-        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
+                           Env::IO_TOTAL /* rate_limiter_priority */));
 
     AssertResult(content, reqs);
 
     // Reads the first two pages in one request internally.
     ASSERT_EQ(aligned_reqs.size(), 1);
     const FSReadRequest& aligned_r = aligned_reqs[0];
+    ASSERT_OK(aligned_r.status);
     ASSERT_EQ(aligned_r.offset, 0);
     ASSERT_EQ(aligned_r.len, 2 * page_size);
   }
@@ -225,14 +225,15 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuf aligned_buf;
-    ASSERT_OK(
-        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
+                           Env::IO_TOTAL /* rate_limiter_priority */));
 
     AssertResult(content, reqs);
 
     // Reads the first 3 pages in one request internally.
     ASSERT_EQ(aligned_reqs.size(), 1);
     const FSReadRequest& aligned_r = aligned_reqs[0];
+    ASSERT_OK(aligned_r.status);
     ASSERT_EQ(aligned_r.offset, 0);
     ASSERT_EQ(aligned_r.len, 3 * page_size);
   }
@@ -261,8 +262,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuf aligned_buf;
-    ASSERT_OK(
-        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf,
+                           Env::IO_TOTAL /* rate_limiter_priority */));
 
     AssertResult(content, reqs);
 
@@ -270,8 +271,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     ASSERT_EQ(aligned_reqs.size(), 2);
     const FSReadRequest& aligned_r0 = aligned_reqs[0];
     const FSReadRequest& aligned_r1 = aligned_reqs[1];
+    ASSERT_OK(aligned_r0.status);
     ASSERT_EQ(aligned_r0.offset, 0);
     ASSERT_EQ(aligned_r0.len, page_size);
+    ASSERT_OK(aligned_r1.status);
     ASSERT_EQ(aligned_r1.offset, 2 * page_size);
     ASSERT_EQ(aligned_r1.len, page_size);
   }
@@ -280,15 +283,17 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-#endif  // ROCKSDB_LITE
 
 TEST(FSReadRequest, Align) {
   FSReadRequest r;
   r.offset = 2000;
   r.len = 2000;
   r.scratch = nullptr;
+  ASSERT_OK(r.status);
 
   FSReadRequest aligned_r = Align(r, 1024);
+  ASSERT_OK(r.status);
+  ASSERT_OK(aligned_r.status);
   ASSERT_EQ(aligned_r.offset, 1024);
   ASSERT_EQ(aligned_r.len, 3072);
 }
@@ -303,14 +308,20 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 15;
       src.len = 10;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_FALSE(TryMerge(&dest, src));
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -320,16 +331,22 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 10;
       src.len = 10;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 20);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -339,16 +356,22 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 5;
       src.len = 10;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 15);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -358,16 +381,22 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 5;
       src.len = 5;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -377,16 +406,20 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 5;
       src.len = 1;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
       if (reverse) std::swap(dest, src);
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -396,16 +429,20 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 0;
       src.len = 10;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
       if (reverse) std::swap(dest, src);
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -415,16 +452,20 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 0;
       src.len = 5;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
       if (reverse) std::swap(dest, src);
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
   }
 }

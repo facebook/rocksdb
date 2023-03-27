@@ -4,11 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
+#include <algorithm>
 #include <mutex>
 #include <vector>
-#include <algorithm>
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -46,6 +45,23 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
                                 const OptimisticTransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 
+  // Transactional `DeleteRange()` is not yet supported.
+  using StackableDB::DeleteRange;
+  virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
+                             const Slice&, const Slice&) override {
+    return Status::NotSupported();
+  }
+
+  // Range deletions also must not be snuck into `WriteBatch`es as they are
+  // incompatible with `OptimisticTransactionDB`.
+  virtual Status Write(const WriteOptions& write_opts,
+                       WriteBatch* batch) override {
+    if (batch->HasDeleteRange()) {
+      return Status::NotSupported();
+    }
+    return OptimisticTransactionDB::Write(write_opts, batch);
+  }
+
   size_t GetLockBucketsSize() const { return bucketed_locks_.size(); }
 
   OccValidationPolicy GetValidatePolicy() const { return validate_policy_; }
@@ -68,4 +84,3 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

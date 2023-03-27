@@ -3,18 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef ROCKSDB_LITE
+
+#include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 
 #include <string>
 
 #include "rocksdb/slice.h"
-#include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-const char* RemoveEmptyValueCompactionFilter::Name() const {
-  return "RemoveEmptyValueCompactionFilter";
-}
 
 bool RemoveEmptyValueCompactionFilter::Filter(int /*level*/,
                                               const Slice& /*key*/,
@@ -26,4 +22,3 @@ bool RemoveEmptyValueCompactionFilter::Filter(int /*level*/,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // !ROCKSDB_LITE

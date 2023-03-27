@@ -1,4 +1,10 @@
-#ifndef ROCKSDB_LITE
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+#include "db/version_builder.h"
 
 #include "db/import_column_family_job.h"
 
@@ -10,10 +16,12 @@
 #include "db/version_edit.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
+#include "table/unique_id_impl.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -26,7 +34,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   for (const auto& file_metadata : metadata_) {
     const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
     IngestedFileInfo file_to_import;
-    status = GetIngestedFileInfo(file_path, &file_to_import, sv);
+    status = GetIngestedFileInfo(file_path, next_file_number++, sv,
+                                 file_metadata, &file_to_import);
     if (!status.ok()) {
       return status;
     }
@@ -36,40 +45,6 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   auto num_files = files_to_import_.size();
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
-  } else if (num_files > 1) {
-    // Verify that passed files don't have overlapping ranges in any particular
-    // level.
-    int min_level = 1;  // Check for overlaps in Level 1 and above.
-    int max_level = -1;
-    for (const auto& file_metadata : metadata_) {
-      if (file_metadata.level > max_level) {
-        max_level = file_metadata.level;
-      }
-    }
-    for (int level = min_level; level <= max_level; ++level) {
-      autovector<const IngestedFileInfo*> sorted_files;
-      for (size_t i = 0; i < num_files; i++) {
-        if (metadata_[i].level == level) {
-          sorted_files.push_back(&files_to_import_[i]);
-        }
-      }
-
-      std::sort(
-          sorted_files.begin(), sorted_files.end(),
-          [this](const IngestedFileInfo* info1, const IngestedFileInfo* info2) {
-            return cfd_->internal_comparator().Compare(
-                       info1->smallest_internal_key,
-                       info2->smallest_internal_key) < 0;
-          });
-
-      for (size_t i = 0; i + 1 < sorted_files.size(); i++) {
-        if (cfd_->internal_comparator().Compare(
-                sorted_files[i]->largest_internal_key,
-                sorted_files[i + 1]->smallest_internal_key) >= 0) {
-          return Status::InvalidArgument("Files have overlapping ranges");
-        }
-      }
-    }
   }
 
   for (const auto& f : files_to_import_) {
@@ -85,8 +60,6 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   // Copy/Move external files into DB
   auto hardlink_files = import_options_.move_files;
   for (auto& f : files_to_import_) {
-    f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
-
     const auto path_outside_db = f.external_file_path;
     const auto path_inside_db = TableFileName(
         cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
@@ -97,11 +70,15 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
         hardlink_files = false;
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "Try to link file %s but it's not supported : %s",
+                       f.internal_file_path.c_str(), status.ToString().c_str());
       }
     }
     if (!hardlink_files) {
-      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync, io_tracer_);
+      status =
+          CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                   db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
     }
     if (!status.ok()) {
       break;
@@ -132,39 +109,77 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
 // REQUIRES: we have become the only writer by entering both write_thread_ and
 // nonmem_write_thread_
 Status ImportColumnFamilyJob::Run() {
-  Status status;
-  edit_.SetColumnFamily(cfd_->GetID());
-
   // We use the import time as the ancester time. This is the time the data
   // is written to the database.
   int64_t temp_current_time = 0;
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
   uint64_t current_time = kUnknownOldestAncesterTime;
-  if (env_->GetCurrentTime(&temp_current_time).ok()) {
+  if (clock_->GetCurrentTime(&temp_current_time).ok()) {
     current_time = oldest_ancester_time =
         static_cast<uint64_t>(temp_current_time);
   }
 
-  for (size_t i = 0; i < files_to_import_.size(); ++i) {
+  // Recover files' epoch number using dummy VersionStorageInfo
+  VersionBuilder dummy_version_builder(
+      cfd_->current()->version_set()->file_options(), cfd_->ioptions(),
+      cfd_->table_cache(), cfd_->current()->storage_info(),
+      cfd_->current()->version_set(),
+      cfd_->GetFileMetadataCacheReservationManager());
+  VersionStorageInfo dummy_vstorage(
+      &cfd_->internal_comparator(), cfd_->user_comparator(),
+      cfd_->NumberLevels(), cfd_->ioptions()->compaction_style,
+      nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
+      EpochNumberRequirement::kMightMissing);
+  Status s;
+  for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
 
-    edit_.AddFile(file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key,
-                  f.largest_internal_key, file_metadata.smallest_seqno,
-                  file_metadata.largest_seqno, false, kInvalidBlobFileNumber,
-                  oldest_ancester_time, current_time, kUnknownFileChecksum,
-                  kUnknownFileChecksumFuncName);
+    VersionEdit dummy_version_edit;
+    dummy_version_edit.AddFile(
+        file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
+        f.fd.GetFileSize(), f.smallest_internal_key, f.largest_internal_key,
+        file_metadata.smallest_seqno, file_metadata.largest_seqno, false,
+        file_metadata.temperature, kInvalidBlobFileNumber, oldest_ancester_time,
+        current_time, file_metadata.epoch_number, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, f.unique_id, 0);
+    s = dummy_version_builder.Apply(&dummy_version_edit);
+  }
+  if (s.ok()) {
+    s = dummy_version_builder.SaveTo(&dummy_vstorage);
+  }
+  if (s.ok()) {
+    dummy_vstorage.RecoverEpochNumbers(cfd_);
+  }
 
-    // If incoming sequence number is higher, update local sequence number.
-    if (file_metadata.largest_seqno > versions_->LastSequence()) {
-      versions_->SetLastAllocatedSequence(file_metadata.largest_seqno);
-      versions_->SetLastPublishedSequence(file_metadata.largest_seqno);
-      versions_->SetLastSequence(file_metadata.largest_seqno);
+  // Record changes from this CF import in VersionEdit, including files with
+  // recovered epoch numbers
+  if (s.ok()) {
+    edit_.SetColumnFamily(cfd_->GetID());
+
+    for (int level = 0; level < dummy_vstorage.num_levels(); level++) {
+      for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
+        edit_.AddFile(level, *file_meta);
+        // If incoming sequence number is higher, update local sequence number.
+        if (file_meta->fd.largest_seqno > versions_->LastSequence()) {
+          versions_->SetLastAllocatedSequence(file_meta->fd.largest_seqno);
+          versions_->SetLastPublishedSequence(file_meta->fd.largest_seqno);
+          versions_->SetLastSequence(file_meta->fd.largest_seqno);
+        }
+      }
     }
   }
 
-  return status;
+  // Release resources occupied by the dummy VersionStorageInfo
+  for (int level = 0; level < dummy_vstorage.num_levels(); level++) {
+    for (FileMetaData* file_meta : dummy_vstorage.LevelFiles(level)) {
+      file_meta->refs--;
+      if (file_meta->refs <= 0) {
+        delete file_meta;
+      }
+    }
+  }
+  return s;
 }
 
 void ImportColumnFamilyJob::Cleanup(const Status& status) {
@@ -196,24 +211,32 @@ void ImportColumnFamilyJob::Cleanup(const Status& status) {
 }
 
 Status ImportColumnFamilyJob::GetIngestedFileInfo(
-    const std::string& external_file, IngestedFileInfo* file_to_import,
-    SuperVersion* sv) {
+    const std::string& external_file, uint64_t new_file_number,
+    SuperVersion* sv, const LiveFileMetaData& file_meta,
+    IngestedFileInfo* file_to_import) {
   file_to_import->external_file_path = external_file;
-
-  // Get external file size
-  Status status = fs_->GetFileSize(external_file, IOOptions(),
-                                   &file_to_import->file_size, nullptr);
-  if (!status.ok()) {
-    return status;
+  Status status;
+  if (file_meta.size > 0) {
+    file_to_import->file_size = file_meta.size;
+  } else {
+    // Get external file size
+    status = fs_->GetFileSize(external_file, IOOptions(),
+                              &file_to_import->file_size, nullptr);
+    if (!status.ok()) {
+      return status;
+    }
   }
+  // Assign FD with number
+  file_to_import->fd =
+      FileDescriptor(new_file_number, 0, file_to_import->file_size);
 
   // Create TableReader for external file
   std::unique_ptr<TableReader> table_reader;
   std::unique_ptr<FSRandomAccessFile> sst_file;
   std::unique_ptr<RandomAccessFileReader> sst_file_reader;
 
-  status = fs_->NewRandomAccessFile(external_file, env_options_,
-                                    &sst_file, nullptr);
+  status =
+      fs_->NewRandomAccessFile(external_file, env_options_, &sst_file, nullptr);
   if (!status.ok()) {
     return status;
   }
@@ -221,9 +244,14 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
-      TableReaderOptions(*cfd_->ioptions(),
-                         sv->mutable_cf_options.prefix_extractor.get(),
-                         env_options_, cfd_->internal_comparator()),
+      TableReaderOptions(
+          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
+          env_options_, cfd_->internal_comparator(),
+          /*skip_filters*/ false, /*immortal*/ false,
+          /*force_direct_prefetch*/ false, /*level*/ -1,
+          /*block_cache_tracer*/ nullptr,
+          /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
+          /*cur_file_num*/ new_file_number),
       std::move(sst_file_reader), file_to_import->file_size, &table_reader);
   if (!status.ok()) {
     return status;
@@ -238,39 +266,76 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   // Get number of entries in table
   file_to_import->num_entries = props->num_entries;
 
-  ParsedInternalKey key;
-  ReadOptions ro;
-  // During reading the external file we can cache blocks that we read into
-  // the block cache, if we later change the global seqno of this file, we will
-  // have block in cache that will include keys with wrong seqno.
-  // We need to disable fill_cache so that we read from the file without
-  // updating the block cache.
-  ro.fill_cache = false;
-  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
-      ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
+  // If the importing files were exported with Checkpoint::ExportColumnFamily(),
+  // we cannot simply recompute smallest and largest used to truncate range
+  // tombstones from file content, and we expect smallest and largest populated
+  // in file_meta.
+  if (file_meta.smallest.empty()) {
+    assert(file_meta.largest.empty());
+    ReadOptions ro;
+    std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
+        ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
 
-  // Get first (smallest) key from file
-  iter->SeekToFirst();
-  if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-    return Status::Corruption("external file have corrupted keys");
-  }
-  file_to_import->smallest_internal_key.SetFrom(key);
+    // Get first (smallest) key from file
+    iter->SeekToFirst();
+    bool bound_set = false;
+    if (iter->Valid()) {
+      file_to_import->smallest_internal_key.DecodeFrom(iter->key());
+      iter->SeekToLast();
+      file_to_import->largest_internal_key.DecodeFrom(iter->key());
+      bound_set = true;
+    }
 
-  // Get last (largest) key from file
-  iter->SeekToLast();
-  if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-    return Status::Corruption("external file have corrupted keys");
+    std::unique_ptr<InternalIterator> range_del_iter{
+        table_reader->NewRangeTombstoneIterator(ro)};
+    if (range_del_iter != nullptr) {
+      range_del_iter->SeekToFirst();
+      if (range_del_iter->Valid()) {
+        ParsedInternalKey key;
+        Status pik_status = ParseInternalKey(range_del_iter->key(), &key,
+                                             db_options_.allow_data_in_errors);
+        if (!pik_status.ok()) {
+          return Status::Corruption("Corrupted key in external file. ",
+                                    pik_status.getState());
+        }
+        RangeTombstone tombstone(key, range_del_iter->value());
+        InternalKey start_key = tombstone.SerializeKey();
+        const InternalKeyComparator* icmp = &cfd_->internal_comparator();
+        if (!bound_set ||
+            icmp->Compare(start_key, file_to_import->smallest_internal_key) <
+                0) {
+          file_to_import->smallest_internal_key = start_key;
+        }
+        InternalKey end_key = tombstone.SerializeEndKey();
+        if (!bound_set ||
+            icmp->Compare(end_key, file_to_import->largest_internal_key) > 0) {
+          file_to_import->largest_internal_key = end_key;
+        }
+        bound_set = true;
+      }
+    }
+    assert(bound_set);
+  } else {
+    assert(!file_meta.largest.empty());
+    file_to_import->smallest_internal_key.DecodeFrom(file_meta.smallest);
+    file_to_import->largest_internal_key.DecodeFrom(file_meta.largest);
   }
-  file_to_import->largest_internal_key.SetFrom(key);
 
   file_to_import->cf_id = static_cast<uint32_t>(props->column_family_id);
 
   file_to_import->table_properties = *props;
 
+  auto s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                                  props->orig_file_number,
+                                  &(file_to_import->unique_id));
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get SST unique id for file %s",
+                   file_to_import->internal_file_path.c_str());
+  }
+
   return status;
 }
-
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // !ROCKSDB_LITE

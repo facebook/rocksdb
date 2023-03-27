@@ -19,12 +19,14 @@ class JniCallback {
   JniCallback(JNIEnv* env, jobject jcallback_obj);
   virtual ~JniCallback();
 
+  const jobject& GetJavaObject() const { return m_jcallback_obj; }
+
  protected:
   JavaVM* m_jvm;
   jobject m_jcallback_obj;
   JNIEnv* getJniEnv(jboolean* attached) const;
   void releaseJniEnv(jboolean& attached) const;
-  };
-  }  // namespace ROCKSDB_NAMESPACE
+};
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // JAVA_ROCKSJNI_JNICALLBACK_H_

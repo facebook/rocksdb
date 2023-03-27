@@ -4,8 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include "rocksdb/statistics.h"
-
 #include <atomic>
 #include <map>
 #include <string>
@@ -14,6 +12,7 @@
 #include "monitoring/histogram.h"
 #include "port/likely.h"
 #include "port/port.h"
+#include "rocksdb/statistics.h"
 #include "util/core_local.h"
 #include "util/mutexlock.h"
 
@@ -44,6 +43,8 @@ class StatisticsImpl : public Statistics {
  public:
   StatisticsImpl(std::shared_ptr<Statistics> stats);
   virtual ~StatisticsImpl();
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "BasicStatistics"; }
 
   virtual uint64_t getTickerCount(uint32_t ticker_type) const override;
   virtual void histogramData(uint32_t histogram_type,
@@ -68,6 +69,8 @@ class StatisticsImpl : public Statistics {
   virtual bool getTickerMap(std::map<std::string, uint64_t>*) const override;
   virtual bool HistEnabledForType(uint32_t type) const override;
 
+  const Customizable* Inner() const override { return stats_.get(); }
+
  private:
   // If non-nullptr, forwards updates to the object pointed to by `stats_`.
   std::shared_ptr<Statistics> stats_;
@@ -90,13 +93,16 @@ class StatisticsImpl : public Statistics {
                   INTERNAL_HISTOGRAM_ENUM_MAX * sizeof(HistogramImpl)) %
                      CACHE_LINE_SIZE)] ROCKSDB_FIELD_UNUSED;
 #endif
-    void *operator new(size_t s) { return port::cacheline_aligned_alloc(s); }
-    void *operator new[](size_t s) { return port::cacheline_aligned_alloc(s); }
-    void operator delete(void *p) { port::cacheline_aligned_free(p); }
-    void operator delete[](void *p) { port::cacheline_aligned_free(p); }
+    void* operator new(size_t s) { return port::cacheline_aligned_alloc(s); }
+    void* operator new[](size_t s) { return port::cacheline_aligned_alloc(s); }
+    void operator delete(void* p) { port::cacheline_aligned_free(p); }
+    void operator delete[](void* p) { port::cacheline_aligned_free(p); }
   };
 
-  static_assert(sizeof(StatisticsData) % CACHE_LINE_SIZE == 0, "Expected " TOSTRING(CACHE_LINE_SIZE) "-byte aligned");
+#ifndef TEST_CACHE_LINE_SIZE
+  static_assert(sizeof(StatisticsData) % CACHE_LINE_SIZE == 0,
+                "Expected " TOSTRING(CACHE_LINE_SIZE) "-byte aligned");
+#endif
 
   CoreLocalArray<StatisticsData> per_core_stats_;
 

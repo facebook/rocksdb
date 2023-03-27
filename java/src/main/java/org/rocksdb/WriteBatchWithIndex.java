@@ -117,7 +117,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * as a delta and baseIterator as a base
    *
    * Updating write batch with the current key of the iterator is not safe.
-   * We strongly recommand users not to do it. It will invalidate the current
+   * We strongly recommend users not to do it. It will invalidate the current
    * key() and value() of the iterator. This invalidation happens even before
    * the write batch update finishes. The state may recover after Next() is
    * called.
@@ -140,7 +140,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * as a delta and baseIterator as a base
    *
    * Updating write batch with the current key of the iterator is not safe.
-   * We strongly recommand users not to do it. It will invalidate the current
+   * We strongly recommend users not to do it. It will invalidate the current
    * key() and value() of the iterator. This invalidation happens even before
    * the write batch update finishes. The state may recover after Next() is
    * called.
@@ -318,7 +318,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void singleDelete(final long handle, final byte[] key,
       final int keyLen, final long cfHandle) throws RocksDBException;
   @Override
-  final native void removeDirect(final long handle, final ByteBuffer key, final int keyOffset,
+  final native void deleteDirect(final long handle, final ByteBuffer key, final int keyOffset,
       final int keyLength, final long cfHandle) throws RocksDBException;
   // DO NOT USE - `WriteBatchWithIndex::deleteRange` is not yet supported
   @Override
@@ -346,8 +346,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);
-  private native long iteratorWithBase(final long handle, final long baseIteratorHandle,
-      final long cfHandle, final long readOptionsHandle);
+  private native long iteratorWithBase(final long handle, final long cfHandle,
+      final long baseIteratorHandle, final long readOptionsHandle);
   private native byte[] getFromBatch(final long handle, final long optHandle,
       final byte[] key, final int keyLen);
   private native byte[] getFromBatch(final long handle, final long optHandle,

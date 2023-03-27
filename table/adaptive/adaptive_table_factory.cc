@@ -3,12 +3,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #include "table/adaptive/adaptive_table_factory.h"
 
-#include "table/table_builder.h"
-#include "table/format.h"
 #include "port/port.h"
+#include "table/format.h"
+#include "table/table_builder.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -48,8 +47,9 @@ Status AdaptiveTableFactory::NewTableReader(
     bool prefetch_index_and_filter_in_cache) const {
   Footer footer;
   IOOptions opts;
-  auto s = ReadFooterFromFile(opts, file.get(), nullptr /* prefetch_buffer */,
-                              file_size, &footer);
+  auto s =
+      ReadFooterFromFile(opts, file.get(), *table_reader_options.ioptions.fs,
+                         nullptr /* prefetch_buffer */, file_size, &footer);
   if (!s.ok()) {
     return s;
   }
@@ -58,7 +58,7 @@ Status AdaptiveTableFactory::NewTableReader(
     return plain_table_factory_->NewTableReader(
         table_reader_options, std::move(file), file_size, table);
   } else if (footer.table_magic_number() == kBlockBasedTableMagicNumber ||
-      footer.table_magic_number() == kLegacyBlockBasedTableMagicNumber) {
+             footer.table_magic_number() == kLegacyBlockBasedTableMagicNumber) {
     return block_based_table_factory_->NewTableReader(
         ro, table_reader_options, std::move(file), file_size, table,
         prefetch_index_and_filter_in_cache);
@@ -71,10 +71,9 @@ Status AdaptiveTableFactory::NewTableReader(
 }
 
 TableBuilder* AdaptiveTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
+    const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
-  return table_factory_to_write_->NewTableBuilder(table_builder_options,
-                                                  column_family_id, file);
+  return table_factory_to_write_->NewTableBuilder(table_builder_options, file);
 }
 
 std::string AdaptiveTableFactory::GetPrintableOptions() const {
@@ -119,8 +118,8 @@ extern TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> plain_table_factory,
     std::shared_ptr<TableFactory> cuckoo_table_factory) {
   return new AdaptiveTableFactory(table_factory_to_write,
-      block_based_table_factory, plain_table_factory, cuckoo_table_factory);
+                                  block_based_table_factory,
+                                  plain_table_factory, cuckoo_table_factory);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

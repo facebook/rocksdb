@@ -110,6 +110,10 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
     this.internalBufferOffset += n;
   }
 
+  public void setLength(final int n) {
+    setLength0(getNativeHandle(), n);
+  }
+
   @Override
   protected void disposeInternal() {
     final long nativeHandle = getNativeHandle();
@@ -127,6 +131,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
   private native void clear0(long handle, boolean internalBuffer,
       long internalBufferOffset);
   private native void removePrefix0(long handle, int length);
+  private native void setLength0(long handle, int length);
   private native void disposeInternalBuf(final long handle,
       long internalBufferOffset);
 }

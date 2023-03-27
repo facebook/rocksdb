@@ -130,7 +130,7 @@ TEST(DataBlockHashIndex, DataBlockHashTest) {
 
   ASSERT_EQ(buffer.size(), estimated_size);
 
-  buffer2 = buffer; // test for the correctness of relative offset
+  buffer2 = buffer;  // test for the correctness of relative offset
 
   Slice s(buffer2);
   DataBlockHashIndex index;
@@ -167,7 +167,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestCollision) {
 
   ASSERT_EQ(buffer.size(), estimated_size);
 
-  buffer2 = buffer; // test for the correctness of relative offset
+  buffer2 = buffer;  // test for the correctness of relative offset
 
   Slice s(buffer2);
   DataBlockHashIndex index;
@@ -208,7 +208,7 @@ TEST(DataBlockHashIndex, DataBlockHashTestLarge) {
 
   ASSERT_EQ(buffer.size(), estimated_size);
 
-  buffer2 = buffer; // test for the correctness of relative offset
+  buffer2 = buffer;  // test for the correctness of relative offset
 
   Slice s(buffer2);
   DataBlockHashIndex index;
@@ -539,26 +539,27 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   int level_ = -1;
 
   std::vector<std::string> keys;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   const InternalKeyComparator internal_comparator(options.comparator);
 
   EnvOptions soptions;
 
   soptions.use_mmap_reads = ioptions.allow_mmap_reads;
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> f(sink);
   file_writer.reset(
-      test::GetWritableFileWriter(new test::StringSink(), "" /* don't care */));
+      new WritableFileWriter(std::move(f), "" /* don't care */, FileOptions()));
   std::unique_ptr<TableBuilder> builder;
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      int_tbl_prop_collector_factories;
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
   std::string column_family_name;
   builder.reset(ioptions.table_factory->NewTableBuilder(
-      TableBuilderOptions(ioptions, moptions, internal_comparator,
-                          &int_tbl_prop_collector_factories,
-                          options.compression, options.sample_for_compression,
-                          CompressionOptions(), false /* skip_filters */,
-                          column_family_name, level_),
-      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      TableBuilderOptions(
+          ioptions, moptions, internal_comparator,
+          &int_tbl_prop_collector_factories, options.compression,
+          CompressionOptions(),
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+          column_family_name, level_),
       file_writer.get()));
 
   builder->Add(ik1.Encode().ToString(), v1);
@@ -566,26 +567,23 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   EXPECT_TRUE(builder->status().ok());
 
   Status s = builder->Finish();
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
   EXPECT_TRUE(s.ok()) << s.ToString();
 
-  EXPECT_EQ(
-      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents().size(),
-      builder->FileSize());
+  EXPECT_EQ(sink->contents().size(), builder->FileSize());
 
   // Open the table
-  file_reader.reset(test::GetRandomAccessFileReader(new test::StringSource(
-      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents(),
-      0 /*uniq_id*/, ioptions.allow_mmap_reads)));
+  test::StringSource* source = new test::StringSource(
+      sink->contents(), 0 /*uniq_id*/, ioptions.allow_mmap_reads);
+  std::unique_ptr<FSRandomAccessFile> file(source);
+  file_reader.reset(new RandomAccessFileReader(std::move(file), "test"));
   const bool kSkipFilters = true;
   const bool kImmortal = true;
-  ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
+  ASSERT_OK(ioptions.table_factory->NewTableReader(
+      TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
                          internal_comparator, !kSkipFilters, !kImmortal,
                          level_),
-      std::move(file_reader),
-      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents().size(),
-      &table_reader);
+      std::move(file_reader), sink->contents().size(), &table_reader));
   // Search using Get()
   ReadOptions ro;
 
@@ -627,7 +625,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -652,7 +650,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -677,7 +675,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 120, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -702,7 +700,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 5, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kNotFound);
@@ -713,6 +711,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -3,13 +3,25 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/slice.h"
+
+#include <gtest/gtest.h>
+
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "rocksdb/slice.h"
+#include "rocksdb/data_structure.h"
+#include "rocksdb/types.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+TEST(SliceTest, StringView) {
+  std::string s = "foo";
+  std::string_view sv = s;
+  ASSERT_EQ(Slice(s), Slice(sv));
+  ASSERT_EQ(Slice(s), Slice(std::move(sv)));
+}
 
 // Use this to keep track of the cleanups that were actually performed
 void Multiplier(void* arg1, void* arg2) {
@@ -20,8 +32,7 @@ void Multiplier(void* arg1, void* arg2) {
 
 class PinnableSliceTest : public testing::Test {
  public:
-  void AssertSameData(const std::string& expected,
-                      const PinnableSlice& slice) {
+  void AssertSameData(const std::string& expected, const PinnableSlice& slice) {
     std::string got;
     got.assign(slice.data(), slice.size());
     ASSERT_EQ(expected, got);
@@ -152,6 +163,84 @@ TEST_F(PinnableSliceTest, Move) {
   }
   // No Cleanable is moved from v1 to v2, so no more cleanup.
   ASSERT_EQ(2, res);
+}
+
+// ***************************************************************** //
+// Unit test for SmallEnumSet
+class SmallEnumSetTest : public testing::Test {
+ public:
+  SmallEnumSetTest() {}
+  ~SmallEnumSetTest() {}
+};
+
+TEST_F(SmallEnumSetTest, SmallEnumSetTest1) {
+  FileTypeSet fs;  // based on a legacy enum type
+  ASSERT_TRUE(fs.empty());
+  ASSERT_TRUE(fs.Add(FileType::kIdentityFile));
+  ASSERT_FALSE(fs.empty());
+  ASSERT_FALSE(fs.Add(FileType::kIdentityFile));
+  ASSERT_TRUE(fs.Add(FileType::kInfoLogFile));
+  ASSERT_TRUE(fs.Contains(FileType::kIdentityFile));
+  ASSERT_FALSE(fs.Contains(FileType::kDBLockFile));
+  ASSERT_FALSE(fs.empty());
+  ASSERT_FALSE(fs.Remove(FileType::kDBLockFile));
+  ASSERT_TRUE(fs.Remove(FileType::kIdentityFile));
+  ASSERT_FALSE(fs.empty());
+  ASSERT_TRUE(fs.Remove(FileType::kInfoLogFile));
+  ASSERT_TRUE(fs.empty());
+}
+
+namespace {
+enum class MyEnumClass { A, B, C };
+}  // namespace
+
+using MyEnumClassSet = SmallEnumSet<MyEnumClass, MyEnumClass::C>;
+
+TEST_F(SmallEnumSetTest, SmallEnumSetTest2) {
+  MyEnumClassSet s;  // based on an enum class type
+  ASSERT_TRUE(s.Add(MyEnumClass::A));
+  ASSERT_TRUE(s.Contains(MyEnumClass::A));
+  ASSERT_FALSE(s.Contains(MyEnumClass::B));
+  ASSERT_TRUE(s.With(MyEnumClass::B).Contains(MyEnumClass::B));
+  ASSERT_TRUE(s.With(MyEnumClass::A).Contains(MyEnumClass::A));
+  ASSERT_FALSE(s.Contains(MyEnumClass::B));
+  ASSERT_FALSE(s.Without(MyEnumClass::A).Contains(MyEnumClass::A));
+  ASSERT_FALSE(
+      s.With(MyEnumClass::B).Without(MyEnumClass::B).Contains(MyEnumClass::B));
+  ASSERT_TRUE(
+      s.Without(MyEnumClass::B).With(MyEnumClass::B).Contains(MyEnumClass::B));
+  ASSERT_TRUE(s.Contains(MyEnumClass::A));
+
+  const MyEnumClassSet cs = s;
+  ASSERT_TRUE(cs.Contains(MyEnumClass::A));
+  ASSERT_EQ(cs, MyEnumClassSet{MyEnumClass::A});
+  ASSERT_EQ(cs.Without(MyEnumClass::A), MyEnumClassSet{});
+  ASSERT_EQ(cs, MyEnumClassSet::All().Without(MyEnumClass::B, MyEnumClass::C));
+  ASSERT_EQ(cs.With(MyEnumClass::B, MyEnumClass::C), MyEnumClassSet::All());
+  ASSERT_EQ(
+      MyEnumClassSet::All(),
+      MyEnumClassSet{}.With(MyEnumClass::A, MyEnumClass::B, MyEnumClass::C));
+  ASSERT_NE(cs, MyEnumClassSet{MyEnumClass::B});
+  ASSERT_NE(cs, MyEnumClassSet::All());
+
+  int count = 0;
+  for (MyEnumClass e : cs) {
+    ASSERT_EQ(e, MyEnumClass::A);
+    ++count;
+  }
+  ASSERT_EQ(count, 1);
+
+  count = 0;
+  for (MyEnumClass e : MyEnumClassSet::All().Without(MyEnumClass::B)) {
+    ASSERT_NE(e, MyEnumClass::B);
+    ++count;
+  }
+  ASSERT_EQ(count, 2);
+
+  for (MyEnumClass e : MyEnumClassSet{}) {
+    (void)e;
+    assert(false);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

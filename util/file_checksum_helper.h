@@ -8,10 +8,12 @@
 #include <unordered_map>
 
 #include "port/port.h"
+#include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -58,7 +60,8 @@ class FileChecksumGenCrc32cFactory : public FileChecksumGenFactory {
     }
   }
 
-  const char* Name() const override { return "FileChecksumGenCrc32cFactory"; }
+  static const char* kClassName() { return "FileChecksumGenCrc32cFactory"; }
+  const char* Name() const override { return kClassName(); }
 };
 
 // The default implementaion of FileChecksumList

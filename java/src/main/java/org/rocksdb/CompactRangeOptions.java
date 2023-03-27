@@ -14,14 +14,16 @@ public class CompactRangeOptions extends RocksObject {
   private final static byte VALUE_kSkip = 0;
   private final static byte VALUE_kIfHaveCompactionFilter = 1;
   private final static byte VALUE_kForce = 2;
+  private final static byte VALUE_kForceOptimized = 3;
 
-  // For level based compaction, we can configure if we want to skip/force bottommost level compaction.
-  // The order of this neum MUST follow the C++ layer. See BottommostLevelCompaction in db/options.h
+  // For level based compaction, we can configure if we want to skip/force bottommost level
+  // compaction. The order of this enum MUST follow the C++ layer. See BottommostLevelCompaction in
+  // db/options.h
   public enum BottommostLevelCompaction {
     /**
      * Skip bottommost level compaction
      */
-    kSkip((byte)VALUE_kSkip),
+    kSkip(VALUE_kSkip),
     /**
      * Only compact bottommost level if there is a compaction filter. This is the default option
      */
@@ -29,7 +31,12 @@ public class CompactRangeOptions extends RocksObject {
     /**
      * Always compact bottommost level
      */
-    kForce(VALUE_kForce);
+    kForce(VALUE_kForce),
+    /**
+     * Always compact bottommost level but in bottommost level avoid
+     * double-compacting files created in the same compaction
+     */
+    kForceOptimized(VALUE_kForceOptimized);
 
     private final byte value;
 
@@ -56,6 +63,8 @@ public class CompactRangeOptions extends RocksObject {
         case VALUE_kSkip: return kSkip;
         case VALUE_kIfHaveCompactionFilter: return kIfHaveCompactionFilter;
         case VALUE_kForce: return kForce;
+        case VALUE_kForceOptimized:
+          return kForceOptimized;
         default: return null;
       }
     }

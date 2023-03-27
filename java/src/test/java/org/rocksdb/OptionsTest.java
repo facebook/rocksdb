@@ -6,13 +6,13 @@
 package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
@@ -275,6 +275,24 @@ public class OptionsTest {
   }
 
   @Test
+  public void experimentalMempurgeThreshold() {
+    try (final Options opt = new Options()) {
+      final double doubleValue = rand.nextDouble();
+      opt.setExperimentalMempurgeThreshold(doubleValue);
+      assertThat(opt.experimentalMempurgeThreshold()).isEqualTo(doubleValue);
+    }
+  }
+
+  @Test
+  public void memtableWholeKeyFiltering() {
+    try (final Options opt = new Options()) {
+      final boolean booleanValue = rand.nextBoolean();
+      opt.setMemtableWholeKeyFiltering(booleanValue);
+      assertThat(opt.memtableWholeKeyFiltering()).isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
   public void memtableHugePageSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -427,17 +445,6 @@ public class OptionsTest {
       opt.setDeleteObsoleteFilesPeriodMicros(longValue);
       assertThat(opt.deleteObsoleteFilesPeriodMicros()).
           isEqualTo(longValue);
-    }
-  }
-
-  @SuppressWarnings("deprecated")
-  @Test
-  public void baseBackgroundCompactions() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setBaseBackgroundCompactions(intValue);
-      assertThat(opt.baseBackgroundCompactions()).
-          isEqualTo(intValue);
     }
   }
 
@@ -687,20 +694,21 @@ public class OptionsTest {
   }
 
   @Test
+  public void setWriteBufferManagerWithAllowStall() throws RocksDBException {
+    try (final Options opt = new Options(); final Cache cache = new LRUCache(1 * 1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000l, cache, true)) {
+      opt.setWriteBufferManager(writeBufferManager);
+      assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
+      assertThat(opt.writeBufferManager().allowStall()).isEqualTo(true);
+    }
+  }
+
+  @Test
   public void accessHintOnCompactionStart() {
     try (final Options opt = new Options()) {
       final AccessHint accessHint = AccessHint.SEQUENTIAL;
       opt.setAccessHintOnCompactionStart(accessHint);
       assertThat(opt.accessHintOnCompactionStart()).isEqualTo(accessHint);
-    }
-  }
-
-  @Test
-  public void newTableReaderForCompactionInputs() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setNewTableReaderForCompactionInputs(boolValue);
-      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
     }
   }
 
@@ -963,15 +971,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void preserveDeletes() {
-    try (final Options opt = new Options()) {
-      assertThat(opt.preserveDeletes()).isFalse();
-      opt.setPreserveDeletes(true);
-      assertThat(opt.preserveDeletes()).isTrue();
-    }
-  }
-
-  @Test
   public void twoWriteQueues() {
     try (final Options opt = new Options()) {
       assertThat(opt.twoWriteQueues()).isFalse();
@@ -1030,6 +1029,18 @@ public class OptionsTest {
             isEqualTo(compressionType);
         assertThat(CompressionType.valueOf("NO_COMPRESSION")).
             isEqualTo(CompressionType.NO_COMPRESSION);
+      }
+    }
+  }
+
+  @Test
+  public void prepopulateBlobCache() {
+    try (final Options options = new Options()) {
+      for (final PrepopulateBlobCache prepopulateBlobCache : PrepopulateBlobCache.values()) {
+        options.setPrepopulateBlobCache(prepopulateBlobCache);
+        assertThat(options.prepopulateBlobCache()).isEqualTo(prepopulateBlobCache);
+        assertThat(PrepopulateBlobCache.valueOf("PREPOPULATE_BLOB_DISABLE"))
+            .isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
       }
     }
   }
@@ -1257,6 +1268,14 @@ public class OptionsTest {
   }
 
   @Test
+  public void periodicCompactionSeconds() {
+    try (final Options options = new Options()) {
+      options.setPeriodicCompactionSeconds(1000 * 60);
+      assertThat(options.periodicCompactionSeconds()).isEqualTo(1000 * 60);
+    }
+  }
+
+  @Test
   public void compactionOptionsUniversal() {
     try (final Options options = new Options();
          final CompactionOptionsUniversal optUni = new CompactionOptionsUniversal()
@@ -1434,6 +1453,40 @@ public class OptionsTest {
       assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(false);
       assertThat(options.setSkipCheckingSstFileSizesOnDbOpen(true)).isEqualTo(options);
       assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(true);
+    }
+  }
+
+  @Test
+  public void eventListeners() {
+    final AtomicBoolean wasCalled1 = new AtomicBoolean();
+    final AtomicBoolean wasCalled2 = new AtomicBoolean();
+    try (final Options options = new Options();
+         final AbstractEventListener el1 =
+             new AbstractEventListener() {
+               @Override
+               public void onTableFileDeleted(final TableFileDeletionInfo tableFileDeletionInfo) {
+                 wasCalled1.set(true);
+               }
+             };
+         final AbstractEventListener el2 =
+             new AbstractEventListener() {
+               @Override
+               public void onMemTableSealed(final MemTableInfo memTableInfo) {
+                 wasCalled2.set(true);
+               }
+             }) {
+      assertThat(options.setListeners(Arrays.asList(el1, el2))).isEqualTo(options);
+      List<AbstractEventListener> listeners = options.listeners();
+      assertEquals(el1, listeners.get(0));
+      assertEquals(el2, listeners.get(1));
+      options.setListeners(Collections.<AbstractEventListener>emptyList());
+      listeners.get(0).onTableFileDeleted(null);
+      assertTrue(wasCalled1.get());
+      listeners.get(1).onMemTableSealed(null);
+      assertTrue(wasCalled2.get());
+      List<AbstractEventListener> listeners2 = options.listeners();
+      assertNotNull(listeners2);
+      assertEquals(0, listeners2.size());
     }
   }
 }

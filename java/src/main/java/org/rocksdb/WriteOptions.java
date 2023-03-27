@@ -171,7 +171,7 @@ public class WriteOptions extends RocksObject {
 
   /**
    * If true, this write request is of lower priority if compaction is
-   * behind. In this case that, {@link #noSlowdown()} == true, the request
+   * behind. In the case that, {@link #noSlowdown()} == true, the request
    * will be cancelled immediately with {@link Status.Code#Incomplete} returned.
    * Otherwise, it will be slowed down. The slowdown value is determined by
    * RocksDB to guarantee it introduces minimum impacts to high priority writes.
@@ -200,6 +200,40 @@ public class WriteOptions extends RocksObject {
     return lowPri(nativeHandle_);
   }
 
+  /**
+   * If true, this writebatch will maintain the last insert positions of each
+   * memtable as hints in concurrent write. It can improve write performance
+   * in concurrent writes if keys in one writebatch are sequential. In
+   * non-concurrent writes (when {@code concurrent_memtable_writes} is false) this
+   * option will be ignored.
+   *
+   * Default: false
+   *
+   * @return true if writebatch will maintain the last insert positions of each memtable as hints in
+   *     concurrent write.
+   */
+  public boolean memtableInsertHintPerBatch() {
+    return memtableInsertHintPerBatch(nativeHandle_);
+  }
+
+  /**
+   * If true, this writebatch will maintain the last insert positions of each
+   * memtable as hints in concurrent write. It can improve write performance
+   * in concurrent writes if keys in one writebatch are sequential. In
+   * non-concurrent writes (when {@code concurrent_memtable_writes} is false) this
+   * option will be ignored.
+   *
+   * Default: false
+   *
+   * @param memtableInsertHintPerBatch true if writebatch should maintain the last insert positions
+   *     of each memtable as hints in concurrent write.
+   * @return the instance of the current WriteOptions.
+   */
+  public WriteOptions setMemtableInsertHintPerBatch(final boolean memtableInsertHintPerBatch) {
+    setMemtableInsertHintPerBatch(nativeHandle_, memtableInsertHintPerBatch);
+    return this;
+  }
+
   private native static long newWriteOptions();
   private native static long copyWriteOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
@@ -216,4 +250,7 @@ public class WriteOptions extends RocksObject {
   private native boolean noSlowdown(final long handle);
   private native void setLowPri(final long handle, final boolean lowPri);
   private native boolean lowPri(final long handle);
+  private native boolean memtableInsertHintPerBatch(final long handle);
+  private native void setMemtableInsertHintPerBatch(
+      final long handle, final boolean memtableInsertHintPerBatch);
 }

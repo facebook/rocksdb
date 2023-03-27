@@ -2,20 +2,21 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_dump_tool.h"
+
 #include <stdio.h>
+
 #include <cinttypes>
 #include <iostream>
 #include <memory>
 #include <string>
-#include "env/composite_env_wrapper.h"
+
 #include "file/random_access_file_reader.h"
 #include "file/readahead_raf.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
-#include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -32,18 +33,19 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
                          bool show_summary) {
   constexpr size_t kReadaheadSize = 2 * 1024 * 1024;
   Status s;
-  Env* env = Env::Default();
-  s = env->FileExists(filename);
+  const auto fs = FileSystem::Default();
+  IOOptions io_opts;
+  s = fs->FileExists(filename, io_opts, nullptr);
   if (!s.ok()) {
     return s;
   }
   uint64_t file_size = 0;
-  s = env->GetFileSize(filename, &file_size);
+  s = fs->GetFileSize(filename, io_opts, &file_size, nullptr);
   if (!s.ok()) {
     return s;
   }
-  std::unique_ptr<RandomAccessFile> file;
-  s = env->NewRandomAccessFile(filename, &file, EnvOptions());
+  std::unique_ptr<FSRandomAccessFile> file;
+  s = fs->NewRandomAccessFile(filename, FileOptions(), &file, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -51,8 +53,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   if (file_size == 0) {
     return Status::Corruption("File is empty.");
   }
-  reader_.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(file), filename));
+  reader_.reset(new RandomAccessFileReader(std::move(file), filename));
   uint64_t offset = 0;
   uint64_t footer_offset = 0;
   CompressionType compression = kNoCompression;
@@ -101,8 +102,8 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
     }
     buffer_.reset(new char[buffer_size_]);
   }
-  Status s =
-      reader_->Read(IOOptions(), offset, size, result, buffer_.get(), nullptr);
+  Status s = reader_->Read(IOOptions(), offset, size, result, buffer_.get(),
+                           nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
   if (!s.ok()) {
     return s;
   }
@@ -132,7 +133,7 @@ Status BlobDumpTool::DumpBlobLogHeader(uint64_t* offset,
   if (!GetStringFromCompressionType(&compression_str, header.compression)
            .ok()) {
     compression_str = "Unrecongnized compression type (" +
-                      ToString((int)header.compression) + ")";
+                      std::to_string((int)header.compression) + ")";
   }
   fprintf(stdout, "  Compression      : %s\n", compression_str.c_str());
   fprintf(stdout, "  Expiration range : %s\n",
@@ -211,10 +212,9 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
     UncompressionContext context(compression);
     UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
                            compression);
-    s = UncompressBlockContentsForCompressionType(
+    s = UncompressBlockData(
         info, slice.data() + key_size, static_cast<size_t>(value_size),
-        &contents, 2 /*compress_format_version*/,
-        ImmutableCFOptions(Options()));
+        &contents, 2 /*compress_format_version*/, ImmutableOptions(Options()));
     if (!s.ok()) {
       return s;
     }
@@ -225,7 +225,9 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
     DumpSlice(Slice(slice.data(), static_cast<size_t>(key_size)), show_key);
     if (show_blob != DisplayType::kNone) {
       fprintf(stdout, "  blob       : ");
-      DumpSlice(Slice(slice.data() + static_cast<size_t>(key_size), static_cast<size_t>(value_size)), show_blob);
+      DumpSlice(Slice(slice.data() + static_cast<size_t>(key_size),
+                      static_cast<size_t>(value_size)),
+                show_blob);
     }
     if (show_uncompressed_blob != DisplayType::kNone) {
       fprintf(stdout, "  raw blob   : ");
@@ -270,10 +272,9 @@ std::string BlobDumpTool::GetString(std::pair<T, T> p) {
   if (p.first == 0 && p.second == 0) {
     return "nil";
   }
-  return "(" + ToString(p.first) + ", " + ToString(p.second) + ")";
+  return "(" + std::to_string(p.first) + ", " + std::to_string(p.second) + ")";
 }
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE

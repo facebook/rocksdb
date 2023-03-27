@@ -4,11 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
-#ifndef  OS_WIN
+#ifndef OS_WIN
 #include <unistd.h>
-#endif // ! OS_WIN
+#endif  // ! OS_WIN
 
 #include <atomic>
 #include <list>
@@ -19,21 +18,20 @@
 #include <string>
 #include <thread>
 
-#include "rocksdb/cache.h"
-#include "rocksdb/comparator.h"
-#include "rocksdb/persistent_cache.h"
-
-#include "utilities/persistent_cache/block_cache_tier_file.h"
-#include "utilities/persistent_cache/block_cache_tier_metadata.h"
-#include "utilities/persistent_cache/persistent_cache_util.h"
-
 #include "memory/arena.h"
 #include "memtable/skiplist.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/persistent_cache.h"
+#include "rocksdb/system_clock.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/mutexlock.h"
+#include "utilities/persistent_cache/block_cache_tier_file.h"
+#include "utilities/persistent_cache/block_cache_tier_metadata.h"
+#include "utilities/persistent_cache/persistent_cache_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -46,7 +44,8 @@ class BlockCacheTier : public PersistentCacheTier {
       : opt_(opt),
         insert_ops_(static_cast<size_t>(opt_.max_write_pipeline_backlog_size)),
         buffer_allocator_(opt.write_buffer_size, opt.write_buffer_count()),
-        writer_(this, opt_.writer_qdepth, static_cast<size_t>(opt_.writer_dispatch_size)) {
+        writer_(this, opt_.writer_qdepth,
+                static_cast<size_t>(opt_.writer_dispatch_size)) {
     Info(opt_.log, "Initializing allocator. size=%d B count=%" ROCKSDB_PRIszt,
          opt_.write_buffer_size, opt_.write_buffer_count());
   }
@@ -74,7 +73,7 @@ class BlockCacheTier : public PersistentCacheTier {
   void TEST_Flush() override {
     while (insert_ops_.Size()) {
       /* sleep override */
-      Env::Default()->SleepForMicroseconds(1000000);
+      SystemClock::Default()->SleepForMicroseconds(1000000);
     }
   }
 
@@ -148,9 +147,8 @@ class BlockCacheTier : public PersistentCacheTier {
   ThreadedWriter writer_;                       // Writer threads
   BlockCacheTierMetadata metadata_;             // Cache meta data manager
   std::atomic<uint64_t> size_{0};               // Size of the cache
-  Statistics stats_;                                 // Statistics
+  Statistics stats_;                            // Statistics
 };
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif

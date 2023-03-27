@@ -10,7 +10,6 @@
 #include <sstream>
 #include <string>
 
-#include "logging/logging.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -45,9 +44,7 @@ EventLoggerStream::~EventLoggerStream() {
   }
 }
 
-void EventLogger::Log(const JSONWriter& jwriter) {
-  Log(logger_, jwriter);
-}
+void EventLogger::Log(const JSONWriter& jwriter) { Log(logger_, jwriter); }
 
 void EventLogger::Log(Logger* logger, const JSONWriter& jwriter) {
 #ifdef ROCKSDB_PRINT_EVENTS_TO_STDOUT

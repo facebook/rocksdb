@@ -11,6 +11,7 @@
 
 #include "include/org_rocksdb_ConfigOptions.h"
 #include "rocksdb/convenience.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -32,7 +33,20 @@ void Java_org_rocksdb_ConfigOptions_disposeInternal(JNIEnv *, jobject,
  */
 jlong Java_org_rocksdb_ConfigOptions_newConfigOptions(JNIEnv *, jclass) {
   auto *cfg_opt = new ROCKSDB_NAMESPACE::ConfigOptions();
-  return reinterpret_cast<jlong>(cfg_opt);
+  return GET_CPLUSPLUS_POINTER(cfg_opt);
+}
+
+/*
+ * Class:     org_rocksdb_ConfigOptions
+ * Method:    setEnv
+ * Signature: (JJ;)V
+ */
+void Java_org_rocksdb_ConfigOptions_setEnv(JNIEnv *, jclass, jlong handle,
+                                           jlong rocksdb_env_handle) {
+  auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
+  auto *rocksdb_env =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Env *>(rocksdb_env_handle);
+  cfg_opt->env = rocksdb_env;
 }
 
 /*
@@ -84,5 +98,6 @@ void Java_org_rocksdb_ConfigOptions_setInputStringsEscaped(JNIEnv *, jclass,
 void Java_org_rocksdb_ConfigOptions_setSanityLevel(JNIEnv *, jclass,
                                                    jlong handle, jbyte level) {
   auto *cfg_opt = reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions *>(handle);
-  cfg_opt->sanity_level = ROCKSDB_NAMESPACE::SanityLevelJni::toCppSanityLevel(level);
+  cfg_opt->sanity_level =
+      ROCKSDB_NAMESPACE::SanityLevelJni::toCppSanityLevel(level);
 }

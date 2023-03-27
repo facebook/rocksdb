@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
@@ -51,6 +50,8 @@ struct OptimisticTransactionDBOptions {
   uint32_t occ_lock_buckets = (1 << 20);
 };
 
+// Range deletions (including those in `WriteBatch`es passed to `Write()`) are
+// incompatible with `OptimisticTransactionDB` and will return a non-OK `Status`
 class OptimisticTransactionDB : public StackableDB {
  public:
   // Open an OptimisticTransactionDB similar to DB::Open().
@@ -95,4 +96,3 @@ class OptimisticTransactionDB : public StackableDB {
 
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // ROCKSDB_LITE
