@@ -462,12 +462,6 @@ class ColumnFamilyData {
   bool queued_for_flush() { return queued_for_flush_; }
   bool queued_for_compaction() { return queued_for_compaction_; }
 
-  enum class WriteStallCause {
-    kNone,
-    kMemtableLimit,
-    kL0FileCountLimit,
-    kPendingCompactionBytes,
-  };
   static std::pair<WriteStallCondition, WriteStallCause>
   GetWriteStallConditionAndCause(
       int num_unflushed_memtables, int num_l0_files,

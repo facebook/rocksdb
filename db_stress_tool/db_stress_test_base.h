@@ -94,6 +94,10 @@ class StressTest {
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) = 0;
 
+  virtual void TestGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                             const std::vector<int>& rand_column_families,
+                             const std::vector<int64_t>& rand_keys) = 0;
+
   virtual Status TestPrefixScan(ThreadState* thread,
                                 const ReadOptions& read_opts,
                                 const std::vector<int>& rand_column_families,
@@ -221,11 +225,10 @@ class StressTest {
                          Slice value_from_expected) const;
 
   void VerificationAbort(SharedState* shared, int cf, int64_t key,
-                         const Slice& value, const WideColumns& columns,
-                         const WideColumns& expected_columns) const;
+                         const Slice& value, const WideColumns& columns) const;
 
-  static std::string DebugString(const Slice& value, const WideColumns& columns,
-                                 const WideColumns& expected_columns);
+  static std::string DebugString(const Slice& value,
+                                 const WideColumns& columns);
 
   void PrintEnv() const;
 

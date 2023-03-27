@@ -336,10 +336,9 @@ class BlockBasedTable : public TableReader {
   WithBlocklikeCheck<Status, TBlocklike> MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-      const bool wait, const bool for_compaction,
-      CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context, BlockContents* contents,
-      bool async_read) const;
+      bool for_compaction, CachableEntry<TBlocklike>* block_entry,
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      BlockContents* contents, bool async_read) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
@@ -350,16 +349,14 @@ class BlockBasedTable : public TableReader {
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, bool for_compaction,
-      bool use_cache, bool wait_for_cache, bool async_read) const;
+      bool use_cache, bool async_read) const;
 
   DECLARE_SYNC_AND_ASYNC_CONST(
       void, RetrieveMultipleBlocks, const ReadOptions& options,
       const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
-      autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
-      autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>*
-          results,
-      char* scratch, const UncompressionDict& uncompression_dict);
+      Status* statuses, CachableEntry<Block>* results, char* scratch,
+      const UncompressionDict& uncompression_dict);
 
   // Get the iterator from the index reader.
   //
@@ -379,6 +376,9 @@ class BlockBasedTable : public TableReader {
       IndexBlockIter* input_iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) const;
 
+  template <typename TBlocklike>
+  Cache::Priority GetCachePriority() const;
+
   // Read block cache from block caches (if set): block_cache.
   // On success, Status::OK with be returned and @block will be populated with
   // pointer to the block as well as its block handle.
@@ -387,8 +387,7 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> GetDataBlockFromCache(
       const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
-      CachableEntry<TBlocklike>* block, const bool wait,
-      GetContext* get_context) const;
+      CachableEntry<TBlocklike>* block, GetContext* get_context) const;
 
   // Put a maybe compressed block to the corresponding block caches.
   // This method will perform decompression against block_contents if needed

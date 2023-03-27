@@ -18,6 +18,7 @@
 #include "cache/lru_cache.h"
 #include "cache/typed_cache.h"
 #include "port/stack_trace.h"
+#include "test_util/secondary_cache_test_util.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -81,13 +82,10 @@ const Cache::CacheItemHelper kEraseOnDeleteHelper2{
       Cache* cache = static_cast<Cache*>(value);
       cache->Erase(EncodeKey16Bytes(1234));
     }};
-
-const std::string kLRU = "lru";
-const std::string kHyperClock = "hyper_clock";
-
 }  // anonymous namespace
 
-class CacheTest : public testing::TestWithParam<std::string> {
+class CacheTest : public testing::Test,
+                  public secondary_cache_test_util::WithCacheTypeParam {
  public:
   static CacheTest* current_;
   static std::string type_;
@@ -107,8 +105,6 @@ class CacheTest : public testing::TestWithParam<std::string> {
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> cache2_;
 
-  size_t estimated_value_size_ = 1;
-
   CacheTest()
       : cache_(NewCache(kCacheSize, kNumShardBits, false)),
         cache2_(NewCache(kCacheSize2, kNumShardBits2, false)) {
@@ -117,41 +113,6 @@ class CacheTest : public testing::TestWithParam<std::string> {
   }
 
   ~CacheTest() override {}
-
-  std::shared_ptr<Cache> NewCache(size_t capacity) {
-    auto type = GetParam();
-    if (type == kLRU) {
-      return NewLRUCache(capacity);
-    }
-    if (type == kHyperClock) {
-      return HyperClockCacheOptions(
-                 capacity, estimated_value_size_ /*estimated_value_size*/)
-          .MakeSharedCache();
-    }
-    return nullptr;
-  }
-
-  std::shared_ptr<Cache> NewCache(
-      size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-      CacheMetadataChargePolicy charge_policy = kDontChargeCacheMetadata) {
-    auto type = GetParam();
-    if (type == kLRU) {
-      LRUCacheOptions co;
-      co.capacity = capacity;
-      co.num_shard_bits = num_shard_bits;
-      co.strict_capacity_limit = strict_capacity_limit;
-      co.high_pri_pool_ratio = 0;
-      co.metadata_charge_policy = charge_policy;
-      return NewLRUCache(co);
-    }
-    if (type == kHyperClock) {
-      return HyperClockCacheOptions(capacity, 1 /*estimated_value_size*/,
-                                    num_shard_bits, strict_capacity_limit,
-                                    nullptr /*allocator*/, charge_policy)
-          .MakeSharedCache();
-    }
-    return nullptr;
-  }
 
   // These functions encode/decode keys in tests cases that use
   // int keys.
@@ -186,8 +147,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   void Insert(std::shared_ptr<Cache> cache, int key, int value,
               int charge = 1) {
-    EXPECT_OK(
-        cache->Insert(EncodeKey(key), EncodeValue(value), &kHelper, charge));
+    EXPECT_OK(cache->Insert(EncodeKey(key), EncodeValue(value), &kHelper,
+                            charge, /*handle*/ nullptr, Cache::Priority::HIGH));
   }
 
   void Erase(std::shared_ptr<Cache> cache, int key) {
@@ -995,8 +956,9 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
 }
 
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(kLRU, kHyperClock));
-INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest, testing::Values(kLRU));
+                        secondary_cache_test_util::GetTestingCacheTypes());
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,
+                        testing::Values(secondary_cache_test_util::kLRU));
 
 }  // namespace ROCKSDB_NAMESPACE
 

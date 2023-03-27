@@ -109,36 +109,37 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     return nullptr;
   }
 
+  std::shared_ptr<SecondaryCache> secondary_cache;
+  if (!FLAGS_secondary_cache_uri.empty()) {
+    Status s = SecondaryCache::CreateFromString(
+        config_options, FLAGS_secondary_cache_uri, &secondary_cache);
+    if (secondary_cache == nullptr) {
+      fprintf(stderr,
+              "No secondary cache registered matching string: %s status=%s\n",
+              FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
+      exit(1);
+    }
+    if (FLAGS_secondary_cache_fault_one_in > 0) {
+      secondary_cache = std::make_shared<FaultInjectionSecondaryCache>(
+          secondary_cache, static_cast<uint32_t>(FLAGS_seed),
+          FLAGS_secondary_cache_fault_one_in);
+    }
+  }
+
   if (FLAGS_cache_type == "clock_cache") {
     fprintf(stderr, "Old clock cache implementation has been removed.\n");
     exit(1);
   } else if (FLAGS_cache_type == "hyper_clock_cache") {
-    return HyperClockCacheOptions(static_cast<size_t>(capacity),
-                                  FLAGS_block_size /*estimated_entry_charge*/,
-                                  num_shard_bits)
-        .MakeSharedCache();
+    HyperClockCacheOptions opts(static_cast<size_t>(capacity),
+                                FLAGS_block_size /*estimated_entry_charge*/,
+                                num_shard_bits);
+    opts.secondary_cache = std::move(secondary_cache);
+    return opts.MakeSharedCache();
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
     opts.num_shard_bits = num_shard_bits;
-    std::shared_ptr<SecondaryCache> secondary_cache;
-    if (!FLAGS_secondary_cache_uri.empty()) {
-      Status s = SecondaryCache::CreateFromString(
-          config_options, FLAGS_secondary_cache_uri, &secondary_cache);
-      if (secondary_cache == nullptr) {
-        fprintf(stderr,
-                "No secondary cache registered matching string: %s status=%s\n",
-                FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
-        exit(1);
-      }
-      if (FLAGS_secondary_cache_fault_one_in > 0) {
-        secondary_cache = std::make_shared<FaultInjectionSecondaryCache>(
-            secondary_cache, static_cast<uint32_t>(FLAGS_seed),
-            FLAGS_secondary_cache_fault_one_in);
-      }
-      opts.secondary_cache = secondary_cache;
-    }
-
+    opts.secondary_cache = std::move(secondary_cache);
     return NewLRUCache(opts);
   } else {
     fprintf(stderr, "Cache type not supported.");
@@ -429,47 +430,27 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
 
 void StressTest::VerificationAbort(SharedState* shared, int cf, int64_t key,
                                    const Slice& value,
-                                   const WideColumns& columns,
-                                   const WideColumns& expected_columns) const {
+                                   const WideColumns& columns) const {
   assert(shared);
 
   auto key_str = Key(key);
 
   fprintf(stderr,
           "Verification failed for column family %d key %s (%" PRIi64
-          "): Value and columns inconsistent: %s\n",
+          "): Value and columns inconsistent: value: %s, columns: %s\n",
           cf, Slice(key_str).ToString(/* hex */ true).c_str(), key,
-          DebugString(value, columns, expected_columns).c_str());
+          value.ToString(/* hex */ true).c_str(),
+          WideColumnsToHex(columns).c_str());
 
   shared->SetVerificationFailure();
 }
 
 std::string StressTest::DebugString(const Slice& value,
-                                    const WideColumns& columns,
-                                    const WideColumns& expected_columns) {
+                                    const WideColumns& columns) {
   std::ostringstream oss;
 
-  oss << "value: " << value.ToString(/* hex */ true);
-
-  auto dump = [](const WideColumns& cols, std::ostream& os) {
-    if (cols.empty()) {
-      return;
-    }
-
-    os << std::hex;
-
-    auto it = cols.begin();
-    os << *it;
-    for (++it; it != cols.end(); ++it) {
-      os << ' ' << *it;
-    }
-  };
-
-  oss << ", columns: ";
-  dump(columns, oss);
-
-  oss << ", expected_columns: ";
-  dump(expected_columns, oss);
+  oss << "value: " << value.ToString(/* hex */ true)
+      << ", columns: " << WideColumnsToHex(columns);
 
   return oss.str();
 }
@@ -1004,7 +985,9 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readpercent)) {
         assert(0 <= prob_op);
         // OPERATION read
-        if (FLAGS_use_multiget) {
+        if (FLAGS_use_get_entity) {
+          TestGetEntity(thread, read_opts, rand_column_families, rand_keys);
+        } else if (FLAGS_use_multiget) {
           // Leave room for one more iteration of the loop with a single key
           // batch. This is to ensure that each thread does exactly the same
           // number of ops
@@ -1491,12 +1474,12 @@ void StressTest::VerifyIterator(ThreadState* thread,
   }
 
   if (!*diverged && iter->Valid()) {
-    const WideColumns expected_columns =
-        GenerateExpectedWideColumns(GetValueBase(iter->value()), iter->value());
-    if (iter->columns() != expected_columns) {
-      fprintf(stderr, "Value and columns inconsistent for iterator: %s\n",
-              DebugString(iter->value(), iter->columns(), expected_columns)
-                  .c_str());
+    if (!VerifyWideColumns(iter->value(), iter->columns())) {
+      fprintf(stderr,
+              "Value and columns inconsistent for iterator: value: %s, "
+              "columns: %s\n",
+              iter->value().ToString(/* hex */ true).c_str(),
+              WideColumnsToHex(iter->columns()).c_str());
 
       *diverged = true;
     }
@@ -2402,6 +2385,8 @@ void StressTest::PrintEnv() const {
           FLAGS_subcompactions);
   fprintf(stdout, "Use MultiGet              : %s\n",
           FLAGS_use_multiget ? "true" : "false");
+  fprintf(stdout, "Use GetEntity             : %s\n",
+          FLAGS_use_get_entity ? "true" : "false");
 
   const char* memtablerep = "";
   switch (FLAGS_rep_factory) {

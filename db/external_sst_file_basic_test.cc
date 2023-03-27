@@ -102,7 +102,8 @@ class ExternalSSTFileBasicTest
       // all point operators, even though sst_file_writer.DeleteRange
       // must be called before other sst_file_writer methods. This is
       // because point writes take precedence over range deletions
-      // in the same ingested sst.
+      // in the same ingested sst. This precedence is part of
+      // `SstFileWriter::DeleteRange()`'s API contract.
       std::string start_key = Key(range_deletions[i].first);
       std::string end_key = Key(range_deletions[i].second);
       s = sst_file_writer.DeleteRange(start_key, end_key);
@@ -1460,6 +1461,32 @@ TEST_F(ExternalSSTFileBasicTest, AdjacentRangeDeletionTombstones) {
   ASSERT_OK(s) << s.ToString();
   ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
   DestroyAndRecreateExternalSSTFilesDir();
+}
+
+TEST_F(ExternalSSTFileBasicTest, RangeDeletionEndComesBeforeStart) {
+  Options options = CurrentOptions();
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  // "file.sst"
+  // Verify attempt to delete 300 => 200 fails.
+  // Then, verify attempt to delete 300 => 300 succeeds but writes nothing.
+  // Afterwards, verify attempt to delete 300 => 400 works normally.
+  std::string file = sst_files_dir_ + "file.sst";
+  ASSERT_OK(sst_file_writer.Open(file));
+  ASSERT_TRUE(
+      sst_file_writer.DeleteRange(Key(300), Key(200)).IsInvalidArgument());
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(300), Key(300)));
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(300), Key(400)));
+  ExternalSstFileInfo file_info;
+  Status s = sst_file_writer.Finish(&file_info);
+  ASSERT_OK(s) << s.ToString();
+  ASSERT_EQ(file_info.file_path, file);
+  ASSERT_EQ(file_info.num_entries, 0);
+  ASSERT_EQ(file_info.smallest_key, "");
+  ASSERT_EQ(file_info.largest_key, "");
+  ASSERT_EQ(file_info.num_range_del_entries, 1);
+  ASSERT_EQ(file_info.smallest_range_del_key, Key(300));
+  ASSERT_EQ(file_info.largest_range_del_key, Key(400));
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {

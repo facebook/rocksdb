@@ -1075,6 +1075,7 @@ class Version {
   // used for debugging and logging purposes only.
   uint64_t version_number_;
   std::shared_ptr<IOTracer> io_tracer_;
+  bool use_async_io_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
           MutableCFOptions mutable_cf_options,

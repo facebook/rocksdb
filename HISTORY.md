@@ -1,7 +1,12 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Changes
+* `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.
+
+## 8.1.0 (03/18/2023)
 ### Behavior changes
 * Compaction output file cutting logic now considers range tombstone start keys. For example, SST partitioner now may receive ParitionRequest for range tombstone start keys.
+* If the async_io ReadOption is specified for MultiGet or NewIterator on a platform that doesn't support IO uring, the option is ignored and synchronous IO is used.
 * User-provided `ReadOptions` take effect for more reads of non-`CacheEntryRole::kDataBlock` blocks.
 
 ### Bug Fixes
@@ -14,6 +19,11 @@
 * Add statistics rocksdb.secondary.cache.filter.hits, rocksdb.secondary.cache.index.hits, and rocksdb.secondary.cache.filter.hits
 * Added a new PerfContext counter `internal_merge_point_lookup_count` which tracks the number of Merge operands applied while serving point lookup queries.
 * Add new statistics rocksdb.table.open.prefetch.tail.read.bytes, rocksdb.table.open.prefetch.tail.{miss|hit}
+* Add support for SecondaryCache with HyperClockCache (`HyperClockCacheOptions` inherits `secondary_cache` option from `ShardedCacheOptions`)
+* Add new db properties `rocksdb.cf-write-stall-stats`, `rocksdb.db-write-stall-stats`and APIs to examine them in a structured way. In particular, users of `GetMapProperty()` with property `kCFWriteStallStats`/`kDBWriteStallStats` can now use the functions in `WriteStallStatsMapKeys` to find stats in the map.
+
+### Public API Changes
+* Changed various functions and features in `Cache` that are mostly relevant to custom implementations or wrappers. Especially, asychronous lookup functionality is moved from `Lookup()` to a new `StartAsyncLookup()` function.
 
 ## 8.0.0 (02/19/2023)
 ### Behavior changes

@@ -266,7 +266,7 @@ public class EventListenerTest {
     final FileOperationInfo fileOperationInfoTestData = new FileOperationInfo("/file/path",
         TEST_LONG_VAL, TEST_LONG_VAL, 1_600_699_420_000_000_000L, 5_000_000_000L, statusTestData);
     final WriteStallInfo writeStallInfoTestData =
-        new WriteStallInfo("columnFamilyName", (byte) 0x1, (byte) 0x2);
+        new WriteStallInfo("columnFamilyName", (byte) 0x0, (byte) 0x1);
     final ExternalFileIngestionInfo externalFileIngestionInfoTestData =
         new ExternalFileIngestionInfo("columnFamilyName", "/external/file/path",
             "/internal/file/path", TEST_LONG_VAL, tablePropertiesTestData);

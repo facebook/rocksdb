@@ -5139,6 +5139,16 @@ rocksdb_fifo_compaction_options_t* rocksdb_fifo_compaction_options_create() {
   return result;
 }
 
+void rocksdb_fifo_compaction_options_set_allow_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts, unsigned char allow_compaction) {
+  fifo_opts->rep.allow_compaction = allow_compaction;
+}
+
+unsigned char rocksdb_fifo_compaction_options_get_allow_compaction(
+    rocksdb_fifo_compaction_options_t* fifo_opts) {
+  return fifo_opts->rep.allow_compaction;
+}
+
 void rocksdb_fifo_compaction_options_set_max_table_files_size(
     rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size) {
   fifo_opts->rep.max_table_files_size = size;
