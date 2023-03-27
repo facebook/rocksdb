@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Changes
 * `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.
+* Add `multi_get_for_update` to C API.
 
 ## 8.1.0 (03/18/2023)
 ### Behavior changes
