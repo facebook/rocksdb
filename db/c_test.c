@@ -488,6 +488,19 @@ static void CheckTxnPinGetCF(rocksdb_transaction_t* txn,
   rocksdb_pinnableslice_destroy(p);
 }
 
+static void CheckTxnGetForUpdate(rocksdb_transaction_t* txn,
+                                 const rocksdb_readoptions_t* options,
+                                 const char* key, const char* expected) {
+  char* err = NULL;
+  size_t val_len;
+  char* val;
+  val = rocksdb_transaction_get_for_update(txn, options, key, strlen(key),
+                                           &val_len, true, &err);
+  CheckNoError(err);
+  CheckEqual(expected, val, val_len);
+  Free(&val);
+}
+
 static void CheckTxnDBGet(rocksdb_transactiondb_t* txn_db,
                           const rocksdb_readoptions_t* options, const char* key,
                           const char* expected) {
@@ -510,6 +523,20 @@ static void CheckTxnDBGetCF(rocksdb_transactiondb_t* txn_db,
   char* val;
   val = rocksdb_transactiondb_get_cf(txn_db, options, column_family, key,
                                      strlen(key), &val_len, &err);
+  CheckNoError(err);
+  CheckEqual(expected, val, val_len);
+  Free(&val);
+}
+
+static void CheckTxnGetForUpdateCF(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    const char* expected) {
+  char* err = NULL;
+  size_t val_len;
+  char* val;
+  val = rocksdb_transaction_get_for_update_cf(
+      txn, options, column_family, key, strlen(key), &val_len, true, &err);
   CheckNoError(err);
   CheckEqual(expected, val, val_len);
   Free(&val);
@@ -3197,6 +3224,120 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     // close and destroy
+    rocksdb_transactiondb_close(txn_db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_transaction_options_destroy(txn_options);
+    rocksdb_transactiondb_options_destroy(txn_db_options);
+  }
+
+  StartPhase("transactions_multi_get_for_update");
+  {
+    // open a TransactionDB
+    txn_db_options = rocksdb_transactiondb_options_create();
+    rocksdb_transactiondb_options_set_transaction_lock_timeout(txn_db_options,
+                                                               0);
+    txn_options = rocksdb_transaction_options_create();
+    rocksdb_options_set_create_if_missing(options, 1);
+    txn_db = rocksdb_transactiondb_open(options, txn_db_options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_transactiondb_put(txn_db, woptions, "foo", 3, "hey", 3, &err);
+    CheckNoError(err);
+    rocksdb_transactiondb_put(txn_db, woptions, "bar", 3, "hello", 5, &err);
+    CheckNoError(err);
+
+    // begin transactions
+    txn = rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
+    rocksdb_transaction_t* txn2 =
+        rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
+
+    // multi get
+    {
+      const char* keys[2] = {"foo", "bar"};
+      const size_t keys_sizes[2] = {3, 3};
+      char* vals[2];
+      size_t vals_sizes[2];
+      char* errs[2];
+      const char* expected[2] = {"hey", "hello"};
+      rocksdb_transaction_multi_get_for_update(
+          txn, roptions, 2, keys, keys_sizes, vals, vals_sizes, errs);
+      CheckMultiGetValues(2, vals, vals_sizes, errs, expected);
+    }
+
+    char* conflict_err = NULL;
+    size_t val_len;
+    rocksdb_transaction_get_for_update(txn2, roptions, "foo", 3, &val_len, true,
+                                       &conflict_err);
+    // get-for-update conflict
+    CheckCondition(conflict_err != NULL);
+    Free(&conflict_err);
+
+    // commit
+    rocksdb_transaction_commit(txn, &err);
+    CheckNoError(err);
+
+    // should work after first tx is commited
+    CheckTxnGetForUpdate(txn2, roptions, "foo", "hey");
+
+    // commit the second one
+    rocksdb_transaction_commit(txn2, &err);
+    CheckNoError(err);
+
+    // destroy txns
+    rocksdb_transaction_destroy(txn);
+    rocksdb_transaction_destroy(txn2);
+
+    // same for column families
+
+    rocksdb_column_family_handle_t* cfh;
+    cfh = rocksdb_transactiondb_create_column_family(txn_db, options,
+                                                     "txn_db_cf", &err);
+    CheckNoError(err);
+
+    rocksdb_transactiondb_put_cf(txn_db, woptions, cfh, "cf_foo", 6, "cf_hello",
+                                 8, &err);
+    CheckNoError(err);
+    rocksdb_transactiondb_put_cf(txn_db, woptions, cfh, "cf_bar", 6, "cf_hey",
+                                 6, &err);
+    CheckNoError(err);
+
+    txn = rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
+    txn2 = rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
+
+    {
+      const rocksdb_column_family_handle_t* get_handles[2] = {cfh, cfh};
+      const char* keys[2] = {"cf_foo", "cf_bar"};
+      const size_t keys_sizes[2] = {6, 6};
+      char* vals[2];
+      size_t vals_sizes[2];
+      char* errs[2];
+      const char* expected[2] = {"cf_hello", "cf_hey"};
+      rocksdb_transaction_multi_get_for_update_cf(txn, roptions, get_handles, 2,
+                                                  keys, keys_sizes, vals,
+                                                  vals_sizes, errs);
+      CheckMultiGetValues(2, vals, vals_sizes, errs, expected);
+    }
+
+    char* conflict_err_cf = NULL;
+    size_t val_len_cf;
+    rocksdb_transaction_get_for_update_cf(txn2, roptions, cfh, "cf_foo", 6,
+                                          &val_len_cf, true, &conflict_err_cf);
+    CheckCondition(conflict_err_cf != NULL);
+    Free(&conflict_err_cf);
+
+    rocksdb_transaction_commit(txn, &err);
+    CheckNoError(err);
+
+    CheckTxnGetForUpdateCF(txn2, roptions, cfh, "cf_foo", "cf_hello");
+
+    rocksdb_transaction_commit(txn2, &err);
+    CheckNoError(err);
+
+    // close and destroy
+    rocksdb_column_family_handle_destroy(cfh);
+    rocksdb_transaction_destroy(txn);
+    rocksdb_transaction_destroy(txn2);
     rocksdb_transactiondb_close(txn_db);
     rocksdb_destroy_db(options, dbname, &err);
     CheckNoError(err);
