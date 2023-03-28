@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <random>
 
@@ -159,6 +160,35 @@ void SemiStructuredUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {
     // update in a thread-safe way, simply fall back on GenerateRawUniqueId.
     GenerateRawUniqueId(upper, lower);
   }
+}
+
+void UnpredictableUniqueIdGen::Reset() {
+  for (size_t i = 0; i < 8; i += 2) {
+    uint64_t a, b;
+    GenerateRawUniqueId(&a, &b);
+    pool_[i] = a;
+    pool_[i] = b;
+  }
+}
+
+void UnpredictableUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower,
+                                            uint64_t extra_entropy) {
+  std::array<uint64_t, 8> hash_inputs;
+  // This one input (position 0) is sufficient to ensure unique hash inputs.
+  hash_inputs[0] = pool_[0].fetch_add(1, std::memory_order_relaxed);
+  // The rest are to accumulate / adapt the entropy. They do not need to be
+  // read consistently between thread.
+  for (size_t i = 1; i < 8; ++i) {
+    hash_inputs[i] = pool_[i].load(std::memory_order_relaxed);
+  }
+  // Compute results
+  Hash2x64(reinterpret_cast<const char*>(&pool_), sizeof(pool_),
+           /*seed*/ extra_entropy, upper, lower);
+  // Add back into pool. Reserve position 0 for counter and 5, 6, and 7 for
+  // unchanging data.
+  size_t i = 1 + (hash_inputs[0] & 1) * 2;
+  pool_[i].fetch_add(*upper, std::memory_order_relaxed);
+  pool_[i + 1].fetch_add(*lower, std::memory_order_relaxed);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

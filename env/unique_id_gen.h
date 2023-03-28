@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 
@@ -66,6 +67,28 @@ class SemiStructuredUniqueIdGen {
   uint64_t base_lower_;
   std::atomic<uint64_t> counter_;
   int64_t saved_process_id_;
+};
+
+// A unique id generator that should provide reasonable security against
+// predicting the output from previous outputs, but is not known to be
+// cryptographically secure. Unlike std::random_device, this is guaranteed
+// not to block once initialized, but does depend on adding entropy yourself
+// for the best security.
+class UnpredictableUniqueIdGen {
+ public:
+  // Initializes with random starting state (from several GenerateRawUniqueId)
+  UnpredictableUniqueIdGen() { Reset(); }
+  // Re-initializes, but not thread safe
+  void Reset();
+
+  // Generate next probabilistically unique value, incorporating extra_entropy
+  // in the result and into the entropy pool for subsequent values. Thread
+  // safe.
+  void GenerateNext(uint64_t* upper, uint64_t* lower, uint64_t extra_entropy);
+
+ private:
+  // 512-bit entropy pool
+  std::array<std::atomic<uint64_t>, 8> pool_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

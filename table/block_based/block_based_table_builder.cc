@@ -27,6 +27,7 @@
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/dbformat.h"
+#include "env/unique_id_gen.h"
 #include "index_builder.h"
 #include "logging/logging.h"
 #include "memory/memory_allocator.h"
@@ -336,6 +337,7 @@ struct BlockBasedTableBuilder::Rep {
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
   BlockCreateContext create_context;
+  uint32_t previous_checksum = 0;
 
   uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
   void set_offset(uint64_t o) { offset.store(o, std::memory_order_relaxed); }
@@ -1271,6 +1273,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     }
   }
 
+  r->previous_checksum = checksum;
+
   EncodeFixed32(trailer.data() + 1, checksum);
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTableBuilder::WriteMaybeCompressedBlock:TamperWithChecksum",
@@ -1556,6 +1560,29 @@ void BlockBasedTableBuilder::WriteIndexBlock(
       }
       // The last index_block_handle will be for the partition index block
     }
+  }
+}
+
+// The purpose of this salt is to allow non-cryptographic whole file
+// checksums to be highly resistant to manipulation by a user able to
+// manipulate key-value data and able to predict SST metadata such as
+// DB session id and file number based on read access to logs or DB
+// files. The adversary would also need to predict this salt in order
+// to influence the checksum result toward collision with another
+// SST file's checksum.
+void BlockBasedTableBuilder::WriteSalt() {
+  static UnpredictableUniqueIdGen gen;
+  std::array<uint64_t, 2> vals;
+  // Get some entropy from the checksum of the table properties, which
+  // includes wall clock times and such.
+  gen.GenerateNext(&vals[0], &vals[1], /*entropy*/ rep_->previous_checksum);
+  Slice vals_slice(reinterpret_cast<const char*>(&vals), sizeof(vals));
+  assert(vals_slice.size() == 16);  // 128 bits
+  IOStatus io_s = rep_->file->Append(vals_slice);
+  if (!io_s.ok()) {
+    rep_->SetIOStatus(io_s);
+  } else {
+    rep_->set_offset(rep_->get_offset() + vals_slice.size());
   }
 }
 
@@ -1904,15 +1931,18 @@ Status BlockBasedTableBuilder::Finish() {
   //    3. [meta block: compression dictionary]
   //    4. [meta block: range deletion tombstone]
   //    5. [meta block: properties]
-  //    6. [metaindex block]
-  //    7. Footer
+  //    6. A random salt (not part of a block)
+  //    7. [metaindex block]
+  //    8. Footer
   BlockHandle metaindex_block_handle, index_block_handle;
   MetaIndexBuilder meta_index_builder;
   WriteFilterBlock(&meta_index_builder);
   WriteIndexBlock(&meta_index_builder, &index_block_handle);
   WriteCompressionDictBlock(&meta_index_builder);
   WriteRangeDelBlock(&meta_index_builder);
+  WriteSalt();
   WritePropertiesBlock(&meta_index_builder);
+
   if (ok()) {
     // flush the meta index block
     WriteMaybeCompressedBlock(meta_index_builder.Finish(), kNoCompression,
