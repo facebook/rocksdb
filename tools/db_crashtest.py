@@ -165,7 +165,7 @@ default_params = {
     "max_write_batch_group_size_bytes": lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]
     ),
-    "level_compaction_dynamic_level_bytes": True,
+    "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "verify_checksum_one_in": 1000000,
     "verify_db_one_in": 100000,
     "continuous_verification_interval": 0,
@@ -322,7 +322,7 @@ simple_default_params = {
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
-    "level_compaction_dynamic_level_bytes": False,
+    "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "verify_iterator_with_expected_state_one_in": 5,  # this locks a range of keys
 }

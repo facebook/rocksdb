@@ -533,6 +533,100 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
+  if (s.ok() && !read_only) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      // Try to trivially move files down the LSM tree to start from bottommost
+      // level when level_compaction_dynamic_level_bytes is enabled. This should
+      // only be useful when user is migrating to turning on this option.
+      // If a user is migrating from Level Compaction with a smaller level
+      // multiplier or from Universal Compaction, there may be too many
+      // non-empty levels and the trivial moves here are not sufficed for
+      // migration. Additional compactions are needed to drain unnecessary
+      // levels.
+      //
+      // Note that this step moves files down LSM without consulting
+      // SSTPartitioner. Further compactions are still needed if
+      // the user wants to partition SST files.
+      // Note that files moved in this step may not respect the compression
+      // option in target level.
+      if (cfd->ioptions()->compaction_style ==
+              CompactionStyle::kCompactionStyleLevel &&
+          cfd->ioptions()->level_compaction_dynamic_level_bytes &&
+          !cfd->GetLatestMutableCFOptions()->disable_auto_compactions) {
+        int to_level = cfd->ioptions()->num_levels - 1;
+        // last level is reserved
+        if (cfd->ioptions()->allow_ingest_behind ||
+            cfd->ioptions()->preclude_last_level_data_seconds > 0) {
+          to_level -= 1;
+        }
+        // Whether this column family has a level trivially moved
+        bool moved = false;
+        // Fill the LSM starting from to_level and going up one level at a time.
+        // Some loop invariants (when last level is not reserved):
+        // - levels in (from_level, to_level] are empty, and
+        // - levels in (to_level, last_level] are non-empty.
+        for (int from_level = to_level; from_level >= 0; --from_level) {
+          const std::vector<FileMetaData*>& level_files =
+              cfd->current()->storage_info()->LevelFiles(from_level);
+          if (level_files.empty() || from_level == 0) {
+            continue;
+          }
+          assert(from_level <= to_level);
+          // Trivial move files from `from_level` to `to_level`
+          if (from_level < to_level) {
+            if (!moved) {
+              // lsm_state will look like "[1,2,3,4,5,6,0]" for an LSM with
+              // 7 levels
+              std::string lsm_state = "[";
+              for (int i = 0; i < cfd->ioptions()->num_levels; ++i) {
+                lsm_state += std::to_string(
+                    cfd->current()->storage_info()->NumLevelFiles(i));
+                if (i < cfd->ioptions()->num_levels - 1) {
+                  lsm_state += ",";
+                }
+              }
+              lsm_state += "]";
+              ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                             "[%s] Trivially move files down the LSM when open "
+                             "with level_compaction_dynamic_level_bytes=true,"
+                             " lsm_state: %s (Files are moved only if DB "
+                             "Recovery is successful).",
+                             cfd->GetName().c_str(), lsm_state.c_str());
+              moved = true;
+            }
+            ROCKS_LOG_WARN(
+                immutable_db_options_.info_log,
+                "[%s] Moving %zu files from from_level-%d to from_level-%d",
+                cfd->GetName().c_str(), level_files.size(), from_level,
+                to_level);
+            VersionEdit edit;
+            edit.SetColumnFamily(cfd->GetID());
+            for (const FileMetaData* f : level_files) {
+              edit.DeleteFile(from_level, f->fd.GetNumber());
+              edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
+                           f->fd.GetFileSize(), f->smallest, f->largest,
+                           f->fd.smallest_seqno, f->fd.largest_seqno,
+                           f->marked_for_compaction,
+                           f->temperature,  // this can be different from
+                                            // `last_level_temperature`
+                           f->oldest_blob_file_number, f->oldest_ancester_time,
+                           f->file_creation_time, f->epoch_number,
+                           f->file_checksum, f->file_checksum_func_name,
+                           f->unique_id, f->compensated_range_deletion_size);
+              ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                             "[%s] Moving #%" PRIu64
+                             " from from_level-%d to from_level-%d %" PRIu64
+                             " bytes\n",
+                             cfd->GetName().c_str(), f->fd.GetNumber(),
+                             from_level, to_level, f->fd.GetFileSize());
+            }
+            recovery_ctx->UpdateVersionEdits(cfd, edit);
+          }
+          --to_level;
+        }
+      }
+    }
+  }
   s = SetupDBId(read_only, recovery_ctx);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
   if (s.ok() && !read_only) {
@@ -1828,7 +1922,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   // Handles create_if_missing, error_if_exists
   uint64_t recovered_seq(kMaxSequenceNumber);
-  s = impl->Recover(column_families, false, false, false, &recovered_seq,
+  s = impl->Recover(column_families, false /* read_only */,
+                    false /* error_if_wal_file_exists */,
+                    false /* error_if_data_exists_in_wals */, &recovered_seq,
                     &recovery_ctx);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
