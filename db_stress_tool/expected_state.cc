@@ -3,17 +3,81 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <atomic>
 #ifdef GFLAGS
 
-#include "db_stress_tool/expected_state.h"
 
 #include "db/wide/wide_column_serialization.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "db_stress_tool/expected_state.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record_result.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+bool ExpectedValueHelper::MustHaveNotExisted(
+    uint32_t pre_read_expected_value, uint32_t post_read_expected_value) {
+  const bool pre_read_expected_deleted = IsDeleted(pre_read_expected_value);
+
+  const uint32_t pre_read_expected_value_base =
+      GetValueBase(pre_read_expected_value);
+  const uint32_t post_read_expected_value_base =
+      GetValueBase(post_read_expected_value);
+  const uint32_t expected_value_base_delta =
+      PendingWrite(post_read_expected_value) ? VALUE_BASE_DELTA : 0;
+  const bool during_read_no_write_happened =
+      (pre_read_expected_value_base ==
+       GetValueBase(post_read_expected_value_base + expected_value_base_delta));
+
+  return pre_read_expected_deleted && during_read_no_write_happened;
+}
+
+bool ExpectedValueHelper::MustHaveExisted(uint32_t pre_read_expected_value,
+                                          uint32_t post_read_expected_value) {
+  const bool pre_read_expected_not_deleted =
+      !IsDeleted(pre_read_expected_value);
+
+  const uint32_t pre_read_expected_del_counter =
+      GetDelCounter(pre_read_expected_value);
+  const uint32_t post_read_expected_del_counter =
+      GetDelCounter(post_read_expected_value);
+  const uint32_t expected_del_counter_delta =
+      PendingDelete(post_read_expected_value) ? DEL_COUNTER_DELTA : 0;
+  const bool during_read_no_delete_happened =
+      (pre_read_expected_del_counter ==
+       GetDelCounter(post_read_expected_del_counter +
+                     expected_del_counter_delta));
+
+  return pre_read_expected_not_deleted && during_read_no_delete_happened;
+}
+
+bool ExpectedValueHelper::InExpectedValueBaseRange(
+    uint32_t value_base, uint32_t pre_read_expected_value_base,
+    uint32_t post_read_expected_value_base,
+    bool post_read_expected_pending_write) {
+  assert(IsValuePartValid(value_base, VALUE_BASE_MASK) &&
+         IsValuePartValid(pre_read_expected_value_base, VALUE_BASE_MASK) &&
+         IsValuePartValid(post_read_expected_value_base, VALUE_BASE_MASK));
+
+  const uint32_t expected_value_base_delta =
+      post_read_expected_pending_write ? VALUE_BASE_DELTA : 0;
+
+  uint32_t post_read_expected_value_base_final =
+      GetValueBase(post_read_expected_value_base + expected_value_base_delta);
+
+  if (pre_read_expected_value_base <= post_read_expected_value_base_final) {
+    const uint32_t lower_bound = pre_read_expected_value_base;
+    const uint32_t upper_bound = post_read_expected_value_base_final;
+    return lower_bound <= value_base && value_base <= upper_bound;
+  } else {
+    const uint32_t upper_bound_1 = post_read_expected_value_base_final;
+    const uint32_t lower_bound_2 = pre_read_expected_value_base;
+    const uint32_t upper_bound_2 = VALUE_BASE_MASK;
+    return (value_base <= upper_bound_1) ||
+           (lower_bound_2 <= value_base && value_base <= upper_bound_2);
+  }
+}
 
 ExpectedState::ExpectedState(size_t max_key, size_t num_column_families)
     : max_key_(max_key),
@@ -21,21 +85,31 @@ ExpectedState::ExpectedState(size_t max_key, size_t num_column_families)
       values_(nullptr) {}
 
 void ExpectedState::ClearColumnFamily(int cf) {
-  std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */),
-            SharedState::DELETION_SENTINEL);
+  const auto del_mask = ExpectedValueHelper::GetDelMask();
+  std::fill(&Value(cf, 0 /* key */), &Value(cf + 1, 0 /* key */), del_mask);
 }
 
-void ExpectedState::Put(int cf, int64_t key, uint32_t value_base,
-                        bool pending) {
-  if (!pending) {
-    // prevent expected-value update from reordering before Write
-    std::atomic_thread_fence(std::memory_order_release);
+void ExpectedState::Put(int cf, int64_t key, uint32_t value, bool pending) {
+  uint32_t new_value = Value(cf, key).load();
+  if (ExpectedValueHelper::PendingDelete(new_value)) {
+    // Needed when a crash has happened in the middle of the last deletion
+    ExpectedValueHelper::ClearPendingDel(&new_value);
   }
-  Value(cf, key).store(pending ? SharedState::UNKNOWN_SENTINEL : value_base,
-                       std::memory_order_relaxed);
   if (pending) {
-    // prevent Write from reordering before expected-value update
+    ExpectedValueHelper::SetPendingWrite(&new_value);
+    Value(cf, key).store(new_value);
+    // To prevent low-level instruction reordering that results
+    // in db write happens before setting pending state in expected value
     std::atomic_thread_fence(std::memory_order_release);
+  } else {
+    ExpectedValueHelper::SetValueBase(&new_value,
+                                      ExpectedValueHelper::GetValueBase(value));
+    ExpectedValueHelper::ClearDeleted(&new_value);
+    ExpectedValueHelper::ClearPendingWrite(&new_value);
+    // To prevent low-level instruction reordering that results
+    // in setting expected value happens before db write
+    std::atomic_thread_fence(std::memory_order_release);
+    Value(cf, key).store(new_value);
   }
 }
 
@@ -44,10 +118,25 @@ uint32_t ExpectedState::Get(int cf, int64_t key) const {
 }
 
 bool ExpectedState::Delete(int cf, int64_t key, bool pending) {
-  if (Value(cf, key) == SharedState::DELETION_SENTINEL) {
+  uint32_t new_value = Value(cf, key).load();
+  if (!Exists(cf, key)) {
     return false;
   }
-  Put(cf, key, SharedState::DELETION_SENTINEL, pending);
+  if (ExpectedValueHelper::PendingWrite(new_value)) {
+    // Needed when a crash has happened in the middle of the last write
+    ExpectedValueHelper::ClearPendingWrite(&new_value);
+  }
+  if (pending) {
+    ExpectedValueHelper::SetPendingDel(&new_value);
+    Value(cf, key).store(new_value);
+  } else {
+    ExpectedValueHelper::SetDelCounter(
+        &new_value, ExpectedValueHelper::NextDelCounter(
+                        ExpectedValueHelper::GetDelCounter(new_value)));
+    ExpectedValueHelper::SetDeleted(&new_value);
+    ExpectedValueHelper::ClearPendingDel(&new_value);
+    Value(cf, key).store(new_value);
+  }
   return true;
 }
 
@@ -67,20 +156,16 @@ int ExpectedState::DeleteRange(int cf, int64_t begin_key, int64_t end_key,
 }
 
 bool ExpectedState::Exists(int cf, int64_t key) {
-  // UNKNOWN_SENTINEL counts as exists. That assures a key for which overwrite
-  // is disallowed can't be accidentally added a second time, in which case
-  // SingleDelete wouldn't be able to properly delete the key. It does allow
-  // the case where a SingleDelete might be added which covers nothing, but
-  // that's not a correctness issue.
   uint32_t expected_value = Value(cf, key).load();
-  return expected_value != SharedState::DELETION_SENTINEL;
+  return ExpectedValueHelper::PendingWrite(expected_value) ||
+         !ExpectedValueHelper::IsDeleted(expected_value);
 }
 
 void ExpectedState::Reset() {
+  const auto del_mask = ExpectedValueHelper::GetDelMask();
   for (size_t i = 0; i < num_column_families_; ++i) {
     for (size_t j = 0; j < max_key_; ++j) {
-      Value(static_cast<int>(i), j)
-          .store(SharedState::DELETION_SENTINEL, std::memory_order_relaxed);
+      Value(static_cast<int>(i), j).store(del_mask, std::memory_order_relaxed);
     }
   }
 }

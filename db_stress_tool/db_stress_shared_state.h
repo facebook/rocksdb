@@ -43,11 +43,8 @@ class StressTest;
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
  public:
-  // indicates a key may have any value (or not be present) as an operation on
-  // it is incomplete.
-  static constexpr uint32_t UNKNOWN_SENTINEL = 0xfffffffe;
-  // indicates a key should definitely be deleted
-  static constexpr uint32_t DELETION_SENTINEL = 0xffffffff;
+  // Used to generate random value base for non-NonBatchedOpsStressTest
+  static constexpr uint32_t RANDOM_VALUE_BASE_GENERATOR = 0xfffffffe;
 
   // Errors when reading filter blocks are ignored, so we use a thread
   // local variable updated via sync points to keep track of errors injected
@@ -258,12 +255,13 @@ class SharedState {
   //    guaranteed finished. This is useful for crash-recovery testing when the
   //    process may crash before updating the expected values array.
   //
-  // Requires external locking covering `key` in `cf`.
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
   void Put(int cf, int64_t key, uint32_t value_base, bool pending) {
     return expected_state_manager_->Put(cf, key, value_base, pending);
   }
 
-  // Requires external locking covering `key` in `cf`.
+  // Does not requires external locking.
   uint32_t Get(int cf, int64_t key) const {
     return expected_state_manager_->Get(cf, key);
   }
@@ -271,7 +269,8 @@ class SharedState {
   // @param pending See comment above Put()
   // Returns true if the key was not yet deleted.
   //
-  // Requires external locking covering `key` in `cf`.
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
   bool Delete(int cf, int64_t key, bool pending) {
     return expected_state_manager_->Delete(cf, key, pending);
   }
@@ -279,7 +278,8 @@ class SharedState {
   // @param pending See comment above Put()
   // Returns true if the key was not yet deleted.
   //
-  // Requires external locking covering `key` in `cf`.
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // write or delete to the same `key`.
   bool SingleDelete(int cf, int64_t key, bool pending) {
     return expected_state_manager_->Delete(cf, key, pending);
   }
@@ -287,7 +287,8 @@ class SharedState {
   // @param pending See comment above Put()
   // Returns number of keys deleted by the call.
   //
-  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`.
+  // Requires external locking covering keys in `[begin_key, end_key)` in `cf`
+  // to prevent concurrent write or delete to the same `key`.
   int DeleteRange(int cf, int64_t begin_key, int64_t end_key, bool pending) {
     return expected_state_manager_->DeleteRange(cf, begin_key, end_key,
                                                 pending);
@@ -297,7 +298,8 @@ class SharedState {
     return no_overwrite_ids_.find(key) == no_overwrite_ids_.end();
   }
 
-  // Requires external locking covering `key` in `cf`.
+  // Requires external locking covering `key` in `cf` to prevent concurrent
+  // delete to the same `key`.
   bool Exists(int cf, int64_t key) {
     return expected_state_manager_->Exists(cf, key);
   }
