@@ -308,34 +308,10 @@ class BatchedOpsStressTest : public StressTest {
       }
     }
 
-    // Compare columns ignoring the last character of column values
-    auto compare = [](const WideColumns& lhs, const WideColumns& rhs) {
-      if (lhs.size() != rhs.size()) {
-        return false;
-      }
-
-      for (size_t i = 0; i < lhs.size(); ++i) {
-        if (lhs[i].name() != rhs[i].name()) {
-          return false;
-        }
-
-        if (lhs[i].value().size() != rhs[i].value().size()) {
-          return false;
-        }
-
-        if (lhs[i].value().difference_offset(rhs[i].value()) <
-            lhs[i].value().size() - 1) {
-          return false;
-        }
-      }
-
-      return true;
-    };
-
     for (size_t i = 0; i < num_keys; ++i) {
       const WideColumns& columns = results[i].columns();
 
-      if (!compare(results[0].columns(), columns)) {
+      if (!CompareColumns(results[0].columns(), columns)) {
         fprintf(stderr,
                 "GetEntity error: inconsistent entities for key %s: %s, %s\n",
                 StringToHex(key_suffix).c_str(),
@@ -391,30 +367,6 @@ class BatchedOpsStressTest : public StressTest {
     ReadOptions read_opts_copy(read_opts);
     read_opts_copy.snapshot = snapshot_guard.snapshot();
 
-    // Compare columns ignoring the last character of column values
-    auto compare = [](const WideColumns& lhs, const WideColumns& rhs) {
-      if (lhs.size() != rhs.size()) {
-        return false;
-      }
-
-      for (size_t i = 0; i < lhs.size(); ++i) {
-        if (lhs[i].name() != rhs[i].name()) {
-          return false;
-        }
-
-        if (lhs[i].value().size() != rhs[i].value().size()) {
-          return false;
-        }
-
-        if (lhs[i].value().difference_offset(rhs[i].value()) <
-            lhs[i].value().size() - 1) {
-          return false;
-        }
-      }
-
-      return true;
-    };
-
     const size_t num_keys = rand_keys.size();
 
     for (size_t i = 0; i < num_keys; ++i) {
@@ -450,7 +402,7 @@ class BatchedOpsStressTest : public StressTest {
         const WideColumns& cmp_columns = results[0].columns();
         const WideColumns& columns = results[j].columns();
 
-        if (!compare(cmp_columns, columns)) {
+        if (!CompareColumns(cmp_columns, columns)) {
           fprintf(stderr,
                   "MultiGetEntity error: inconsistent entities for key %s: %s, "
                   "%s\n",
@@ -610,6 +562,30 @@ class BatchedOpsStressTest : public StressTest {
   void VerifyDb(ThreadState* /* thread */) const override {}
 
   void ContinuouslyVerifyDb(ThreadState* /* thread */) const override {}
+
+  // Compare columns ignoring the last character of column values
+  bool CompareColumns(const WideColumns& lhs, const WideColumns& rhs) {
+    if (lhs.size() != rhs.size()) {
+      return false;
+    }
+
+    for (size_t i = 0; i < lhs.size(); ++i) {
+      if (lhs[i].name() != rhs[i].name()) {
+        return false;
+      }
+
+      if (lhs[i].value().size() != rhs[i].value().size()) {
+        return false;
+      }
+
+      if (lhs[i].value().difference_offset(rhs[i].value()) <
+          lhs[i].value().size() - 1) {
+        return false;
+      }
+    }
+
+    return true;
+  }
 };
 
 StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }
