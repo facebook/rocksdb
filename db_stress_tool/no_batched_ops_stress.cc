@@ -901,7 +901,7 @@ class NonBatchedOpsStressTest : public StressTest {
         }
 
         if (stat_nok < error_count) {
-          // Grab mutex so multiple thread don't try to print the
+          // Grab mutex so multiple threads don't try to print the
           // stack trace at the same time
           assert(thread->shared);
           MutexLock l(thread->shared->GetMutex());
