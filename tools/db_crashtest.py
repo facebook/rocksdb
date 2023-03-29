@@ -137,6 +137,7 @@ default_params = {
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
+    "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
@@ -462,6 +463,8 @@ multiops_txn_default_params = {
     "sync_fault_injection": 0,
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in" : 0,
+    "use_get_entity" : 0,
+    "use_multi_get_entity" : 0,
 }
 
 multiops_wc_txn_params = {
