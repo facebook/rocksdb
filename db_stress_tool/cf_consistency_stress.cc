@@ -505,6 +505,7 @@ class CfConsistencyStressTest : public StressTest {
         thread->stats.AddErrors(1);
         // Fail fast to preserve the DB state.
         thread->shared->SetVerificationFailure();
+        break;
       } else if (statuses[0].ok()) {
         thread->stats.AddGets(1, 1);
       } else if (statuses[0].IsNotFound()) {
