@@ -994,7 +994,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           assert(batch_size <= max_batch_size);
           assert(i + batch_size <= ops_per_open);
 
-          rand_keys = GenerateNKeys(thread, batch_size, i);
+          rand_keys = GenerateNKeys(thread, static_cast<int>(batch_size), i);
 
           TestMultiGetEntity(thread, read_opts, rand_column_families,
                              rand_keys);
