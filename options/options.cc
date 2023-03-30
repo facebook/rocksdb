@@ -450,6 +450,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     }
     ROCKS_LOG_HEADER(log, "Options.experimental_mempurge_threshold: %f",
                      experimental_mempurge_threshold);
+    ROCKS_LOG_HEADER(log, "   Options.memtable_max_range_deletions: %d",
+                     memtable_max_range_deletions);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

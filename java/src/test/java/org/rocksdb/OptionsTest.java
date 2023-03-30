@@ -1453,6 +1453,16 @@ public class OptionsTest {
   }
 
   @Test
+  public void memtableMaxRangeDeletions() {
+    try (final Options options = new Options()) {
+      assertThat(options.memtableMaxRangeDeletions()).isEqualTo(0);
+      final int val = 32;
+      assertThat(options.setMemtableMaxRangeDeletions(val)).isEqualTo(options);
+      assertThat(options.memtableMaxRangeDeletions()).isEqualTo(val);
+    }
+  }
+
+  @Test
   public void eventListeners() {
     final AtomicBoolean wasCalled1 = new AtomicBoolean();
     final AtomicBoolean wasCalled2 = new AtomicBoolean();
