@@ -9118,11 +9118,19 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytes) {
   options.level_compaction_dynamic_level_bytes = false;
   options.num_levels = 6;
   options.compression = kNoCompression;
+  options.max_bytes_for_level_base = 1 << 20;
+  options.max_bytes_for_level_multiplier = 10;
   DestroyAndReopen(options);
 
   // put files in L0, L1 and L2
   WriteOptions write_opts;
   ASSERT_OK(db_->Put(write_opts, Key(1), "val1"));
+  Random rnd(33);
+  // Fill L2 with size larger than max_bytes_for_level_base,
+  // so the level above it won't be drained.
+  for (int i = 2; i <= (1 << 10); ++i) {
+    ASSERT_OK(db_->Put(write_opts, Key(i), rnd.RandomString(2 << 10)));
+  }
   ASSERT_OK(Flush());
   MoveFilesToLevel(2);
   ASSERT_OK(db_->Put(write_opts, Key(2), "val2"));
@@ -9157,7 +9165,11 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytes) {
   // newly flushed file is also pushed down
   options.level_compaction_dynamic_level_bytes = true;
   Reopen(options);
-  ASSERT_EQ("0,0,0,1,1,2", FilesPerLevel());
+  // Files in L1 should be trivially moved down during DB opening.
+  // The file should be moved to L3, and then may be drained and compacted to
+  // L4. So we just check L1 and L2 here.
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+  ASSERT_EQ(0, NumTableFilesAtLevel(2));
   verify_db();
 }
 
