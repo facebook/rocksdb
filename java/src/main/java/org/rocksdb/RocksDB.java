@@ -155,6 +155,10 @@ public class RocksDB extends RocksObject {
     return version;
   }
 
+  public boolean isClosed() {
+    return !owningHandle_.get();
+  }
+
   /**
    * Private constructor.
    *
