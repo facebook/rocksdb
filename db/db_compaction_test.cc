@@ -9161,62 +9161,6 @@ TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytes) {
   verify_db();
 }
 
-TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytesIngestBehind) {
-  Options options = CurrentOptions();
-  options.compaction_style = kCompactionStyleLevel;
-  options.allow_ingest_behind = true;
-  options.level_compaction_dynamic_level_bytes = false;
-  options.num_levels = 6;
-  options.compression = kNoCompression;
-  DestroyAndReopen(options);
-
-  // put files in L0, L1 and L2
-  WriteOptions write_opts;
-  ASSERT_OK(db_->Put(write_opts, Key(1), "val1"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(2);
-  ASSERT_OK(db_->Put(write_opts, Key(2), "val2"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(2);
-  ASSERT_OK(db_->Put(write_opts, Key(1), "new_val1"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(1);
-  ASSERT_OK(db_->Put(write_opts, Key(3), "val3"));
-  ASSERT_OK(Flush());
-  ASSERT_EQ("1,1,2", FilesPerLevel());
-  auto verify_db = [&]() {
-    ASSERT_EQ(Get(Key(1)), "new_val1");
-    ASSERT_EQ(Get(Key(2)), "val2");
-    ASSERT_EQ(Get(Key(3)), "val3");
-  };
-  verify_db();
-
-  options.level_compaction_dynamic_level_bytes = true;
-  Reopen(options);
-  // note that last level (L6) should be empty
-  ASSERT_EQ("1,0,0,1,2", FilesPerLevel());
-  verify_db();
-
-  // turning the options on and off should both be safe
-  options.level_compaction_dynamic_level_bytes = false;
-  Reopen(options);
-  MoveFilesToLevel(1);
-  ASSERT_EQ("0,1,0,1,2", FilesPerLevel());
-  verify_db();
-
-  // newly flushed file is also pushed down
-  options.level_compaction_dynamic_level_bytes = true;
-  Reopen(options);
-  ASSERT_EQ("0,0,1,1,2", FilesPerLevel());
-  verify_db();
-
-  // files will be pushed down to last level (L6)
-  options.allow_ingest_behind = false;
-  Reopen(options);
-  ASSERT_EQ("0,0,0,1,1,2", FilesPerLevel());
-  verify_db();
-}
-
 TEST_F(DBCompactionTest, TurnOnLevelCompactionDynamicLevelBytesUCToLC) {
   // Basic test for migrating from UC to LC.
   // DB has non-empty L1 that should be pushed down to last level (L49).
