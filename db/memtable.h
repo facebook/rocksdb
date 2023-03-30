@@ -565,6 +565,7 @@ class MemTable {
   std::atomic<uint64_t> data_size_;
   std::atomic<uint64_t> num_entries_;
   std::atomic<uint64_t> num_deletes_;
+  std::atomic<uint64_t> num_range_deletes_;
 
   // Dynamically changeable memtable option
   std::atomic<size_t> write_buffer_size_;
@@ -625,6 +626,13 @@ class MemTable {
   // keep track of memory usage in table_, arena_, and range_del_table_.
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
+
+  // max range deletions in a memtable,  before automatic flushing, 0 for
+  // unlimited.
+  uint32_t memtable_max_range_deletions_ = 0;
+  // Range-delete will turn this flag on, if memtable_max_range_deletions_ is
+  // reached. ShouldFlushNow() will check this.
+  bool memtable_max_range_deletions_reached_ = false;
 
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;

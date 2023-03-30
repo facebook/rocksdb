@@ -331,6 +331,11 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // Automatic flush after range deletions count in memtable hits this limit.
+  // helps with workloads having lot of range deletes.
+  // 0 to disable it completely
+  uint32_t memtable_max_range_deletions = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
