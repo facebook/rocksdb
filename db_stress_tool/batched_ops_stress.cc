@@ -308,34 +308,10 @@ class BatchedOpsStressTest : public StressTest {
       }
     }
 
-    // Compare columns ignoring the last character of column values
-    auto compare = [](const WideColumns& lhs, const WideColumns& rhs) {
-      if (lhs.size() != rhs.size()) {
-        return false;
-      }
-
-      for (size_t i = 0; i < lhs.size(); ++i) {
-        if (lhs[i].name() != rhs[i].name()) {
-          return false;
-        }
-
-        if (lhs[i].value().size() != rhs[i].value().size()) {
-          return false;
-        }
-
-        if (lhs[i].value().difference_offset(rhs[i].value()) <
-            lhs[i].value().size() - 1) {
-          return false;
-        }
-      }
-
-      return true;
-    };
-
     for (size_t i = 0; i < num_keys; ++i) {
       const WideColumns& columns = results[i].columns();
 
-      if (!compare(results[0].columns(), columns)) {
+      if (!CompareColumns(results[0].columns(), columns)) {
         fprintf(stderr,
                 "GetEntity error: inconsistent entities for key %s: %s, %s\n",
                 StringToHex(key_suffix).c_str(),
@@ -367,6 +343,99 @@ class BatchedOpsStressTest : public StressTest {
               "GetEntity error: inconsistent columns for key %s, entity %s\n",
               StringToHex(key_suffix).c_str(),
               WideColumnsToHex(columns).c_str());
+        }
+      }
+    }
+  }
+
+  void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                          const std::vector<int>& rand_column_families,
+                          const std::vector<int64_t>& rand_keys) override {
+    assert(thread);
+
+    assert(!rand_column_families.empty());
+    assert(rand_column_families[0] >= 0);
+    assert(rand_column_families[0] < static_cast<int>(column_families_.size()));
+
+    ColumnFamilyHandle* const cfh = column_families_[rand_column_families[0]];
+    assert(cfh);
+
+    assert(!rand_keys.empty());
+
+    ManagedSnapshot snapshot_guard(db_);
+
+    ReadOptions read_opts_copy(read_opts);
+    read_opts_copy.snapshot = snapshot_guard.snapshot();
+
+    const size_t num_keys = rand_keys.size();
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      const std::string key_suffix = Key(rand_keys[i]);
+
+      constexpr size_t num_prefixes = 10;
+
+      std::array<std::string, num_prefixes> keys;
+      std::array<Slice, num_prefixes> key_slices;
+      std::array<PinnableWideColumns, num_prefixes> results;
+      std::array<Status, num_prefixes> statuses;
+
+      for (size_t j = 0; j < num_prefixes; ++j) {
+        keys[j] = std::to_string(j) + key_suffix;
+        key_slices[j] = keys[j];
+      }
+
+      db_->MultiGetEntity(read_opts_copy, cfh, num_prefixes, key_slices.data(),
+                          results.data(), statuses.data());
+
+      for (size_t j = 0; j < num_prefixes; ++j) {
+        const Status& s = statuses[j];
+
+        if (!s.ok() && !s.IsNotFound()) {
+          fprintf(stderr, "MultiGetEntity error: %s\n", s.ToString().c_str());
+          thread->stats.AddErrors(1);
+        } else if (s.IsNotFound()) {
+          thread->stats.AddGets(1, 0);
+        } else {
+          thread->stats.AddGets(1, 1);
+        }
+
+        const WideColumns& cmp_columns = results[0].columns();
+        const WideColumns& columns = results[j].columns();
+
+        if (!CompareColumns(cmp_columns, columns)) {
+          fprintf(stderr,
+                  "MultiGetEntity error: inconsistent entities for key %s: %s, "
+                  "%s\n",
+                  StringToHex(key_suffix).c_str(),
+                  WideColumnsToHex(cmp_columns).c_str(),
+                  WideColumnsToHex(columns).c_str());
+        }
+
+        if (!columns.empty()) {
+          // The last character of each column value should be 'j' as a decimal
+          // digit
+          const char expected = static_cast<char>('0' + j);
+
+          for (const auto& column : columns) {
+            const Slice& value = column.value();
+
+            if (value.empty() || value[value.size() - 1] != expected) {
+              fprintf(stderr,
+                      "MultiGetEntity error: incorrect column value for key "
+                      "%s, entity %s, column value %s, expected %c\n",
+                      StringToHex(key_suffix).c_str(),
+                      WideColumnsToHex(columns).c_str(),
+                      value.ToString(/* hex */ true).c_str(), expected);
+            }
+          }
+
+          if (!VerifyWideColumns(columns)) {
+            fprintf(stderr,
+                    "MultiGetEntity error: inconsistent columns for key %s, "
+                    "entity %s\n",
+                    StringToHex(key_suffix).c_str(),
+                    WideColumnsToHex(columns).c_str());
+          }
         }
       }
     }
@@ -493,6 +562,30 @@ class BatchedOpsStressTest : public StressTest {
   void VerifyDb(ThreadState* /* thread */) const override {}
 
   void ContinuouslyVerifyDb(ThreadState* /* thread */) const override {}
+
+  // Compare columns ignoring the last character of column values
+  bool CompareColumns(const WideColumns& lhs, const WideColumns& rhs) {
+    if (lhs.size() != rhs.size()) {
+      return false;
+    }
+
+    for (size_t i = 0; i < lhs.size(); ++i) {
+      if (lhs[i].name() != rhs[i].name()) {
+        return false;
+      }
+
+      if (lhs[i].value().size() != rhs[i].value().size()) {
+        return false;
+      }
+
+      if (lhs[i].value().difference_offset(rhs[i].value()) <
+          lhs[i].value().size() - 1) {
+        return false;
+      }
+    }
+
+    return true;
+  }
 };
 
 StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }

@@ -391,6 +391,129 @@ class CfConsistencyStressTest : public StressTest {
     }
   }
 
+  void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                          const std::vector<int>& rand_column_families,
+                          const std::vector<int64_t>& rand_keys) override {
+    assert(thread);
+    assert(thread->shared);
+    assert(!rand_column_families.empty());
+    assert(!rand_keys.empty());
+
+    ManagedSnapshot snapshot_guard(db_);
+
+    ReadOptions read_opts_copy = read_opts;
+    read_opts_copy.snapshot = snapshot_guard.snapshot();
+
+    const size_t num_cfs = rand_column_families.size();
+
+    std::vector<ColumnFamilyHandle*> cfhs;
+    cfhs.reserve(num_cfs);
+
+    for (size_t j = 0; j < num_cfs; ++j) {
+      assert(rand_column_families[j] >= 0);
+      assert(rand_column_families[j] <
+             static_cast<int>(column_families_.size()));
+
+      ColumnFamilyHandle* const cfh = column_families_[rand_column_families[j]];
+      assert(cfh);
+
+      cfhs.emplace_back(cfh);
+    }
+
+    const size_t num_keys = rand_keys.size();
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      const std::string key = Key(rand_keys[i]);
+
+      std::vector<Slice> key_slices(num_cfs, key);
+      std::vector<PinnableWideColumns> results(num_cfs);
+      std::vector<Status> statuses(num_cfs);
+
+      db_->MultiGetEntity(read_opts_copy, num_cfs, cfhs.data(),
+                          key_slices.data(), results.data(), statuses.data());
+
+      bool is_consistent = true;
+
+      for (size_t j = 0; j < num_cfs; ++j) {
+        const Status& s = statuses[j];
+        const Status& cmp_s = statuses[0];
+        const WideColumns& columns = results[j].columns();
+        const WideColumns& cmp_columns = results[0].columns();
+
+        if (!s.ok() && !s.IsNotFound()) {
+          fprintf(stderr, "TestMultiGetEntity error: %s\n",
+                  s.ToString().c_str());
+          thread->stats.AddErrors(1);
+          break;
+        }
+
+        assert(cmp_s.ok() || cmp_s.IsNotFound());
+
+        if (s.IsNotFound()) {
+          if (cmp_s.ok()) {
+            fprintf(
+                stderr,
+                "MultiGetEntity returns different results for key %s: CF %s "
+                "returns entity %s, CF %s returns not found\n",
+                StringToHex(key).c_str(), column_family_names_[0].c_str(),
+                WideColumnsToHex(cmp_columns).c_str(),
+                column_family_names_[j].c_str());
+            is_consistent = false;
+            break;
+          }
+
+          continue;
+        }
+
+        assert(s.ok());
+        if (cmp_s.IsNotFound()) {
+          fprintf(stderr,
+                  "MultiGetEntity returns different results for key %s: CF %s "
+                  "returns not found, CF %s returns entity %s\n",
+                  StringToHex(key).c_str(), column_family_names_[0].c_str(),
+                  column_family_names_[j].c_str(),
+                  WideColumnsToHex(columns).c_str());
+          is_consistent = false;
+          break;
+        }
+
+        if (columns != cmp_columns) {
+          fprintf(stderr,
+                  "MultiGetEntity returns different results for key %s: CF %s "
+                  "returns entity %s, CF %s returns entity %s\n",
+                  StringToHex(key).c_str(), column_family_names_[0].c_str(),
+                  WideColumnsToHex(cmp_columns).c_str(),
+                  column_family_names_[j].c_str(),
+                  WideColumnsToHex(columns).c_str());
+          is_consistent = false;
+          break;
+        }
+
+        if (!VerifyWideColumns(columns)) {
+          fprintf(stderr,
+                  "MultiGetEntity error: inconsistent columns for key %s, "
+                  "entity %s\n",
+                  StringToHex(key).c_str(), WideColumnsToHex(columns).c_str());
+          is_consistent = false;
+          break;
+        }
+      }
+
+      if (!is_consistent) {
+        fprintf(stderr,
+                "TestMultiGetEntity error: results are not consistent\n");
+        thread->stats.AddErrors(1);
+        // Fail fast to preserve the DB state.
+        thread->shared->SetVerificationFailure();
+        break;
+      } else if (statuses[0].ok()) {
+        thread->stats.AddGets(1, 1);
+      } else if (statuses[0].IsNotFound()) {
+        thread->stats.AddGets(1, 0);
+      }
+    }
+  }
+
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override {

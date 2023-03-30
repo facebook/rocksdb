@@ -214,6 +214,10 @@ class MultiOpsTxnsStressTest : public StressTest {
                      const std::vector<int>& rand_column_families,
                      const std::vector<int64_t>& rand_keys) override;
 
+  void TestMultiGetEntity(ThreadState* thread, const ReadOptions& read_opts,
+                          const std::vector<int>& rand_column_families,
+                          const std::vector<int64_t>& rand_keys) override;
+
   Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
                         const std::vector<int>& rand_column_families,
                         const std::vector<int64_t>& rand_keys) override;
