@@ -9,6 +9,7 @@
 
 ### New Features
 * Add experimental `PerfContext` counters `iter_{next|prev|seek}_count` for db iterator, each counting the times of corresponding API being called.
+* Allow runtime changes to whether `WriteBufferManager` allows stall or not by calling `SetAllowStall()`
 
 ## 8.1.0 (03/18/2023)
 ### Behavior changes
