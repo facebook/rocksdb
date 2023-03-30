@@ -665,8 +665,8 @@ struct AdvancedColumnFamilyOptions {
   // computed based on this feature) in the LSM after a user migrates to turn
   // this feature on. This is especially likely when a user migrates from
   // leveled compaction with a smaller multiplier or from universal compaction.
-  // A full manual compaction is needed to drain these levels explicitly.
-  //
+  // RocksDB will gradually drain these unnecessary levels by compacting files
+  // down the LSM.
   //
   // Default: false
   bool level_compaction_dynamic_level_bytes = false;
