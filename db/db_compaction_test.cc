@@ -9236,14 +9236,14 @@ TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterMultiplierChanged) {
   Random rnd(301);
   for (int file = 0; file < kNumFiles; ++file) {
     for (int i = 0; i < kFileBytes / kValueBytes; ++i) {
-      Put(Key(file * kFileBytes / kValueBytes + i),
-          rnd.RandomString(kValueBytes));
+      ASSERT_OK(Put(Key(file * kFileBytes / kValueBytes + i),
+                    rnd.RandomString(kValueBytes)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
 
   int init_num_nonempty = 0;
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   for (int level = 1; level < kNumLevels; ++level) {
     if (NumTableFilesAtLevel(level) > 0) {
       ++init_num_nonempty;
@@ -9252,9 +9252,9 @@ TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterMultiplierChanged) {
 
   // After increasing the multiplier and running compaction fewer levels are
   // needed to hold all the data. Unnecessary levels should be drained.
-  db_->SetOptions(
-      {{"max_bytes_for_level_multiplier", std::to_string(kChangedMultiplier)}});
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(db_->SetOptions({{"max_bytes_for_level_multiplier",
+                              std::to_string(kChangedMultiplier)}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   int final_num_nonempty = 0;
   for (int level = 1; level < kNumLevels; ++level) {
     if (NumTableFilesAtLevel(level) > 0) {
@@ -9292,10 +9292,10 @@ TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterDBBecomesSmall) {
   Random rnd(301);
   for (int file = 0; file < kNumFiles; ++file) {
     for (int i = 0; i < kFileBytes / kValueBytes; ++i) {
-      Put(Key(file * kFileBytes / kValueBytes + i),
-          rnd.RandomString(kValueBytes));
+      ASSERT_OK(Put(Key(file * kFileBytes / kValueBytes + i),
+                    rnd.RandomString(kValueBytes)));
     }
-    Flush();
+    ASSERT_OK(Flush());
     if (file == kDeleteFileNum) {
       // Ensure the DeleteRange() call below only delete data from last level
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -9304,7 +9304,7 @@ TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterDBBecomesSmall) {
   }
 
   int init_num_nonempty = 0;
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   for (int level = 1; level < kNumLevels; ++level) {
     if (NumTableFilesAtLevel(level) > 0) {
       ++init_num_nonempty;
@@ -9318,10 +9318,11 @@ TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterDBBecomesSmall) {
   // an unneeded level.
   std::string begin = Key(0);
   std::string end = Key(kDeleteFileNum * kFileBytes / kValueBytes);
-  db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), begin, end);
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), begin, end));
   Slice begin_slice = begin;
   Slice end_slice = end;
-  db_->CompactRange(CompactRangeOptions(), &begin_slice, &end_slice);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin_slice, &end_slice));
   int after_delete_range_nonempty = 0;
   for (int level = 1; level < kNumLevels; ++level) {
     if (NumTableFilesAtLevel(level) > 0) {
@@ -9329,7 +9330,7 @@ TEST_F(DBCompactionTest, DrainUnnecessaryLevelsAfterDBBecomesSmall) {
     }
   }
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   int final_num_nonempty = 0;
   for (int level = 1; level < kNumLevels; ++level) {
     if (NumTableFilesAtLevel(level) > 0) {
