@@ -3373,7 +3373,7 @@ void VersionStorageInfo::ComputeCompactionScore(
           }
         }
       }
-    } else {
+    } else {  // level > 0
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       uint64_t level_total_bytes = 0;
@@ -3410,8 +3410,7 @@ void VersionStorageInfo::ComputeCompactionScore(
                          (1.001 + 0.001 * (lowest_unnecessary_level_ - level)));
         }
       }
-      if (0 <= lowest_unnecessary_level_ &&
-          level <= lowest_unnecessary_level_) {
+      if (level <= lowest_unnecessary_level_) {
         total_downcompact_bytes += level_total_bytes;
       } else if (level_total_bytes > MaxBytesForLevel(level)) {
         total_downcompact_bytes +=
