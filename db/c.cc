@@ -4064,6 +4064,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->blob_decompress_time;
     case rocksdb_internal_range_del_reseek_count:
       return rep->internal_range_del_reseek_count;
+    case rocksdb_block_read_cpu_time:
+      return rep->block_read_cpu_time;
     default:
       break;
   }

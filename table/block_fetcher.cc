@@ -254,6 +254,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
+        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
         io_status_ = file_->Read(
             opts, handle_.offset(), block_size_with_trailer_, &slice_, nullptr,
             &direct_io_buf_, read_options_.rate_limiter_priority);
@@ -262,6 +263,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
+        PERF_CPU_TIMER_GUARD(block_read_cpu_time, nullptr);
         io_status_ = file_->Read(opts, handle_.offset(),
                                  block_size_with_trailer_, &slice_, used_buf_,
                                  nullptr, read_options_.rate_limiter_priority);

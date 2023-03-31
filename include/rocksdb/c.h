@@ -1718,7 +1718,8 @@ enum {
   rocksdb_blob_checksum_time,
   rocksdb_blob_decompress_time,
   rocksdb_internal_range_del_reseek_count,
-  rocksdb_total_metric_count = 78
+  rocksdb_block_read_cpu_time,
+  rocksdb_total_metric_count = 79
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
