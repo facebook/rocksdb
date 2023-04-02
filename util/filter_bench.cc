@@ -320,7 +320,7 @@ struct FilterBench : public MockBlockBasedTableTester {
         random_(FLAGS_seed),
         m_queries_(0) {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
-      kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
+      kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size.get());
     }
     ioptions_.logger = &stderr_logger_;
     table_options_.optimize_filters_for_memory =

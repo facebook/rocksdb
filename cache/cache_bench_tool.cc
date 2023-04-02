@@ -615,19 +615,19 @@ class CacheBench {
 #endif
     printf("RocksDB version     : %d.%d\n", kMajorVersion, kMinorVersion);
     printf("DMutex impl name    : %s\n", DMutex::kName());
-    printf("Number of threads   : %u\n", FLAGS_threads);
+    printf("Number of threads   : %u\n", FLAGS_threads.get());
     printf("Ops per thread      : %" PRIu64 "\n", FLAGS_ops_per_thread);
     printf("Cache size          : %s\n",
            BytesToHumanString(FLAGS_cache_size).c_str());
-    printf("Num shard bits      : %u\n", FLAGS_num_shard_bits);
+    printf("Num shard bits      : %u\n", FLAGS_num_shard_bits.get());
     printf("Max key             : %" PRIu64 "\n", max_key_);
     printf("Resident ratio      : %g\n", FLAGS_resident_ratio);
-    printf("Skew degree         : %u\n", FLAGS_skew);
+    printf("Skew degree         : %u\n", FLAGS_skew.get());
     printf("Populate cache      : %d\n", int{FLAGS_populate_cache});
-    printf("Lookup+Insert pct   : %u%%\n", FLAGS_lookup_insert_percent);
-    printf("Insert percentage   : %u%%\n", FLAGS_insert_percent);
-    printf("Lookup percentage   : %u%%\n", FLAGS_lookup_percent);
-    printf("Erase percentage    : %u%%\n", FLAGS_erase_percent);
+    printf("Lookup+Insert pct   : %u%%\n", FLAGS_lookup_insert_percent.get());
+    printf("Insert percentage   : %u%%\n", FLAGS_insert_percent.get());
+    printf("Lookup percentage   : %u%%\n", FLAGS_lookup_percent.get());
+    printf("Erase percentage    : %u%%\n", FLAGS_erase_percent.get());
     std::ostringstream stats;
     if (FLAGS_gather_stats) {
       stats << "enabled (" << FLAGS_gather_stats_sleep_ms << "ms, "
@@ -719,7 +719,7 @@ class StressCacheKey {
       // (but process-dependent) which is most easily simulated here by
       // assuming 1 DB and (later below) no session resets without process
       // reset.
-      FLAGS_sck_db_count = 1;
+      FLAGS_sck_db_count.get() = 1;
     }
 
     // Describe the simulated workload
@@ -767,13 +767,14 @@ class StressCacheKey {
         printf(
             "No collisions after %d x %u days                              "
             "                   \n",
-            i, FLAGS_sck_days_per_run);
+            i, FLAGS_sck_days_per_run.get());
       } else {
         double est = 1.0 * i * FLAGS_sck_days_per_run / collisions_;
         printf("%" PRIu64
                " collisions after %d x %u days, est %g days between (%g "
                "corrected)        \n",
-               collisions_, i, FLAGS_sck_days_per_run, est, est * multiplier_);
+               collisions_, i, FLAGS_sck_days_per_run.get(), est,
+               est * multiplier_);
       }
     }
   }
@@ -785,7 +786,7 @@ class StressCacheKey {
     const size_t table_mask = (size_t{1} << FLAGS_sck_table_bits) - 1;
     table_.reset(new uint64_t[table_mask + 1]{});
     if (FLAGS_sck_keep_bits > 64) {
-      FLAGS_sck_keep_bits = 64;
+      FLAGS_sck_keep_bits.get() = 64;
     }
 
     // Details of which bits are dropped in reduction
