@@ -494,6 +494,8 @@ class BlockBasedTable : public TableReader {
   // in building the table file, otherwise true.
   bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
 
+  bool TimestampMayMatch(const ReadOptions& read_options) const;
+
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
   static constexpr size_t kMultiGetReadStackBufSize = 8192;

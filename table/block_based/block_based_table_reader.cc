@@ -1983,10 +1983,28 @@ Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
   return Status::OK();
 }
 
+bool BlockBasedTable::TimestampMayMatch(const ReadOptions& read_options) const {
+  if (read_options.timestamp != nullptr && GetTableProperties() != nullptr) {
+    auto& props = GetTableProperties()->user_collected_properties;
+    if (props.find("rocksdb.timestamp_min") != props.end()) {
+      Slice min_ts = Slice(props.at("rocksdb.timestamp_min"));
+      auto read_ts = read_options.timestamp;
+      auto comparator = rep_->internal_comparator.user_comparator();
+      if (comparator->CompareTimestamp(*read_ts, min_ts) < 0) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                             GetContext* get_context,
                             const SliceTransform* prefix_extractor,
                             bool skip_filters) {
+  if (!TimestampMayMatch(read_options)) {
+    return Status::OK();
+  }
   assert(key.size() >= 8);  // key must be internal key
   assert(get_context != nullptr);
   Status s;
