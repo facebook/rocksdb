@@ -7578,13 +7578,13 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
 
   GenerateNewFile(&rnd, &key_idx);
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("0,2,2", FilesPerLevel(0));
+  ASSERT_EQ("1,1,2", FilesPerLevel(0));
 
   // The background thread will refit L2->L1 while the
   // foreground thread will try to simultaneously compact L0->L1.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       // The first two dependencies ensure the foreground creates an L0 file
-      // after L1->L2 compaction and before refitting.
+      // between the background compaction's L0->L1 and its L1->L2.
       {
           "DBImpl::RunManualCompaction()::1",
           "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
@@ -7671,7 +7671,7 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
   GenerateNewFile(&rnd, &key_idx);
   GenerateNewFile(&rnd, &key_idx);
   auto end_idx = key_idx - 1;
-  ASSERT_EQ("0,2,2", FilesPerLevel(0));
+  ASSERT_EQ("1,1,2", FilesPerLevel(0));
 
   // Next two CompactRange() calls are used to test exercise error paths within
   // RefitLevel() before triggering a valid RefitLevel() call

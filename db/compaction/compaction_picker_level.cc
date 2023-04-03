@@ -128,7 +128,6 @@ class LevelCompactionBuilder {
   int base_index_ = -1;
   double start_level_score_ = 0;
   bool is_manual_ = false;
-  // true iff the compaction is trivial move from L0 to a non-empty base level
   bool is_l0_trivial_move_ = false;
   CompactionInputFiles start_level_inputs_;
   std::vector<CompactionInputFiles> compaction_inputs_;
@@ -502,6 +501,14 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
 }
 
 Compaction* LevelCompactionBuilder::GetCompaction() {
+  // If compacting from L0 to an empty level, TryPickL0TrivialMove() won't
+  // pick L0 files. We may pick a single L0 file by compaction score and can
+  // still do trivial move when this file does not overlap with other L0s.
+  // This happens when compaction_inputs_[0].size() == 1 since
+  // SetupOtherL0FilesIfNeeded() did not pull in more L0s.
+  bool l0_files_might_overlap =
+      start_level_ == 0 && !is_l0_trivial_move_ &&
+      (compaction_inputs_.size() > 1 || compaction_inputs_[0].size() > 1);
   auto c = new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
       std::move(compaction_inputs_), output_level_,
@@ -516,8 +523,7 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       Temperature::kUnknown,
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
       /* trim_ts */ "", start_level_score_, false /* deletion_compaction */,
-      /* l0_files_might_overlap */ start_level_ == 0 && !is_l0_trivial_move_,
-      compaction_reason_);
+      l0_files_might_overlap, compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -816,7 +822,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     vstorage_->GetOverlappingInputs(output_level_, &smallest, &largest,
                                     &output_level_inputs.files);
     if (output_level_inputs.empty()) {
-      if (TryExtendNonL0TrivialMove(index)) {
+      if (start_level_ > 0 && TryExtendNonL0TrivialMove(index)) {
         break;
       }
     } else {
