@@ -5509,8 +5509,9 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
 
   for (int n = 0; n < options.level0_file_num_compaction_trigger; n++) {
     for (unsigned int cf = 0; cf < cf_count; cf++) {
+      // All L0s should overlap with each other
       for (int i = 0; i < kNumKeysPerFile; i++) {
-        ASSERT_OK(Put(cf, Key(keyIndex++), ""));
+        ASSERT_OK(Put(cf, Key(i), ""));
       }
       // put extra key to trigger flush
       ASSERT_OK(Put(cf, "", ""));
