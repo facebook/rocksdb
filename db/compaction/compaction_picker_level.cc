@@ -507,6 +507,7 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
   // does not overlap with other L0s. This happens when
   // compaction_inputs_[0].size() == 1 since SetupOtherL0FilesIfNeeded() did not
   // pull in more L0s.
+  assert(!compaction_inputs_.empty());
   bool l0_files_might_overlap =
       start_level_ == 0 && !is_l0_trivial_move_ &&
       (compaction_inputs_.size() > 1 || compaction_inputs_[0].size() > 1);
