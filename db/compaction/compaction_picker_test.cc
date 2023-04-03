@@ -2530,11 +2530,11 @@ TEST_F(CompactionPickerTest, NonL0TrivialMoveExtendBothDirection) {
   Add(1, 1U, "300", "350", 3000U, 0, 710, 800, 3000U);
   Add(1, 2U, "600", "651", 3001U, 0, 610, 700, 3001U);
   Add(1, 3U, "700", "750", 3000U, 0, 500, 550, 3000U);
-
   Add(2, 4U, "800", "850", 4000U, 0, 150, 200, 4000U);
 
   UpdateVersionStorageInfo();
-
+  // File #2 should be picked first, and expand both directions to include
+  // files #1 and #3.
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
       cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
       &log_buffer_));

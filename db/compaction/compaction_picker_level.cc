@@ -501,11 +501,12 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
 }
 
 Compaction* LevelCompactionBuilder::GetCompaction() {
-  // If compacting from L0 to an empty level, TryPickL0TrivialMove() won't
-  // pick L0 files. We may pick a single L0 file by compaction score and can
-  // still do trivial move when this file does not overlap with other L0s.
-  // This happens when compaction_inputs_[0].size() == 1 since
-  // SetupOtherL0FilesIfNeeded() did not pull in more L0s.
+  // TryPickL0TrivialMove() does not apply to the case when compacting L0 to an
+  // empty output level. So L0 files is picked in PickFileToCompact() by
+  // compaction score. We may still be able to do trivial move when this file
+  // does not overlap with other L0s. This happens when
+  // compaction_inputs_[0].size() == 1 since SetupOtherL0FilesIfNeeded() did not
+  // pull in more L0s.
   bool l0_files_might_overlap =
       start_level_ == 0 && !is_l0_trivial_move_ &&
       (compaction_inputs_.size() > 1 || compaction_inputs_[0].size() > 1);
@@ -661,7 +662,6 @@ bool LevelCompactionBuilder::TryPickL0TrivialMove() {
 }
 
 bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index) {
-  // Only one picked file, not extended by clean cut?
   if (start_level_inputs_.size() == 1 &&
       (ioptions_.db_paths.empty() || ioptions_.db_paths.size() == 1) &&
       (mutable_cf_options_.compression_per_level.empty())) {
@@ -736,6 +736,7 @@ bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index) {
       if (total_size > mutable_cf_options_.max_compaction_bytes) {
         break;
       }
+      // keep `files` sorted in increasing order by key range
       start_level_inputs_.files.insert(start_level_inputs_.files.begin(),
                                        next_file);
     }
