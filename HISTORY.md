@@ -2,6 +2,14 @@
 ## Unreleased
 ### Public API Changes
 * `SstFileWriter::DeleteRange()` now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.
+* Add `multi_get_for_update` to C API.
+
+### Behavior changes
+* For level compaction with `level_compaction_dynamic_level_bytes=true`, RocksDB now trivially moves levels down to fill LSM starting from bottommost level during DB open. See more in comments for option `level_compaction_dynamic_level_bytes`.
+
+### New Features
+* Add experimental `PerfContext` counters `iter_{next|prev|seek}_count` for db iterator, each counting the times of corresponding API being called.
+* Allow runtime changes to whether `WriteBufferManager` allows stall or not by calling `SetAllowStall()`
 
 ## 8.1.0 (03/18/2023)
 ### Behavior changes

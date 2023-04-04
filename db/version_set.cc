@@ -3262,7 +3262,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   // the level's target size, and 1.0 is the threshold for triggering
   // compaction. Higher score means higher prioritization.
   // Now we keep the compaction triggering condition, but consider more
-  // factors for priorization, while still keeping the 1.0 threshold.
+  // factors for prioritization, while still keeping the 1.0 threshold.
   // In order to provide flexibility for reducing score while still
   // maintaining it to be over 1.0, we scale the original score by 10x
   // if it is larger than 1.0.
@@ -3295,7 +3295,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         // compaction score for the whole DB. Adding other levels as if
         // they are L0 files.
         for (int i = 1; i < num_levels(); i++) {
-          // Its possible that a subset of the files in a level may be in a
+          // It's possible that a subset of the files in a level may be in a
           // compaction, due to delete triggered compaction or trivial move.
           // In that case, the below check may not catch a level being
           // compacted as it only checks the first file. The worst that can
@@ -3344,7 +3344,7 @@ void VersionStorageInfo::ComputeCompactionScore(
               // When calculating estimated_compaction_needed_bytes, we assume
               // L0 is qualified as pending compactions. We will need to make
               // sure that it qualifies for compaction.
-              // It might be guafanteed by logic below anyway, but we are
+              // It might be guaranteed by logic below anyway, but we are
               // explicit here to make sure we don't stop writes with no
               // compaction scheduled.
               score = std::max(score, 1.01);

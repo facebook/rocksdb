@@ -137,6 +137,7 @@ default_params = {
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
+    "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
@@ -165,7 +166,7 @@ default_params = {
     "max_write_batch_group_size_bytes": lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]
     ),
-    "level_compaction_dynamic_level_bytes": True,
+    "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "verify_checksum_one_in": 1000000,
     "verify_db_one_in": 100000,
     "continuous_verification_interval": 0,
@@ -322,7 +323,7 @@ simple_default_params = {
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
-    "level_compaction_dynamic_level_bytes": False,
+    "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "verify_iterator_with_expected_state_one_in": 5,  # this locks a range of keys
 }
@@ -462,6 +463,8 @@ multiops_txn_default_params = {
     "sync_fault_injection": 0,
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in" : 0,
+    "use_get_entity" : 0,
+    "use_multi_get_entity" : 0,
 }
 
 multiops_wc_txn_params = {

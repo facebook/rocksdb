@@ -117,7 +117,6 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
 
 void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
   assert(wbm_stall != nullptr);
-  assert(allow_stall_);
 
   // Allocate outside of the lock.
   std::list<StallInterface*> new_node = {wbm_stall};
@@ -140,14 +139,10 @@ void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
 
 // Called when memory is freed in FreeMem or the buffer size has changed.
 void WriteBufferManager::MaybeEndWriteStall() {
-  // Cannot early-exit on !enabled() because SetBufferSize(0) needs to unblock
-  // the writers.
-  if (!allow_stall_) {
+  // Stall conditions have not been resolved.
+  if (allow_stall_.load(std::memory_order_relaxed) &&
+      IsStallThresholdExceeded()) {
     return;
-  }
-
-  if (IsStallThresholdExceeded()) {
-    return;  // Stall conditions have not resolved.
   }
 
   // Perform all deallocations outside of the lock.
@@ -174,7 +169,7 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
   // Deallocate the removed nodes outside of the lock.
   std::list<StallInterface*> cleanup;
 
-  if (enabled() && allow_stall_) {
+  if (enabled() && allow_stall_.load(std::memory_order_relaxed)) {
     std::unique_lock<std::mutex> lock(mu_);
     for (auto it = queue_.begin(); it != queue_.end();) {
       auto next = std::next(it);
