@@ -3918,6 +3918,83 @@ TEST_F(DBBasicTestWithTimestamp, IterSeekToLastWithIterateUpperbound) {
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
 }
+
+TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  BlockBasedTableOptions bbto;
+  bbto.block_size = 100;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Put
+  {
+    WriteOptions write_opts;
+    std::string write_ts = Timestamp(10, 0);
+    ASSERT_OK(
+        db_->Put(write_opts, Key1(1), write_ts, "value" + std::to_string(1)));
+    write_ts = Timestamp(20, 0);
+    ASSERT_OK(
+        db_->Put(write_opts, Key1(2), write_ts, "value" + std::to_string(2)));
+    ASSERT_OK(Flush());
+  }
+
+  // Get
+  {
+    auto prev_checked_events = options.statistics->getTickerCount(
+        Tickers::TIMESTAMP_FILTER_TABLE_CHECKED);
+    auto prev_filtered_events = options.statistics->getTickerCount(
+        Tickers::TIMESTAMP_FILTER_TABLE_FILTERED);
+
+    // key=1 does not exist at timestamp=1
+    std::string read_ts_str = Timestamp(1, 0);
+    Slice read_ts_slice = Slice(read_ts_str);
+    ReadOptions read_opts;
+    read_opts.timestamp = &read_ts_slice;
+    std::string value_from_get = "";
+    std::string timestamp_from_get = "";
+    auto status =
+        db_->Get(read_opts, Key1(1), &value_from_get, &timestamp_from_get);
+    ASSERT_TRUE(status.IsNotFound());
+    ASSERT_EQ(value_from_get, std::string(""));
+    ASSERT_EQ(timestamp_from_get, std::string(""));
+
+    // the table read was skipped because the timestamp is out of the table
+    // range
+    ASSERT_EQ(prev_checked_events + 1,
+              options.statistics->getTickerCount(
+                  Tickers::TIMESTAMP_FILTER_TABLE_CHECKED));
+    ASSERT_EQ(prev_filtered_events + 1,
+              options.statistics->getTickerCount(
+                  Tickers::TIMESTAMP_FILTER_TABLE_FILTERED));
+
+    // key=1 exists at timestamp = 11
+    read_ts_str = Timestamp(11, 0);
+    read_ts_slice = Slice(read_ts_str);
+    read_opts.timestamp = &read_ts_slice;
+    ASSERT_OK(
+        db_->Get(read_opts, Key1(1), &value_from_get, &timestamp_from_get));
+
+    ASSERT_EQ("value" + std::to_string(1), value_from_get);
+    ASSERT_EQ(Timestamp(10, 0), timestamp_from_get);
+    // the table read was not skipped because the timestamp is in the table
+    // range
+    ASSERT_EQ(prev_checked_events + 2,
+              options.statistics->getTickerCount(
+                  Tickers::TIMESTAMP_FILTER_TABLE_CHECKED));
+    ASSERT_EQ(prev_filtered_events + 1,
+              options.statistics->getTickerCount(
+                  Tickers::TIMESTAMP_FILTER_TABLE_FILTERED));
+  }
+
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

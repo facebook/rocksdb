@@ -597,6 +597,10 @@ struct BlockBasedTable::Rep {
   // move is involved
   int level;
 
+  // timestamp range
+  std::shared_ptr<Slice> min_timestamp = nullptr;
+  std::shared_ptr<Slice> max_timestamp = nullptr;
+
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.
   bool blocks_maybe_compressed = true;
