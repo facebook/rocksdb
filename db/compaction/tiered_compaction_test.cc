@@ -1100,10 +1100,9 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
 }
 
 TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
-  const int kNumTrigger = 2;
+  const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
-  const int kValBytes = 100;
 
   auto options = CurrentOptions();
   SetColdTemperature(options);
@@ -1112,18 +1111,13 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
   options.max_subcompactions = 10;
-  // Prevent penultimate level from being smaller than
-  // max_bytes_for_level_base / 10 and deemed unnecessary.
-  // Otherwise L5 will always be eligible for compaction and
-  // WaitForCompact(true) below will be stuck waiting.
-  options.max_bytes_for_level_base = 5000;
-  options.max_bytes_for_level_multiplier = 10;
+  options.preclude_last_level_data_seconds = 10000;
   DestroyAndReopen(options);
   auto cmp = options.comparator;
 
   port::Mutex mutex;
   std::string hot_start = Key(10);
-  std::string hot_end = Key(30);
+  std::string hot_end = Key(50);
 
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::PrepareOutput.context", [&](void* arg) {
@@ -1135,11 +1129,9 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  Random rnd(33);
-  // 2 overlapping L0 files, with total size roughly 10KB
   for (int i = 0; i < kNumTrigger; i++) {
-    for (int j = i; j < kNumKeys * 2; j += 2) {
-      ASSERT_OK(Put(Key(j), rnd.RandomString(kValBytes)));
+    for (int j = 0; j < kNumKeys; j++) {
+      ASSERT_OK(Put(Key(j), "value" + std::to_string(j)));
     }
     ASSERT_OK(Flush());
   }
