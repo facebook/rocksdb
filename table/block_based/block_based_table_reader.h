@@ -429,13 +429,13 @@ class BlockBasedTable : public TableReader {
                              const SliceTransform* prefix_extractor,
                              GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
-                             Env::IOPriority rate_limiter_priority) const;
+                             const ReadOptions& read_options) const;
 
   void FullFilterKeysMayMatch(FilterBlockReader* filter, MultiGetRange* range,
                               const bool no_io,
                               const SliceTransform* prefix_extractor,
                               BlockCacheLookupContext* lookup_context,
-                              Env::IOPriority rate_limiter_priority) const;
+                              const ReadOptions& read_options) const;
 
   // If force_direct_prefetch is true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
