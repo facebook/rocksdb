@@ -443,11 +443,8 @@ void BlockBasedTableFactory::InitializeOptions() {
     table_options_.block_cache.reset();
   } else if (table_options_.block_cache == nullptr) {
     LRUCacheOptions co;
-    co.capacity = 8 << 20;
-    // It makes little sense to pay overhead for mid-point insertion while the
-    // block size is only 8MB.
-    co.high_pri_pool_ratio = 0.0;
-    co.low_pri_pool_ratio = 0.0;
+    // 32MB, the recommended minimum size for 64 shards, to reduce contention
+    co.capacity = 32 << 20;
     table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||
