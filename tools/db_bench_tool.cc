@@ -548,7 +548,7 @@ DEFINE_bool(universal_allow_trivial_move, false,
 DEFINE_bool(universal_incremental, false,
             "Enable incremental compactions in universal compaction.");
 
-DEFINE_int64(cache_size, 8 << 20,  // 8MB
+DEFINE_int64(cache_size, 32 << 20,  // 32MB
              "Number of bytes to use as a cache of uncompressed data");
 
 DEFINE_int32(cache_numshardbits, -1,
@@ -569,7 +569,7 @@ DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 DEFINE_bool(use_compressed_secondary_cache, false,
             "Use the CompressedSecondaryCache as the secondary cache.");
 
-DEFINE_int64(compressed_secondary_cache_size, 8 << 20,  // 8MB
+DEFINE_int64(compressed_secondary_cache_size, 32 << 20,  // 32MB
              "Number of bytes to use as a cache of data");
 
 DEFINE_int32(compressed_secondary_cache_numshardbits, 6,
@@ -4590,7 +4590,7 @@ class Benchmark {
       if (FLAGS_cache_size > 0) {
         // This violates this function's rules on when to set options. But we
         // have to do it because the case of unconfigured block cache in OPTIONS
-        // file is indistinguishable (it is sanitized to 8MB by this point, not
+        // file is indistinguishable (it is sanitized to 32MB by this point, not
         // nullptr), and our regression tests assume this will be the shared
         // block cache, even with OPTIONS file provided.
         table_options->block_cache = cache_;
