@@ -6,26 +6,46 @@
 #include "db/write_stall_stats.h"
 
 namespace ROCKSDB_NAMESPACE {
-const std::string kInvalidWriteStallCauseHyphenString = "invalid";
+const std::string& InvalidWriteStallHyphenString() {
+  static const std::string kInvalidWriteStallHyphenString = "invalid";
+  return kInvalidWriteStallHyphenString;
+}
 
-const std::array<std::string, static_cast<uint32_t>(WriteStallCause::kNone)>
-    kWriteStallCauseToHyphenString{{
-        "memtable-limit",
-        "l0-file-count-limit",
-        "pending-compaction-bytes",
-        // WriteStallCause::kCFScopeWriteStallCauseEnumMax
-        kInvalidWriteStallCauseHyphenString,
-        "write-buffer-manager-limit",
-        // WriteStallCause::kDBScopeWriteStallCauseEnumMax
-        kInvalidWriteStallCauseHyphenString,
-    }};
+const std::string& WriteStallCauseToHyphenString(WriteStallCause cause) {
+  static const std::string kMemtableLimit = "memtable-limit";
+  static const std::string kL0FileCountLimit = "l0-file-count-limit";
+  static const std::string kPendingCompactionBytes = "pending-compaction-bytes";
+  static const std::string kWriteBufferManagerLimit =
+      "write-buffer-manager-limit";
+  switch (cause) {
+    case WriteStallCause::kMemtableLimit:
+      return kMemtableLimit;
+    case WriteStallCause::kL0FileCountLimit:
+      return kL0FileCountLimit;
+    case WriteStallCause::kPendingCompactionBytes:
+      return kPendingCompactionBytes;
+    case WriteStallCause::kWriteBufferManagerLimit:
+      return kWriteBufferManagerLimit;
+    default:
+      break;
+  }
+  return InvalidWriteStallHyphenString();
+}
 
-const std::array<std::string,
-                 static_cast<uint32_t>(WriteStallCondition::kNormal)>
-    kWriteStallConditionToHyphenString{{
-        "delays",
-        "stops",
-    }};
+const std::string& WriteStallConditionToHyphenString(
+    WriteStallCondition condition) {
+  static const std::string kDelayed = "delays";
+  static const std::string kStopped = "stops";
+  switch (condition) {
+    case WriteStallCondition::kDelayed:
+      return kDelayed;
+    case WriteStallCondition::kStopped:
+      return kStopped;
+    default:
+      break;
+  }
+  return InvalidWriteStallHyphenString();
+}
 
 InternalStats::InternalCFStatsType InternalCFStat(
     WriteStallCause cause, WriteStallCondition condition) {
@@ -139,14 +159,14 @@ std::string WriteStallStatsMapKeys::CauseConditionCount(
 
   std::string cause_name;
   if (isCFScopeWriteStallCause(cause) || isDBScopeWriteStallCause(cause)) {
-    cause_name = kWriteStallCauseToHyphenString[static_cast<uint32_t>(cause)];
+    cause_name = WriteStallCauseToHyphenString(cause);
   } else {
     assert(false);
     return "";
   }
 
   const std::string& condition_name =
-      kWriteStallConditionToHyphenString[static_cast<uint32_t>(condition)];
+      WriteStallConditionToHyphenString(condition);
 
   cause_condition_count_name.reserve(cause_name.size() + 1 +
                                      condition_name.size());

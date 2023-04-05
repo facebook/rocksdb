@@ -11,15 +11,12 @@
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
-extern const std::string kInvalidWriteStallCauseHyphenString;
+extern const std::string& InvalidWriteStallHyphenString();
 
-extern const std::array<std::string,
-                        static_cast<uint32_t>(WriteStallCause::kNone)>
-    kWriteStallCauseToHyphenString;
+extern const std::string& WriteStallCauseToHyphenString(WriteStallCause cause);
 
-extern const std::array<std::string,
-                        static_cast<uint32_t>(WriteStallCondition::kNormal)>
-    kWriteStallConditionToHyphenString;
+extern const std::string& WriteStallConditionToHyphenString(
+    WriteStallCondition condition);
 
 // REQUIRES:
 // cause` is CF-scope `WriteStallCause`, see `WriteStallCause` for more
