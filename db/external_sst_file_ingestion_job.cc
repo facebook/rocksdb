@@ -1088,4 +1088,3 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
