@@ -95,8 +95,7 @@ Cache::Handle* CacheWithSecondaryAdapter::Promote(
   PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
   RecordTick(stats, SECONDARY_CACHE_HITS);
 
-  // FIXME? using charge=Size() is suspicious but inherited from older
-  // implementation
+  // Note: SecondaryCache::Size() is really charge (from the CreateCallback)
   size_t charge = secondary_handle->Size();
   Handle* result = nullptr;
   // Insert into primary cache, possibly as a standalone+dummy entries.

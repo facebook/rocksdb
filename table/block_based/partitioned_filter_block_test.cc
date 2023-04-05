@@ -167,7 +167,6 @@ class PartitionedFilterBlockTest
                     PartitionedIndexBuilder* pib, bool empty = false) {
     std::unique_ptr<PartitionedFilterBlockReader> reader(
         NewReader(builder, pib));
-    Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
     // Querying added keys
     const bool no_io = true;
     for (auto key : keys) {
@@ -176,7 +175,7 @@ class PartitionedFilterBlockTest
       ASSERT_TRUE(reader->KeyMayMatch(key, !no_io, &ikey_slice,
                                       /*get_context=*/nullptr,
                                       /*lookup_context=*/nullptr,
-                                      rate_limiter_priority));
+                                      ReadOptions()));
     }
     {
       // querying a key twice
@@ -185,7 +184,7 @@ class PartitionedFilterBlockTest
       ASSERT_TRUE(reader->KeyMayMatch(keys[0], !no_io, &ikey_slice,
                                       /*get_context=*/nullptr,
                                       /*lookup_context=*/nullptr,
-                                      rate_limiter_priority));
+                                      ReadOptions()));
     }
     // querying missing keys
     for (auto key : missing_keys) {
@@ -195,13 +194,13 @@ class PartitionedFilterBlockTest
         ASSERT_TRUE(reader->KeyMayMatch(key, !no_io, &ikey_slice,
                                         /*get_context=*/nullptr,
                                         /*lookup_context=*/nullptr,
-                                        rate_limiter_priority));
+                                        ReadOptions()));
       } else {
         // assuming a good hash function
         ASSERT_FALSE(reader->KeyMayMatch(key, !no_io, &ikey_slice,
                                          /*get_context=*/nullptr,
                                          /*lookup_context=*/nullptr,
-                                         rate_limiter_priority));
+                                         ReadOptions()));
       }
     }
   }
@@ -354,7 +353,7 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
                                        /*no_io=*/false, &ikey_slice,
                                        /*get_context=*/nullptr,
                                        /*lookup_context=*/nullptr,
-                                       Env::IO_TOTAL));
+                                       ReadOptions()));
   }
   // Non-existent keys but with the same prefix
   const std::string pnonkeys[4] = {"p-key9", "p-key11", "p-key21", "p-key31"};
@@ -365,7 +364,7 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
                                        /*no_io=*/false, &ikey_slice,
                                        /*get_context=*/nullptr,
                                        /*lookup_context=*/nullptr,
-                                       Env::IO_TOTAL));
+                                       ReadOptions()));
   }
 }
 
@@ -396,7 +395,6 @@ TEST_P(PartitionedFilterBlockTest, PrefixInWrongPartitionBug) {
   CutABlock(pib.get(), pkeys[4]);
   std::unique_ptr<PartitionedFilterBlockReader> reader(
       NewReader(builder.get(), pib.get()));
-  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
   for (auto key : pkeys) {
     auto prefix = prefix_extractor->Transform(key);
     auto ikey = InternalKey(prefix, 0, ValueType::kTypeValue);
@@ -405,7 +403,7 @@ TEST_P(PartitionedFilterBlockTest, PrefixInWrongPartitionBug) {
                                        /*no_io=*/false, &ikey_slice,
                                        /*get_context=*/nullptr,
                                        /*lookup_context=*/nullptr,
-                                       rate_limiter_priority));
+                                       ReadOptions()));
   }
 }
 
