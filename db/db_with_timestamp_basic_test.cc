@@ -3933,18 +3933,25 @@ TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
   DestroyAndReopen(options);
 
   // Put
+  // Create two SST files
+  // file1: key => [1, 2], timestamp => [10, 20]
+  // file2, key => [3, 4], timestamp => [30, 40]
   {
     WriteOptions write_opts;
     std::string write_ts = Timestamp(10, 0);
-    ASSERT_OK(
-        db_->Put(write_opts, Key1(1), write_ts, "value" + std::to_string(1)));
+    ASSERT_OK(db_->Put(write_opts, Key1(1), write_ts, "value1"));
     write_ts = Timestamp(20, 0);
-    ASSERT_OK(
-        db_->Put(write_opts, Key1(2), write_ts, "value" + std::to_string(2)));
+    ASSERT_OK(db_->Put(write_opts, Key1(2), write_ts, "value2"));
+    ASSERT_OK(Flush());
+
+    write_ts = Timestamp(30, 0);
+    ASSERT_OK(db_->Put(write_opts, Key1(3), write_ts, "value3"));
+    write_ts = Timestamp(40, 0);
+    ASSERT_OK(db_->Put(write_opts, Key1(4), write_ts, "value4"));
     ASSERT_OK(Flush());
   }
 
-  // Get
+  // Get with timestamp
   {
     auto prev_checked_events = options.statistics->getTickerCount(
         Tickers::TIMESTAMP_FILTER_TABLE_CHECKED);
@@ -3964,12 +3971,12 @@ TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
     ASSERT_EQ(value_from_get, std::string(""));
     ASSERT_EQ(timestamp_from_get, std::string(""));
 
-    // the table read was skipped because the timestamp is out of the table
-    // range
-    ASSERT_EQ(prev_checked_events + 1,
+    // The table read was skipped because the timestamp is out of the table
+    // range. The tickers increase by 2 due to 2 files.
+    ASSERT_EQ(prev_checked_events + 2,
               options.statistics->getTickerCount(
                   Tickers::TIMESTAMP_FILTER_TABLE_CHECKED));
-    ASSERT_EQ(prev_filtered_events + 1,
+    ASSERT_EQ(prev_filtered_events + 2,
               options.statistics->getTickerCount(
                   Tickers::TIMESTAMP_FILTER_TABLE_FILTERED));
 
@@ -3979,15 +3986,16 @@ TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
     read_opts.timestamp = &read_ts_slice;
     ASSERT_OK(
         db_->Get(read_opts, Key1(1), &value_from_get, &timestamp_from_get));
-
-    ASSERT_EQ("value" + std::to_string(1), value_from_get);
+    ASSERT_EQ("value1", value_from_get);
     ASSERT_EQ(Timestamp(10, 0), timestamp_from_get);
-    // the table read was not skipped because the timestamp is in the table
-    // range
-    ASSERT_EQ(prev_checked_events + 2,
+
+    // The table read was not skipped because the timestamp is in the table
+    // range. The checked ticker increase by 2 due to 2 files.
+    // The filtered ticker increase by 1 because file2 was skipped
+    ASSERT_EQ(prev_checked_events + 4,
               options.statistics->getTickerCount(
                   Tickers::TIMESTAMP_FILTER_TABLE_CHECKED));
-    ASSERT_EQ(prev_filtered_events + 1,
+    ASSERT_EQ(prev_filtered_events + 3,
               options.statistics->getTickerCount(
                   Tickers::TIMESTAMP_FILTER_TABLE_FILTERED));
   }

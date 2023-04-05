@@ -923,11 +923,11 @@ Status BlockBasedTable::ReadPropertiesBlock(
     }
     auto min_ts_pos = props.find("rocksdb.timestamp_min");
     if (min_ts_pos != props.end()) {
-      rep_->min_timestamp = std::make_shared<Slice>(min_ts_pos->second);
+      rep_->min_timestamp = Slice(min_ts_pos->second);
     }
     auto max_ts_pos = props.find("rocksdb.timestamp_max");
     if (max_ts_pos != props.end()) {
-      rep_->max_timestamp = std::make_shared<Slice>(max_ts_pos->second);
+      rep_->max_timestamp = Slice(max_ts_pos->second);
     }
 
     rep_->index_has_first_key =
@@ -1992,11 +1992,11 @@ Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
 }
 
 bool BlockBasedTable::TimestampMayMatch(const ReadOptions& read_options) const {
-  RecordTick(rep_->ioptions.stats, TIMESTAMP_FILTER_TABLE_CHECKED);
-  if (read_options.timestamp != nullptr && rep_->min_timestamp != nullptr) {
+  if (read_options.timestamp != nullptr && !rep_->min_timestamp.empty()) {
+    RecordTick(rep_->ioptions.stats, TIMESTAMP_FILTER_TABLE_CHECKED);
     auto read_ts = read_options.timestamp;
     auto comparator = rep_->internal_comparator.user_comparator();
-    if (comparator->CompareTimestamp(*read_ts, *rep_->min_timestamp) < 0) {
+    if (comparator->CompareTimestamp(*read_ts, rep_->min_timestamp) < 0) {
       RecordTick(rep_->ioptions.stats, TIMESTAMP_FILTER_TABLE_FILTERED);
       return false;
     }
@@ -2008,6 +2008,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                             GetContext* get_context,
                             const SliceTransform* prefix_extractor,
                             bool skip_filters) {
+  // Similar to Bloom filter !may_match
+  // If timestamp is beyond the range of the table, skip
   if (!TimestampMayMatch(read_options)) {
     return Status::OK();
   }

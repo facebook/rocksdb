@@ -597,9 +597,11 @@ struct BlockBasedTable::Rep {
   // move is involved
   int level;
 
-  // timestamp range
-  std::shared_ptr<Slice> min_timestamp = nullptr;
-  std::shared_ptr<Slice> max_timestamp = nullptr;
+  // the timestamp range of table
+  // Points into memory owned by TableProperties. This would need to change if
+  // TableProperties become subject to cache eviction.
+  Slice min_timestamp;
+  Slice max_timestamp;
 
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.
