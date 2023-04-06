@@ -287,7 +287,7 @@ public abstract class AbstractMutableOptions {
      * @param ignoreUnknown if this is not set, throw an exception when a key is not in the known
      *     set
      * @return the same object, after adding options
-     * @throws IllegalArgumentException if the key is unkown, or a value has the wrong type/form
+     * @throws IllegalArgumentException if the key is unknown, or a value has the wrong type/form
      */
     private U fromOptionString(final OptionString.Entry option, final boolean ignoreUnknown)
         throws IllegalArgumentException {

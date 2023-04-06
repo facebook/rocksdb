@@ -711,8 +711,8 @@ public class RocksDB extends RocksObject {
         columnFamilyOptions.nativeHandle_, cfNames);
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
-    for (int i = 0; i < cfHandles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandles[i]);
+    for (long cfHandle : cfHandles) {
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle);
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -744,8 +744,8 @@ public class RocksDB extends RocksObject {
         cfOptsHandles, cfNames);
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
-    for (int i = 0; i < cfHandles.length; i++) {
-      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandles[i]);
+    for (long cfHandle : cfHandles) {
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandle);
       columnFamilyHandles.add(columnFamilyHandle);
     }
     ownedColumnFamilyHandles.addAll(columnFamilyHandles);
@@ -4219,7 +4219,7 @@ public class RocksDB extends RocksObject {
       final AbstractTraceWriter traceWriter) throws RocksDBException {
     startTrace(nativeHandle_, traceOptions.getMaxTraceFileSize(),
         traceWriter.nativeHandle_);
-    /**
+    /*
      * NOTE: {@link #startTrace(long, long, long) transfers the ownership
      * from Java to C++, so we must disown the native handle here.
      */

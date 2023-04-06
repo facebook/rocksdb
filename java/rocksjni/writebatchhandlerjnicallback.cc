@@ -295,7 +295,7 @@ ROCKSDB_NAMESPACE::Status WriteBatchHandlerJniCallback::MarkBeginPrepare(
     std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::toCppStatus(m_env, exception);
     if (status == nullptr) {
-      // unkown status or exception occurred extracting status
+      // unknown status or exception occurred extracting status
       m_env->ExceptionDescribe();
       return ROCKSDB_NAMESPACE::Status::OK();  // TODO(AR) probably need a
                                                // better error code here
@@ -337,7 +337,7 @@ ROCKSDB_NAMESPACE::Status WriteBatchHandlerJniCallback::MarkNoop(
     std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::toCppStatus(m_env, exception);
     if (status == nullptr) {
-      // unkown status or exception occurred extracting status
+      // unknown status or exception occurred extracting status
       m_env->ExceptionDescribe();
       return ROCKSDB_NAMESPACE::Status::OK();  // TODO(AR) probably need a
                                                // better error code here
@@ -450,7 +450,7 @@ std::unique_ptr<ROCKSDB_NAMESPACE::Status> WriteBatchHandlerJniCallback::kv_op(
     std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::toCppStatus(m_env, exception);
     if (status == nullptr) {
-      // unkown status or exception occurred extracting status
+      // unknown status or exception occurred extracting status
       m_env->ExceptionDescribe();
       return nullptr;
 
@@ -497,7 +497,7 @@ std::unique_ptr<ROCKSDB_NAMESPACE::Status> WriteBatchHandlerJniCallback::k_op(
     std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::toCppStatus(m_env, exception);
     if (status == nullptr) {
-      // unkown status or exception occurred extracting status
+      // unknown status or exception occurred extracting status
       m_env->ExceptionDescribe();
       return nullptr;
 

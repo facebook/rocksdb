@@ -106,8 +106,8 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   private static long packToLong(final EnabledEventCallback... enabledEventCallbacks) {
     long l = 0;
-    for (int i = 0; i < enabledEventCallbacks.length; i++) {
-      l |= 1 << enabledEventCallbacks[i].getValue();
+    for (EnabledEventCallback enabledEventCallback : enabledEventCallbacks) {
+      l |= 1 << enabledEventCallback.getValue();
     }
     return l;
   }

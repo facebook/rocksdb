@@ -44,7 +44,7 @@ public enum WALRecoveryMode {
    */
   SkipAnyCorruptedRecords((byte)0x03);
 
-  private byte value;
+  private final byte value;
 
   WALRecoveryMode(final byte value) {
     this.value = value;
