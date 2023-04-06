@@ -43,8 +43,7 @@ public interface WriteBatchInterface {
         throws RocksDBException;
 
     /**
-     * <p>Store the mapping "key-&gt;value" within given column
-     * family.</p>
+     * <p>Store the mapping "key-&gt;value" in the database.</p>
      *
      * @param key the specified key to be inserted. It is using position and limit.
      *     Supports direct buffer only.
@@ -111,7 +110,7 @@ public interface WriteBatchInterface {
     void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws RocksDBException;
 
     /**
-     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
      *
      * @param key Key to delete within database. It is using position and limit.
      *     Supports direct buffer only.
@@ -159,7 +158,7 @@ public interface WriteBatchInterface {
     /**
      * Remove the database entry for {@code key}. Requires that the key exists
      * and was not overwritten. It is not an error if the key did not exist
-     * in the database.
+     * in the column family.
      *
      * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
      * times), then the result of calling SingleDelete() on this key is undefined.
@@ -206,7 +205,7 @@ public interface WriteBatchInterface {
      *
      * Delete the database entry (if any) for "key". Returns OK on success, and a
      * non-OK status on error. It is not an error if "key" did not exist in the
-     * database.
+     * column family.
      *
      * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
      * @param beginKey
