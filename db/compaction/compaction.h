@@ -546,13 +546,16 @@ struct PerKeyPlacementContext {
   const Slice value;
   const SequenceNumber seq_num;
 
-  bool output_to_penultimate_level;
+  bool& output_to_penultimate_level;
 
   PerKeyPlacementContext(int _level, Slice _key, Slice _value,
-                         SequenceNumber _seq_num)
-      : level(_level), key(_key), value(_value), seq_num(_seq_num) {
-    output_to_penultimate_level = false;
-  }
+                         SequenceNumber _seq_num,
+                         bool& _output_to_penultimate_level)
+      : level(_level),
+        key(_key),
+        value(_value),
+        seq_num(_seq_num),
+        output_to_penultimate_level(_output_to_penultimate_level) {}
 };
 #endif /* !NDEBUG */
 
