@@ -100,19 +100,18 @@ Status ListColumnFamiliesHandler::ApplyVersionEdit(
     VersionEdit& edit, ColumnFamilyData** /*unused*/) {
   Status s;
   if (edit.is_column_family_add_) {
-    if (column_family_names_.find(edit.column_family_) !=
-        column_family_names_.end()) {
+    auto success = column_family_names_
+                       .insert({edit.column_family_, edit.column_family_name_})
+                       .second;
+    if (!success) {
       s = Status::Corruption("Manifest adding the same column family twice");
-    } else {
-      column_family_names_.insert(
-          {edit.column_family_, edit.column_family_name_});
     }
   } else if (edit.is_column_family_drop_) {
-    if (column_family_names_.find(edit.column_family_) ==
-        column_family_names_.end()) {
+    auto iter = column_family_names_.find(edit.column_family_);
+    if (iter == column_family_names_.end()) {
       s = Status::Corruption("Manifest - dropping non-existing column family");
     } else {
-      column_family_names_.erase(edit.column_family_);
+      column_family_names_.erase(iter);
     }
   }
   return s;
@@ -829,12 +828,10 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
       version->PrepareAppend(
           *cfd->GetLatestMutableCFOptions(),
           !version_set_->db_options_->skip_stats_update_on_db_open);
-      auto v_iter = versions_.find(cfd->GetID());
-      if (v_iter != versions_.end()) {
+      auto [v_iter, success] = versions_.emplace(cfd->GetID(), version);
+      if (!success) {
         delete v_iter->second;
         v_iter->second = version;
-      } else {
-        versions_.emplace(cfd->GetID(), version);
       }
     } else {
       delete version;

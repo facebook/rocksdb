@@ -2816,16 +2816,9 @@ IOStatus BackupEngineImpl::GarbageCollect() {
 
 IOStatus BackupEngineImpl::BackupMeta::AddFile(
     std::shared_ptr<FileInfo> file_info) {
-  auto itr = file_infos_->find(file_info->filename);
-  if (itr == file_infos_->end()) {
-    auto ret = file_infos_->insert({file_info->filename, file_info});
-    if (ret.second) {
-      itr = ret.first;
-      itr->second->refs = 1;
-    } else {
-      // if this happens, something is seriously wrong
-      return IOStatus::Corruption("In memory metadata insertion error");
-    }
+  auto [itr, success] = file_infos_->insert({file_info->filename, file_info});
+  if (success) {
+    itr->second->refs = 1;
   } else {
     // Compare sizes, because we scanned that off the filesystem on both
     // ends. This is like a check in VerifyBackup.

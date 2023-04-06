@@ -6857,9 +6857,8 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
     VersionStorageInfo* storage_info = v->storage_info();
     for (int level = 0; level < storage_info->num_levels_; level++) {
       for (const auto& file_meta : storage_info->LevelFiles(level)) {
-        if (unique_files.find(file_meta->fd.packed_number_and_path_id) ==
-            unique_files.end()) {
-          unique_files.insert(file_meta->fd.packed_number_and_path_id);
+        if (unique_files.insert(file_meta->fd.packed_number_and_path_id)
+                .second) {
           total_files_size += file_meta->fd.GetFileSize();
         }
       }
@@ -6885,9 +6884,8 @@ uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
 
       const uint64_t blob_file_number = meta->GetBlobFileNumber();
 
-      if (unique_blob_files.find(blob_file_number) == unique_blob_files.end()) {
+      if (unique_blob_files.insert(blob_file_number).second) {
         // find Blob file that has not been counted
-        unique_blob_files.insert(blob_file_number);
         all_versions_blob_file_size += meta->GetBlobFileSize();
       }
     }

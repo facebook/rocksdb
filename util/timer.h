@@ -70,10 +70,10 @@ class Timer {
         fn_info->next_run_time_us < heap_.top()->next_run_time_us) {
       return false;
     }
-    auto it = map_.find(fn_name);
-    if (it == map_.end()) {
+    auto [it, success] = map_.emplace(fn_name, nullptr);
+    if (success) {
       heap_.push(fn_info.get());
-      map_.try_emplace(fn_name, std::move(fn_info));
+      it->second = std::move(fn_info);
     } else {
       // timer doesn't support duplicated function name
       return false;
