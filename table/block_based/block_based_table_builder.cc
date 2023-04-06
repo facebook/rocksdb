@@ -1571,6 +1571,10 @@ void BlockBasedTableBuilder::WriteIndexBlock(
 // to influence the checksum result toward collision with another
 // SST file's checksum.
 void BlockBasedTableBuilder::WriteSalt() {
+  if (!ok()) {
+    return;
+  }
+
   static UnpredictableUniqueIdGen gen;
   std::array<uint64_t, 2> vals;
   // Get some entropy from the checksum of the table properties, which
