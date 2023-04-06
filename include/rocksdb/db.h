@@ -1763,6 +1763,15 @@ class DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) = 0;
 
+
+  // ClipDB() will clip the entries in the CF according to the range [begin_key, end_key). 
+  // Returns OK on success, and a non-OK status on error.
+  // Any entries outside this range will be completely deleted (including tombstones).
+  // This feature is mainly used to ensure that there is no overlapping Key when calling 
+  // CreateColumnFamilyWithImports() to import multiple CFs.
+  virtual Status ClipDB(ColumnFamilyHandle* column_family,
+                const Slice& begin_key, const Slice& end_key) = 0;
+
   // Verify the checksums of files in db. Currently the whole-file checksum of
   // table files are checked.
   virtual Status VerifyFileChecksums(const ReadOptions& /*read_options*/) {

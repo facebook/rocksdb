@@ -4522,7 +4522,6 @@ void DBImpl::GetAllColumnFamilyMetaData(
   }
 }
 
-
 Status DBImpl::CheckConsistency() {
   mutex_.AssertHeld();
   std::vector<LiveFileMetaData> metadata;
@@ -5702,6 +5701,52 @@ Status DBImpl::CreateColumnFamilyWithImport(
     assert(temp_s.ok());
     *handle = nullptr;
   }
+  return status;
+}
+
+Status DBImpl::ClipDB(ColumnFamilyHandle* column_family,
+                      const Slice& begin_key, const Slice& end_key) {
+  assert(column_family);
+  Status status;
+
+  // DeleteFilesInRanges non-overlap files except L0
+  std::vector<RangePtr> ranges;
+  ranges.push_back(RangePtr(nullptr, &begin_key));
+  ranges.push_back(RangePtr(&end_key, nullptr));
+  status = DeleteFilesInRanges(column_family, ranges.data(), ranges.size());
+  if (!status.ok()) {
+    return status;
+  }
+
+  // DeleteRange the remaining overlapping keys
+  auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  Slice smallest_user_key, largest_user_key;
+  cfd->current()->GetSstFilesBoundaryKeys(&smallest_user_key, &largest_user_key);
+  const Comparator* const ucmp = column_family->GetComparator();
+  WriteOptions wo;
+  // Delete [smallest_user_key, clip_begin_key) 
+  if (ucmp->Compare(smallest_user_key, begin_key) < 0) {
+    status = DeleteRange(wo, column_family, smallest_user_key, begin_key);
+  } 
+  if (!status.ok()) {
+    return status;
+  }
+  // Delete [clip_end_key, largest_use_key]
+  if (ucmp->Compare(end_key, largest_user_key) < 0) {
+    status = DeleteRange(wo, column_family, end_key, largest_user_key);
+    if (status.ok()) {
+      status = Delete(wo, column_family, largest_user_key);  
+    }
+  }
+  if(!status.ok()) {
+    return status;
+  }
+  
+  // CompactRange delete all the tombstones
+  CompactRangeOptions compact_options;
+  compact_options.exclusive_manual_compaction = true;
+  compact_options.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  status = CompactRange(compact_options, nullptr, nullptr);
   return status;
 }
 

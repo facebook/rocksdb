@@ -178,6 +178,12 @@ class StackableDB : public DB {
                                              import_options, metadata, handle);
   }
 
+  using DB::ClipDB;
+  virtual Status ClipDB(ColumnFamilyHandle* column_family,
+                const Slice& begin_key, const Slice& end_key) override {
+    return db_->ClipDB(column_family, begin_key, end_key);
+  }
+
   using DB::VerifyFileChecksums;
   Status VerifyFileChecksums(const ReadOptions& read_opts) override {
     return db_->VerifyFileChecksums(read_opts);
