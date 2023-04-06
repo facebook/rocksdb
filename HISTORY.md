@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 8.1.1 (04/06/2023)
 ### Bug Fixes
 * In the DB::VerifyFileChecksums API, ensure that file system reads of SST files are equal to the readahead_size in ReadOptions, if specified. Previously, each read was 2x the readahead_size.
 
