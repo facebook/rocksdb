@@ -374,7 +374,7 @@ TEST_F(DBMergeOperatorTest, DataBlockBinaryAndHash) {
 
   const int kNumKeys = 100;
   for (int i = 0; i < kNumKeys; ++i) {
-    db_->Merge(WriteOptions(), Key(i), std::to_string(i));
+    ASSERT_OK(db_->Merge(WriteOptions(), Key(i), std::to_string(i)));
   }
   ASSERT_OK(Flush());
   std::string value;
@@ -385,9 +385,9 @@ TEST_F(DBMergeOperatorTest, DataBlockBinaryAndHash) {
 
   std::vector<const Snapshot*> snapshots;
   for (int i = 0; i < kNumKeys; ++i) {
-    db_->Delete(WriteOptions(), Key(i));
+    ASSERT_OK(db_->Delete(WriteOptions(), Key(i)));
     for (int j = 0; j < 3; ++j) {
-      db_->Merge(WriteOptions(), Key(i), std::to_string(i * 3 + j));
+      ASSERT_OK(db_->Merge(WriteOptions(), Key(i), std::to_string(i * 3 + j)));
       snapshots.push_back(db_->GetSnapshot());
     }
   }
