@@ -26,7 +26,7 @@
 namespace ROCKSDB_NAMESPACE {
 class JemallocNodumpAllocator : public BaseMemoryAllocator {
  public:
-  explicit JemallocNodumpAllocator(JemallocAllocatorOptions& options);
+  explicit JemallocNodumpAllocator(const JemallocAllocatorOptions& options);
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
   ~JemallocNodumpAllocator();
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
@@ -53,7 +53,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   Status InitializeArenas();
 
   friend Status NewJemallocNodumpAllocator(
-      JemallocAllocatorOptions& options,
+      const JemallocAllocatorOptions& options,
       std::shared_ptr<MemoryAllocator>* memory_allocator);
 
   // Custom alloc hook to replace jemalloc default alloc.
