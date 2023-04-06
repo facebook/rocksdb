@@ -494,6 +494,8 @@ class BlockBasedTable : public TableReader {
   // in building the table file, otherwise true.
   bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
 
+  bool TimestampMayMatch(const ReadOptions& read_options) const;
+
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
   static constexpr size_t kMultiGetReadStackBufSize = 8192;
@@ -594,6 +596,12 @@ struct BlockBasedTable::Rep {
   // the level when the table is opened, could potentially change when trivial
   // move is involved
   int level;
+
+  // the timestamp range of table
+  // Points into memory owned by TableProperties. This would need to change if
+  // TableProperties become subject to cache eviction.
+  Slice min_timestamp;
+  Slice max_timestamp;
 
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.
