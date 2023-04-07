@@ -67,6 +67,7 @@
 #include "table/two_level_iterator.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
+#include "test_util/thread_io_activity.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/coro_utils.h"
@@ -1566,8 +1567,9 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(
           std::move(file), file_name, nullptr /* env */, io_tracer_,
-          nullptr /* stats */, 0 /* hist_type */, nullptr /* file_read_hist */,
-          nullptr /* rate_limiter */, ioptions->listeners));
+          nullptr /* stats */, Histograms::SST_READ_MICROS /* hist_type */,
+          nullptr /* file_read_hist */, nullptr /* rate_limiter */,
+          ioptions->listeners));
   std::unique_ptr<TableProperties> props;
   s = ReadTableProperties(
       file_reader.get(), file_meta->fd.GetFileSize(),
@@ -4971,7 +4973,8 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 Status VersionSet::ProcessManifestWrites(
     std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
     FSDirectory* dir_contains_current_file, bool new_descriptor_log,
-    const ColumnFamilyOptions* new_cf_options) {
+    const ColumnFamilyOptions* new_cf_options,
+    const ReadOptions& read_options) {
   mu->AssertHeld();
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
@@ -5202,7 +5205,7 @@ Status VersionSet::ProcessManifestWrites(
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
             mutable_cf_options_ptrs[i]->prefix_extractor,
-            MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]));
+            MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]), read_options);
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
             break;
@@ -5528,6 +5531,7 @@ void VersionSet::WakeUpWaitingManifestWriters() {
 Status VersionSet::LogAndApply(
     const autovector<ColumnFamilyData*>& column_family_datas,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+    const ReadOptions& read_options,
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
@@ -5605,7 +5609,8 @@ Status VersionSet::LogAndApply(
     return Status::ColumnFamilyDropped();
   }
   return ProcessManifestWrites(writers, mu, dir_contains_current_file,
-                               new_descriptor_log, new_cf_options);
+                               new_descriptor_log, new_cf_options,
+                               read_options);
 }
 
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
@@ -5689,6 +5694,7 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool no_error_if_files_missing) {
+  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kRecovery);
   // Read "CURRENT" file, which contains a pointer to the current manifest
   // file
   std::string manifest_path;
@@ -5722,11 +5728,12 @@ Status VersionSet::Recover(
     reporter.status = &log_read_status;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
+    const ReadOptions read_options(Env::IOActivity::kRecovery);
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
         /*track_missing_files=*/false, no_error_if_files_missing, io_tracer_,
         EpochNumberRequirement::kMightMissing);
-    handler.Iterate(reader, &log_read_status);
+    handler.Iterate(read_options, reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
       log_number = handler.GetVersionEditParams().log_number_;
@@ -5873,6 +5880,7 @@ Status VersionSet::TryRecoverFromOneManifest(
     const std::string& manifest_path,
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool* has_missing_table_file) {
+  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kRecovery);
   ROCKS_LOG_INFO(db_options_->info_log, "Trying to recover from manifest: %s\n",
                  manifest_path.c_str());
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
@@ -5895,11 +5903,12 @@ Status VersionSet::TryRecoverFromOneManifest(
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                      /*checksum=*/true, /*log_num=*/0);
+  const ReadOptions read_options(Env::IOActivity::kRecovery);
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
       EpochNumberRequirement::kMightMissing);
 
-  handler_pit.Iterate(reader, &s);
+  handler_pit.Iterate(read_options, reader, &s);
 
   handler_pit.GetDbId(db_id);
 
@@ -5958,9 +5967,11 @@ Status VersionSet::ListColumnFamiliesFromManifest(
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
 
   ListColumnFamiliesHandler handler;
-  handler.Iterate(reader, &s);
+  handler.Iterate(read_options, reader, &s);
 
   assert(column_families);
   column_families->clear();
@@ -6065,12 +6076,14 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   vstorage->ResizeCompactCursors(new_levels);
 
   MutableCFOptions mutable_cf_options(*options);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   VersionEdit ve;
   InstrumentedMutex dummy_mutex;
   InstrumentedMutexLock l(&dummy_mutex);
   return versions.LogAndApply(versions.GetColumnFamilySet()->GetDefault(),
-                              mutable_cf_options, &ve, &dummy_mutex, nullptr,
-                              true);
+                              mutable_cf_options, read_options, &ve,
+                              &dummy_mutex, nullptr, true);
 }
 
 // Get the checksum information including the checksum and checksum function
@@ -6175,7 +6188,9 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     reporter.status = &s;
     log::Reader reader(nullptr, std::move(file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-    handler.Iterate(reader, &s);
+    // TODO: plumb Env::IOActivity
+    const ReadOptions read_options;
+    handler.Iterate(read_options, reader, &s);
   }
 
   return handler.status();
@@ -7002,6 +7017,7 @@ Status ReactiveVersionSet::Recover(
   assert(manifest_reporter != nullptr);
   assert(manifest_reader_status != nullptr);
 
+  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kRecovery);
   manifest_reader_status->reset(new Status());
   manifest_reporter->reset(new LogReporter());
   static_cast_with_check<LogReporter>(manifest_reporter->get())->status =
@@ -7012,12 +7028,14 @@ Status ReactiveVersionSet::Recover(
   }
   log::Reader* reader = manifest_reader->get();
   assert(reader);
+  const ReadOptions read_options(Env::IOActivity::kRecovery);
 
   manifest_tailer_.reset(
       new ManifestTailer(column_families, const_cast<ReactiveVersionSet*>(this),
                          io_tracer_, EpochNumberRequirement::kMightMissing));
 
-  manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
+  manifest_tailer_->Iterate(read_options, *reader,
+                            manifest_reader_status->get());
 
   s = manifest_tailer_->status();
   if (s.ok()) {
@@ -7042,7 +7060,10 @@ Status ReactiveVersionSet::ReadAndApply(
   if (!s.ok()) {
     return s;
   }
-  manifest_tailer_->Iterate(*(manifest_reader->get()), manifest_read_status);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
+  manifest_tailer_->Iterate(read_options, *(manifest_reader->get()),
+                            manifest_read_status);
   s = manifest_tailer_->status();
   if (s.ok()) {
     *cfds_changed = std::move(manifest_tailer_->GetUpdatedColumnFamilies());

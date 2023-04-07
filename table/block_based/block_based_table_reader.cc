@@ -583,6 +583,7 @@ Status BlockBasedTable::Open(
   ro.io_timeout = read_options.io_timeout;
   ro.rate_limiter_priority = read_options.rate_limiter_priority;
   ro.verify_checksums = read_options.verify_checksums;
+  ro.io_activity = read_options.io_activity;
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;

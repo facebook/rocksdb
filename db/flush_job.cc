@@ -43,6 +43,7 @@
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
+#include "test_util/thread_io_activity.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
@@ -210,6 +211,7 @@ void FlushJob::PickMemTable() {
 Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
                      bool* switched_to_mempurge) {
   TEST_SYNC_POINT("FlushJob::Start");
+  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kFlush);
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
   // Mempurge threshold can be dynamically changed.
@@ -841,6 +843,7 @@ Status FlushJob::WriteLevel0Table() {
         range_del_iters;
     ReadOptions ro;
     ro.total_order_seek = true;
+    ro.io_activity = Env::IOActivity::kFlush;
     Arena arena;
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     uint64_t total_data_size = 0;
@@ -930,17 +933,19 @@ Status FlushJob::WriteLevel0Table() {
           meta_.fd.GetNumber());
       const SequenceNumber job_snapshot_seq =
           job_context_->GetJobSnapshotSequence();
-      s = BuildTable(
-          dbname_, versions_, db_options_, tboptions, file_options_,
-          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
-          &blob_file_additions, existing_snapshots_,
-          earliest_write_conflict_snapshot_, job_snapshot_seq,
-          snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
-          cfd_->internal_stats(), &io_s, io_tracer_,
-          BlobFileCreationReason::kFlush, seqno_to_time_mapping_, event_logger_,
-          job_context_->job_id, io_priority, &table_properties_, write_hint,
-          full_history_ts_low, blob_callback_, base_, &num_input_entries,
-          &memtable_payload_bytes, &memtable_garbage_bytes);
+      const ReadOptions read_options(Env::IOActivity::kFlush);
+      s = BuildTable(dbname_, versions_, db_options_, tboptions, file_options_,
+                     read_options, cfd_->table_cache(), iter.get(),
+                     std::move(range_del_iters), &meta_, &blob_file_additions,
+                     existing_snapshots_, earliest_write_conflict_snapshot_,
+                     job_snapshot_seq, snapshot_checker_,
+                     mutable_cf_options_.paranoid_file_checks,
+                     cfd_->internal_stats(), &io_s, io_tracer_,
+                     BlobFileCreationReason::kFlush, seqno_to_time_mapping_,
+                     event_logger_, job_context_->job_id, io_priority,
+                     &table_properties_, write_hint, full_history_ts_low,
+                     blob_callback_, base_, &num_input_entries,
+                     &memtable_payload_bytes, &memtable_garbage_bytes);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
       io_s.PermitUncheckedError();

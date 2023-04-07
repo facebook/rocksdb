@@ -24,7 +24,8 @@ class VersionEditHandlerBase {
 
   virtual ~VersionEditHandlerBase() {}
 
-  void Iterate(log::Reader& reader, Status* log_read_status);
+  void Iterate(const ReadOptions& read_options, log::Reader& reader,
+               Status* log_read_status);
 
   const Status& status() const { return status_; }
 
@@ -35,10 +36,12 @@ class VersionEditHandlerBase {
       : max_manifest_read_size_(max_read_size) {}
   virtual Status Initialize() { return Status::OK(); }
 
-  virtual Status ApplyVersionEdit(VersionEdit& edit,
+  virtual Status ApplyVersionEdit(const ReadOptions& read_options,
+                                  VersionEdit& edit,
                                   ColumnFamilyData** cfd) = 0;
 
-  virtual void CheckIterationResult(const log::Reader& /*reader*/,
+  virtual void CheckIterationResult(const ReadOptions& /* read_options*/,
+                                    const log::Reader& /*reader*/,
                                     Status* /*s*/) {}
 
   void ClearReadBuffer() { read_buffer_.Clear(); }
@@ -61,7 +64,7 @@ class ListColumnFamiliesHandler : public VersionEditHandlerBase {
   }
 
  protected:
-  Status ApplyVersionEdit(VersionEdit& edit,
+  Status ApplyVersionEdit(const ReadOptions& read_options, VersionEdit& edit,
                           ColumnFamilyData** /*unused*/) override;
 
  private:
@@ -80,7 +83,7 @@ class FileChecksumRetriever : public VersionEditHandlerBase {
   ~FileChecksumRetriever() override {}
 
  protected:
-  Status ApplyVersionEdit(VersionEdit& edit,
+  Status ApplyVersionEdit(const ReadOptions& read_options, VersionEdit& edit,
                           ColumnFamilyData** /*unused*/) override;
 
  private:
@@ -141,13 +144,15 @@ class VersionEditHandler : public VersionEditHandlerBase {
       EpochNumberRequirement epoch_number_requirement =
           EpochNumberRequirement::kMustPresent);
 
-  Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
+  Status ApplyVersionEdit(const ReadOptions& read_options, VersionEdit& edit,
+                          ColumnFamilyData** cfd) override;
 
   virtual Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd);
 
   Status OnColumnFamilyDrop(VersionEdit& edit, ColumnFamilyData** cfd);
 
-  Status OnNonCfOperation(VersionEdit& edit, ColumnFamilyData** cfd);
+  Status OnNonCfOperation(const ReadOptions& read_options, VersionEdit& edit,
+                          ColumnFamilyData** cfd);
 
   Status OnWalAddition(VersionEdit& edit);
 
@@ -158,18 +163,21 @@ class VersionEditHandler : public VersionEditHandlerBase {
   void CheckColumnFamilyId(const VersionEdit& edit, bool* cf_in_not_found,
                            bool* cf_in_builders) const;
 
-  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+  void CheckIterationResult(const ReadOptions& read_options,
+                            const log::Reader& reader, Status* s) override;
 
   ColumnFamilyData* CreateCfAndInit(const ColumnFamilyOptions& cf_options,
                                     const VersionEdit& edit);
 
   virtual ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit);
 
-  virtual Status MaybeCreateVersion(const VersionEdit& edit,
+  virtual Status MaybeCreateVersion(const ReadOptions& read_options,
+                                    const VersionEdit& edit,
                                     ColumnFamilyData* cfd,
                                     bool force_create_version);
 
-  virtual Status LoadTables(ColumnFamilyData* cfd,
+  virtual Status LoadTables(const ReadOptions& read_options,
+                            ColumnFamilyData* cfd,
                             bool prefetch_index_and_filter_in_cache,
                             bool is_initial_load);
 
@@ -217,16 +225,18 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ~VersionEditHandlerPointInTime() override;
 
  protected:
-  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+  void CheckIterationResult(const ReadOptions& read_options,
+                            const log::Reader& reader, Status* s) override;
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
-  Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
+  Status MaybeCreateVersion(const ReadOptions& read_options,
+                            const VersionEdit& edit, ColumnFamilyData* cfd,
                             bool force_create_version) override;
   virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
                             int level, const FileMetaData& fmeta);
   virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
                                 const BlobFileAddition& blob_addition);
 
-  Status LoadTables(ColumnFamilyData* cfd,
+  Status LoadTables(const ReadOptions& read_options, ColumnFamilyData* cfd,
                     bool prefetch_index_and_filter_in_cache,
                     bool is_initial_load) override;
 
@@ -259,11 +269,13 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
 
   bool MustOpenAllColumnFamilies() const override { return false; }
 
-  Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
+  Status ApplyVersionEdit(const ReadOptions& read_options, VersionEdit& edit,
+                          ColumnFamilyData** cfd) override;
 
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
-  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+  void CheckIterationResult(const ReadOptions& read_options,
+                            const log::Reader& reader, Status* s) override;
 
   Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
                     const FileMetaData& fmeta) override;
@@ -297,7 +309,8 @@ class DumpManifestHandler : public VersionEditHandler {
 
   ~DumpManifestHandler() override {}
 
-  Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override {
+  Status ApplyVersionEdit(const ReadOptions& read_options, VersionEdit& edit,
+                          ColumnFamilyData** cfd) override {
     // Write out each individual edit
     if (verbose_ && !json_) {
       // Print out DebugStrings. Can include non-terminating null characters.
@@ -309,10 +322,11 @@ class DumpManifestHandler : public VersionEditHandler {
              edit.DebugString(hex_).size(), stdout);
     }
     ++count_;
-    return VersionEditHandler::ApplyVersionEdit(edit, cfd);
+    return VersionEditHandler::ApplyVersionEdit(read_options, edit, cfd);
   }
 
-  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+  void CheckIterationResult(const ReadOptions& read_options,
+                            const log::Reader& reader, Status* s) override;
 
  private:
   const bool verbose_;

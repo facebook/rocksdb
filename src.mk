@@ -218,6 +218,7 @@ LIB_SOURCES =                                                   \
   table/unique_id.cc                                            \
   test_util/sync_point.cc                                       \
   test_util/sync_point_impl.cc                                  \
+  test_util/thread_io_activity.cc                               \
   test_util/transaction_test_util.cc                            \
   tools/dump/db_dump_tool.cc                                    \
   trace_replay/trace_record_handler.cc                          \

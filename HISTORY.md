@@ -17,6 +17,7 @@
 ### New Features
 * Add experimental `PerfContext` counters `iter_{next|prev|seek}_count` for db iterator, each counting the times of corresponding API being called.
 * Allow runtime changes to whether `WriteBufferManager` allows stall or not by calling `SetAllowStall()`
+* New statistics `rocksdb.sst.read.{flush|compaction}.micros` that measures read time of block-based SST tables during flush or compaction, in addition to the existing aggregated statistics `rocksdb.sst.read.micros`
 
 ### Bug Fixes
 * In block cache tracing, fixed some cases of bad hit/miss information (and more) with MultiGet.

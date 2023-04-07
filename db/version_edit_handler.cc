@@ -20,7 +20,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void VersionEditHandlerBase::Iterate(log::Reader& reader,
+void VersionEditHandlerBase::Iterate(const ReadOptions& read_options,
+                                     log::Reader& reader,
+
                                      Status* log_read_status) {
   Slice record;
   std::string scratch;
@@ -45,7 +47,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
     if (edit.is_in_atomic_group_) {
       if (read_buffer_.IsFull()) {
         for (auto& e : read_buffer_.replay_buffer()) {
-          s = ApplyVersionEdit(e, &cfd);
+          s = ApplyVersionEdit(read_options, e, &cfd);
           if (!s.ok()) {
             break;
           }
@@ -57,7 +59,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
         read_buffer_.Clear();
       }
     } else {
-      s = ApplyVersionEdit(edit, &cfd);
+      s = ApplyVersionEdit(read_options, edit, &cfd);
       if (s.ok()) {
         ++recovered_edits;
       }
@@ -67,7 +69,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
     s = *log_read_status;
   }
 
-  CheckIterationResult(reader, &s);
+  CheckIterationResult(read_options, reader, &s);
 
   if (!s.ok()) {
     if (s.IsCorruption()) {
@@ -97,7 +99,8 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
 }
 
 Status ListColumnFamiliesHandler::ApplyVersionEdit(
-    VersionEdit& edit, ColumnFamilyData** /*unused*/) {
+    const ReadOptions& /* read_options */, VersionEdit& edit,
+    ColumnFamilyData** /*unused*/) {
   Status s;
   if (edit.is_column_family_add_) {
     if (column_family_names_.find(edit.column_family_) !=
@@ -118,8 +121,10 @@ Status ListColumnFamiliesHandler::ApplyVersionEdit(
   return s;
 }
 
-Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
-                                               ColumnFamilyData** /*unused*/) {
+Status FileChecksumRetriever::ApplyVersionEdit(
+    const ReadOptions& /* read_options */, VersionEdit& edit,
+    ColumnFamilyData** /*unused*/
+) {
   for (const auto& deleted_file : edit.GetDeletedFiles()) {
     Status s = file_checksum_list_.RemoveOneFileChecksum(deleted_file.second);
     if (!s.ok()) {
@@ -195,7 +200,8 @@ Status VersionEditHandler::Initialize() {
   return s;
 }
 
-Status VersionEditHandler::ApplyVersionEdit(VersionEdit& edit,
+Status VersionEditHandler::ApplyVersionEdit(const ReadOptions& read_options,
+                                            VersionEdit& edit,
                                             ColumnFamilyData** cfd) {
   Status s;
   if (edit.is_column_family_add_) {
@@ -207,7 +213,7 @@ Status VersionEditHandler::ApplyVersionEdit(VersionEdit& edit,
   } else if (edit.IsWalDeletion()) {
     s = OnWalDeletion(edit);
   } else {
-    s = OnNonCfOperation(edit, cfd);
+    s = OnNonCfOperation(read_options, edit, cfd);
   }
   if (s.ok()) {
     assert(cfd != nullptr);
@@ -286,7 +292,8 @@ Status VersionEditHandler::OnWalDeletion(VersionEdit& edit) {
       edit.GetWalDeletion().GetLogNumber());
 }
 
-Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
+Status VersionEditHandler::OnNonCfOperation(const ReadOptions& read_options,
+                                            VersionEdit& edit,
                                             ColumnFamilyData** cfd) {
   bool cf_in_not_found = false;
   bool cf_in_builders = false;
@@ -307,7 +314,8 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
       tmp_cfd = version_set_->GetColumnFamilySet()->GetColumnFamily(
           edit.column_family_);
       assert(tmp_cfd != nullptr);
-      s = MaybeCreateVersion(edit, tmp_cfd, /*force_create_version=*/false);
+      s = MaybeCreateVersion(read_options, edit, tmp_cfd,
+                             /*force_create_version=*/false);
       if (s.ok()) {
         s = builder_iter->second->version_builder()->Apply(&edit);
       }
@@ -359,7 +367,8 @@ void VersionEditHandler::CheckColumnFamilyId(const VersionEdit& edit,
   *cf_in_builders = in_builders;
 }
 
-void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
+void VersionEditHandler::CheckIterationResult(const ReadOptions& read_options,
+                                              const log::Reader& reader,
                                               Status* s) {
   assert(s != nullptr);
   if (!s->ok()) {
@@ -422,7 +431,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       if (read_only_) {
         cfd->table_cache()->SetTablesAreImmortal();
       }
-      *s = LoadTables(cfd, /*prefetch_index_and_filter_in_cache=*/false,
+      *s = LoadTables(read_options, cfd,
+                      /*prefetch_index_and_filter_in_cache=*/false,
                       /*is_initial_load=*/true);
       if (!s->ok()) {
         // If s is IOError::PathNotFound, then we mark the db as corrupted.
@@ -441,7 +451,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       }
       assert(cfd->initialized());
       VersionEdit edit;
-      *s = MaybeCreateVersion(edit, cfd, /*force_create_version=*/true);
+      *s = MaybeCreateVersion(read_options, edit, cfd,
+                              /*force_create_version=*/true);
       if (!s->ok()) {
         break;
       }
@@ -520,9 +531,9 @@ ColumnFamilyData* VersionEditHandler::DestroyCfAndCleanup(
   return ret;
 }
 
-Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
-                                              ColumnFamilyData* cfd,
-                                              bool force_create_version) {
+Status VersionEditHandler::MaybeCreateVersion(
+    const ReadOptions& /* read_options */, const VersionEdit& /*edit*/,
+    ColumnFamilyData* cfd, bool force_create_version) {
   assert(cfd->initialized());
   Status s;
   if (force_create_version) {
@@ -547,7 +558,8 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
   return s;
 }
 
-Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
+Status VersionEditHandler::LoadTables(const ReadOptions& read_options,
+                                      ColumnFamilyData* cfd,
                                       bool prefetch_index_and_filter_in_cache,
                                       bool is_initial_load) {
   bool skip_load_table_files = skip_load_table_files_;
@@ -569,7 +581,7 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load,
       cfd->GetLatestMutableCFOptions()->prefix_extractor,
-      MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
+      MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()), read_options);
   if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
   }
@@ -661,8 +673,8 @@ VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
 }
 
 void VersionEditHandlerPointInTime::CheckIterationResult(
-    const log::Reader& reader, Status* s) {
-  VersionEditHandler::CheckIterationResult(reader, s);
+    const ReadOptions& read_options, const log::Reader& reader, Status* s) {
+  VersionEditHandler::CheckIterationResult(read_options, reader, s);
   assert(s != nullptr);
   if (s->ok()) {
     for (auto* cfd : *(version_set_->column_family_set_)) {
@@ -698,7 +710,8 @@ ColumnFamilyData* VersionEditHandlerPointInTime::DestroyCfAndCleanup(
 }
 
 Status VersionEditHandlerPointInTime::MaybeCreateVersion(
-    const VersionEdit& edit, ColumnFamilyData* cfd, bool force_create_version) {
+    const ReadOptions& read_options, const VersionEdit& edit,
+    ColumnFamilyData* cfd, bool force_create_version) {
   assert(cfd != nullptr);
   if (!force_create_version) {
     assert(edit.column_family_ == cfd->GetID());
@@ -816,7 +829,8 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
         cfd->internal_stats(),
         version_set_->db_options_->max_file_opening_threads, false, true,
         cfd->GetLatestMutableCFOptions()->prefix_extractor,
-        MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
+        MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()),
+        read_options);
     if (!s.ok()) {
       delete version;
       if (s.IsCorruption()) {
@@ -866,8 +880,8 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
 }
 
 Status VersionEditHandlerPointInTime::LoadTables(
-    ColumnFamilyData* /*cfd*/, bool /*prefetch_index_and_filter_in_cache*/,
-    bool /*is_initial_load*/) {
+    const ReadOptions& /* read_options */, ColumnFamilyData* /*cfd*/,
+    bool /*prefetch_index_and_filter_in_cache*/, bool /*is_initial_load*/) {
   return Status::OK();
 }
 
@@ -899,9 +913,10 @@ Status ManifestTailer::Initialize() {
   return s;
 }
 
-Status ManifestTailer::ApplyVersionEdit(VersionEdit& edit,
+Status ManifestTailer::ApplyVersionEdit(const ReadOptions& read_options,
+                                        VersionEdit& edit,
                                         ColumnFamilyData** cfd) {
-  Status s = VersionEditHandler::ApplyVersionEdit(edit, cfd);
+  Status s = VersionEditHandler::ApplyVersionEdit(read_options, edit, cfd);
   if (s.ok()) {
     assert(cfd);
     if (*cfd) {
@@ -945,9 +960,11 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
   return Status::OK();
 }
 
-void ManifestTailer::CheckIterationResult(const log::Reader& reader,
+void ManifestTailer::CheckIterationResult(const ReadOptions& read_options,
+                                          const log::Reader& reader,
+
                                           Status* s) {
-  VersionEditHandlerPointInTime::CheckIterationResult(reader, s);
+  VersionEditHandlerPointInTime::CheckIterationResult(read_options, reader, s);
   assert(s);
   if (s->ok()) {
     if (Mode::kRecovery == mode_) {
@@ -968,9 +985,11 @@ Status ManifestTailer::VerifyFile(ColumnFamilyData* cfd,
   return s;
 }
 
-void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
+void DumpManifestHandler::CheckIterationResult(const ReadOptions& read_options,
+                                               const log::Reader& reader,
+
                                                Status* s) {
-  VersionEditHandler::CheckIterationResult(reader, s);
+  VersionEditHandler::CheckIterationResult(read_options, reader, s);
   if (!s->ok()) {
     fprintf(stdout, "%s\n", s->ToString().c_str());
     return;

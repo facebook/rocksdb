@@ -1136,13 +1136,13 @@ class VersionSet {
   virtual ~VersionSet();
 
   Status LogAndApplyToDefaultColumnFamily(
-      VersionEdit* edit, InstrumentedMutex* mu,
+      const ReadOptions& read_options, VersionEdit* edit, InstrumentedMutex* mu,
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     ColumnFamilyData* default_cf = GetColumnFamilySet()->GetDefault();
     const MutableCFOptions* cf_options =
         default_cf->GetLatestMutableCFOptions();
-    return LogAndApply(default_cf, *cf_options, edit, mu,
+    return LogAndApply(default_cf, *cf_options, read_options, edit, mu,
                        dir_contains_current_file, new_descriptor_log,
                        column_family_options);
   }
@@ -1155,9 +1155,9 @@ class VersionSet {
   // REQUIRES: no other thread concurrently calls LogAndApply()
   Status LogAndApply(
       ColumnFamilyData* column_family_data,
-      const MutableCFOptions& mutable_cf_options, VersionEdit* edit,
-      InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
-      bool new_descriptor_log = false,
+      const MutableCFOptions& mutable_cf_options,
+      const ReadOptions& read_options, VersionEdit* edit, InstrumentedMutex* mu,
+      FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
@@ -1167,8 +1167,8 @@ class VersionSet {
     autovector<VersionEdit*> edit_list;
     edit_list.emplace_back(edit);
     edit_lists.emplace_back(edit_list);
-    return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       dir_contains_current_file, new_descriptor_log,
+    return LogAndApply(cfds, mutable_cf_options_list, read_options, edit_lists,
+                       mu, dir_contains_current_file, new_descriptor_log,
                        column_family_options);
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
@@ -1176,6 +1176,7 @@ class VersionSet {
   Status LogAndApply(
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options,
+      const ReadOptions& read_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr,
@@ -1186,8 +1187,8 @@ class VersionSet {
     mutable_cf_options_list.emplace_back(&mutable_cf_options);
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
-    return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       dir_contains_current_file, new_descriptor_log,
+    return LogAndApply(cfds, mutable_cf_options_list, read_options, edit_lists,
+                       mu, dir_contains_current_file, new_descriptor_log,
                        column_family_options, {manifest_wcb});
   }
 
@@ -1197,6 +1198,7 @@ class VersionSet {
   virtual Status LogAndApply(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+      const ReadOptions& read_options,
       const autovector<autovector<VersionEdit*>>& edit_lists,
       InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
       bool new_descriptor_log = false,
@@ -1620,7 +1622,8 @@ class VersionSet {
                                InstrumentedMutex* mu,
                                FSDirectory* dir_contains_current_file,
                                bool new_descriptor_log,
-                               const ColumnFamilyOptions* new_cf_options);
+                               const ColumnFamilyOptions* new_cf_options,
+                               const ReadOptions& read_options);
 
   void LogAndApplyCFHelper(VersionEdit* edit,
                            SequenceNumber* max_last_sequence);
@@ -1679,6 +1682,7 @@ class ReactiveVersionSet : public VersionSet {
   Status LogAndApply(
       const autovector<ColumnFamilyData*>& /*cfds*/,
       const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
+      const ReadOptions& /* read_options */,
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
       InstrumentedMutex* /*mu*/, FSDirectory* /*dir_contains_current_file*/,
       bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,

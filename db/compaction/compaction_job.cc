@@ -55,6 +55,7 @@
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
+#include "test_util/thread_io_activity.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -472,7 +473,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // overlap with N-1 other ranges. Since we requested a relatively large number
   // (128) of ranges from each input files, even N range overlapping would
   // cause relatively small inaccuracy.
-
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
   auto* c = compact_->compaction;
   if (c->max_subcompactions() <= 1 &&
       !(c->immutable_options()->compaction_pri == kRoundRobin &&
@@ -506,7 +507,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
         FileMetaData* f = flevel->files[i].file_metadata;
         std::vector<TableReader::Anchor> my_anchors;
         Status s = cfd->table_cache()->ApproximateKeyAnchors(
-            ReadOptions(), icomp, *f, my_anchors);
+            read_options, icomp, *f, my_anchors);
         if (!s.ok() || my_anchors.empty()) {
           my_anchors.emplace_back(f->largest.user_key(), f->fd.GetFileSize());
         }
@@ -616,6 +617,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
 Status CompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
+  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kCompaction);
   TEST_SYNC_POINT("CompactionJob::Run():Start");
   log_buffer_->FlushBufferToLog();
   LogCompaction();
@@ -710,6 +712,8 @@ Status CompactionJob::Run() {
         compact_->compaction->mutable_cf_options()->prefix_extractor;
     std::atomic<size_t> next_file_idx(0);
     auto verify_table = [&](Status& output_status) {
+      ThreadIOActivityGuard verify_table_thread_io_activity_guard(
+          Env::IOActivity::kCompaction);
       while (true) {
         size_t file_idx = next_file_idx.fetch_add(1);
         if (file_idx >= files_output.size()) {
@@ -722,7 +726,7 @@ Status CompactionJob::Run() {
         // use_direct_io_for_flush_and_compaction is true, we will regard this
         // verification as user reads since the goal is to cache it here for
         // further user reads
-        ReadOptions read_options;
+        const ReadOptions read_options(Env::IOActivity::kCompaction);
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             read_options, file_options_, cfd->internal_comparator(),
             files_output[file_idx]->meta, /*range_del_agg=*/nullptr,
@@ -1032,7 +1036,7 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
-
+  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kCompaction);
   if (db_options_.compaction_service) {
     CompactionServiceJobStatus comp_status =
         ProcessKeyValueCompactionWithCompactionService(sub_compact);
@@ -1083,6 +1087,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   read_options.verify_checksums = true;
   read_options.fill_cache = false;
   read_options.rate_limiter_priority = GetRateLimiterPriority();
+  read_options.io_activity = Env::IOActivity::kCompaction;
   // Compaction iterators shouldn't be confined to a single prefix.
   // Compactions use Seek() for
   // (a) concurrent compactions,
@@ -1640,6 +1645,7 @@ Status CompactionJob::InstallCompactionResults(
 
   db_mutex_->AssertHeld();
 
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
   auto* compaction = compact_->compaction;
   assert(compaction);
 
@@ -1717,8 +1723,8 @@ Status CompactionJob::InstallCompactionResults(
   }
 
   return versions_->LogAndApply(compaction->column_family_data(),
-                                mutable_cf_options, edit, db_mutex_,
-                                db_directory_);
+                                mutable_cf_options, read_options, edit,
+                                db_mutex_, db_directory_);
 }
 
 void CompactionJob::RecordCompactionIOStats() {

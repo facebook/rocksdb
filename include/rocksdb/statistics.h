@@ -472,7 +472,13 @@ enum Histograms : uint32_t {
   NUM_FILES_IN_SINGLE_COMPACTION,
   DB_SEEK,
   WRITE_STALL,
+  // Time spent in reading block-based or plain SST table
   SST_READ_MICROS,
+  // Time spent in reading SST table or blob file for flush or compaction.
+  // Only block-based SST table is currently included in this statistics.
+  FILE_READ_FLUSH_MICROS,
+  FILE_READ_COMPACTION_MICROS,
+
   // The number of subcompactions actually scheduled during a compaction
   NUM_SUBCOMPACTIONS_SCHEDULED,
   // Value size distribution in each operation
