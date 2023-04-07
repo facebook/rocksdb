@@ -429,6 +429,12 @@ enum Tickers : uint32_t {
   // that finds its data for table open
   TABLE_OPEN_PREFETCH_TAIL_HIT,
 
+  // Statistics on the filtering by user-defined timestamps
+  // # of times timestamps are checked on accessing the table
+  TIMESTAMP_FILTER_TABLE_CHECKED,
+  // # of times timestamps can successfully help skip the table access
+  TIMESTAMP_FILTER_TABLE_FILTERED,
+
   TICKER_ENUM_MAX
 };
 
