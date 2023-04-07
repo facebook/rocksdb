@@ -2161,7 +2161,7 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
   const auto table_opt = table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(table_opt, nullptr);
 
-  ASSERT_EQ(table_opt->block_cache->GetCapacity(), 8UL << 20);
+  ASSERT_EQ(table_opt->block_cache->GetCapacity(), 32UL << 20);
   ASSERT_EQ(table_opt->block_size, leveldb_opt.block_size);
   ASSERT_EQ(table_opt->block_restart_interval,
             leveldb_opt.block_restart_interval);

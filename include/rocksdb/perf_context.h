@@ -254,6 +254,13 @@ struct PerfContext {
   uint64_t iter_prev_cpu_nanos;
   uint64_t iter_seek_cpu_nanos;
 
+  // EXPERIMENTAL
+  // Total number of db iterator's Next(), Prev(), Seek-related APIs being
+  // called
+  uint64_t iter_next_count;
+  uint64_t iter_prev_count;
+  uint64_t iter_seek_count;
+
   // Time spent in encrypting data. Populated when EncryptedEnv is used.
   uint64_t encrypt_data_nanos;
   // Time spent in decrypting data. Populated when EncryptedEnv is used.

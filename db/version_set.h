@@ -650,6 +650,12 @@ class VersionStorageInfo {
   // be empty. -1 if it is not level-compaction so it's not applicable.
   int base_level_;
 
+  // Applies to level compaction when
+  // `level_compaction_dynamic_level_bytes=true`. All non-empty levels <=
+  // lowest_unnecessary_level_ are not needed and will be drained automatically.
+  // -1 if there is no unnecessary level,
+  int lowest_unnecessary_level_;
+
   double level_multiplier_;
 
   // A list for the same set of files that are stored in files_,
@@ -1204,7 +1210,7 @@ class VersionSet {
                                        uint64_t* manifest_file_number);
   void WakeUpWaitingManifestWriters();
 
-  // Recover the last saved descriptor from persistent storage.
+  // Recover the last saved descriptor (MANIFEST) from persistent storage.
   // If read_only == true, Recover() will not complain if some column families
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,

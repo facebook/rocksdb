@@ -592,7 +592,7 @@ struct AdvancedColumnFamilyOptions {
   // and max_bytes_for_level_base=10MB.
   // Target sizes of level 1 to 5 starts with:
   // [- - - - 10MB]
-  // with base level is level. Target sizes of level 1 to 4 are not applicable
+  // with base level is level 5. Target sizes of level 1 to 4 are not applicable
   // because they will not be used.
   // Until the size of Level 5 grows to more than 10MB, say 11MB, we make
   // base target to level 4 and now the targets looks like:
@@ -642,8 +642,31 @@ struct AdvancedColumnFamilyOptions {
   //
   // max_bytes_for_level_multiplier_additional is ignored with this flag on.
   //
-  // Turning this feature on or off for an existing DB can cause unexpected
-  // LSM tree structure so it's not recommended.
+  // To make the migration easier, when turning this feature on, files in the
+  // LSM will be trivially moved down to fill the LSM starting from the
+  // bottommost level during DB open. For example, if the LSM looks like:
+  // L0: f0, f1
+  // L1: f2, f3
+  // L2: f4
+  // L3:
+  // L4: f5
+  // and the DB is opened with num_levels = 7 with this feature turned on,
+  // new LSM after DB open looks like the following:
+  // L0: f0, f1, (and possibly data flushed from WAL)
+  // L4: f2, f3
+  // L5: f4
+  // L6: f5
+  //
+  // If `allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
+  // then the last level is reserved, and we will start filling LSM from the
+  // second last level (L5 in the above example).
+  //
+  // Note that there may be excessive levels (where target level size is 0 when
+  // computed based on this feature) in the LSM after a user migrates to turn
+  // this feature on. This is especially likely when a user migrates from
+  // leveled compaction with a smaller multiplier or from universal compaction.
+  // RocksDB will gradually drain these unnecessary levels by compacting files
+  // down the LSM.
   //
   // Default: false
   bool level_compaction_dynamic_level_bytes = false;

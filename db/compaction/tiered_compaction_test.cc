@@ -1111,6 +1111,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
   options.max_subcompactions = 10;
+  options.preclude_last_level_data_seconds = 10000;
   DestroyAndReopen(options);
   auto cmp = options.comparator;
 
