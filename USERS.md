@@ -29,6 +29,9 @@ Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasu
 ## Yahoo
 Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa. Learn more about it here: http://yahooeng.tumblr.com/post/120730204806/sherpa-scales-new-heights
 
+## Tencent
+[PaxosStore](https://github.com/Tencent/paxosstore) is a distributed database supporting WeChat. It uses RocksDB as its storage engine.
+
 ## Baidu
 [Apache Doris](http://doris.apache.org/master/en/) is a MPP analytical database engine released by Baidu. It [uses RocksDB](http://doris.apache.org/master/en/administrator-guide/operation/tablet-meta-tool.html) to manage its tablet's metadata.
 
