@@ -334,8 +334,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
   FullFilterKeysMayMatch(filter, &sst_file_range, no_io, prefix_extractor,
-                         &metadata_lookup_context,
-                         read_options);
+                         &metadata_lookup_context, read_options);
 
   if (!sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
