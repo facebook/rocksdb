@@ -147,6 +147,7 @@ class LRUCacheTest : public testing::Test {
  private:
   LRUCacheShard* cache_ = nullptr;
   Cache::EvictionCallback eviction_callback_;
+  uint32_t hash_seed_ = 0;
 };
 
 TEST_F(LRUCacheTest, BasicLRU) {
@@ -397,7 +398,7 @@ class ClockCacheTest : public testing::Test {
     opts.estimated_value_size = 1;
     new (shard_)
         Shard(capacity, strict_capacity_limit, kDontChargeCacheMetadata,
-              /*allocator*/ nullptr, &eviction_callback_, opts);
+              /*allocator*/ nullptr, &eviction_callback_, &hash_seed_, opts);
   }
 
   Status Insert(const UniqueId64x2& hashed_key,
@@ -455,6 +456,7 @@ class ClockCacheTest : public testing::Test {
 
  private:
   Cache::EvictionCallback eviction_callback_;
+  uint32_t hash_seed_ = 0;
 };
 
 TEST_F(ClockCacheTest, Misc) {

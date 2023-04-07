@@ -404,6 +404,9 @@ class Cache {
 
   MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
 
+  // See ShardedCacheOptions::hash_seed
+  virtual uint32_t GetHashSeed() const { return 0; }
+
   // EXPERIMENTAL
   // The following APIs are experimental and might change in the future.
 
