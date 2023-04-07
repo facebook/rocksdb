@@ -646,23 +646,15 @@ void LRUCacheShard::AppendPrintableOptions(std::string& str) const {
   str.append(buffer);
 }
 
-LRUCache::LRUCache(size_t capacity, int num_shard_bits,
-                   bool strict_capacity_limit, double high_pri_pool_ratio,
-                   double low_pri_pool_ratio,
-                   std::shared_ptr<MemoryAllocator> allocator,
-                   bool use_adaptive_mutex,
-                   CacheMetadataChargePolicy metadata_charge_policy)
-    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
-                   std::move(allocator)) {
+LRUCache::LRUCache(const LRUCacheOptions& opts) : ShardedCache(opts) {
   size_t per_shard = GetPerShardCapacity();
   MemoryAllocator* alloc = memory_allocator();
-  const EvictionCallback* eviction_callback = &eviction_callback_;
-  InitShards([=](LRUCacheShard* cs) {
-    new (cs) LRUCacheShard(per_shard, strict_capacity_limit,
-                           high_pri_pool_ratio, low_pri_pool_ratio,
-                           use_adaptive_mutex, metadata_charge_policy,
-                           /* max_upper_hash_bits */ 32 - num_shard_bits, alloc,
-                           eviction_callback);
+  InitShards([&](LRUCacheShard* cs) {
+    new (cs) LRUCacheShard(per_shard, opts.strict_capacity_limit,
+                           opts.high_pri_pool_ratio, opts.low_pri_pool_ratio,
+                           opts.use_adaptive_mutex, opts.metadata_charge_policy,
+                           /* max_upper_hash_bits */ 32 - opts.num_shard_bits,
+                           alloc, &eviction_callback_);
   });
 }
 
@@ -692,13 +684,7 @@ double LRUCache::GetHighPriPoolRatio() {
 
 }  // namespace lru_cache
 
-std::shared_ptr<Cache> NewLRUCache(
-    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio,
-    std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy,
-    const std::shared_ptr<SecondaryCache>& secondary_cache,
-    double low_pri_pool_ratio) {
+std::shared_ptr<Cache> LRUCacheOptions::MakeSharedCache() const {
   if (num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
@@ -714,36 +700,15 @@ std::shared_ptr<Cache> NewLRUCache(
     // Invalid high_pri_pool_ratio and low_pri_pool_ratio combination
     return nullptr;
   }
-  if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
+  // For sanitized options
+  LRUCacheOptions opts = *this;
+  if (opts.num_shard_bits < 0) {
+    opts.num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
-  std::shared_ptr<Cache> cache = std::make_shared<LRUCache>(
-      capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
-      low_pri_pool_ratio, std::move(memory_allocator), use_adaptive_mutex,
-      metadata_charge_policy);
+  std::shared_ptr<Cache> cache = std::make_shared<LRUCache>(opts);
   if (secondary_cache) {
     cache = std::make_shared<CacheWithSecondaryAdapter>(cache, secondary_cache);
   }
   return cache;
-}
-
-std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
-  return NewLRUCache(cache_opts.capacity, cache_opts.num_shard_bits,
-                     cache_opts.strict_capacity_limit,
-                     cache_opts.high_pri_pool_ratio,
-                     cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-                     cache_opts.metadata_charge_policy,
-                     cache_opts.secondary_cache, cache_opts.low_pri_pool_ratio);
-}
-
-std::shared_ptr<Cache> NewLRUCache(
-    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio,
-    std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy,
-    double low_pri_pool_ratio) {
-  return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
-                     high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-                     metadata_charge_policy, nullptr, low_pri_pool_ratio);
 }
 }  // namespace ROCKSDB_NAMESPACE
