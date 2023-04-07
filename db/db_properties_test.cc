@@ -2109,25 +2109,26 @@ TEST_F(DBPropertiesTest, GetMapPropertyBlockCacheEntryStats) {
 
 TEST_F(DBPropertiesTest, WriteStallStatsSanityCheck) {
   for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {
-    std::string str = kWriteStallCauseToHyphenString[i];
+    WriteStallCause cause = static_cast<WriteStallCause>(i);
+    const std::string& str = WriteStallCauseToHyphenString(cause);
     ASSERT_TRUE(!str.empty())
         << "Please ensure mapping from `WriteStallCause` to "
-           "`kWriteStallCauseToHyphenString` is complete";
-    WriteStallCause cause = static_cast<WriteStallCause>(i);
+           "`WriteStallCauseToHyphenString` is complete";
     if (cause == WriteStallCause::kCFScopeWriteStallCauseEnumMax ||
         cause == WriteStallCause::kDBScopeWriteStallCauseEnumMax) {
-      ASSERT_EQ(str, kInvalidWriteStallCauseHyphenString)
-          << "Please ensure order in `kWriteStallCauseToHyphenString` is "
+      ASSERT_EQ(str, InvalidWriteStallHyphenString())
+          << "Please ensure order in `WriteStallCauseToHyphenString` is "
              "consistent with `WriteStallCause`";
     }
   }
 
   for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCondition::kNormal);
        ++i) {
-    std::string str = kWriteStallConditionToHyphenString[i];
+    WriteStallCondition condition = static_cast<WriteStallCondition>(i);
+    const std::string& str = WriteStallConditionToHyphenString(condition);
     ASSERT_TRUE(!str.empty())
         << "Please ensure mapping from `WriteStallCondition` to "
-           "`kWriteStallConditionToHyphenString` is complete";
+           "`WriteStallConditionToHyphenString` is complete";
   }
 
   for (uint32_t i = 0; i < static_cast<uint32_t>(WriteStallCause::kNone); ++i) {

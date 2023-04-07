@@ -17,11 +17,23 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// A handle for lookup result. The handle may not be immediately ready or
-// have a valid value. The caller must call isReady() to determine if its
-// ready, and call Wait() in order to block until it becomes ready.
-// The caller must call Value() after it becomes ready to determine if the
-// handle successfullly read the item.
+// A handle for lookup result. Immediately after SecondaryCache::Lookup() with
+// wait=false (and depending on the implementation), the handle could be in any
+// of the below states. It must not be destroyed while in the pending state.
+// * Pending state (IsReady() == false): result is not ready. Value() and Size()
+// must not be called.
+// * Ready + not found state (IsReady() == true, Value() == nullptr): the lookup
+// has completed, finding no match. Or an error occurred that prevented
+// normal completion of the Lookup.
+// * Ready + found state (IsReady() == false, Value() != nullptr): the lookup
+// has completed, finding an entry that has been loaded into an object that is
+// now owned by the caller.
+//
+// Wait() or SecondaryCache::WaitAll() may be skipped if IsReady() happens to
+// return true, but (depending on the implementation) IsReady() might never
+// return true without Wait() or SecondaryCache::WaitAll(). After the handle
+// is known ready, calling Value() is required to avoid a memory leak in case
+// of a cache hit.
 class SecondaryCacheResultHandle {
  public:
   virtual ~SecondaryCacheResultHandle() = default;
@@ -36,7 +48,9 @@ class SecondaryCacheResultHandle {
   // the lookup was unsuccessful.
   virtual Cache::ObjectPtr Value() = 0;
 
-  // Return the size of value
+  // Return the out_charge from the helper->create_cb used to construct the
+  // object.
+  // WART: potentially confusing name
   virtual size_t Size() = 0;
 };
 
@@ -57,24 +71,13 @@ class SecondaryCache : public Customizable {
                                  const std::string& id,
                                  std::shared_ptr<SecondaryCache>* result);
 
-  // Insert the given value into this cache. Ownership of `value` is
-  // transferred to the callee, who is reponsible for deleting the value
-  // with helper->del_cb if del_cb is not nullptr. Unlike Cache::Insert(),
-  // the callee is responsible for such cleanup even in case of non-OK
-  // Status.
-  // Typically, the value is not saved directly but the implementation
-  // uses the SaveToCallback provided by helper to extract value's
-  // persistable data (typically uncompressed block), which will be written
-  // to this tier. The implementation may or may not write it to cache
-  // depending on the admission control policy, even if the return status
-  // is success (OK).
-  //
-  // If the implementation is asynchronous or otherwise uses `value` after
-  // the call returns, then InsertSaved() must be overridden not to rely on
-  // Insert(). For example, there could be a "holding area" in memory where
-  // Lookup() might return the same parsed value back. But more typically, if
-  // the implementation only uses `value` for getting persistable data during
-  // the call, then the default implementation of `InsertSaved()` suffices.
+  // Suggest inserting an entry into this cache. The caller retains ownership
+  // of `obj` (also called the "value"), so is only used directly by the
+  // SecondaryCache during Insert(). When the cache chooses to perform the
+  // suggested insertion, it uses the size_cb and saveto_cb provided by
+  // `helper` to extract the persistable data (typically an uncompressed block)
+  // and writes it to this cache tier. OK may be returned even if the insertion
+  // is not made.
   virtual Status Insert(const Slice& key, Cache::ObjectPtr obj,
                         const Cache::CacheItemHelper* helper) = 0;
 
@@ -84,8 +87,9 @@ class SecondaryCache : public Customizable {
   // may or may not write it to cache depending on the admission control
   // policy, even if the return status is success.
   //
-  // The default implementation assumes synchronous, non-escaping Insert(),
-  // wherein `value` is not used after return of Insert(). See Insert().
+  // The default implementation only assumes the entry helper's create_cb is
+  // called at Lookup() time and not Insert() time, so should work for all
+  // foreseeable implementations.
   virtual Status InsertSaved(const Slice& key, const Slice& saved);
 
   // Lookup the data for the given key in this cache. The create_cb

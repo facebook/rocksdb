@@ -916,10 +916,18 @@ Status BlockBasedTable::ReadPropertiesBlock(
     // If table properties don't contain index type, we assume that the table
     // is in very old format and has kBinarySearch index type.
     auto& props = rep_->table_properties->user_collected_properties;
-    auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
-    if (pos != props.end()) {
+    auto index_type_pos = props.find(BlockBasedTablePropertyNames::kIndexType);
+    if (index_type_pos != props.end()) {
       rep_->index_type = static_cast<BlockBasedTableOptions::IndexType>(
-          DecodeFixed32(pos->second.c_str()));
+          DecodeFixed32(index_type_pos->second.c_str()));
+    }
+    auto min_ts_pos = props.find("rocksdb.timestamp_min");
+    if (min_ts_pos != props.end()) {
+      rep_->min_timestamp = Slice(min_ts_pos->second);
+    }
+    auto max_ts_pos = props.find("rocksdb.timestamp_max");
+    if (max_ts_pos != props.end()) {
+      rep_->max_timestamp = Slice(max_ts_pos->second);
     }
 
     rep_->index_has_first_key =
@@ -1817,7 +1825,7 @@ bool BlockBasedTable::PrefixRangeMayMatch(
         read_options.iterate_upper_bound, user_key_without_ts, prefix_extractor,
         rep_->internal_comparator.user_comparator(), const_ikey_ptr,
         &filter_checked, need_upper_bound_check, no_io, lookup_context,
-        read_options.rate_limiter_priority);
+        read_options);
   }
 
   if (filter_checked) {
@@ -1891,7 +1899,7 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
     FilterBlockReader* filter, const Slice& internal_key, const bool no_io,
     const SliceTransform* prefix_extractor, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) const {
+    const ReadOptions& read_options) const {
   if (filter == nullptr) {
     return true;
   }
@@ -1901,15 +1909,13 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   size_t ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
   Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
   if (rep_->whole_key_filtering) {
-    may_match =
-        filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
-                            get_context, lookup_context, rate_limiter_priority);
+    may_match = filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
+                                    get_context, lookup_context, read_options);
   } else if (!PrefixExtractorChanged(prefix_extractor) &&
              prefix_extractor->InDomain(user_key_without_ts) &&
              !filter->PrefixMayMatch(
                  prefix_extractor->Transform(user_key_without_ts), no_io,
-                 const_ikey_ptr, get_context, lookup_context,
-                 rate_limiter_priority)) {
+                 const_ikey_ptr, get_context, lookup_context, read_options)) {
     // FIXME ^^^: there should be no reason for Get() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
     may_match = false;
@@ -1925,14 +1931,14 @@ void BlockBasedTable::FullFilterKeysMayMatch(
     FilterBlockReader* filter, MultiGetRange* range, const bool no_io,
     const SliceTransform* prefix_extractor,
     BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) const {
+    const ReadOptions& read_options) const {
   if (filter == nullptr) {
     return;
   }
   uint64_t before_keys = range->KeysLeft();
   assert(before_keys > 0);  // Caller should ensure
   if (rep_->whole_key_filtering) {
-    filter->KeysMayMatch(range, no_io, lookup_context, rate_limiter_priority);
+    filter->KeysMayMatch(range, no_io, lookup_context, read_options);
     uint64_t after_keys = range->KeysLeft();
     if (after_keys) {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_POSITIVE, after_keys);
@@ -1949,7 +1955,7 @@ void BlockBasedTable::FullFilterKeysMayMatch(
     // FIXME ^^^: there should be no reason for MultiGet() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
     filter->PrefixesMayMatch(range, prefix_extractor, false, lookup_context,
-                             rate_limiter_priority);
+                             read_options);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);
     uint64_t after_keys = range->KeysLeft();
     uint64_t filtered_keys = before_keys - after_keys;
@@ -2021,10 +2027,28 @@ Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
   return Status::OK();
 }
 
+bool BlockBasedTable::TimestampMayMatch(const ReadOptions& read_options) const {
+  if (read_options.timestamp != nullptr && !rep_->min_timestamp.empty()) {
+    RecordTick(rep_->ioptions.stats, TIMESTAMP_FILTER_TABLE_CHECKED);
+    auto read_ts = read_options.timestamp;
+    auto comparator = rep_->internal_comparator.user_comparator();
+    if (comparator->CompareTimestamp(*read_ts, rep_->min_timestamp) < 0) {
+      RecordTick(rep_->ioptions.stats, TIMESTAMP_FILTER_TABLE_FILTERED);
+      return false;
+    }
+  }
+  return true;
+}
+
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                             GetContext* get_context,
                             const SliceTransform* prefix_extractor,
                             bool skip_filters) {
+  // Similar to Bloom filter !may_match
+  // If timestamp is beyond the range of the table, skip
+  if (!TimestampMayMatch(read_options)) {
+    return Status::OK();
+  }
   assert(key.size() >= 8);  // key must be internal key
   assert(get_context != nullptr);
   Status s;
@@ -2046,9 +2070,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         read_options.snapshot != nullptr;
   }
   TEST_SYNC_POINT("BlockBasedTable::Get:BeforeFilterMatch");
-  const bool may_match = FullFilterKeyMayMatch(
-      filter, key, no_io, prefix_extractor, get_context, &lookup_context,
-      read_options.rate_limiter_priority);
+  const bool may_match =
+      FullFilterKeyMayMatch(filter, key, no_io, prefix_extractor, get_context,
+                            &lookup_context, read_options);
   TEST_SYNC_POINT("BlockBasedTable::Get:AfterFilterMatch");
   if (!may_match) {
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);
@@ -2202,7 +2226,7 @@ Status BlockBasedTable::MultiGetFilter(const ReadOptions& read_options,
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
   FullFilterKeysMayMatch(filter, mget_range, no_io, prefix_extractor,
-                         &lookup_context, read_options.rate_limiter_priority);
+                         &lookup_context, read_options);
 
   return Status::OK();
 }

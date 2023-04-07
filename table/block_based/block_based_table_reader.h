@@ -440,13 +440,13 @@ class BlockBasedTable : public TableReader {
                              const SliceTransform* prefix_extractor,
                              GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
-                             Env::IOPriority rate_limiter_priority) const;
+                             const ReadOptions& read_options) const;
 
   void FullFilterKeysMayMatch(FilterBlockReader* filter, MultiGetRange* range,
                               const bool no_io,
                               const SliceTransform* prefix_extractor,
                               BlockCacheLookupContext* lookup_context,
-                              Env::IOPriority rate_limiter_priority) const;
+                              const ReadOptions& read_options) const;
 
   // If force_direct_prefetch is true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
@@ -504,6 +504,8 @@ class BlockBasedTable : public TableReader {
   // Returns false if prefix_extractor exists and is compatible with that used
   // in building the table file, otherwise true.
   bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
+
+  bool TimestampMayMatch(const ReadOptions& read_options) const;
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
@@ -605,6 +607,12 @@ struct BlockBasedTable::Rep {
   // the level when the table is opened, could potentially change when trivial
   // move is involved
   int level;
+
+  // the timestamp range of table
+  // Points into memory owned by TableProperties. This would need to change if
+  // TableProperties become subject to cache eviction.
+  Slice min_timestamp;
+  Slice max_timestamp;
 
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.

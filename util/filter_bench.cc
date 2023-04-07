@@ -728,7 +728,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
                 batch_slices[i],
                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                 /*get_context=*/nullptr,
-                /*lookup_context=*/nullptr, Env::IO_TOTAL);
+                /*lookup_context=*/nullptr, ROCKSDB_NAMESPACE::ReadOptions());
           }
         } else {
           if (dry_run) {
