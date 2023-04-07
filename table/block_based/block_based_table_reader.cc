@@ -1563,73 +1563,109 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
     }
   }
 
-  // Fill lookup_context.
+  // TODO: optimize so that lookup_context != nullptr implies the others
   if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
       lookup_context) {
-    size_t usage = 0;
-    uint64_t nkeys = 0;
-    if (out_parsed_block->GetValue()) {
-      // Approximate the number of keys in the block using restarts.
-      // FIXME: Should this only apply to data blocks?
-      nkeys = rep_->table_options.block_restart_interval *
-              GetBlockNumRestarts(*out_parsed_block->GetValue());
-      usage = out_parsed_block->GetValue()->ApproximateMemoryUsage();
-    }
-    TraceType trace_block_type = TraceType::kTraceMax;
-    switch (TBlocklike::kBlockType) {
-      case BlockType::kData:
-        trace_block_type = TraceType::kBlockTraceDataBlock;
-        break;
-      case BlockType::kFilter:
-      case BlockType::kFilterPartitionIndex:
-        trace_block_type = TraceType::kBlockTraceFilterBlock;
-        break;
-      case BlockType::kCompressionDictionary:
-        trace_block_type = TraceType::kBlockTraceUncompressionDictBlock;
-        break;
-      case BlockType::kRangeDeletion:
-        trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
-        break;
-      case BlockType::kIndex:
-        trace_block_type = TraceType::kBlockTraceIndexBlock;
-        break;
-      default:
-        // This cannot happen.
-        assert(false);
-        break;
-    }
-    bool no_insert = no_io || !ro.fill_cache;
-    if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
-            trace_block_type, lookup_context->caller)) {
-      // Defer logging the access to Get() and MultiGet() to trace additional
-      // information, e.g., referenced_key_exist_in_block.
-
-      // Make a copy of the block key here since it will be logged later.
-      lookup_context->FillLookupContext(
-          is_cache_hit, no_insert, trace_block_type,
-          /*block_size=*/usage, /*block_key=*/key.ToString(), nkeys);
-    } else {
-      // Avoid making copy of block_key and cf_name when constructing the access
-      // record.
-      BlockCacheTraceRecord access_record(
-          rep_->ioptions.clock->NowMicros(),
-          /*block_key=*/"", trace_block_type,
-          /*block_size=*/usage, rep_->cf_id_for_tracing(),
-          /*cf_name=*/"", rep_->level_for_tracing(),
-          rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
-          no_insert, lookup_context->get_id,
-          lookup_context->get_from_user_specified_snapshot,
-          /*referenced_key=*/"");
-      // TODO: Should handle this error?
-      block_cache_tracer_
-          ->WriteBlockAccess(access_record, key, rep_->cf_name_for_tracing(),
-                             lookup_context->referenced_key)
-          .PermitUncheckedError();
-    }
+    SaveLookupContextOrTraceRecord(
+        key, is_cache_hit, ro, out_parsed_block->GetValue(), lookup_context);
   }
 
   assert(s.ok() || out_parsed_block->GetValue() == nullptr);
   return s;
+}
+
+template <typename TBlocklike>
+WithBlocklikeCheck<void, TBlocklike>
+BlockBasedTable::SaveLookupContextOrTraceRecord(
+    const Slice& block_key, bool is_cache_hit, const ReadOptions& ro,
+    const TBlocklike* parsed_block_value,
+    BlockCacheLookupContext* lookup_context) const {
+  assert(lookup_context);
+  size_t usage = 0;
+  uint64_t nkeys = 0;
+  if (parsed_block_value) {
+    // Approximate the number of keys in the block using restarts.
+    int interval = rep_->table_options.block_restart_interval;
+    nkeys = interval * GetBlockNumRestarts(*parsed_block_value);
+    // On average, the last restart should be just over half utilized.
+    // Specifically, 1..N should be N/2 + 0.5. For example, 7 -> 4, 8 -> 4.5.
+    // Use the get_id to alternate between rounding up vs. down.
+    if (nkeys > 0) {
+      bool rounding = static_cast<int>(lookup_context->get_id) & 1;
+      nkeys -= (interval - rounding) / 2;
+    }
+    usage = parsed_block_value->ApproximateMemoryUsage();
+  }
+  TraceType trace_block_type = TraceType::kTraceMax;
+  switch (TBlocklike::kBlockType) {
+    case BlockType::kData:
+      trace_block_type = TraceType::kBlockTraceDataBlock;
+      break;
+    case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+      trace_block_type = TraceType::kBlockTraceFilterBlock;
+      break;
+    case BlockType::kCompressionDictionary:
+      trace_block_type = TraceType::kBlockTraceUncompressionDictBlock;
+      break;
+    case BlockType::kRangeDeletion:
+      trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
+      break;
+    case BlockType::kIndex:
+      trace_block_type = TraceType::kBlockTraceIndexBlock;
+      break;
+    default:
+      // This cannot happen.
+      assert(false);
+      break;
+  }
+  const bool no_io = ro.read_tier == kBlockCacheTier;
+  bool no_insert = no_io || !ro.fill_cache;
+  if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
+          trace_block_type, lookup_context->caller)) {
+    // Make a copy of the block key here since it will be logged later.
+    lookup_context->FillLookupContext(is_cache_hit, no_insert, trace_block_type,
+                                      /*block_size=*/usage,
+                                      block_key.ToString(), nkeys);
+
+    // Defer logging the access to Get() and MultiGet() to trace additional
+    // information, e.g., referenced_key
+  } else {
+    // Avoid making copy of block_key if it doesn't need to be saved in
+    // BlockCacheLookupContext
+    lookup_context->FillLookupContext(is_cache_hit, no_insert, trace_block_type,
+                                      /*block_size=*/usage,
+                                      /*block_key=*/{}, nkeys);
+
+    // Fill in default values for irrelevant/unknown fields
+    FinishTraceRecord(*lookup_context, block_key,
+                      lookup_context->referenced_key,
+                      /*does_referenced_key_exist*/ false,
+                      /*referenced_data_size*/ 0);
+  }
+}
+
+void BlockBasedTable::FinishTraceRecord(
+    const BlockCacheLookupContext& lookup_context, const Slice& block_key,
+    const Slice& referenced_key, bool does_referenced_key_exist,
+    uint64_t referenced_data_size) const {
+  // Avoid making copy of referenced_key if it doesn't need to be saved in
+  // BlockCacheLookupContext
+  BlockCacheTraceRecord access_record(
+      rep_->ioptions.clock->NowMicros(),
+      /*block_key=*/"", lookup_context.block_type, lookup_context.block_size,
+      rep_->cf_id_for_tracing(),
+      /*cf_name=*/"", rep_->level_for_tracing(), rep_->sst_number_for_tracing(),
+      lookup_context.caller, lookup_context.is_cache_hit,
+      lookup_context.no_insert, lookup_context.get_id,
+      lookup_context.get_from_user_specified_snapshot,
+      /*referenced_key=*/"", referenced_data_size,
+      lookup_context.num_keys_in_block, does_referenced_key_exist);
+  // TODO: Should handle status here?
+  block_cache_tracer_
+      ->WriteBlockAccess(access_record, block_key, rep_->cf_name_for_tracing(),
+                         referenced_key)
+      .PermitUncheckedError();
 }
 
 template <typename TBlocklike /*, auto*/>
@@ -2142,25 +2178,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         } else {
           referenced_key = key;
         }
-        BlockCacheTraceRecord access_record(
-            rep_->ioptions.clock->NowMicros(),
-            /*block_key=*/"", lookup_data_block_context.block_type,
-            lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
-            /*cf_name=*/"", rep_->level_for_tracing(),
-            rep_->sst_number_for_tracing(), lookup_data_block_context.caller,
-            lookup_data_block_context.is_cache_hit,
-            lookup_data_block_context.no_insert,
-            lookup_data_block_context.get_id,
-            lookup_data_block_context.get_from_user_specified_snapshot,
-            /*referenced_key=*/"", referenced_data_size,
-            lookup_data_block_context.num_keys_in_block,
-            does_referenced_key_exist);
-        // TODO: Should handle status here?
-        block_cache_tracer_
-            ->WriteBlockAccess(access_record,
-                               lookup_data_block_context.block_key,
-                               rep_->cf_name_for_tracing(), referenced_key)
-            .PermitUncheckedError();
+        FinishTraceRecord(lookup_data_block_context,
+                          lookup_data_block_context.block_key, referenced_key,
+                          does_referenced_key_exist, referenced_data_size);
       }
 
       if (done) {

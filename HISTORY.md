@@ -17,6 +17,9 @@
 * Add experimental `PerfContext` counters `iter_{next|prev|seek}_count` for db iterator, each counting the times of corresponding API being called.
 * Allow runtime changes to whether `WriteBufferManager` allows stall or not by calling `SetAllowStall()`
 
+### Bug Fixes
+* In block cache tracing, fixed some cases of bad hit/miss information (and more) with MultiGet.
+
 ## 8.1.0 (03/18/2023)
 ### Behavior changes
 * Compaction output file cutting logic now considers range tombstone start keys. For example, SST partitioner now may receive ParitionRequest for range tombstone start keys.
