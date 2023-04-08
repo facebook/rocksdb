@@ -2125,23 +2125,30 @@ class H : public WriteBatch::Handler {
   void* state_;
   void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
   void (*deleted_)(void*, const char* k, size_t klen);
+  void (*merged_)(void*, const char* k, size_t klen, const char* v,
+                  size_t vlen);
   void Put(const Slice& key, const Slice& value) override {
     (*put_)(state_, key.data(), key.size(), value.data(), value.size());
   }
   void Delete(const Slice& key) override {
     (*deleted_)(state_, key.data(), key.size());
   }
+  void Merge(const Slice& key, const Slice& value) override {
+    (*merged_)(state_, key.data(), key.size(), value.data(), value.size());
+  }
 };
 
-void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
-                                void (*put)(void*, const char* k, size_t klen,
-                                            const char* v, size_t vlen),
-                                void (*deleted)(void*, const char* k,
-                                                size_t klen)) {
+void rocksdb_writebatch_iterate(
+    rocksdb_writebatch_t* b, void* state,
+    void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
+    void (*deleted)(void*, const char* k, size_t klen),
+    void (*merged)(void*, const char* k, size_t klen, const char* v,
+                    size_t vlen)) {
   H handler;
   handler.state_ = state;
   handler.put_ = put;
   handler.deleted_ = deleted;
+  handler.merged_ = merged;
   b->rep.Iterate(&handler);
 }
 
@@ -5148,7 +5155,8 @@ rocksdb_fifo_compaction_options_t* rocksdb_fifo_compaction_options_create() {
 }
 
 void rocksdb_fifo_compaction_options_set_allow_compaction(
-    rocksdb_fifo_compaction_options_t* fifo_opts, unsigned char allow_compaction) {
+    rocksdb_fifo_compaction_options_t* fifo_opts,
+    unsigned char allow_compaction) {
   fifo_opts->rep.allow_compaction = allow_compaction;
 }
 
