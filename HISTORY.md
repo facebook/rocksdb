@@ -5,11 +5,20 @@
 * Add `multi_get_for_update` to C API.
 
 ### Behavior changes
-* For level compaction with `level_compaction_dynamic_level_bytes=true`, RocksDB now trivially moves levels down to fill LSM starting from bottommost level during DB open. See more in comments for option `level_compaction_dynamic_level_bytes`.
+* Changed default block cache size from an 8MB to 32MB LRUCache, which increases the default number of cache shards from 16 to 64. This change is intended to minimize cache mutex contention under stress conditions. See https://github.com/facebook/rocksdb/wiki/Block-Cache for more information.
+* For level compaction with `level_compaction_dynamic_level_bytes=true`, RocksDB now trivially moves levels down to fill LSM starting from bottommost level during DB open. See more in comments for option `level_compaction_dynamic_level_bytes` (#11321).
+* User-provided `ReadOptions` take effect for more reads of non-`CacheEntryRole::kDataBlock` blocks.
+* For level compaction with `level_compaction_dynamic_level_bytes=true`, RocksDB now drains unnecessary levels through background compaction automatically (#11340). This together with #11321 makes it automatic to migrate other compaction settings to level compaction with `level_compaction_dynamic_level_bytes=true`. In addition, a live DB that becomes smaller will now have unnecessary levels drained which can help to reduce read and space amp.
+
+### Bug Fixes
+* In the DB::VerifyFileChecksums API, ensure that file system reads of SST files are equal to the readahead_size in ReadOptions, if specified. Previously, each read was 2x the readahead_size.
 
 ### New Features
 * Add experimental `PerfContext` counters `iter_{next|prev|seek}_count` for db iterator, each counting the times of corresponding API being called.
 * Allow runtime changes to whether `WriteBufferManager` allows stall or not by calling `SetAllowStall()`
+
+### Bug Fixes
+* In block cache tracing, fixed some cases of bad hit/miss information (and more) with MultiGet.
 
 ## 8.1.0 (03/18/2023)
 ### Behavior changes

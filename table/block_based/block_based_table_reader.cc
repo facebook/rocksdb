@@ -916,10 +916,18 @@ Status BlockBasedTable::ReadPropertiesBlock(
     // If table properties don't contain index type, we assume that the table
     // is in very old format and has kBinarySearch index type.
     auto& props = rep_->table_properties->user_collected_properties;
-    auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
-    if (pos != props.end()) {
+    auto index_type_pos = props.find(BlockBasedTablePropertyNames::kIndexType);
+    if (index_type_pos != props.end()) {
       rep_->index_type = static_cast<BlockBasedTableOptions::IndexType>(
-          DecodeFixed32(pos->second.c_str()));
+          DecodeFixed32(index_type_pos->second.c_str()));
+    }
+    auto min_ts_pos = props.find("rocksdb.timestamp_min");
+    if (min_ts_pos != props.end()) {
+      rep_->min_timestamp = Slice(min_ts_pos->second);
+    }
+    auto max_ts_pos = props.find("rocksdb.timestamp_max");
+    if (max_ts_pos != props.end()) {
+      rep_->max_timestamp = Slice(max_ts_pos->second);
     }
 
     rep_->index_has_first_key =
@@ -1555,73 +1563,109 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
     }
   }
 
-  // Fill lookup_context.
+  // TODO: optimize so that lookup_context != nullptr implies the others
   if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
       lookup_context) {
-    size_t usage = 0;
-    uint64_t nkeys = 0;
-    if (out_parsed_block->GetValue()) {
-      // Approximate the number of keys in the block using restarts.
-      // FIXME: Should this only apply to data blocks?
-      nkeys = rep_->table_options.block_restart_interval *
-              GetBlockNumRestarts(*out_parsed_block->GetValue());
-      usage = out_parsed_block->GetValue()->ApproximateMemoryUsage();
-    }
-    TraceType trace_block_type = TraceType::kTraceMax;
-    switch (TBlocklike::kBlockType) {
-      case BlockType::kData:
-        trace_block_type = TraceType::kBlockTraceDataBlock;
-        break;
-      case BlockType::kFilter:
-      case BlockType::kFilterPartitionIndex:
-        trace_block_type = TraceType::kBlockTraceFilterBlock;
-        break;
-      case BlockType::kCompressionDictionary:
-        trace_block_type = TraceType::kBlockTraceUncompressionDictBlock;
-        break;
-      case BlockType::kRangeDeletion:
-        trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
-        break;
-      case BlockType::kIndex:
-        trace_block_type = TraceType::kBlockTraceIndexBlock;
-        break;
-      default:
-        // This cannot happen.
-        assert(false);
-        break;
-    }
-    bool no_insert = no_io || !ro.fill_cache;
-    if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
-            trace_block_type, lookup_context->caller)) {
-      // Defer logging the access to Get() and MultiGet() to trace additional
-      // information, e.g., referenced_key_exist_in_block.
-
-      // Make a copy of the block key here since it will be logged later.
-      lookup_context->FillLookupContext(
-          is_cache_hit, no_insert, trace_block_type,
-          /*block_size=*/usage, /*block_key=*/key.ToString(), nkeys);
-    } else {
-      // Avoid making copy of block_key and cf_name when constructing the access
-      // record.
-      BlockCacheTraceRecord access_record(
-          rep_->ioptions.clock->NowMicros(),
-          /*block_key=*/"", trace_block_type,
-          /*block_size=*/usage, rep_->cf_id_for_tracing(),
-          /*cf_name=*/"", rep_->level_for_tracing(),
-          rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
-          no_insert, lookup_context->get_id,
-          lookup_context->get_from_user_specified_snapshot,
-          /*referenced_key=*/"");
-      // TODO: Should handle this error?
-      block_cache_tracer_
-          ->WriteBlockAccess(access_record, key, rep_->cf_name_for_tracing(),
-                             lookup_context->referenced_key)
-          .PermitUncheckedError();
-    }
+    SaveLookupContextOrTraceRecord(
+        key, is_cache_hit, ro, out_parsed_block->GetValue(), lookup_context);
   }
 
   assert(s.ok() || out_parsed_block->GetValue() == nullptr);
   return s;
+}
+
+template <typename TBlocklike>
+WithBlocklikeCheck<void, TBlocklike>
+BlockBasedTable::SaveLookupContextOrTraceRecord(
+    const Slice& block_key, bool is_cache_hit, const ReadOptions& ro,
+    const TBlocklike* parsed_block_value,
+    BlockCacheLookupContext* lookup_context) const {
+  assert(lookup_context);
+  size_t usage = 0;
+  uint64_t nkeys = 0;
+  if (parsed_block_value) {
+    // Approximate the number of keys in the block using restarts.
+    int interval = rep_->table_options.block_restart_interval;
+    nkeys = interval * GetBlockNumRestarts(*parsed_block_value);
+    // On average, the last restart should be just over half utilized.
+    // Specifically, 1..N should be N/2 + 0.5. For example, 7 -> 4, 8 -> 4.5.
+    // Use the get_id to alternate between rounding up vs. down.
+    if (nkeys > 0) {
+      bool rounding = static_cast<int>(lookup_context->get_id) & 1;
+      nkeys -= (interval - rounding) / 2;
+    }
+    usage = parsed_block_value->ApproximateMemoryUsage();
+  }
+  TraceType trace_block_type = TraceType::kTraceMax;
+  switch (TBlocklike::kBlockType) {
+    case BlockType::kData:
+      trace_block_type = TraceType::kBlockTraceDataBlock;
+      break;
+    case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+      trace_block_type = TraceType::kBlockTraceFilterBlock;
+      break;
+    case BlockType::kCompressionDictionary:
+      trace_block_type = TraceType::kBlockTraceUncompressionDictBlock;
+      break;
+    case BlockType::kRangeDeletion:
+      trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
+      break;
+    case BlockType::kIndex:
+      trace_block_type = TraceType::kBlockTraceIndexBlock;
+      break;
+    default:
+      // This cannot happen.
+      assert(false);
+      break;
+  }
+  const bool no_io = ro.read_tier == kBlockCacheTier;
+  bool no_insert = no_io || !ro.fill_cache;
+  if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
+          trace_block_type, lookup_context->caller)) {
+    // Make a copy of the block key here since it will be logged later.
+    lookup_context->FillLookupContext(is_cache_hit, no_insert, trace_block_type,
+                                      /*block_size=*/usage,
+                                      block_key.ToString(), nkeys);
+
+    // Defer logging the access to Get() and MultiGet() to trace additional
+    // information, e.g., referenced_key
+  } else {
+    // Avoid making copy of block_key if it doesn't need to be saved in
+    // BlockCacheLookupContext
+    lookup_context->FillLookupContext(is_cache_hit, no_insert, trace_block_type,
+                                      /*block_size=*/usage,
+                                      /*block_key=*/{}, nkeys);
+
+    // Fill in default values for irrelevant/unknown fields
+    FinishTraceRecord(*lookup_context, block_key,
+                      lookup_context->referenced_key,
+                      /*does_referenced_key_exist*/ false,
+                      /*referenced_data_size*/ 0);
+  }
+}
+
+void BlockBasedTable::FinishTraceRecord(
+    const BlockCacheLookupContext& lookup_context, const Slice& block_key,
+    const Slice& referenced_key, bool does_referenced_key_exist,
+    uint64_t referenced_data_size) const {
+  // Avoid making copy of referenced_key if it doesn't need to be saved in
+  // BlockCacheLookupContext
+  BlockCacheTraceRecord access_record(
+      rep_->ioptions.clock->NowMicros(),
+      /*block_key=*/"", lookup_context.block_type, lookup_context.block_size,
+      rep_->cf_id_for_tracing(),
+      /*cf_name=*/"", rep_->level_for_tracing(), rep_->sst_number_for_tracing(),
+      lookup_context.caller, lookup_context.is_cache_hit,
+      lookup_context.no_insert, lookup_context.get_id,
+      lookup_context.get_from_user_specified_snapshot,
+      /*referenced_key=*/"", referenced_data_size,
+      lookup_context.num_keys_in_block, does_referenced_key_exist);
+  // TODO: Should handle status here?
+  block_cache_tracer_
+      ->WriteBlockAccess(access_record, block_key, rep_->cf_name_for_tracing(),
+                         referenced_key)
+      .PermitUncheckedError();
 }
 
 template <typename TBlocklike /*, auto*/>
@@ -1781,7 +1825,7 @@ bool BlockBasedTable::PrefixRangeMayMatch(
         read_options.iterate_upper_bound, user_key_without_ts, prefix_extractor,
         rep_->internal_comparator.user_comparator(), const_ikey_ptr,
         &filter_checked, need_upper_bound_check, no_io, lookup_context,
-        read_options.rate_limiter_priority);
+        read_options);
   }
 
   if (filter_checked) {
@@ -1855,7 +1899,7 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
     FilterBlockReader* filter, const Slice& internal_key, const bool no_io,
     const SliceTransform* prefix_extractor, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) const {
+    const ReadOptions& read_options) const {
   if (filter == nullptr) {
     return true;
   }
@@ -1865,15 +1909,13 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   size_t ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
   Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
   if (rep_->whole_key_filtering) {
-    may_match =
-        filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
-                            get_context, lookup_context, rate_limiter_priority);
+    may_match = filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
+                                    get_context, lookup_context, read_options);
   } else if (!PrefixExtractorChanged(prefix_extractor) &&
              prefix_extractor->InDomain(user_key_without_ts) &&
              !filter->PrefixMayMatch(
                  prefix_extractor->Transform(user_key_without_ts), no_io,
-                 const_ikey_ptr, get_context, lookup_context,
-                 rate_limiter_priority)) {
+                 const_ikey_ptr, get_context, lookup_context, read_options)) {
     // FIXME ^^^: there should be no reason for Get() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
     may_match = false;
@@ -1889,14 +1931,14 @@ void BlockBasedTable::FullFilterKeysMayMatch(
     FilterBlockReader* filter, MultiGetRange* range, const bool no_io,
     const SliceTransform* prefix_extractor,
     BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) const {
+    const ReadOptions& read_options) const {
   if (filter == nullptr) {
     return;
   }
   uint64_t before_keys = range->KeysLeft();
   assert(before_keys > 0);  // Caller should ensure
   if (rep_->whole_key_filtering) {
-    filter->KeysMayMatch(range, no_io, lookup_context, rate_limiter_priority);
+    filter->KeysMayMatch(range, no_io, lookup_context, read_options);
     uint64_t after_keys = range->KeysLeft();
     if (after_keys) {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_POSITIVE, after_keys);
@@ -1913,7 +1955,7 @@ void BlockBasedTable::FullFilterKeysMayMatch(
     // FIXME ^^^: there should be no reason for MultiGet() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
     filter->PrefixesMayMatch(range, prefix_extractor, false, lookup_context,
-                             rate_limiter_priority);
+                             read_options);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);
     uint64_t after_keys = range->KeysLeft();
     uint64_t filtered_keys = before_keys - after_keys;
@@ -1985,10 +2027,28 @@ Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
   return Status::OK();
 }
 
+bool BlockBasedTable::TimestampMayMatch(const ReadOptions& read_options) const {
+  if (read_options.timestamp != nullptr && !rep_->min_timestamp.empty()) {
+    RecordTick(rep_->ioptions.stats, TIMESTAMP_FILTER_TABLE_CHECKED);
+    auto read_ts = read_options.timestamp;
+    auto comparator = rep_->internal_comparator.user_comparator();
+    if (comparator->CompareTimestamp(*read_ts, rep_->min_timestamp) < 0) {
+      RecordTick(rep_->ioptions.stats, TIMESTAMP_FILTER_TABLE_FILTERED);
+      return false;
+    }
+  }
+  return true;
+}
+
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                             GetContext* get_context,
                             const SliceTransform* prefix_extractor,
                             bool skip_filters) {
+  // Similar to Bloom filter !may_match
+  // If timestamp is beyond the range of the table, skip
+  if (!TimestampMayMatch(read_options)) {
+    return Status::OK();
+  }
   assert(key.size() >= 8);  // key must be internal key
   assert(get_context != nullptr);
   Status s;
@@ -2010,9 +2070,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         read_options.snapshot != nullptr;
   }
   TEST_SYNC_POINT("BlockBasedTable::Get:BeforeFilterMatch");
-  const bool may_match = FullFilterKeyMayMatch(
-      filter, key, no_io, prefix_extractor, get_context, &lookup_context,
-      read_options.rate_limiter_priority);
+  const bool may_match =
+      FullFilterKeyMayMatch(filter, key, no_io, prefix_extractor, get_context,
+                            &lookup_context, read_options);
   TEST_SYNC_POINT("BlockBasedTable::Get:AfterFilterMatch");
   if (!may_match) {
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);
@@ -2118,25 +2178,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         } else {
           referenced_key = key;
         }
-        BlockCacheTraceRecord access_record(
-            rep_->ioptions.clock->NowMicros(),
-            /*block_key=*/"", lookup_data_block_context.block_type,
-            lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
-            /*cf_name=*/"", rep_->level_for_tracing(),
-            rep_->sst_number_for_tracing(), lookup_data_block_context.caller,
-            lookup_data_block_context.is_cache_hit,
-            lookup_data_block_context.no_insert,
-            lookup_data_block_context.get_id,
-            lookup_data_block_context.get_from_user_specified_snapshot,
-            /*referenced_key=*/"", referenced_data_size,
-            lookup_data_block_context.num_keys_in_block,
-            does_referenced_key_exist);
-        // TODO: Should handle status here?
-        block_cache_tracer_
-            ->WriteBlockAccess(access_record,
-                               lookup_data_block_context.block_key,
-                               rep_->cf_name_for_tracing(), referenced_key)
-            .PermitUncheckedError();
+        FinishTraceRecord(lookup_data_block_context,
+                          lookup_data_block_context.block_key, referenced_key,
+                          does_referenced_key_exist, referenced_data_size);
       }
 
       if (done) {
@@ -2182,7 +2226,7 @@ Status BlockBasedTable::MultiGetFilter(const ReadOptions& read_options,
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
   FullFilterKeysMayMatch(filter, mget_range, no_io, prefix_extractor,
-                         &lookup_context, read_options.rate_limiter_priority);
+                         &lookup_context, read_options);
 
   return Status::OK();
 }

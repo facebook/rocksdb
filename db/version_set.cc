@@ -2050,6 +2050,7 @@ VersionStorageInfo::VersionStorageInfo(
       compaction_style_(compaction_style),
       files_(new std::vector<FileMetaData*>[num_levels_]),
       base_level_(num_levels_ == 1 ? -1 : 1),
+      lowest_unnecessary_level_(-1),
       level_multiplier_(0.0),
       files_by_compaction_pri_(num_levels_),
       level0_non_overlapping_(false),
@@ -3373,7 +3374,7 @@ void VersionStorageInfo::ComputeCompactionScore(
           }
         }
       }
-    } else {
+    } else {  // level > 0
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       uint64_t level_total_bytes = 0;
@@ -3383,21 +3384,36 @@ void VersionStorageInfo::ComputeCompactionScore(
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
-      if (!immutable_options.level_compaction_dynamic_level_bytes ||
-          level_bytes_no_compacting < MaxBytesForLevel(level)) {
+      if (!immutable_options.level_compaction_dynamic_level_bytes) {
         score = static_cast<double>(level_bytes_no_compacting) /
                 MaxBytesForLevel(level);
       } else {
-        // If there are a large mount of data being compacted down to the
-        // current level soon, we would de-prioritize compaction from
-        // a level where the incoming data would be a large ratio. We do
-        // it by dividing level size not by target level size, but
-        // the target size and the incoming compaction bytes.
-        score = static_cast<double>(level_bytes_no_compacting) /
-                (MaxBytesForLevel(level) + total_downcompact_bytes) *
-                kScoreScale;
+        if (level_bytes_no_compacting < MaxBytesForLevel(level)) {
+          score = static_cast<double>(level_bytes_no_compacting) /
+                  MaxBytesForLevel(level);
+        } else {
+          // If there are a large mount of data being compacted down to the
+          // current level soon, we would de-prioritize compaction from
+          // a level where the incoming data would be a large ratio. We do
+          // it by dividing level size not by target level size, but
+          // the target size and the incoming compaction bytes.
+          score = static_cast<double>(level_bytes_no_compacting) /
+                  (MaxBytesForLevel(level) + total_downcompact_bytes) *
+                  kScoreScale;
+        }
+        // Drain unnecessary levels, but with lower priority compared to
+        // when L0 is eligible. Only non-empty levels can be unnecessary.
+        // If there is no unnecessary levels, lowest_unnecessary_level_ = -1.
+        if (level_bytes_no_compacting > 0 &&
+            level <= lowest_unnecessary_level_) {
+          score = std::max(
+              score, kScoreScale *
+                         (1.001 + 0.001 * (lowest_unnecessary_level_ - level)));
+        }
       }
-      if (level_total_bytes > MaxBytesForLevel(level)) {
+      if (level <= lowest_unnecessary_level_) {
+        total_downcompact_bytes += level_total_bytes;
+      } else if (level_total_bytes > MaxBytesForLevel(level)) {
         total_downcompact_bytes +=
             static_cast<double>(level_total_bytes - MaxBytesForLevel(level));
       }
@@ -4470,6 +4486,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
       }
     }
   } else {
+    assert(ioptions.compaction_style == kCompactionStyleLevel);
     uint64_t max_level_size = 0;
 
     int first_non_empty_level = -1;
@@ -4494,11 +4511,13 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
       level_max_bytes_[i] = std::numeric_limits<uint64_t>::max();
     }
 
+    lowest_unnecessary_level_ = -1;
     if (max_level_size == 0) {
       // No data for L1 and up. L0 compacts to last level directly.
       // No compaction from L1+ needs to be scheduled.
       base_level_ = num_levels_ - 1;
     } else {
+      assert(first_non_empty_level >= 1);
       uint64_t base_bytes_max = options.max_bytes_for_level_base;
       uint64_t base_bytes_min = static_cast<uint64_t>(
           base_bytes_max / options.max_bytes_for_level_multiplier);
@@ -4509,20 +4528,41 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
         // Round up after dividing
         cur_level_size = static_cast<uint64_t>(
             cur_level_size / options.max_bytes_for_level_multiplier);
+        if (lowest_unnecessary_level_ == -1 &&
+            cur_level_size <= base_bytes_min &&
+            (ioptions.preclude_last_level_data_seconds == 0 ||
+             i < num_levels_ - 2)) {
+          // When per_key_placement is enabled, the penultimate level is
+          // necessary.
+          lowest_unnecessary_level_ = i;
+        }
       }
 
       // Calculate base level and its size.
       uint64_t base_level_size;
       if (cur_level_size <= base_bytes_min) {
+        // If per_key_placement is not enabled,
+        // either there is only one non-empty level after level 0,
+        // which can less than base_bytes_min AND necessary,
+        // or there is some unnecessary level.
+        assert(first_non_empty_level == num_levels_ - 1 ||
+               ioptions.preclude_last_level_data_seconds > 0 ||
+               lowest_unnecessary_level_ != -1);
         // Case 1. If we make target size of last level to be max_level_size,
         // target size of the first non-empty level would be smaller than
         // base_bytes_min. We set it be base_bytes_min.
         base_level_size = base_bytes_min + 1U;
         base_level_ = first_non_empty_level;
-        ROCKS_LOG_INFO(ioptions.logger,
-                       "More existing levels in DB than needed. "
-                       "max_bytes_for_level_multiplier may not be guaranteed.");
+        if (base_level_ < num_levels_ - 1) {
+          ROCKS_LOG_INFO(
+              ioptions.logger,
+              "More existing levels in DB than needed: all non-zero "
+              "levels <= level %d are unnecessary.  "
+              "max_bytes_for_level_multiplier may not be guaranteed.",
+              lowest_unnecessary_level_);
+        }
       } else {
+        assert(lowest_unnecessary_level_ == -1);
         // Find base level (where L0 data is compacted to).
         base_level_ = first_non_empty_level;
         while (base_level_ > 1 && cur_level_size > base_bytes_max) {

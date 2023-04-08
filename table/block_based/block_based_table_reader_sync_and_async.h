@@ -32,7 +32,7 @@ namespace ROCKSDB_NAMESPACE {
 DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 (const ReadOptions& options, const MultiGetRange* batch,
  const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
- Status* statuses, CachableEntry<Block>* results, char* scratch,
+ Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
  const UncompressionDict& uncompression_dict) const {
   RandomAccessFileReader* file = rep_->file.get();
   const Footer& footer = rep_->footer;
@@ -44,17 +44,16 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     size_t idx_in_batch = 0;
     for (auto mget_iter = batch->begin(); mget_iter != batch->end();
          ++mget_iter, ++idx_in_batch) {
-      BlockCacheLookupContext lookup_data_block_context(
-          TableReaderCaller::kUserMultiGet);
       const BlockHandle& handle = (*handles)[idx_in_batch];
       if (handle.IsNull()) {
         continue;
       }
 
+      // XXX: use_cache=true means double cache query?
       statuses[idx_in_batch] =
           RetrieveBlock(nullptr, options, handle, uncompression_dict,
                         &results[idx_in_batch].As<Block_kData>(),
-                        mget_iter->get_context, &lookup_data_block_context,
+                        mget_iter->get_context, /* lookup_context */ nullptr,
                         /* for_compaction */ false, /* use_cache */ true,
                         /* async_read */ false);
     }
@@ -259,17 +258,15 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
     if (s.ok()) {
       if (options.fill_cache) {
-        BlockCacheLookupContext lookup_data_block_context(
-            TableReaderCaller::kUserMultiGet);
-        CachableEntry<Block>* block_entry = &results[idx_in_batch];
+        CachableEntry<Block_kData>* block_entry = &results[idx_in_batch];
         // MaybeReadBlockAndLoadToCache will insert into the block caches if
         // necessary. Since we're passing the serialized block contents, it
         // will avoid looking up the block cache
         s = MaybeReadBlockAndLoadToCache(
             nullptr, options, handle, uncompression_dict,
-            /*for_compaction=*/false, &block_entry->As<Block_kData>(),
-            mget_iter->get_context, &lookup_data_block_context,
-            &serialized_block, /*async_read=*/false);
+            /*for_compaction=*/false, block_entry, mget_iter->get_context,
+            /*lookup_context=*/nullptr, &serialized_block,
+            /*async_read=*/false);
 
         // block_entry value could be null if no block cache is present, i.e
         // BlockBasedTableOptions::no_block_cache is true and no compressed
@@ -301,7 +298,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         contents = std::move(serialized_block);
       }
       if (s.ok()) {
-        results[idx_in_batch].SetOwnedValue(std::make_unique<Block>(
+        results[idx_in_batch].SetOwnedValue(std::make_unique<Block_kData>(
             std::move(contents), read_amp_bytes_per_bit, ioptions.stats));
       }
     }
@@ -331,11 +328,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
   if (sst_file_range.begin()->get_context) {
     tracing_mget_id = sst_file_range.begin()->get_context->get_tracing_get_id();
   }
-  BlockCacheLookupContext lookup_context{
+  // TODO: need more than one lookup_context here to track individual filter
+  // and index partition hits and misses.
+  BlockCacheLookupContext metadata_lookup_context{
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
   FullFilterKeysMayMatch(filter, &sst_file_range, no_io, prefix_extractor,
-                         &lookup_context, read_options.rate_limiter_priority);
+                         &metadata_lookup_context, read_options);
 
   if (!sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
@@ -345,9 +344,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
     if (rep_->index_type == BlockBasedTableOptions::kHashSearch) {
       need_upper_bound_check = PrefixExtractorChanged(prefix_extractor);
     }
-    auto iiter =
-        NewIndexIterator(read_options, need_upper_bound_check, &iiter_on_stack,
-                         sst_file_range.begin()->get_context, &lookup_context);
+    auto iiter = NewIndexIterator(
+        read_options, need_upper_bound_check, &iiter_on_stack,
+        sst_file_range.begin()->get_context, &metadata_lookup_context);
     std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
     if (iiter != &iiter_on_stack) {
       iiter_unique_ptr.reset(iiter);
@@ -355,11 +354,22 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
 
     uint64_t prev_offset = std::numeric_limits<uint64_t>::max();
     autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE> block_handles;
-    std::array<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE> results;
+    std::array<CachableEntry<Block_kData>, MultiGetContext::MAX_BATCH_SIZE>
+        results;
     std::array<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
+    // Empty data_lookup_contexts means "unused," when block cache tracing is
+    // disabled. (Limited options as element type is not default contructible.)
+    std::vector<BlockCacheLookupContext> data_lookup_contexts;
     MultiGetContext::Mask reused_mask = 0;
     char stack_buf[kMultiGetReadStackBufSize];
     std::unique_ptr<char[]> block_buf;
+    if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
+      // Awkward because BlockCacheLookupContext is not CopyAssignable
+      data_lookup_contexts.reserve(MultiGetContext::MAX_BATCH_SIZE);
+      for (size_t i = 0; i < MultiGetContext::MAX_BATCH_SIZE; ++i) {
+        data_lookup_contexts.push_back(metadata_lookup_context);
+      }
+    }
     {
       MultiGetRange data_block_range(sst_file_range, sst_file_range.begin(),
                                      sst_file_range.end());
@@ -413,7 +423,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
                     ->GetOrReadUncompressionDictionary(
                         nullptr /* prefetch_buffer */, no_io,
                         read_options.verify_checksums, get_context,
-                        &lookup_context, &uncompression_dict);
+                        &metadata_lookup_context, &uncompression_dict);
             uncompression_dict_inited = true;
           }
 
@@ -442,9 +452,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             // Lookup the cache for the given data block referenced by an index
             // iterator value (i.e BlockHandle). If it exists in the cache,
             // initialize block to the contents of the data block.
-            // TODO?
-            // BlockCacheLookupContext lookup_data_block_context(
-            //    TableReaderCaller::kUserMultiGet);
 
             // An async version of MaybeReadBlockAndLoadToCache /
             // GetDataBlockFromCache
@@ -491,6 +498,11 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
               // Cache miss
               total_len += BlockSizeWithTrailer(block_handles[i]);
               UpdateCacheMissMetrics(BlockType::kData, get_context);
+            }
+            if (!data_lookup_contexts.empty()) {
+              // Populate cache key before it's discarded
+              data_lookup_contexts[i].block_key =
+                  async_handles[lookup_idx].key.ToString();
             }
             ++lookup_idx;
           }
@@ -547,24 +559,26 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       bool first_block = true;
       do {
         DataBlockIter* biter = nullptr;
+        uint64_t referenced_data_size = 0;
+        Block_kData* parsed_block_value = nullptr;
         bool reusing_prev_block;
         bool later_reused;
-        uint64_t referenced_data_size = 0;
         bool does_referenced_key_exist = false;
-        BlockCacheLookupContext lookup_data_block_context(
-            TableReaderCaller::kUserMultiGet, tracing_mget_id,
-            /*_get_from_user_specified_snapshot=*/read_options.snapshot !=
-                nullptr);
+        bool handle_present = false;
+        BlockCacheLookupContext* lookup_data_block_context =
+            data_lookup_contexts.empty() ? nullptr
+                                         : &data_lookup_contexts[idx_in_batch];
         if (first_block) {
-          if (!block_handles[idx_in_batch].IsNull() ||
-              !results[idx_in_batch].IsEmpty()) {
+          handle_present = !block_handles[idx_in_batch].IsNull();
+          parsed_block_value = results[idx_in_batch].GetValue();
+          if (handle_present || parsed_block_value) {
             first_biter.Invalidate(Status::OK());
             NewDataBlockIterator<DataBlockIter>(
-                read_options, results[idx_in_batch], &first_biter,
+                read_options, results[idx_in_batch].As<Block>(), &first_biter,
                 statuses[idx_in_batch]);
             reusing_prev_block = false;
           } else {
-            // If handler is null and result is empty, then the status is never
+            // If handle is null and result is empty, then the status is never
             // set, which should be the initial value: ok().
             assert(statuses[idx_in_batch].ok());
             reusing_prev_block = true;
@@ -589,7 +603,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           Status tmp_s;
           NewDataBlockIterator<DataBlockIter>(
               read_options, iiter->value().handle, &next_biter,
-              BlockType::kData, get_context, &lookup_data_block_context,
+              BlockType::kData, get_context, lookup_data_block_context,
               /* prefetch_buffer= */ nullptr, /* for_compaction = */ false,
               /*async_read = */ false, tmp_s);
           biter = &next_biter;
@@ -684,35 +698,23 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         // Write the block cache access.
         // XXX: There appear to be 'break' statements above that bypass this
         // writing of the block cache trace record
-        if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
-            !reusing_prev_block) {
-          // Avoid making copy of block_key, cf_name, and referenced_key when
-          // constructing the access record.
+        if (lookup_data_block_context && !reusing_prev_block && first_block) {
           Slice referenced_key;
           if (does_referenced_key_exist) {
             referenced_key = biter->key();
           } else {
             referenced_key = key;
           }
-          BlockCacheTraceRecord access_record(
-              rep_->ioptions.clock->NowMicros(),
-              /*_block_key=*/"", lookup_data_block_context.block_type,
-              lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
-              /*_cf_name=*/"", rep_->level_for_tracing(),
-              rep_->sst_number_for_tracing(), lookup_data_block_context.caller,
-              lookup_data_block_context.is_cache_hit,
-              lookup_data_block_context.no_insert,
-              lookup_data_block_context.get_id,
-              lookup_data_block_context.get_from_user_specified_snapshot,
-              /*_referenced_key=*/"", referenced_data_size,
-              lookup_data_block_context.num_keys_in_block,
-              does_referenced_key_exist);
-          // TODO: Should handle status here?
-          block_cache_tracer_
-              ->WriteBlockAccess(access_record,
-                                 lookup_data_block_context.block_key,
-                                 rep_->cf_name_for_tracing(), referenced_key)
-              .PermitUncheckedError();
+
+          // block_key is self-assigned here (previously assigned from
+          // cache_keys / async_handles, now out of scope)
+          SaveLookupContextOrTraceRecord(lookup_data_block_context->block_key,
+                                         /*is_cache_hit=*/!handle_present,
+                                         read_options, parsed_block_value,
+                                         lookup_data_block_context);
+          FinishTraceRecord(
+              *lookup_data_block_context, lookup_data_block_context->block_key,
+              referenced_key, does_referenced_key_exist, referenced_data_size);
         }
         s = biter->status();
         if (done) {

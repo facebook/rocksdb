@@ -4494,6 +4494,63 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
 
+TEST_F(DBBasicTest, VerifyFileChecksumsReadahead) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int alignment = 256 * 1024;
+  for (int i = 0; i < 16; ++i) {
+    ASSERT_OK(Put("key" + std::to_string(i), rnd.RandomString(alignment)));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> filenames;
+  int sst_cnt = 0;
+  std::string sst_name;
+  uint64_t sst_size;
+  uint64_t number;
+  FileType type;
+  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  for (auto name : filenames) {
+    if (ParseFileName(name, &number, &type)) {
+      if (type == kTableFile) {
+        sst_cnt++;
+        sst_name = name;
+      }
+    }
+  }
+  ASSERT_EQ(sst_cnt, 1);
+  ASSERT_OK(env_->GetFileSize(dbname_ + '/' + sst_name, &sst_size));
+
+  bool last_read = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenerateOneFileChecksum::Chunk:0", [&](void* /*arg*/) {
+        if (env_->random_read_bytes_counter_.load() == sst_size) {
+          EXPECT_FALSE(last_read);
+          last_read = true;
+        } else {
+          ASSERT_EQ(env_->random_read_bytes_counter_.load() & (alignment - 1),
+                    0);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  env_->count_random_reads_ = true;
+  env_->random_read_bytes_counter_ = 0;
+  env_->random_read_counter_.Reset();
+
+  ReadOptions ro;
+  ro.readahead_size = alignment;
+  ASSERT_OK(db_->VerifyFileChecksums(ro));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_TRUE(last_read);
+  ASSERT_EQ(env_->random_read_counter_.Read(),
+            (sst_size + alignment - 1) / (alignment));
+}
+
 // TODO: re-enable after we provide finer-grained control for WAL tracking to
 // meet the needs of different use cases, durability levels and recovery modes.
 TEST_F(DBBasicTest, DISABLED_ManualWalSync) {
