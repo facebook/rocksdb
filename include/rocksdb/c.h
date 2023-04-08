@@ -817,7 +817,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate(
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen),
     void (*merged)(void*, const char* k, size_t klen, const char* v,
-                   size_t vlen), );
+                   size_t vlen));
 extern ROCKSDB_LIBRARY_API const char* rocksdb_writebatch_data(
     rocksdb_writebatch_t*, size_t* size);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_set_save_point(
