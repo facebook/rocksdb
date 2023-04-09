@@ -166,7 +166,30 @@ PerfContext perf_context;
 thread_local PerfContext perf_context;
 #endif
 
-PerfContext* get_perf_context() { return &perf_context; }
+PerfContext* get_perf_context() {
+  static_assert(sizeof(PerfContextBase) == sizeof(PerfContextInt));
+  static_assert(sizeof(PerfContextByLevelBase) ==
+                sizeof(PerfContextByLevelInt));
+  /*
+   * Validate that we have the same fields and offsets between the external user
+   * facing
+   * ''PerfContextBase'' and ''PerfContextByLevelBase' structures with the
+   * internal structures that we generate from the DEF_* macros above. This way
+   * if people add metrics to the user-facing header file, they will have a
+   * build failure and need to add similar fields to the macros in this file.
+   * These are compile-time validations and don't impose any run-time penalties.
+   */
+#define EMIT_OFFSET_ASSERTION(x) \
+  static_assert(offsetof(PerfContextBase, x) == offsetof(PerfContextInt, x));
+  DEF_PERF_CONTEXT_METRICS(EMIT_OFFSET_ASSERTION)
+#undef EMIT_OFFSET_ASSERTION
+#define EMIT_OFFSET_ASSERTION(x)                       \
+  static_assert(offsetof(PerfContextByLevelBase, x) == \
+                offsetof(PerfContextByLevelInt, x));
+  DEF_PERF_CONTEXT_LEVEL_METRICS(EMIT_OFFSET_ASSERTION)
+#undef EMIT_OFFSET_ASSERTION
+  return &perf_context;
+}
 
 PerfContext::~PerfContext() {
 #if !defined(NPERF_CONTEXT) && !defined(OS_SOLARIS)
