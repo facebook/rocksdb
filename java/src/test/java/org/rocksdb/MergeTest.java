@@ -462,4 +462,40 @@ public class MergeTest {
       opt.setMergeOperatorName(null);
     }
   }
+
+  @Test
+  public void createFromString() throws RocksDBException {
+    try (final MergeOperator mergeOp = MergeOperator.createFromString("put")) {
+      assertThat(mergeOp.isInstanceOf("PutOperator")).isTrue();
+      assertThat(mergeOp.isInstanceOf("put")).isTrue();
+      assertThat(mergeOp.isInstanceOf("put_v1")).isFalse();
+    }
+    try (final MergeOperator mergeOp = MergeOperator.createFromString("put_v1")) {
+      assertThat(mergeOp.isInstanceOf("PutOperator")).isTrue();
+      assertThat(mergeOp.isInstanceOf("put_v1")).isTrue();
+      assertThat(mergeOp.isInstanceOf("put")).isFalse();
+    }
+    try (final MergeOperator mergeOp = MergeOperator.createFromString("max")) {
+      assertThat(mergeOp.isInstanceOf("max")).isTrue();
+      assertThat(mergeOp.isInstanceOf("MaxOperator")).isTrue();
+      assertThat(mergeOp.getId()).isEqualTo("MaxOperator");
+    }
+    try (final MergeOperator mergeOp = MergeOperator.createFromString("uint64add")) {
+      assertThat(mergeOp.isInstanceOf("uint64add")).isTrue();
+      assertThat(mergeOp.isInstanceOf("UInt64AddOperator")).isTrue();
+      assertThat(mergeOp.getId()).isEqualTo("UInt64AddOperator");
+    }
+    try (final MergeOperator mergeOp =
+             MergeOperator.createFromString("id=stringappend; delimiter=;")) {
+      assertThat(mergeOp.isInstanceOf("stringappend")).isTrue();
+      assertThat(mergeOp.isInstanceOf("StringAppendOperator")).isTrue();
+      assertThat(mergeOp.getId()).isEqualTo("StringAppendOperator");
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void unknownMergeOperatorByNameColumnFamilyOptions() throws RocksDBException {
+    try (final MergeOperator mergeOp = MergeOperator.createFromString("unknown")) {
+    }
+  }
 }

@@ -8682,5 +8682,93 @@ class FileOperationInfoJni : public JavaClass {
                             "(Ljava/lang/String;JJJJLorg/rocksdb/Status;)V");
   }
 };
+
+// Class used to manage Customizable objects and their associated methods.
+class CustomizableJni : public JavaClass {
+ public:
+  // Creates a new shared<R> via T::CreateFromString using the input
+  // ConfigOptions and options string.
+  template <typename R, typename T>
+  static jlong createSharedFromString(
+      const ROCKSDB_NAMESPACE::ConfigOptions& config, JNIEnv* env, jstring s) {
+    static const int kStatusError = -2;
+    static const int kArgumentError = -3;
+    const char* opts_str = env->GetStringUTFChars(s, nullptr);
+    if (opts_str == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return kArgumentError;
+    }
+    std::shared_ptr<R>* result = new std::shared_ptr<R>();
+    auto status = T::CreateFromString(config, opts_str, result);
+    env->ReleaseStringUTFChars(s, opts_str);
+    if (status.ok()) {
+      return GET_CPLUSPLUS_POINTER(result);
+    } else {
+      delete result;
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
+      return kStatusError;
+    }
+  }
+
+  // Creates a new shared<R> via T::CreateFromString using the input options
+  // string. This signature ignores unsupported and unknown options and invokes
+  // prepare options
+  template <typename R, typename T>
+  static jlong createSharedFromString(JNIEnv* env, jstring s) {
+    ROCKSDB_NAMESPACE::ConfigOptions cfg_opts;
+    cfg_opts.ignore_unsupported_options = false;
+    cfg_opts.ignore_unknown_options = false;
+    cfg_opts.invoke_prepare_options = true;
+    return createSharedFromString<R, T>(cfg_opts, env, s);
+  }
+
+  // Creates a new shared<T> via T::CreateFromString using the input options
+  // string. This signature ignores unsupported and unknown options and invokes
+  // prepare options
+  template <typename T>
+  static jlong createSharedFromString(JNIEnv* env, jstring s) {
+    return createSharedFromString<T, T>(env, s);
+  }
+
+  // Creates a new shared<R> via T::CreateFromString using the input
+  // ConfigOptions handle and options string.
+  template <typename R, typename T>
+  static jlong createSharedFromString(JNIEnv* env, jlong handle, jstring s) {
+    auto* cfg_opts =
+        reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(handle);
+    return createSharedFromString<R, T>(*cfg_opts, env, s);
+  }
+
+  // Creates a new shared<T> via T::CreateFromString using the input
+  // ConfigOptions handle and options string.
+  template <typename T>
+  static jlong createSharedFromString(JNIEnv* env, jlong handle, jstring s) {
+    return createSharedFromString<T, T>(env, handle, s);
+  }
+
+  // Invokes and returns GetId on the shared<T> Customizable from the input
+  // handle
+  template <typename T>
+  static jstring getIdFromShared(JNIEnv* env, jlong handle) {
+    auto custom = reinterpret_cast<std::shared_ptr<T>*>(handle);
+    return env->NewStringUTF((*custom)->GetId().c_str());
+  }
+
+  // Returns true if the shared<T> Customizable handle is an InstanceOf the
+  // input string.
+  template <typename T>
+  static jboolean isSharedInstanceOf(JNIEnv* env, jlong handle, jstring s) {
+    const char* name = env->GetStringUTFChars(s, nullptr);
+    if (name == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return false;
+    }
+    auto custom = reinterpret_cast<std::shared_ptr<T>*>(handle);
+    auto result = static_cast<jboolean>((*custom)->IsInstanceOf(name));
+    env->ReleaseStringUTFChars(s, name);
+    return result;
+  }
+};
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

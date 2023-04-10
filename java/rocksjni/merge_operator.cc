@@ -16,6 +16,7 @@
 #include <memory>
 #include <string>
 
+#include "include/org_rocksdb_MergeOperator.h"
 #include "include/org_rocksdb_StringAppendOperator.h"
 #include "include/org_rocksdb_UInt64AddOperator.h"
 #include "rocksdb/db.h"
@@ -27,6 +28,66 @@
 #include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 #include "utilities/merge_operators.h"
+
+/*
+ * Class:     org_rocksdb_MergeOperator
+ * Method:    createMergeOperatorFromString
+ * Signature: (Ljava/lang/String;)J
+ */
+JNIEXPORT jlong JNICALL
+Java_org_rocksdb_MergeOperator_createMergeOperatorFromString__Ljava_lang_String_2(
+    JNIEnv* env, jclass, jstring s) {
+  return ROCKSDB_NAMESPACE::CustomizableJni::createSharedFromString<
+      ROCKSDB_NAMESPACE::MergeOperator>(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_MergeOperator
+ * Method:    createMergeOperatorFromString
+ * Signature: (JLjava/lang/String;)J
+ */
+JNIEXPORT jlong JNICALL
+Java_org_rocksdb_MergeOperator_createMergeOperatorFromString__JLjava_lang_String_2(
+    JNIEnv* env, jclass, jlong handle, jstring s) {
+  return ROCKSDB_NAMESPACE::CustomizableJni::createSharedFromString<
+      ROCKSDB_NAMESPACE::MergeOperator>(env, handle, s);
+}
+
+/*
+ * Class:     org_rocksdb_MergeOperator
+ * Method:    getId
+ * Signature: (J)Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_org_rocksdb_MergeOperator_getId(JNIEnv* env,
+                                                               jobject,
+                                                               jlong jhandle) {
+  return ROCKSDB_NAMESPACE::CustomizableJni::getIdFromShared<
+      ROCKSDB_NAMESPACE::MergeOperator>(env, jhandle);
+}
+
+/*
+ * Class:     org_rocksdb_MergeOperator
+ * Method:    isInstanceOf
+ * Signature: (JLjava/lang/String;)Z
+ */
+JNIEXPORT jboolean JNICALL Java_org_rocksdb_MergeOperator_isInstanceOf(
+    JNIEnv* env, jobject, jlong jhandle, jstring s) {
+  return ROCKSDB_NAMESPACE::CustomizableJni::isSharedInstanceOf<
+      ROCKSDB_NAMESPACE::MergeOperator>(env, jhandle, s);
+}
+
+/*
+ * Class:     org_rocksdb_MergeOperator
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_rocksdb_MergeOperator_disposeInternal(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+  auto* sptr_merge_op =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>*>(
+          jhandle);
+  delete sptr_merge_op;  // delete std::shared_ptr
+}
 
 /*
  * Class:     org_rocksdb_StringAppendOperator
@@ -57,20 +118,6 @@ jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator__Ljava
 }
 
 /*
- * Class:     org_rocksdb_StringAppendOperator
- * Method:    disposeInternal
- * Signature: (J)V
- */
-void Java_org_rocksdb_StringAppendOperator_disposeInternal(JNIEnv* /*env*/,
-                                                           jobject /*jobj*/,
-                                                           jlong jhandle) {
-  auto* sptr_string_append_op =
-      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>*>(
-          jhandle);
-  delete sptr_string_append_op;  // delete std::shared_ptr
-}
-
-/*
  * Class:     org_rocksdb_UInt64AddOperator
  * Method:    newSharedUInt64AddOperator
  * Signature: ()J
@@ -81,18 +128,4 @@ jlong Java_org_rocksdb_UInt64AddOperator_newSharedUInt64AddOperator(
       new std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>(
           ROCKSDB_NAMESPACE::MergeOperators::CreateUInt64AddOperator());
   return GET_CPLUSPLUS_POINTER(sptr_uint64_add_op);
-}
-
-/*
- * Class:     org_rocksdb_UInt64AddOperator
- * Method:    disposeInternal
- * Signature: (J)V
- */
-void Java_org_rocksdb_UInt64AddOperator_disposeInternal(JNIEnv* /*env*/,
-                                                        jobject /*jobj*/,
-                                                        jlong jhandle) {
-  auto* sptr_uint64_add_op =
-      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>*>(
-          jhandle);
-  delete sptr_uint64_add_op;  // delete std::shared_ptr
 }

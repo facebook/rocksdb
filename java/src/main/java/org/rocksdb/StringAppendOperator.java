@@ -25,5 +25,4 @@ public class StringAppendOperator extends MergeOperator {
 
     private native static long newSharedStringAppendOperator(final char delim);
     private native static long newSharedStringAppendOperator(final String delim);
-    @Override protected final native void disposeInternal(final long handle);
 }
