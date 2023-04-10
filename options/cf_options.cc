@@ -775,6 +775,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
+        {"persist_user_defined_timestamps",
+         {offsetof(struct ImmutableCFOptions, persist_user_defined_timestamps),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareLoose}},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -918,7 +922,9 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
-      blob_cache(cf_options.blob_cache) {}
+      blob_cache(cf_options.blob_cache),
+      persist_user_defined_timestamps(
+          cf_options.persist_user_defined_timestamps) {}
 
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
 
