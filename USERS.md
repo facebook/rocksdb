@@ -35,6 +35,15 @@ Yahoo is using RocksDB as a storage engine for their biggest distributed data st
 ## Baidu
 [Apache Doris](http://doris.apache.org/master/en/) is a MPP analytical database engine released by Baidu. It [uses RocksDB](http://doris.apache.org/master/en/administrator-guide/operation/tablet-meta-tool.html) to manage its tablet's metadata.
 
+## FoundationDB
+[FoundationDB](https://www.foundationdb.org/) [uses](https://github.com/apple/foundationdb/blob/377f1f692da6ab2fe5bdac57035651db3e5fb66d/fdbserver/KeyValueStoreRocksDB.actor.cpp) RocksDB to implement a [key-value store interface](https://github.com/apple/foundationdb/blob/377f1f692da6ab2fe5bdac57035651db3e5fb66d/fdbserver/KeyValueStoreRocksDB.actor.cpp#L1127) in its server backend.
+
+## Apple
+Apple [uses](https://opensource.apple.com/projects/foundationdb/) FoundationDB, so it also uses RocksDB.
+
+## Snowflake
+Snowflake [uses](https://www.snowflake.com/blog/how-foundationdb-powers-snowflake-metadata-forward/) FoundationDB, so it also uses RocksDB.
+
 ## CockroachDB
 CockroachDB is an open-source geo-replicated transactional database. They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
 
