@@ -15,6 +15,9 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 
 [2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
+## Google
+Google Cloud's [AlloyDB](https://cloud.google.com/alloydb) uses RocksDB as the storage engine, it implements RocksDB's filesystem interface with its internal [Colossus filesystem](https://cloud.google.com/blog/products/storage-data-transfer/a-peek-behind-colossus-googles-file-system).
+
 ## Microsoft
 The Bing search engine from Microsoft uses RocksDB as the storage engine for its web data platform: https://blogs.bing.com/Engineering-Blog/october-2021/RocksDB-in-Microsoft-Bing
 
