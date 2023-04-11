@@ -15,6 +15,9 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 
 [2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
+## Netflix
+[Netflix](http://techblog.netflix.com/2016/05/application-data-caching-using-ssds.html) Netflix uses RocksDB on AWS EC2 instances with local SSD drives to cache application data.
+
 ## Microsoft
 The Bing search engine from Microsoft uses RocksDB as the storage engine for its web data platform: https://blogs.bing.com/Engineering-Blog/october-2021/RocksDB-in-Microsoft-Bing
 
@@ -26,14 +29,44 @@ Two different use cases at Linkedin are using RocksDB as a storage engine:
 
 Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasundaram: http://www.youtube.com/watch?v=plqVp_OnSzg
 
+## Uber
+[Uber](http://eng.uber.com/cherami/) uses RocksDB as a durable and scalable task queue.
+
 ## Yahoo
 Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa. Learn more about it here: http://yahooeng.tumblr.com/post/120730204806/sherpa-scales-new-heights
+
+## Airbnb
+Airbnb is using RocksDB as a storage engine for their personalized search service. You can learn more about it here: https://www.youtube.com/watch?v=ASQ6XMtogMs
+
+## Pinterest
+Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtube.com/watch?v=MtFEVEs_2Vo
 
 ## Tencent
 [PaxosStore](https://github.com/Tencent/paxosstore) is a distributed database supporting WeChat. It uses RocksDB as its storage engine.
 
 ## Baidu
 [Apache Doris](http://doris.apache.org/master/en/) is a MPP analytical database engine released by Baidu. It [uses RocksDB](http://doris.apache.org/master/en/administrator-guide/operation/tablet-meta-tool.html) to manage its tablet's metadata.
+
+## Bilibili
+[Bilibili](bilibili.com) [uses](https://www.alluxio.io/blog/when-ai-meets-alluxio-at-bilibili-building-an-efficient-ai-platform-for-data-preprocessing-and-model-training/) Alluxio to speed up its ML training workloads, and Alluxio uses RocksDB to store its filesystem metadata, so Bilibili uses RocksDB.
+
+Bilibili's [real-time platform](https://www.alibabacloud.com/blog/architecture-and-practices-of-bilibilis-real-time-platform_596676) uses Flink, and uses RocksDB as Flink's state store.
+
+## Alluxio
+[Alluxio](https://www.alluxio.io) uses RocksDB to serve and scale file system metadata to beyond 1 Billion files. The detailed design and implementation is described in this engineering blog:
+https://www.alluxio.io/blog/scalable-metadata-service-in-alluxio-storing-billions-of-files/
+
+## Kafka
+[Kafka](https://kafka.apache.org/) is an open-source distributed event streaming platform, it uses RocksDB to store state in Kafka Streams: https://www.confluent.io/blog/how-to-tune-rocksdb-kafka-streams-state-stores-performance/.
+
+## Apache Spark
+[Spark Structured Streaming](https://docs.databricks.com/structured-streaming/rocksdb-state-store.html) uses RocksDB as the local state store.
+
+## Apache Flink
+[Apache Flink](https://flink.apache.org/news/2016/03/08/release-1.0.0.html) uses RocksDB to store state locally on a machine.
+
+## TiKV
+[TiKV](https://github.com/pingcap/tikv) is a GEO-replicated, high-performance, distributed, transactional key-value database. TiKV is powered by Rust and Raft. TiKV uses RocksDB as its persistence layer.
 
 ## CockroachDB
 CockroachDB is an open-source geo-replicated transactional database. They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
@@ -56,16 +89,6 @@ Check out our RocksDB Protobuf merge operator at: https://github.com/vladb38/roc
 ## Santander UK/Cloudera Profession Services
 Check out their blog post: http://blog.cloudera.com/blog/2015/08/inside-santanders-near-real-time-data-ingest-architecture/
 
-## Airbnb
-Airbnb is using RocksDB as a storage engine for their personalized search service. You can learn more about it here: https://www.youtube.com/watch?v=ASQ6XMtogMs
-
-## Alluxio
-[Alluxio](https://www.alluxio.io) uses RocksDB to serve and scale file system metadata to beyond 1 Billion files. The detailed design and implementation is described in this engineering blog:
-https://www.alluxio.io/blog/scalable-metadata-service-in-alluxio-storing-billions-of-files/
-
-## Pinterest
-Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtube.com/watch?v=MtFEVEs_2Vo
-
 ## Smyte
 [Smyte](https://www.smyte.com/) uses RocksDB as the storage layer for their core key-value storage, high-performance counters and time-windowed HyperLogLog services.
 
@@ -79,23 +102,8 @@ Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtub
 [quasardb](https://www.quasardb.net) is a high-performance, distributed, transactional key-value database that integrates well with in-memory analytics engines such as Apache Spark.
 quasardb uses a heavily tuned RocksDB as its persistence layer.
 
-## Netflix
-[Netflix](http://techblog.netflix.com/2016/05/application-data-caching-using-ssds.html) Netflix uses RocksDB on AWS EC2 instances with local SSD drives to cache application data.
-
-## TiKV
-[TiKV](https://github.com/pingcap/tikv) is a GEO-replicated, high-performance, distributed, transactional key-value database. TiKV is powered by Rust and Raft. TiKV uses RocksDB as its persistence layer.
-
-## Apache Spark
-[Spark Structured Streaming](https://docs.databricks.com/structured-streaming/rocksdb-state-store.html) uses RocksDB as the local state store.
-
-## Apache Flink
-[Apache Flink](https://flink.apache.org/news/2016/03/08/release-1.0.0.html) uses RocksDB to store state locally on a machine.
-
 ## Dgraph
 [Dgraph](https://github.com/dgraph-io/dgraph) is an open-source, scalable, distributed, low latency, high throughput Graph database .They use RocksDB to store state locally on a machine.
-
-## Uber
-[Uber](http://eng.uber.com/cherami/) uses RocksDB as a durable and scalable task queue.
 
 ## 360 Pika
 [360](http://www.360.cn/) [Pika](https://github.com/Qihoo360/pika) is a nosql compatible with redis. With the huge amount of data stored, redis may suffer for a capacity bottleneck, and pika was born for solving it. It has widely been used in many companies.
@@ -126,9 +134,6 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 
 ## Milvus
 [Milvus](https://milvus.io/) is an open source vector database for unstructured data. It uses RocksDB not only as one of the supported kv storage engines, but also as a message queue.
-
-## Kafka
-[Kafka](https://kafka.apache.org/) is an open-source distributed event streaming platform, it uses RocksDB to store state in Kafka Streams: https://www.confluent.io/blog/how-to-tune-rocksdb-kafka-streams-state-stores-performance/.
 
 ## Solana Labs
 [Solana](https://github.com/solana-labs/solana) is a fast, secure, scalable, and decentralized blockchain.  It uses RocksDB as the underlying storage for its ledger store.
