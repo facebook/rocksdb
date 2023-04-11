@@ -127,8 +127,9 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   reporter.status_ptr = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
-  FileChecksumRetriever retriever(manifest_file_size, *checksum_list);
-  retriever.Iterate(read_options, reader, &s);
+  FileChecksumRetriever retriever(read_options, manifest_file_size,
+                                  *checksum_list);
+  retriever.Iterate(reader, &s);
   assert(!retriever.status().ok() ||
          manifest_file_size == std::numeric_limits<uint64_t>::max() ||
          reader.LastRecordEnd() == manifest_file_size);

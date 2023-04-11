@@ -5694,8 +5694,8 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool no_error_if_files_missing) {
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kRecovery);
-  const ReadOptions read_options(Env::IOActivity::kRecovery);
+  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kDBOpen);
+  const ReadOptions read_options(Env::IOActivity::kDBOpen);
   // Read "CURRENT" file, which contains a pointer to the current manifest
   // file
   std::string manifest_path;
@@ -5732,8 +5732,8 @@ Status VersionSet::Recover(
     VersionEditHandler handler(
         read_only, column_families, const_cast<VersionSet*>(this),
         /*track_missing_files=*/false, no_error_if_files_missing, io_tracer_,
-        EpochNumberRequirement::kMightMissing);
-    handler.Iterate(read_options, reader, &log_read_status);
+        read_options, EpochNumberRequirement::kMightMissing);
+    handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
       log_number = handler.GetVersionEditParams().log_number_;
@@ -5880,8 +5880,8 @@ Status VersionSet::TryRecoverFromOneManifest(
     const std::string& manifest_path,
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool* has_missing_table_file) {
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kRecovery);
-  const ReadOptions read_options(Env::IOActivity::kRecovery);
+  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kDBOpen);
+  const ReadOptions read_options(Env::IOActivity::kDBOpen);
   ROCKS_LOG_INFO(db_options_->info_log, "Trying to recover from manifest: %s\n",
                  manifest_path.c_str());
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
@@ -5906,9 +5906,9 @@ Status VersionSet::TryRecoverFromOneManifest(
                      /*checksum=*/true, /*log_num=*/0);
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_,
-      EpochNumberRequirement::kMightMissing);
+      read_options, EpochNumberRequirement::kMightMissing);
 
-  handler_pit.Iterate(read_options, reader, &s);
+  handler_pit.Iterate(reader, &s);
 
   handler_pit.GetDbId(db_id);
 
@@ -5970,8 +5970,8 @@ Status VersionSet::ListColumnFamiliesFromManifest(
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
 
-  ListColumnFamiliesHandler handler;
-  handler.Iterate(read_options, reader, &s);
+  ListColumnFamiliesHandler handler(read_options);
+  handler.Iterate(reader, &s);
 
   assert(column_families);
   column_families->clear();
@@ -6186,13 +6186,14 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     cf_descs.emplace_back(cf, options);
   }
 
-  DumpManifestHandler handler(cf_descs, this, io_tracer_, verbose, hex, json);
+  DumpManifestHandler handler(cf_descs, this, io_tracer_, read_options, verbose,
+                              hex, json);
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
     log::Reader reader(nullptr, std::move(file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-    handler.Iterate(read_options, reader, &s);
+    handler.Iterate(reader, &s);
   }
 
   return handler.status();
@@ -7019,8 +7020,8 @@ Status ReactiveVersionSet::Recover(
   assert(manifest_reporter != nullptr);
   assert(manifest_reader_status != nullptr);
 
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kRecovery);
-  const ReadOptions read_options(Env::IOActivity::kRecovery);
+  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kDBOpen);
+  const ReadOptions read_options(Env::IOActivity::kDBOpen);
 
   manifest_reader_status->reset(new Status());
   manifest_reporter->reset(new LogReporter());
@@ -7033,12 +7034,11 @@ Status ReactiveVersionSet::Recover(
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
-  manifest_tailer_.reset(
-      new ManifestTailer(column_families, const_cast<ReactiveVersionSet*>(this),
-                         io_tracer_, EpochNumberRequirement::kMightMissing));
+  manifest_tailer_.reset(new ManifestTailer(
+      column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
+      read_options, EpochNumberRequirement::kMightMissing));
 
-  manifest_tailer_->Iterate(read_options, *reader,
-                            manifest_reader_status->get());
+  manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
 
   s = manifest_tailer_->status();
   if (s.ok()) {
@@ -7065,8 +7065,7 @@ Status ReactiveVersionSet::ReadAndApply(
   if (!s.ok()) {
     return s;
   }
-  manifest_tailer_->Iterate(read_options, *(manifest_reader->get()),
-                            manifest_read_status);
+  manifest_tailer_->Iterate(*(manifest_reader->get()), manifest_read_status);
   s = manifest_tailer_->status();
   if (s.ok()) {
     *cfds_changed = std::move(manifest_tailer_->GetUpdatedColumnFamilies());

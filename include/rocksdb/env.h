@@ -440,7 +440,7 @@ class Env : public Customizable {
   enum class IOActivity : uint8_t {
     kFlush = 0,
     kCompaction = 1,
-    kRecovery = 2,
+    kDBOpen = 2,
     kUnknown,
   };
 
