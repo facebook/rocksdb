@@ -15,6 +15,11 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 
 [2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
+## TikTok
+TikTok, or its parent company ByteDance, uses RocksDB as the storage engine for some storage systems, such as its distributed graph database [ByteGraph](https://vldb.org/pvldb/vol15/p3306-li.pdf). 
+
+Also, TikTok uses [Alluxio](alluxio.io) to [speed up Presto queries](https://www.alluxio.io/resources/videos/improving-presto-performance-with-alluxio-at-tiktok/), and Alluxio stores the files' metadata in RocksDB.
+
 ## Microsoft
 The Bing search engine from Microsoft uses RocksDB as the storage engine for its web data platform: https://blogs.bing.com/Engineering-Blog/october-2021/RocksDB-in-Microsoft-Bing
 
