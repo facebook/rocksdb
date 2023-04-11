@@ -66,6 +66,7 @@ Status SstFileReader::Open(const std::string& file_path) {
 }
 
 Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
+  assert(roptions.io_activity == Env::IOActivity::kUnknown);
   auto r = rep_.get();
   auto sequence = roptions.snapshot != nullptr
                       ? roptions.snapshot->GetSequenceNumber()
@@ -91,9 +92,9 @@ std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
 }
 
 Status SstFileReader::VerifyChecksum(const ReadOptions& read_options) {
+  assert(read_options.io_activity == Env::IOActivity::kUnknown);
   return rep_->table_reader->VerifyChecksum(read_options,
                                             TableReaderCaller::kSSTFileReader);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

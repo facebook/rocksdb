@@ -1943,6 +1943,12 @@ Status DBImpl::GetEntity(const ReadOptions& read_options,
         "Cannot call GetEntity without a PinnableWideColumns object");
   }
 
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntity with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
+
   columns->Reset();
 
   GetImplOptions get_impl_options;
@@ -1987,6 +1993,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
          get_impl_options.columns != nullptr);
 
   assert(get_impl_options.column_family);
+
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call Get with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
 
   if (read_options.timestamp) {
     const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
@@ -2938,6 +2950,11 @@ Status DBImpl::MultiGetImpl(
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* callback) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call MultiGet with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
 
@@ -3336,6 +3353,8 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
                          std::string* value, std::string* timestamp,
                          bool* value_found) {
   assert(value != nullptr);
+  assert(read_options.io_activity == Env::IOActivity::kUnknown);
+
   if (value_found != nullptr) {
     // falsify later if key-may-exist but can't fetch value
     *value_found = true;
@@ -3367,6 +3386,11 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
+  }
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return NewErrorIterator(Status::InvalidArgument(
+        "Cannot call NewIterator with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`"));
   }
 
   assert(column_family);
@@ -3502,6 +3526,11 @@ Status DBImpl::NewIterators(
   if (read_options.read_tier == kPersistedTier) {
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
+  }
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call NewIterators with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
   }
 
   if (read_options.timestamp) {
@@ -5672,6 +5701,12 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
 
   Status s;
 
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    s = Status::InvalidArgument(
+        "Cannot verify file checksum with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+    return s;
+  }
   if (use_file_checksum) {
     FileChecksumGenFactory* const file_checksum_gen_factory =
         immutable_db_options_.file_checksum_gen_factory.get();
@@ -5785,6 +5820,12 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
                                       const std::string& func_name_expected,
                                       const std::string& fname,
                                       const ReadOptions& read_options) {
+  if (read_options.io_activity != Env::IOActivity::kUnknown) {
+    return Status::InvalidArgument(
+        "Cannot call VerifyChecksum with `ReadOptions::io_activity` != "
+        "`Env::IOActivity::kUnknown`");
+  }
+
   Status s;
   if (file_checksum_expected == kUnknownFileChecksum) {
     return s;
