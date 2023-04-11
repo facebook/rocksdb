@@ -5694,7 +5694,8 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool no_error_if_files_missing) {
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kDBOpen);
+  ThreadIOActivityGuardForTest thread_io_activity_guard(
+      Env::IOActivity::kDBOpen);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   // Read "CURRENT" file, which contains a pointer to the current manifest
   // file
@@ -5880,7 +5881,8 @@ Status VersionSet::TryRecoverFromOneManifest(
     const std::string& manifest_path,
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool* has_missing_table_file) {
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kDBOpen);
+  ThreadIOActivityGuardForTest thread_io_activity_guard(
+      Env::IOActivity::kDBOpen);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   ROCKS_LOG_INFO(db_options_->info_log, "Trying to recover from manifest: %s\n",
                  manifest_path.c_str());
@@ -7020,7 +7022,8 @@ Status ReactiveVersionSet::Recover(
   assert(manifest_reporter != nullptr);
   assert(manifest_reader_status != nullptr);
 
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kDBOpen);
+  ThreadIOActivityGuardForTest thread_io_activity_guard(
+      Env::IOActivity::kDBOpen);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
 
   manifest_reader_status->reset(new Status());

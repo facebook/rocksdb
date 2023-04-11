@@ -399,7 +399,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
                                       const IOOptions& options, Slice* result,
                                       char* scratch,
                                       IODebugContext* dbg) const {
-  const Env::IOActivity io_activity = GetThreadIOActivity();
+  const Env::IOActivity io_activity = TEST_GetThreadIOActivity();
   if (io_activity != Env::IOActivity::kUnknown) {
     assert(io_activity == options.io_activity);
   }
@@ -453,7 +453,7 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  const Env::IOActivity io_activity = GetThreadIOActivity();
+  const Env::IOActivity io_activity = TEST_GetThreadIOActivity();
   if (io_activity != Env::IOActivity::kUnknown) {
     assert(io_activity == options.io_activity);
   }

@@ -5,35 +5,15 @@
 //
 #pragma once
 #include "rocksdb/env.h"
-
-#ifdef NDEBUG
 namespace ROCKSDB_NAMESPACE {
 extern thread_local Env::IOActivity thread_io_activity;
 
-extern Env::IOActivity GetThreadIOActivity();
+extern Env::IOActivity TEST_GetThreadIOActivity();
 
-class ThreadIOActivityGuard {
+class ThreadIOActivityGuardForTest {
  public:
-  ThreadIOActivityGuard(Env::IOActivity /* io_activity */) {}
+  ThreadIOActivityGuardForTest(Env::IOActivity io_activity);
 
-  ~ThreadIOActivityGuard() {}
+  ~ThreadIOActivityGuardForTest();
 };
 }  // namespace ROCKSDB_NAMESPACE
-
-#else
-namespace ROCKSDB_NAMESPACE {
-extern thread_local Env::IOActivity thread_io_activity;
-
-extern Env::IOActivity GetThreadIOActivity();
-
-class ThreadIOActivityGuard {
- public:
-  ThreadIOActivityGuard(Env::IOActivity io_activity) {
-    thread_io_activity = io_activity;
-  }
-
-  ~ThreadIOActivityGuard() { thread_io_activity = Env::IOActivity::kUnknown; }
-};
-}  // namespace ROCKSDB_NAMESPACE
-
-#endif  // NDEBUG

@@ -5,14 +5,21 @@
 //
 #include "test_util/thread_io_activity.h"
 
+namespace ROCKSDB_NAMESPACE {
 #ifdef NDEBUG
-namespace ROCKSDB_NAMESPACE {
-Env::IOActivity GetThreadIOActivity() { return Env::IOActivity::kUnknown; }
-}  // namespace ROCKSDB_NAMESPACE
+Env::IOActivity TEST_GetThreadIOActivity() { return Env::IOActivity::kUnknown; }
+ThreadIOActivityGuardForTest::ThreadIOActivityGuardForTest(
+    Env::IOActivity /* io_activity */) {}
+ThreadIOActivityGuardForTest::~ThreadIOActivityGuardForTest() {}
 #else
-namespace ROCKSDB_NAMESPACE {
 thread_local Env::IOActivity thread_io_activity = Env::IOActivity::kUnknown;
-
-Env::IOActivity GetThreadIOActivity() { return thread_io_activity; }
-}  // namespace ROCKSDB_NAMESPACE
+Env::IOActivity TEST_GetThreadIOActivity() { return thread_io_activity; }
+ThreadIOActivityGuardForTest::ThreadIOActivityGuardForTest(
+    Env::IOActivity io_activity) {
+  thread_io_activity = io_activity;
+}
+ThreadIOActivityGuardForTest::~ThreadIOActivityGuardForTest() {
+  thread_io_activity = Env::IOActivity::kUnknown;
+}
 #endif  // NDEBUG
+}  // namespace ROCKSDB_NAMESPACE

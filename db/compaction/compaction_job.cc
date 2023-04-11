@@ -617,7 +617,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
 Status CompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kCompaction);
+  ThreadIOActivityGuardForTest thread_io_activity_guard(
+      Env::IOActivity::kCompaction);
   const ReadOptions read_options(Env::IOActivity::kCompaction);
 
   TEST_SYNC_POINT("CompactionJob::Run():Start");
@@ -714,7 +715,7 @@ Status CompactionJob::Run() {
         compact_->compaction->mutable_cf_options()->prefix_extractor;
     std::atomic<size_t> next_file_idx(0);
     auto verify_table = [&](Status& output_status) {
-      ThreadIOActivityGuard verify_table_thread_io_activity_guard(
+      ThreadIOActivityGuardForTest verify_table_thread_io_activity_guard(
           Env::IOActivity::kCompaction);
       while (true) {
         size_t file_idx = next_file_idx.fetch_add(1);
@@ -1037,7 +1038,8 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kCompaction);
+  ThreadIOActivityGuardForTest thread_io_activity_guard(
+      Env::IOActivity::kCompaction);
   if (db_options_.compaction_service) {
     CompactionServiceJobStatus comp_status =
         ProcessKeyValueCompactionWithCompactionService(sub_compact);

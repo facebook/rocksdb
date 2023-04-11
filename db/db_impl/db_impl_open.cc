@@ -924,7 +924,8 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
   mutex_.AssertHeld();
   assert(versions_->descriptor_log_ == nullptr);
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kDBOpen);
+  ThreadIOActivityGuardForTest thread_io_activity_guard(
+      Env::IOActivity::kDBOpen);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   Status s = versions_->LogAndApply(
       recovery_ctx.cfds_, recovery_ctx.mutable_cf_opts_, read_options,
@@ -1569,7 +1570,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   assert(std::numeric_limits<uint64_t>::max() ==
          cfd->imm()->GetEarliestMemTableID());
 
-  ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kDBOpen);
+  ThreadIOActivityGuardForTest thread_io_activity_guard(
+      Env::IOActivity::kDBOpen);
   const uint64_t start_micros = immutable_db_options_.clock->NowMicros();
 
   FileMetaData meta;
