@@ -34,7 +34,6 @@ Apple [uses](https://opensource.apple.com/projects/foundationdb/) FoundationDB, 
 ## Snowflake
 Snowflake [uses](https://www.snowflake.com/blog/how-foundationdb-powers-snowflake-metadata-forward/) FoundationDB, so it also uses RocksDB.
 
-
 ## Microsoft
 The Bing search engine from Microsoft uses RocksDB as the storage engine for its web data platform: https://blogs.bing.com/Engineering-Blog/october-2021/RocksDB-in-Microsoft-Bing
 
