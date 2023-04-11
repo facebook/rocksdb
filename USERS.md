@@ -15,6 +15,21 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 
 [2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
+## TiKV
+[TiKV](https://github.com/pingcap/tikv) is a GEO-replicated, high-performance, distributed, transactional key-value database. TiKV is powered by Rust and Raft. TiKV uses RocksDB as its persistence layer.
+
+## TiDB
+[TiDB](https://github.com/pingcap/tidb) uses the TiKV distributed key-value database, so it uses RocksDB.
+
+## PingCAP
+[PingCAP](https://www.pingcap.com/) is the company behind TiDB, its cloud database service uses RocksDB.
+
+## Apache Spark
+[Spark Structured Streaming](https://docs.databricks.com/structured-streaming/rocksdb-state-store.html) uses RocksDB as the local state store.
+
+## Databricks
+[Databricks](https://www.databricks.com/) [replaces AWS RDS with TiDB](https://www.pingcap.com/case-study/how-databricks-tackles-the-scalability-limit-with-a-mysql-alternative/) for scalability, so it uses RocksDB.
+
 ## Microsoft
 The Bing search engine from Microsoft uses RocksDB as the storage engine for its web data platform: https://blogs.bing.com/Engineering-Blog/october-2021/RocksDB-in-Microsoft-Bing
 
@@ -81,12 +96,6 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 
 ## Netflix
 [Netflix](http://techblog.netflix.com/2016/05/application-data-caching-using-ssds.html) Netflix uses RocksDB on AWS EC2 instances with local SSD drives to cache application data.
-
-## TiKV
-[TiKV](https://github.com/pingcap/tikv) is a GEO-replicated, high-performance, distributed, transactional key-value database. TiKV is powered by Rust and Raft. TiKV uses RocksDB as its persistence layer.
-
-## Apache Spark
-[Spark Structured Streaming](https://docs.databricks.com/structured-streaming/rocksdb-state-store.html) uses RocksDB as the local state store.
 
 ## Apache Flink
 [Apache Flink](https://flink.apache.org/news/2016/03/08/release-1.0.0.html) uses RocksDB to store state locally on a machine.
