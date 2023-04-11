@@ -618,6 +618,8 @@ Status CompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
   ThreadIOActivityGuard thread_io_activity_guard(Env::IOActivity::kCompaction);
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
+
   TEST_SYNC_POINT("CompactionJob::Run():Start");
   log_buffer_->FlushBufferToLog();
   LogCompaction();
@@ -726,7 +728,6 @@ Status CompactionJob::Run() {
         // use_direct_io_for_flush_and_compaction is true, we will regard this
         // verification as user reads since the goal is to cache it here for
         // further user reads
-        const ReadOptions read_options(Env::IOActivity::kCompaction);
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             read_options, file_options_, cfd->internal_comparator(),
             files_output[file_idx]->meta, /*range_del_agg=*/nullptr,

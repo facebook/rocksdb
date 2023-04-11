@@ -1619,7 +1619,6 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
   constexpr char checksum_value[] = "\x3d\x87\xff\x57";
-  const ReadOptions read_options;
 
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
@@ -1629,7 +1628,7 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   mutex_.Lock();
   Status s = versions_->LogAndApply(
       versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-      read_options, &edit, &mutex_, nullptr);
+      read_options_, &edit, &mutex_, nullptr);
   mutex_.Unlock();
 
   ASSERT_OK(s);

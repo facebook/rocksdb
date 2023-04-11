@@ -360,6 +360,9 @@ class Repairer {
       }
     };
 
+    // TODO: plumb Env::IOActivity
+    const ReadOptions read_options;
+
     // Open the log file
     std::string logname = LogFileName(wal_dir, log);
     const auto& fs = env_->GetFileSystem();
@@ -457,8 +460,6 @@ class Repairer {
           0 /*target_file_size*/, meta.fd.GetNumber());
 
       SeqnoToTimeMapping empty_seqno_time_mapping;
-      // TODO: plumb Env::IOActivity
-      const ReadOptions read_options;
       status = BuildTable(
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
           file_options_, read_options, table_cache_.get(), iter.get(),

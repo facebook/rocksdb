@@ -316,7 +316,6 @@ class CompactionJobTestBase : public testing::Test {
   void AddMockFile(const mock::KVVector& contents, int level = 0) {
     assert(contents.size() > 0);
 
-    const ReadOptions read_options;
     bool first_key = true;
     std::string smallest, largest;
     InternalKey smallest_key, largest_key;
@@ -392,7 +391,7 @@ class CompactionJobTestBase : public testing::Test {
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options, &edit, &mutex_, nullptr));
+        read_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
   }
 
@@ -728,6 +727,7 @@ class CompactionJobTestBase : public testing::Test {
   ColumnFamilyOptions cf_options_;
   MutableCFOptions mutable_cf_options_;
   MutableDBOptions mutable_db_options_;
+  const ReadOptions read_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
