@@ -3359,6 +3359,7 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
     // falsify later if key-may-exist but can't fetch value
     *value_found = true;
   }
+  // TODO: plumb Env::IOActivity
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier;  // read from block cache only
   PinnableSlice pinnable_val;
@@ -3849,7 +3850,9 @@ Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
   version->Ref();
   mutex_.Unlock();
 
-  auto s = version->GetPropertiesOfAllTables(props);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
+  auto s = version->GetPropertiesOfAllTables(read_options, props);
 
   // Decrement the ref count
   mutex_.Lock();
@@ -3871,7 +3874,9 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
   version->Ref();
   mutex_.Unlock();
 
-  auto s = version->GetPropertiesOfTablesInRange(range, n, props);
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
+  auto s = version->GetPropertiesOfTablesInRange(read_options, range, n, props);
 
   // Decrement the ref count
   mutex_.Lock();
@@ -4204,6 +4209,8 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
   v = sv->current;
 
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options;
   for (int i = 0; i < n; i++) {
     Slice start = range[i].start;
     Slice limit = range[i].limit;
@@ -4225,7 +4232,7 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
     sizes[i] = 0;
     if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(
-          options, v, k1.Encode(), k2.Encode(), /*start_level=*/0,
+          options, read_options, v, k1.Encode(), k2.Encode(), /*start_level=*/0,
           /*end_level=*/-1, TableReaderCaller::kUserApproximateSize);
     }
     if (options.include_memtables) {
@@ -5081,6 +5088,7 @@ Status DBImpl::GetLatestSequenceForKey(
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
 
+  // TODO: plumb Env::IOActivity
   ReadOptions read_options;
   SequenceNumber current_seq = versions_->LastSequence();
 

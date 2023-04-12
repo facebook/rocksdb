@@ -3792,6 +3792,8 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->table_properties = c->GetOutputTableProperties();
   compaction_job_info->compaction_reason = c->compaction_reason();
   compaction_job_info->compression = c->output_compression();
+
+  const ReadOptions read_options(Env::IOActivity::kCompaction);
   for (size_t i = 0; i < c->num_input_levels(); ++i) {
     for (const auto fmd : *c->inputs(i)) {
       const FileDescriptor& desc = fmd->fd;
@@ -3803,7 +3805,7 @@ void DBImpl::BuildCompactionJobInfo(
           static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
       if (compaction_job_info->table_properties.count(fn) == 0) {
         std::shared_ptr<const TableProperties> tp;
-        auto s = current->GetTableProperties(&tp, fmd, &fn);
+        auto s = current->GetTableProperties(read_options, &tp, fmd, &fn);
         if (s.ok()) {
           compaction_job_info->table_properties[fn] = tp;
         }

@@ -2333,8 +2333,9 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
 
     // Read metaindex
     BlockContents bc;
-    ASSERT_OK(ReadMetaIndexBlockInFile(r.get(), file_size, 0U,
-                                       ImmutableOptions(options), &bc));
+    const ReadOptions read_options;
+    ASSERT_OK(ReadMetaIndexBlockInFile(
+        r.get(), file_size, 0U, ImmutableOptions(options), read_options, &bc));
     Block metaindex_block(std::move(bc));
     std::unique_ptr<InternalIterator> meta_iter;
     meta_iter.reset(metaindex_block.NewMetaIterator());

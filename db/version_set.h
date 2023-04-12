@@ -913,7 +913,7 @@ class Version {
   // populates derived data structures. Call without mutex held. It needs to be
   // called before appending the version to the version set.
   void PrepareAppend(const MutableCFOptions& mutable_cf_options,
-                     bool update_stats);
+                     const ReadOptions& read_options, bool update_stats);
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
@@ -943,7 +943,8 @@ class Version {
   // specified in "file_meta".  If the file name of "file_meta" is
   // known ahead, passing it by a non-null "fname" can save a
   // file-name conversion.
-  Status GetTableProperties(std::shared_ptr<const TableProperties>* tp,
+  Status GetTableProperties(const ReadOptions& read_options,
+                            std::shared_ptr<const TableProperties>* tp,
                             const FileMetaData* file_meta,
                             const std::string* fname = nullptr) const;
 
@@ -951,9 +952,12 @@ class Version {
   // On success, *props will be populated with all SSTables' table properties.
   // The keys of `props` are the sst file name, the values of `props` are the
   // tables' properties, represented as std::shared_ptr.
-  Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
-  Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
-  Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
+  Status GetPropertiesOfAllTables(const ReadOptions& read_options,
+                                  TablePropertiesCollection* props);
+  Status GetPropertiesOfAllTables(const ReadOptions& read_options,
+                                  TablePropertiesCollection* props, int level);
+  Status GetPropertiesOfTablesInRange(const ReadOptions& read_options,
+                                      const Range* range, std::size_t n,
                                       TablePropertiesCollection* props) const;
 
   // Print summary of range delete tombstones in SST files into out_str,
@@ -965,13 +969,14 @@ class Version {
   // On success, "tp" will contains the aggregated table property among
   // the table properties of all sst files in this version.
   Status GetAggregatedTableProperties(
+      const ReadOptions& read_options,
       std::shared_ptr<const TableProperties>* tp, int level = -1);
 
   uint64_t GetEstimatedActiveKeys() {
     return storage_info_.GetEstimatedActiveKeys();
   }
 
-  size_t GetMemoryUsageByTableReaders();
+  size_t GetMemoryUsageByTableReaders(const ReadOptions& read_options);
 
   ColumnFamilyData* cfd() const { return cfd_; }
 
@@ -1024,11 +1029,12 @@ class Version {
   // The helper function of UpdateAccumulatedStats, which may fill the missing
   // fields of file_meta from its associated TableProperties.
   // Returns true if it does initialize FileMetaData.
-  bool MaybeInitializeFileMetaData(FileMetaData* file_meta);
+  bool MaybeInitializeFileMetaData(const ReadOptions& read_options,
+                                   FileMetaData* file_meta);
 
   // Update the accumulated stats associated with the current version.
   // This accumulated stats will be used in compaction.
-  void UpdateAccumulatedStats();
+  void UpdateAccumulatedStats(const ReadOptions& read_options);
 
   DECLARE_SYNC_AND_ASYNC(
       /* ret_type */ Status, /* func_name */ MultiGetFromSST,
@@ -1429,7 +1435,8 @@ class VersionSet {
   // Return the approximate size of data to be scanned for range [start, end)
   // in levels [start_level, end_level). If end_level == -1 it will search
   // through all non-empty levels
-  uint64_t ApproximateSize(const SizeApproximationOptions& options, Version* v,
+  uint64_t ApproximateSize(const SizeApproximationOptions& options,
+                           const ReadOptions& read_options, Version* v,
                            const Slice& start, const Slice& end,
                            int start_level, int end_level,
                            TableReaderCaller caller);
@@ -1489,7 +1496,8 @@ class VersionSet {
         new Version(cfd, this, file_options_, mutable_cf_options, io_tracer_);
 
     constexpr bool update_stats = false;
-    version->PrepareAppend(mutable_cf_options, update_stats);
+    const ReadOptions read_options;
+    version->PrepareAppend(mutable_cf_options, read_options, update_stats);
     AppendVersion(cfd, version);
   }
 
@@ -1518,14 +1526,15 @@ class VersionSet {
   void Reset();
 
   // Returns approximated offset of a key in a file for a given version.
-  uint64_t ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
-                               const Slice& key, TableReaderCaller caller);
+  uint64_t ApproximateOffsetOf(const ReadOptions& read_options, Version* v,
+                               const FdWithKeyRange& f, const Slice& key,
+                               TableReaderCaller caller);
 
   // Returns approximated data size between start and end keys in a file
   // for a given version.
-  uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
-                           const Slice& start, const Slice& end,
-                           TableReaderCaller caller);
+  uint64_t ApproximateSize(const ReadOptions& read_options, Version* v,
+                           const FdWithKeyRange& f, const Slice& start,
+                           const Slice& end, TableReaderCaller caller);
 
   struct MutableCFState {
     uint64_t log_number;
@@ -1544,9 +1553,11 @@ class VersionSet {
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
+                                       const ReadOptions& read_options,
                                        const VersionEdit* edit);
 
-  Status VerifyFileMetadata(ColumnFamilyData* cfd, const std::string& fpath,
+  Status VerifyFileMetadata(const ReadOptions& read_options,
+                            ColumnFamilyData* cfd, const std::string& fpath,
                             int level, const FileMetaData& meta);
 
   // Protected by DB mutex.

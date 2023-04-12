@@ -255,8 +255,8 @@ Status BuildTable(
             SizeApproximationOptions approx_opts;
             approx_opts.files_size_error_margin = 0.1;
             meta->compensated_range_deletion_size += versions->ApproximateSize(
-                approx_opts, version, kv.first.Encode(), tombstone_end.Encode(),
-                0 /* start_level */, -1 /* end_level */,
+                approx_opts, read_options, version, kv.first.Encode(),
+                tombstone_end.Encode(), 0 /* start_level */, -1 /* end_level */,
                 TableReaderCaller::kFlush);
           }
           last_tombstone_start_user_key = range_del_it->start_key();

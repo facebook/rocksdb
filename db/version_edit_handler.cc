@@ -21,7 +21,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 void VersionEditHandlerBase::Iterate(log::Reader& reader,
-
                                      Status* log_read_status) {
   Slice record;
   std::string scratch;
@@ -120,8 +119,7 @@ Status ListColumnFamiliesHandler::ApplyVersionEdit(
 }
 
 Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
-                                               ColumnFamilyData** /*unused*/
-) {
+                                               ColumnFamilyData** /*unused*/) {
   for (const auto& deleted_file : edit.GetDeletedFiles()) {
     Status s = file_checksum_list_.RemoveOneFileChecksum(deleted_file.second);
     if (!s.ok()) {
@@ -310,8 +308,7 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
       tmp_cfd = version_set_->GetColumnFamilySet()->GetColumnFamily(
           edit.column_family_);
       assert(tmp_cfd != nullptr);
-      s = MaybeCreateVersion(edit, tmp_cfd,
-                             /*force_create_version=*/false);
+      s = MaybeCreateVersion(edit, tmp_cfd, /*force_create_version=*/false);
       if (s.ok()) {
         s = builder_iter->second->version_builder()->Apply(&edit);
       }
@@ -426,8 +423,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       if (read_only_) {
         cfd->table_cache()->SetTablesAreImmortal();
       }
-      *s = LoadTables(cfd,
-                      /*prefetch_index_and_filter_in_cache=*/false,
+      *s = LoadTables(cfd, /*prefetch_index_and_filter_in_cache=*/false,
                       /*is_initial_load=*/true);
       if (!s->ok()) {
         // If s is IOError::PathNotFound, then we mark the db as corrupted.
@@ -446,8 +442,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       }
       assert(cfd->initialized());
       VersionEdit edit;
-      *s = MaybeCreateVersion(edit, cfd,
-                              /*force_create_version=*/true);
+      *s = MaybeCreateVersion(edit, cfd, /*force_create_version=*/true);
       if (!s->ok()) {
         break;
       }
@@ -486,7 +481,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
 
 ColumnFamilyData* VersionEditHandler::CreateCfAndInit(
     const ColumnFamilyOptions& cf_options, const VersionEdit& edit) {
-  ColumnFamilyData* cfd = version_set_->CreateColumnFamily(cf_options, &edit);
+  ColumnFamilyData* cfd =
+      version_set_->CreateColumnFamily(cf_options, read_options_, &edit);
   assert(cfd != nullptr);
   cfd->set_initialized();
   assert(builders_.find(edit.column_family_) == builders_.end());
@@ -543,7 +539,7 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
     if (s.ok()) {
       // Install new version
       v->PrepareAppend(
-          *cfd->GetLatestMutableCFOptions(),
+          *cfd->GetLatestMutableCFOptions(), read_options_,
           !(version_set_->db_options_->skip_stats_update_on_db_open));
       version_set_->AppendVersion(cfd, v);
     } else {
@@ -836,7 +832,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {
       version->PrepareAppend(
-          *cfd->GetLatestMutableCFOptions(),
+          *cfd->GetLatestMutableCFOptions(), read_options_,
           !version_set_->db_options_->skip_stats_update_on_db_open);
       auto v_iter = versions_.find(cfd->GetID());
       if (v_iter != versions_.end()) {
@@ -856,7 +852,8 @@ Status VersionEditHandlerPointInTime::VerifyFile(ColumnFamilyData* cfd,
                                                  const std::string& fpath,
                                                  int level,
                                                  const FileMetaData& fmeta) {
-  return version_set_->VerifyFileMetadata(cfd, fpath, level, fmeta);
+  return version_set_->VerifyFileMetadata(read_options_, cfd, fpath, level,
+                                          fmeta);
 }
 
 Status VersionEditHandlerPointInTime::VerifyBlobFile(
@@ -865,7 +862,9 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
   BlobSource* blob_source = cfd->blob_source();
   assert(blob_source);
   CacheHandleGuard<BlobFileReader> blob_file_reader;
-  Status s = blob_source->GetBlobFileReader(blob_file_num, &blob_file_reader);
+
+  Status s = blob_source->GetBlobFileReader(read_options_, blob_file_num,
+                                            &blob_file_reader);
   if (!s.ok()) {
     return s;
   }
@@ -955,7 +954,6 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
 }
 
 void ManifestTailer::CheckIterationResult(const log::Reader& reader,
-
                                           Status* s) {
   VersionEditHandlerPointInTime::CheckIterationResult(reader, s);
   assert(s);
@@ -979,7 +977,6 @@ Status ManifestTailer::VerifyFile(ColumnFamilyData* cfd,
 }
 
 void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
-
                                                Status* s) {
   VersionEditHandler::CheckIterationResult(reader, s);
   if (!s->ok()) {

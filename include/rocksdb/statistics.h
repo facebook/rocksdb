@@ -474,8 +474,8 @@ enum Histograms : uint32_t {
   WRITE_STALL,
   // Time spent in reading block-based or plain SST table
   SST_READ_MICROS,
-  // Time spent in reading SST table or blob file for flush or compaction.
-  // Only block-based SST table is currently included in this statistics.
+  // Time spent in reading SST table (currently only block-based table) or blob
+  // file for flush or compaction
   FILE_READ_FLUSH_MICROS,
   FILE_READ_COMPACTION_MICROS,
 

@@ -107,9 +107,8 @@ int db_stress_tool(int argc, char** argv) {
     // has a default implementation of ReadAsync that redirects to Read.
     legacy_env_wrapper_guard = std::make_shared<EnvWrapper>(raw_env);
     env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(
-        legacy_env_wrapper_guard,
-        std::make_shared<DbStressFSWrapper>(
-            legacy_env_wrapper_guard->GetFileSystem()));
+        raw_env, std::make_shared<DbStressFSWrapper>(
+                     legacy_env_wrapper_guard->GetFileSystem()));
   }
   db_stress_env = env_wrapper_guard.get();
 

@@ -292,12 +292,14 @@ void CompactionJob::Prepare() {
                c->immutable_options()->preclude_last_level_data_seconds);
 
   if (preserve_time_duration > 0) {
+    const ReadOptions read_options(Env::IOActivity::kCompaction);
     // setup seqno_time_mapping_
     seqno_time_mapping_.SetMaxTimeDuration(preserve_time_duration);
     for (const auto& each_level : *c->inputs()) {
       for (const auto& fmd : each_level.files) {
         std::shared_ptr<const TableProperties> tp;
-        Status s = cfd->current()->GetTableProperties(&tp, fmd, nullptr);
+        Status s =
+            cfd->current()->GetTableProperties(read_options, &tp, fmd, nullptr);
         if (s.ok()) {
           seqno_time_mapping_.Add(tp->seqno_to_time_mapping)
               .PermitUncheckedError();

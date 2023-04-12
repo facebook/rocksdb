@@ -428,6 +428,7 @@ class Repairer {
 
       FileMetaData meta;
       meta.fd = FileDescriptor(next_file_number_++, 0, 0);
+      // TODO: plumb Env::IOActivity
       ReadOptions ro;
       ro.total_order_seek = true;
       Arena arena;
@@ -515,8 +516,10 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
-      status = table_cache_->GetTableProperties(file_options_, icmp_, t->meta,
-                                                &props);
+      // TODO: plumb Env::IOActivity
+      const ReadOptions read_options;
+      status = table_cache_->GetTableProperties(file_options_, read_options,
+                                                icmp_, t->meta, &props);
     }
     if (status.ok()) {
       auto s =
@@ -562,6 +565,7 @@ class Repairer {
       }
     }
     if (status.ok()) {
+      // TODO: plumb Env::IOActivity
       ReadOptions ropts;
       ropts.total_order_seek = true;
       InternalIterator* iter = table_cache_->NewIterator(
@@ -609,6 +613,7 @@ class Repairer {
       // an SST file is a full sorted run. This probably needs the extra logic
       // from compaction_job.cc around call to UpdateBoundariesForRange (to
       // handle range tombstones extendingg beyond range of other entries).
+      // TODO: plumb Env::IOActivity
       ReadOptions ropts;
       std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
       status = table_cache_->GetRangeTombstoneIterator(

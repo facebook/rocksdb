@@ -560,7 +560,7 @@ Status TableCache::MultiGetFilter(
 }
 
 Status TableCache::GetTableProperties(
-    const FileOptions& file_options,
+    const FileOptions& file_options, const ReadOptions& read_options,
     const InternalKeyComparator& internal_comparator,
     const FileMetaData& file_meta,
     std::shared_ptr<const TableProperties>* properties,
@@ -574,7 +574,7 @@ Status TableCache::GetTableProperties(
   }
 
   TypedHandle* table_handle = nullptr;
-  Status s = FindTable(ReadOptions(), file_options, internal_comparator,
+  Status s = FindTable(read_options, file_options, internal_comparator,
                        file_meta, &table_handle, prefix_extractor, no_io);
   if (!s.ok()) {
     return s;
@@ -608,7 +608,7 @@ Status TableCache::ApproximateKeyAnchors(
 }
 
 size_t TableCache::GetMemoryUsageByTableReader(
-    const FileOptions& file_options,
+    const FileOptions& file_options, const ReadOptions& read_options,
     const InternalKeyComparator& internal_comparator,
     const FileMetaData& file_meta,
     const std::shared_ptr<const SliceTransform>& prefix_extractor) {
@@ -619,7 +619,7 @@ size_t TableCache::GetMemoryUsageByTableReader(
   }
 
   TypedHandle* table_handle = nullptr;
-  Status s = FindTable(ReadOptions(), file_options, internal_comparator,
+  Status s = FindTable(read_options, file_options, internal_comparator,
                        file_meta, &table_handle, prefix_extractor, true);
   if (!s.ok()) {
     return 0;
@@ -636,7 +636,8 @@ void TableCache::Evict(Cache* cache, uint64_t file_number) {
 }
 
 uint64_t TableCache::ApproximateOffsetOf(
-    const Slice& key, const FileMetaData& file_meta, TableReaderCaller caller,
+    const ReadOptions& read_options, const Slice& key,
+    const FileMetaData& file_meta, TableReaderCaller caller,
     const InternalKeyComparator& internal_comparator,
     const std::shared_ptr<const SliceTransform>& prefix_extractor) {
   uint64_t result = 0;
@@ -645,7 +646,7 @@ uint64_t TableCache::ApproximateOffsetOf(
   if (table_reader == nullptr) {
     const bool for_compaction = (caller == TableReaderCaller::kCompaction);
     Status s =
-        FindTable(ReadOptions(), file_options_, internal_comparator, file_meta,
+        FindTable(read_options, file_options_, internal_comparator, file_meta,
                   &table_handle, prefix_extractor, false /* no_io */,
                   !for_compaction /* record_read_stats */);
     if (s.ok()) {
@@ -654,7 +655,7 @@ uint64_t TableCache::ApproximateOffsetOf(
   }
 
   if (table_reader != nullptr) {
-    result = table_reader->ApproximateOffsetOf(key, caller);
+    result = table_reader->ApproximateOffsetOf(read_options, key, caller);
   }
   if (table_handle != nullptr) {
     cache_.Release(table_handle);
@@ -664,8 +665,9 @@ uint64_t TableCache::ApproximateOffsetOf(
 }
 
 uint64_t TableCache::ApproximateSize(
-    const Slice& start, const Slice& end, const FileMetaData& file_meta,
-    TableReaderCaller caller, const InternalKeyComparator& internal_comparator,
+    const ReadOptions& read_options, const Slice& start, const Slice& end,
+    const FileMetaData& file_meta, TableReaderCaller caller,
+    const InternalKeyComparator& internal_comparator,
     const std::shared_ptr<const SliceTransform>& prefix_extractor) {
   uint64_t result = 0;
   TableReader* table_reader = file_meta.fd.table_reader;
@@ -673,7 +675,7 @@ uint64_t TableCache::ApproximateSize(
   if (table_reader == nullptr) {
     const bool for_compaction = (caller == TableReaderCaller::kCompaction);
     Status s =
-        FindTable(ReadOptions(), file_options_, internal_comparator, file_meta,
+        FindTable(read_options, file_options_, internal_comparator, file_meta,
                   &table_handle, prefix_extractor, false /* no_io */,
                   !for_compaction /* record_read_stats */);
     if (s.ok()) {
@@ -682,7 +684,7 @@ uint64_t TableCache::ApproximateSize(
   }
 
   if (table_reader != nullptr) {
-    result = table_reader->ApproximateSize(start, end, caller);
+    result = table_reader->ApproximateSize(read_options, start, end, caller);
   }
   if (table_handle != nullptr) {
     cache_.Release(table_handle);

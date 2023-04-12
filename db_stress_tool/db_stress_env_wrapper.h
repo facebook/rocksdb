@@ -13,11 +13,11 @@
 #include "test_util/thread_io_activity.h"
 
 namespace ROCKSDB_NAMESPACE {
-class DbStressRandomAccessFileWrapper : public FSRandomAccessFile {
+class DbStressRandomAccessFileWrapper : public FSRandomAccessFileOwnerWrapper {
  public:
   explicit DbStressRandomAccessFileWrapper(
       std::unique_ptr<FSRandomAccessFile>&& target)
-      : target_(std::move(target)) {}
+      : FSRandomAccessFileOwnerWrapper(std::move(target)) {}
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
@@ -26,11 +26,8 @@ class DbStressRandomAccessFileWrapper : public FSRandomAccessFile {
     if (io_activity != Env::IOActivity::kUnknown) {
       assert(io_activity == options.io_activity);
     }
-    return target_->Read(offset, n, options, result, scratch, dbg);
+    return target()->Read(offset, n, options, result, scratch, dbg);
   }
-
- private:
-  std::unique_ptr<FSRandomAccessFile> target_;
 };
 
 class DbStressFSWrapper : public FileSystemWrapper {

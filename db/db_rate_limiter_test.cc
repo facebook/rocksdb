@@ -235,8 +235,9 @@ TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 
   ASSERT_OK(db_->VerifyChecksum(GetReadOptions()));
-  // The files are tiny so there should have just been one read per file.
-  int expected = kNumFiles;
+  // There are 3 reads per file: ReadMetaIndexBlock,
+  // VerifyChecksumInMetaBlocks, VerifyChecksumInBlocks
+  int expected = kNumFiles * 3;
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
