@@ -56,7 +56,7 @@ class VersionEditHandlerBase {
 
 class ListColumnFamiliesHandler : public VersionEditHandlerBase {
  public:
-  ListColumnFamiliesHandler(const ReadOptions& read_options)
+  explicit ListColumnFamiliesHandler(const ReadOptions& read_options)
       : VersionEditHandlerBase(read_options) {}
 
   ~ListColumnFamiliesHandler() override {}

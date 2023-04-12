@@ -1700,7 +1700,7 @@ struct ReadOptions {
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
-  ReadOptions(Env::IOActivity io_activity);
+  explicit ReadOptions(Env::IOActivity io_activity);
 };
 
 // Options that control write operations

@@ -12,7 +12,7 @@ extern Env::IOActivity TEST_GetThreadIOActivity();
 
 class ThreadIOActivityGuardForTest {
  public:
-  ThreadIOActivityGuardForTest(Env::IOActivity io_activity);
+  explicit ThreadIOActivityGuardForTest(Env::IOActivity io_activity);
 
   ~ThreadIOActivityGuardForTest();
 };
