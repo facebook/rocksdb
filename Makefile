@@ -531,7 +531,7 @@ endif
 default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
-  -Wunused-parameter -Wambiguous-reversed-operator
+  -Wunused-parameter
 
 ifeq (,$(filter amd64, $(MACHINE)))
 	C_WARNING_FLAGS = -Wstrict-prototypes
@@ -539,7 +539,7 @@ endif
 
 ifdef USE_CLANG
 	# Used by some teams in Facebook
-	WARNING_FLAGS += -Wshift-sign-overflow
+	WARNING_FLAGS += -Wshift-sign-overflow -Wambiguous-reversed-operator
 endif
 
 ifeq ($(PLATFORM), OS_OPENBSD)
