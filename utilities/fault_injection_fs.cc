@@ -24,7 +24,6 @@
 #include "port/lang.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
-#include "test_util/thread_io_activity.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/mutexlock.h"
@@ -399,10 +398,6 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
                                       const IOOptions& options, Slice* result,
                                       char* scratch,
                                       IODebugContext* dbg) const {
-  const Env::IOActivity io_activity = TEST_GetThreadIOActivity();
-  if (io_activity != Env::IOActivity::kUnknown) {
-    assert(io_activity == options.io_activity);
-  }
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -452,10 +447,6 @@ IOStatus TestFSRandomAccessFile::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                                            IODebugContext* dbg) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
-  }
-  const Env::IOActivity io_activity = TEST_GetThreadIOActivity();
-  if (io_activity != Env::IOActivity::kUnknown) {
-    assert(io_activity == options.io_activity);
   }
   IOStatus s = target_->MultiRead(reqs, num_reqs, options, dbg);
   bool injected_error = false;

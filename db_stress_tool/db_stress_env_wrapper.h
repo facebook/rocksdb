@@ -10,14 +10,47 @@
 #ifdef GFLAGS
 #pragma once
 #include "db_stress_tool/db_stress_common.h"
+#include "test_util/thread_io_activity.h"
 
 namespace ROCKSDB_NAMESPACE {
+class DbStressRandomAccessFileWrapper : public FSRandomAccessFile {
+ public:
+  explicit DbStressRandomAccessFileWrapper(
+      std::unique_ptr<FSRandomAccessFile>&& target)
+      : target_(std::move(target)) {}
+
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override {
+    const Env::IOActivity io_activity = TEST_GetThreadIOActivity();
+    if (io_activity != Env::IOActivity::kUnknown) {
+      assert(io_activity == options.io_activity);
+    }
+    return target_->Read(offset, n, options, result, scratch, dbg);
+  }
+
+ private:
+  std::unique_ptr<FSRandomAccessFile> target_;
+};
+
 class DbStressFSWrapper : public FileSystemWrapper {
  public:
   explicit DbStressFSWrapper(const std::shared_ptr<FileSystem>& t)
       : FileSystemWrapper(t) {}
   static const char* kClassName() { return "DbStressFS"; }
   const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& f,
+                               const FileOptions& file_opts,
+                               std::unique_ptr<FSRandomAccessFile>* r,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s = target()->NewRandomAccessFile(f, file_opts, &file, dbg);
+    if (s.ok()) {
+      r->reset(new DbStressRandomAccessFileWrapper(std::move(file)));
+    }
+    return s;
+  }
 
   IOStatus DeleteFile(const std::string& f, const IOOptions& opts,
                       IODebugContext* dbg) override {
