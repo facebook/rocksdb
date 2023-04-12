@@ -138,9 +138,12 @@ class ReplicationTest : public testing::Test {
  public:
   ReplicationTest()
       : test_dir_(test::TmpDir()), follower_env_(test_dir_ + "/leader") {
-    DestroyDir(Env::Default(), test_dir_ + "/leader");
-    DestroyDir(Env::Default(), test_dir_ + "/follower");
-    Env::Default()->CreateDirIfMissing(test_dir_);
+    auto base_env = Env::Default();
+    DestroyDir(base_env, test_dir_ + "/leader");
+    DestroyDir(base_env, test_dir_ + "/follower");
+    base_env->CreateDirIfMissing(test_dir_);
+    base_env->NewLogger(test::TmpDir(base_env) + "/replication-test.log", &info_log_);
+    info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
   }
   ~ReplicationTest() {
     if (getenv("KEEP_DB")) {
@@ -244,6 +247,8 @@ class ReplicationTest : public testing::Test {
     }
   }
 
+protected:
+  std::shared_ptr<Logger> info_log_;
  private:
   std::string test_dir_;
   FollowerEnv follower_env_;
@@ -268,9 +273,9 @@ Options ReplicationTest::leaderOptions() const {
   options.max_background_jobs = 4;
   options.max_open_files = 500;
   options.max_bytes_for_level_base = 1 << 20;
+  options.info_log = info_log_;
   return options;
 }
-
 
 DB* ReplicationTest::openLeader(Options options) {
   bool firstOpen = log_records_.empty();
@@ -838,6 +843,64 @@ TEST_F(ReplicationTest, NextLogNumConsistency) {
 
   leaderFull->ContinueBackgroundWork();
   leaderFull->TEST_WaitForBackgroundWork();
+}
+
+// Verify the file number consistency between leader and follower
+TEST_F(ReplicationTest, FileNumConsistency) {
+  auto kMaxWritebufferNum = 3;
+  auto leaderOpenOptions = leaderOptions();
+  leaderOpenOptions.max_write_buffer_number = kMaxWritebufferNum;
+  auto followerOpenOptions = leaderOptions();
+  followerOpenOptions.max_write_buffer_number = kMaxWritebufferNum;
+
+  auto leader = openLeader(leaderOpenOptions);
+  auto follower = openFollower(followerOpenOptions);
+
+  EXPECT_EQ(leader->GetNextFileNumber(), follower->GetNextFileNumber());
+
+  leader->Put(wo(), "key1", "val1");
+  catchUpFollower();
+
+  EXPECT_EQ(leader->GetNextFileNumber(), follower->GetNextFileNumber());
+
+  // First time we flush, so we will create a new manifest file
+  leader->Flush({});
+  // Follower will create new manifest file as well.
+  catchUpFollower();
+
+  // Rolling manifest file on follower causes the next file number
+  // on follower to be greater than the file number on leader.
+  // Next manifest write/memtable switch will reset the file number
+  EXPECT_LT(leader->GetNextFileNumber(), follower->GetNextFileNumber());
+
+  // next flush reset file number
+  leader->Put(wo(), "key2", "val2");
+  leader->Flush({});
+  catchUpFollower();
+  EXPECT_EQ(leader->GetNextFileNumber(), follower->GetNextFileNumber());
+
+  leader->PauseBackgroundWork();
+
+  leader->Put(wo(), "key2", "val2");
+  catchUpFollower();
+
+  EXPECT_EQ(leader->GetNextFileNumber(), follower->GetNextFileNumber());
+
+  FlushOptions flushOpts;
+  flushOpts.wait= false;
+  leader->Flush(flushOpts);
+  catchUpFollower();
+  
+  // file number consistent for mem switch
+  EXPECT_EQ(leader->GetNextFileNumber(), follower->GetNextFileNumber());
+
+  leader->ContinueBackgroundWork();
+
+  auto leaderFull = static_cast_with_check<DBImpl>(leader);
+  leaderFull->TEST_WaitForBackgroundWork();
+  catchUpFollower();
+
+  EXPECT_EQ(leader->GetNextFileNumber(), follower->GetNextFileNumber());
 }
 
 TEST_F(ReplicationTest, Stress) {

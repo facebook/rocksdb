@@ -1318,6 +1318,11 @@ Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
           }
         }
 
+        // `next_log_number` is allocated by bumping `next_file_number`. We need
+        // to set file number to make sure follower's file number is
+        // consistent with leader. Otherwise, file number might be reused when follower
+        // tries to take over after memtable switch event.
+        versions_->SetNextFileNumber(mem_switch_record.next_log_num + 1);
         break;
       }
       case ReplicationLogRecord::kManifestWrite: {
