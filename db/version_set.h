@@ -1675,7 +1675,8 @@ class ReactiveVersionSet : public VersionSet {
 
  private:
   std::unique_ptr<ManifestTailer> manifest_tailer_;
-
+  // TODO: plumb Env::IOActivity
+  const ReadOptions read_options_;
   using VersionSet::LogAndApply;
   using VersionSet::Recover;
 

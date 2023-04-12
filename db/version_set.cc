@@ -7022,10 +7022,6 @@ Status ReactiveVersionSet::Recover(
   assert(manifest_reporter != nullptr);
   assert(manifest_reader_status != nullptr);
 
-  ThreadIOActivityGuardForTest thread_io_activity_guard(
-      Env::IOActivity::kDBOpen);
-  const ReadOptions read_options(Env::IOActivity::kDBOpen);
-
   manifest_reader_status->reset(new Status());
   manifest_reporter->reset(new LogReporter());
   static_cast_with_check<LogReporter>(manifest_reporter->get())->status =
@@ -7039,7 +7035,7 @@ Status ReactiveVersionSet::Recover(
 
   manifest_tailer_.reset(new ManifestTailer(
       column_families, const_cast<ReactiveVersionSet*>(this), io_tracer_,
-      read_options, EpochNumberRequirement::kMightMissing));
+      read_options_, EpochNumberRequirement::kMightMissing));
 
   manifest_tailer_->Iterate(*reader, manifest_reader_status->get());
 
@@ -7058,8 +7054,6 @@ Status ReactiveVersionSet::ReadAndApply(
   assert(manifest_reader != nullptr);
   assert(cfds_changed != nullptr);
   mu->AssertHeld();
-  // TODO: plumb Env::IOActivity
-  const ReadOptions read_options;
 
   Status s;
   log::Reader* reader = manifest_reader->get();
