@@ -294,6 +294,8 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithRangeTombstone) {
   ASSERT_OK(sfw_cf1.Put("K1", "V1"));
   ASSERT_OK(sfw_cf1.Put("K2", "V2"));
   ASSERT_OK(sfw_cf1.DeleteRange("K3", "K4"));
+  ASSERT_OK(sfw_cf1.DeleteRange("K7", "K9"));
+
   ASSERT_OK(sfw_cf1.Finish());
 
   // Import sst file corresponding to cf1 onto a new cf and verify
@@ -319,7 +321,7 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithRangeTombstone) {
   ASSERT_TRUE(file_meta != nullptr);
   InternalKey largest;
   largest.DecodeFrom(file_meta->largest);
-  ASSERT_EQ(largest.user_key(), "K4");
+  ASSERT_EQ(largest.user_key(), "K9");
 
   std::string value;
   ASSERT_OK(db_->Get(ReadOptions(), import_cfh_, "K1", &value));
