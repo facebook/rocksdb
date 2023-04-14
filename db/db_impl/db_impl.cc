@@ -1512,7 +1512,9 @@ Status DBImpl::SyncWAL() {
   }
   if (status.ok() && synced_wals.IsWalAddition()) {
     InstrumentedMutexLock l(&mutex_);
-    status = ApplyWALToManifest(&synced_wals);
+    // TODO: plumb Env::IOActivity
+    const ReadOptions read_options;
+    status = ApplyWALToManifest(read_options, &synced_wals);
   }
 
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
@@ -1520,11 +1522,11 @@ Status DBImpl::SyncWAL() {
   return status;
 }
 
-Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
+Status DBImpl::ApplyWALToManifest(const ReadOptions& read_options,
+                                  VersionEdit* synced_wals) {
   // not empty, write to MANIFEST.
   mutex_.AssertHeld();
-  // TODO: plumb Env::IOActivity
-  const ReadOptions read_options;
+
   Status status = versions_->LogAndApplyToDefaultColumnFamily(
       read_options, synced_wals, &mutex_, directories_.GetDbDir());
   if (!status.ok() && versions_->io_status().IsIOError()) {

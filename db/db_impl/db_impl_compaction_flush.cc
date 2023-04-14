@@ -229,7 +229,9 @@ Status DBImpl::FlushMemTableToOutputFile(
     log_io_s = SyncClosedLogs(job_context, &synced_wals);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
-      log_io_s = status_to_io_status(ApplyWALToManifest(&synced_wals));
+      const ReadOptions read_options(Env::IOActivity::kFlush);
+      log_io_s =
+          status_to_io_status(ApplyWALToManifest(read_options, &synced_wals));
       TEST_SYNC_POINT_CALLBACK("DBImpl::FlushMemTableToOutputFile:CommitWal:1",
                                nullptr);
     }
@@ -492,7 +494,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     log_io_s = SyncClosedLogs(job_context, &synced_wals);
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
-      log_io_s = status_to_io_status(ApplyWALToManifest(&synced_wals));
+      const ReadOptions read_options(Env::IOActivity::kFlush);
+      log_io_s =
+          status_to_io_status(ApplyWALToManifest(read_options, &synced_wals));
     }
 
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&

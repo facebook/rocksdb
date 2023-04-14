@@ -606,7 +606,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     log_write_mutex_.Unlock();
     if (status.ok() && synced_wals.IsWalAddition()) {
       InstrumentedMutexLock l(&mutex_);
-      status = ApplyWALToManifest(&synced_wals);
+      // TODO: plumb Env::IOActivity
+      const ReadOptions read_options;
+      status = ApplyWALToManifest(read_options, &synced_wals);
     }
 
     // Requesting sync with two_write_queues_ is expected to be very rare. We
@@ -767,7 +769,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     }
     if (w.status.ok() && synced_wals.IsWalAddition()) {
       InstrumentedMutexLock l(&mutex_);
-      w.status = ApplyWALToManifest(&synced_wals);
+      // TODO: plumb Env::IOActivity
+      const ReadOptions read_options;
+      w.status = ApplyWALToManifest(read_options, &synced_wals);
     }
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
