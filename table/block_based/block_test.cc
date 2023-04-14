@@ -698,89 +698,6 @@ class BlockPerKVChecksumTest : public DBTestBase {
   }
 };
 
-TEST_F(BlockPerKVChecksumTest, GetWithCorruptBlock) {
-  std::vector<std::string> sync_points{"DataBlockIter::SeekForGet",
-                                       "IndexBlockIter::SeekImpl"};
-  Options opts = CurrentOptions();
-  opts.block_protection_bytes_per_key = 8;
-  for (const auto &sync_point : sync_points) {
-    DestroyAndReopen(opts);
-    ASSERT_OK(Put(Key(1), "valval"));
-    SyncPoint::GetInstance()->DisableProcessing();
-    ASSERT_OK(Flush());
-    SyncPoint::GetInstance()->SetCallBack(sync_point, [](void *should_corrupt) {
-      bool *corrupt = static_cast<bool *>(should_corrupt);
-      *corrupt = true;
-    });
-    std::string val;
-    ASSERT_OK(db_->Get(ReadOptions(), Key(1), &val));
-    SyncPoint::GetInstance()->EnableProcessing();
-    ASSERT_TRUE(db_->Get(ReadOptions(), Key(1), &val).IsCorruption());
-    SyncPoint::GetInstance()->ClearAllCallBacks();
-  }
-}
-
-TEST_F(BlockPerKVChecksumTest, IteratorWithCorruptBlock) {
-  std::vector<std::string> sync_points{"DataBlockIter::NextImpl",
-                                       "IndexBlockIter::SeekImpl"};
-  Options opts = CurrentOptions();
-  opts.block_protection_bytes_per_key = 8;
-  for (const auto &sync_point : sync_points) {
-    DestroyAndReopen(opts);
-    ASSERT_OK(Put(Key(1), "valval"));
-    ASSERT_OK(Put(Key(2), "22"));
-    std::string val;
-    SyncPoint::GetInstance()->SetCallBack(sync_point, [](void *should_corrupt) {
-      bool *corrupt = static_cast<bool *>(should_corrupt);
-      *corrupt = true;
-    });
-    SyncPoint::GetInstance()->DisableProcessing();
-    Status s = Flush();
-    std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
-    if (sync_point == "IndexBlockIter::SeekImpl") {
-      SyncPoint::GetInstance()->EnableProcessing();
-      iter->Seek(Key(1));
-      ASSERT_TRUE(iter->status().IsCorruption());
-    } else {
-      iter->Seek(Key(1));
-      ASSERT_TRUE(iter->Valid());
-      SyncPoint::GetInstance()->EnableProcessing();
-      iter->Next();
-      ASSERT_TRUE(iter->status().IsCorruption());
-    }
-    SyncPoint::GetInstance()->ClearAllCallBacks();
-  }
-}
-
-TEST_F(BlockPerKVChecksumTest, CompactionWithCorruptBlock) {
-  std::vector<std::string> sync_points{"DataBlockIter::NextImpl",
-                                       "IndexBlockIter::SeekToFirstImpl"};
-  Options opts = CurrentOptions();
-  opts.block_protection_bytes_per_key = 8;
-  opts.disable_auto_compactions = true;
-  for (const auto &sync_point : sync_points) {
-    DestroyAndReopen(opts);
-    ASSERT_OK(Put(Key(1), "11"));
-    ASSERT_OK(Put(Key(3), "33"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(Put(Key(2), "22"));
-    ASSERT_OK(Flush());
-    std::string val;
-    // Load the datablocks into memory
-    ASSERT_OK(db_->Get(ReadOptions(), Key(1), &val));
-    ASSERT_OK(db_->Get(ReadOptions(), Key(2), &val));
-    SyncPoint::GetInstance()->SetCallBack(sync_point, [](void *should_corrupt) {
-      bool *corrupt = static_cast<bool *>(should_corrupt);
-      *corrupt = true;
-    });
-    SyncPoint::GetInstance()->EnableProcessing();
-    // Should trigger compaction from L0 -> L1
-    ASSERT_TRUE(
-        dbfull()->TEST_CompactRange(0, nullptr, nullptr).IsCorruption());
-    SyncPoint::GetInstance()->ClearAllCallBacks();
-  }
-}
-
 TEST_F(BlockPerKVChecksumTest, EmptyBlock) {
   // Tests that empty block code path is not broken by per kv checksum.
   BlockBuilder builder(
@@ -824,6 +741,44 @@ TEST_F(BlockPerKVChecksumTest, UnsupportedOptionValue) {
   options.block_protection_bytes_per_key = 128;
   Destroy(options);
   ASSERT_TRUE(TryReopen(options).IsNotSupported());
+}
+
+TEST_F(BlockPerKVChecksumTest, InitializeProtectionInfo) {
+  // Make sure that the checksum construction code path does not break
+  // when the block is itself already corrupted.
+  std::string invalid_content = "1";
+  Slice raw_block = invalid_content;
+  BlockContents contents;
+  contents.data = raw_block;
+
+  Options options = Options();
+  BlockBasedTableOptions tbo;
+  uint8_t protection_bytes_per_key = 8;
+  BlockCreateContext create_context{
+      &tbo, nullptr /* statistics */, false /* using_zstd */,
+      protection_bytes_per_key, options.comparator};
+
+  {
+    std::unique_ptr<Block_kData> data_block;
+    create_context.Create(&data_block, std::move(contents));
+    std::unique_ptr<DataBlockIter> iter{data_block->NewDataIterator(
+        options.comparator, kDisableGlobalSequenceNumber)};
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+  {
+    std::unique_ptr<Block_kIndex> index_block;
+    create_context.Create(&index_block, std::move(contents));
+    std::unique_ptr<IndexBlockIter> iter{index_block->NewIndexIterator(
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, nullptr,
+        true, false, true, true)};
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+  {
+    std::unique_ptr<Block_kMetaIndex> meta_block;
+    create_context.Create(&meta_block, std::move(contents));
+    std::unique_ptr<MetaBlockIter> iter{meta_block->NewMetaIterator(true)};
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
 }
 
 std::string GetDataBlockIndexTypeStr(
@@ -1317,7 +1272,7 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
             BlockBasedTableOptions::DataBlockIndexType::
                 kDataBlockBinaryAndHash),
-        ::testing::Values(4, 8),
+        ::testing::Values(4, 8) /* block_protection_bytes_per_key */,
         ::testing::Values(1, 3, 8, 16) /* restart_interval */,
         ::testing::Values(false, true)),
     [](const testing::TestParamInfo<std::tuple<
@@ -1364,7 +1319,8 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch,
             BlockBasedTableOptions::DataBlockIndexType::
                 kDataBlockBinaryAndHash),
-        ::testing::Values(4, 8), ::testing::Values(1, 3, 8, 16),
+        ::testing::Values(4, 8) /* block_protection_bytes_per_key */,
+        ::testing::Values(1, 3, 8, 16) /* restart_interval */,
         ::testing::Values(true, false), ::testing::Values(true, false)),
     [](const testing::TestParamInfo<
         std::tuple<BlockBasedTableOptions::DataBlockIndexType, uint8_t,
@@ -1474,13 +1430,14 @@ class MetaIndexBlockKVChecksumCorruptionTest
   std::unique_ptr<Block_kMetaIndex> block_;
 };
 
-INSTANTIATE_TEST_CASE_P(P, MetaIndexBlockKVChecksumCorruptionTest,
-                        ::testing::Values(4, 8),
-                        [](const testing::TestParamInfo<uint8_t> &args) {
-                          std::ostringstream oss;
-                          oss << "ProtBytes" << std::to_string(args.param);
-                          return oss.str();
-                        });
+INSTANTIATE_TEST_CASE_P(
+    P, MetaIndexBlockKVChecksumCorruptionTest,
+    ::testing::Values(4, 8) /* block_protection_bytes_per_key */,
+    [](const testing::TestParamInfo<uint8_t> &args) {
+      std::ostringstream oss;
+      oss << "ProtBytes" << std::to_string(args.param);
+      return oss.str();
+    });
 
 TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
   Options options = Options();
@@ -1534,84 +1491,6 @@ TEST_P(MetaIndexBlockKVChecksumCorruptionTest, CorruptEntry) {
     }
   }
 }
-
-TEST_P(DataBlockKVChecksumCorruptionTest, DuringInitialization) {
-  SyncPoint::GetInstance()->SetCallBack(
-      "BlockIter::SeekToFirst", [](void *should_corrupt) {
-        bool *corrupt = static_cast<bool *>(should_corrupt);
-        *corrupt = true;
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
-  std::vector<int> num_restart_intervals = {1, 3};
-  for (const auto num_restart_interval : num_restart_intervals) {
-    const int kNumRecords =
-        num_restart_interval * static_cast<int>(GetRestartInterval());
-    std::vector<std::string> keys;
-    std::vector<std::string> values;
-    GenerateRandomKVs(&keys, &values, 0, kNumRecords, 1 /* step */);
-    block_ = GenerateDataBlock(keys, values, kNumRecords);
-    std::unique_ptr<DataBlockIter> biter{block_->NewDataIterator(
-        Options().comparator, kDisableGlobalSequenceNumber)};
-    ASSERT_FALSE(biter->Valid());
-    ASSERT_TRUE(biter->status().IsCorruption());
-  }
-}
-
-TEST_P(IndexBlockKVChecksumCorruptionTest, DuringInitialization) {
-  SyncPoint::GetInstance()->SetCallBack(
-      "BlockIter::SeekToFirst", [](void *should_corrupt) {
-        bool *corrupt = static_cast<bool *>(should_corrupt);
-        *corrupt = true;
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
-  std::vector<int> num_restart_intervals = {1, 3};
-  std::vector<SequenceNumber> seqnos{kDisableGlobalSequenceNumber, 10001};
-  for (const auto num_restart_interval : num_restart_intervals) {
-    const int kNumRecords =
-        num_restart_interval * static_cast<int>(GetRestartInterval());
-    for (const auto seqno : seqnos) {
-      std::vector<std::string> separators;
-      std::vector<BlockHandle> block_handles;
-      std::vector<std::string> first_keys;
-      GenerateRandomIndexEntries(&separators, &block_handles, &first_keys,
-                                 kNumRecords,
-                                 seqno != kDisableGlobalSequenceNumber);
-      block_ = GenerateIndexBlock(separators, block_handles, first_keys,
-                                  kNumRecords);
-      std::unique_ptr<IndexBlockIter> biter{block_->NewIndexIterator(
-          Options().comparator, seqno, nullptr, nullptr,
-          true /* total_order_seek */, IncludeFirstKey() /* have_first_key */,
-          true /* key_includes_seq */,
-          !UseValueDeltaEncoding() /* value_is_full */,
-          true /* block_contents_pinned */, nullptr /* prefix_index */)};
-      ASSERT_FALSE(biter->Valid());
-      ASSERT_TRUE(biter->status().IsCorruption());
-    }
-  }
-}
-
-TEST_P(MetaIndexBlockKVChecksumCorruptionTest, DuringInitialization) {
-  SyncPoint::GetInstance()->SetCallBack(
-      "BlockIter::SeekToFirst", [](void *should_corrupt) {
-        bool *corrupt = static_cast<bool *>(should_corrupt);
-        *corrupt = true;
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
-  std::vector<int> num_restart_intervals = {1, 3};
-  for (const auto num_restart_interval : num_restart_intervals) {
-    const int kNumRecords =
-        num_restart_interval * static_cast<int>(GetRestartInterval());
-    std::vector<std::string> keys;
-    std::vector<std::string> values;
-    GenerateRandomKVs(&keys, &values, 0, kNumRecords, 1 /* step */);
-    block_ = GenerateMetaIndexBlock(keys, values, kNumRecords);
-    std::unique_ptr<MetaBlockIter> biter{
-        block_->NewMetaIterator(true /* block_contents_pinned */)};
-    ASSERT_FALSE(biter->Valid());
-    ASSERT_TRUE(biter->status().IsCorruption());
-  }
-}
-
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char **argv) {
