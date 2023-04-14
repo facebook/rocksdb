@@ -44,16 +44,19 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
 
   auto num_files = files_to_import_.size();
   if (num_files == 0) {
-    return Status::InvalidArgument("The list of files is empty");
+    status = Status::InvalidArgument("The list of files is empty");
+    return status;
   }
 
   for (const auto& f : files_to_import_) {
     if (f.num_entries == 0) {
-      return Status::InvalidArgument("File contain no entries");
+      status = Status::InvalidArgument("File contain no entries");
+      return status;
     }
 
     if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
-      return Status::Corruption("File has corrupted keys");
+      status = Status::Corruption("File has corrupted keys");
+      return status;
     }
   }
 
