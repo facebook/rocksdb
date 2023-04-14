@@ -6785,6 +6785,8 @@ class OperationTypeJni {
         return 0x1;
       case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH:
         return 0x2;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_DBOPEN:
+        return 0x3;
       default:
         return 0x7F;  // undefined
     }
@@ -6801,6 +6803,8 @@ class OperationTypeJni {
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_COMPACTION;
       case 0x2:
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_DBOPEN;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_UNKNOWN;

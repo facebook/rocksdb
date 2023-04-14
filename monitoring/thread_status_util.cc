@@ -33,6 +33,19 @@ void ThreadStatusUtil::UnregisterThread() {
   }
 }
 
+void ThreadStatusUtil::SetDB(const std::string* db_name, const Env* env,
+                             bool enable_thread_tracking) {
+  if (!MaybeInitThreadLocalUpdater(env)) {
+    return;
+  }
+  assert(thread_updater_local_cache_);
+  if (db_name != nullptr && enable_thread_tracking) {
+    thread_updater_local_cache_->SetDBInfoName(db_name);
+  } else {
+    thread_updater_local_cache_->SetDBInfoName(nullptr);
+  }
+}
+
 void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd,
                                        const Env* env,
                                        bool enable_thread_tracking) {
@@ -43,9 +56,6 @@ void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd,
   if (cfd != nullptr && enable_thread_tracking) {
     thread_updater_local_cache_->SetColumnFamilyInfoKey(cfd);
   } else {
-    // When cfd == nullptr or enable_thread_tracking == false, we set
-    // ColumnFamilyInfoKey to nullptr, which makes SetThreadOperation
-    // and SetThreadState become no-op.
     thread_updater_local_cache_->SetColumnFamilyInfoKey(nullptr);
   }
 }
@@ -66,6 +76,13 @@ void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
     thread_updater_local_cache_->SetOperationStartTime(0);
   }
   thread_updater_local_cache_->SetThreadOperation(op);
+}
+
+ThreadStatus::OperationType ThreadStatusUtil::GetThreadOperation() {
+  if (thread_updater_local_cache_ == nullptr) {
+    return ThreadStatus::OperationType::OP_UNKNOWN;
+  }
+  return thread_updater_local_cache_->GetThreadOperation();
 }
 
 ThreadStatus::OperationStage ThreadStatusUtil::SetThreadOperationStage(

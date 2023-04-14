@@ -19,11 +19,11 @@
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
+#include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "rocksdb/table.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
-#include "test_util/thread_io_activity.h"
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -924,8 +924,6 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
   mutex_.AssertHeld();
   assert(versions_->descriptor_log_ == nullptr);
-  ThreadIOActivityGuardForTest thread_io_activity_guard(
-      Env::IOActivity::kDBOpen);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   Status s = versions_->LogAndApply(
       recovery_ctx.cfds_, recovery_ctx.mutable_cf_opts_, read_options,
@@ -1570,8 +1568,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   assert(std::numeric_limits<uint64_t>::max() ==
          cfd->imm()->GetEarliestMemTableID());
 
-  ThreadIOActivityGuardForTest thread_io_activity_guard(
-      Env::IOActivity::kDBOpen);
   const uint64_t start_micros = immutable_db_options_.clock->NowMicros();
 
   FileMetaData meta;
@@ -1747,8 +1743,13 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   const bool kSeqPerBatch = true;
   const bool kBatchPerTxn = true;
-  return DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
-                      !kSeqPerBatch, kBatchPerTxn);
+  ThreadStatusUtil::SetDB(&dbname, db_options.env,
+                          db_options.enable_thread_tracking);
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_DBOPEN);
+  Status s = DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
+                          !kSeqPerBatch, kBatchPerTxn);
+  ThreadStatusUtil::ResetThreadStatus();
+  return s;
 }
 
 // TODO: Implement the trimming in flush code path.

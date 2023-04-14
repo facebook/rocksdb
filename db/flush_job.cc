@@ -43,7 +43,6 @@
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
-#include "test_util/thread_io_activity.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
@@ -211,8 +210,6 @@ void FlushJob::PickMemTable() {
 Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
                      bool* switched_to_mempurge) {
   TEST_SYNC_POINT("FlushJob::Start");
-  ThreadIOActivityGuardForTest thread_io_activity_guard(
-      Env::IOActivity::kFlush);
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
   // Mempurge threshold can be dynamically changed.

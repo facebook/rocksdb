@@ -10,7 +10,7 @@
 #ifdef GFLAGS
 #pragma once
 #include "db_stress_tool/db_stress_common.h"
-#include "test_util/thread_io_activity.h"
+#include "monitoring/thread_status_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class DbStressRandomAccessFileWrapper : public FSRandomAccessFileOwnerWrapper {
@@ -22,10 +22,14 @@ class DbStressRandomAccessFileWrapper : public FSRandomAccessFileOwnerWrapper {
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override {
-    const Env::IOActivity io_activity = TEST_GetThreadIOActivity();
-    if (io_activity != Env::IOActivity::kUnknown) {
-      assert(io_activity == options.io_activity);
-    }
+#ifndef NDEBUG
+    const ThreadStatus::OperationType thread_op =
+        ThreadStatusUtil::GetThreadOperation();
+    Env::IOActivity io_activity =
+        ThreadStatusUtil::TEST_GetExpectedIOActivity(thread_op);
+    assert(io_activity == Env::IOActivity::kUnknown ||
+           io_activity == options.io_activity);
+#endif
     return target()->Read(offset, n, options, result, scratch, dbg);
   }
 };

@@ -32,7 +32,6 @@
 #include "db/version_set.h"
 #include "port/port.h"
 #include "table/table_reader.h"
-#include "test_util/thread_io_activity.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1316,8 +1315,6 @@ class VersionBuilder::Rep {
     std::atomic<size_t> next_file_meta_idx(0);
     std::function<void()> load_handlers_func([&]() {
       while (true) {
-        ThreadIOActivityGuardForTest thread_io_activity_guard(
-            read_options.io_activity);
         size_t file_idx = next_file_meta_idx.fetch_add(1);
         if (file_idx >= files_meta.size()) {
           break;

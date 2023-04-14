@@ -53,11 +53,18 @@ class ThreadStatusUtil {
   static void EraseDatabaseInfo(const DB* db);
 
   // Update the thread status to indicate the current thread is doing
+  // something related to the specified db
+  static void SetDB(const std::string* db_name, const Env* env,
+                    bool enable_thread_tracking);
+
+  // Update the thread status to indicate the current thread is doing
   // something related to the specified column family.
   static void SetColumnFamily(const ColumnFamilyData* cfd, const Env* env,
                               bool enable_thread_tracking);
 
   static void SetThreadOperation(ThreadStatus::OperationType type);
+
+  static ThreadStatus::OperationType GetThreadOperation();
 
   static ThreadStatus::OperationStage SetThreadOperationStage(
       ThreadStatus::OperationStage stage);
@@ -74,6 +81,9 @@ class ThreadStatusUtil {
   static void TEST_SetStateDelay(const ThreadStatus::StateType state,
                                  int micro);
   static void TEST_StateDelay(const ThreadStatus::StateType state);
+
+  static Env::IOActivity TEST_GetExpectedIOActivity(
+      ThreadStatus::OperationType thread_op);
 #endif
 
  protected:

@@ -14,7 +14,8 @@ package org.rocksdb;
 public enum OperationType {
   OP_UNKNOWN((byte)0x0),
   OP_COMPACTION((byte)0x1),
-  OP_FLUSH((byte)0x2);
+  OP_FLUSH((byte) 0x2),
+  OP_DBOPEN((byte) 0x3);
 
   private final byte value;
 

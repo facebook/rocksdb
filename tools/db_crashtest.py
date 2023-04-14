@@ -200,6 +200,7 @@ default_params = {
         ]
     ),
     "allow_data_in_errors": True,
+    "enable_thread_tracking": lambda: random.choice([0, 1]),
     "readahead_size": lambda: random.choice([0, 16384, 524288]),
     "initial_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
     "max_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),

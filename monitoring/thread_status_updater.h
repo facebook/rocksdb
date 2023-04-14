@@ -65,6 +65,7 @@ struct ThreadStatusData {
   explicit ThreadStatusData() : enable_tracking(false) {
     thread_id.store(0);
     thread_type.store(ThreadStatus::USER);
+    db_name.store(nullptr);
     cf_key.store(nullptr);
     operation_type.store(ThreadStatus::OP_UNKNOWN);
     op_start_time.store(0);
@@ -72,16 +73,14 @@ struct ThreadStatusData {
   }
 
   // A flag to indicate whether the thread tracking is enabled
-  // in the current thread.  This value will be updated based on whether
-  // the associated Options::enable_thread_tracking is set to true
-  // in ThreadStatusUtil::SetColumnFamily().
-  //
+  // in the current thread.
   // If set to false, then SetThreadOperation and SetThreadState
   // will be no-op.
   bool enable_tracking;
 
   std::atomic<uint64_t> thread_id;
   std::atomic<ThreadStatus::ThreadType> thread_type;
+  std::atomic<std::string*> db_name;
   std::atomic<void*> cf_key;
   std::atomic<ThreadStatus::OperationType> operation_type;
   std::atomic<uint64_t> op_start_time;
@@ -119,8 +118,12 @@ class ThreadStatusUpdater {
   // Register the current thread for tracking.
   void RegisterThread(ThreadStatus::ThreadType ttype, uint64_t thread_id);
 
+  // Update the db info of the current thread by setting
+  // its thread-local pointer of ThreadStatusData to the correct entry.
+  void SetDBInfoName(const std::string* db_name);
+
   // Update the column-family info of the current thread by setting
-  // its thread-local pointer of ThreadStateInfo to the correct entry.
+  // its thread-local pointer of ThreadStatusData to the correct entry.
   void SetColumnFamilyInfoKey(const void* cf_key);
 
   // returns the column family info key.
@@ -128,6 +131,9 @@ class ThreadStatusUpdater {
 
   // Update the thread operation of the current thread.
   void SetThreadOperation(const ThreadStatus::OperationType type);
+
+  // Return the thread operation of the current thread.
+  ThreadStatus::OperationType GetThreadOperation();
 
   // The start time of the current thread operation.  It is in the format
   // of micro-seconds since some fixed point in time.
@@ -217,6 +223,18 @@ class ThreadStatusUpdater {
 
 #else
   static ThreadStatusData* thread_status_data_;
+#endif  // ROCKSDB_USING_THREAD_STATUS
+ private:
+#ifdef ROCKSDB_USING_THREAD_STATUS
+  static bool ShouldEnableTracking(const std::string* db_name,
+                                   const void* cf_key) {
+    return (db_name != nullptr) || (cf_key != nullptr);
+  }
+#else
+  static bool ShouldEnableTracking(const std::string* /* db_name */,
+                                   const void* /* cf_key */) {
+    return false;
+  }
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
 
