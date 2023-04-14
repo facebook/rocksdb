@@ -1566,8 +1566,9 @@ Status Version::GetTableProperties(const ReadOptions& read_options,
   // the magic number check in the footer.
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(
-          std::move(file), file_name, nullptr /* env */, io_tracer_,
-          nullptr /* stats */, Histograms::SST_READ_MICROS /* hist_type */,
+          std::move(file), file_name, ioptions->clock /* clock */, io_tracer_,
+          ioptions->stats /* stats */,
+          Histograms::SST_READ_MICROS /* hist_type */,
           nullptr /* file_read_hist */, nullptr /* rate_limiter */,
           ioptions->listeners));
   std::unique_ptr<TableProperties> props;

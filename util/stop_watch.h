@@ -9,10 +9,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 // Auto-scoped.
-// Records the measure time into the corresponding histogram(s) if statistics
-// is not nullptr and both `hist_type_1` and `hist_type_2` are valid histograms.
-// It is also saved into *elapsed if the pointer is not nullptr and overwrite is
-// true, it will be added to *elapsed if overwrite is false.
+// When statistics is not nullptr, records the measured time into any enabled
+// histograms supplied to the constructor. A histogram argument may be omitted
+// by setting it to Histograms::HISTOGRAM_ENUM_MAX. It is also saved into
+// *elapsed if the pointer is not nullptr and overwrite is true, it will be
+// added to *elapsed if overwrite is false.
 class StopWatch {
  public:
   StopWatch(SystemClock* clock, Statistics* statistics,
@@ -22,16 +23,19 @@ class StopWatch {
             bool delay_enabled = false)
       : clock_(clock),
         statistics_(statistics),
-        hist_type_1_(hist_type_1),
-        hist_type_2_(hist_type_2),
+        hist_type_1_(statistics && statistics->HistEnabledForType(hist_type_1)
+                         ? hist_type_1
+                         : Histograms::HISTOGRAM_ENUM_MAX),
+        hist_type_2_(statistics && statistics->HistEnabledForType(hist_type_2)
+                         ? hist_type_2
+                         : Histograms::HISTOGRAM_ENUM_MAX),
         elapsed_(elapsed),
         overwrite_(overwrite),
         stats_enabled_(statistics &&
                        statistics->get_stats_level() >=
                            StatsLevel::kExceptTimers &&
-                       statistics->HistEnabledForType(hist_type_1) &&
-                       (hist_type_2 == Histograms::HISTOGRAM_ENUM_MAX ||
-                        statistics->HistEnabledForType(hist_type_2))),
+                       (hist_type_1_ != Histograms::HISTOGRAM_ENUM_MAX ||
+                        hist_type_2_ != Histograms::HISTOGRAM_ENUM_MAX)),
         delay_enabled_(delay_enabled),
         total_delay_(0),
         delay_start_time_(0),
@@ -53,7 +57,9 @@ class StopWatch {
       const auto time = (elapsed_ != nullptr)
                             ? *elapsed_
                             : (clock_->NowMicros() - start_time_);
-      statistics_->reportTimeToHistogram(hist_type_1_, time);
+      if (hist_type_1_ != Histograms::HISTOGRAM_ENUM_MAX) {
+        statistics_->reportTimeToHistogram(hist_type_1_, time);
+      }
       if (hist_type_2_ != Histograms::HISTOGRAM_ENUM_MAX) {
         statistics_->reportTimeToHistogram(hist_type_2_, time);
       }

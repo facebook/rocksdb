@@ -2784,10 +2784,8 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   // Output compression dictionary
   if (rep_->uncompression_dict_reader) {
     CachableEntry<UncompressionDict> uncompression_dict;
-    // TODO: plumb Env::IOActivity
-    const ReadOptions read_options;
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        nullptr /* prefetch_buffer */, read_options, false /* no_io */,
+        nullptr /* prefetch_buffer */, ro, false /* no_io */,
         false, /* verify_checksums */
         nullptr /* get_context */, nullptr /* lookup_context */,
         &uncompression_dict);
