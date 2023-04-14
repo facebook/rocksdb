@@ -68,8 +68,6 @@ class ProtectionInfo {
                                   ValueType op_type) const;
   ProtectionInfoKV<T> ProtectKV(const Slice& key, const Slice& value) const;
 
-  T GetVal() const { return val_; }
-
  private:
   friend class ProtectionInfoKVO<T>;
   friend class ProtectionInfoKVOS<T>;
@@ -93,7 +91,46 @@ class ProtectionInfo {
     static_assert(sizeof(ProtectionInfo<T>) == sizeof(T), "");
   }
 
+  T GetVal() const { return val_; }
   void SetVal(T val) { val_ = val; }
+
+  void Encode(uint8_t len, char* dst) const {
+    assert(sizeof(val_) >= len);
+    switch (len) {
+      case 1:
+        dst[0] = static_cast<uint8_t>(val_);
+        break;
+      case 2:
+        EncodeFixed16(dst, static_cast<uint16_t>(val_));
+        break;
+      case 4:
+        EncodeFixed32(dst, static_cast<uint32_t>(val_));
+        break;
+      case 8:
+        EncodeFixed64(dst, static_cast<uint64_t>(val_));
+        break;
+      default:
+        assert(false);
+    }
+  }
+
+  bool Verify(uint8_t len, const char* checksum_ptr) const {
+    assert(sizeof(val_) >= len);
+    switch (len) {
+      case 1:
+        return static_cast<uint8_t>(checksum_ptr[0]) ==
+               static_cast<uint8_t>(val_);
+      case 2:
+        return DecodeFixed16(checksum_ptr) == static_cast<uint16_t>(val_);
+      case 4:
+        return DecodeFixed32(checksum_ptr) == static_cast<uint32_t>(val_);
+      case 8:
+        return DecodeFixed64(checksum_ptr) == static_cast<uint64_t>(val_);
+      default:
+        assert(false);
+        return false;
+    }
+  }
 
   T val_ = 0;
 };
@@ -117,7 +154,14 @@ class ProtectionInfoKVO {
   void UpdateV(const SliceParts& old_value, const SliceParts& new_value);
   void UpdateO(ValueType old_op_type, ValueType new_op_type);
 
-  T GetVal() const { return info_.GetVal(); }
+  // Encode this protection info into `len` bytes and stores them in `dst`.
+  void Encode(uint8_t len, char* dst) const { info_.Encode(len, dst); }
+  // Verify this protection info against the protection info encoded by Encode()
+  // at the first `len` bytes of `checksum_ptr`.
+  // Returns true iff the verification is successful.
+  bool Verify(uint8_t len, const char* checksum_ptr) const {
+    return info_.Verify(len, checksum_ptr);
+  }
 
  private:
   friend class ProtectionInfo<T>;
@@ -128,6 +172,7 @@ class ProtectionInfoKVO {
     static_assert(sizeof(ProtectionInfoKVO<T>) == sizeof(T), "");
   }
 
+  T GetVal() const { return info_.GetVal(); }
   void SetVal(T val) { info_.SetVal(val); }
 
   ProtectionInfo<T> info_;
@@ -158,7 +203,10 @@ class ProtectionInfoKVOC {
   void UpdateC(ColumnFamilyId old_column_family_id,
                ColumnFamilyId new_column_family_id);
 
-  T GetVal() const { return kvo_.GetVal(); }
+  void Encode(uint8_t len, char* dst) const { kvo_.Encode(len, dst); }
+  bool Verify(uint8_t len, const char* checksum_ptr) const {
+    return kvo_.Verify(len, checksum_ptr);
+  }
 
  private:
   friend class ProtectionInfoKVO<T>;
@@ -167,6 +215,7 @@ class ProtectionInfoKVOC {
     static_assert(sizeof(ProtectionInfoKVOC<T>) == sizeof(T), "");
   }
 
+  T GetVal() const { return kvo_.GetVal(); }
   void SetVal(T val) { kvo_.SetVal(val); }
 
   ProtectionInfoKVO<T> kvo_;
@@ -197,7 +246,10 @@ class ProtectionInfoKVOS {
   void UpdateS(SequenceNumber old_sequence_number,
                SequenceNumber new_sequence_number);
 
-  T GetVal() const { return kvo_.GetVal(); }
+  void Encode(uint8_t len, char* dst) const { kvo_.Encode(len, dst); }
+  bool Verify(uint8_t len, const char* checksum_ptr) const {
+    return kvo_.Verify(len, checksum_ptr);
+  }
 
  private:
   friend class ProtectionInfoKVO<T>;
@@ -206,6 +258,7 @@ class ProtectionInfoKVOS {
     static_assert(sizeof(ProtectionInfoKVOS<T>) == sizeof(T), "");
   }
 
+  T GetVal() const { return kvo_.GetVal(); }
   void SetVal(T val) { kvo_.SetVal(val); }
 
   ProtectionInfoKVO<T> kvo_;
@@ -216,7 +269,10 @@ class ProtectionInfoKV {
  public:
   ProtectionInfoKV() = default;
 
-  T GetVal() const { return info_.GetVal(); }
+  void Encode(uint8_t len, char* dst) const { info_.Encode(len, dst); }
+  bool Verify(uint8_t len, const char* checksum_ptr) const {
+    return info_.Verify(len, checksum_ptr);
+  }
 
  private:
   friend class ProtectionInfo<T>;
@@ -425,43 +481,4 @@ void ProtectionInfoKVOS<T>::UpdateS(SequenceNumber old_sequence_number,
                   sizeof(new_sequence_number), ProtectionInfo<T>::kSeedS));
   SetVal(val);
 }
-
-inline void EncodeKVChecksum(uint64_t checksum,
-                             uint8_t protection_bytes_per_key, char* dst) {
-  switch (protection_bytes_per_key) {
-    case 1:
-      dst[0] = static_cast<uint8_t>(checksum);
-      break;
-    case 2:
-      EncodeFixed16(dst, static_cast<uint16_t>(checksum));
-      break;
-    case 4:
-      EncodeFixed32(dst, static_cast<uint32_t>(checksum));
-      break;
-    case 8:
-      EncodeFixed64(dst, checksum);
-      break;
-    default:
-      assert(false);
-  }
-}
-
-inline bool VerifyKVChecksum(uint8_t checksum_len, const char* checksum_ptr,
-                             uint64_t expected) {
-  switch (checksum_len) {
-    case 1:
-      return static_cast<uint8_t>(checksum_ptr[0]) ==
-             static_cast<uint8_t>(expected);
-    case 2:
-      return DecodeFixed16(checksum_ptr) == static_cast<uint16_t>(expected);
-    case 4:
-      return DecodeFixed32(checksum_ptr) == static_cast<uint32_t>(expected);
-    case 8:
-      return DecodeFixed64(checksum_ptr) == expected;
-    default:
-      assert(false);
-      return false;
-  }
-}
-
 }  // namespace ROCKSDB_NAMESPACE

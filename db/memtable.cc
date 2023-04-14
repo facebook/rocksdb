@@ -285,12 +285,11 @@ Status MemTable::VerifyEntryChecksum(const char* entry,
   Slice value = Slice(value_ptr, value_length);
 
   const char* checksum_ptr = value_ptr + value_length;
-  uint64_t expected = ProtectionInfo64()
-                          .ProtectKVO(user_key, value, type)
-                          .ProtectS(seq)
-                          .GetVal();
-  bool match = VerifyKVChecksum(static_cast<uint8_t>(protection_bytes_per_key),
-                                checksum_ptr, expected);
+  bool match =
+      ProtectionInfo64()
+          .ProtectKVO(user_key, value, type)
+          .ProtectS(seq)
+          .Verify(static_cast<uint8_t>(protection_bytes_per_key), checksum_ptr);
   if (!match) {
     std::string msg(
         "Corrupted memtable entry, per key-value checksum verification "
@@ -668,16 +667,16 @@ void MemTable::UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
     return;
   }
 
-  uint64_t checksum = 0;
   if (kv_prot_info == nullptr) {
-    checksum =
-        ProtectionInfo64().ProtectKVO(key, value, type).ProtectS(s).GetVal();
+    ProtectionInfo64()
+        .ProtectKVO(key, value, type)
+        .ProtectS(s)
+        .Encode(static_cast<uint8_t>(moptions_.protection_bytes_per_key),
+                checksum_ptr);
   } else {
-    checksum = kv_prot_info->GetVal();
+    kv_prot_info->Encode(
+        static_cast<uint8_t>(moptions_.protection_bytes_per_key), checksum_ptr);
   }
-  EncodeKVChecksum(checksum,
-                   static_cast<uint8_t>(moptions_.protection_bytes_per_key),
-                   checksum_ptr);
 }
 
 Status MemTable::Add(SequenceNumber s, ValueType type,
