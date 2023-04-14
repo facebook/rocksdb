@@ -629,7 +629,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
         });
     return true;
   }
-  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
+  // After number of inserts >= `num_entries_flush` in a mem table, trigger
   // flush.
   explicit SpecialSkipListFactory(int num_entries_flush)
       : num_entries_flush_(num_entries_flush) {}

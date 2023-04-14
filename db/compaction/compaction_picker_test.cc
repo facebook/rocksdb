@@ -2520,6 +2520,61 @@ TEST_F(CompactionPickerTest, L0TrivialMoveWholeL0) {
   ASSERT_TRUE(compaction->IsTrivialMove());
 }
 
+TEST_F(CompactionPickerTest, NonL0TrivialMoveExtendBothDirection) {
+  mutable_cf_options_.max_bytes_for_level_base = 5000;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
+  mutable_cf_options_.max_compaction_bytes = 10000000u;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  NewVersionStorage(6, kCompactionStyleLevel);
+
+  Add(1, 1U, "300", "350", 3000U, 0, 710, 800, 3000U);
+  Add(1, 2U, "600", "651", 3001U, 0, 610, 700, 3001U);
+  Add(1, 3U, "700", "750", 3000U, 0, 500, 550, 3000U);
+  Add(2, 4U, "800", "850", 4000U, 0, 150, 200, 4000U);
+
+  UpdateVersionStorageInfo();
+  // File #2 should be picked first, and expand both directions to include
+  // files #1 and #3.
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+      &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1, compaction->num_input_levels());
+  ASSERT_EQ(3, compaction->num_input_files(0));
+  ASSERT_EQ(1, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(2, compaction->input(0, 1)->fd.GetNumber());
+  ASSERT_EQ(3, compaction->input(0, 2)->fd.GetNumber());
+  ASSERT_TRUE(compaction->IsTrivialMove());
+}
+
+TEST_F(CompactionPickerTest, L0TrivialMoveToEmptyLevel) {
+  mutable_cf_options_.max_bytes_for_level_base = 5000;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
+  mutable_cf_options_.max_compaction_bytes = 10000000u;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  NewVersionStorage(6, kCompactionStyleLevel);
+
+  // File 2 will be picked first, which by itself is trivial movable.
+  // There was a bug before where compaction also picks file 3 and 4,
+  // (and then file 1 since it overlaps with the key range),
+  // which makes the compaction not trivial movable.
+  Add(0, 1U, "450", "599", 3000U, 0, 710, 800, 3000U);
+  Add(0, 2U, "600", "651", 3001U, 0, 610, 700, 3001U);
+  Add(0, 3U, "300", "350", 3000U, 0, 500, 550, 3000U);
+  Add(0, 4U, "500", "550", 2999U, 0, 300, 350, 2999U);
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+      &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1, compaction->num_input_levels());
+  ASSERT_EQ(1, compaction->num_input_files(0));
+  ASSERT_EQ(2, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_TRUE(compaction->IsTrivialMove());
+}
+
 TEST_F(CompactionPickerTest, IsTrivialMoveOffSstPartitioned) {
   mutable_cf_options_.max_bytes_for_level_base = 10000u;
   mutable_cf_options_.max_compaction_bytes = 10001u;
